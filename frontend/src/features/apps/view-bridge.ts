@@ -11,6 +11,7 @@ export const MIN_VIEW_HEIGHT = 48;
 const MAX_MESSAGE = 1024 * 1024;
 const START_TIMEOUT = 10_000;
 const CALLS_PER_MINUTE = 20;
+const LINKS_PER_MINUTE = 3;
 
 export type ViewToolResult = {
   content?: unknown[];
@@ -59,6 +60,7 @@ export class ViewBridge {
   private initialized = false;
   private ended = false;
   private calls: number[] = [];
+  private links: number[] = [];
   private nextId = 1;
   private waiting = new Map<string | number, (message: Message) => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -212,6 +214,23 @@ export class ViewBridge {
           !['http:', 'https:'].includes(new URL(url).protocol)
         )
           return this.refuse(id, -32000, 'Only web links can be opened.');
+        // Only right after the person clicks in the view (a click there activates this page too), and
+        // never so often that a view could flood the desktop with browser windows.
+        if (
+          typeof navigator !== 'undefined' &&
+          navigator.userActivation &&
+          !navigator.userActivation.isActive
+        )
+          return this.refuse(
+            id,
+            -32000,
+            'Links open only when you click in the view.',
+          );
+        const now = Date.now();
+        this.links = this.links.filter((at) => now - at < 60_000);
+        if (this.links.length >= LINKS_PER_MINUTE)
+          return this.refuse(id, -32000, 'Too many links from this view.');
+        this.links.push(now);
         this.host.openLink(url);
         return this.reply(id, {});
       }

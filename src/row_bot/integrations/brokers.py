@@ -23,7 +23,8 @@ LINKS = (("Composio's terms", "https://composio.dev/terms"), ("Privacy policy", 
 DISCLOSURE = ("Composio is a separate company and service, with its own account. Apps you use through it get "
               "Row-Bot's requests from Composio, and their results come back through Composio, which keeps them "
               "for up to a year by default. Composio's terms and privacy policy apply. Row-Bot still asks before "
-              "anything changes, and you can turn this off at any time.")
+              "anything changes. Turning this off stops Row-Bot offering Composio; a Composio connection you "
+              "made stays until you turn it off or remove it on its page.")
 # Composio's own tools: remote code starts off (switch it on to be asked each time); acting always asks.
 RUNS_CODE = frozenset({"COMPOSIO_REMOTE_WORKBENCH", "COMPOSIO_REMOTE_BASH_TOOL"})
 ALWAYS_ASKS = frozenset({"COMPOSIO_MULTI_EXECUTE_TOOL", "COMPOSIO_MANAGE_CONNECTIONS"})

@@ -576,7 +576,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("STRUCTURED_CONTENT", output)
         self.assertEqual(runtime.get_destructive_tool_names(), set())
 
-    def test_background_allow_all_runs_mcp_destructive_tool_without_interrupt_gate(self) -> None:
+    def test_background_allow_all_still_asks_for_a_locked_app_tool(self) -> None:
         import row_bot.agent as agent
         import row_bot.mcp_client.runtime as mcp_runtime
         from langchain_core.tools import StructuredTool
@@ -593,7 +593,7 @@ class McpClientFoundationTests(unittest.TestCase):
                 destructive_tool_names={"mcp_manual_delete_note"},
             )
 
-        def _build_graph_and_call(mode: str, tool) -> str:
+        def _build_graph_and_call(mode: str, tool, locked: frozenset[str] = frozenset()) -> str:
             captured_tools.clear()
 
             def _capture_agent(*, tools, **kwargs):
@@ -622,7 +622,7 @@ class McpClientFoundationTests(unittest.TestCase):
                      patch.object(agent, "create_react_agent", side_effect=_capture_agent), \
                      patch.object(agent, "interrupt", side_effect=lambda payload: interrupt_calls.append(payload) or True), \
                      patch.object(mcp_runtime, "get_langchain_tools", return_value=[tool]), \
-                     patch.object(mcp_runtime, "get_destructive_tool_names", return_value={"mcp_manual_delete_note"}):
+                     patch.object(mcp_runtime, "get_destructive_tool_names", return_value={"mcp_manual_delete_note"}),                      patch.object(mcp_runtime, "get_locked_tool_names", return_value=set(locked)):
                     agent.get_agent_graph(["mcp"])
                     return captured_tools["mcp_manual_delete_note"].func()
             finally:
@@ -631,13 +631,24 @@ class McpClientFoundationTests(unittest.TestCase):
                 agent._background_workflow_var.reset(bg_token)
                 agent.clear_agent_cache()
 
-        allow_all_tool = StructuredTool.from_function(
+        # Allow all: a routine change runs without asking...
+        routine_tool = StructuredTool.from_function(
             func=_dangerous,
             name="mcp_manual_delete_note",
             description="Delete a note through MCP.",
         )
-        self.assertEqual(_build_graph_and_call("allow_all", allow_all_tool), "ran")
+        self.assertEqual(_build_graph_and_call("allow_all", routine_tool), "ran")
         self.assertEqual(interrupt_calls, [])
+        # ...but an approval-locked app tool (destructive, unknown effect) asks, so the run waits for a person.
+        locked_tool = StructuredTool.from_function(
+            func=_dangerous,
+            name="mcp_manual_delete_note",
+            description="Delete a note through MCP.",
+        )
+        self.assertEqual(_build_graph_and_call("allow_all", locked_tool, frozenset({"mcp_manual_delete_note"})),
+                         "Approval: asked; approved by you\nran")
+        self.assertEqual(len(interrupt_calls), 1)
+        self.assertIs(interrupt_calls.pop()["always_ask"], True)
 
         approve_tool = StructuredTool.from_function(
             func=_dangerous,

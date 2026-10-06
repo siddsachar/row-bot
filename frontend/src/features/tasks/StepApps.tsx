@@ -17,7 +17,7 @@ export default function StepApps({
   value: readonly string[] | null;
   onChange: (next: string[] | null) => void;
 }) {
-  const [apps, setApps] = useState<readonly StepApp[]>([]);
+  const [apps, setApps] = useState<readonly StepApp[] | null>(null);
   useEffect(() => {
     const abort = new AbortController();
     load(abort.signal).then(
@@ -26,6 +26,7 @@ export default function StepApps({
     );
     return () => abort.abort();
   }, [load]);
+  if (apps === null) return null; // Nothing is said about the step's apps until every set-up app is known.
   const chosen = new Set(value ?? []);
   // A step saved with an app that is gone keeps it listed, so saving never drops it silently.
   const known = new Set(apps.map((app) => app.id));

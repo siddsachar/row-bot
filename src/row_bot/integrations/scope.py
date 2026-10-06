@@ -173,7 +173,7 @@ def app_for_tool(tool_name: str) -> dict | None:
         return None
     from row_bot.integrations import views
     return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"], "tool": runtime.tool_title(tool_name),
-            "view": views.has_view(tool_name)}
+            "view": views.has_view(tool_name, item)}
 
 
 MAX_SUGGESTIONS = 3

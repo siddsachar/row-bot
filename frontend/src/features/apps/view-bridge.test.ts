@@ -225,6 +225,50 @@ describe('ViewBridge', () => {
     expect(view.host.onHeight).toHaveBeenNthCalledWith(2, 48);
   });
 
+  it('opens only a few links a minute', async () => {
+    const view = setup();
+    await start(view);
+    for (let id = 40; id < 45; id += 1)
+      view.send({
+        jsonrpc: '2.0',
+        id,
+        method: 'ui/open-link',
+        params: { url: `https://example.test/${id}` },
+      });
+    await view.flush();
+    expect(view.host.openLink).toHaveBeenCalledTimes(3);
+    expect(view.posted.slice(-2)).toMatchObject([
+      { id: 43, error: { code: -32000 } },
+      { id: 44, error: { code: -32000 } },
+    ]);
+  });
+
+  it('opens a link only right after a click in the view', async () => {
+    const view = setup();
+    await start(view);
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      language: 'en',
+      userActivation: { isActive: false, hasBeenActive: true },
+    });
+    try {
+      view.send({
+        jsonrpc: '2.0',
+        id: 50,
+        method: 'ui/open-link',
+        params: { url: 'https://example.test/doc' },
+      });
+      await view.flush();
+      expect(view.host.openLink).not.toHaveBeenCalled();
+      expect(view.posted.pop()).toMatchObject({
+        id: 50,
+        error: { code: -32000 },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('gives up on a view that never starts, and ends one that navigates away', () => {
     vi.useFakeTimers();
     const silent = setup();

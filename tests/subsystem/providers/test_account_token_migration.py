@@ -37,8 +37,10 @@ def profile(tmp_path, monkeypatch):
 def keychain():
     keyring = MemoryKeyring()
     secret_store._set_backend_for_tests(keyring)
+    account_tokens._RETRY_AT.clear()
     yield keyring
     secret_store._set_backend_for_tests(None)
+    account_tokens._RETRY_AT.clear()
 
 
 def _token_files(root):
@@ -75,6 +77,36 @@ def test_without_a_keychain_nothing_is_deleted_and_sign_ins_keep_working(profile
     keychain.fail = False
     assert account_tokens.migrate()["migrated"] == 3  # Retried later, as at the next start.
     assert _token_files(profile) == []
+
+
+def test_the_keychain_sign_in_wins_over_a_file_left_behind(profile, keychain):
+    """A file whose removal failed never brings an older sign-in back over this version's own."""
+    newer = {**_GMAIL, "token": "keychain-access", "expiry": "2030-01-01T00:00:00Z"}
+    secret_store.set_secret("google", json.dumps(newer), namespace="accounts")
+    account_tokens.migrate()
+    assert account_tokens.read("google") == newer  # Even though the files' access lasts longer.
+    assert not (profile / "gmail/token.json").exists() and not (profile / "calendar/token.json").exists()
+
+
+def test_different_sign_ins_in_old_files_are_not_merged(profile, keychain):
+    other = {**_CALENDAR, "refresh_token": "another-account"}
+    (profile / "calendar/token.json").write_text(json.dumps(other), encoding="utf-8")
+    account_tokens.migrate()
+    assert account_tokens.read("google") == _GMAIL  # Gmail's own sign-in, not the other account's.
+    assert not _plaintext_left(profile, "another-account", "fixture-refresh")
+
+
+def test_reads_do_not_retry_a_failed_keychain_copy_every_time(profile, keychain, monkeypatch):
+    attempts = []
+    original = secret_store.set_secret
+    monkeypatch.setattr(secret_store, "set_secret", lambda *a, **k: attempts.append(a[0]) or original(*a, **k))
+    keychain.fail = True
+    for _ in range(3):
+        assert account_tokens.read("x") == _X  # The old file keeps working meanwhile.
+    assert attempts == ["x"]
+    monkeypatch.setattr(account_tokens.time, "monotonic", lambda: 10**9)  # Some minutes later.
+    keychain.fail = False
+    assert account_tokens.read("x") == _X and not (profile / "x/token.json").exists()
 
 
 def test_a_copy_that_does_not_read_back_the_same_keeps_the_file(profile, keychain, monkeypatch):

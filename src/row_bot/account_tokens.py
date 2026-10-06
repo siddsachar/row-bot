@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,8 @@ MAX_BYTES = 64 * 1024
 _LOCK = threading.RLock()
 _GOOGLE_REFRESH = threading.Lock()  # One refresh at a time; others use the token it saved.
 _CHECKS: dict[str, tuple[str, bool]] = {}  # Account -> (digest of the sign-in checked, whether it passed).
+RETRY_SECONDS = 300
+_RETRY_AT: dict[str, float] = {}  # Account -> when a read may try the keychain copy again after it failed.
 
 
 class AccountTokenError(RuntimeError):
@@ -116,7 +119,17 @@ def _migrate(name: str) -> bool:
         logger.warning("An old %s sign-in file could not be read; it was left in place", name)
         return False
     current = _stored(name)
-    chosen = _newest(texts + ([current] if _parse(current) else []))
+    if _parse(current) is not None:
+        chosen = current  # The keychain's copy is this version's own: the files are what earlier versions left.
+    else:
+        # Gmail and Calendar each refreshed their own copy of one sign-in: the longest-lasting of the copies of
+        # the first file's sign-in (same client and refresh token). A different account's file is not merged in.
+        first = _parse(texts[0]) or {}
+        same = [text for text in texts if all((_parse(text) or {}).get(key) == first.get(key)
+                                              for key in ("client_id", "refresh_token"))]
+        if len(same) < len(texts):
+            logger.warning("Old %s sign-in files held different sign-ins; the first is kept", name)
+        chosen = _newest(same)
     try:
         if chosen != current:
             secret_store.set_secret(name, chosen, namespace=NAMESPACE)
@@ -124,7 +137,9 @@ def _migrate(name: str) -> bool:
             raise secret_store.SecretStoreError("verification failed")
     except secret_store.SecretStoreError:
         logger.warning("The %s sign-in stays in its old file until the system keychain can keep it", name)
+        _RETRY_AT[name] = time.monotonic() + RETRY_SECONDS
         return False
+    _RETRY_AT.pop(name, None)
     _remove_files(name)
     return True
 
@@ -140,7 +155,8 @@ def _text(name: str) -> str | None:
     """The saved sign-in's text: the keychain's, or (not copied yet) the old file's."""
     text = _stored(name)
     if _parse(text) is None and _legacy(name):
-        _migrate(name)
+        if time.monotonic() >= _RETRY_AT.get(name, 0.0):  # A failed copy is tried again after a while, not per read.
+            _migrate(name)
         text = _stored(name)
         if _parse(text) is None:  # The keychain can't keep it yet: the old file still works, read-only.
             text = next((found for found in (_file_text(path) for path in _legacy(name)) if _parse(found)), None)

@@ -4258,15 +4258,17 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     app_scope = _current_app_scope_var.get(None) or {}
     eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
     # App tools that ask even under Allow all: destructive, of unknown effect, or recorded so when accepted.
+    # Standalone connections ("mcp") and those a plugin brings ("plugin:<id>:mcp:<server>") alike.
+    app_entries = [entry for entry in eager_core_entries + external_entries
+                   if entry["source"] == "mcp" or ":mcp:" in str(entry["source"])]
     locked_names: set[str] = set()
-    if approval_mode == "allow_all" and any(entry["source"] == "mcp" for entry in external_entries):
+    if approval_mode == "allow_all" and app_entries:
         try:
             from row_bot.mcp_client import runtime as mcp_runtime
-            locked_names = mcp_runtime.get_locked_tool_names(allow_names=allow_set)
+            locked_names = mcp_runtime.get_locked_tool_names()  # Every locked app tool; this graph wraps its own.
         except Exception:
             logger.debug("Locked app tools unknown; every app tool that asks keeps asking", exc_info=True)
-            locked_names = {str(getattr(entry["tool"], "name", "") or "") for entry in external_entries
-                            if entry["source"] == "mcp"} & destructive_names
+            locked_names = {str(getattr(entry["tool"], "name", "") or "") for entry in app_entries} & destructive_names
     # Which built-in tool each chat tool came from, so its app is named later without building any tool.
     from row_bot.integrations.builtin import remember_tools
     remember_tools({str(getattr(entry["tool"], "name", "") or ""): str(entry["parent"])
@@ -4385,22 +4387,21 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
 
             # Append tools from enabled plugins (totally separate registry)
             if is_background:
-                if approval_mode in {"block", "approve"}:
-                    # BG gating: block=strip destructive tools; approve=wrap
-                    # via interrupt() for pause-and-approve; allow_all=keep all.
-                    # run_command self-gates at runtime via classify_command.
-                    if approval_mode == "block":
-                        lc_tools = [t for t in lc_tools
-                                    if t.name not in destructive_names]
-                    elif approval_mode == "approve":
-                        for t in lc_tools:
-                            if t.name in destructive_names:
-                                _wrap_with_interrupt_gate(t)
-                    # else: allow_all — keep everything; approval-locked app tools still ask.
-                    else:
-                        for t in lc_tools:
-                            if t.name in locked_names:
-                                _wrap_with_interrupt_gate(t, always_ask=True)
+                # BG gating: block=strip destructive tools; approve=wrap
+                # via interrupt() for pause-and-approve; allow_all=keep
+                # everything, but approval-locked app tools still ask.
+                # run_command self-gates at runtime via classify_command.
+                if approval_mode == "block":
+                    lc_tools = [t for t in lc_tools
+                                if t.name not in destructive_names]
+                elif approval_mode == "approve":
+                    for t in lc_tools:
+                        if t.name in destructive_names:
+                            _wrap_with_interrupt_gate(t)
+                else:
+                    for t in lc_tools:
+                        if t.name in locked_names:
+                            _wrap_with_interrupt_gate(t, always_ask=True)
             else:
                 # Interactive sessions use the same app-wide approval mode:
                 # block=hide destructive tools; approve=wrap with interrupt();

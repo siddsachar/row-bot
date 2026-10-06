@@ -139,11 +139,16 @@ def _suffixes() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
 def public_suffix(domain: str) -> bool:
     """Whether names directly under ``domain`` belong to anyone (``co.uk``, ``github.io``, ``vercel.app``,
     any top-level domain), so ``{x}.domain`` would not name one service."""
-    domain = domain.lower().strip(".")
+    try:  # As the list keeps them: international names in their ASCII form (公司.cn is xn--55qx5d.cn).
+        domain = ".".join(label if label.isascii() else label.encode("idna").decode("ascii")
+                          for label in domain.lower().strip(".").split("."))
+    except UnicodeError:
+        return True  # A name that can't be written in ASCII names no one service.
     rules, wildcards, exceptions = _suffixes()
     if domain in exceptions:
         return False
-    return "." not in domain or domain in rules or domain.partition(".")[2] in wildcards
+    # ``*.kawasaki.jp`` makes every name directly under kawasaki.jp a public suffix too.
+    return "." not in domain or domain in rules or domain in wildcards or domain.partition(".")[2] in wildcards
 
 
 def check_url(template: str, declared: list[dict]) -> None:

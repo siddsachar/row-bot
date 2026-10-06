@@ -116,10 +116,12 @@ def update(cancelled: Callable[[], bool] = lambda: False) -> dict:
         if cancelled():
             raise ValueError("cancelled")
         try:
-            connectors = parse(_run(odr, *args))
+            listed = parse(_run(odr, *args))
         except (OSError, subprocess.SubprocessError):
             logger.warning("Windows connectors could not be listed", exc_info=True)
             continue
+        if listed is not None:
+            connectors = listed if connectors is None or listed else connectors
         if connectors:
             break
     if connectors is None:

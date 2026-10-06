@@ -98,6 +98,13 @@ def test_earlier_builds_list_under_mcp_and_a_failed_listing_keeps_nothing_new(wi
     assert [row["identifier"] for row in odr.saved()] == ["Contoso.Notes_8wekyb3d8bbwe"]
 
 
+def test_an_empty_listing_is_an_answer_even_when_the_older_command_is_gone(windows):
+    windows.outputs[("list",)] = json.dumps({"servers": []})  # No connectors; ``mcp list`` no longer exists.
+    catalogs.update("windows", wait=True)
+    assert catalogs.state("windows")["state"] == "done" and catalogs.state("windows")["entries"] == 0
+    assert windows.ran == [["list"], ["mcp", "list"]] and odr.saved() == []
+
+
 def test_a_connector_connects_through_the_normal_plan_with_windows_own_proxy(windows):
     catalogs.update("windows", wait=True)
     row, reference = sources.catalog_entry("mcp:windows:Contoso.Notes_8wekyb3d8bbwe")

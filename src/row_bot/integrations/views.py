@@ -28,9 +28,18 @@ APPROVAL_MINUTES = 5
 MAX_ARGUMENTS = 64 * 1024
 _RENDERS = TtlCache(RENDER_SECONDS, 256)
 _FRAMES = TtlCache(120, 256)  # Each view's HTML, served once to the frame its render created.
+_CALLS = TtlCache(RENDER_SECONDS, 256)  # Each view's recent calls, for its rate limit.
 _lock = threading.Lock()
-_calls: dict[str, list[float]] = {}
 _waiting: dict[str, tuple[threading.Event, list[bool]]] = {}
+_asking: set[str] = set()  # Views with a call waiting for the person: one each, and few at all (each holds a worker).
+MAX_WAITING = 3
+_OPERATIONS = threading.BoundedSemaphore(4)  # Reads of and calls to apps for views at once; more are refused.
+# Names that reach this computer or its network, whatever their address: private-use suffixes and public
+# wildcard-DNS services (127.0.0.1.nip.io). A view never loads from them.
+_PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".test", ".example", ".invalid", ".lan", ".home", ".corp",
+                     ".intranet", ".private", ".localdomain", ".arpa")
+_WILDCARD_DNS = ("nip.io", "sslip.io", "xip.io", "localtest.me", "lvh.me", "vcap.me", "traefik.me", "localhost.direct",
+                 "lacolhost.com", "local.gd", "nip.direct")
 
 
 class ViewError(ValueError):
@@ -126,7 +135,8 @@ def _origin(value: object) -> str:
         return ""
     except ValueError:
         pass
-    if ("." not in host or host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test"))
+    if ("." not in host or host == "localhost" or ("." + host).endswith(_PRIVATE_SUFFIXES)
+            or any(host == name or host.endswith("." + name) for name in _WILDCARD_DNS)
             or any(not label for label in host.split(".")) or public_suffix(host)):
         return ""
     return text
@@ -215,16 +225,33 @@ def _app_of(server: str) -> dict | None:
     return next((item for item in scope._mcp_items() if item["server"] == server), None)
 
 
-def has_view(tool_name: str) -> bool:
-    """Whether a chat tool's step can show its app's view now (a read; nothing connects)."""
+def has_view(tool_name: str, item: dict | None = None) -> bool:
+    """Whether a chat tool's step can show its app's view now (a read; nothing connects). ``item``: the
+    app's item, when the caller has already found it."""
     from row_bot.mcp_client import runtime
     try:
         found = runtime._issued_tool(tool_name)
         info = runtime.tool_info(*found) if found else None
-        item = _app_of(found[0]) if info is not None and info.ui else None
+        if info is None or not info.ui:
+            return False
+        item = item if item is not None and item.get("server") == found[0] else _app_of(found[0])
         return bool(item and app_on(item))
     except Exception:
         return False
+
+
+def _in_chat(item: dict, conversation_id: str, tool: str = "") -> bool:
+    """Whether this chat may use the app (or one of its tools, by runtime name): not switched off here, and
+    within its agent profile's tools."""
+    from row_bot.integrations import scope
+    from row_bot.threads import get_thread_apps_off
+    if item["id"] in set(get_thread_apps_off(conversation_id)):
+        return False
+    allow = scope._profile_allow(conversation_id)
+    if not scope._allowed(item, allow):
+        return False
+    package = (item.get("parent_id") or "").removeprefix("plugin:")
+    return not tool or allow is None or "mcp" in allow or bool(package and package in allow) or tool in allow
 
 
 def render(conversation_id: str, call_id: str) -> dict:
@@ -241,9 +268,12 @@ def render(conversation_id: str, call_id: str) -> dict:
         raise ViewError("view_unavailable", "The app this view belongs to isn't connected.")
     if not app_on(item):
         raise ViewError("views_off", "Views from this app are off.")
+    if not _in_chat(item, conversation_id):
+        raise ViewError("views_off", "This app is off in this chat.")
     try:
-        view = runtime.view_operation(info.server_name, lambda rt, deadline: rt.read_view(info.ui, deadline=deadline),
-                                      timeout=30)
+        view = _operation(info.server_name, lambda rt, deadline: rt.read_view(info.ui, deadline=deadline), 30)
+    except ViewError:
+        raise
     except (ValueError, RuntimeError, TimeoutError) as error:
         raise ViewError("view_unavailable", "The app didn't send its view. Try again later.") from error
     render_id = secrets.token_hex(16)
@@ -273,13 +303,24 @@ def frame(render_id: str) -> tuple[str, dict[str, str]]:
 
 # --- A view calling its own app --------------------------------------------------------------------------
 
+def _operation(server: str, operation: Any, timeout: float) -> Any:
+    """One read of, or call to, a view's app, among a few at a time (each holds a server worker)."""
+    from row_bot.mcp_client import runtime
+    if not _OPERATIONS.acquire(blocking=False):
+        raise ViewError("view_busy", "Views are busy. Try again in a moment.")
+    try:
+        return runtime.view_operation(server, operation, timeout=timeout)
+    finally:
+        _OPERATIONS.release()
+
+
 def _rate(render_id: str) -> None:
     now = time.monotonic()
     with _lock:
-        recent = [at for at in _calls.get(render_id, []) if now - at < 60]
+        recent = [at for at in _CALLS.get(render_id) or [] if now - at < 60]
         if len(recent) >= CALLS_PER_MINUTE:
             raise ViewError("view_rate_limited", "Too many requests from this view. Wait a moment.")
-        _calls[render_id] = [*recent, now]
+        _CALLS.put(render_id, [*recent, now])
 
 
 def _approval_mode(conversation_id: str) -> str:
@@ -289,11 +330,11 @@ def _approval_mode(conversation_id: str) -> str:
 
 
 def gate(info: Any, approval_mode: str) -> str:
-    """``run``, ``ask`` or ``refuse`` for one call from a view, as for the agent: destructive, high-impact
-    and unknown tools ask in every mode but Block (which refuses them); a routine change asks unless the
-    app's access lets it run or the chat chose Allow all; a read runs."""
-    locked = bool(info.destructive) or info.effect == "unknown"
-    if locked:
+    """``run``, ``ask`` or ``refuse`` for one call from a view, as for the agent: approval-locked tools
+    (destructive, high-impact, unknown, or recorded so when accepted) ask in every mode but Block (which
+    refuses them); a routine change asks unless the app's access lets it run or the chat chose Allow all;
+    a read runs."""
+    if info.locked or info.destructive or info.effect == "unknown":
         return "refuse" if approval_mode == "block" else "ask"
     if info.requires_approval:
         return {"block": "refuse", "allow_all": "run"}.get(approval_mode, "ask")
@@ -346,6 +387,7 @@ def call(render_id: str, name: str, arguments: dict) -> dict:
     if not isinstance(name, str) or not isinstance(arguments, dict) or len(json.dumps(arguments, default=str)) > MAX_ARGUMENTS:
         raise ViewError("invalid_command")
     _rate(render_id)
+    runtime._sync_catalog_from_config()  # The app's access as saved now, not as last discovered.
     info = runtime.tool_info(record["server"], name)  # Only this view's own app: never another server.
     if info is None or "app" not in info.visibility:
         raise ViewError("view_tool_refused", "This view can't use that tool.")
@@ -354,13 +396,33 @@ def call(render_id: str, name: str, arguments: dict) -> dict:
     item = _app_of(record["server"])
     if item is None or not app_on(item):
         raise ViewError("views_off", "Views from this app are off.")
+    if not _in_chat(item, record["conversation_id"], info.prefixed_name):
+        raise ViewError("view_tool_refused", "This app is off in this chat.")
+    expected = runtime._bind_authority(record["server"], name)  # What is asked about is what runs.
     decision = gate(info, _approval_mode(record["conversation_id"]))
     if decision == "refuse":
         raise ViewError("view_tool_refused", "This chat doesn't allow that kind of action.")
-    if decision == "ask" and not _ask(record, info, info.prefixed_name, arguments):
-        raise ViewError("view_tool_denied", "You didn't allow this action.")
+    if decision == "ask":
+        with _lock:
+            if render_id in _asking or len(_asking) >= MAX_WAITING:
+                raise ViewError("view_busy", "This view is already waiting for your answer.")
+            _asking.add(render_id)
+        try:
+            allowed = _ask(record, info, info.prefixed_name, arguments)
+        finally:
+            with _lock:
+                _asking.discard(render_id)
+        if not allowed:
+            raise ViewError("view_tool_denied", "You didn't allow this action.")
+    def validate() -> None:  # Checked again just before the call: a change of access since asking stops it.
+        try:
+            runtime._validate_bound_runtime(record["server"], expected, tool_name=name)
+        except RuntimeError as error:
+            raise ViewError("view_tool_refused", "This tool's access changed. Try again.") from error
     try:
-        return runtime.view_operation(record["server"], lambda rt, deadline: rt.call_tool_for_view(
-            name, arguments, deadline=deadline), timeout=60)
+        return _operation(record["server"], lambda rt, deadline: rt.call_tool_for_view(
+            name, arguments, deadline=deadline, validate=validate), 60)
+    except ViewError:
+        raise
     except (RuntimeError, TimeoutError, ValueError) as error:
         raise ViewError("view_tool_failed", "The app couldn't do that just now.") from error

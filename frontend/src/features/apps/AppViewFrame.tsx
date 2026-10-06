@@ -29,6 +29,11 @@ export default function AppViewFrame({
   const [height, setHeight] = useState(160);
   const [attempt, setAttempt] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
+  const card = useRef<HTMLElement>(null);
+  // A view is read from its app only once its card comes near the screen, not for every view in a long chat.
+  const [near, setNear] = useState(
+    () => typeof IntersectionObserver === 'undefined',
+  );
   const bridge = useRef<ViewBridge | null>(null);
   const loads = useRef(0);
   const [answered, setAnswered] = useState<string[]>([]);
@@ -51,6 +56,19 @@ export default function AppViewFrame({
       : null;
 
   useEffect(() => {
+    const element = card.current;
+    if (near || !element) return;
+    const observer = new IntersectionObserver(
+      (entries) =>
+        entries.some((entry) => entry.isIntersecting) && setNear(true),
+      { rootMargin: '400px 0px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [near]);
+
+  useEffect(() => {
+    if (!near) return;
     const abort = new AbortController();
     setRender(null);
     setState('loading');
@@ -65,7 +83,7 @@ export default function AppViewFrame({
       },
     );
     return () => abort.abort();
-  }, [controller, conversation, callId, attempt]);
+  }, [controller, conversation, callId, attempt, near]);
 
   useEffect(() => {
     const element = frame.current;
@@ -109,6 +127,7 @@ export default function AppViewFrame({
   const shown = render && state !== 'failed' && state !== 'ended';
   return (
     <section
+      ref={card}
       className="app-view"
       aria-label={`${title} view`}
       data-state={state}

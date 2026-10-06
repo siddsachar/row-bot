@@ -836,12 +836,16 @@ class McpServerRuntime:
             return {"html": data.decode("utf-8"), "meta": meta.get("ui") if isinstance(meta.get("ui"), dict) else {}}
         raise ValueError("view_unavailable")
 
-    async def call_tool_for_view(self, tool_name: str, arguments: dict[str, Any], *, deadline: float) -> dict[str, Any]:
-        """A tool call for an app's own view: its result as the view expects it (content, structured content)."""
+    async def call_tool_for_view(self, tool_name: str, arguments: dict[str, Any], *, deadline: float,
+                                 validate: Callable[[], None] | None = None) -> dict[str, Any]:
+        """A tool call for an app's own view: its result as the view expects it (content, structured content).
+        ``validate`` runs just before the call, under the session lock: the access the call was decided under."""
         async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
             async with self._session_lock:
                 if not self.session:
                     raise RuntimeError(f"MCP server '{self.name}' is not connected")
+                if validate is not None:
+                    validate()
                 log_event("mcp.tool.call", server=self.name, tool=tool_name, initiator="view")
                 result = await self.session.call_tool(tool_name, arguments or {})
         dumped = result.model_dump(mode="json", by_alias=True, exclude_none=True)

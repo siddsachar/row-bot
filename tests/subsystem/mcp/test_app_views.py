@@ -15,9 +15,11 @@ from row_bot.mcp_client import runtime
 pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport]
 
 HTML = "<!doctype html><html><body><button>+1</button><script>/* view */</script></body></html>"
-CSP = {"resourceDomains": ["https://cdn.counter.example", "http://cdn.insecure.example", "https://*.com"],
-       "connectDomains": ["https://api.counter.example", "https://127.0.0.1", "https://localhost", "https://intranet",
-                          "https://x.github.io/ok", "https://counter.example;script-src *"]}
+CSP = {"resourceDomains": ["https://cdn.counter-app.com", "http://cdn.counter-app.com", "https://*.com"],
+       "connectDomains": ["https://api.counter-app.com", "https://127.0.0.1", "https://localhost", "https://intranet",
+                          "https://x.github.io/ok", "https://counter-app.com;script-src *", "https://printer.lan",
+                          "https://127.0.0.1.nip.io", "https://*.sslip.io", "https://nas.home.arpa",
+                          "https://*.compute-1.amazonaws.com", "https://router.localdomain", "https://api.example"]}
 
 
 class FakeSession:
@@ -57,6 +59,7 @@ def app(monkeypatch, tmp_path):
         runtime._servers["Other"] = runtime.McpServerRuntime("Other", {"transport": "stdio"})
         runtime._catalog["Other"] = runtime._normalize_tools("Other", cfg, [
             {"name": "steal", "description": "Read something.", "inputSchema": {"type": "object"}, "_meta": {"ui": {"visibility": ["app"]}}}])
+    monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {"Counter": cfg, "Other": cfg}})
     monkeypatch.setattr(runtime, "_schedule", lambda coroutine: _Done(asyncio.run(coroutine)))
     monkeypatch.setattr(runtime, "_future_result_with_generation_cancellation", lambda future, **_: future.value)
     item = {"id": "mcp:counter", "kind": "mcp", "server": "Counter", "name": "Counter", "icon": "letter:C", "app": None,
@@ -68,11 +71,12 @@ def app(monkeypatch, tmp_path):
         {"id": call_id, "name": "mcp_counter_counter", "args": {"start": 3}},
         "Approval: not needed\n3\n\nSTRUCTURED_CONTENT:\n{\"count\": 3}"))
     monkeypatch.setattr(views, "_approval_mode", lambda conversation: mode["value"])
-    mode = {"value": "approve"}
+    mode, off = {"value": "approve"}, set()
+    monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation: sorted(off))
+    monkeypatch.setattr("row_bot.integrations.scope._profile_allow", lambda conversation: None)
     with runtime._runtime_lock:
         runtime._issued["mcp_counter_counter"] = ("Counter", "counter")
-    views._calls.clear()
-    yield SimpleNamespace(session=session, item=item, mode=mode, cfg=cfg)
+    yield SimpleNamespace(session=session, item=item, mode=mode, cfg=cfg, off=off)
     with runtime._runtime_lock:
         for name in ("Counter", "Other"):
             runtime._servers.pop(name, None)
@@ -95,15 +99,16 @@ def test_a_view_is_read_from_its_own_app_and_served_once_under_a_strict_policy(a
     policy = headers["Content-Security-Policy"]
     directives = {part.split()[0]: part.split()[1:] for part in policy.split("; ")}
     assert directives["default-src"] == ["'none'"] and directives["sandbox"] == ["allow-scripts"]
-    assert directives["connect-src"] == ["https://api.counter.example"]  # Never loopback, intranet or a public suffix.
-    assert directives["script-src"] == ["'unsafe-inline'", "https://cdn.counter.example"]
+    # Never loopback, a private network name, a wildcard-DNS service or a public suffix.
+    assert directives["connect-src"] == ["https://api.counter-app.com"]
+    assert directives["script-src"] == ["'unsafe-inline'", "https://cdn.counter-app.com"]
     assert directives["frame-src"] == ["'none'"] and directives["object-src"] == ["'none'"]
     assert directives["form-action"] == ["'none'"] and directives["frame-ancestors"] == ["'self'"]
     assert "'self'" not in policy.replace("frame-ancestors 'self'", "")  # Never Row-Bot's own origin.
     assert "*" not in directives["connect-src"] and "http:" not in policy
     with pytest.raises(views.ViewError, match="not_found"):
         views.frame(shown["render_id"])  # Once: a view navigating, or anyone else, gets nothing.
-    assert shown["domains"] == ["https://api.counter.example", "https://cdn.counter.example"]
+    assert shown["domains"] == ["https://api.counter-app.com", "https://cdn.counter-app.com"]
 
 
 def test_views_show_only_where_the_person_lets_them(app, monkeypatch):
@@ -151,6 +156,59 @@ def test_a_call_from_a_view_is_gated_as_any_call_is(app, mode, tool, expected):
     """Destructive, high-impact and unknown tools ask in every mode but Block; a routine change asks unless the
     chat chose Allow all."""
     assert views.gate(runtime.tool_info("Counter", tool), mode) == expected
+
+
+def test_a_tool_recorded_as_always_asking_asks_from_a_view_even_under_allow_all(app):
+    recorded = runtime.tool_info("Counter", "update_counter")
+    recorded.locked = True  # A broker's acting tool, say: locked when accepted, whatever its effect reads as.
+    assert views.gate(recorded, "allow_all") == "ask" and views.gate(recorded, "block") == "refuse"
+
+
+def test_a_view_cannot_use_an_app_this_chat_has_switched_off(app):
+    render_id = views.render("chat-1", "call-1")["render_id"]
+    app.off.add("mcp:counter")
+    app.mode["value"] = "allow_all"
+    with pytest.raises(views.ViewError, match="view_tool_refused"):
+        views.call(render_id, "update_counter", {})
+    with pytest.raises(views.ViewError, match="views_off"):
+        views.render("chat-1", "call-1")
+    assert app.session.calls == []
+
+
+def test_a_view_waits_on_one_answer_at_a_time(app, monkeypatch):
+    """A view can't pile up calls that wait for the person (each would hold the server while it waits)."""
+    import threading
+    started, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(views, "_ask", lambda *args: started.set() or release.wait(10))
+    render_id = views.render("chat-1", "call-1")["render_id"]
+    first = threading.Thread(target=lambda: views.call(render_id, "delete_counter", {}))
+    first.start()
+    assert started.wait(10)
+    with pytest.raises(views.ViewError, match="view_busy"):
+        views.call(render_id, "delete_counter", {})
+    release.set()
+    first.join(10)
+    assert app.session.calls == [("delete_counter", {})]
+
+
+def test_few_views_wait_on_the_person_at_once(app, monkeypatch):
+    monkeypatch.setattr(views, "_asking", {"a" * 32, "b" * 32, "c" * 32})  # Three other views are waiting.
+    render_id = views.render("chat-1", "call-1")["render_id"]
+    with pytest.raises(views.ViewError, match="view_busy"):
+        views.call(render_id, "delete_counter", {})
+    assert app.session.calls == []
+
+
+def test_access_changed_while_asking_stops_the_call(app, monkeypatch):
+    """What runs is what was asked about: switching the tool off (or any access change) meanwhile stops it."""
+    def answer_after_a_change(*args):
+        app.cfg["tools"]["enabled"]["delete_counter"] = False
+        return True
+    monkeypatch.setattr(views, "_ask", answer_after_a_change)
+    render_id = views.render("chat-1", "call-1")["render_id"]
+    with pytest.raises(views.ViewError, match="view_tool_refused"):
+        views.call(render_id, "delete_counter", {})
+    assert app.session.calls == []
 
 
 def test_a_call_that_asks_waits_for_the_persons_answer_on_the_standard_card(app, monkeypatch):

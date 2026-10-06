@@ -57,7 +57,10 @@ def test_a_typed_authorization_value_is_sent_with_one_scheme(template, typed, se
                                  # Shared hosting: anyone can have a name there (the Public Suffix List's private section).
                                  "https://{tenant}.github.io/mcp", "https://{tenant}.vercel.app/mcp",
                                  "https://{tenant}.netlify.app/mcp", "https://{tenant}.workers.dev/mcp",
-                                 "https://{tenant}.s3.amazonaws.com/mcp", "https://{tenant}.com.au/mcp"])
+                                 "https://{tenant}.s3.amazonaws.com/mcp", "https://{tenant}.com.au/mcp",
+                                 # Under a wildcard rule (*.kawasaki.jp), and international names (公司.cn).
+                                 "https://{tenant}.compute-1.amazonaws.com/mcp", "https://{tenant}.kawasaki.jp/mcp",
+                                 "https://{tenant}.公司.cn/mcp"])
 def test_a_url_variable_can_never_choose_the_destination(url):
     with pytest.raises(inputs.InputError):
         inputs.check_url(url, [declared("host", "url_variable", "host"), declared("tenant", "url_variable", "tenant"),

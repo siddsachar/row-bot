@@ -484,6 +484,7 @@ const CATALOG: Record<string, Entry> = {
   view_unavailable: ["This view isn't available. Try again later.", 'retry'],
   view_tool_refused: ["This view can't do that here.", 'none'],
   view_tool_denied: ["You didn't allow this action.", 'none'],
+  view_busy: ['This view is already waiting for your answer.', 'none'],
   view_rate_limited: [
     'Too many requests from this view. Wait a moment.',
     'retry',

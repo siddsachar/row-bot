@@ -1083,19 +1083,27 @@ export default function TaskLibrary() {
     ReadonlyArray<{ id: string; label: string }>
   >([]);
   const execution = useMemo(() => taskRuns(controller), [controller]);
-  // The apps set up here, for a prompt step to name the ones it uses (Apps owns them).
+  // The apps set up here (every page), for a prompt step to name the ones it uses (Apps owns them).
   const loadApps = useCallback(
-    async (signal?: AbortSignal) =>
-      (
-        await controller.integrationItems(
-          { scope: 'installed', kind: 'app' },
+    async (signal?: AbortSignal) => {
+      const found: { id: string; name: string; icon: string }[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await controller.integrationItems(
+          { scope: 'installed', kind: 'app', cursor },
           signal,
-        )
-      ).items.map((app) => ({
-        id: app.id,
-        name: app.name,
-        icon: app.app?.icon ?? app.icon,
-      })),
+        );
+        found.push(
+          ...page.items.map((app) => ({
+            id: app.id,
+            name: app.name,
+            icon: app.app?.icon ?? app.icon,
+          })),
+        );
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor && found.length < 1000);
+      return found;
+    },
     [controller],
   );
   const quickEdits = useMemo(() => taskEdits(controller), [controller]);

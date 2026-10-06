@@ -219,7 +219,9 @@ def use_workflow_template(template_id: str) -> dict:
     try:
         return templates.use(template_id)
     except ValueError as exc:
-        raise ClientPlatformError("app_not_connected" if str(exc) == "app_not_connected" else "not_found") from exc
+        if str(exc) not in {"not_found", "app_not_connected"}:
+            raise  # Creating the workflow failed: its own error, not a missing template.
+        raise ClientPlatformError(str(exc)) from exc
 
 
 def set_source_opt_in(source_id: str, on: bool) -> dict:

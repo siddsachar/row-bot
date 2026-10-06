@@ -4489,7 +4489,8 @@ def create_router(
 
     def view_problem(error: Exception) -> ProtocolError:
         status = {"not_found": 404, "views_off": 403, "view_tool_refused": 403, "view_tool_denied": 403,
-                  "view_rate_limited": 429, "invalid_command": 422, "view_tool_failed": 502}.get(str(error), 409)
+                  "view_rate_limited": 429, "view_busy": 409, "invalid_command": 422,
+                  "view_tool_failed": 502}.get(str(error), 409)
         return ProtocolError(str(error), status)
 
     @router.post("/conversations/{conversation_id}/views")
