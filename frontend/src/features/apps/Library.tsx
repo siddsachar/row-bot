@@ -21,8 +21,8 @@ import {
 } from './parts';
 
 const NOUN = {
-  app: ['app', 'apps', 'Your apps'],
-  skill: ['skill', 'skills', 'Your skills'],
+  app: ['an app', 'apps', 'Your apps'],
+  skill: ['a skill', 'skills', 'Your skills'],
 } as const;
 
 function Cards({
@@ -292,8 +292,8 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
             action={actions}
           >
             {query
-              ? `Try another word, search online catalogs, or add a ${one} from a link.`
-              : `Add a ${one} from a link or a file.`}
+              ? `Try another word, search online catalogs, or add ${one} from a link.`
+              : `Add ${one} from a link or a file.`}
           </EmptyState>
         )}
         <Cards items={leading} revision={page?.revision} />

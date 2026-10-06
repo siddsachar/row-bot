@@ -2,8 +2,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Braces,
   Globe2,
-  LayoutGrid,
-  Lock,
   MoreHorizontal,
   PanelRight,
   Pencil,
@@ -131,8 +129,8 @@ type State = {
   busy: string;
   message: string;
   /**
-   * Where the message is shown: next to what was clicked ("editor", "list",
-   * "directory:<id>"), or at the top of the page ("page").
+   * Where the message is shown: next to what was clicked ("editor", "list"),
+   * or at the top of the page ("page").
    */
   origin: string;
   active: boolean;
@@ -239,27 +237,6 @@ export type CapabilitySettingsProps = {
     command: McpConfigurationCommand,
     review: McpConfigurationReview,
   ) => Promise<McpConfigurationReceipt>;
-  searchDirectory?: (
-    query: string,
-    signal: AbortSignal,
-  ) => Promise<{
-    schema_version: 1;
-    mode: 'live' | 'cache' | 'curated';
-    items: {
-      id: string;
-      name: string;
-      description: string;
-      source: string;
-      publisher: string;
-      transport: string;
-      risk_level: string;
-      requires_auth: boolean;
-      /** Signs in through the browser (OAuth), which is not supported yet. */
-      sign_in_required: boolean;
-      recommended: boolean;
-      import_json: string;
-    }[];
-  }>;
 };
 
 /**
@@ -396,10 +373,7 @@ function buildIntent(draft: Draft): McpConfigurationIntent {
   };
 }
 
-type DirectoryEntry = Awaited<
-  ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
->['items'][number];
-type AddMode = 'browse' | 'manual' | 'json';
+type AddMode = 'manual' | 'json';
 
 function transportLabel(transport: string) {
   return transport === 'stdio'
@@ -546,24 +520,13 @@ export default function CapabilitySettings({
   load,
   review,
   execute,
-  searchDirectory,
 }: CapabilitySettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mode, setMode] = useState<AddMode>(() =>
-    session.getSnapshot().draft.operation === 'import'
-      ? 'json'
-      : searchDirectory
-        ? 'browse'
-        : 'manual',
+    session.getSnapshot().draft.operation === 'import' ? 'json' : 'manual',
   );
   const [searchOpen, setSearchOpen] = useState(false);
-  const [directoryQuery, setDirectoryQuery] = useState('');
-  const [directoryResult, setDirectoryResult] = useState<Awaited<
-    ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
-  > | null>(null);
-  const [directoryBusy, setDirectoryBusy] = useState(false);
-  const [directoryError, setDirectoryError] = useState('');
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -757,30 +720,6 @@ export default function CapabilitySettings({
       session.endRead(abort);
     }
   };
-  const search = async () => {
-    if (!searchDirectory || directoryBusy || !state.active) return;
-    const abort = session.beginRead();
-    setDirectoryBusy(true);
-    setDirectoryError('');
-    try {
-      const result = await searchDirectory(directoryQuery.trim(), abort.signal);
-      if (!abort.signal.aborted) {
-        if (result.schema_version !== 1 || result.items.length > 24)
-          throw Error();
-        setDirectoryResult(result);
-      }
-    } catch (cause) {
-      if (!abort.signal.aborted)
-        setDirectoryError(
-          clientError(cause).code === 'action_denied'
-            ? 'Directory search is available from the local owner device.'
-            : 'Directory unavailable. Search again or add a server manually.',
-        );
-    } finally {
-      session.endRead(abort);
-      if (!abort.signal.aborted) setDirectoryBusy(false);
-    }
-  };
   const save = async (attempt: Attempt | null) => {
     if (!attempt || session.getSnapshot().busy || !session.getSnapshot().active)
       return;
@@ -875,18 +814,11 @@ export default function CapabilitySettings({
     }
   };
   // The message (and Check original save) sits next to what was clicked; if
-  // that place is gone (the dialog closed, a new directory search), it shows
-  // above the list, or at the top while the list can't be read.
+  // that place is gone (the dialog closed), it shows above the list, or at
+  // the top while the list can't be read.
   const shown = new Set([
     ...(page ? ['list'] : []),
-    ...(dialogOpen
-      ? [
-          'editor',
-          ...(directoryResult?.items ?? []).map(
-            (entry) => `directory:${entry.source}:${entry.id}`,
-          ),
-        ]
-      : []),
+    ...(dialogOpen ? ['editor'] : []),
   ]);
   const origin = shown.has(state.origin)
     ? state.origin
@@ -919,7 +851,7 @@ export default function CapabilitySettings({
     const current = session.getSnapshot().draft;
     if (current.operation === 'edit' || current.operation === 'rename') {
       session.update({ draft: emptyDraft(), reviewed: null, message: '' });
-      chooseMode(searchDirectory ? 'browse' : 'manual');
+      chooseMode('manual');
     } else if (current.operation === 'import') chooseMode('json');
     else if (hasDraft) chooseMode('manual');
     setDialogOpen(true);
@@ -967,7 +899,6 @@ export default function CapabilitySettings({
   // A search field once the list is long; before that an icon opens one.
   const manyServers = total > 6;
   const searchShown = manyServers || searchOpen || Boolean(state.query);
-  const directoryItems: DirectoryEntry[] = directoryResult?.items ?? [];
   const tab = editing ? 'manual' : mode;
   return (
     <section
@@ -1208,15 +1139,6 @@ export default function CapabilitySettings({
             value={mode}
             onChange={chooseMode}
             options={[
-              ...(searchDirectory
-                ? [
-                    {
-                      value: 'browse' as const,
-                      label: 'Browse',
-                      icon: <LayoutGrid size={14} aria-hidden />,
-                    },
-                  ]
-                : []),
               {
                 value: 'manual' as const,
                 label: 'Manual',
@@ -1230,122 +1152,7 @@ export default function CapabilitySettings({
             ]}
           />
         )}
-        {tab === 'browse' && searchDirectory ? (
-          <div className="stack settings-mcp-browse">
-            <form
-              className="settings-mcp-search is-wide"
-              role="search"
-              aria-label="Search the MCP directory"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void search();
-              }}
-            >
-              <Search size={14} aria-hidden />
-              <Input
-                type="search"
-                aria-label="Search the MCP directory"
-                placeholder="Search servers"
-                data-initial-focus
-                value={directoryQuery}
-                maxLength={128}
-                disabled={locked || directoryBusy}
-                onChange={(event) => setDirectoryQuery(event.target.value)}
-              />
-              <Button
-                type="submit"
-                className="small"
-                disabled={locked || directoryBusy}
-              >
-                Search
-              </Button>
-            </form>
-            <p className="settings-help">
-              From public directories; searching contacts them. Row-Bot hasn’t
-              checked these servers, and new ones start off until you test them.
-            </p>
-            {directoryBusy && <p role="status">Searching…</p>}
-            {directoryError && <p role="alert">{directoryError}</p>}
-            {directoryItems.length > 0 && (
-              <ul className="settings-mcp-directory">
-                {directoryItems.map((entry) => {
-                  const key = `directory:${entry.source}:${entry.id}`;
-                  return (
-                    <li key={key}>
-                      <article
-                        className="settings-mcp-directory-entry"
-                        aria-label={entry.name}
-                      >
-                        <span className="settings-row-icon" aria-hidden>
-                          {entry.transport === 'stdio' ? (
-                            <SquareTerminal size={16} />
-                          ) : (
-                            <Globe2 size={16} />
-                          )}
-                        </span>
-                        <div className="settings-mcp-directory-text">
-                          <strong>{entry.name}</strong>
-                          <p>{entry.description || 'No description given.'}</p>
-                          <small>
-                            {[
-                              entry.publisher || 'Publisher unknown',
-                              entry.transport === 'stdio'
-                                ? 'on this computer'
-                                : 'online',
-                              entry.risk_level
-                                ? `${humanizeToken(entry.risk_level).toLowerCase()} risk`
-                                : 'risk unknown',
-                              entry.requires_auth && !entry.sign_in_required
-                                ? 'needs a key'
-                                : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </small>
-                          {entry.sign_in_required && (
-                            // Browser sign-in (OAuth) isn't supported yet (B262).
-                            <small className="settings-mcp-sign-in">
-                              <Lock size={12} aria-hidden />
-                              Needs sign-in (not supported yet)
-                            </small>
-                          )}
-                          <details className="settings-mcp-preview">
-                            <summary>Configuration</summary>
-                            <pre className="text-preview">
-                              {entry.import_json}
-                            </pre>
-                          </details>
-                          {note(key)}
-                        </div>
-                        {!entry.sign_in_required && (
-                          <Button
-                            className="small"
-                            aria-label={`Add ${entry.name}`}
-                            disabled={locked || !canSave}
-                            onClick={() =>
-                              void requestReview(
-                                {
-                                  operation: 'import',
-                                  import_json: entry.import_json,
-                                },
-                                key,
-                              )
-                            }
-                          >
-                            Add
-                          </Button>
-                        )}
-                      </article>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {directoryResult && directoryItems.length === 0 && (
-              <p>No matching servers. Try other words or add one manually.</p>
-            )}
-          </div>
-        ) : tab === 'json' ? (
+        {tab === 'json' ? (
           <fieldset
             className="stack settings-mcp-form"
             disabled={locked || !canSave}

@@ -1388,11 +1388,6 @@ def _uv_release_asset():
     return version, matches[0]
 
 
-def _latest_uv_asset() -> tuple[str, str, str]:
-    version, asset = _uv_release_asset()
-    return version, asset["name"], asset.get("browser_download_url", "")
-
-
 def resolve_managed_runtime_plan(runtime_id: str, *, validate: Callable[[], None] = lambda: None,
                                  cancelled: Callable[[], bool] | None = None) -> ArchiveRuntimePlan:
     """Explicit network metadata resolution; never called by a passive read.

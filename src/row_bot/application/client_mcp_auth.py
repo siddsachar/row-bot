@@ -96,10 +96,7 @@ def review_auth(*, server_id: str, configuration_revision: str, action: str, mod
         raise auth.McpAuthError("invalid_mcp_auth")
     intent = {"server_id": server_id, "configuration_revision": configuration_revision,
         "action": action, "mode": mode, "label": label, "bindings": metadata["bindings"], "target": target}
-    return {**intent, "action_digest": admissions.keyed_digest(intent),
-        "disclosures": ["Sign-in shares authorization with the selected service. Credentials are stored for this connection only.",
-            "Authentication does not enable the connection, its tools, or its parent package. Test and review tools afterwards."
-            if action == "start" else "Disconnect clears only this connection's local protected binding and stops its runtime. Configuration and tool permissions remain. Remote revocation is not verified; revoke this app or token in the service's account security controls. Other accounts are unchanged."]}
+    return {**intent, "action_digest": admissions.keyed_digest(intent)}
 
 
 def _receipt(flow: Flow, *, message: str = "") -> dict:

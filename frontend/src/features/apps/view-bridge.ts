@@ -5,15 +5,15 @@
  * frame's own window are read; anything the host does not offer is refused.
  */
 
-export const VIEW_PROTOCOL = '2026-01-26';
+const VIEW_PROTOCOL = '2026-01-26';
 export const MAX_VIEW_HEIGHT = 720;
-export const MIN_VIEW_HEIGHT = 48;
+const MIN_VIEW_HEIGHT = 48;
 const MAX_MESSAGE = 1024 * 1024;
 const START_TIMEOUT = 10_000;
 const CALLS_PER_MINUTE = 20;
 const LINKS_PER_MINUTE = 3;
 
-export type ViewToolResult = {
+type ViewToolResult = {
   content?: unknown[];
   structuredContent?: Record<string, unknown> | null;
   isError?: boolean;

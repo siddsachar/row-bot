@@ -17,12 +17,7 @@ from row_bot.application import client_plugin_lifecycle as owner
 from row_bot.application import plugin_commands
 from row_bot.plugins import installer, loader
 from row_bot.plugins.marketplace import MarketplaceEntry
-from tests.subsystem.client_protocol.test_empty_workspace_setup import (
-    service, workspace_api,
-)
 from tests.subsystem.plugins.conftest import manifest_payload, write_plugin
-
-# ruff: noqa: F401, F811 -- imported pytest fixtures are requested by name.
 
 
 def _valid() -> None:
@@ -320,69 +315,8 @@ def test_archive_extraction_rejects_symlinks_and_oversize_members(tmp_path):
             installer._safe_extract_zip(zf, tmp_path / "many")
 
 
-def test_lifecycle_api_requires_command_identity(workspace_api, monkeypatch):
-    _, _, _, client, headers, _, _ = workspace_api
-    review = {
-        "action": "install", "plugin_id": "synthetic-plugin",
-        "name": "Synthetic", "version": "1.0.0",
-        "source": "https://example.test/plugin.zip", "checksum": "",
-        "permissions": [], "disclosures": [], "revision": "a" * 64,
-    }
-    calls = []
-    monkeypatch.setattr(owner, "review_plugin_lifecycle", lambda action, plugin_id, *, validate: review)
-
-    def execute(command, *, owner_id, validate):
-        validate()
-        calls.append(command)
-        return {
-            "command_id": command["command_id"], "status": "completed",
-            "action": command["action"], "plugin_id": command["plugin_id"],
-            "message": "Installed synthetic plugin.",
-        }
-
-    monkeypatch.setattr(owner, "execute_plugin_lifecycle", execute)
-    response = client.post(
-        "/api/v1/settings/plugins/lifecycle/review", headers=headers,
-        json={"action": "install", "plugin_id": "synthetic-plugin"},
-    )
-    assert response.status_code == 200, response.text
-    command_id = str(uuid4())
-    command = {
-        "command_id": command_id,
-        "client_session_id": headers["X-Client-Session"],
-        "action": "install", "plugin_id": "synthetic-plugin", "revision": "a" * 64,
-    }
-    denied = client.post(
-        "/api/v1/settings/plugins/lifecycle/commands", headers=headers, json=command
-    )
-    assert denied.status_code == 409
-    assert not calls
-    accepted = client.post(
-        "/api/v1/settings/plugins/lifecycle/commands",
-        headers={**headers, "idempotency-key": command_id}, json=command,
-    )
-    assert accepted.status_code == 200, accepted.text
-    assert len(calls) == 1
 
 
-@pytest.mark.parametrize("code", [
-    "plugin_checksum_unavailable", "plugin_source_unsupported",
-    # Refusals the review raises for the plugin's own state (B273).
-    "plugin_already_installed", "plugin_not_installed", "plugin_update_unavailable",
-])
-def test_an_entry_that_cannot_install_is_refused_with_its_own_code(workspace_api, monkeypatch, code):
-    _, _, _, client, headers, _, _ = workspace_api
-
-    def refuse(action, plugin_id, *, validate):
-        raise ClientPlatformError(code)
-
-    monkeypatch.setattr(owner, "review_plugin_lifecycle", refuse)
-    response = client.post(
-        "/api/v1/settings/plugins/lifecycle/review", headers=headers,
-        json={"action": "install", "plugin_id": "synthetic-plugin"},
-    )
-    assert response.status_code == 409, response.text
-    assert response.json()["code"] == code and response.json()["retryable"] is False
 
 
 @pytest.mark.parametrize("unreadable", [False, True])

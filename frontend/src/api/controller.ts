@@ -26,10 +26,6 @@ import type {
   MigrationScanRequest,
   MigrationApplyReviewRequest,
   MigrationApplyCommand,
-  SkillHubSearchRequest,
-  SkillHubPreviewRequest,
-  SkillHubInstallCommand,
-  SkillHubMaintenanceCommand,
   GitHubAccessCommand,
   AccountAuthCommand,
 } from './types';
@@ -2352,12 +2348,7 @@ export class ClientController {
   uploadIntegration = (file: Blob, name: string, signal?: AbortSignal) =>
     this.query(() => this.transport.uploadIntegration?.(file, name, signal));
   integrationDetail = (
-    options: {
-      item_id: string;
-      revision?: string;
-      intent?: string;
-      cleanup?: boolean;
-    },
+    options: { item_id: string; revision?: string },
     signal?: AbortSignal,
   ) => this.query(() => this.transport.integrationDetail?.(options, signal));
   reviewInstallPlan = (
@@ -2378,54 +2369,6 @@ export class ClientController {
     this.query(() => this.transport.continueInstallPlan?.(plan, body, signal));
   cancelInstallPlan = (plan: string, signal?: AbortSignal) =>
     this.query(() => this.transport.cancelInstallPlan?.(plan, signal));
-  reviewMcpAuth = (
-    body: import('./types').McpAuthReviewRequest,
-    signal?: AbortSignal,
-  ) => this.query(() => this.transport.reviewMcpAuth?.(body, signal));
-  mcpAuthStatus = (command: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.mcpAuthStatus?.(command, signal));
-  cancelMcpAuth = (command: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.cancelMcpAuth?.(command, signal));
-  previewMcpPackage = (
-    body: import('./types').McpPackageRequest,
-    signal?: AbortSignal,
-  ) => this.query(() => this.transport.previewMcpPackage?.(body, signal));
-  executeMcpAuth = async (
-    body: Omit<import('./types').McpAuthCommand, 'client_session_id'>,
-  ) => {
-    const handshake = this.state.handshake;
-    if (!handshake) throw clientError({ code: 'authentication_required' });
-    const command = validateWire<import('./types').McpAuthCommand>(
-      'McpAuthCommand',
-      { ...body, client_session_id: handshake.client_session_id },
-    );
-    const result = await this.authenticatedResult((signal) => {
-      if (!this.transport.sendMcpAuth)
-        throw clientError({ code: 'unsupported_command' });
-      return this.transport.sendMcpAuth(command, signal);
-    });
-    if (result.command_id !== body.command_id)
-      throw clientError({ code: 'protocol_incompatible' });
-    return result;
-  };
-  executeMcpPackage = async (
-    body: Omit<import('./types').McpPackageCommand, 'client_session_id'>,
-  ) => {
-    const handshake = this.state.handshake;
-    if (!handshake) throw clientError({ code: 'authentication_required' });
-    const command = validateWire<import('./types').McpPackageCommand>(
-      'McpPackageCommand',
-      { ...body, client_session_id: handshake.client_session_id },
-    );
-    const result = await this.authenticatedResult((signal) => {
-      if (!this.transport.sendMcpPackage)
-        throw clientError({ code: 'unsupported_command' });
-      return this.transport.sendMcpPackage(command, signal);
-    });
-    if (result.command_id !== body.command_id)
-      throw clientError({ code: 'protocol_incompatible' });
-    return result;
-  };
   mcpConfiguration = (
     query: string,
     cursor?: string,
@@ -2492,33 +2435,6 @@ export class ClientController {
     );
     return this.query(() => this.transport.reviewMcpPolicy?.(input, signal));
   };
-  mcpTestedCatalog = (
-    query: {
-      server_id: string;
-      test_command_id: string;
-      query: string;
-      cursor?: string;
-    },
-    signal?: AbortSignal,
-    target?: import('./types').McpTarget,
-  ) =>
-    this.query(() =>
-      this.transport.mcpTestedCatalog?.(
-        query.server_id,
-        query.test_command_id,
-        query.query,
-        query.cursor,
-        signal,
-        target,
-      ),
-    );
-  reviewMcpCatalog = (body: unknown, signal?: AbortSignal) => {
-    const input = validateWire<import('./types').McpCatalogRequest>(
-      'McpCatalogRequest',
-      body,
-    );
-    return this.query(() => this.transport.reviewMcpCatalog?.(input, signal));
-  };
   reviewMcpConfiguration = (body: unknown, signal?: AbortSignal) => {
     const input = validateWire<import('./types').McpConfigurationReviewRequest>(
       'McpConfigurationReviewRequest',
@@ -2531,17 +2447,12 @@ export class ClientController {
   executeMcpConfiguration = async (
     original: {
       command_id: string;
-      type:
-        | 'mcp.configuration.save'
-        | 'mcp.configuration.control'
-        | 'mcp.catalog.accept';
-      payload:
-        | {
-            configuration_revision: string;
-            intent: unknown;
-            target?: import('./types').McpTarget;
-          }
-        | import('./types').McpCatalogRequest;
+      type: 'mcp.configuration.save' | 'mcp.configuration.control';
+      payload: {
+        configuration_revision: string;
+        intent: unknown;
+        target?: import('./types').McpTarget;
+      };
     },
     review: { nonce?: string },
   ) => {
@@ -2613,26 +2524,6 @@ export class ClientController {
     this.query(() => this.transport.migrationSources?.(signal));
   scanMigration = (request: MigrationScanRequest, signal?: AbortSignal) =>
     this.query(() => this.transport.scanMigration?.(request, signal));
-  searchSkillHub = (request: SkillHubSearchRequest, signal?: AbortSignal) =>
-    this.query(() => this.transport.searchSkillHub?.(request, signal));
-  previewSkillHub = (request: SkillHubPreviewRequest, signal?: AbortSignal) =>
-    this.query(() => this.transport.previewSkillHub?.(request, signal));
-  installSkillHub = (command: SkillHubInstallCommand, signal?: AbortSignal) =>
-    this.query(() => this.transport.installSkillHub?.(command, signal));
-  skillHubInstallReceipt = (commandId: string, signal?: AbortSignal) =>
-    this.query(() =>
-      this.transport.skillHubInstallReceipt?.(commandId, signal),
-    );
-  skillHubInstalled = (signal?: AbortSignal) =>
-    this.query(() => this.transport.skillHubInstalled?.(signal));
-  skillHubMaintenance = (
-    command: SkillHubMaintenanceCommand,
-    signal?: AbortSignal,
-  ) => this.query(() => this.transport.skillHubMaintenance?.(command, signal));
-  skillHubMaintenanceReceipt = (commandId: string, signal?: AbortSignal) =>
-    this.query(() =>
-      this.transport.skillHubMaintenanceReceipt?.(commandId, signal),
-    );
   reviewMigration = (
     request: MigrationApplyReviewRequest,
     signal?: AbortSignal,
@@ -2963,8 +2854,6 @@ export class ClientController {
       this.transport.reviewPlugin?.(plugin, body, signal),
     );
   };
-  pluginReceipt = (plugin: string, command: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.pluginReceipt?.(plugin, command, signal));
   executePlugin = async (
     plugin: string,
     original: {
@@ -2985,43 +2874,6 @@ export class ClientController {
       if (!this.transport.executePlugin)
         throw clientError({ code: 'unsupported_command' });
       return this.transport.executePlugin(plugin, command, signal);
-    });
-    if (result.command_id !== original.command_id)
-      throw clientError({ code: 'protocol_incompatible' });
-    return result;
-  };
-  reviewPluginLifecycle = (
-    action: import('./types').PluginLifecycleReviewRequest['action'],
-    pluginId = '',
-    signal?: AbortSignal,
-    previewId?: string,
-  ) => {
-    const body = validateWire<import('./types').PluginLifecycleReviewRequest>(
-      'PluginLifecycleReviewRequest',
-      { action, plugin_id: pluginId, preview_id: previewId ?? '' },
-    );
-    return this.query(() =>
-      this.transport.reviewPluginLifecycle?.(body, signal),
-    );
-  };
-  pluginLifecycleReceipt = (command: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.pluginLifecycleReceipt?.(command, signal));
-  executePluginLifecycle = async (
-    original: Omit<
-      import('./types').PluginLifecycleCommand,
-      'client_session_id'
-    >,
-  ) => {
-    const handshake = this.state.handshake;
-    if (!handshake) throw clientError({ code: 'authentication_required' });
-    const command = validateWire<import('./types').PluginLifecycleCommand>(
-      'PluginLifecycleCommand',
-      { ...original, client_session_id: handshake.client_session_id },
-    );
-    const result = await this.authenticatedResult((signal) => {
-      if (!this.transport.executePluginLifecycle)
-        throw clientError({ code: 'unsupported_command' });
-      return this.transport.executePluginLifecycle(command, signal);
     });
     if (result.command_id !== original.command_id)
       throw clientError({ code: 'protocol_incompatible' });
@@ -3506,11 +3358,6 @@ export class ClientController {
     });
     return this.documentProcessingResult(result, original.command_id);
   };
-  mcpRuntime = (
-    server: string,
-    signal?: AbortSignal,
-    target?: import('./types').McpTarget,
-  ) => this.query(() => this.transport.mcpRuntime?.(server, signal, target));
   documentQueue = (
     options: { kind: 'batches' | 'jobs'; batch_id?: string; cursor?: string },
     signal?: AbortSignal,
@@ -3639,42 +3486,6 @@ export class ClientController {
     )
       throw clientError({ code: 'protocol_incompatible' });
     return { ...result, code: result.code ?? undefined };
-  };
-  reviewMcpRuntime = (body: unknown, signal?: AbortSignal) => {
-    const request = validateWire<import('./types').McpRuntimeReviewRequest>(
-      'McpRuntimeReviewRequest',
-      body,
-    );
-    return this.query(() => this.transport.reviewMcpRuntime?.(request, signal));
-  };
-  executeMcpRuntime = async (
-    original: {
-      command_id: string;
-      type: 'mcp.runtime.control';
-      payload: import('./types').McpRuntimeReviewRequest;
-    },
-    review: { nonce?: string },
-  ) => {
-    const handshake = this.state.handshake;
-    if (!handshake || !review.nonce)
-      throw clientError({ code: 'approval_expired' });
-    const command = {
-      ...original,
-      client_session_id: handshake.client_session_id,
-      expected_revision: '0',
-      payload: { ...original.payload, nonce: review.nonce },
-    };
-    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
-    const result = await this.authenticatedResult((signal) =>
-      this.transport.command(null, command, original.command_id, signal),
-    );
-    if (result.command_id !== original.command_id)
-      throw clientError({ code: 'protocol_incompatible' });
-    return {
-      command_id: result.command_id,
-      status: result.status,
-      mcp_runtime: result.mcp_runtime ?? undefined,
-    };
   };
   subscriptionAccounts = (signal?: AbortSignal) =>
     this.query(() => this.transport.subscriptionAccounts?.(signal));

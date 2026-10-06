@@ -89,7 +89,6 @@ const snapshotPages: Partial<Record<string, SettingsPage>> = {
   tracker: 'tracker',
   documents: 'documents',
   tools: 'tools',
-  accounts: 'accounts',
   preferences: 'preferences',
   updates: 'preferences',
   data: 'preferences',
@@ -246,14 +245,7 @@ export default function SettingRoute() {
     // Legacy ids and moved pages land on their new home (and row).
     if (['integrations', 'plugins', 'mcp'].includes(setting.toLowerCase()))
       return (
-        <Navigate
-          to={legacyIntegrationHref(
-            setting.toLowerCase(),
-            search,
-            location.hash,
-          )}
-          replace
-        />
+        <Navigate to={legacyIntegrationHref(search, location.hash)} replace />
       );
     const target = settingsHref(setting, location.hash) ?? leaf.href;
     const [pathQuery, hash] = target.split('#');
@@ -314,31 +306,23 @@ export default function SettingRoute() {
     // A built-in way (an account, a channel, a key tool) opens its own page, scoped to it.
     const builtIn = /(?:^|:)builtin:(account|channel|tool):(.+)$/.exec(id);
     if (builtIn && !settingsSnapshot) return snapshotState;
-    if (builtIn?.[1] === 'account') {
-      const accounts = mutationFor('accounts');
-      return accounts ? (
+    if (builtIn?.[1] === 'account')
+      return (
         <AccountsSnapshotPanel
           snapshot={settingsSnapshot!.accounts}
-          mutation={accounts}
+          mutation={mutationFor('accounts')!}
           showActions
           only={builtIn[2] as 'github' | 'google' | 'x'}
         />
-      ) : (
-        snapshotState
       );
-    }
-    if (builtIn?.[1] === 'tool') {
-      const tools = mutationFor('tools');
-      return tools ? (
+    if (builtIn?.[1] === 'tool')
+      return (
         <ToolConfigurationSnapshot
           snapshot={settingsSnapshot!.tools}
-          mutation={tools}
+          mutation={mutationFor('tools')!}
           only={builtIn[2]}
         />
-      ) : (
-        snapshotState
       );
-    }
     if (builtIn?.[1] === 'channel' && channelOwner?.get())
       return (
         <ChannelSettings

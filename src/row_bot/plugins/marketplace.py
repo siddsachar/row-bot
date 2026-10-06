@@ -273,23 +273,6 @@ def _https_host(url: str) -> str | None:
     return urlsplit(url).hostname if public_url(url) else None
 
 
-def check_updates(installed_manifests: list) -> list[dict[str, str]]:
-    """Compare installed plugins against the marketplace index."""
-
-    index = fetch_index()
-    updates: list[dict[str, str]] = []
-    for manifest in installed_manifests:
-        entry = get_update_entry(manifest, index=index)
-        if entry:
-            updates.append({
-                "plugin_id": manifest.id,
-                "name": manifest.name,
-                "installed_version": manifest.version,
-                "latest_version": entry.version,
-            })
-    return updates
-
-
 def get_cached_index(*, allow_stale: bool = True) -> MarketplaceIndex | None:
     """Return a cached marketplace index without making network calls."""
 

@@ -215,15 +215,6 @@ class TtlCache:
                 del self._items[next(iter(self._items))]
             self._items[key] = (self.clock(), value)
 
-    def pop(self, key: Any) -> Any:
-        with self._lock:
-            entry = self._items.pop(key, None)
-            return entry[1] if entry else None
-
-    def clear(self) -> None:
-        with self._lock:
-            self._items.clear()
-
     def __len__(self) -> int:
         return len(self._items)
 

@@ -48,7 +48,7 @@ def test_plan_is_passive_immutable_and_install_never_resolves_again(owner, monke
     with pytest.raises(FrozenInstanceError):
         plan.version = "changed"
     monkeypatch.setattr(runtime, "_latest_node_lts_version", lambda: pytest.fail("hidden latest resolution"))
-    monkeypatch.setattr(runtime, "_latest_uv_asset", lambda: pytest.fail("hidden latest resolution"))
+    monkeypatch.setattr(runtime, "_uv_release_asset", lambda: pytest.fail("hidden latest resolution"))
     assert runtime.install_runtime_plan(plan).ok
     assert calls == [plan.url]
     saved = runtime._read_manifest("synthetic")

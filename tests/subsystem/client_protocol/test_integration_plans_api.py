@@ -32,8 +32,6 @@ def test_reads_need_a_session_and_never_contact_a_source(service, isolated, monk
         _, headers = bootstrap(client)
         sources = {s["id"]: s for s in client.get(BASE + "/sources", headers=headers).json()["items"]}
         assert sources["official"]["enabled"] and not sources["glama"]["enabled"]
-        presets = client.get(BASE + "/presets", headers=headers).json()["items"]
-        assert [p["id"] for p in presets if p["default"]] == ["ask"]
         installed = client.get(BASE + "/items", headers=headers).json()["items"]
         work = next(row for row in installed if row["name"] == "Work")
         assert work["lifecycle"] == "off" and work["next_action"]["kind"] == "continue_setup"

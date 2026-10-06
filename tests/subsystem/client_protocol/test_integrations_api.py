@@ -104,27 +104,8 @@ def test_mcp_inventory_readiness_requires_accepted_tools_and_active_policy(
     assert bool(blocking) == (readiness != "ready") and all(b["message"] for b in blocking)
 
 
-def test_secret_nonce_replay_and_callback_redaction(service, isolated):
+def test_sign_in_callback_never_echoes_its_code(service, isolated):
     with client_for(service) as client:
-        _, headers = bootstrap(client)
-        page = client.get("/api/v1/settings/mcp/configuration", headers=headers).json()
-        body = {"server_id": page["items"][0]["server_id"], "configuration_revision": page["revision"],
-            "action": "start", "mode": "api_key", "label": "Work",
-            "bindings": [{"kind": "header", "name": "Authorization", "key": "token", "prefix": "Bearer "}]}
-        review = client.post("/api/v1/settings/mcp/auth/review", headers=headers, json=body)
-        assert review.status_code == 200, review.text
-        identity = str(uuid4())
-        command = {**body, "client_session_id": headers["X-Client-Session"], "command_id": identity,
-            "nonce": review.json()["nonce"], "values": {"token": "fixture-private-key"}}
-        url = "/api/v1/settings/mcp/auth/commands"
-        bad = client.post(url, headers={**headers, "Idempotency-Key": identity}, json={**command, "nonce": "invalid"})
-        assert bad.status_code != 200
-        first = client.post(url, headers={**headers, "Idempotency-Key": identity}, json=command)
-        assert first.status_code == 200, first.text
-        assert first.json()["state"] == "signed_in"
-        assert "fixture-private-key" not in first.text + config.CONFIG_PATH.read_text()
-        replay = client.post(url, headers={**headers, "Idempotency-Key": identity}, json=command)
-        assert replay.status_code == 200 and replay.json()["state"] == "signed_in"
         callback = client.get("/api/v1/settings/mcp/auth/callback?state=wrong&code=fixture-secret-code")
         assert callback.status_code == 400 and "fixture-secret-code" not in callback.text
         assert callback.headers["referrer-policy"] == "no-referrer"

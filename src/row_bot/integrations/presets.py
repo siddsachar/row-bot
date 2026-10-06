@@ -9,11 +9,7 @@ applied to; tools discovered later wait for the user to accept them again.
 """
 from __future__ import annotations
 
-PRESETS = {
-    "read_only": ("Read only", "Row-Bot can look things up but cannot change anything."),
-    "ask": ("Ask before changes", "Row-Bot asks you before it changes anything."),
-    "full": ("Full access", "Row-Bot makes routine changes without asking. Risky actions still ask."),
-}
+PRESETS = ("read_only", "ask", "full")  # Read only · Ask before changes · Full access.
 DEFAULT = "ask"
 STATES = ("use", "ask", "off")
 
@@ -91,8 +87,3 @@ def current(tools: dict) -> str:
     names = list(tools.get("accepted_names") or catalog)
     return next((preset for preset in PRESETS
                  if names and all(tool_state(preset, catalog.get(name, {})) == actual(tools, name) for name in names)), "custom")
-
-
-def views() -> list[dict]:
-    return [{"id": key, "label": label, "description": description, "default": key == DEFAULT}
-            for key, (label, description) in PRESETS.items()]

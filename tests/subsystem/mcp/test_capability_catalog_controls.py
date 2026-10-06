@@ -1,9 +1,5 @@
 """Actual temporary MCP Test ownership, saved catalogs and no retest on acceptance."""
-from dataclasses import asdict
 import json
-import os
-import subprocess
-import sys
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -68,9 +64,9 @@ def run_test():
     return request
 
 
-def read(request, **query):
-    return controls.read_tested_mcp_catalog(owner_id=query.pop("owner_id", "synthetic-owner"),
-        server_id=request["payload"]["server_id"], test_command_id=request["command_id"], **query)
+def tools(request, owner_id="synthetic-owner"):
+    return {row["name"]: row for row in controls.tested_tools(owner_id=owner_id,
+        server_id=request["payload"]["server_id"], test_command_id=request["command_id"])}
 
 
 def command(test):
@@ -89,12 +85,9 @@ def test_actual_test_metadata_survives_cleanup_and_explicit_acceptance_never_ret
     before = config.CONFIG_PATH.read_bytes()
     tested = run_test()
     assert config.CONFIG_PATH.read_bytes() == before and not owner.runtime._servers and not owner.runtime._catalog
-    page = read(tested)
-    assert page.availability == "available" and page.total == 3
-    rows = {item.name: item for item in page.items}
-    assert rows["get_record"].enabled_after_accept is True
-    assert rows["delete_record"].enabled_after_accept is False and rows["delete_record"].requires_approval
-    assert rows["unrecognized"].enabled_after_accept is False and rows["unrecognized"].requires_approval
+    rows = tools(tested)
+    assert len(rows) == 3 and not rows["get_record"]["requires_approval"]
+    assert rows["delete_record"]["requires_approval"] and rows["unrecognized"]["requires_approval"]
     request = command(tested)
     reviewed = controls.review_mcp_catalog_command(owner_id="synthetic-owner", **request["payload"], validate=lambda: None)
     assert reviewed["tool_count"] == 3
@@ -104,13 +97,14 @@ def test_actual_test_metadata_survives_cleanup_and_explicit_acceptance_never_ret
     assert saved["mcp_configuration"]["runtime_cleanup"] == "not_requested"
     current = config.read_saved_configuration().document
     assert current["enabled"] is False and current["servers"]["Synthetic"]["enabled"] is False
+    assert current["servers"]["Synthetic"]["tools"]["enabled"] == {"get_record": True, "delete_record": False, "unrecognized": False}
     assert current["future"] == owner.document["future"]
     assert current["servers"]["Synthetic"]["env"] == owner.document["servers"]["Synthetic"]["env"]
     assert current["servers"]["Synthetic"]["tools"]["future"] == {"keep": 2}
     assert current["servers"]["Synthetic"]["tools"]["catalog"]["get_record"]["input_schema"] == {"type": "object"}
     assert owner.calls == ["connect", "list_tools"]
     assert execute(request) == saved
-    assert "synthetic-secret" not in json.dumps([asdict(page), reviewed, saved])
+    assert "synthetic-secret" not in json.dumps([rows, reviewed, saved])
 
 
 def test_existing_explicit_choices_and_unknown_fields_survive_acceptance(owner):
@@ -130,10 +124,11 @@ def test_an_overlap_with_row_bot_is_a_note_and_risky_tools_still_ask(owner):
     owner.document["servers"]["Synthetic"]["source"] = {"overlaps_native": ["memory"]}
     config.CONFIG_PATH.write_text(json.dumps(owner.document), encoding="utf-8")
     tested = run_test()
-    rows = {item.name: item for item in read(tested).items}
-    assert rows["get_record"].enabled_after_accept is True  # Lookups are not held back by the overlap.
-    assert rows["delete_record"].requires_approval and rows["unrecognized"].requires_approval
+    rows = tools(tested)
+    assert rows["delete_record"]["requires_approval"] and rows["unrecognized"]["requires_approval"]
     assert execute(command(tested))["status"] == "completed"
+    enabled = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["enabled"]
+    assert enabled["get_record"] is True  # Lookups are not held back by the overlap.
 
 
 def test_changed_configuration_expires_test_capture_without_retest(owner):
@@ -141,7 +136,6 @@ def test_changed_configuration_expires_test_capture_without_retest(owner):
     changed = config.read_saved_configuration().document
     changed["future"] = "changed"
     config.CONFIG_PATH.write_text(json.dumps(changed), encoding="utf-8")
-    assert read(tested).availability == "stale"
     with pytest.raises(controls.Error, match="mcp_catalog_stale"):
         execute(command(tested))
     assert owner.calls == ["connect", "list_tools"]
@@ -149,11 +143,11 @@ def test_changed_configuration_expires_test_capture_without_retest(owner):
 
 def test_other_owner_and_unknown_original_cannot_accept_tested_metadata(owner):
     tested = run_test()
-    assert read(tested, owner_id="other").availability == "unavailable"
     with pytest.raises(controls.Error, match="mcp_catalog_unavailable"):
         execute(command(tested), owner_id="other")
     unknown = {**tested, "command_id": str(uuid4())}
-    assert read(unknown).total is None
+    with pytest.raises(controls.Error, match="mcp_catalog_unavailable"):
+        tools(unknown)
 
 
 @pytest.mark.parametrize("kind", ["count", "bytes", "depth", "duplicate-runtime-name"])
@@ -171,28 +165,13 @@ def test_unavailable_catalog_never_blocks_actual_test_transport_cleanup(owner, k
         owner.tools[:] = [{"name": "get-a"}, {"name": "get_a"}]
     tested = run_test()
     assert not owner.runtime._servers
-    assert read(tested).availability == "unavailable"
+    with pytest.raises(controls.Error, match="mcp_catalog_unavailable"):
+        tools(tested)
     receipt = admissions.read_command_receipt("synthetic-owner", tested["command_id"])
     assert len(json.dumps(receipt).encode()) < 256 * 1024
     assert owner.calls == ["connect", "list_tools"]
 
 
-def test_full_catalog_filter_and_pages_are_bounded_and_cursor_scope_exact(owner):
-    owner.tools[:] = [{"name": f"get_{index:03d}"} for index in range(205)]
-    tested = run_test()
-    page = read(tested, limit=50)
-    assert page.total == 205 and len(page.items) == 50 and page.next_cursor
-    names = []
-    while True:
-        names.extend(item.name for item in page.items)
-        if not page.next_cursor:
-            break
-        page = read(tested, limit=50, cursor=page.next_cursor)
-    assert len(names) == len(set(names)) == 205
-    filtered = read(tested, query="get_204")
-    assert filtered.total == 1 and filtered.items[0].name == "get_204"
-    with pytest.raises(controls.Error, match="cursor_expired"):
-        read(tested, query="changed", limit=50, cursor=read(tested, limit=50).next_cursor)
 
 
 def test_original_acceptance_reconciles_lost_response_without_repeat_save(owner, monkeypatch):
@@ -214,49 +193,10 @@ def test_original_acceptance_reconciles_lost_response_without_repeat_save(owner,
     assert owner.calls == ["connect", "list_tools"]
 
 
-def test_cold_unknown_test_read_never_initializes_database_runtime_or_data(tmp_path):
-    target = tmp_path / "missing"
-    script = '''
-import pathlib,sys
-def forbidden(*args,**kwargs): raise AssertionError("directory mutation")
-pathlib.Path.mkdir=forbidden
-from row_bot.application.capability_catalog_controls import read_tested_mcp_catalog
-page=read_tested_mcp_catalog(owner_id="synthetic",server_id="a"*64,test_command_id="00000000-0000-0000-0000-000000000001")
-assert page.availability=="unavailable" and page.total is None
-assert not any(name in sys.modules for name in ("row_bot.tasks","row_bot.tools","row_bot.mcp_client.runtime","mcp"))
-assert not pathlib.Path(sys.argv[1]).exists()
-'''
-    completed = subprocess.run([sys.executable, "-c", script, str(target)], capture_output=True, text=True, timeout=20,
-        env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    assert completed.returncode == 0, completed.stderr
 
 
-def test_saved_test_catalog_can_be_read_after_actual_process_restart(owner):
-    tested = run_test()
-    script = '''
-import pathlib,sys
-def forbidden(*args,**kwargs): raise AssertionError("directory mutation")
-pathlib.Path.mkdir=forbidden
-from row_bot.application.capability_catalog_controls import read_tested_mcp_catalog
-page=read_tested_mcp_catalog(owner_id="synthetic-owner",server_id=sys.argv[1],test_command_id=sys.argv[2])
-assert page.availability=="available" and page.total==3
-assert not any(name in sys.modules for name in ("row_bot.tasks","row_bot.tools","row_bot.mcp_client.runtime","mcp"))
-'''
-    completed = subprocess.run([sys.executable, "-c", script, tested["payload"]["server_id"], tested["command_id"]],
-        capture_output=True, text=True, timeout=20, env={**os.environ, "ROW_BOT_DATA_DIR": str(config.CONFIG_PATH.parent)},
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    assert completed.returncode == 0, completed.stderr
-    assert owner.calls == ["connect", "list_tools"]
 
 
-def test_catalog_public_projection_never_exposes_private_names_schemas_or_descriptions(owner):
-    owner.tools[:] = [{"name": "Bearer-synthetic-private", "description": "synthetic-private-description",
-        "inputSchema": {"secret": "synthetic-private-schema"}}, {"name": "sk-synthetic-other", "description": ""}]
-    tested = run_test()
-    public = json.dumps(asdict(read(tested)))
-    assert "synthetic-private" not in public and "sk-synthetic" not in public
-    assert len({row.name for row in read(tested).items}) == 2
-    assert read(tested, query="private").total == 0
 
 
 def test_approval_is_rechecked_at_final_publication_authority(owner):
@@ -308,7 +248,8 @@ def test_inconsistent_retained_test_is_not_accepted(owner, change):
     else:
         private.pop("configuration_digest")
     admissions.complete_command("synthetic-owner", tested["command_id"], receipt)
-    assert read(tested).availability in {"unavailable", "stale"}
+    with pytest.raises(controls.Error):
+        tools(tested)
     with pytest.raises(controls.Error):
         execute(command(tested))
 
@@ -318,8 +259,8 @@ def test_required_approval_cannot_be_lowered_by_new_catalog_metadata(owner):
         "description": "Read", "destructive": True, "requires_approval": True}}, enabled={"get_record": True})
     config.CONFIG_PATH.write_text(json.dumps(owner.document), encoding="utf-8")
     tested = run_test()
-    reviewed = next(row for row in read(tested).items if row.name == "get_record")
-    assert reviewed.requires_approval is True and reviewed.destructive is True
+    reviewed = tools(tested)["get_record"]
+    assert reviewed["requires_approval"] is True and reviewed["destructive"] is True
     assert execute(command(tested))["status"] == "completed"
     current = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]
     assert current["catalog"]["get_record"]["destructive"] is True

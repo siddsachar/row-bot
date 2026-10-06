@@ -25,7 +25,6 @@ from .search_index import dedupe_entries, search_entries
 logger = logging.getLogger(__name__)
 
 BROWSE_CACHE_TTL_SECONDS = 6 * 60 * 60
-HEALTH_CACHE_TTL_SECONDS = 30 * 60
 # How long a browse or search waits before answering with the sources that have
 # replied. Slower sources keep going and are reported "pending"; their results
 # land in the cache, and the client asks again to pick them up.
@@ -244,10 +243,7 @@ class SkillSourceRegistry:
         for source in self._sources:
             source_id = _normalize_source_id(getattr(source, "id", ""))
             source_group = _normalize_source_id(getattr(source, "source_group", source_id))
-            trust = str(getattr(source, "trust_default", "community")).lower()
-            if normalized in {"", "all"}:
-                pass
-            elif source_id != normalized and source_group != normalized:
+            if normalized not in {"", "all"} and normalized not in {source_id, source_group}:
                 continue
             if browse_or_search and not (
                 bool(getattr(source, "supports_browse", False))

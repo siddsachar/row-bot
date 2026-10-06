@@ -198,4 +198,4 @@ def test_subdirectory_update_source_preserves_parent_and_child_identities(tmp_pa
     assert installer.update_plugin(identity, source_dir=staged.root, source_ref=staged.source_identity).success
     after = next(row for row in read_integration_packages(validate=lambda: None) if row["plugin_id"] == identity)
     assert after["children"] == row["children"]
-    assert after["recoverable"]
+    assert plugin_modules["state"].get_plugin_package_state(identity).get("previous")  # The prior package is kept.

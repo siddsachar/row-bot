@@ -51,7 +51,7 @@ def windows(tmp_path, monkeypatch):
 def test_it_is_found_only_in_the_windows_system_folder_of_a_new_enough_build(windows, monkeypatch, tmp_path):
     assert odr.locate() == windows.odr
     monkeypatch.setattr(sys, "getwindowsversion", lambda: SimpleNamespace(build=26200), raising=False)
-    assert odr.locate() is None and "26220.7344" in odr.environment_note()
+    assert odr.locate() is None
     monkeypatch.setattr(sys, "getwindowsversion", lambda: SimpleNamespace(build=26220), raising=False)
     windows.odr.unlink()  # One on PATH doesn't count.
     (tmp_path / "bin").mkdir()
@@ -59,7 +59,7 @@ def test_it_is_found_only_in_the_windows_system_folder_of_a_new_enough_build(win
     monkeypatch.setenv("PATH", str(tmp_path / "bin"))
     assert odr.locate() is None
     monkeypatch.setattr(sys, "platform", "darwin")
-    assert odr.locate() is None and odr.environment_note() == "not Windows"
+    assert odr.locate() is None
     assert windows.ran == []  # Finding it never starts anything.
 
 

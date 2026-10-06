@@ -93,8 +93,8 @@ def home(tmp_path, monkeypatch):
 def test_node_bundle_maps_user_config_to_declared_inputs_and_templates(home):
     data = archive()
     bundle = bundles.read(data, platform="linux")
-    assert (bundle.name, bundle.display_name, bundle.version, bundle.author, bundle.license, bundle.server_type) == (
-        "fixture-notes", "fixture-notes", "1.2.0", "Fixture Author", "MIT", "node")
+    assert (bundle.name, bundle.display_name, bundle.version, bundle.author, bundle.server_type) == (
+        "fixture-notes", "fixture-notes", "1.2.0", "Fixture Author", "node")
     assert bundle.sha256 == hashlib.sha256(data).hexdigest() and bundle.signature == {"status": "unsigned"}
     assert bundle.command == "node" and bundle.entry_point == "server/index.js"
     assert bundle.args == ("{bundle}/server/index.js", "--root", "{folder}")
@@ -116,7 +116,7 @@ def test_platform_override_and_declared_platforms(home):
     windows, linux = bundles.read(data, platform="win32"), bundles.read(data, platform="linux")
     assert windows.command == "node.exe" and windows.args == linux.args
     assert windows.env == {**linux.env, "LOG_LEVEL": "debug", "EXTRA": "1"}
-    assert linux.command == "node" and linux.env["LOG_LEVEL"] == "info" and linux.runtimes == {"node": ">=18"}
+    assert linux.command == "node" and linux.env["LOG_LEVEL"] == "info"
     with pytest.raises(ValueError, match="^bundle_platform_unsupported$"):
         bundles.read(data, platform="darwin")
 

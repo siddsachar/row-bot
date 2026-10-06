@@ -105,14 +105,3 @@ def overlap_note(server_name: str, server_cfg: dict[str, Any] | None) -> str:
         return ""
     named = labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
     return f"Row-Bot also has its own {named} tools."[:256]
-
-
-def unique_server_name(base_name: str, existing_names: list[str] | set[str]) -> str:
-    base = sanitize_name_component(base_name).replace("_", "-") or "mcp-server"
-    existing = set(existing_names)
-    if base not in existing:
-        return base
-    counter = 2
-    while f"{base}-{counter}" in existing:
-        counter += 1
-    return f"{base}-{counter}"

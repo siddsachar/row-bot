@@ -139,14 +139,10 @@ export function resolveSetting(value: string) {
 }
 
 /**
- * Where an old Integrations, MCP, Plugins or Skills link lands now: Apps,
- * Skills, one item, or Apps › Advanced (catalogs and runtimes).
+ * Where an old Integrations, MCP or Plugins link lands now: Apps, Skills, one
+ * item, or Apps › Advanced (catalogs and runtimes).
  */
-export function legacyIntegrationHref(
-  key: string,
-  search: URLSearchParams,
-  anchor = '',
-) {
+export function legacyIntegrationHref(search: URLSearchParams, anchor = '') {
   const hash = anchor.replace(/^#/, '');
   const selected = search.get('selected') ?? '';
   if (selected.startsWith('skill:'))
@@ -155,8 +151,7 @@ export function legacyIntegrationHref(
     return `/settings/apps/item?${new URLSearchParams({ id: selected })}`;
   if (search.get('view') === 'catalogs' || hash === 'mcp-runtimes')
     return '/settings/apps?view=advanced';
-  if (search.get('type') === 'skill' || (key === 'skills' && !search.size))
-    return '/settings/skills';
+  if (search.get('type') === 'skill') return '/settings/skills';
   return '/settings/apps';
 }
 
@@ -199,7 +194,7 @@ export function connectionHref(key: string, anchor = '') {
 export function settingsHref(value: string, anchor = '') {
   const key = value.toLowerCase();
   if (['integrations', 'plugins', 'mcp'].includes(key))
-    return legacyIntegrationHref(key, new URLSearchParams(), anchor);
+    return legacyIntegrationHref(new URLSearchParams(), anchor);
   if (CONNECTION_PAGES.has(key)) return connectionHref(key, anchor);
   const redirect = settingsRedirects[key];
   const leaf = resolveSetting(key);

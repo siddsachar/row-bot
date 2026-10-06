@@ -29,14 +29,12 @@ BLOCKING = {
     "inputs_required": ("needs_setup", "continue_setup"),
     "connection_failed": ("attention", "fix"),
     "cleanup_incomplete": ("attention", "retry"),
-    "tools_changed": ("attention", "fix"),
     "source_removed": ("attention", "fix"),
     "source_blocked": ("attention", "fix"),
     "package_failed": ("attention", "fix"),
     "included_attention": ("attention", "fix"),
     "missing_runtime": ("needs_runtime", "install_runtime"),
     "package_preparation": ("needs_runtime", "continue_setup"),
-    "app_required": ("needs_app", "open_app"),
     "tools_not_accepted": ("needs_setup", "continue_setup"),
     "package_setup": ("needs_setup", "continue_setup"),
     "included_needs_setup": ("needs_setup", "continue_setup"),
@@ -44,8 +42,7 @@ BLOCKING = {
     "unsupported": (None, "none"),
 }
 LABELS = {"connect": "Connect", "add": "Add", "install": "Add", "set_up": "Set up", "continue_setup": "Continue setup",
-          "sign_in": "Sign in",
-          "add_key": "Add key", "install_runtime": "Continue setup", "open_app": "Check again", "turn_on": "Turn on",
+          "sign_in": "Sign in", "add_key": "Add key", "install_runtime": "Continue setup", "turn_on": "Turn on",
           "fix": "Fix", "retry": "Retry", "try": "Try it", "delete_data": "Delete saved data", "turn_off": "Turn off",
           "remove": "Remove", "update": "Update", "none": ""}
 _MESSAGES = {
@@ -72,8 +69,8 @@ _LOCK = threading.RLock()
 _INDEX: dict = {}
 
 
-def blocker(code: str, message: str = "", *, subject: str = "", severity: str = "") -> dict:
-    return {"code": code, "severity": severity or ("blocking" if code in BLOCKING else "info"),
+def blocker(code: str, message: str = "", *, subject: str = "") -> dict:
+    return {"code": code, "severity": "blocking" if code in BLOCKING else "info",
             "message": (message or _MESSAGES.get(code, ""))[:512], "subject": subject[:256]}
 
 
@@ -97,8 +94,7 @@ def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
     """The one internal record; typed responses are views of it."""
     row = {"id": kind + ":" + owner_ref, "kind": kind, "owner_ref": owner_ref, "name": str(name)[:256],
         "description": "", "parent_id": None, "source": "local", "publisher": "", "source_url": "", "version": "", "pin": "",
-        "license": "", "compatibility": "supported", "platforms": [], "evidence": "Live service behavior has not been tested.",
-        "installed": True, "enabled": False, "revision": "", "actions": [], "auth_status": "none", "account_label": "",
+        "license": "", "compatibility": "supported", "installed": True, "enabled": False, "revision": "", "account_label": "",
         "children": [], "target": None, "attributions": [], "evidence_stage": "listed", "tested_with_row_bot": False,
         "auth_requirement": "unknown", "canonical_identity": "", "app": None, "lifecycle": "installed", "blockers": [],
         # Catalog ranking and dedup: vendor verification, setup tier (0 best), freshness, source signals.
@@ -150,16 +146,9 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
             destination = "Invalid connection destination"
     return {"auth_mode": mode, "execution": "local" if local else "hosted", "destination": destination[:2048],
         "bindings": bindings, "credential_configured": bool(auth.get("credential_ref")), "inputs": declared,
-        "inputs_missing": inputs.missing(cfg, bool(auth.get("credential_ref")))[1],
-        "catalog_accepted": isinstance((cfg.get("tools") or {}).get("catalog"), dict),
+        "inputs_missing": inputs.missing(cfg), "catalog_accepted": isinstance((cfg.get("tools") or {}).get("catalog"), dict),
         "requirements": list(server.get("requirements") or []),
-        "runtime_status": str(server.get("runtime_status") or "not_connected")[:64],
-        "package_prepared": bool(cfg.get("managed_launch") or cfg.get("plugin_prepared")),
-        "package_required": local and _locked_package(cfg) and not cfg.get("managed_launch"),
-        "account_requirements": str(source.get("account_requirements") or ("Account required; consult publisher requirements."
-            if mode in {"oauth", "api_key"} else "Account requirements not supplied."))[:512],
-        "cost": str(source.get("cost") or "Cost and subscription requirements not supplied. Check the publisher before connecting.")[:512],
-        "evidence": str(source.get("evidence") or "Saved connection settings; live account access has not been verified.")[:512]}
+        "package_required": local and _locked_package(cfg) and not cfg.get("managed_launch")}
 
 
 def _locked_package(cfg: dict) -> bool:
@@ -256,9 +245,7 @@ def _static(validate: Callable[[], None]) -> tuple[list[dict], list[dict]]:
             rows.append(entry("skill", skill.name, skill.display_name, description=skill.description[:2048],
                 source=record.source if record else skill.source, version=str(getattr(skill, "version", "") or "")[:128],
                 revision=item.get("revision", ""), enabled=available, lifecycle="installed" if available else "off",
-                blockers=[blocker("source_blocked", blocked)] if blocked else [],
-                actions=["configure", "edit"] if skill.source == "user" else ["configure"],
-                evidence="Local instructions; use remains subject to tool approvals."))
+                blockers=[blocker("source_blocked", blocked)] if blocked else []))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         errors.append({"source": "skills", "status": "error", "message": "The skill inventory is unavailable; other integrations remain available.", "fetched_at": None})
     try:
@@ -274,7 +261,7 @@ def _static(validate: Callable[[], None]) -> tuple[list[dict], list[dict]]:
             source = cfg.get("source") or {}
             rows.append(entry("mcp", _server_id(name), name, source=str(source.get("marketplace") or "custom")[:80],
                 description="Tools from an external MCP server.", enabled=cfg.get("enabled") is True, revision=_revision(saved),
-                target={"kind": "standalone"}, actions=["configure", "test", "connect", "remove"], source_url=public_url(source.get("url")),
+                target={"kind": "standalone"}, source_url=public_url(source.get("url")),
                 app=_app(_mcp_refs(cfg)), _mcp={"name": name, "cfg": cfg, "active": saved.document.get("enabled") is True}))
     except (OSError, ValueError, KeyError, TypeError):
         errors.append({"source": "mcp", "status": "error", "message": "The MCP inventory is unavailable; other integrations remain available.", "fetched_at": None})
@@ -311,7 +298,7 @@ def _package(plugin: dict, validate: Callable[[], None]) -> dict:
             lifecycle="installed" if plugin["enabled"] else "off", required=child.get("optional") is not True)
         if child["kind"] == "mcp":
             target = {"kind": "plugin", "plugin_id": plugin["plugin_id"], "server_key": child["server_key"]}
-            row.update(target=target, actions=["configure"])
+            row.update(target=target)
             try:
                 saved = config.read_saved_configuration(target)
                 name, cfg = next(iter(saved.document["servers"].items()))
@@ -322,14 +309,11 @@ def _package(plugin: dict, validate: Callable[[], None]) -> dict:
             except (OSError, ValueError, KeyError, TypeError, StopIteration):
                 row.update(blockers=[blocker("included_attention", "This included connection is unavailable. Review its setup.")])
         children.append(row)
-    actions = [a for a, c in plugin["capabilities"].items() if c.get("available")]
-    actions += ["restore"] if plugin.get("recoverable") else []
-    actions += ["recover"] if plugin.get("publication_pending") else []
     return entry("plugin", plugin["plugin_id"], plugin["name"], description=plugin["description"][:2048],
         source="portable" if plugin["package_format"] != "row-bot-v2" else "native", publisher=plugin.get("publisher", "")[:160],
         license=plugin.get("license", "")[:256], source_url=public_url(plugin.get("source_url")), version=plugin["version"][:128],
         pin=plugin.get("pin", ""), enabled=plugin["enabled"], installed=plugin["installed"], revision=plugin.get("manifest_revision") or "",
-        compatibility="partial" if plugin.get("diagnostics") else "supported", children=children, actions=actions, app=app,
+        compatibility="partial" if plugin.get("diagnostics") else "supported", children=children, app=app,
         canonical_identity="plugin:" + str(plugin.get("source_identity", "")) + "@" + str(plugin.get("pin", "")),
         lifecycle="data_retained" if plugin.get("retained") else "installed" if plugin["enabled"] else "off", blockers=blockers)
 
@@ -454,8 +438,7 @@ def _live(row: dict, statuses: dict, validate: Callable[[], None], pending: dict
     if private is not None:
         cfg, excluded = private["cfg"], private.get("excluded", False)
         runtime = statuses.get(private["name"], {})
-        server = {"requirements": _requirements(cfg), "runtime_status": runtime.get("status")}
-        setup = mcp_setup(server, cfg)
+        setup = mcp_setup({"requirements": _requirements(cfg)}, cfg)
         enabled = cfg.get("enabled") is True and private["active"] and not excluded
         # A connection someone deliberately switched off is off, not unfinished.
         row["blockers"] = row["blockers"] + ([] if excluded else mcp_blockers(setup, runtime, enabled=enabled))

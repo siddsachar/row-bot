@@ -251,10 +251,10 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
             "version": manifest.version, "license": manifest.license, "publisher": manifest.author.name,
             "format": manifest.package_format, "compatibility": "partial" if manifest.diagnostics else "supported",
             "diagnostics": manifest.diagnostics[:128], "source": repo or ("Bundled Row-Bot example" if reference.startswith("bundled:") else "Authorized local package"), "pin": pin,
-            "tree_digest": digest, "archive_digest": archive_digest, "adapter_version": 1,
+            "tree_digest": digest, "archive_digest": archive_digest,
             "skills": [{"name": s.get("display_name") or s["name"], "description": str(s.get("description", ""))[:1024]} for s in manifest.provides.skills],
             "servers": [{"key": s["id"], "transport": s["transport"], "command": s.get("command", ""), "args": s.get("args", []), "url": s.get("url", "")} for s in manifest.provides.mcp_servers],
-            "permissions": manifest.permissions, "evidence": "Format inspected; live service and platform behavior not tested."}
+            "permissions": manifest.permissions}
         _PREVIEWS.put((owner_id, preview_id), PackagePreview(preview_id, manifest.id, owner_id, source_identity, pin, digest,
             archive_digest, root, summary, reference if reference.startswith("hermes:") else ""))
         return summary

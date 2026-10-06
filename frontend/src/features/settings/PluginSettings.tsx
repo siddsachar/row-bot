@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { Button, Field, Input, Select, Toggle } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
 import { ConnectSheet, type ConnectStep } from './ConnectSheet';
@@ -30,9 +30,6 @@ export type PluginCatalogPage = {
   items: PluginCatalogItem[];
   total: number;
   next_cursor: string | null;
-  /** Over every plugin, whatever the tab or search shows (B120). */
-  installed_count?: number;
-  attention_count?: number;
 };
 export type PluginField = {
   name: string;
@@ -459,11 +456,6 @@ export default function PluginSettings({
       reviewed: null,
       message: '',
     });
-
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  useEffect(() => () => clearTimeout(searchTimer.current), []);
 
   return (
     <section

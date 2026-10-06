@@ -1,11 +1,8 @@
 """Explicit acceptance of an exact completed MCP Test's retained tool catalog."""
 from __future__ import annotations
 
-import base64
 from collections.abc import Callable
 import copy
-from dataclasses import dataclass
-import hmac
 import json
 import math
 from uuid import UUID
@@ -99,28 +96,6 @@ def capture_tested_catalog(tested: dict) -> dict:
         return {"availability": "unavailable", "tools": []}
 
 
-@dataclass(frozen=True)
-class McpCatalogTool:
-    tool_id: str
-    name: str
-    enabled_after_accept: bool | None
-    requires_approval: bool
-    destructive: bool
-    effect: str
-
-
-@dataclass(frozen=True)
-class McpTestedCatalogPage:
-    schema_version: int
-    configuration_revision: str | None
-    server_id: str
-    test_command_id: str
-    availability: str
-    items: tuple[McpCatalogTool, ...]
-    total: int | None
-    next_cursor: str | None
-
-
 def _ids(server_id, test_command_id):
     policy._identity(server_id)
     try:
@@ -197,56 +172,6 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
         except ValueError:
             raise Error("approval_required") from None
     return document, (name,)
-
-
-def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: str,
-                            query: str = "", cursor: str | None = None, limit: int = 25,
-                            validate: Callable[[], None] = lambda: None,
-                            target: dict | None = None) -> McpTestedCatalogPage:
-    validate()
-    target = targets.normalize(target)
-    _ids(server_id, test_command_id)
-    if type(query) is not str or len(query) > 128 or type(limit) is not int or not 1 <= limit <= 50:
-        raise Error("invalid_query")
-    query = query.strip().casefold()
-    revision = None
-    try:
-        saved = config.read_saved_configuration(target)
-        revision = configuration._revision(saved)
-        captured = _captured(owner_id, server_id, test_command_id, saved)
-        document, names = _document(saved, server_id, captured)
-        rows = policy._tool_policies(server_id, document["servers"][names[0]]["tools"])
-        matches = sorted((McpCatalogTool(rows[row["name"]].tool_id, rows[row["name"]].name,
-            rows[row["name"]].enabled, bool(rows[row["name"]].requires_approval), bool(rows[row["name"]].destructive), row["effect"])
-            for row in captured["tools"] if query in rows[row["name"]].name.casefold()), key=lambda row: (row.name.casefold(), row.tool_id))
-        availability = "recovery_required" if config.configuration_recovery_required(target=target) else "available"
-    except (Error, config.McpConfigurationError, admissions.AdmissionError) as error:
-        validate()
-        if cursor is not None:
-            raise Error("cursor_expired") from None
-        return McpTestedCatalogPage(1, revision, server_id, test_command_id,
-            "stale" if getattr(error, "code", "") == "mcp_catalog_stale" else "unavailable", (), None, None)
-    fingerprint = configuration._digest([owner_id, server_id, test_command_id, captured])
-    offset = 0
-    if cursor is not None:
-        try:
-            if type(cursor) is not str or len(cursor) > 2048:
-                raise ValueError
-            value, signature = json.loads(base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True))
-            if (type(value) is not list or len(value) != 5 or value[:3] != [revision, fingerprint, query]
-                    or type(value[3]) is not int or not 0 <= value[3] <= _TOOL_LIMIT or value[4] != limit
-                    or type(signature) is not str or not hmac.compare_digest(signature, configuration._digest(value))):
-                raise ValueError
-            offset = value[3]
-        except (ValueError, TypeError, UnicodeError, RecursionError):
-            raise Error("cursor_expired") from None
-    items = tuple(matches[offset:offset + limit])
-    next_cursor = None
-    if offset + len(items) < len(matches):
-        value = [revision, fingerprint, query, offset + len(items), limit]
-        next_cursor = base64.urlsafe_b64encode(json.dumps([value, configuration._digest(value)], separators=(",", ":")).encode()).decode().rstrip("=")
-    validate()
-    return McpTestedCatalogPage(1, revision, server_id, test_command_id, availability, items, len(matches), next_cursor)
 
 
 def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target: dict | None = None) -> list[dict]:

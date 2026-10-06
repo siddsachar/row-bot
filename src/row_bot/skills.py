@@ -473,11 +473,6 @@ def get_pinned_skill_names() -> list[str]:
     ]
 
 
-def get_pinned_manual_skills() -> list[Skill]:
-    """Return manual skills pinned for new chats and tasks."""
-    return [_skills_cache[name] for name in get_pinned_skill_names()]
-
-
 def _append_default_skill(names: list[str], skill_name: str) -> None:
     skill = _skills_cache.get(skill_name)
     if (
@@ -541,11 +536,6 @@ def get_enabled_manual_skills_snapshot() -> list[Skill]:
         for skill in get_manual_skills()
         if _enabled.get(skill.name, False)
     ]
-
-
-def get_enabled_skill_names() -> list[str]:
-    """Return names of all active skills (manual + auto tool guides)."""
-    return [s.name for s in get_enabled_skills()]
 
 
 def get_skills_prompt(

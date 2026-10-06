@@ -197,7 +197,7 @@ export function usePlan(
   };
 }
 
-export type PlanControl = ReturnType<typeof usePlan>;
+type PlanControl = ReturnType<typeof usePlan>;
 
 const stepIcons = {
   done: Check,
@@ -210,7 +210,7 @@ const stepIcons = {
 };
 
 /** Every step type renders the same way: title, state and message. */
-export function Stepper({ steps }: { steps: PlanStep[] }) {
+function Stepper({ steps }: { steps: PlanStep[] }) {
   return (
     <ol className="plan-steps" aria-label="Setup steps">
       {steps
@@ -357,7 +357,7 @@ function ReviewPanel({
   secondary?: ReactNode;
 }) {
   return (
-    <div className="plan-wait stack plan-review">
+    <div className="plan-wait stack">
       <p>
         <strong>{review.summary}</strong>
       </p>
@@ -648,7 +648,7 @@ export function ConsentSheet({
       }
     >
       {consent && (
-        <div className="stack app-consent">
+        <div className="stack">
           {!consent.supported ? (
             <p role="alert">{consent.unsupported_reason}</p>
           ) : (

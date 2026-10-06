@@ -4734,92 +4734,6 @@
       "title": "KnowledgeWritePayload",
       "type": "object"
     },
-    "McpCatalogAcceptCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/McpCatalogPayload"
-        },
-        "type": {
-          "const": "mcp.catalog.accept",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "McpCatalogAcceptCommand",
-      "type": "object"
-    },
-    "McpCatalogPayload": {
-      "additionalProperties": false,
-      "properties": {
-        "configuration_revision": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Configuration Revision",
-          "type": "string"
-        },
-        "nonce": {
-          "maxLength": 128,
-          "minLength": 1,
-          "title": "Nonce",
-          "type": "string"
-        },
-        "server_id": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Server Id",
-          "type": "string"
-        },
-        "target": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/McpStandaloneTarget"
-            },
-            {
-              "$ref": "#/$defs/McpPluginTarget"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Target"
-        },
-        "test_command_id": {
-          "format": "uuid",
-          "title": "Test Command Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "configuration_revision",
-        "server_id",
-        "test_command_id",
-        "nonce"
-      ],
-      "title": "McpCatalogPayload",
-      "type": "object"
-    },
     "McpChatPayload": {
       "additionalProperties": false,
       "properties": {
@@ -11311,7 +11225,6 @@
       "knowledge.resolve": "#/$defs/KnowledgeResolveCommand",
       "knowledge.restore": "#/$defs/KnowledgeRestoreCommand",
       "knowledge.supersede": "#/$defs/KnowledgeSupersedeCommand",
-      "mcp.catalog.accept": "#/$defs/McpCatalogAcceptCommand",
       "mcp.configuration.control": "#/$defs/McpConfigurationControlCommand",
       "mcp.configuration.save": "#/$defs/McpConfigurationSaveCommand",
       "mcp.facade.control": "#/$defs/McpFacadeControlCommand",
@@ -11712,9 +11625,6 @@
     },
     {
       "$ref": "#/$defs/BrowserEndCommand"
-    },
-    {
-      "$ref": "#/$defs/McpCatalogAcceptCommand"
     },
     {
       "$ref": "#/$defs/McpFacadeControlCommand"

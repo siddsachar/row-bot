@@ -7,15 +7,14 @@ from itertools import islice
 from pathlib import PurePosixPath
 from typing import Any
 import copy
-import hashlib
-import json
 import threading
 import time
 from urllib.parse import urlsplit, urlunsplit
 
 from row_bot.application.client_platform import ClientPlatformError
-from row_bot.integrations import facts, plans, presets
+from row_bot.integrations import facts, plans
 from row_bot.integrations import sources as catalog
+from row_bot.integrations.plans import _digest
 from row_bot.integrations.safe import TtlCache
 
 _SEARCHES = TtlCache(1200, 64)
@@ -24,10 +23,6 @@ SOURCE_DEADLINE = 8.0
 # "app" is everything that is not a skill: connections and the packages that bring them.
 _KINDS = {"all": {"skill", "mcp", "plugin", "builtin"}, "app": {"mcp", "plugin", "builtin"}, "skill": {"skill"},
           "mcp": {"mcp"}, "plugin": {"plugin"}, "builtin": {"builtin"}}
-
-
-def _digest(value) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def entry(row: dict) -> dict:
@@ -260,10 +255,6 @@ def read_icons(icon_ids: list[str]) -> dict:
     return {"schema_version": 1, "items": icons.batch(icon_ids)}
 
 
-def list_presets() -> dict:
-    return {"schema_version": 1, "items": presets.views()}
-
-
 def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str = "installed", cursor: str | None = None,
                limit: int = 50, everything: bool = False, validate: Callable[[], None] = lambda: None) -> dict:
     """Installed items, or the local catalogs (``everything``: placeholder and duplicate records too). Neither
@@ -378,14 +369,7 @@ def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], 
     from row_bot.integrations import builtin
     row = facts.read(item_id, validate) or builtin.read(item_id, validate)
     if row is not None:
-        reference: dict = {}
-        if row["kind"] == "mcp":
-            from row_bot.application.capability_configuration_controls import _server_id
-            from row_bot.mcp_client import config, targets
-            saved = config.read_saved_configuration(targets.normalize(row["target"]))
-            reference["cfg"] = next((cfg for name, cfg in saved.document.get("servers", {}).items()
-                                     if _server_id(name) == row["owner_ref"]), {})
-        return row, reference
+        return row, {"cfg": plans._saved(row["target"], row["owner_ref"])[1]} if row["kind"] == "mcp" else {}
     saved = _SEARCHES.get((owner_id, revision)) if revision else None
     found = next((r for r in saved[1]["items"] if r["id"] == item_id), None) if saved else None
     if found is not None and item_id in saved[2]:

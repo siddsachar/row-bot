@@ -38,7 +38,6 @@ function standing(source: IntegrationSourceView) {
   return `Updated ${relativeTime(update.updated_at)}${entries}`;
 }
 
-/** Apps › Advanced: catalogs and their optional schedule, plus app-wide controls. */
 /** "Use apps": one switch that stops every app at once, through the same reviewed policy command as each app's. */
 function UseApps() {
   const { controller } = useRuntime();
@@ -201,6 +200,7 @@ function AppViews() {
   );
 }
 
+/** Apps › Advanced: catalogs and their optional schedule, plus app-wide controls. */
 export default function Advanced({ chat }: { chat: ReactNode }) {
   const { controller } = useRuntime();
   const [sources, setSources] = useState<IntegrationSourceView[]>([]);
@@ -261,7 +261,7 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
         <div className="app-section">
           <p className="settings-help">
             Row-Bot searches copies kept on this computer. Updating fetches the
-            latest copy; searching never sends what you type.
+            latest copy; only Search online catalogs sends what you type.
           </p>
           <ul className="catalog-list">
             {sources.map((source) => (

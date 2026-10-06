@@ -273,12 +273,12 @@ export default function McpFacadeControls({
   };
   const saved = state.snapshot?.saved_enabled ?? null;
   const effective = state.snapshot?.effective_enabled ?? null;
-  // "Offer MCP tools in chats" (B262): the page's second switch. It only
+  // "Use apps in chats" (B262): the page's second switch. It only
   // changes which tools chats see, never a server's connection.
   return (
     <SettingsItem
-      label="Offer MCP tools in chats"
-      help="Chats can call tools from connected servers. Tools that change things ask first."
+      label="Use apps in chats"
+      help="Chats can use your connected apps' tools. Tools that change things ask first."
       layout="inline"
       anchor="mcp-chat-tools"
       bind={false}
@@ -300,7 +300,7 @@ export default function McpFacadeControls({
       }
       control={
         <Toggle
-          label="Offer MCP tools in chats"
+          label="Use apps in chats"
           checked={state.draft ?? saved ?? false}
           disabled={locked || !available}
           onChange={(event) => {

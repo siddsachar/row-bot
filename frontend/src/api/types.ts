@@ -207,12 +207,7 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationEntryPage>;
   integrationDetail?(
-    options: {
-      item_id: string;
-      revision?: string;
-      intent?: string;
-      cleanup?: boolean;
-    },
+    options: { item_id: string; revision?: string },
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationDetail>;
   reviewInstallPlan?(
@@ -233,30 +228,6 @@ export interface ClientTransport {
     plan: string,
     signal?: AbortSignal,
   ): Promise<Wire.InstallPlan>;
-  reviewMcpAuth?(
-    body: Wire.McpAuthReviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpAuthReview>;
-  mcpAuthStatus?(
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpAuthStatus>;
-  cancelMcpAuth?(
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpAuthStatus>;
-  previewMcpPackage?(
-    body: Wire.McpPackageRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpPackageReview>;
-  sendMcpPackage?(
-    body: Wire.McpPackageCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.CommandReceipt>;
-  sendMcpAuth?(
-    body: Wire.McpAuthCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpAuthStatus>;
 
   conversationActions?(
     conversation: string,
@@ -819,31 +790,6 @@ export interface ClientTransport {
     request: Wire.MigrationScanRequest,
     signal?: AbortSignal,
   ): Promise<Wire.MigrationPreview>;
-  searchSkillHub?(
-    request: Wire.SkillHubSearchRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubSearchResult>;
-  previewSkillHub?(
-    request: Wire.SkillHubPreviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubPreview>;
-  installSkillHub?(
-    command: Wire.SkillHubInstallCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubInstallReceipt>;
-  skillHubInstallReceipt?(
-    commandId: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubInstallReceipt>;
-  skillHubInstalled?(signal?: AbortSignal): Promise<Wire.SkillHubInstalledPage>;
-  skillHubMaintenance?(
-    command: Wire.SkillHubMaintenanceCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubMaintenanceReceipt>;
-  skillHubMaintenanceReceipt?(
-    commandId: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubMaintenanceReceipt>;
   reviewMigration?(
     request: Wire.MigrationApplyReviewRequest,
     signal?: AbortSignal,
@@ -1011,28 +957,11 @@ export interface ClientTransport {
     body: Wire.PluginReviewRequest,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReview>;
-  pluginReceipt?(
-    plugin: string,
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginReceipt>;
   executePlugin?(
     plugin: string,
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReceipt>;
-  reviewPluginLifecycle?(
-    body: Wire.PluginLifecycleReviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginLifecycleReview>;
-  pluginLifecycleReceipt?(
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginLifecycleReceipt>;
-  executePluginLifecycle?(
-    command: Wire.PluginLifecycleCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginLifecycleReceipt>;
   skills?(
     query: string,
     source?: string,
@@ -1131,11 +1060,6 @@ export interface ClientTransport {
     body: Wire.PluginReviewRequest,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReview>;
-  pluginReceipt?(
-    plugin: string,
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginReceipt>;
   executePlugin?(
     plugin: string,
     command: Wire.Command,
@@ -1163,18 +1087,6 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.SkillReceipt>;
-  mcpTestedCatalog?(
-    server: string,
-    command: string,
-    query: string,
-    cursor?: string,
-    signal?: AbortSignal,
-    target?: Wire.McpTarget,
-  ): Promise<Wire.McpTestedCatalogPage>;
-  reviewMcpCatalog?(
-    body: Wire.McpCatalogRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpCatalogReview>;
   mcpPolicy?(
     server: string | null,
     query: string,
@@ -1191,15 +1103,6 @@ export interface ClientTransport {
     body: Wire.McpChatReviewRequest,
     signal?: AbortSignal,
   ): Promise<Wire.McpChatReview>;
-  mcpRuntime?(
-    server: string,
-    signal?: AbortSignal,
-    target?: Wire.McpTarget,
-  ): Promise<Wire.McpRuntimeState>;
-  reviewMcpRuntime?(
-    body: Wire.McpRuntimeReviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpRuntimeReview>;
   subscriptionAccounts?(
     signal?: AbortSignal,
   ): Promise<Wire.SubscriptionAccountsSnapshot>;

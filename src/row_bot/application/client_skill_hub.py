@@ -345,10 +345,6 @@ def _read_receipt(owner_id: str, command_id: str, kind: str) -> dict:
     return receipt
 
 
-def read_skill_install_receipt(*, owner_id: str, command_id: str) -> dict[str, Any]:
-    return _read_receipt(owner_id, command_id, "install")
-
-
 def _record_revision(record: SkillInstallRecord) -> str:
     data = (record.local_name, record.content_hash, record.updated_at, record.enabled)
     return hashlib.sha256(repr(data).encode()).hexdigest()
@@ -363,14 +359,6 @@ def _record_public(record: SkillInstallRecord) -> dict[str, Any]:
         "updated_at": record.updated_at[:64],
         "file_count": record.file_count,
         "revision": _record_revision(record),
-    }
-
-
-def read_installed_public_skills() -> dict[str, Any]:
-    records = list(provenance.load_records().values())[:200]
-    return {
-        "schema_version": 1,
-        "items": [_record_public(record) for record in records],
     }
 
 
@@ -471,10 +459,6 @@ def execute_public_skill_maintenance(
         return admissions.complete_command(owner_id, command_id, {"receipt": receipt})["receipt"]
     finally:
         _ACTIVE.discard((owner_id, command_id))
-
-
-def read_skill_maintenance_receipt(*, owner_id: str, command_id: str) -> dict[str, Any]:
-    return _read_receipt(owner_id, command_id, "maintenance")
 
 
 def reconcile_skill_hub_operation(*, owner_id: str, command_id: str, validate: Callable[[], None],

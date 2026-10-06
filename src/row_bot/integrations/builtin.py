@@ -33,14 +33,13 @@ _ACCOUNT_STATES = {"connected": None, "saved_unchecked": None, "configured_unche
 
 
 def _row(ref: str, name: str, *, app_ref: str, lifecycle: str, blockers: list[dict] = (), description: str = "",
-         publisher: str = "Row-Bot", tools: tuple[str, ...] = (), parent_id: str | None = None) -> dict:
+         tools: tuple[str, ...] = ()) -> dict:
     app = apps.match([app_ref])
     # Part of Row-Bot, not published by the service: it reads "Built in", never "by Google".
     row = facts.entry("builtin", ref, name, app=app.ref() if app else None, source="builtin",
-                      publisher=publisher, description=description, installed=lifecycle != "available",
-                      enabled=lifecycle == "installed", lifecycle=lifecycle, blockers=list(blockers), parent_id=parent_id,
-                      canonical_identity="builtin:" + ref, compatibility="supported", evidence_stage="inspected",
-                      evidence="Built into Row-Bot.")
+                      publisher="Row-Bot", description=description, installed=lifecycle != "available",
+                      enabled=lifecycle == "installed", lifecycle=lifecycle, blockers=list(blockers),
+                      canonical_identity="builtin:" + ref, compatibility="supported", evidence_stage="inspected")
     row["tools"] = list(tools)  # The chat tools this way brings, for app identity and chat switches.
     return facts.finish(row)
 
@@ -222,9 +221,9 @@ def app_ways(app: apps.App) -> list[dict]:
 
 def tool_app(parent: str) -> dict | None:
     """The built-in way whose chat tools include this tool parent (``gmail`` -> Google)."""
-    for account, (_, tools) in ACCOUNTS.items():
+    for account, (name, tools) in ACCOUNTS.items():
         if parent in tools:
-            return _identity("account:" + account, ACCOUNTS[account][0])
+            return _identity("account:" + account, name)
     if parent in TOOLS:
         return _identity("tool:" + parent, TOOLS[parent][0])
     return None

@@ -532,8 +532,7 @@ def inspect(owner_id: str, cfg: dict, lock: dict | None = None, *, check: Callab
         shutil.rmtree(root, ignore_errors=True)
         raise
     summary = {"preview_id": preview_id, "name": lock["name"], "version": lock["version"], "integrity": lock["integrity"],
-        "digest": digest, "lock_digest": lock["digest"], "dependencies": max(0, len(lock["items"]) - 1), "kind": lock["kind"],
-        "license": "", "disclosures": review(lock)["lines"]}
+        "digest": digest, "lock_digest": lock["digest"], "dependencies": max(0, len(lock["items"]) - 1), "kind": lock["kind"]}
     _PREVIEWS.put((owner_id, preview_id), {"summary": summary, "root": root, "entry": entry, "args": arguments(cfg), "cfg": cfg})
     return summary
 

@@ -9,7 +9,6 @@ import {
 import { expect, it, vi } from 'vitest';
 import CapabilitySettings, {
   createCapabilitySettingsSession,
-  type CapabilitySettingsProps,
   type McpConfigurationPage,
   type McpConfigurationReceipt,
 } from './CapabilitySettings';
@@ -141,39 +140,7 @@ it('says in the row when a runtime it needs is missing, without sending anything
   expect(props.execute).not.toHaveBeenCalled();
 });
 
-function directory(
-  entries: Partial<
-    Awaited<
-      ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
-    >['items'][number]
-  >[],
-) {
-  return vi.fn(async () => ({
-    schema_version: 1 as const,
-    mode: 'curated' as const,
-    items: entries.map((entry, index) => ({
-      id: `entry-${index}`,
-      name: `Entry ${index}`,
-      description: 'Synthetic entry',
-      source: 'curated',
-      publisher: 'Synthetic',
-      transport: 'streamable_http',
-      risk_level: 'low',
-      requires_auth: false,
-      sign_in_required: false,
-      recommended: true,
-      import_json: `{"mcpServers":{"entry-${index}":{"url":"https://example.invalid/${index}"}}}`,
-      ...entry,
-    })),
-  }));
-}
-async function browse() {
-  const dialog = await openAdd();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Search' }));
-  return dialog;
-}
-
-it('searches the MCP directory only on request, adds the entry turned off and opens its details', async () => {
+it('adds a new server turned off and opens its details', async () => {
   const props = options();
   const onConnection = vi.fn();
   const newServer = 'e'.repeat(64);
@@ -186,48 +153,21 @@ it('searches the MCP directory only on request, adds the entry turned off and op
       server_ids: [newServer],
     },
   }));
-  const searchDirectory = directory([
-    { name: 'Fixture', description: '<img onerror=sentinel()>' },
-  ]);
-  render(
-    <CapabilitySettings
-      {...props}
-      searchDirectory={searchDirectory}
-      onConnection={onConnection}
-    />,
-  );
-  const dialog = await openAdd();
-  // Browse is the first way to add; nothing is searched until asked.
-  expect(within(dialog).getByRole('radio', { name: 'Browse' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
-  expect(searchDirectory).not.toHaveBeenCalled();
-  fireEvent.change(
-    within(dialog).getByRole('searchbox', { name: 'Search the MCP directory' }),
-    { target: { value: 'fixture' } },
-  );
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Search' }));
-  expect(await screen.findByText('<img onerror=sentinel()>')).toBeVisible();
-  expect(dialog.querySelector('img')).toBeNull();
+  render(<CapabilitySettings {...props} onConnection={onConnection} />);
+  await enterDraft();
   props.load.mockResolvedValue({
     ...page,
     total: 2,
     items: [
       ...page.items,
-      { ...page.items[0], server_id: newServer, name: 'fixture' },
+      { ...page.items[0], server_id: newServer, name: 'New synthetic' },
     ],
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Add Fixture' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
-  expect(props.review.mock.calls[0][0].intent).toEqual({
-    operation: 'import',
-    import_json:
-      '{"mcpServers":{"entry-0":{"url":"https://example.invalid/0"}}}',
-  });
   // Adding ends by opening the new server's details.
   await waitFor(() =>
-    expect(onConnection).toHaveBeenCalledWith(newServer, 'fixture'),
+    expect(onConnection).toHaveBeenCalledWith(newServer, 'New synthetic'),
   );
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(
@@ -237,68 +177,25 @@ it('searches the MCP directory only on request, adds the entry turned off and op
 
 it('reads a changed revision again and retries the add once', async () => {
   const props = options();
-  const searchDirectory = directory([{ name: 'Docs' }]);
   props.review.mockRejectedValueOnce({
     code: 'revision_conflict',
     status: 409,
   });
-  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
-  await browse();
+  render(<CapabilitySettings {...props} />);
+  await enterDraft();
   props.load.mockResolvedValue({ ...page, revision: 'e'.repeat(64) });
-  fireEvent.click(await screen.findByRole('button', { name: 'Add Docs' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   expect(
     props.review.mock.calls.map((call) => call[0].configuration_revision),
   ).toEqual(['a'.repeat(64), 'e'.repeat(64)]);
 });
 
-it('says a failed add next to the entry that was clicked', async () => {
-  const props = options();
-  const searchDirectory = directory([{ name: 'Docs' }, { name: 'Other' }]);
-  props.review.mockResolvedValueOnce({
-    configuration_revision: 'different',
-    action_digest: 'c'.repeat(64),
-  });
-  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
-  await browse();
-  fireEvent.click(await screen.findByRole('button', { name: 'Add Docs' }));
-  const entry = screen.getByRole('article', { name: 'Docs' });
-  expect(
-    await within(entry).findByText(/could not be validated/),
-  ).toBeVisible();
-  expect(
-    within(screen.getByRole('article', { name: 'Other' })).queryByRole(
-      'status',
-    ),
-  ).toBeNull();
-  expect(props.execute).not.toHaveBeenCalled();
-});
-
-it('marks servers that sign in through the browser and offers no Add for them', async () => {
-  const props = options();
-  const searchDirectory = directory([
-    { name: 'Notion MCP', requires_auth: true, sign_in_required: true },
-    { name: 'Xquik MCP', requires_auth: true },
-  ]);
-  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
-  await browse();
-  const notion = await screen.findByRole('article', { name: 'Notion MCP' });
-  expect(
-    within(notion).getByText('Needs sign-in (not supported yet)'),
-  ).toBeVisible();
-  expect(within(notion).queryByRole('button', { name: /Add/ })).toBeNull();
-  const xquik = screen.getByRole('article', { name: 'Xquik MCP' });
-  expect(within(xquik).getByText(/needs a key/)).toBeVisible();
-  expect(
-    within(xquik).getByRole('button', { name: 'Add Xquik MCP' }),
-  ).toBeEnabled();
-});
-
 it('opens Add server on the way chosen, with its first field focused', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
   const dialog = await openAdd();
-  // Without a directory, Manual is first.
+  // Manual is first.
   await waitFor(() =>
     expect(within(dialog).getByLabelText('Server name')).toHaveFocus(),
   );

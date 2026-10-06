@@ -181,7 +181,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(source["conflicts"][0]["capability"], "browser")
 
     def test_an_overlap_with_row_bot_is_only_a_note(self) -> None:
-        from row_bot.mcp_client.conflicts import conflicts_for_server, overlap_note, unique_server_name
+        from row_bot.mcp_client.conflicts import conflicts_for_server, overlap_note
 
         overlap_cfg = {
             "name": "playwright",
@@ -194,7 +194,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(overlap_note("stripe", high_risk_cfg), "")
         web_search_overlap_cfg = {"name": "context7", "source": {"overlaps_native": ["web_search"], "risk_level": "low"}}
         self.assertEqual(overlap_note("context7", web_search_overlap_cfg), "Row-Bot also has its own Web Search tools.")
-        self.assertEqual(unique_server_name("Playwright MCP", {"playwright-mcp"}), "playwright-mcp-2")
 
     def test_probe_server_normalizes_cancelled_and_timed_out_handshakes(self) -> None:
         import concurrent.futures

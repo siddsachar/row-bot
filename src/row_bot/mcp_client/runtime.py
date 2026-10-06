@@ -997,11 +997,11 @@ def _record_app_processes() -> None:
     sdk_stdio._create_platform_compatible_process = create
 
 
-def cleanup_app_processes(*, dead_owner: int | Iterable[int] | None = None) -> int:
+def cleanup_app_processes() -> int:
     """Stop local app programs (with their process trees) that a Row-Bot which has since ended started and
     recorded; nothing else. Returns how many were stopped."""
     from row_bot import owned_processes
-    stopped = owned_processes.cleanup(owned_processes.ledger_path(APP_PROCESSES), dead_owner=dead_owner, tree=True)
+    stopped = owned_processes.cleanup(owned_processes.ledger_path(APP_PROCESSES), tree=True)
     if stopped:
         log_event("mcp.server.orphans_stopped", count=stopped)
     return stopped

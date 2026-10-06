@@ -83,8 +83,6 @@ def test_explicit_reconciliation_closes_lost_receipt_without_repeating_publicati
     assert result["success"]
     assert admissions.read_command_metadata("owner", identity)["status"] == "admitting"
     monkeypatch.setattr(installer, "install_bundle", lambda *a, **k: pytest.fail("publication replayed"))
-    assert hub.read_skill_install_receipt(owner_id="owner", command_id=identity)["success"]
-    assert admissions.read_command_metadata("owner", identity)["status"] == "admitting"
     assert hub.reconcile_skill_hub_operation(owner_id="owner", command_id=identity, validate=lambda: None)["settled"]
     assert admissions.read_command_metadata("owner", identity)["status"] == "completed"
 

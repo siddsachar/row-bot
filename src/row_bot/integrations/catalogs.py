@@ -64,7 +64,7 @@ def _view(source_id: str, saved: dict) -> dict:
             "entries": saved.get("entries")}
 
 
-def update(source_id: str, *, wait: bool = False, cancelled: Callable[[], bool] = lambda: False) -> dict:
+def update(source_id: str, *, wait: bool = False) -> dict:
     """Start one explicit update of a source; a running update is returned as it is."""
     source = updatable().get(source_id)
     if source is None:
@@ -72,7 +72,7 @@ def update(source_id: str, *, wait: bool = False, cancelled: Callable[[], bool] 
     with _LOCK:
         thread = _RUNNING.get(source_id)
         if thread is None:
-            thread = threading.Thread(target=_run, args=(source, cancelled), daemon=True, name="catalog-update-" + source_id)
+            thread = threading.Thread(target=_run, args=(source,), daemon=True, name="catalog-update-" + source_id)
             _RUNNING[source_id] = thread
             thread.start()
     if wait:
@@ -80,10 +80,10 @@ def update(source_id: str, *, wait: bool = False, cancelled: Callable[[], bool] 
     return state(source_id)
 
 
-def _run(source: sources.Source, cancelled: Callable[[], bool]) -> None:
+def _run(source: sources.Source) -> None:
     started = time.time()
     try:
-        summary = source.update(cancelled)
+        summary = source.update(lambda: False)
         outcome = {"state": "done", "updated_at": started, "checked_at": started, "error": "",
                    "entries": summary.get("entries")}
     except Exception as exc:  # The source keeps what it had; the reason is a short public code.

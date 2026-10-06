@@ -18,7 +18,6 @@ from row_bot.plugins.manifest import ManifestError, PluginAuthor, PluginManifest
 
 SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
-ADAPTER_VERSION = 1
 
 
 def package_id(source_identity: str, name: str) -> str:

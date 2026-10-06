@@ -50,7 +50,6 @@ class App:
     featured_rank: int | None = None
     local_app: str = ""
     local_check: tuple = ()  # (("port", 9876),) or (("process", "blender"),): how to tell the app is open.
-    checked: str = ""
     sources: tuple[str, ...] = ()
 
     def ref(self, *, verified: bool = False) -> dict:
@@ -86,7 +85,7 @@ def _app(row: dict) -> App:
     vendor, facts = row.pop("vendor", {}) or {}, row.pop("facts", {}) or {}
     tuples = {key: tuple(row.get(key, ())) for key in ("refs", "variants", "synonyms", "jobs", "example_prompts")}
     return App(**{**row, **tuples, "domains": tuple(vendor.get("domains", ())), "github_orgs": tuple(vendor.get("github_orgs", ())),
-                  "checked": facts.get("checked", ""), "sources": tuple(facts.get("sources", ())),
+                  "sources": tuple(facts.get("sources", ())),
                   "local_check": tuple(sorted((row.get("local_check") or {}).items()))})
 
 

@@ -52,7 +52,7 @@ function options() {
 }
 async function toggle() {
   const control = await screen.findByRole('switch', {
-    name: 'Offer MCP tools in chats',
+    name: 'Use apps in chats',
   });
   await waitFor(() => expect(control).toBeEnabled());
   fireEvent.click(control);
@@ -63,12 +63,12 @@ it('mount reads only and distinguishes saved access from connection management',
   render(<McpFacadeControls {...props} />);
   // One switch, with what it does; connections are managed elsewhere.
   const control = await screen.findByRole('switch', {
-    name: 'Offer MCP tools in chats',
+    name: 'Use apps in chats',
   });
   await waitFor(() => expect(control).toBeEnabled());
   expect(control).not.toBeChecked();
   expect(
-    screen.getByText(/Chats can call tools from connected servers/),
+    screen.getByText(/Chats can use your connected apps' tools/),
   ).toBeVisible();
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ it('preserves the original uncertain command across full remount and checks only
   rendered.unmount();
   rendered = render(<McpFacadeControls {...props} />);
   expect(
-    screen.getByRole('switch', { name: 'Offer MCP tools in chats' }),
+    screen.getByRole('switch', { name: 'Use apps in chats' }),
   ).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
   await screen.findByText(
@@ -176,7 +176,7 @@ it.each(['unavailable', 'registration_unavailable', 'recovery_required'])(
     await screen.findByText(/Can’t be changed right now/);
     expect(screen.getByText('status unknown')).toBeVisible();
     expect(
-      screen.getByRole('switch', { name: 'Offer MCP tools in chats' }),
+      screen.getByRole('switch', { name: 'Use apps in chats' }),
     ).toBeDisabled();
     expect(props.review).not.toHaveBeenCalled();
   },

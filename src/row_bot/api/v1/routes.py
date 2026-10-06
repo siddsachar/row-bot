@@ -3364,45 +3364,6 @@ def create_router(
                 validate_admitted_review=validate_admitted_runtime_review,
             )
             return await respond(request, dto.CommandReceipt, public_receipt(result))
-        if body.type == "mcp.catalog.accept":
-            from row_bot.application.capability_catalog_controls import (
-                execute_mcp_catalog_command,
-                review_mcp_catalog_command,
-                public_receipt,
-            )
-            from row_bot.runtime.admissions import read_command_metadata
-
-            def validate_catalog_review(review: dict) -> None:
-                validate_access()
-                security.consume_nonce(
-                    current,
-                    "settings:mcp",
-                    review["configuration_revision"],
-                    review["action_digest"],
-                    body.payload["nonce"],
-                    str(body.command_id),
-                )
-
-            original = await call(
-                read_command_metadata, security.instance_id, str(body.command_id)
-            )
-            if original is None:
-                reviewed = await call(
-                    review_mcp_catalog_command,
-                    owner_id=security.instance_id,
-                    **wire["payload"],
-                    validate=validate_access,
-                )
-                await call(validate_catalog_review, reviewed)
-            result = await call(
-                execute_mcp_catalog_command,
-                owner_id=security.instance_id,
-                key=key,
-                command=wire,
-                validate=validate_access,
-                validate_review=validate_catalog_review,
-            )
-            return await respond(request, dto.CommandReceipt, public_receipt(result))
         if body.type == "mcp.facade.control":
             # "Enable in chat" (B130): external MCP tools reach the chat.
             from row_bot.application.native_mcp_controls import (
@@ -4481,12 +4442,6 @@ def create_router(
         from row_bot.application.client_integrations import read_icons
         return await respond(request, dto.IconBatch, await call(read_icons, list(wanted)))
 
-    @router.get("/integrations/presets")
-    async def integration_presets(request: Request) -> JSONResponse:
-        await session(request)
-        from row_bot.application.client_integrations import list_presets
-        return await respond(request, dto.AccessPresetList, list_presets())
-
     def view_problem(error: Exception) -> ProtocolError:
         status = {"not_found": 404, "views_off": 403, "view_tool_refused": 403, "view_tool_denied": 403,
                   "view_rate_limited": 429, "view_busy": 409, "invalid_command": 422,
@@ -4618,13 +4573,11 @@ def create_router(
         return await respond(request, dto.IntegrationEntryPage, result)
 
     @router.get("/integrations/detail")
-    async def integration_detail_v2(request: Request, item_id: str, revision: str = "", intent: str = "",
-                                    cleanup: bool = False) -> JSONResponse:
+    async def integration_detail_v2(request: Request, item_id: str, revision: str = "") -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_integrations import read_item
         detail, _plan = await call(read_item, owner_id=await integration_owner(request), item_id=item_id, revision=revision,
-            intent=intent, cleanup=cleanup, validate=dispatch_validation(request, current),
-            context=await plan_context(request, current))
+            validate=dispatch_validation(request, current), context=await plan_context(request, current))
         return await respond(request, dto.IntegrationDetail, detail)
 
     @router.post("/integrations/plans/review")
@@ -4689,55 +4642,6 @@ def create_router(
         result = await call(cancel, await plan_context(request, current), str(plan_id))
         return await respond(request, dto.InstallPlan, result)
 
-    @router.post("/settings/plugins/lifecycle/review")
-    async def plugin_lifecycle_review(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        await plugin_lifecycle_authority(request)
-        body = await _body(request, dto.PluginLifecycleReviewRequest, 4096)
-        from row_bot.application.client_plugin_lifecycle import review_plugin_lifecycle
-
-        result = await call(
-            review_plugin_lifecycle,
-            body.action,
-            body.plugin_id,
-            validate=dispatch_validation(request, current),
-            **({"owner_id": await integration_owner(request), "preview_id": body.preview_id} if body.preview_id else {}),
-        )
-        return await respond(request, dto.PluginLifecycleReview, result)
-
-    @router.get("/settings/plugins/lifecycle/commands/{command_id}")
-    async def plugin_lifecycle_receipt(command_id: UUID, request: Request) -> JSONResponse:
-        current = await session(request)
-        await plugin_lifecycle_authority(request)
-        from row_bot.application.client_plugin_lifecycle import read_plugin_lifecycle_receipt
-
-        result = await call(
-            read_plugin_lifecycle_receipt,
-            str(command_id),
-            owner_id=await integration_owner(request),
-            validate=dispatch_validation(request, current),
-        )
-        return await respond(request, dto.PluginLifecycleReceipt, result)
-
-    @router.post("/settings/plugins/lifecycle/commands")
-    async def plugin_lifecycle_command(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        await plugin_lifecycle_authority(request)
-        body = await _body(request, dto.PluginLifecycleCommand, 4096)
-        if str(body.client_session_id) != current.id:
-            raise ProtocolError("invalid_command", 422)
-        if request.headers.get("idempotency-key", "") != str(body.command_id):
-            raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.client_plugin_lifecycle import execute_plugin_lifecycle
-
-        result = await call(
-            execute_plugin_lifecycle,
-            body.model_dump(mode="json"),
-            owner_id=await integration_owner(request),
-            validate=dispatch_validation(request, current),
-        )
-        return await respond(request, dto.PluginLifecycleReceipt, result)
-
     @router.get("/settings/plugins/{plugin_id}")
     async def plugin_detail(plugin_id: str, request: Request) -> JSONResponse:
         current = await session(request)
@@ -4771,24 +4675,6 @@ def create_router(
             result["action_digest"],
         )
         return await respond(request, dto.PluginReview, result)
-
-    @router.get("/settings/plugins/{plugin_id}/receipts/{command_id}")
-    async def plugin_receipt(
-        plugin_id: str, command_id: UUID, request: Request
-    ) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.plugin_commands import read_plugin_receipt
-
-        result = await call(
-            read_plugin_receipt,
-            plugin_id,
-            str(command_id),
-            owner_id=current.id,
-            validate=dispatch_validation(request, current),
-        )
-        if result is None:
-            raise ProtocolError("not_found", 404)
-        return await respond(request, dto.PluginReceipt, result)
 
     @router.post("/settings/plugins/{plugin_id}/commands")
     async def plugin_command(plugin_id: str, request: Request) -> JSONResponse:
@@ -4852,149 +4738,6 @@ def create_router(
             validate=dispatch_validation(request, current),
         )
         return await respond(request, dto.SkillPage, result)
-
-    @router.post("/settings/skills/hub/search")
-    async def skill_hub_search(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.SkillHubSearchRequest, 4096)
-        from row_bot.application.client_skill_hub import (
-            SkillHubCommandError,
-            search_public_skills,
-        )
-
-        try:
-            result = await call(
-                search_public_skills,
-                owner_id=await integration_owner(request),
-                query=body.query,
-                source=body.source,
-                refresh=body.refresh,
-                limit=body.limit,
-            )
-        except SkillHubCommandError as exc:
-            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
-        return await respond(request, dto.SkillHubSearchResult, result)
-
-    @router.post("/settings/skills/hub/preview")
-    async def skill_hub_preview(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.SkillHubPreviewRequest, 4096)
-        from row_bot.application.client_skill_hub import (
-            SkillHubCommandError,
-            preview_public_skill,
-        )
-
-        try:
-            result = await call(
-                preview_public_skill,
-                owner_id=await integration_owner(request),
-                revision=body.revision,
-                entry_id=body.entry_id,
-            )
-        except SkillHubCommandError as exc:
-            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
-        return await respond(request, dto.SkillHubPreview, result)
-
-    @router.post("/settings/skills/hub/install")
-    async def skill_hub_install(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.SkillHubInstallCommand, 4096)
-        if request.headers.get("idempotency-key", "") != str(body.command_id):
-            raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.client_skill_hub import (
-            SkillHubCommandError,
-            install_previewed_skill,
-        )
-
-        try:
-            result = await call(
-                install_previewed_skill,
-                owner_id=await integration_owner(request),
-                command_id=str(body.command_id),
-                preview_id=body.preview_id,
-                content_hash=body.content_hash,
-                make_available=body.make_available,
-                validate=dispatch_validation(request, current),
-            )
-        except SkillHubCommandError as exc:
-            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
-        return await respond(request, dto.SkillHubInstallReceipt, result)
-
-    @router.get("/settings/skills/hub/install/{command_id}")
-    async def skill_hub_install_receipt(
-        command_id: UUID, request: Request
-    ) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.client_skill_hub import (
-            SkillHubCommandError,
-            read_skill_install_receipt,
-        )
-
-        try:
-            result = await call(
-                read_skill_install_receipt,
-                owner_id=await integration_owner(request),
-                command_id=str(command_id),
-            )
-        except SkillHubCommandError as exc:
-            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
-        return await respond(request, dto.SkillHubInstallReceipt, result)
-
-    @router.get("/settings/skills/hub/installed")
-    async def skill_hub_installed(request: Request) -> JSONResponse:
-        await session(request)
-        from row_bot.application.client_skill_hub import read_installed_public_skills
-
-        result = await call(read_installed_public_skills)
-        return await respond(request, dto.SkillHubInstalledPage, result)
-
-    @router.post("/settings/skills/hub/maintenance")
-    async def skill_hub_maintenance(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.SkillHubMaintenanceCommand, 4096)
-        if request.headers.get("idempotency-key", "") != str(body.command_id):
-            raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.client_skill_hub import (
-            SkillHubCommandError,
-            execute_public_skill_maintenance,
-        )
-
-        try:
-            result = await call(
-                execute_public_skill_maintenance,
-                owner_id=await integration_owner(request),
-                command_id=str(body.command_id),
-                name=body.name,
-                expected_revision=body.expected_revision,
-                action=body.action,
-                confirmed=body.confirmed,
-                preview_id=body.preview_id,
-                content_hash=body.content_hash,
-                validate=dispatch_validation(request, current),
-            )
-        except SkillHubCommandError as exc:
-            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
-        return await respond(request, dto.SkillHubMaintenanceReceipt, result)
-
-    @router.get("/settings/skills/hub/maintenance/{command_id}")
-    async def skill_hub_maintenance_receipt(
-        command_id: UUID, request: Request
-    ) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.client_skill_hub import (
-            SkillHubCommandError,
-            read_skill_maintenance_receipt,
-        )
-
-        try:
-            result = await call(
-                read_skill_maintenance_receipt,
-                owner_id=await integration_owner(request),
-                command_id=str(command_id),
-            )
-        except SkillHubCommandError as exc:
-            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
-        return await respond(request, dto.SkillHubMaintenanceReceipt, result)
 
     @router.get("/settings/skills/items/{skill_id}")
     async def skill_detail(skill_id: str, request: Request) -> JSONResponse:
@@ -7228,77 +6971,6 @@ def create_router(
         )
         return await respond(request, dto.McpConfigurationPage, asdict(result))
 
-    @router.post("/settings/mcp/packages/preview")
-    async def mcp_package_preview(request: Request) -> JSONResponse:
-        require_native_local(request, await _context(request))
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.McpPackageRequest, 4096)
-        from row_bot.application.mcp_runtime_installation import inspect_mcp_package
-        result = await call(inspect_mcp_package, owner_id=await integration_owner(request),
-            **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
-        result["nonce"] = security.approval_nonce(current, "settings:mcp-package:" + body.server_id,
-            result["configuration_revision"], result["action_digest"])
-        return await respond(request, dto.McpPackageReview, result)
-
-    @router.post("/settings/mcp/packages/commands")
-    async def mcp_package_command(request: Request) -> JSONResponse:
-        require_native_local(request, await _context(request))
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.McpPackageCommand, 8192)
-        if str(body.client_session_id) != current.id:
-            raise ProtocolError("invalid_command", 422)
-        if request.headers.get("idempotency-key", "") != str(body.command_id):
-            raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.mcp_runtime_installation import prepare_mcp_package
-        def reviewed(value: dict) -> None:
-            security.consume_nonce(current, "settings:mcp-package:" + body.server_id,
-                value["configuration_revision"], value["action_digest"], body.nonce, str(body.command_id))
-        result = await call(prepare_mcp_package, owner_id=await integration_owner(request),
-            **body.model_dump(mode="json", exclude={"client_session_id", "nonce"}),
-            validate=dispatch_validation(request, current), validate_review=reviewed)
-        return await respond(request, dto.CommandReceipt, result)
-
-    @router.post("/settings/mcp/auth/review")
-    async def mcp_auth_review(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.McpAuthReviewRequest, 16384)
-        from row_bot.application.client_mcp_auth import review_auth
-        result = await call(review_auth, **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
-        result["nonce"] = security.approval_nonce(current, "settings:mcp-auth:" + body.server_id,
-            result["configuration_revision"], result["action_digest"])
-        return await respond(request, dto.McpAuthReview, result)
-
-    @router.post("/settings/mcp/auth/commands")
-    async def mcp_auth_command(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.McpAuthCommand, 131072)
-        if str(body.client_session_id) != current.id:
-            raise ProtocolError("invalid_command", 422)
-        if request.headers.get("idempotency-key", "") != str(body.command_id):
-            raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.client_mcp_auth import execute_auth
-        redirect = await oauth_callback(request) if body.action == "start" and body.mode == "oauth" else ""
-        def reviewed(value: dict) -> None:
-            security.consume_nonce(current, "settings:mcp-auth:" + body.server_id, value["configuration_revision"],
-                value["action_digest"], body.nonce, str(body.command_id))
-        result = await call(execute_auth, **body.model_dump(mode="json", exclude={"client_session_id", "nonce"}),
-            owner_id=await integration_owner(request), redirect_uri=redirect, validate=dispatch_validation(request, current), validate_review=reviewed)
-        return await respond(request, dto.McpAuthStatus, result)
-
-    @router.get("/settings/mcp/auth/commands/{command_id}")
-    async def mcp_auth_status(command_id: UUID, request: Request) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.client_mcp_auth import auth_status
-        result = await call(auth_status, owner_id=await integration_owner(request), command_id=str(command_id), validate=dispatch_validation(request, current))
-        return await respond(request, dto.McpAuthStatus, result)
-
-    @router.post("/settings/mcp/auth/commands/{command_id}/cancel")
-    async def mcp_auth_cancel(command_id: UUID, request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        from row_bot.application.client_mcp_auth import cancel_auth
-        result = await call(cancel_auth, owner_id=await integration_owner(request), command_id=str(command_id), validate=dispatch_validation(request, current))
-        return await respond(request, dto.McpAuthStatus, result)
-
     @router.get("/settings/mcp/auth/callback")
     async def mcp_auth_callback(request: Request) -> Response:
         from row_bot.application.client_mcp_auth import accept_callback
@@ -7308,63 +6980,11 @@ def create_router(
             if any(len(values.getlist(key)) > 1 for key in ("state", "code", "error")):
                 raise McpAuthError("mcp_auth_callback_invalid")
             await call(accept_callback, state=values.get("state", ""), code=values.get("code", ""), error=values.get("error", ""))
-            message, status = "Authorization received. Return to Row-Bot Integrations to see the result.", 200
+            message, status = "You're signed in. Return to Row-Bot to finish.", 200
         except McpAuthError:
-            message, status = "This authorization is expired or invalid. Return to Row-Bot Integrations and start sign-in again.", 400
+            message, status = "This sign-in has expired or isn't valid. Return to Row-Bot and sign in again.", 400
         return Response(message, status_code=status, media_type="text/plain",
             headers={**HEADERS, "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"})
-
-    @router.get("/settings/mcp/catalog")
-    async def mcp_tested_catalog(
-        request: Request,
-        *,
-        plugin_id: str | None = None,
-        server_key: str | None = None,
-        server_id: str,
-        test_command_id: UUID,
-        query: str = "",
-        cursor: str | None = None,
-        limit: int = 25,
-    ) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.capability_catalog_controls import (
-            read_tested_mcp_catalog,
-        )
-
-        result = await call(
-            read_tested_mcp_catalog,
-            owner_id=security.instance_id,
-            server_id=server_id,
-            test_command_id=str(test_command_id),
-            query=query,
-            cursor=cursor,
-            limit=limit,
-            validate=dispatch_validation(request, current),
-            **({"target": {"kind": "plugin", "plugin_id": plugin_id, "server_key": server_key}} if plugin_id or server_key else {}),
-        )
-        return await respond(request, dto.McpTestedCatalogPage, asdict(result))
-
-    @router.post("/settings/mcp/catalog/review")
-    async def mcp_catalog_review(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.McpCatalogRequest, 4096)
-        from row_bot.application.capability_catalog_controls import (
-            review_mcp_catalog_command,
-        )
-
-        result = await call(
-            review_mcp_catalog_command,
-            owner_id=security.instance_id,
-            **body.model_dump(mode="json"),
-            validate=dispatch_validation(request, current),
-        )
-        result["nonce"] = security.approval_nonce(
-            current,
-            "settings:mcp",
-            result["configuration_revision"],
-            result["action_digest"],
-        )
-        return await respond(request, dto.McpCatalogReview, result)
 
     @router.get("/settings/mcp/policy")
     async def mcp_policy(
@@ -7468,21 +7088,6 @@ def create_router(
             result["action_digest"],
         )
         return await respond(request, dto.McpChatReview, result)
-
-    @router.get("/settings/mcp/runtime/{server_id}")
-    async def mcp_runtime_state(server_id: str, request: Request, plugin_id: str | None = None, server_key: str | None = None) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.capability_runtime_controls import (
-            read_mcp_runtime_state,
-        )
-
-        result = await call(
-            read_mcp_runtime_state,
-            server_id,
-            validate=dispatch_validation(request, current),
-            **({"target": {"kind": "plugin", "plugin_id": plugin_id, "server_key": server_key}} if plugin_id or server_key else {}),
-        )
-        return await respond(request, dto.McpRuntimeState, asdict(result))
 
     @router.post("/settings/mcp/runtime/review")
     async def mcp_runtime_review(request: Request) -> JSONResponse:

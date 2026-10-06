@@ -628,7 +628,7 @@ def read_plugin_catalog(
 
 
 def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
-    """Passive ownership/provenance projection for the shared Integrations view."""
+    """Passive ownership/provenance projection of installed packages, for Apps & Skills."""
     from row_bot.plugins.mcp import plugin_mcp_server_name
     from row_bot.application.capability_configuration_controls import _server_id
 
@@ -648,7 +648,7 @@ def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
             publisher=manifest.author.name if manifest else "", license=manifest.license if manifest else "",
             source_url=source, source_identity=str(package.get("source_identity", ""))[:1024],
             pin=str(package.get("pin", "")), diagnostics=getattr(manifest, "diagnostics", []),
-            recoverable=bool(package.get("previous")), publication_pending=bool(package.get("pending")), children=[])
+            publication_pending=bool(package.get("pending")), children=[])
         from row_bot.plugins.hermes_catalog import activation_block
         blocked = activation_block(record)
         if blocked:

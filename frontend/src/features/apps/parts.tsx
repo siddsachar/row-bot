@@ -204,9 +204,11 @@ export function Publisher({ entry }: { entry: IntegrationEntry }) {
     <span className="app-publisher">
       {['bundled', 'builtin'].includes(entry.source)
         ? 'Built in'
-        : entry.publisher
-          ? `Community · ${entry.publisher}`
-          : 'Community'}
+        : entry.source === 'user'
+          ? 'Made by you'
+          : entry.publisher
+            ? `Community · ${entry.publisher}`
+            : 'Community'}
     </span>
   );
 }
@@ -214,11 +216,6 @@ export function Publisher({ entry }: { entry: IntegrationEntry }) {
 /** A featured app, or one whose publisher is verified; the rest is "More from the community". */
 export function fromApp(entry: IntegrationEntry) {
   return Boolean(entry.verified || entry.app?.featured_rank);
-}
-
-/** The one line a card shows about what it does. */
-export function jobOf(entry: IntegrationEntry, app?: AppView) {
-  return app?.summary || entry.description || 'No description.';
 }
 
 /** A link to one item: an installed skill by name, otherwise `item?id=` (ids carry `:` and `/`, which paths refuse). */
@@ -255,7 +252,9 @@ export function ItemCard({
         <AppIcon icon={entry.icon} />
         <span className="app-card-text">
           <strong>{entry.app?.name || entry.name}</strong>
-          <span className="app-card-job">{jobOf(entry, app)}</span>
+          <span className="app-card-job">
+            {app?.summary || entry.description || 'No description.'}
+          </span>
           <span className="app-card-meta">
             <Publisher entry={entry} />
             {method && <span className="app-chip">{method}</span>}

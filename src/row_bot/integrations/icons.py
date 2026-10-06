@@ -174,11 +174,10 @@ def _download(url: str) -> bytes:
                  headers={"User-Agent": "Mozilla/5.0", "Accept": "image/png,image/jpeg,image/gif"})
 
 
-def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda: False,
-                 download: Callable[[str], bytes] | None = None, pause: float = 0.1, deadline: float = 180) -> dict:
-    """Download, check and cache up to ``PER_UPDATE`` new raster icons. Only an update calls this."""
-    download, cached, failed = download or _download, 0, 0
-    stop = time.monotonic() + deadline
+def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda: False) -> dict:
+    """Download, check and cache up to ``PER_UPDATE`` new raster icons (three minutes at most). Only an update calls this."""
+    cached, failed = 0, 0
+    stop = time.monotonic() + 180
     target = folder(create=True)
     used = sum(item.stat().st_size for item in target.glob("*.png"))
     try:
@@ -196,13 +195,13 @@ def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda:
         if not url.startswith("https://") or path.exists() or key in refused:
             continue
         try:
-            data = reencode(download(url))
+            data = reencode(_download(url))
             write_atomic(path, data)
             used += len(data)
             cached += 1
         except Exception:  # One bad icon never stops an update; it keeps its letter avatar.
             refused[key] = now
             failed += 1
-        time.sleep(pause)
+        time.sleep(0.1)
     write_atomic(target / "failed.json", json.dumps(refused))
     return {"cached": cached, "failed": failed}

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
@@ -65,17 +64,6 @@ class SkillFile:
     @property
     def text(self) -> str:
         return self.content.decode("utf-8", errors="replace")
-
-    def content_b64(self) -> str:
-        return base64.b64encode(self.content).decode("ascii")
-
-    def metadata_dict(self) -> dict[str, Any]:
-        return {
-            "path": self.path,
-            "size_bytes": self.size_bytes,
-            "sha256": self.sha256,
-            "kind": self.kind,
-        }
 
 
 @dataclass

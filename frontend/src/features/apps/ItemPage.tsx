@@ -93,7 +93,7 @@ function settingValue(input: PlanInput) {
 }
 
 /** The chat command for a skill, as the composer names it. */
-export function slashOf(name: string) {
+function slashOf(name: string) {
   return (
     '/' +
     name
@@ -300,8 +300,7 @@ function Detail({
   const openPlan = detail?.plan?.plan_id ? detail.plan : null;
   useEffect(() => {
     // An unfinished plan for this item (from another visit or device) shows its progress.
-    if (openPlan && control.plan?.plan_id !== openPlan.plan_id && !control.plan)
-      void control.review(openPlan.intent);
+    if (openPlan && !control.plan) void control.review(openPlan.intent);
   }, [openPlan?.plan_id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!fixing.current || !detail) return;
@@ -669,7 +668,7 @@ function Detail({
           </ul>
         </SettingsGroup>
       )}
-      <Disclosure summary="Details" className="app-details">
+      <Disclosure summary="Details">
         <dl className="app-facts-list">
           <Fact label="Source">
             {about.source_url ? (

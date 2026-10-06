@@ -9,7 +9,7 @@ carries; whether that certificate is trusted is not decided here.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 import io
 import json
@@ -74,7 +74,6 @@ class Bundle:
     version: str
     description: str
     author: str
-    license: str
     server_type: str
     sha256: str
     signature: dict
@@ -83,7 +82,6 @@ class Bundle:
     args: tuple[str, ...]
     env: dict
     entry_point: str
-    runtimes: dict = field(default_factory=dict)  # compatibility.runtimes as declared; not checked here
 
 
 def _u16(data: bytes, offset: int) -> int:
@@ -350,10 +348,10 @@ def _read(data: bytes, platform: str | None) -> tuple[Bundle, bytes]:
         raise ValueError("bundle_entry_missing")
     command, args, env, found = _launch(server["mcp_config"], platform)
     bundle = Bundle(name=name, display_name=(manifest.get("display_name") or name)[:128], version=version,
-        description=manifest["description"][:2048], author=author["name"][:256], license=manifest.get("license", "")[:256],
+        description=manifest["description"][:2048], author=author["name"][:256],
         server_type=server["type"], sha256=hashlib.sha256(data).hexdigest(), signature=signature,
         inputs=_inputs(manifest.get("user_config", {}), found), command=command, args=tuple(args), env=env,
-        entry_point=entry, runtimes=dict(runtimes))
+        entry_point=entry)
     _LOG.info("Checked MCP bundle %s %s (%s)", name, version, signature["status"])
     return bundle, zipped
 

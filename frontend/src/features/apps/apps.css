@@ -167,7 +167,10 @@
 .app-facts,
 .app-files,
 .access-tools,
-.catalog-list {
+.catalog-list,
+.plan-steps,
+.app-ways,
+.chat-connect-apps {
   display: grid;
   gap: var(--space-2);
   margin: 0;
@@ -234,13 +237,6 @@
 }
 .plan-progress p {
   margin: 0;
-}
-.plan-steps {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .plan-steps li {
   display: flex;
@@ -372,13 +368,6 @@
     grid-template-columns: 1fr;
   }
 }
-.app-ways {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
 .app-way {
   display: flex;
   align-items: center;
@@ -427,13 +416,6 @@ a.app-way:hover {
 .chat-connect-intro {
   color: var(--text-secondary);
   font-size: var(--text-14);
-}
-.chat-connect-apps {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .chat-connect-app {
   display: grid;

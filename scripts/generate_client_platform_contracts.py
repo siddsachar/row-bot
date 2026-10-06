@@ -17,7 +17,7 @@ from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after p
 
 MODELS = {name: getattr(schemas, name) for name in (
     "WorkflowTemplateApp", "WorkflowTemplate", "WorkflowTemplateList", "WorkflowTemplateCreated",
-    "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
+    "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView",
     "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
     "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
@@ -25,7 +25,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
     "PlanStartRequest", "PlanContinueRequest", "IntegrationAbout", "IntegrationFile", "IntegrationRequirement", "IntegrationWay",
     "IntegrationResolveRequest", "IntegrationSettleRequest",
-    "IntegrationAttribution", "IntegrationSourceStatus", "IntegrationSearchRequest", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
+    "IntegrationAttribution", "IntegrationSourceStatus", "IntegrationSearchRequest",
     "Command", "Event", "Handshake", "Problem", "Outcome", "ResourceBinding",
     "PreviewContract", "CommandReceipt", "AttachmentView", "SessionProof",
     "ConversationView", "ConversationPage", "ConversationActionSnapshot", "ConversationActionReviewRequest",
@@ -43,7 +43,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
-    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt", "SkillHubEntryView", "SkillHubSourceStatus", "SkillHubSearchRequest", "SkillHubSearchResult", "SkillHubPreviewRequest", "SkillHubFinding", "SkillHubScanView", "SkillHubPreview", "SkillHubInstallCommand", "SkillHubInstallReceipt", "SkillHubInstalledRecord", "SkillHubInstalledPage", "SkillHubMaintenanceCommand", "SkillHubMaintenanceReceipt",
+    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
     "ProviderCredentialState", "ProviderSettingsReviewRequest", "ProviderSettingsReview", "ProviderSettingsReceipt",
@@ -51,9 +51,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ProviderConfigurationReviewRequest", "ProviderConfigurationReview", "ProviderConfigurationReceipt",
     "DefaultModelReviewRequest", "DefaultModelReview", "DefaultModelReceipt",
     "McpConfigurationPage", "McpConfigurationReviewRequest", "McpConfigurationReview", "McpConfigurationOutcome",
-    "McpRuntimeState", "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
+    "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
-    "McpTestedCatalogPage", "McpCatalogRequest", "McpCatalogReview",
     "McpChatState", "McpChatReviewRequest", "McpChatReview", "McpChatOutcome",
     "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "PendingApproval", "PendingApprovalPage",
     "RuntimeInstallationSnapshot", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview", "RuntimeInstallationReceipt",
@@ -71,7 +70,6 @@ MODELS = {name: getattr(schemas, name) for name in (
     "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
     "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
-    "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
     "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
@@ -117,7 +115,6 @@ OPERATIONS = (
     ('put', '/integrations/catalog-schedule', 'CatalogSchedule', 'CatalogSchedule'),
     ('get', '/integrations/apps', None, 'AppList'),
     ('get', '/integrations/icons', None, 'IconBatch'),
-    ('get', '/integrations/presets', None, 'AccessPresetList'),
     ('post', '/conversations/{conversation_id}/views', 'AppViewRenderRequest', 'AppViewRender'),
     ('post', '/views/{render_id}/tools/call', 'AppViewToolCall', 'AppViewToolResult'),
     ('get', '/integrations/views', None, 'AppViewSettings'),
@@ -134,13 +131,7 @@ OPERATIONS = (
     ('post', '/integrations/items/resolve', 'IntegrationResolveRequest', 'IntegrationEntryPage'),
     ('post', '/integrations/items/settle', 'IntegrationSettleRequest', 'IntegrationDetail'),
     ('post', '/integrations/uploads', 'bytes', 'IntegrationEntryPage'),
-    ('post', '/settings/mcp/auth/review', 'McpAuthReviewRequest', 'McpAuthReview'),
-    ('post', '/settings/mcp/auth/commands', 'McpAuthCommand', 'McpAuthStatus'),
-    ('get', '/settings/mcp/auth/commands/{command_id}', None, 'McpAuthStatus'),
-    ('post', '/settings/mcp/auth/commands/{command_id}/cancel', None, 'McpAuthStatus'),
     ('get', '/settings/mcp/auth/callback', None, 'bytes'),
-    ('post', '/settings/mcp/packages/preview', 'McpPackageRequest', 'McpPackageReview'),
-    ('post', '/settings/mcp/packages/commands', 'McpPackageCommand', 'CommandReceipt'),
 
     ("post", "/handshake", "Handshake", "HandshakeView"),
     ("get", "/conversations", None, "ConversationPage"),
@@ -199,9 +190,7 @@ OPERATIONS = (
     ("post", "/settings/providers/commands", "Command", "CommandReceipt"),
     ("post", "/settings/mcp/commands", "Command", "CommandReceipt"),
     ("get", "/settings/mcp/configuration", None, "McpConfigurationPage"),
-    ("get", "/settings/mcp/runtime/{server_id}", None, "McpRuntimeState"),
     ("get", "/settings/mcp/policy", None, "McpPolicyPage"),
-    ("get", "/settings/mcp/catalog", None, "McpTestedCatalogPage"),
     ("get", "/knowledge/entities/editor", None, "KnowledgeEditorState"),
     ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
     ("get", "/monitor", None, "MonitorSnapshot"),
@@ -218,13 +207,6 @@ OPERATIONS = (
     ("post", "/system/updates/installs/{command_id}/cancel", None, "UpdateInstallStatus"),
     ("get", "/system/migration/sources", None, "MigrationSources"),
     ("post", "/system/migration/scan", "MigrationScanRequest", "MigrationPreview"),
-    ("post", "/settings/skills/hub/search", "SkillHubSearchRequest", "SkillHubSearchResult"),
-    ("post", "/settings/skills/hub/preview", "SkillHubPreviewRequest", "SkillHubPreview"),
-    ("post", "/settings/skills/hub/install", "SkillHubInstallCommand", "SkillHubInstallReceipt"),
-    ("get", "/settings/skills/hub/install/{command_id}", None, "SkillHubInstallReceipt"),
-    ("get", "/settings/skills/hub/installed", None, "SkillHubInstalledPage"),
-    ("post", "/settings/skills/hub/maintenance", "SkillHubMaintenanceCommand", "SkillHubMaintenanceReceipt"),
-    ("get", "/settings/skills/hub/maintenance/{command_id}", None, "SkillHubMaintenanceReceipt"),
     ("get", "/accounts/github/access", None, "GitHubAccessSnapshot"),
     ("post", "/accounts/github/access/commands", "GitHubAccessCommand", "GitHubAccessReceipt"),
     ("get", "/accounts/github/access/commands/{command_id}", None, "GitHubAccessReceipt"),
@@ -253,7 +235,6 @@ OPERATIONS = (
     ("post", "/knowledge/relations/review", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview"),
     ("get", "/knowledge/relations/commands/{command_id}", None, "KnowledgeRelationReceipt"),
     ("post", "/knowledge/relations/commands", "Command", "KnowledgeRelationReceipt"),
-    ("post", "/settings/mcp/catalog/review", "McpCatalogRequest", "McpCatalogReview"),
     ("get", "/settings/mcp/installations/{runtime_id}", None, "RuntimeInstallationSnapshot"),
     ("post", "/settings/mcp/installations/review", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview"),
     ("get", "/settings/mcp/installations/{runtime_id}/commands/{command_id}", None, "RuntimeInstallationReceipt"),
@@ -283,7 +264,6 @@ OPERATIONS = (
     ("get", "/settings/plugins", None, "PluginCatalogPage"),
     ("get", "/settings/plugins/{plugin_id}", None, "PluginDetail"),
     ("post", "/settings/plugins/{plugin_id}/review", "PluginReviewRequest", "PluginReview"),
-    ("get", "/settings/plugins/{plugin_id}/receipts/{command_id}", None, "PluginReceipt"),
     ("post", "/settings/plugins/{plugin_id}/commands", "Command", "PluginReceipt"),
     ("get", "/settings/skills", None, "SkillPage"),
     ("get", "/settings/skills/items/{skill_id}", None, "SkillDetail"),
@@ -316,9 +296,6 @@ OPERATIONS = (
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
-    ("post", "/settings/plugins/lifecycle/review", "PluginLifecycleReviewRequest", "PluginLifecycleReview"),
-    ("get", "/settings/plugins/lifecycle/commands/{command_id}", None, "PluginLifecycleReceipt"),
-    ("post", "/settings/plugins/lifecycle/commands", "PluginLifecycleCommand", "PluginLifecycleReceipt"),
     ("post", "/settings/mcp/policy/review", "McpPolicyRequest", "McpPolicyReview"),
     ("get", "/settings/mcp/chat", None, "McpChatState"),
     ("post", "/settings/mcp/chat/review", "McpChatReviewRequest", "McpChatReview"),
@@ -735,20 +712,6 @@ export const scanMigration = (base: string, proof: SessionProof, body: Migration
   jsonRequest(base, '/system/migration/scan', 'MigrationPreview', proof, 'POST', validateWire('MigrationScanRequest', body), undefined, signal);
 export const getMigrationSources = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MigrationSources> =>
   jsonRequest(base, '/system/migration/sources', 'MigrationSources', proof, 'GET', undefined, undefined, signal);
-export const searchSkillHub = (base: string, proof: SessionProof, body: SkillHubSearchRequest, signal?: AbortSignal): Promise<SkillHubSearchResult> =>
-  jsonRequest(base, '/settings/skills/hub/search', 'SkillHubSearchResult', proof, 'POST', validateWire('SkillHubSearchRequest', body), undefined, signal);
-export const previewSkillHub = (base: string, proof: SessionProof, body: SkillHubPreviewRequest, signal?: AbortSignal): Promise<SkillHubPreview> =>
-  jsonRequest(base, '/settings/skills/hub/preview', 'SkillHubPreview', proof, 'POST', validateWire('SkillHubPreviewRequest', body), undefined, signal);
-export const installSkillHub = (base: string, proof: SessionProof, body: SkillHubInstallCommand, signal?: AbortSignal): Promise<SkillHubInstallReceipt> =>
-  jsonRequest(base, '/settings/skills/hub/install', 'SkillHubInstallReceipt', proof, 'POST', validateWire('SkillHubInstallCommand', body), body.command_id, signal);
-export const getSkillHubInstallReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SkillHubInstallReceipt> =>
-  jsonRequest(base, `/settings/skills/hub/install/${id(command)}`, 'SkillHubInstallReceipt', proof, 'GET', undefined, undefined, signal);
-export const getSkillHubInstalled = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SkillHubInstalledPage> =>
-  jsonRequest(base, '/settings/skills/hub/installed', 'SkillHubInstalledPage', proof, 'GET', undefined, undefined, signal);
-export const sendSkillHubMaintenance = (base: string, proof: SessionProof, body: SkillHubMaintenanceCommand, signal?: AbortSignal): Promise<SkillHubMaintenanceReceipt> =>
-  jsonRequest(base, '/settings/skills/hub/maintenance', 'SkillHubMaintenanceReceipt', proof, 'POST', validateWire('SkillHubMaintenanceCommand', body), body.command_id, signal);
-export const getSkillHubMaintenanceReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SkillHubMaintenanceReceipt> =>
-  jsonRequest(base, `/settings/skills/hub/maintenance/${id(command)}`, 'SkillHubMaintenanceReceipt', proof, 'GET', undefined, undefined, signal);
 export const getGitHubAccess = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<GitHubAccessSnapshot> =>
   jsonRequest(base, '/accounts/github/access', 'GitHubAccessSnapshot', proof, 'GET', undefined, undefined, signal);
 export const sendGitHubAccessCommand = (base: string, proof: SessionProof, body: GitHubAccessCommand, signal?: AbortSignal): Promise<GitHubAccessReceipt> =>
@@ -944,8 +907,6 @@ export const getPlugin = (base: string, proof: SessionProof, plugin: string, sig
   jsonRequest(base, `/settings/plugins/${id(plugin)}`, 'PluginDetail', proof, 'GET', undefined, undefined, signal);
 export const reviewPlugin = (base: string, proof: SessionProof, plugin: string, body: PluginReviewRequest, signal?: AbortSignal): Promise<PluginReview> =>
   jsonRequest(base, `/settings/plugins/${id(plugin)}/review`, 'PluginReview', proof, 'POST', validateWire('PluginReviewRequest', body), undefined, signal);
-export const getPluginReceipt = (base: string, proof: SessionProof, plugin: string, command: string, signal?: AbortSignal): Promise<PluginReceipt> =>
-  jsonRequest(base, `/settings/plugins/${id(plugin)}/receipts/${id(command)}`, 'PluginReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendPlugin = (base: string, proof: SessionProof, plugin: string, command: Command, signal?: AbortSignal): Promise<PluginReceipt> =>
   jsonRequest(base, `/settings/plugins/${id(plugin)}/commands`, 'PluginReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
 export const getSkills = (base: string, proof: SessionProof, search = '', source?: string, cursor?: string, filter?: string, sort?: string, signal?: AbortSignal): Promise<SkillPage> =>
@@ -1010,12 +971,6 @@ export const getInsightReceipt = (base: string, proof: SessionProof, command: st
   jsonRequest(base, `/insights/commands/${id(command)}`, 'InsightReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendInsightCommand = (base: string, proof: SessionProof, command: InsightCommand, signal?: AbortSignal): Promise<InsightReceipt> =>
   jsonRequest(base, '/insights/commands', 'InsightReceipt', proof, 'POST', validateWire('InsightCommand', command), command.command_id, signal);
-export const reviewPluginLifecycle = (base: string, proof: SessionProof, body: PluginLifecycleReviewRequest, signal?: AbortSignal): Promise<PluginLifecycleReview> =>
-  jsonRequest(base, '/settings/plugins/lifecycle/review', 'PluginLifecycleReview', proof, 'POST', validateWire('PluginLifecycleReviewRequest', body), undefined, signal);
-export const getPluginLifecycleReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<PluginLifecycleReceipt> =>
-  jsonRequest(base, `/settings/plugins/lifecycle/commands/${id(command)}`, 'PluginLifecycleReceipt', proof, 'GET', undefined, undefined, signal);
-export const sendPluginLifecycleCommand = (base: string, proof: SessionProof, command: PluginLifecycleCommand, signal?: AbortSignal): Promise<PluginLifecycleReceipt> =>
-  jsonRequest(base, '/settings/plugins/lifecycle/commands', 'PluginLifecycleReceipt', proof, 'POST', validateWire('PluginLifecycleCommand', command), command.command_id, signal);
 export const getConversationActions = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationActionSnapshot> =>
   jsonRequest(base, `/conversations/${id(conversation)}/actions`, 'ConversationActionSnapshot', proof, 'GET', undefined, undefined, signal);
 export const reviewConversationAction = (base: string, proof: SessionProof, conversation: string, body: ConversationActionReviewRequest, signal?: AbortSignal): Promise<ConversationActionReview> =>
@@ -1118,8 +1073,6 @@ export const getKnowledgeRelationReceipt = (base: string, proof: SessionProof, c
   jsonRequest(base, `/knowledge/relations/commands/${id(command)}`, 'KnowledgeRelationReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendKnowledgeRelation = (base: string, proof: SessionProof, command: Command, signal?: AbortSignal): Promise<KnowledgeRelationReceipt> =>
   jsonRequest(base, '/knowledge/relations/commands', 'KnowledgeRelationReceipt', proof, 'POST', command, command.command_id, signal);
-export const getMcpTestedCatalog = (base: string, proof: SessionProof, server: string, command: string, search: string, cursor?: string, signal?: AbortSignal, target?: McpTarget): Promise<McpTestedCatalogPage> =>
-  jsonRequest(base, '/settings/mcp/catalog' + query({...targetQuery(target),server_id:server,test_command_id:command,query:search,cursor}), 'McpTestedCatalogPage', proof, 'GET', undefined, undefined, signal);
 export const getRuntimeInstallation = (base: string, proof: SessionProof, runtime: string, signal?: AbortSignal): Promise<RuntimeInstallationSnapshot> =>
   jsonRequest(base, `/settings/mcp/installations/${encodeURIComponent(runtime)}`, 'RuntimeInstallationSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getDocumentQueue = (base: string, proof: SessionProof, kind: string, batch_id?: string, cursor?: string, signal?: AbortSignal): Promise<DocumentQueuePage> =>
@@ -1164,8 +1117,6 @@ export const executeRuntimeInstallation = (base: string, proof: SessionProof, bo
   jsonRequest(base, '/settings/mcp/installations/commands', 'RuntimeInstallationReceipt', proof, 'POST', validateWire('Command', body), body.command_id, signal);
 export const getRuntimeInstallationReceipt = (base: string, proof: SessionProof, runtime: string, command: string, signal?: AbortSignal): Promise<RuntimeInstallationReceipt> =>
   jsonRequest(base, `/settings/mcp/installations/${encodeURIComponent(runtime)}/commands/${encodeURIComponent(command)}`, 'RuntimeInstallationReceipt', proof, 'GET', undefined, undefined, signal);
-export const reviewMcpCatalog = (base: string, proof: SessionProof, body: McpCatalogRequest, signal?: AbortSignal): Promise<McpCatalogReview> =>
-  jsonRequest(base, '/settings/mcp/catalog/review', 'McpCatalogReview', proof, 'POST', validateWire('McpCatalogRequest', body), undefined, signal);
 export const getMcpPolicy = (base: string, proof: SessionProof, server: string | null, search: string, cursor?: string, signal?: AbortSignal, target?: McpTarget): Promise<McpPolicyPage> =>
   jsonRequest(base, '/settings/mcp/policy' + query({...targetQuery(target),server_id:server ?? undefined,query:search,cursor}), 'McpPolicyPage', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpPolicy = (base: string, proof: SessionProof, body: McpPolicyRequest, signal?: AbortSignal): Promise<McpPolicyReview> =>
@@ -1174,8 +1125,6 @@ export const getMcpChat = (base: string, proof: SessionProof, signal?: AbortSign
   jsonRequest(base, '/settings/mcp/chat', 'McpChatState', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpChat = (base: string, proof: SessionProof, body: McpChatReviewRequest, signal?: AbortSignal): Promise<McpChatReview> =>
   jsonRequest(base, '/settings/mcp/chat/review', 'McpChatReview', proof, 'POST', validateWire('McpChatReviewRequest', body), undefined, signal);
-export const getMcpRuntime = (base: string, proof: SessionProof, server: string, signal?: AbortSignal, target?: McpTarget): Promise<McpRuntimeState> =>
-  jsonRequest(base, `/settings/mcp/runtime/${id(server)}` + query(targetQuery(target)), 'McpRuntimeState', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpRuntime = (base: string, proof: SessionProof, body: McpRuntimeReviewRequest, signal?: AbortSignal): Promise<McpRuntimeReview> =>
   jsonRequest(base, '/settings/mcp/runtime/review', 'McpRuntimeReview', proof, 'POST', validateWire('McpRuntimeReviewRequest', body), undefined, signal);
 export type McpTarget = McpStandaloneTarget | McpPluginTarget | null;
@@ -1198,8 +1147,6 @@ export const getApps = (base: string, proof: SessionProof, options: {query?: str
   jsonRequest(base, '/integrations/apps' + query(options), 'AppList', proof, 'GET', undefined, undefined, signal);
 export const readAppIcons = (base: string, proof: SessionProof, ids: string[], signal?: AbortSignal): Promise<IconBatch> =>
   jsonRequest(base, '/integrations/icons' + query({ids: ids.join(',')}), 'IconBatch', proof, 'GET', undefined, undefined, signal);
-export const getAccessPresets = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AccessPresetList> =>
-  jsonRequest(base, '/integrations/presets', 'AccessPresetList', proof, 'GET', undefined, undefined, signal);
 export const renderAppView = (base: string, proof: SessionProof, conversation: string, body: AppViewRenderRequest, signal?: AbortSignal): Promise<AppViewRender> =>
   jsonRequest(base, `/conversations/${id(conversation)}/views`, 'AppViewRender', proof, 'POST', validateWire('AppViewRenderRequest', body), undefined, signal);
 export const callAppViewTool = (base: string, proof: SessionProof, render: string, body: AppViewToolCall, signal?: AbortSignal): Promise<AppViewToolResult> =>
@@ -1227,8 +1174,8 @@ export async function uploadIntegrationFile(base: string, proof: SessionProof, f
   if (!response.ok) throw validateWire<Problem>('Problem', value);
   return validateWire<IntegrationEntryPage>('IntegrationEntryPage', value);
 }
-export const getIntegrationDetail = (base: string, proof: SessionProof, options: {item_id:string;revision?:string;intent?:string;cleanup?:boolean}, signal?: AbortSignal): Promise<IntegrationDetail> =>
-  jsonRequest(base, '/integrations/detail' + query({...options, cleanup: options.cleanup ? 'true' : undefined}), 'IntegrationDetail', proof, 'GET', undefined, undefined, signal);
+export const getIntegrationDetail = (base: string, proof: SessionProof, options: {item_id:string;revision?:string}, signal?: AbortSignal): Promise<IntegrationDetail> =>
+  jsonRequest(base, '/integrations/detail' + query(options), 'IntegrationDetail', proof, 'GET', undefined, undefined, signal);
 export const reviewInstallPlan = (base: string, proof: SessionProof, body: PlanReviewRequest, signal?: AbortSignal): Promise<InstallPlan> =>
   jsonRequest(base, '/integrations/plans/review', 'InstallPlan', proof, 'POST', validateWire('PlanReviewRequest', body), undefined, signal);
 export const startInstallPlan = (base: string, proof: SessionProof, body: PlanStartRequest, signal?: AbortSignal): Promise<InstallPlan> =>
@@ -1239,18 +1186,6 @@ export const continueInstallPlan = (base: string, proof: SessionProof, plan: str
   jsonRequest(base, `/integrations/plans/${id(plan)}/continue`, 'InstallPlan', proof, 'POST', validateWire('PlanContinueRequest', body), undefined, signal);
 export const cancelInstallPlan = (base: string, proof: SessionProof, plan: string, signal?: AbortSignal): Promise<InstallPlan> =>
   jsonRequest(base, `/integrations/plans/${id(plan)}/cancel`, 'InstallPlan', proof, 'POST', undefined, undefined, signal);
-export const reviewMcpAuth = (base:string, proof:SessionProof, body:McpAuthReviewRequest, signal?:AbortSignal):Promise<McpAuthReview> =>
-  jsonRequest(base, '/settings/mcp/auth/review', 'McpAuthReview', proof, 'POST', validateWire('McpAuthReviewRequest', body), undefined, signal);
-export const sendMcpAuth = (base:string, proof:SessionProof, body:McpAuthCommand, signal?:AbortSignal):Promise<McpAuthStatus> =>
-  jsonRequest(base, '/settings/mcp/auth/commands', 'McpAuthStatus', proof, 'POST', validateWire('McpAuthCommand', body), body.command_id, signal);
-export const previewMcpPackage = (base:string, proof:SessionProof, body:McpPackageRequest, signal?:AbortSignal):Promise<McpPackageReview> =>
-  jsonRequest(base, '/settings/mcp/packages/preview', 'McpPackageReview', proof, 'POST', validateWire('McpPackageRequest', body), undefined, signal);
-export const sendMcpPackage = (base:string, proof:SessionProof, body:McpPackageCommand, signal?:AbortSignal):Promise<CommandReceipt> =>
-  jsonRequest(base, '/settings/mcp/packages/commands', 'CommandReceipt', proof, 'POST', validateWire('McpPackageCommand', body), body.command_id, signal);
-export const getMcpAuth = (base:string, proof:SessionProof, command:string, signal?:AbortSignal):Promise<McpAuthStatus> =>
-  jsonRequest(base, `/settings/mcp/auth/commands/${id(command)}`, 'McpAuthStatus', proof, 'GET', undefined, undefined, signal);
-export const cancelMcpAuth = (base:string, proof:SessionProof, command:string, signal?:AbortSignal):Promise<McpAuthStatus> =>
-  jsonRequest(base, `/settings/mcp/auth/commands/${id(command)}/cancel`, 'McpAuthStatus', proof, 'POST', undefined, undefined, signal);
 export const getMcpConfiguration = (base: string, proof: SessionProof, search: string, cursor?: string, signal?: AbortSignal, target?: McpTarget): Promise<McpConfigurationPage> =>
   jsonRequest(base, '/settings/mcp/configuration' + query({...targetQuery(target),query:search,cursor}), 'McpConfigurationPage', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpConfiguration = (base: string, proof: SessionProof, body: McpConfigurationReviewRequest, signal?: AbortSignal): Promise<McpConfigurationReview> =>
@@ -1702,14 +1637,13 @@ def outputs() -> dict[Path, str]:
                                 ("cursor", False, {"type": "string", "maxLength": 2048})]
         elif suffix == "/settings/providers/subscriptions/flows/{flow_id}":
             query_parameters = [("server_epoch", True, {"type": "string", "format": "uuid"})]
-        elif suffix in {"/settings/integrations", "/integrations/items"}:
+        elif suffix == "/integrations/items":
             query_parameters = [(name, False, {"type": "string", "maxLength": 2048 if name == "cursor" else 256})
-                for name in ("query", "kind", "source" if suffix == "/settings/integrations" else "scope", "cursor")]
+                for name in ("query", "kind", "scope", "cursor")]
             query_parameters.append(("limit", False, {"type": "integer", "minimum": 1, "maximum": 50}))
         elif suffix == "/integrations/detail":
             query_parameters = [("item_id", True, {"type": "string", "minLength": 1, "maxLength": 512}),
-                                ("revision", False, {"type": "string", "maxLength": 64}),
-                                ("intent", False, {"type": "string", "maxLength": 16})]
+                                ("revision", False, {"type": "string", "maxLength": 64})]
         elif suffix == "/settings/mcp/auth/callback":
             query_parameters = [(name, False, {"type": "string", "maxLength": 4096}) for name in ("state", "code", "error")]
         elif suffix == "/settings/mcp/configuration":
@@ -1758,7 +1692,7 @@ def outputs() -> dict[Path, str]:
                                 for name in ("conversation_id", "name")]
             parameters.append({"name": "X-Command-Id", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
-        if suffix in {"/settings/mcp/configuration", "/settings/mcp/policy", "/settings/mcp/catalog", "/settings/mcp/runtime/{server_id}"}:
+        if suffix in {"/settings/mcp/configuration", "/settings/mcp/policy"}:
             query_parameters += [(name, False, {"type": "string", "maxLength": 256}) for name in ("plugin_id", "server_key")]
         parameters += [{"name": name, "in": "query", "required": required, "schema": schema}
                        for name, required, schema in query_parameters]

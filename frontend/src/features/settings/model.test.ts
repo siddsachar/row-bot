@@ -97,24 +97,17 @@ describe('settings navigation metadata', () => {
     );
     expect(
       legacyIntegrationHref(
-        'integrations',
         new URLSearchParams('tab=my&type=skill&selected=skill:pdf'),
       ),
     ).toBe('/settings/skills/pdf');
     expect(
-      legacyIntegrationHref(
-        'integrations',
-        new URLSearchParams('type=mcp&selected=mcp:abc'),
-      ),
+      legacyIntegrationHref(new URLSearchParams('type=mcp&selected=mcp:abc')),
     ).toBe('/settings/apps/item?id=mcp%3Aabc');
+    expect(legacyIntegrationHref(new URLSearchParams('type=skill'))).toBe(
+      '/settings/skills',
+    );
     expect(
-      legacyIntegrationHref('integrations', new URLSearchParams('type=skill')),
-    ).toBe('/settings/skills');
-    expect(
-      legacyIntegrationHref(
-        'integrations',
-        new URLSearchParams('type=mcp&view=catalogs'),
-      ),
+      legacyIntegrationHref(new URLSearchParams('type=mcp&view=catalogs')),
     ).toBe('/settings/apps?view=advanced');
     expect(settingsHref('providers')).toBe('/settings/providers');
     // Accounts and channels are apps: their old pages and rows open the app.

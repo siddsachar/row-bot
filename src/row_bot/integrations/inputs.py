@@ -195,14 +195,11 @@ def values(declared: list[dict], given: dict) -> tuple[dict, dict]:
     return plain, secret
 
 
-def missing(cfg: dict, secrets_saved: bool) -> tuple[bool, bool]:
-    """Whether a saved connection still needs a secret, and whether it still needs a plain value."""
-    declared = cfg.get("inputs") or []
+def missing(cfg: dict) -> bool:
+    """Whether a saved connection still needs a required plain value."""
     saved = cfg.get("input_values") or {}
-    secret = any(item["secret"] and item["required"] for item in declared) and not secrets_saved
-    plain = any(not item["secret"] and item["required"] and not (saved.get(item["key"]) or item.get("default"))
-                for item in declared)
-    return secret, plain
+    return any(not item["secret"] and item["required"] and not (saved.get(item["key"]) or item.get("default"))
+               for item in cfg.get("inputs") or [])
 
 
 def _fill(text: str, found: dict, *, url_part: str = "") -> str:

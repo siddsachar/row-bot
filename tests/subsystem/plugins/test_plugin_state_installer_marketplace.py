@@ -333,24 +333,15 @@ def test_marketplace_parse_search_tags_entry_and_update_detection(
 
     marketplace._cached_index = index
     marketplace._cache_timestamp = time.time()
-    installed = [
-        PluginManifest(
-            id="alpha-plugin",
-            name="Alpha Plugin",
-            version="1.0.0",
-            min_row_bot_version="0.0.0",
-            author=PluginAuthor(name="Tester"),
-            description="Installed old version",
-        )
-    ]
-    assert marketplace.check_updates(installed) == [
-        {
-            "plugin_id": "alpha-plugin",
-            "name": "Alpha Plugin",
-            "installed_version": "1.0.0",
-            "latest_version": "2.0.0",
-        }
-    ]
+    installed = PluginManifest(
+        id="alpha-plugin",
+        name="Alpha Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="Installed old version",
+    )
+    assert marketplace.get_update_entry(installed).version == "2.0.0"
 
 
 def test_marketplace_fetch_uses_patched_source_and_disk_cache(

@@ -151,13 +151,3 @@ def entries() -> list:
                              notes=["Windows asks you to allow this connector the first time Row-Bot uses it."])
             for row in saved()]
 
-
-def environment_note() -> str:
-    """Why the source is hidden, for logs and the handoff; never shown as a catalog."""
-    if sys.platform != "win32":
-        return "not Windows"
-    build = sys.getwindowsversion().build
-    if build < MIN_BUILD:
-        return f"Windows build {build}; needs {MIN_BUILD}.7344 or later (Insider) with Experimental agentic features on"
-    return "odr.exe not found in the Windows system folder" if locate() is None else "available"
-

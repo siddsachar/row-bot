@@ -64,12 +64,7 @@ def test_connect_discover_disconnect_with_real_scoped_policy_nonce(service, owne
         assert response.status_code == 200, response.text
         assert response.json()["mcp_runtime"]["state"] == "connected", response.text
         identity = response.json()["mcp_runtime"]["runtime_id"]
-        state = client.get(
-            BASE + "/runtime/" + command["payload"]["server_id"], headers=headers
-        )
-        assert state.status_code == 200 and state.json()["runtime_id"] == identity, (
-            state.text
-        )
+        assert controls.read_mcp_runtime_state(command["payload"]["server_id"]).runtime_id == identity
         cleanup = review(client, headers, "disconnect", identity)
         stopped = send(client, headers, cleanup)
         assert stopped.status_code == 200, stopped.text
@@ -158,15 +153,13 @@ def test_disconnect_remains_available_when_saved_configuration_is_corrupt(
         )
         server_id = command["payload"]["server_id"]
         config.CONFIG_PATH.write_text("{synthetic-corrupt", encoding="utf-8")
-        state = client.get(BASE + "/runtime/" + server_id, headers=headers)
-        assert (
-            state.status_code == 200 and state.json()["availability"] == "unavailable"
-        ), state.text
+        state = controls.read_mcp_runtime_state(server_id)
+        assert state.availability == "unavailable"
         payload = {
             "server_id": server_id,
-            "resource_revision": state.json()["cleanup_revision"],
+            "resource_revision": state.cleanup_revision,
             "operation": "disconnect",
-            "expected_runtime_id": state.json()["runtime_id"],
+            "expected_runtime_id": state.runtime_id,
         }
         reviewed = client.post(BASE + "/runtime/review", headers=headers, json=payload)
         assert reviewed.status_code == 200, reviewed.text

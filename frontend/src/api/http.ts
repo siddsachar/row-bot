@@ -247,45 +247,6 @@ export class HttpTransport implements ClientTransport {
   scanMigration(request: wire.MigrationScanRequest, signal?: AbortSignal) {
     return wire.scanMigration(this.base, this.session(), request, signal);
   }
-  searchSkillHub(request: wire.SkillHubSearchRequest, signal?: AbortSignal) {
-    return wire.searchSkillHub(this.base, this.session(), request, signal);
-  }
-  previewSkillHub(request: wire.SkillHubPreviewRequest, signal?: AbortSignal) {
-    return wire.previewSkillHub(this.base, this.session(), request, signal);
-  }
-  installSkillHub(command: wire.SkillHubInstallCommand, signal?: AbortSignal) {
-    return wire.installSkillHub(this.base, this.session(), command, signal);
-  }
-  skillHubInstallReceipt(commandId: string, signal?: AbortSignal) {
-    return wire.getSkillHubInstallReceipt(
-      this.base,
-      this.session(),
-      commandId,
-      signal,
-    );
-  }
-  skillHubInstalled(signal?: AbortSignal) {
-    return wire.getSkillHubInstalled(this.base, this.session(), signal);
-  }
-  skillHubMaintenance(
-    command: wire.SkillHubMaintenanceCommand,
-    signal?: AbortSignal,
-  ) {
-    return wire.sendSkillHubMaintenance(
-      this.base,
-      this.session(),
-      command,
-      signal,
-    );
-  }
-  skillHubMaintenanceReceipt(commandId: string, signal?: AbortSignal) {
-    return wire.getSkillHubMaintenanceReceipt(
-      this.base,
-      this.session(),
-      commandId,
-      signal,
-    );
-  }
   reviewMigration(
     request: wire.MigrationApplyReviewRequest,
     signal?: AbortSignal,
@@ -562,42 +523,8 @@ export class HttpTransport implements ClientTransport {
   ) {
     return wire.reviewPlugin(this.base, this.session(), plugin, body, signal);
   }
-  pluginReceipt(plugin: string, command: string, signal?: AbortSignal) {
-    return wire.getPluginReceipt(
-      this.base,
-      this.session(),
-      plugin,
-      command,
-      signal,
-    );
-  }
   executePlugin(plugin: string, command: wire.Command, signal?: AbortSignal) {
     return wire.sendPlugin(this.base, this.session(), plugin, command, signal);
-  }
-  reviewPluginLifecycle(
-    body: wire.PluginLifecycleReviewRequest,
-    signal?: AbortSignal,
-  ) {
-    return wire.reviewPluginLifecycle(this.base, this.session(), body, signal);
-  }
-  pluginLifecycleReceipt(command: string, signal?: AbortSignal) {
-    return wire.getPluginLifecycleReceipt(
-      this.base,
-      this.session(),
-      command,
-      signal,
-    );
-  }
-  executePluginLifecycle(
-    command: wire.PluginLifecycleCommand,
-    signal?: AbortSignal,
-  ) {
-    return wire.sendPluginLifecycleCommand(
-      this.base,
-      this.session(),
-      command,
-      signal,
-    );
   }
   skills(
     query: string,
@@ -738,28 +665,6 @@ export class HttpTransport implements ClientTransport {
       signal,
       target,
     );
-  }
-  mcpTestedCatalog(
-    server: string,
-    command: string,
-    query: string,
-    cursor?: string,
-    signal?: AbortSignal,
-    target?: wire.McpTarget,
-  ) {
-    return wire.getMcpTestedCatalog(
-      this.base,
-      this.session(),
-      server,
-      command,
-      query,
-      cursor,
-      signal,
-      target,
-    );
-  }
-  reviewMcpCatalog(body: wire.McpCatalogRequest, signal?: AbortSignal) {
-    return wire.reviewMcpCatalog(this.base, this.session(), body, signal);
   }
   documentQueue(
     kind: string,
@@ -1278,12 +1183,7 @@ export class HttpTransport implements ClientTransport {
     );
   }
   integrationDetail(
-    options: {
-      item_id: string;
-      revision?: string;
-      intent?: string;
-      cleanup?: boolean;
-    },
+    options: { item_id: string; revision?: string },
     signal?: AbortSignal,
   ) {
     return wire.getIntegrationDetail(
@@ -1318,24 +1218,6 @@ export class HttpTransport implements ClientTransport {
   cancelInstallPlan(plan: string, signal?: AbortSignal) {
     return wire.cancelInstallPlan(this.base, this.session(), plan, signal);
   }
-  reviewMcpAuth(body: wire.McpAuthReviewRequest, signal?: AbortSignal) {
-    return wire.reviewMcpAuth(this.base, this.session(), body, signal);
-  }
-  mcpAuthStatus(command: string, signal?: AbortSignal) {
-    return wire.getMcpAuth(this.base, this.session(), command, signal);
-  }
-  cancelMcpAuth(command: string, signal?: AbortSignal) {
-    return wire.cancelMcpAuth(this.base, this.session(), command, signal);
-  }
-  previewMcpPackage(body: wire.McpPackageRequest, signal?: AbortSignal) {
-    return wire.previewMcpPackage(this.base, this.session(), body, signal);
-  }
-  sendMcpPackage(body: wire.McpPackageCommand, signal?: AbortSignal) {
-    return wire.sendMcpPackage(this.base, this.session(), body, signal);
-  }
-  sendMcpAuth(body: wire.McpAuthCommand, signal?: AbortSignal) {
-    return wire.sendMcpAuth(this.base, this.session(), body, signal);
-  }
   mcpConfiguration(
     query: string,
     cursor?: string,
@@ -1350,18 +1232,6 @@ export class HttpTransport implements ClientTransport {
       signal,
       target,
     );
-  }
-  mcpRuntime(server: string, signal?: AbortSignal, target?: wire.McpTarget) {
-    return wire.getMcpRuntime(
-      this.base,
-      this.session(),
-      server,
-      signal,
-      target,
-    );
-  }
-  reviewMcpRuntime(body: wire.McpRuntimeReviewRequest, signal?: AbortSignal) {
-    return wire.reviewMcpRuntime(this.base, this.session(), body, signal);
   }
   reviewMcpConfiguration(
     body: wire.McpConfigurationReviewRequest,

@@ -31,10 +31,6 @@ VALID_TRANSPORTS = {"stdio", "http", "streamable_http", "streamable-http", "sse"
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": CURRENT_VERSION,
     "enabled": False,
-    "marketplace": {
-        "enabled": True,
-        "sources": ["official", "pulsemcp", "smithery", "glama"],
-    },
     "servers": {},
 }
 
@@ -280,8 +276,6 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         return cfg
     cfg["version"] = CURRENT_VERSION
     cfg["enabled"] = bool(raw.get("enabled", cfg["enabled"]))
-    if isinstance(raw.get("marketplace"), dict):
-        cfg["marketplace"].update(raw["marketplace"])
     servers = raw.get("servers", {})
     if isinstance(servers, dict):
         cfg["servers"] = {

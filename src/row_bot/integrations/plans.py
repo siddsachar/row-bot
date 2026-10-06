@@ -148,8 +148,8 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
                            "" if asks else f"Only if {name} asks you to sign in.",
                            sign_in={"method": method, "authorization_url": None}))
     installed = row["lifecycle"] != "available"
-    accepted = setup["catalog_accepted"] and not codes & {"tools_changed", "tools_not_accepted"}
-    retest = bool(codes & {"connection_failed", "expired", "tools_changed", "tools_not_accepted", "sign_in_required", "key_required"})
+    accepted = setup["catalog_accepted"] and "tools_not_accepted" not in codes
+    retest = bool(codes & {"connection_failed", "expired", "tools_not_accepted", "sign_in_required", "key_required"})
     checked = installed and accepted and not (intent == "fix" and retest)
     steps.append(_step("test", "done" if checked or intent == "access" else "pending", "Check the connection"))
     steps.append(_step("access", "done" if checked and intent != "access" else "pending", f"Choose what {name} can do",
@@ -293,24 +293,20 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         # Removing what a package left behind is deleting its data, so that is what is agreed.
         consent["cleanup"] = intent == "remove" and (bool(cleanup) or row["lifecycle"] == "data_retained")
         declaration = {"revision": row["revision"], "lifecycle": row["lifecycle"]}
-    elif kind == "mcp" and reference.get("kind") == "hermes_mcp":
-        # The recipe is read at its pin once agreed, shown in place, and only then saved; its own steps follow.
-        steps = [_step("consent", title="Before you connect"), _step("test", title="Check the connection"),
-                 _step("access", title=f"Choose what {name} can do", access={"preset": presets.DEFAULT, "tools": [],
-                                                                            "tools_digest": "", "note": ""}),
-                 _step("enable", title="Turn on " + name)]
-        consent["downloads"] = [f"the {name} recipe from Hermes"]
-        declaration = {"recipe": reference.get("name"), "pin": reference.get("pin")}
-    elif kind == "mcp" and registry_bundle(reference):
-        # A Registry bundle is downloaded once agreed, used only if it matches its record's checksum, and saved;
-        # its own steps (settings, the reviewed install) follow.
+    elif kind == "mcp" and (reference.get("kind") == "hermes_mcp" or registry_bundle(reference)):
+        # A Hermes recipe is read at its pin once agreed, shown in place, and only then saved; a Registry bundle is
+        # downloaded once agreed, used only if it matches its record's checksum, and saved. Their own steps follow.
         steps = [_step("consent", title="Before you connect"), _step("test", title="Check the connection"),
                  _step("access", title=f"Choose what {name} can do", access={"preset": presets.DEFAULT, "tools": [],
                                                                             "tools_digest": "", "note": ""}),
                  _step("enable", title="Turn on " + name)]
         bundle = registry_bundle(reference)
-        consent["downloads"] = [f"{name} from {urlsplit(bundle['url']).hostname}, checked against its Registry checksum"]
-        declaration = {"bundle": bundle}
+        if bundle:
+            consent["downloads"] = [f"{name} from {urlsplit(bundle['url']).hostname}, checked against its Registry checksum"]
+            declaration = {"bundle": bundle}
+        else:
+            consent["downloads"] = [f"the {name} recipe from Hermes"]
+            declaration = {"recipe": reference.get("name"), "pin": reference.get("pin")}
     elif kind == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
         entry = reference.get("entry")
@@ -342,7 +338,7 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
             steps[1].update(state="unsupported", title="Fix " + name, message="Finish it in its advanced settings for now.")
     listed = next((b["message"] for b in row["blockers"] if b["code"] == "unsupported"), "")
     if available and listed and all(s["state"] != "unsupported" for s in steps):
-        steps[-1].update(state="unsupported", message=listed[:512] or "Row-Bot can't add this one yet.")
+        steps[-1].update(state="unsupported", message=listed[:512])
     unsupported = next((s for s in steps if s["state"] == "unsupported"), None)
     plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "app_id": (row["app"] or {}).get("id", ""),
             "installed_id": "", "kind": kind, "name": name, "intent": intent,
@@ -882,7 +878,7 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
         if entry_to_server_config(entry) != entry_to_server_config(listed):
             raise PlanError("plan_changed")
         revision = _revision(ctx, record)
-        intent = {"operation": "import", "import_json": sources.describe(entry)["import_json"]}
+        intent = {"operation": "import", "import_json": sources.import_json(entry)}
         review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate)
         return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
     command, review = _once(record, "consent:save", build)
@@ -1027,7 +1023,6 @@ def _sign_in_client(ctx: Context, record: dict, step: dict) -> dict | None | boo
     one before); otherwise with Row-Bot's published client metadata (CIMD) or a client registered for this
     connection (DCR), whichever the server's sign-in service supports. ``False``: the person's own app is
     needed, so the step waits for its client ID and secret, which go only to the keychain."""
-    from urllib.parse import urlsplit
     from row_bot.mcp_client import auth
     cfg = _saved(record["target"], record["server_id"])[1]
     source = cfg.get("source") or {}
@@ -1174,7 +1169,7 @@ def _saved(target: dict | None, server_id: str) -> tuple[str, dict]:
     from row_bot.application.capability_configuration_controls import _server_id
     from row_bot.mcp_client import config, targets
     saved = config.read_saved_configuration(targets.normalize(target))
-    return next(((n, c) for n, c in saved.document["servers"].items() if _server_id(n) == server_id), ("", {}))
+    return next(((n, c) for n, c in saved.document.get("servers", {}).items() if _server_id(n) == server_id), ("", {}))
 
 
 def _mcp_on() -> bool:
@@ -1220,7 +1215,7 @@ def current_access(row: dict) -> dict | None:
     """What an installed connection may do now, read from its saved settings only."""
     if row["kind"] != "mcp" or row["lifecycle"] == "available":
         return None
-    record = {"target": None if row.get("target") in (None, {"kind": "standalone"}) else row["target"], "server_id": row["owner_ref"]}
+    record = {"target": row.get("target"), "server_id": row["owner_ref"]}
     saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {})
     tools = _tools(None, record)
     return {"preset": presets.current(saved) if saved.get("catalog") else presets.DEFAULT, "tools_digest": _digest(tools),

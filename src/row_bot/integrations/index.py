@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from row_bot.mcp_client.marketplace import MarketplaceEntry
 
 SCHEMA = 3
-LIMIT = 200
 _GENERATION = re.compile(r"registry-[0-9a-f]{16}\.sqlite3")
 _LOCK = threading.RLock()
 _READY: dict = {}
@@ -279,11 +278,10 @@ def lookup(entry_id: str) -> MarketplaceEntry | None:
     return entry if entry and entry.id == entry_id else None
 
 
-def icon_urls(index: dict | None = None) -> list[str]:
+def icon_urls(index: dict) -> list[str]:
     """Declared raster icons to cache during an update, only those served from their publisher's
     own domain: app records and vendor-verified ones first, then the freshest."""
     from row_bot.integrations.icons import publisher_host
-    index = index or current()
     db = _connect(folder() / index["file"])
     try:
         found = db.execute("SELECT icon, name FROM entries WHERE icon IS NOT NULL "
@@ -312,17 +310,17 @@ _ORDER = """ORDER BY NOT (e.featured IS NOT NULL OR e.verified),
 _NAMESPACE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+(/[a-z0-9._-]*)?")
 
 
-def search(query: str, *, limit: int = LIMIT, now: float | None = None, everything: bool = False) -> tuple[list[tuple], int, dict, int]:
-    """Ranked records for a query (the empty query lists app records only), the number that
+def search(query: str, *, now: float | None = None, everything: bool = False) -> tuple[list[MarketplaceEntry], int, dict, int]:
+    """The top 200 records for a query (the empty query lists app records only), the number that
     matched, the index in use, and how many placeholder or duplicate records were left out
     (``everything`` keeps them). A query that is itself a namespace matches that namespace
-    exactly. Every result is ``(entry, derived)``."""
+    exactly."""
     from row_bot.mcp_client.registry_snapshot import expand
     index, words, wanted = current(), _words(query), query.casefold().strip()
     named = [app.id for app in apps.catalog()[0].values() if wanted and app.name.casefold() == wanted]
-    values = {"wanted": wanted or "\0", "apps": json.dumps(named), "now": time.time() if now is None else now, "limit": limit,
+    values = {"wanted": wanted or "\0", "apps": json.dumps(named), "now": time.time() if now is None else now, "limit": 200,
               "prefix": wanted.rstrip("/") + "/"}
-    select = "SELECT e.id, e.app, e.verified, e.setup, e.updated, e.row FROM entries e "
+    select = "SELECT e.row FROM entries e "
     floor = "" if everything else " AND e.quality = 0"
     db = _connect(folder() / index["file"])
     try:
@@ -338,15 +336,12 @@ def search(query: str, *, limit: int = LIMIT, now: float | None = None, everythi
         # One count for both: everything that matched, and how much of it the floor leaves out.
         found, low = db.execute("SELECT count(*), total(e.quality > 0) FROM entries e " + matched, values).fetchone()
         hidden = 0 if everything else int(low)
-        total = found - (0 if everything else int(low))
-        results = [(expand(json.loads(zlib.decompress(row[5]))), {"app": row[1], "verified": bool(row[2]), "setup": row[3],
-                                                                   "updated": row[4]}) for row in top]
-        return results, total, index, hidden
+        return [expand(json.loads(zlib.decompress(row[0]))) for row in top], found - hidden, index, hidden
     finally:
         db.close()
 
 
-def by_app(app_id: str, *, limit: int = 32) -> list[MarketplaceEntry]:
+def by_app(app_id: str) -> list[MarketplaceEntry]:
     """An app's own records (its ways to connect), best first; never placeholders or copies."""
     from row_bot.mcp_client.registry_snapshot import expand
     try:
@@ -355,7 +350,7 @@ def by_app(app_id: str, *, limit: int = 32) -> list[MarketplaceEntry]:
         return []
     try:
         found = db.execute("SELECT row FROM entries WHERE app = ? AND quality = 0 ORDER BY NOT verified, setup, updated DESC, name "
-                           "LIMIT ?", (app_id, limit)).fetchall()
+                           "LIMIT 32", (app_id,)).fetchall()
     finally:
         db.close()
     return [expand(json.loads(zlib.decompress(row[0]))) for row in found]

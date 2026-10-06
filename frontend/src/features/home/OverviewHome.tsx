@@ -117,9 +117,7 @@ export type OverviewHomeProps = {
   onOpenWorkflows: (taskId?: string) => void;
   onOpenTab: (tab: 'knowledge' | 'monitor' | 'insights') => void;
   /** Your apps (installed), so a broken one or one that needs a sign-in shows here. */
-  loadApps?: (
-    signal?: AbortSignal,
-  ) => Promise<IntegrationEntryPage | undefined>;
+  loadApps?: (signal?: AbortSignal) => Promise<IntegrationEntryPage>;
   /** Open an app's page; `fix` starts its fix there at once. */
   onOpenApp?: (itemId: string, fix?: boolean) => void;
   onHideSetup?: () => void;
@@ -797,7 +795,7 @@ export default function OverviewHome({
     const abort = new AbortController();
     loadApps(abort.signal).then(
       (page) => {
-        if (!abort.signal.aborted) setApps(page?.items ?? []);
+        if (!abort.signal.aborted) setApps(page.items);
       },
       () => undefined, // Apps can't be read: nothing to add here.
     );
@@ -1020,7 +1018,7 @@ export default function OverviewHome({
     })),
     // An app that is on but broken or signed out: its fix is one click away.
     ...apps
-      .flatMap((entry) => [entry, ...(entry.children ?? [])]) // A package's connections too.
+      .flatMap((entry) => [entry, ...entry.children]) // A package's connections too.
       .filter(
         (entry) =>
           entry.lifecycle === 'installed' &&

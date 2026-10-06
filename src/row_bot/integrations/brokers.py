@@ -30,9 +30,9 @@ RUNS_CODE = frozenset({"COMPOSIO_REMOTE_WORKBENCH", "COMPOSIO_REMOTE_BASH_TOOL"}
 ALWAYS_ASKS = frozenset({"COMPOSIO_MULTI_EXECUTE_TOOL", "COMPOSIO_MANAGE_CONNECTIONS"})
 
 
-def on(broker: str = COMPOSIO) -> bool:
+def on() -> bool:
     saved = catalogs.setting("brokers")
-    return isinstance(saved, dict) and saved.get(broker) is True
+    return isinstance(saved, dict) and saved.get(COMPOSIO) is True
 
 
 def set_on(broker: str, value: bool) -> None:
@@ -42,9 +42,9 @@ def set_on(broker: str, value: bool) -> None:
     catalogs.set_setting("brokers", {**(saved if isinstance(saved, dict) else {}), broker: bool(value)})
 
 
-def opt_in(broker: str = COMPOSIO) -> dict:
+def opt_in() -> dict:
     """What the Catalogs switch shows: on or off, and what turning it on means."""
-    return {"on": on(broker), "disclosure": DISCLOSURE, "links": [{"label": label, "url": url} for label, url in LINKS]}
+    return {"on": on(), "disclosure": DISCLOSURE, "links": [{"label": label, "url": url} for label, url in LINKS]}
 
 
 @cache

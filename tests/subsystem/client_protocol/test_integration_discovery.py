@@ -328,11 +328,10 @@ def test_registry_setup_revalidated_from_envelope_at_configuration_publication(s
         assert review_plan.json()["supported"] and review_plan.json()["consent_token"]
         # What consent saves: the listed recipe, bound to the Registry declarations it was reviewed against.
         listed = sources.catalog_entry(item_id)[1]["entry"]
-        description = sources.describe(registry_snapshot.revalidate_entry(listed))
-        assert description["auth_requirement"] == "unknown"
-        imported = json.loads(description["import_json"])["mcpServers"]
+        description = sources.import_json(registry_snapshot.revalidate_entry(listed))
+        imported = json.loads(description)["mcpServers"]
         assert next(iter(imported.values()))["source"]["registry_setup_digest"]
-        command = review(client, headers, {"operation": "import", "import_json": description["import_json"]})
+        command = review(client, headers, {"operation": "import", "import_json": description})
         before = config.CONFIG_PATH.read_bytes()
         if change == "deleted": envelope["_meta"]["io.modelcontextprotocol.registry/official"]["status"] = "deleted"
         elif change == "headers": envelope["server"]["remotes"][0]["headers"] = [{"name": "X-Tenant", "value": "alpha", "isRequired": True}]
@@ -347,7 +346,7 @@ def test_registry_setup_revalidated_from_envelope_at_configuration_publication(s
         response = send(client, headers, command)
         if change in {"unchanged", "unchanged_package"}:
             assert response.status_code == 200, response.text
-            saved = config.read_saved_configuration().document["servers"][description["name"]]
+            saved = config.read_saved_configuration().document["servers"][next(iter(imported))]
             assert saved["source"]["registry_setup_digest"] == original.metadata["setup_digest"]
             assert not saved["enabled"]
         else:

@@ -25,12 +25,12 @@ const PRESETS: [AccessPresetId, string, string][] = [
 ];
 
 /** Which group a tool belongs to; the groups do not depend on the preset. */
-export function groupOf(tool: PlanTool) {
+function groupOf(tool: PlanTool) {
   if (tool.always_asks) return 'Always asks first';
   return tool.effect === 'read_only' ? 'Looks things up' : 'Makes changes';
 }
 
-export function readable(tool: PlanTool) {
+function readable(tool: PlanTool) {
   return tool.title || tool.name;
 }
 
@@ -110,7 +110,7 @@ export default function AccessSheet({
         if (!value) onCancel();
       }}
     >
-      <div className="stack access-sheet">
+      <div className="stack">
         <fieldset className="access-presets">
           <legend className="visually-hidden">Access</legend>
           {PRESETS.map(([id, label, description]) => (

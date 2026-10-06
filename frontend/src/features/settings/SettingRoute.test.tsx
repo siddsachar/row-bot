@@ -169,7 +169,7 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
   const chats = screen.getByRole('region', { name: 'Apps in chats' });
   expect(
     await within(chats).findByRole('switch', {
-      name: 'Offer MCP tools in chats',
+      name: 'Use apps in chats',
     }),
   ).toBeChecked();
   expect(

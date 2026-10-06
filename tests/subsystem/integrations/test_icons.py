@@ -56,7 +56,7 @@ def test_oversized_and_bomb_images_are_refused_before_decoding():
         icons.reencode(image("WEBP"))  # WebP's decoder is left out on purpose.
 
 
-def test_update_caches_at_most_its_quota_and_skips_failures(local):
+def test_update_caches_at_most_its_quota_and_skips_failures(local, monkeypatch):
     fetched = []
 
     def download(url):
@@ -65,10 +65,12 @@ def test_update_caches_at_most_its_quota_and_skips_failures(local):
             return b"<svg/>"
         return image("PNG")
     urls = ["https://cdn.example.test/bad.svg.png"] + [f"https://cdn.example.test/{i}.png" for i in range(icons.PER_UPDATE + 5)]
-    result = icons.cache_remote(urls + ["http://cdn.example.test/insecure.png"], download=download)
+    monkeypatch.setattr(icons, "_download", download)
+    result = icons.cache_remote(urls + ["http://cdn.example.test/insecure.png"])
     assert result == {"cached": icons.PER_UPDATE - 1, "failed": 1}
     assert len(fetched) == icons.PER_UPDATE and "http://cdn.example.test/insecure.png" not in fetched
-    again = icons.cache_remote(urls[:4], download=lambda url: pytest.fail("cached or failed icons are fetched once"))
+    monkeypatch.setattr(icons, "_download", lambda url: pytest.fail("cached or failed icons are fetched once"))
+    again = icons.cache_remote(urls[:4])
     assert again == {"cached": 0, "failed": 0}  # The failed one waits a month.
     assert icons.entry_icon(None, urls[1], "Example") == icons.remote_id(urls[1])
     data, media = icons.render(icons.remote_id(urls[1]))

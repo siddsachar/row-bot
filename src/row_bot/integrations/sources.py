@@ -16,7 +16,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
-from row_bot.integrations import apps, facts, icons
+from row_bot.integrations import apps, facts, icons, index
 from row_bot.integrations.safe import public_url
 
 
@@ -179,12 +179,11 @@ class _McpCatalog(Source):
             app and app.auth in {"oauth", "api_key", "none"})
         row = _available("mcp", entry.source + ":" + entry.id, name, app=app, source=entry.source,
             verified=apps.verified(app, refs), setup_tier=0 if supported and known else 1 if supported else 2,
-            updated_at=_day(metadata.get("updated_at", "")), icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
+            updated_at=index.epoch(metadata.get("updated_at", "")), icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
             unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
             description=entry.description[:2048], source_url=public_url(entry.url), publisher=publisher[:160],
             compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
-            evidence=metadata.get("evidence", "Publisher listing only; live service untested."),
-            pin=metadata.get("version_policy", ""), actions=["preview"] if supported else [], version=str(metadata.get("version", ""))[:128],
+            pin=metadata.get("version_policy", ""), version=str(metadata.get("version", ""))[:128],
             auth_requirement="required" if entry.requires_auth else "unknown", auth_mode=metadata.get("auth_mode", ""),
             canonical_identity=mcp_identity(entry.install, metadata.get("version", ""), metadata.get("canonical_name", ""),
                                             own_client=metadata.get("oauth_client") == "required"),
@@ -225,11 +224,9 @@ class Registry(_McpCatalog):
     message = "The whole Registry, searched on this computer; updated only when you ask."
 
     def lookup(self, reference: str):
-        from row_bot.integrations import index
         return index.lookup(reference.removeprefix(self.id + ":"))
 
     def search(self, search: Search) -> Found:
-        from row_bot.integrations import index
         from row_bot.mcp_client.registry_snapshot import MAX_AGE, read_header
         try:
             results, total, current, hidden = index.search(search.query, everything=search.everything)
@@ -243,7 +240,7 @@ class Registry(_McpCatalog):
                 fetched_at=shipped.get("captured_at"), snapshot_version="v0.1" if shipped else "",
                 snapshot_digest=shipped.get("digest", ""))])
         found = Found(hidden=hidden)
-        for entry, _derived in results:
+        for entry in results:
             found.add(*self.row(entry))
         fetched = max(current["captured_at"], current.get("updated_at", 0))
         found.statuses.append(self.status(status="stale" if time.time() - fetched > MAX_AGE else "cached", fetched_at=fetched,
@@ -254,7 +251,6 @@ class Registry(_McpCatalog):
         """Records changed since the mirror's watermark (all of them when it is old), merged into
         a new index generation; then new Registry icons. Failure leaves the mirror as it was."""
         from datetime import datetime, timedelta, timezone
-        from row_bot.integrations import index
         from row_bot.mcp_client import registry_snapshot
         current = index.ensure()
         try:
@@ -371,8 +367,7 @@ class HermesMcp(Source):
         for name in catalog.get("names", []):
             if matches(search.query, name):
                 found.add(_available("mcp", "hermes_mcp:" + name, name, app=None, source=self.id, pin=catalog["pin"],
-                    compatibility="not_inspected", actions=["preview"],
-                    description="Pinned Hermes optional-MCP recipe. Inspect to check compatibility."),
+                    compatibility="not_inspected", description="Pinned Hermes optional-MCP recipe. Inspect to check compatibility."),
                     {"kind": "hermes_mcp", "name": name, "pin": catalog["pin"]})
         found.statuses.append(self.status(status=catalog["status"], message=catalog["message"], fetched_at=catalog.get("fetched_at")))
         return found
@@ -396,7 +391,6 @@ class Hermes(Source):
             # Only about one in ten is portable: known from its manifest after a catalog update, else checked when added.
             compatibility="unsupported" if entry["compatibility"] == "unsupported" else "not_inspected",
             setup_tier=1 if entry.get("portable") else 2,
-            platforms=entry["platforms"], actions=["preview"],
             unsupported=entry["reason"] if entry["compatibility"] == "unsupported" else "",
             canonical_identity="plugin:" + entry["source_identity"] + "@" + entry["pin"])
         if entry["compatibility"] != "unsupported":
@@ -439,8 +433,7 @@ class Native(Source):
                                                        validate=search.validate)
             for row in page["items"]:
                 found.add(_available("plugin", row["plugin_id"], row["name"], app=None, source=self.id, description=row["description"],
-                    version=row["version"], compatibility="not_inspected",
-                    actions=["install"] if row["capabilities"]["install"]["available"] else []),
+                    version=row["version"], compatibility="not_inspected"),
                     {"kind": "native", "plugin_id": row["plugin_id"]})
             cursor = page.get("next_cursor")
             if not cursor:
@@ -465,7 +458,7 @@ class Examples(Source):
     def row(self, name: str, reference: str, description: str, evidence: str) -> tuple[dict, dict]:
         app = apps.match(["bundled:" + reference.removeprefix("bundled:")] if reference.startswith("bundled:") else [])
         row = _available("plugin", reference, name, app=app, source=self.id, publisher="Row-Bot", license="MIT",
-            description=description, evidence="Source reviewed; see setup details and validation limits.", actions=["preview"])
+            description=description)
         row["blockers"].append(facts.blocker("note", evidence))
         return row, {"kind": "plugin", "reference": reference}
 
@@ -499,7 +492,7 @@ class Skills(Source):
             origin = f"https://github.com/{meta['repository']}/{meta.get('path', '')}".rstrip("/") if meta.get("repository") else ""
             found.add(_available("skill", entry["id"], plain_text(entry["name"], 160), app=None, installed=entry["installed"],
                 source=entry["source"], description=entry["description"], publisher=entry["author"],
-                source_url=public_url(entry.get("url")), compatibility="not_inspected", actions=["preview"], signals=signals,
+                source_url=public_url(entry.get("url")), compatibility="not_inspected", signals=signals,
                 popularity=(signals or {}).get("downloads") or 0, identities=skill_identities(
                     content_hash=str(meta.get("content_hash") or ""), origin=origin, description=entry["description"])),
                 {"kind": "skill", "revision": result["revision"], "entry_id": entry["id"]})
@@ -546,9 +539,7 @@ class FeaturedSkills(Source):
         row = _available("skill", "featured:" + skill["id"], skill["name"], app=app, source=self.id, installed=install_ref in installed,
             description=skill["summary"], publisher=skill["publisher"], license=skill["license"], version=skill["commit"][:12],
             pin=skill["commit"], source_url=f"https://{skill['repo']}/tree/{skill['commit']}/{skill['path']}",
-            compatibility="not_inspected", actions=["preview"], identities=skill_identities(origin=origin),
-            featured_rank=skill["featured_rank"],
-            evidence="Licence checked at this commit; the skill is read from its source when you add it.")
+            compatibility="not_inspected", identities=skill_identities(origin=origin), featured_rank=skill["featured_rank"])
         return row, {"kind": "skill", "install_ref": install_ref, "name": skill["name"], "publisher": skill["publisher"]}
 
     def search(self, search: Search) -> Found:
@@ -626,12 +617,6 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
         example = SOURCES["examples"].lookup(reference)
         found = SOURCES["examples"].row(*example) if example else None
     return (facts.finish(found[0]), found[1]) if found else None
-
-
-def _day(value: str) -> int:
-    """Seconds since the epoch for a Registry ``YYYY-MM-DD`` date, or 0."""
-    from row_bot.integrations.index import epoch
-    return epoch(value)
 
 
 def order(*, exact: bool, preferred: bool, strong: bool, featured_rank: int | None, setup: int, updated: float,
@@ -726,10 +711,8 @@ def rank(rows: list[dict], query: str) -> list[dict]:
     return grouped
 
 
-def describe(entry) -> dict:
-    """A disabled, review-required MCP configuration for a catalog entry."""
+def import_json(entry) -> str:
+    """A disabled, review-required MCP configuration for a catalog entry, as an import."""
     from row_bot.mcp_client.marketplace import entry_to_server_config
     name = re.sub(r"[^A-Za-z0-9_. -]", "-", entry.name).strip()[:64] or "Connection"
-    return {"name": name, "import_json": json.dumps({"mcpServers": {name: entry_to_server_config(entry)}}),
-            "requires_auth": entry.requires_auth, "auth_requirement": "required" if entry.requires_auth else "unknown",
-            "notes": entry.notes[:16], "source_url": public_url(entry.url)}
+    return json.dumps({"mcpServers": {name: entry_to_server_config(entry)}})

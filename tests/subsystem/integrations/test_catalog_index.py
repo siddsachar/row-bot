@@ -57,14 +57,14 @@ def test_search_ranks_featured_and_verified_first_then_setup_and_freshness(local
     ]
     use_registry(monkeypatch, local, rows)
     results, total, _, _hidden = index.search("notion", now=1791000000)
-    names = [entry.metadata["canonical_name"] for entry, _ in results]
+    names = [entry.metadata["canonical_name"] for entry in results]
     assert total == 5 and "org.other/weather" not in names
-    assert names[0] == "com.notion/mcp" and results[0][1]["verified"]
+    assert names[0] == "com.notion/mcp" and index.derive(results[0])["verified"]
     # Installable with known authentication (local), then installable, then no recipe; fresher first.
     assert names[1:] == ["org.fresh/notion-notes", "org.old/notion-notes", "io.github.someone/notion-helper", "org.none/notion-docs"]
-    assert [e.metadata["canonical_name"] for e, _ in index.search("")[0]] == ["com.notion/mcp"]  # No alphabetical dump.
-    assert [e.metadata["canonical_name"] for e, _ in index.search("noti")[0]][0] == "com.notion/mcp"  # As you type.
-    assert index.search("wiki")[0][0][0].metadata["canonical_name"] == "com.notion/mcp"  # A job or synonym.
+    assert [e.metadata["canonical_name"] for e in index.search("")[0]] == ["com.notion/mcp"]  # No alphabetical dump.
+    assert [e.metadata["canonical_name"] for e in index.search("noti")[0]][0] == "com.notion/mcp"  # As you type.
+    assert index.search("wiki")[0][0].metadata["canonical_name"] == "com.notion/mcp"  # A job or synonym.
 
 
 def test_search_never_builds_writes_or_fetches(local):

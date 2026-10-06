@@ -89,16 +89,10 @@ def set_app(item_id: str, on: bool) -> dict:
     return settings()
 
 
-def _cfg(item: dict) -> dict:
-    from row_bot.application.capability_configuration_controls import _server_id
-    from row_bot.mcp_client import config, targets
-    saved = config.read_saved_configuration(targets.normalize(item.get("target") or {"kind": "standalone"}))
-    return next((cfg for name, cfg in saved.document.get("servers", {}).items() if _server_id(name) == item["owner_ref"]), {})
-
-
 def offered(item: dict) -> bool:
     """Whether the app's views were part of what the person agreed to (a tool with a view was accepted)."""
-    catalog = ((_cfg(item).get("tools") or {}).get("catalog")) or {}
+    from row_bot.integrations.plans import _saved
+    catalog = ((_saved(item.get("target"), item["owner_ref"])[1].get("tools") or {}).get("catalog")) or {}
     return any(isinstance(tool, dict) and tool.get("view") for tool in catalog.values())
 
 
@@ -281,8 +275,7 @@ def render(conversation_id: str, call_id: str) -> dict:
         raise ViewError("view_unavailable", "The app didn't send its view. Try again later.") from error
     render_id = secrets.token_hex(16)
     meta = view["meta"]
-    _RENDERS.put(render_id, {"conversation_id": conversation_id, "server": info.server_name, "item_id": item["id"],
-                             "created": time.monotonic()})
+    _RENDERS.put(render_id, {"conversation_id": conversation_id, "server": info.server_name})
     _FRAMES.put(render_id, {"html": view["html"], "csp": content_security_policy(meta.get("csp"))})
     app = scope.app_for_tool(str(call.get("name") or "")) or {"item_id": item["id"], "name": item["name"],
                                                                "icon": item["icon"], "tool": ""}

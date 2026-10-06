@@ -196,7 +196,7 @@ def test_ttl_cache_expires_evicts_and_can_refuse_when_full():
     now[0] = 30
     strict.room()
     strict.put("b", 2)
-    assert strict.pop("b") == 2 and strict.get("b") is None
+    assert strict.get("b") == 2
 
 
 def test_write_atomic_publishes_whole_files_and_cleans_only_its_own_temporary(tmp_path, monkeypatch):

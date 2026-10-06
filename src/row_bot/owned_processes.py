@@ -38,16 +38,11 @@ def _read(path: Path) -> list[dict]:
 
 
 def _write(path: Path, entries: list[dict]) -> None:
-    if not entries:
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"agents": entries}, indent=2), encoding="utf-8")
-    os.replace(temporary, path)
+    from row_bot.integrations.safe import write_atomic
+    if entries:
+        write_atomic(path, json.dumps({"agents": entries}, indent=2))
+    else:
+        path.unlink(missing_ok=True)
 
 
 def started(pid: int) -> float | None:

@@ -88,13 +88,11 @@ def _cleanup_revision(server_id: str, runtime_id: str) -> str:
     return configuration._digest(["mcp-owned-cleanup", server_id, runtime_id])
 
 
-def read_mcp_runtime_state(server_id: str, *, expected_runtime_id: str | None = None,
-                           validate: Callable[[], None] = lambda: None, target: dict | None = None) -> McpRuntimeState:
+def read_mcp_runtime_state(server_id: str, *, validate: Callable[[], None] = lambda: None,
+                           target: dict | None = None) -> McpRuntimeState:
     validate()
     target = targets.normalize(target)
     _identity(server_id)
-    if expected_runtime_id is not None:
-        _identity(expected_runtime_id, uuid=True)
     enabled = None
     try:
         saved = config.read_saved_configuration(target)
@@ -106,7 +104,7 @@ def read_mcp_runtime_state(server_id: str, *, expected_runtime_id: str | None = 
             enabled = saved.document.get("enabled") is True and server.get("enabled") is True
     except config.McpConfigurationError:
         revision, availability = None, "unavailable"
-    owner = _owned(server_id, expected_runtime_id)
+    owner = _owned(server_id)
     validate()
     if owner is None:
         return McpRuntimeState(1, server_id, revision, None, availability, None, "missing", None, enabled)
