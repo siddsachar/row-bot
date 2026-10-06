@@ -614,3 +614,43 @@ surfaces:
     capture_type: manual
     status: ready
     source_files: [frontend/src/features/apps/AppsArea.tsx, src/row_bot/application/client_integrations.py]
+  chat_apps_menu:
+    title: A chat's apps (+ › Apps) and @app or /skill mentions
+    app_route: /app-v2/conversations/<conversation id>
+    state: composer menu with connected demonstration apps
+    scenario: configured
+    docs_page: /docs/chat/
+    no_image_reason: The composer's Apps menu has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
+    status: ready
+    source_files: [frontend/src/features/shell/ComposerControls.tsx, src/row_bot/integrations/scope.py]
+  chat_connect_card:
+    title: Connect card suggesting apps in a chat
+    app_route: /app-v2/conversations/<conversation id>
+    state: suggestion from the local catalog, nothing connected
+    scenario: configured
+    docs_page: /docs/chat/
+    no_image_reason: The Connect card needs a model turn; it has no approved screenshot yet and the page describes it in words.
+    capture_type: manual
+    status: ready
+    source_files: [frontend/src/features/apps/ChatConnect.tsx, src/row_bot/integrations/scope.py]
+  chat_app_view:
+    title: An app's interactive view under a tool step
+    app_route: /app-v2/conversations/<conversation id>
+    state: fixture app view after a finished tool step
+    scenario: configured
+    docs_page: /docs/chat/
+    no_image_reason: App views need a connected app that has one; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
+    status: ready
+    source_files: [frontend/src/features/apps/AppViewFrame.tsx, frontend/src/features/apps/view-bridge.ts, src/row_bot/integrations/views.py]
+  workflow_app_templates:
+    title: Workflow templates that use apps, and a step's apps
+    app_route: /app-v2/?tab=workflows
+    state: templates switched off, no app connected
+    scenario: configured
+    docs_page: /docs/guides/workflows
+    no_image_reason: The app templates and a step's apps have no approved screenshot yet; the page describes them in words.
+    capture_type: manual
+    status: ready
+    source_files: [frontend/src/features/tasks/AppTemplates.tsx, frontend/src/features/tasks/StepApps.tsx, src/row_bot/integrations/workflow_templates.py]

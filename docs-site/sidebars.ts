@@ -84,6 +84,18 @@ const sidebars: SidebarsConfig = {
         'integrations/plugins',
         'integrations/mcp',
         'voice-and-buddy/index',
+        {
+          type: 'category',
+          label: 'For Developers',
+          collapsed: true,
+          items: [
+            'extending/source-adapters',
+            'extending/app-catalog',
+            'extending/mcp-bundles',
+            'extending/sign-in-and-client-metadata',
+            'extending/mcp-apps',
+          ],
+        },
       ],
     },
     {

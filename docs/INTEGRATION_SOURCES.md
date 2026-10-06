@@ -110,12 +110,11 @@ never sent to another host, identity encoding, and size and time caps.
 
 ## Search API handoff
 
-`POST /api/v1/settings/integrations/search` accepts `kind`, `query`, optional
+`POST /api/v1/integrations/items/search` accepts `kind`, `query`, optional
 `sources`, `refresh`, `include_incompatible`, `cursor` and
 `limit` (1-96, default 50). Omit sources for the selected type's eligible catalogs;
 source ids come from `GET /api/v1/integrations/sources`, and the server rejects
-unknown ids. The typed `POST /api/v1/integrations/items/search` takes the same
-request.
+unknown ids.
 `refresh=false` is passive/cache-only, including pasted query drafts. An explicit
 Search uses `refresh=true`; Registry metadata still searches locally. Source
 settings can request the named unavailable sources to inspect their typed
@@ -147,7 +146,7 @@ bind owner, query, type, source set and incompatible filter for 20 minutes;
 expired cursors require a new search. Source adapters retain their bounded fetch
 limits, so results do not claim exhaustive upstream coverage.
 
-`IntegrationItem` adds `attributions`, `canonical_identity`, `evidence_stage`
+`IntegrationEntry` adds `attributions`, `evidence`
 (`listed` or `inspected`), `tested_with_row_bot` and `auth_requirement`. Unknown
 auth stays unknown. Uninspected rows stay `not_inspected`/`discover`, never ready.
 Known incompatible rows appear only when searched for (or requested), with their

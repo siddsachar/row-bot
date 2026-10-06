@@ -1,11 +1,12 @@
 # Integrations implementation and author guidance
 
-The canonical React route is `/app-v2/settings/integrations`, with `tab`, `type`,
-`q`, `source` and `selected` state in the URL. Legacy Skills/Plugins/MCP routes
-translate to that context. `application/client_integrations.py` is a passive
-projection and explicit discovery/preview adapter, not a second integration database.
-Skills, plugin state, MCP configuration, admissions, protected secrets and profiles
-remain authoritative. The user guide is `docs-site/docs/settings/integrations.mdx`.
+The React routes are `/app-v2/settings/apps` and `/app-v2/settings/skills`, each with
+its item pages; 5.0.0's Plugins, MCP, Accounts and Channels links redirect there.
+`application/client_integrations.py` is a passive projection and explicit
+discovery/preview adapter, not a second integration database. Skills, plugin state,
+MCP configuration, admissions, protected secrets and profiles remain authoritative.
+The user guides are `docs-site/docs/settings/apps.mdx` and `settings/skills.mdx`; the
+developer guides are under `docs-site/docs/extending/`.
 
 ## Portable authors
 

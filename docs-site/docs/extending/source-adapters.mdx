@@ -1,0 +1,52 @@
+---
+title: "Catalog Source Adapters"
+description: "For developers: the source adapter interface in src/row_bot/integrations/sources.py, how a new catalog source is added as one adapter plus data, and the passive-read rules every source follows."
+---
+
+# Catalog Source Adapters
+
+This page is for developers adding a catalog to **Settings › Apps** or **Settings › Skills**. Every catalog, from the shipped MCP Registry mirror to ClawHub, is one adapter in `src/row_bot/integrations/sources.py`. The server decides what each adapter may do and serves the list; the client never hard-codes sources.
+
+## The Adapter Interface
+
+An adapter subclasses `Source`:
+
+| Member | Meaning |
+| --- | --- |
+| `id` | Stable id, `[a-z0-9_]{1,40}`, such as `official` or `clawhub`. |
+| `kind` | What it lists: `skill`, `mcp`, `plugin` or `builtin`. Served as `kinds`. |
+| `label`, `message` | The name and one plain sentence shown under **Apps › Advanced › Catalogs**. |
+| `access` | `local` (shipped data), `snapshot` (a shipped copy that updates), `public` (a live catalog) or `unavailable`. |
+| `eligibility` | `eligible`, `explicit_only`, `auth_required`, `contract_unresolved` or `unsupported`. Decided on the server; a source that isn't eligible or `explicit_only` only reports its status. |
+| `network` | `none` (never contacts anything) or `explicit` (contacts its catalog only for an explicit online search or an update). |
+| `search(Search) -> Found` | Returns rows for `search.query`. Must honour `search.refresh` (true only for **Search online catalogs**), `search.cancelled` and `search.validate`. |
+| `lookup(reference)` | Resolves one entry from local data only, for its page and its install plan. |
+| `update(cancelled)` | Only for `network = "explicit"`: refreshes the source's local copy and returns a small summary, or raises. A failed update keeps what the source had. |
+| `listed()` | False hides the source on this computer, as Windows connectors do where Windows doesn't have them. |
+| `view()`, `status(**fields)` | The served description and a per-search status (`cached`, `stale`, `pending`, `empty`, `unavailable`…). Rarely overridden. |
+
+`Search` carries `owner_id`, `query`, `refresh`, `cancelled`, `validate` and `everything` (the **Show all results** request). Build rows with `_available(...)`, which fills the letter-avatar icon and plain-text description, and add them with `found.add(row, reference)`. The `reference` is what the install plan reads later, so it must be one `plans.compute` understands. Filter with `matches(query, *texts)`, which needs every query word.
+
+## Adding A Source
+
+1. Write one `Source` subclass and add an instance to `SOURCES` at the end of `sources.py`. Its position is its ranking precedence among equal rows.
+2. Put its data beside it: shipped package data under `src/row_bot/integrations/`, or a cache that only `update` writes.
+3. To let its entries open by id (their page and their plan), add a branch to `catalog_entry()`, which resolves ids from local data only.
+4. If it has an `update`, `catalogs.updatable()` picks it up: it appears with **Update** in **Apps › Advanced › Catalogs** and in the optional schedule.
+5. Record the public contract you checked (terms, authentication, rate limits) in `docs/INTEGRATION_SOURCES.md`.
+6. Add deterministic tests with a faked catalog under `tests/subsystem/integrations/`.
+
+`GET /api/v1/integrations/sources` serves every listed source with its catalog state; `POST /api/v1/integrations/sources/{id}/update` starts an update in the background.
+
+## Passive Reads
+
+- **Searching, browsing and opening a page are passive.** They read shipped data, the local index and saved results, and nothing else. They launch no program, install nothing and send nothing.
+- **Only two things contact a catalog:** an explicit **Search online catalogs** (`POST /api/v1/integrations/items/search` with `refresh`), and an update, chosen by the person or by the schedule they turned on. Each search runs a source under an 8-second deadline.
+- **Updates fetch through `integrations/safe.py`**: https only, reviewed hosts or public addresses, per-hop redirect checks, size and time caps. Registry icons are fetched only during an update and re-encoded locally; rendering never fetches.
+- **A catalog listing grants nothing.** Eligibility is decided on the server, and nothing runs before the person agrees to an install plan.
+
+The global network guard in `tests/conftest.py` fails any deterministic test that connects off the computer. `tests/subsystem/integrations/test_apps_and_sources.py`, `test_catalog_updates.py` and `tests/subsystem/client_protocol/test_integration_discovery.py` check that passive reads never fetch, that unavailable sources never run, and which sources can update.
+
+## Ranking
+
+Ranking lives in `sources.py`, and the local Registry index (`integrations/index.py`) applies the same key in SQL. `order()` puts featured and vendor-verified entries first, then an exact name, a strong text match, featured order, a complete setup, freshness (90 days, a year), the source's popularity and its precedence. `rank()` merges rows that share a source-neutral identity, keeping every source as an attribution, and shows one card per app; `way_order()` orders an app's ways to connect, reviewed and built-in ways first.

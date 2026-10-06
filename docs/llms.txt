@@ -17,7 +17,7 @@ Public documentation index for Row-Bot.
 - [Home: Overview](/docs/home/overview)
   Route: /docs/home/overview. Start from Home Overview: ask Row-Bot anything, answer what needs you, see live status, and pick up recent work.
 - [Chat](/docs/chat/)
-  Route: /docs/chat/. Use Row-Bot conversations: the composer, models, attachments, tools, approvals in place, the details card, names, and the conversation library.
+  Route: /docs/chat/. Use Row-Bot conversations: the composer, models, attachments, apps and skills in a chat, tools, approvals in place, the details card, names, and the conversation library.
 - [Model Picker](/docs/chat/model-picker)
   Route: /docs/chat/model-picker. Choose a conversation's model from one list across local, subscription, pay-per-use and custom providers, and troubleshoot missing models.
 - [Reasoning Controls](/docs/chat/reasoning-controls)
@@ -81,31 +81,35 @@ Public documentation index for Row-Bot.
 - [Settings: Tools](/docs/settings/tools)
   Route: /docs/settings/tools. Configure progressive external-tool loading, retrieval compression, search and knowledge tools, built-in tools, and custom tools.
 - [Settings: Skills](/docs/settings/skills)
-  Route: /docs/settings/skills. Enable, disable, pin, browse, and review Smart Skills.
-- [Settings: Accounts](/docs/settings/accounts)
-  Route: /docs/settings/accounts. Connect account-level integrations used by tools, setup flows, and channels.
-- [Settings: Channels](/docs/settings/channels)
-  Route: /docs/settings/channels. Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks.
-- [Settings: MCP](/docs/settings/mcp)
-  Route: /docs/settings/mcp. Add, browse, import, connect, test and troubleshoot MCP servers and their runtimes in Settings MCP.
-- [Settings: Plugins](/docs/settings/plugins)
-  Route: /docs/settings/plugins. Manage installed plugins, marketplace installs, configuration, and promoted Custom Tools.
+  Route: /docs/settings/skills. Find, add, try, update, and remove skills, and open the skill editor to create or edit one.
+- [Settings: Apps](/docs/settings/apps)
+  Route: /docs/settings/apps. Find and connect the services Row-Bot can work in, including your accounts and messaging channels, choose what each app may do, change its settings, and turn apps off or remove them.
 - [Settings: Preferences](/docs/settings/preferences)
   Route: /docs/settings/preferences. Set the assistant's name and personality, learning new skills, how Row-Bot opens, the overnight Dream Cycle, and this device's appearance.
 - [Extend Row-Bot](/docs/extending/)
-  Route: /docs/extending/. Choose between built-in tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts.
+  Route: /docs/extending/. Choose between built-in tools, Skills, Custom Tools, packages, apps, channels, and accounts, and how Row-Bot sets apps and skills up.
 - [Accounts And Authorisation](/docs/integrations/accounts)
-  Route: /docs/integrations/accounts. Connect and disconnect external accounts while keeping scopes, tokens, and data flow understandable.
+  Route: /docs/integrations/accounts. Connect your GitHub, Google and X accounts as apps, set Google up with your own OAuth client, and keep scopes, tokens and data flow understandable.
 - [Channels](/docs/integrations/channels)
-  Route: /docs/integrations/channels. Connect Row-Bot to messaging channels, delivery defaults, pairing, tunnels, and safe external behavior.
-- [Skills Hub](/docs/skills/)
-  Route: /docs/skills/. Browse, enable, pin, create, edit, and troubleshoot Row-Bot skills.
-- [Plugins](/docs/integrations/plugins)
-  Route: /docs/integrations/plugins. Install, enable, configure, update, remove, and troubleshoot Row-Bot plugins.
-- [MCP](/docs/integrations/mcp)
-  Route: /docs/integrations/mcp. Configure external MCP servers, test tool availability, and manage MCP safety.
+  Route: /docs/integrations/channels. Connect Row-Bot to messaging channels as apps: setup steps, pairing, public addresses, delivery, and safe external behavior.
+- [Skills](/docs/skills/)
+  Route: /docs/skills/. Find, add, use, turn off, remove, create and troubleshoot Row-Bot skills, and how Row-Bot picks them automatically.
+- [Packages (Plugins)](/docs/integrations/plugins)
+  Route: /docs/integrations/plugins. Add, turn off, and remove packages of apps and skills in Settings Apps.
+- [Hosted And Local Apps (MCP)](/docs/integrations/mcp)
+  Route: /docs/integrations/mcp. How apps that are hosted or run on this computer connect, which of their actions ask first, Windows connectors, the Composio broker, and turning apps off or removing them.
 - [Voice And Buddy](/docs/voice-and-buddy/)
   Route: /docs/voice-and-buddy/. Configure Dictate, Talk, local voice, realtime voice, read-aloud, devices, and Buddy.
+- [Catalog Source Adapters](/docs/extending/source-adapters)
+  Route: /docs/extending/source-adapters. For developers: the source adapter interface in src/row_bot/integrations/sources.py, how a new catalog source is added as one adapter plus data, and the passive-read rules every source follows.
+- [Contribute To The App Catalog](/docs/extending/app-catalog)
+  Route: /docs/extending/app-catalog. For developers: the apps.json record format, verified-vendor rules, bundled icons and their licences, the featured skills and broker lists, and how to check catalog coverage.
+- [MCP Bundles (.mcpb)](/docs/extending/mcp-bundles)
+  Route: /docs/extending/mcp-bundles. For developers: how Row-Bot imports .mcpb bundles, which manifest fields it reads, how user_config becomes setup inputs, platform and runtime checks, signatures, and Registry bundles downloaded only after consent and a checksum match.
+- [Sign-In And Client Metadata](/docs/extending/sign-in-and-client-metadata)
+  Route: /docs/extending/sign-in-and-client-metadata. For developers: how Row-Bot signs in to a hosted app, using its published OAuth client metadata document (CIMD), dynamic client registration or the person's own OAuth app, with a loopback redirect.
+- [Hosting MCP Apps Views](/docs/extending/mcp-apps)
+  Route: /docs/extending/mcp-apps. For developers: how Row-Bot shows an app's ui:// view in chat, with the sandboxed frame, its Content-Security-Policy, declared domains, the bridge messages it answers, limits, and calls that go through approvals.
 - [Operations, Data, And Recovery](/docs/operations/)
   Route: /docs/operations/. Back up, restore, update, repair, and uninstall Row-Bot without losing track of local data and credentials.
 - [Remote Access And Server Mode](/docs/operations/remote-access)
@@ -115,7 +119,7 @@ Public documentation index for Row-Bot.
 - [Privacy And Safety](/docs/privacy-safety/)
   Route: /docs/privacy-safety/. Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing.
 - [Troubleshooting](/docs/troubleshooting/)
-  Route: /docs/troubleshooting/. Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues.
+  Route: /docs/troubleshooting/. Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, app, skill, channel, account, catalog, voice, and Buddy issues.
 - [Reference](/docs/reference/)
   Route: /docs/reference/. Look up Row-Bot tools, providers, settings, channels, skills, MCP, plugins, data storage, and approvals.
 - [Tools](/docs/reference/generated/tools)
@@ -154,8 +158,8 @@ Public documentation index for Row-Bot.
   Route: /docs/guides/designer-studio. Designer Studio is now a conversation's Design panel; this page points to the current guide.
 - [Developer Studio Guide](/docs/guides/developer-studio)
   Route: /docs/guides/developer-studio. Developer Studio is now a conversation's Developer panel; this page points to the current guide.
-- [Skills, Plugins, And MCP Guide](/docs/guides/skills-plugins-mcp)
-  Route: /docs/guides/skills-plugins-mcp. Compatibility page pointing to the current Skills Hub guide.
+- [Apps And Skills Guide](/docs/guides/skills-plugins-mcp)
+  Route: /docs/guides/skills-plugins-mcp. Compatibility page pointing to Settings Apps and Settings Skills.
 - [Home: Designer](/docs/home/designer)
   Route: /docs/home/designer. Home no longer has a Designer tab; designs open in a conversation's Design panel.
 - [Home: Developer](/docs/home/developer)
@@ -170,6 +174,16 @@ Public documentation index for Row-Bot.
   Route: /docs/home/workflows. Use Home Workflows to run saved workflows in one click, create or edit them on the page, and set delivery defaults.
 - [Reference Tables](/docs/reference/generated/)
   Route: /docs/reference/generated/. Compact lookup tables for Row-Bot features and settings.
+- [Settings: Accounts](/docs/settings/accounts)
+  Route: /docs/settings/accounts. Settings no longer has an Accounts page; the GitHub, Google and X accounts are apps in Settings Apps.
+- [Settings: Channels](/docs/settings/channels)
+  Route: /docs/settings/channels. Settings no longer has a Channels page; Telegram, WhatsApp, Discord, Slack and SMS are apps in Settings Apps.
+- [Settings: Integrations](/docs/settings/integrations)
+  Route: /docs/settings/integrations. Settings no longer has an Integrations page; apps are in Settings Apps and skills are in Settings Skills.
+- [Settings: MCP](/docs/settings/mcp)
+  Route: /docs/settings/mcp. Settings no longer has an MCP page; connections are apps in Settings Apps.
+- [Settings: Plugins](/docs/settings/plugins)
+  Route: /docs/settings/plugins. Settings no longer has a Plugins page; packages are in Settings Apps.
 - [Settings: Utilities](/docs/settings/utilities)
   Route: /docs/settings/utilities. Settings no longer has a Utilities page; the built-in tools are part of Settings Tools.
 - [UI Tour](/docs/ui-tour/)

@@ -1,0 +1,88 @@
+---
+title: "Hosting MCP Apps Views"
+description: "For developers: how Row-Bot shows an app's ui:// view in chat, with the sandboxed frame, its Content-Security-Policy, declared domains, the bridge messages it answers, limits, and calls that go through approvals."
+---
+
+# Hosting MCP Apps Views
+
+This page is for developers building an MCP server with interactive views (MCP Apps, spec version `2026-01-26`) or working on Row-Bot itself. For using views, read [Apps in a chat](/docs/chat/#app-views). The server side is `src/row_bot/integrations/views.py`; the frame and bridge are `frontend/src/features/apps/AppViewFrame.tsx` and `view-bridge.ts`.
+
+## Negotiation
+
+While **Show app views in chat** is on, Row-Bot's `initialize` request carries the `io.modelcontextprotocol/ui` extension with `mimeTypes: ["text/html;profile=mcp-app"]`. The choice is made when a connection opens; changing the switch doesn't renegotiate an open session.
+
+## Declaring A View
+
+- A tool names its view in `_meta.ui.resourceUri` (the older `_meta["ui/resourceUri"]` is read too): a `ui://` URI of at most 512 printable characters.
+- `_meta.ui.visibility` defaults to `["model", "app"]`. A tool without `"model"` is never offered to the agent; a view can call only tools that include `"app"`.
+- Row-Bot reads the view with `resources/read` on the app's own connection. It uses the first content item whose `mimeType` is exactly `text/html;profile=mcp-app` and whose `uri` is the one requested, as `text` or base64 `blob`, up to 1 MiB, within 30 seconds.
+- The content item's `_meta.ui` (not the tool's) supplies `csp` and `prefersBorder`.
+- A view appears under a tool step that succeeded, for a tool the person accepted, while both view switches are on and the app is on in that chat. It is read again each time its card comes near the screen; nothing is cached.
+
+## The Frame
+
+`POST /api/v1/conversations/{id}/views` with `{"call_id": …}` renders a step's view and returns `frame_url`, `/app-views/{render_id}`, where the render id is 128 random bits. The frame's HTML must be fetched within 120 seconds and is served once; a second request gets 404.
+
+The iframe has `sandbox="allow-scripts"` and nothing else, so the view runs in an opaque origin with no access to Row-Bot's page, cookies, storage or API. A second navigation inside the frame closes the view. The response carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` that denies camera, microphone, geolocation, clipboard, USB, serial, payment and display capture, and this policy, where R is the accepted `resourceDomains`:
+
+```text
+default-src 'none'; script-src 'unsafe-inline' R; style-src 'unsafe-inline' R;
+img-src data: R; media-src data: R; font-src R; connect-src <connectDomains>;
+frame-src <frameDomains>; object-src 'none'; base-uri <baseUriDomains>;
+form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts
+```
+
+An empty list becomes `'none'`. No load directive allows `'self'`, which would be Row-Bot's own origin.
+
+## Declared Domains
+
+`_meta.ui.csp` may list `resourceDomains`, `connectDomains`, `frameDomains` and `baseUriDomains`. Each value must be an https origin such as `https://cdn.example.com` or `https://*.example.com`, with no port, path or query. Row-Bot silently drops:
+
+- IP addresses, single-label names and `localhost`;
+- private-network names such as `.local`, `.internal`, `.lan`, `.home`, `.corp`, `.test` and `.example`;
+- wildcard-DNS services such as `nip.io`, `sslip.io` and `localtest.me`;
+- public suffixes, checked against the bundled Public Suffix List, so `https://*.com` and `https://github.io` are refused.
+
+It keeps at most 16 values per kind. The view's card lists the accepted domains: "This view also loads from …".
+
+## The Bridge
+
+The bridge speaks JSON-RPC 2.0 over `postMessage`. It accepts messages only from its own frame's window, with origin `null`, up to 1 MiB.
+
+| From the view | Row-Bot's answer |
+| --- | --- |
+| `ui/initialize` | Host info, capabilities (`serverTools`, `openLinks`, `logging`) and host context: the tool, `theme` (`light` or `dark`), `displayMode: "inline"`, `containerDimensions.maxHeight: 720`, locale, time zone and platform. |
+| `ui/notifications/initialized` | Sends `ui/notifications/tool-input`, then `ui/notifications/tool-result`, or `ui/notifications/tool-cancelled` when the chat kept no result. |
+| `ui/notifications/size-changed` | Resizes the frame, between 48 and 720 pixels. |
+| `tools/call` | Calls one of the app's tools, as described below. Refused before `initialized`. |
+| `ui/open-link` | Opens an http or https link in the person's browser, only right after a click in the view, at most 3 a minute. |
+| `ui/request-display-mode` | Always `inline`. |
+| `ping` | `{}` |
+| Anything else, such as `ui/message`, `ui/update-model-context` or `resources/read` | `-32601 Method not found`. |
+
+Row-Bot sends `ui/notifications/host-context-changed` when the theme changes and `ui/resource-teardown` before it removes a view. A view that hasn't sent `initialized` within 10 seconds is closed. Other notifications, including logging, are ignored.
+
+The result a view receives is rebuilt from the chat's text form of the tool result: its text, `isError`, and `structuredContent` when there was one. Images and other non-text content don't reach the view.
+
+## Calls From A View
+
+A view's `tools/call` becomes `POST /api/v1/views/{render_id}/tools/call`. Before it runs, Row-Bot checks that:
+
+- the tool belongs to the view's own app, includes `"app"` in its visibility, and is turned on for that app;
+- both view switches are on, and the app is on in that chat and allowed by the chat's agent profile;
+- the chat's approval mode allows it, through the same rule as the agent's calls. Destructive, high-impact and unknown-effect tools ask in every mode and are refused under **Block**. A routine change the app's access asks about asks under **Ask**, runs under **Auto** and is refused under **Block**. Reads run.
+
+When a call asks, the standard approval card appears inside the view's card, as well as wherever approvals appear. The call waits up to 5 minutes without holding a server thread, and no answer counts as a denial. Access is checked again just before the call runs, and the result goes back to the view only, not into the transcript.
+
+Limits: 20 calls a minute per view, 64 KiB of arguments, one waiting call per view and three across all views, four app round trips at once, 60 seconds per call, and a 1 MiB result.
+
+## Switches
+
+- **Apps › Advanced › Apps in chats › Show app views in chat**: every app. On by default.
+- **Show views in chat** on an app's page: that app only. On by default when what the person agreed to included a view, and off for apps accepted before views existed.
+
+Settings are read and written through `GET` and `PUT /api/v1/integrations/views` and `PUT /api/v1/integrations/views/apps`.
+
+## Testing A View
+
+The deterministic fixture `tests/fixtures/mcp_apps/counter_server.py` is a small server with a view; `tests/subsystem/mcp/test_app_views.py` and `frontend/src/features/apps/view-bridge.test.ts` cover the server and the bridge. Test your own view the same way: no live service is needed.

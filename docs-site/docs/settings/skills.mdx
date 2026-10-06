@@ -13,21 +13,30 @@ Open **Settings**, then choose **Skills** in the **Capabilities** group, or sear
 
 ## Find A Skill
 
-Search is instant and local; nothing you type leaves this computer. **Search online catalogs** asks the live catalogs, such as ClawHub, about the current search. The page lists **Your skills** first, then featured skills and the rest of the library. **Add from link or file** adds a skill from a skill page, a GitHub repository, or a .zip or .skill file; nothing is fetched until you agree on the skill's page.
+Search by name or by the job, such as "pdf". Search is instant and local; nothing you type leaves this computer. **Search online catalogs** also asks the live catalogs, such as ClawHub, and sends them your search words. The page lists **Your skills** first, then **Featured** and **All skills**. **Add from link or file** adds a skill from a skill page, a GitHub repository, or a .zip or .skill file; nothing is fetched until you agree on the skill's page.
 
 ## The Skill Page
 
 - **Use it in chat with /_name_** shows the slash command that loads it.
-- The page says which agent profiles include it.
-- **What's inside** (collapsed) lists its files and scripts, for example "6 files · 1 script".
+- **Settings** says whether chats use it ("Available in every chat without a profile." or "Turned off: chats don't use it.") and which agent profiles include it. To change which profiles use a skill, edit the profile's skills; see [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
+- **What's inside** (collapsed) lists its files and scripts, for example "6 files · 1 script", and marks each script. Scripts never run when you add a skill; if Row-Bot runs one later, your approval rules apply.
 - **Try it** opens a new chat with a draft that uses the skill. The draft stays in the composer; nothing is sent until you send it.
-- For a skill from a catalog, the **⋯** menu has **Check for updates** and **Remove…**.
+- The **⋯** menu has **Turn off**, **Advanced settings**, **Check for updates** for a skill from a catalog, and **Remove…** for a skill you added or created.
 
 ## Add A Skill
 
-**Add** adds the skill and turns it on; the sheet says so before you agree. Scripts inside a skill never run when it is added.
+**Add** opens **Add _skill_**, which says where it downloads from and that it "Adds the skill and turns it on". Agree, and Row-Bot checks the skill's files and adds it. Scripts inside a skill never run when it is added.
 
 A skill changes instructions only. It does not add credentials, grant tools that an agent profile denies, or skip approvals.
+
+## Use A Skill In Chat
+
+Type `/` in a chat and choose the skill from the **Skills** group. Chosen in an empty message, it turns the skill on for the whole chat; chosen inside a message, it focuses only that turn on it. See [Mention an app or a skill](/docs/chat/#mention-an-app-or-a-skill).
+
+## Turn Off Or Remove A Skill
+
+- **⋯ › Turn off** stops chats using the skill and keeps it; **Turn on** brings it back.
+- **⋯ › Remove…** deletes the skill's files from this computer. Skills built into Row-Bot can be turned off but not removed, and a skill that came with a package is turned off or removed with its package.
 
 ## Create Or Edit A Skill
 
@@ -39,7 +48,7 @@ Old links to the Skills section of the former Integrations page open this page.
 
 ## Control-Level Reference
 
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#skills-controls) lists every searchable setting on this page. How Row-Bot picks skills automatically is in [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills), and writing good skills is in [Skills Hub](/docs/skills/).
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#skills-controls) lists every searchable setting on this page. How Row-Bot picks skills automatically is in [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills), and writing good skills is in [Skills](/docs/skills/).
 
 ## Troubleshooting
 

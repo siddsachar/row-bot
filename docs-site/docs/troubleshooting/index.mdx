@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting"
-description: "Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues."
+description: "Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, app, skill, channel, account, catalog, voice, and Buddy issues."
 ---
 
 # Troubleshooting
@@ -48,16 +48,40 @@ Start with what Row-Bot already tells you. The sidebar's attention indicator app
 - If a memory is wrong, edit, merge or archive it in Home › Knowledge.
 - Use Monitor's **Needs attention**, **History** and **Logs** for background issues, and **Copy diagnosis report** when asking for help.
 
-## Apps, Skills, Channels And Accounts
+## Apps And Skills
 
-- Channels and accounts are apps in **Settings › Apps** (for example **Apps › Telegram** or **Apps › Google**); **Open** on the app's page opens their own settings.
-- Channels need credentials, sometimes a public link, a running state, and user pairing. A stopped channel shows **Restart** in Monitor.
-- Accounts whose sign-in expired show **Sign in to _app_** in Overview's **Needs you** and **Reconnect** in Monitor.
-- If Google asks you to sign in again every week, your Google app is still in Testing; see [Accounts And Authorisation](/docs/integrations/accounts#google).
-- An app that is not **Ready** shows what it needs in **Settings › Apps**: **Sign in needed**, **Key needed**, **Finish setup** or **Needs attention**. Open it and use its main action, such as **Sign in again**, **Add key**, **Continue setup**, **Fix** or **Retry**.
-- If an app page says **Finishing your last change…**, choose **Retry**. Row-Bot checks whether the change finished and does not repeat it blindly.
-- If an app's tools never appear in chat, check that it is **Ready**, that it is checked in the chat's **+ › Apps**, and that **Apps › Advanced › Apps in chats** offers app tools.
-- Skills need to be in **Your skills** in **Settings › Skills** and relevant to the prompt; you can also call one with its slash command.
+An app that isn't ready shows one status and one fix: the main action on its page in **Settings › Apps**, also offered in Overview's **Needs you**.
+
+| Status | What it means | Do this |
+| --- | --- | --- |
+| **Sign in needed** | The app needs a sign-in, or its saved sign-in stopped working. | **Sign in**, or **Sign in again**. |
+| **Key needed** | It needs a key or token. | **Add key**. |
+| **Finish setup** | Setup stopped before the end, waiting for a setting, the actions to allow, or something it needs to run. | **Continue setup**. |
+| **Working…** | Row-Bot is finishing your last change. | Wait a moment. |
+| **Needs attention** | The connection failed, or Row-Bot couldn't confirm your last change. | **Fix**, or **Retry**. |
+| **Off** | You turned it off. | **Turn on**. |
+| **Removed** | A package was removed and its saved data kept. | **Delete saved data** when you no longer need it. |
+
+- **Finishing your last change… Retry**: Row-Bot couldn't confirm that a change finished, for example because it closed part-way. **Retry** checks what happened and never repeats the change.
+- **Open _program_, then check again**: the app works with a program on this computer, such as Blender. Open the program and its add-on, then choose **Check again**.
+- **Install Docker Desktop, then try again**, or **Docker Desktop isn't running on this computer**: the app runs as a container image. Install or open Docker Desktop, or choose another way to connect on the app's page.
+- **_App_ needs your own OAuth app to sign in**: the service accepts only an OAuth app you create. Create one at the service, register the callback address the step shows, and paste its **Client ID** (and **Client secret (optional)**, if it has one).
+- If Google asks you to sign in every 7 days, your Google app is still in **Testing**; see [Google sign-ins in Testing last 7 days](/docs/integrations/accounts#google-sign-ins-in-testing-last-7-days).
+- If an app's tools never appear in chat, check that it is **Ready**, that it is checked in the chat's **+ › Apps**, that the chat's agent profile allows it, and that **Apps › Advanced › Apps in chats** has **Use apps** on and offers app tools.
+- Channels and accounts are apps too (for example **Apps › Telegram** or **Apps › Google**); **Open** on the app's page opens their own settings. A stopped channel shows **Restart** in Monitor, and an account whose sign-in expired shows **Reconnect** there.
+- Skills need to be in **Your skills** in **Settings › Skills**, turned on, and relevant to the prompt; you can also call one with its slash command.
+
+### Catalogs And Proxies
+
+- **Couldn't update. The last copy is still used.**: the catalog couldn't be reached. Search keeps working with the last copy; choose **Update** again later.
+- Behind a proxy, Row-Bot sends catalog updates and **Search online catalogs** through the proxy set in Windows or macOS settings or in the `HTTPS_PROXY` environment variable. It doesn't run automatic proxy configuration (PAC) scripts, so set the proxy's address itself.
+- Logos, bundles downloaded from the Registry and app sign-ins connect directly, not through the proxy, so they fail on a network that allows only proxied traffic.
+
+### Windows Connectors, Composio And App Views
+
+- **Windows connectors** appear in **Apps › Advanced › Catalogs** only on Windows builds that have Windows' On-device Agent Registry (Insider build 26220.7344 or later, with **Experimental agentic features** on). Choose **Update** to list them.
+- **Composio** isn't searched until you turn on **Use Composio** in **Apps › Advanced › Catalogs** and agree to its disclosure: it is a separate service, with its own account, that keeps requests and results for up to a year by default. Turning it off doesn't remove a Composio connection you made; remove that on its page.
+- **App views** show only under a step that succeeded, for an app that has views, while **Show app views in chat** (in **Apps › Advanced**) and **Show views in chat** on the app's page are on and the app is on in that chat. "This view didn't start" or "Views are busy" usually clears with **Open again**.
 
 ## Remote Access And Server Mode
 

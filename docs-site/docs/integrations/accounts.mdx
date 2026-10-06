@@ -41,11 +41,18 @@ Row-Bot has no Google sign-in of its own. You create a Desktop app OAuth client 
 
 **Gmail access** and **Calendar access** choose what Row-Bot may do: it can search, read and draft email, but sending always asks first; it can see and add events, but moving or deleting asks first.
 
-Limits set by Google:
+Google's own hosted Workspace servers are a developer preview open only to testers, so the Google account with your own client is the recommended way to connect Google.
 
-- While your Google app is in **Testing**, Google asks you to sign in again every 7 days. Publishing it in **Audience** stops that; Google then warns that the app is unverified, which is fine for your own use.
-- An app in Testing can have at most 100 test users.
-- Google's own hosted Workspace servers are a developer preview open only to testers, so the Google account with your own client is the recommended way to connect Google.
+### Google Sign-Ins In Testing Last 7 Days
+
+Google limits apps whose publishing status is **Testing**, as a new app made with the steps above is:
+
+- A sign-in lasts 7 days from when you agree to it; after that Google stops Row-Bot renewing it.
+- At most 100 test users can sign in.
+
+When the sign-in expires, Row-Bot shows it: **Apps › Google** says **Sign in needed** with **Sign in again**, the account's settings say **Needs reconnecting** with **Reconnect**, and Overview's **Needs you** lists **Sign in to Google**. Signing in again gives you another 7 days.
+
+To stop it, publish your app: in Google Cloud, open **Audience** and choose **Publish app**, so its status is **In production**, then sign in again. Because Gmail and Calendar access are sensitive or restricted Google scopes and your app isn't verified by Google, Google then shows its unverified-app warning when you sign in; continuing is fine for an app you made for yourself. An unverified app can be used by at most 100 people, and you don't need Google's verification for your own use.
 
 ## X
 
@@ -69,6 +76,6 @@ Overview's **Needs you** shows the app, such as **Sign in to Google**, with a bu
 - Confirm the system browser returned to the same Row-Bot instance that started the flow.
 - For GitHub CLI, refresh CLI authorisation after signing in or changing accounts.
 - If Row-Bot says the Google file isn't a valid Google OAuth client file, create a client of type **Desktop app** and download its file again.
-- If Google asks you to sign in again every week, your Google app is still in Testing; publish it in **Audience**.
+- If Google asks you to sign in again every week, your Google app is still in Testing; publish it in **Audience** (see [Google Sign-Ins In Testing Last 7 Days](#google-sign-ins-in-testing-last-7-days)).
 - If a callback fails, repeat the supported flow instead of copying browser storage.
 - If an action is denied after connection, review both the service scopes and the Row-Bot approval policy.

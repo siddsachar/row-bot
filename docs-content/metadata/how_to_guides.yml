@@ -62,9 +62,11 @@ guides:
     - frontend/src/features/shell/ModelPicker.tsx
     - src/row_bot/channels/commands.py
   use-skills-plugins-mcp:
-    title: Use Skills Plugins And MCP
+    title: Use Apps And Skills
     route: /docs/skills/
     sources:
+    - frontend/src/features/apps/
+    - src/row_bot/integrations/
     - src/row_bot/skills_hub/
     - src/row_bot/plugins/
     - src/row_bot/mcp_client/
@@ -161,6 +163,7 @@ guides:
     title: Choose An Extension Type
     route: /docs/extending/
     sources:
+    - src/row_bot/integrations/
     - src/row_bot/skills_hub/
     - src/row_bot/plugins/
     - src/row_bot/mcp_client/

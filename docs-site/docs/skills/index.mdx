@@ -1,10 +1,10 @@
 ---
-title: "Skills Hub"
-description: "Browse, enable, pin, create, edit, and troubleshoot Row-Bot skills."
+title: "Skills"
+description: "Find, add, use, turn off, remove, create and troubleshoot Row-Bot skills, and how Row-Bot picks them automatically."
 ---
 
 
-# Skills Hub
+# Skills
 
 Skills are instruction packs that teach Row-Bot how to approach a category of work. **Settings › Skills** is where you find skills, add them, try them, and create or edit your own (the command palette's **Add a skill** goes there). Skills you have added can also be discovered and loaded progressively when a task clearly matches their purpose.
 
@@ -14,9 +14,10 @@ See [Settings: Skills](/docs/settings/skills) for the page itself.
 
 - **Search** finds skills in the library on this computer; **Search online catalogs** asks catalogs such as ClawHub.
 - **Your skills** lists the skills you have added, built-in and your own.
-- **A skill's page** shows its slash command (**Use it in chat with /_name_**), which agent profiles include it, and **What's inside**: its files and scripts.
+- **A skill's page** shows its slash command (**Use it in chat with /_name_**), whether chats use it and which agent profiles include it, and **What's inside**: its files and scripts.
 - **Add** adds the skill and turns it on. Scripts inside it never run when it is added.
 - **Try it** opens a new chat with a draft that uses the skill; nothing is sent until you send it.
+- **⋯ › Turn off** stops chats using it, and **⋯ › Remove…** deletes a skill you added or created.
 - **⋯ › Advanced settings** opens the skill editor, where you edit and pin the skill and review proposed changes.
 
 ## Creating A Skill
@@ -40,7 +41,7 @@ When progressive discovery is available, Row-Bot can search enabled skills and l
 - Reopening a task restores its selected skills.
 - Parent tasks and sibling children do not share automatic activation state.
 - Up to five automatically selected skills are retained per task; pinned skills remain separate.
-- Loading an already active skill does not add a duplicate receipt.
+- Loading an already active skill does not show a second **Using _skill_** notice.
 
 Automatic selection changes instructions only. It cannot add a denied tool, alter credentials, bypass approvals, expand a workspace, or change an Agent Profile. Read [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills) for the complete tool and skill flow.
 

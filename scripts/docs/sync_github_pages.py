@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUILD_DIR = ROOT / "docs-site" / "build"
 DEFAULT_PUBLISH_DIR = ROOT / "docs"
 
-OWNED_DIRECTORIES = ("assets", "docs", "img", "pagefind", "search")
+# oauth: the sign-in client metadata document Row-Bot names (row_bot.mcp_client.auth.CLIENT_METADATA_URL).
+OWNED_DIRECTORIES = ("assets", "docs", "img", "oauth", "pagefind", "search")
 OWNED_FILES = (
     "llms-full.txt",
     "llms.txt",

@@ -1,52 +1,50 @@
 ---
-title: "MCP"
-description: "How MCP servers become apps in Settings › Apps, and how Row-Bot decides which of their tools ask first."
+title: "Hosted And Local Apps (MCP)"
+description: "How apps that are hosted or run on this computer connect, which of their actions ask first, Windows connectors, the Composio broker, and turning apps off or removing them."
 ---
 
-# MCP
+# Hosted And Local Apps (MCP)
 
-The Model Context Protocol (MCP) lets a separate program or hosted service offer tools to Row-Bot. In Row-Bot, each MCP server is an **app**: you find, connect, turn off and remove it in [Settings › Apps](/docs/settings/apps), like any other app.
+Most apps in [Settings › Apps](/docs/settings/apps) connect in one of two ways: **Hosted**, where the service runs the connection, or **Runs on this computer**, where Row-Bot starts a small program for it. Both use the Model Context Protocol (MCP), an open standard for offering tools to assistants; you never need to know that to use them.
 
-## Connect A Server
+## Connect An App
 
-- **From a catalog**: search **Settings › Apps**, open the app and choose **Connect** or **Add**. Row-Bot shows what will happen, then prepares any runtime (Node.js or uv) and the server's package in its own folder, asks for any key or setting, checks the connection (and signs you in if the service asks), and asks what the app can do.
-- **From a link or file**: **Add from link or file** accepts a server's https address, a GitHub repository, or a `.mcpb` bundle.
-- **By its settings**: **Apps › Advanced › Add a custom connection** opens the connection editor for a server that isn't in a catalog.
+- **From a catalog**: search **Settings › Apps**, open the app and choose **Connect** or **Add**. Row-Bot shows what will happen, then sets up anything the app needs to run (Node.js or uv, and the app's own package) in its own folder, asks for any key or setting, checks the connection (and signs you in if the service asks), and asks what the app can do.
+- **From a link or file**: **Add from link or file** accepts an app's https address, a GitHub repository, or a `.mcpb` bundle.
+- **By its settings**: **Apps › Advanced › Add a custom connection** opens the connection editor for an app that isn't in a catalog.
 
 Use separate connections with their own names for separate accounts, such as Work and Personal. Keys are kept in your system keychain. **Apps › Advanced › Apps in chats** controls whether chats are offered app tools, and shows the shared Node.js and uv runtimes.
 
-## Which Tools Ask First
+## Which Actions Ask First
 
-When you choose what an app can do, Row-Bot groups its tools by effect:
+When you choose what an app can do, Row-Bot groups its actions by effect:
 
-- **Looks things up**: tools that only read. Read only, Ask before changes and Full access all let these run.
-- **Makes changes**: routine changes such as create, add, update, edit, write, set, rename or move. They ask first unless you chose **Full access** or set the tool to **Use without asking**.
-- **Always asks first**: high-impact tools. A tool is high-impact when the server marks it destructive, or when its name or description says it does something such as delete, send, post, publish, deploy, merge, push, commit, run, execute, pay, transfer, upload, comment, share, invite or change permissions. A routine change to something that reaches people, publishes or grants access is high-impact too, for example creating a release or a pull request, adding a collaborator or setting a password. These ask in every preset and can't be set to run without asking.
+- **Looks things up**: actions that only read. Read only, Ask before changes and Full access all let these run.
+- **Makes changes**: routine changes such as create, add, update, edit, write, set, rename or move. They ask first unless you chose **Full access** or set the action to **Use without asking**.
+- **Always asks first**: high-impact actions. An action is high-impact when the app marks it destructive, or when its name or description says it does something such as delete, send, post, publish, deploy, merge, push, commit, run, execute, pay, transfer, upload, comment, share, invite or change permissions. A routine change to something that reaches people, publishes or grants access is high-impact too, for example creating a release or a pull request, adding a collaborator or setting a password. These ask in every choice and can't be set to run without asking.
 
-A tool whose effect Row-Bot can't determine always asks. A server's own hints can only make a tool stricter; the one exception is a read-only hint, and it never outweighs a name that says the tool makes a change. Without that hint, a tool whose name doesn't say it makes a change but whose description does always asks. Connections set up before this version keep asking before routine changes until you choose otherwise.
+An action whose effect Row-Bot can't determine always asks. An app's own hints can only make an action stricter; the one exception is a read-only hint, and it never outweighs a name that says the action makes a change. Without that hint, an action whose name doesn't say it makes a change but whose description does always asks. Connections set up before this version keep asking before routine changes until you choose otherwise.
 
-High-impact tools and tools whose effect Row-Bot can't determine ask even when a chat or workflow uses **Auto** approvals: Auto lets routine actions run, never these. Approval mode, agent profiles and the model's tool support still apply on top of this. Turning a tool off locally does not revoke access at the service; use the service's own account controls for that.
+High-impact actions and actions whose effect Row-Bot can't determine ask even when a chat or workflow uses **Auto** approvals: Auto lets routine actions run, never these. Approval mode, agent profiles and the model's tool support still apply on top of this. Turning an action off in Row-Bot does not revoke access at the service; use the service's own account controls for that.
 
-## Interactive Views (MCP Apps)
+## Interactive Views
 
-Some apps can show their results as an interactive view, such as a chart, a form or a board, under the step in chat. A view runs in its own sandbox: it can't read Row-Bot's page, cookies, storage, other conversations or Row-Bot's API, and it loads only from the addresses the app declares, which the view lists. Anything a view asks Row-Bot to do goes through the same access and approvals as any other call: a change waits for you on the usual approval card, shown in the view, and a view can only call its own app's tools.
-
-Views are on for apps whose setup included one. Turn them off for every app with **Apps › Advanced › Apps in chats › Show app views in chat**, or for one app on its page.
+Some apps can show their results as an interactive view, such as a chart, a form or a board, under the step in chat. A view runs in its own sandbox and goes through the same access and approvals as any other call. See [App views](/docs/chat/#app-views); developers can read [Hosting MCP Apps Views](/docs/extending/mcp-apps).
 
 ## Windows Connectors
 
-On Windows Insider builds with Windows' On-device Agent Registry (build 26220.7344 or later, with **Settings › System › AI components › Experimental agentic features** on), **Apps › Advanced › Catalogs** lists **Windows connectors**: connectors that Windows and your installed apps provide. Choose **Update** to list them; Row-Bot asks Windows only then. Connecting one is the usual setup, and Windows also asks you to allow it. Row-Bot never adds, removes or configures Windows connectors. On other computers and older builds the catalog isn't shown.
+On Windows Insider builds with Windows' On-device Agent Registry (build 26220.7344 or later, with **Settings › System › AI components › Experimental agentic features** on), **Apps › Advanced › Catalogs** lists **Windows connectors**: connectors that Windows and your installed apps provide. Choose **Update** to list them; Row-Bot asks Windows only then. Connecting one is the usual setup, and Windows also asks you to allow it the first time Row-Bot uses it. Row-Bot never adds, removes or configures Windows connectors. On other computers and older builds the catalog isn't shown.
 
 ## Hosted Brokers (Composio)
 
-A broker is a separate hosted service that connects many apps through one account. **Composio** is off until you turn it on in **Apps › Advanced › Catalogs** with **Use Composio**, which first explains what it means: a separate Composio account, and the requests and results for apps you use through it pass through Composio, which keeps them for up to a year by default under its own terms. Links to Composio's terms, privacy policy and data processing agreement are shown there.
+A broker is a separate hosted service that connects many apps through one account. **Composio** is off until you turn it on in **Apps › Advanced › Catalogs** with **Use Composio**, which first explains what it means: a separate Composio account, and the requests and results for apps you use through it pass through Composio, which keeps them for up to a year by default under its own terms. Links to Composio's terms, privacy policy and data processing agreement are shown there, and nothing changes until you choose **Turn on Composio**.
 
-While it's on, searching for an app also finds Composio, and an app's page offers a way such as **Notion via Composio** after the app's own ways to connect. Connecting signs you in to Composio (or takes a consumer key, kept in your keychain); you then connect each app in your Composio account. Composio's remote code tools start off, and its tools that act for other apps ask every time. Turning the switch off stops Row-Bot offering Composio; a Composio connection you already made stays until you turn it off or remove it on its page. Pipedream isn't available yet.
+While it's on, searching for an app also finds Composio, and an app's page offers a way such as **Notion via Composio** after the app's own ways to connect. Connecting signs you in to Composio (or takes a consumer key, kept in your keychain); you then connect each app in your Composio account. Composio's remote code tools start off, and its tools that act for other apps ask every time. Turning the switch off stops Row-Bot offering Composio; a Composio connection you already made stays until you turn it off or remove it on its page. Pipedream isn't available.
 
-## Turn Off, Update And Remove
+## Turn Off And Remove
 
-**Turn off** stops the connection and keeps its settings and keys. **Check for updates** compares the installed version with its source. **Remove…** stops the connection and removes it; its keys and data are kept unless you choose **Also delete saved keys and data**. Shared runtimes stay installed.
+**Turn off** stops the connection and keeps its settings and keys. **Remove…** removes the connection and its settings; its saved sign-in and keys stay in your keychain unless you choose **Also delete saved keys and data**. Shared runtimes stay installed. See [Turn off or remove](/docs/settings/apps#turn-off-or-remove).
 
 ## Developers
 
-How setup runs on the server, the HTTP API and the tool classification are summarised in [Extend Row-Bot](/docs/extending/#how-apps-and-skills-are-set-up).
+How setup runs on the server, the HTTP API and the tool classification are summarised in [Extend Row-Bot](/docs/extending/#how-apps-and-skills-are-set-up), with guides to catalog sources, the app catalog, bundles, sign-in and views.

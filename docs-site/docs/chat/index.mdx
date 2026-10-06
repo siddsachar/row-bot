@@ -40,7 +40,8 @@ The apps you connect in [Settings › Apps](/docs/settings/apps) can be used in 
 - Clear an app's check box to stop this chat using it, and check it again to bring it back. This changes only this chat; other chats and the app's own settings stay as they are. An app you connect later starts checked.
 - An app this chat's agent profile doesn't include is listed but can't be checked: "This chat's agent profile doesn't use it."
 - Only ready apps are listed. One that needs a sign-in or a key, or is turned off in Settings, appears once it is fixed on its app page.
-- **Find more apps** opens Settings › Apps.
+- A built-in way without chat tools, such as the GitHub account or a channel, is listed without a check box and says why, for example "Used by skills and Developer, not by chat tools."
+- **Find more apps** opens Settings › Apps. To start a chat with an app, use **Try it** on its page there: it opens a new chat with a draft that uses the app, and nothing is sent until you send it.
 
 ### Mention An App Or A Skill
 
@@ -52,13 +53,21 @@ Switches and mentions only narrow what a chat can use; they never widen it. The 
 
 ### When No App Can Do It Yet
 
-If you ask for something none of your apps can do, Row-Bot can suggest apps from its own catalog, the copy kept on this computer. A card says "Row-Bot can do this with one of these apps." and lists up to three. Each shows what Row-Bot's catalog knows about it, never text from the model or a web page: its logo and name, who publishes it (**by _publisher_** with a check when the service's own vendor publishes it, **Built in**, the publisher's name, or **Community**) and its status.
+If you ask for something none of your apps can do, Row-Bot can suggest apps from its own catalog, the copy kept on this computer. A card says "Row-Bot can do this with one of these apps." and lists up to three. Each shows what Row-Bot's catalog knows about it, never text from the model or a web page: its logo and name, who publishes it (**by _publisher_** with a check when the service's own vendor publishes it, **Built in**, or **Community · _publisher_**) and its status.
 
 - **Details** opens the app's page in Settings › Apps.
 - **Connect** (or **Sign in**, **Set up** or whatever the app needs next) opens the same **Connect _app_** sheet and setup as Settings › Apps, right in the chat, ending with **Here's what _app_ can do** and **Allow**. For an app built into Row-Bot, **Set up** opens its own settings instead.
 - When the app is ready, its row offers **Continue**. That sends "@_App_ is connected now. Please continue with my request." as your next message, focused on that app.
 
 Suggesting is all Row-Bot does on its own: it looks only in the local catalog, and never installs or connects anything, agrees for you, or asks for keys in the chat. If no app fits, it says so and doesn't point you to websites or downloads.
+
+### App Views
+
+Some apps can show a result as an interactive view, such as a chart, a form or a board, under the step that made it, headed with the app's name and the step. A view runs apart from Row-Bot: it can't see your other chats, files or settings, it loads only from addresses its app declares, which the card lists ("This view also loads from …"), and it opens a link only when you click in it.
+
+- Anything a view asks to do goes through the app's access and this chat's **Approvals**, like any other call. When it must ask, the approval card appears inside the view.
+- Turn views off for every app with **Settings › Apps › Advanced › Show app views in chat**, or for one app with **Show views in chat** on its page. Both are on for apps whose setup included a view.
+- If a view doesn't open, **Open again** tries again. "Views from this app are off." or "This app is off in this chat." means a switch is off.
 
 ## Attachments
 

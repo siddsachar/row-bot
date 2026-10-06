@@ -13,27 +13,34 @@ Open **Settings**, then choose **Apps** in the **Connections** group, or search 
 
 ## Find An App
 
-Search is instant and local: Row-Bot searches catalog copies kept on this computer, and nothing you type leaves it. To ask the live catalogs (ClawHub and Hermes) about the current search, choose **Search online catalogs**.
+Search by an app's name or by what you want done, such as "send email" or "take meeting notes". Search is instant and local: Row-Bot searches catalog copies kept on this computer, and nothing you type leaves it. **Search online catalogs** also asks the live catalogs, such as Hermes, and sends them your search words.
 
 The page lists:
 
-- **Your apps**: the apps you have added, with anything that needs attention first. Each shows its status: **Ready**, **Off**, **Sign in needed**, **Key needed**, **Finish setup** or **Needs attention**.
+- **Your apps**: the apps you have added, with anything that needs attention first. Each shows its status: **Ready**, **Off**, **Sign in needed**, **Key needed**, **Finish setup**, **Working…**, **Needs attention**, or **Removed** for a package whose saved data was kept. [Troubleshooting](/docs/troubleshooting/#apps-and-skills) says what to do about each.
 - **Featured**, then category chips (Productivity, Developer, Data, Design, Communication, Finance and Local tools), then **All apps**. **Communication** lists the messaging channels.
 
 While the app catalog is first being built, the page says **Preparing the app catalog…** and more apps appear in a moment.
 
 Each app appears once in results; its other ways to connect are on its page. Apps from their own vendors and from Row-Bot come first, then **More from the community**. Listings that look like placeholders, staging copies or duplicates are left out; **Show all results** shows them too.
 
-Each card shows the app's logo, its name and what it does, and who publishes it: **by _Vendor_** with a check when the service's own vendor publishes it, **Built in** for what comes with Row-Bot, the publisher's name, or **Community**. It also says how it connects: **Hosted · Sign-in**, **API key**, **Hosted** or **Runs on this computer**. Package entries from the Hermes catalog say **Checked when you add**, or are marked unavailable when their pinned version has no Agent Plugins manifest (packages made for the Hermes app itself). Logos come only from Row-Bot or its saved copies; browsing never downloads them, and a letter stands in until a logo is ready.
+Each card shows the app's logo, its name and what it does, and who publishes it:
+
+- **by _Vendor_** with a check: the service's own vendor publishes it, which Row-Bot confirms by rule, never from a listing's name.
+- **Built in**: it comes with Row-Bot.
+- **Community · _publisher_**: anyone else. Check who publishes it and its source on its page before you connect it.
+
+A card also says how the app connects: **Hosted · Sign-in**, **API key**, **Hosted** or **Runs on this computer**. Package entries from the Hermes catalog say **Checked when you add**; one made for the Hermes app itself can't be added, and its page says why. Logos come only from Row-Bot or its saved copies; browsing never downloads them, and a letter stands in until a logo is ready.
 
 ## The App Page
 
 Open an app to see its page (for example `/settings/apps/notion`). The header shows its logo, name, publisher and status, one main action, and a **⋯** menu.
 
-The main action is whatever comes next: **Connect**, **Add**, **Set up**, **Sign in**, **Sign in again**, **Add key**, **Continue setup**, **Check again**, **Turn on**, **Fix**, **Retry**, **Try it** or **Delete saved data**. The **⋯** menu holds **Turn off**, **Check for updates**, **Advanced settings** and **Remove…**; for a built-in way to connect it holds **Open its settings**.
+The main action is whatever comes next: **Connect**, **Add**, **Set up**, **Sign in**, **Sign in again**, **Add key**, **Continue setup**, **Turn on**, **Fix**, **Retry**, **Try it** or **Delete saved data**. **Try it** opens a new chat with a draft that uses the app; nothing is sent until you send it. The **⋯** menu holds what applies of **Turn off**, **Check for updates** (for a package from GitHub), **Advanced settings** and **Remove…**; for a built-in way to connect it holds **Open its settings**.
 
 - **Overview**: what it does, things to ask, and where your data goes.
-- **Access**: what it may do, grouped as **Looks things up**, **Makes changes** and **Always asks first**, with a count such as "8 of 12 actions on" and **Choose** to change it.
+- **Access**: what it may do, grouped as **Looks things up**, **Makes changes** and **Always asks first**, with a count and the choice, such as "8 of 12 actions on · Ask before changes", and **Choose** to change it. See [Choose what an app can do](#choose-what-an-app-can-do).
+- **Show views in chat**: for an app that can show its results as an interactive view. See [App views](/docs/chat/#app-views).
 - **Settings**: for a connected app, the account, whether a key is saved (in your system keychain), each setting, and anything it needs on this computer, with **Change settings**. See [Change settings after setup](#change-settings-after-setup). For a built-in way, **Set up** or **Open** opens its own settings.
 - **Ways to connect**: when an app can be connected more than one way, every way, the recommended one first. See [Ways to connect](#ways-to-connect).
 - **Included**: for a package, the apps and skills it brought. Each of those says **Installed as part of _package_**.
@@ -78,7 +85,7 @@ Old links to the Accounts and Channels settings pages open the matching app, for
 ### What A Setup Can Ask For
 
 - **Add your key** or **Add your settings**: a key or token is kept in your system keychain; a setting such as a workspace, region or folder is saved with the app. **Where do I get this?** opens the service's own page for it. Optional settings can be left empty.
-- **Sign in to _app_**: when Row-Bot first connects, it checks whether the service asks you to sign in, so an app whose listing doesn't say can still sign in. Row-Bot signs in through your browser with its own published details, or registers itself with the service. A few services, such as GitHub, accept only your own OAuth app: Row-Bot asks for its client ID and client secret (both kept in the keychain) and shows the callback address to register, `http://127.0.0.1/api/v1/settings/mcp/auth/callback`. If a sign-in expires and can't be renewed, the app says **Sign in needed**.
+- **Sign in to _app_**: when Row-Bot first connects, it checks whether the service asks you to sign in, so an app whose listing doesn't say can still sign in. Row-Bot signs in through your browser with its own published details, or registers itself with the service. A few services, such as GitHub, accept only your own OAuth app: Row-Bot asks for its **Client ID** and, if it has one, **Client secret (optional)**, both kept in the keychain, and shows the callback address to register, `http://127.0.0.1/api/v1/settings/mcp/auth/callback`. If a sign-in expires and can't be renewed, the app says **Sign in needed**.
 - **Get ready to run _app_** and **Install what _app_ needs**: an app that runs on this computer may need Node.js or uv, which Row-Bot sets up for its own use, and an npm package, Python package, container image or bundle, which is installed into its own folder, never system-wide. Before anything installs, Row-Bot shows **Exactly what will be installed**: each package's exact version and checksum, checked again when it installs. Install scripts never run. Python apps use Row-Bot's own uv and Python. Container images need Docker Desktop, already installed, and never get access to your folders, ports or network. If what an app would install changes after you agreed, Row-Bot shows it again and waits.
 - **Open _program_**: apps that work with a program on this computer, such as Blender, check that it is running. Open it, then choose **Check again**.
 
@@ -94,13 +101,17 @@ Searching and reading an app's page never install or run anything; nothing insta
 | **Ask before changes** (default) | Looks things up and asks you before every change. |
 | **Full access** | Makes routine changes without asking. Risky actions still ask. |
 
-**Customise** sets each action on its own: **Use without asking**, **Ask first** or **Off**.
+**Customise** sets each action on its own: **Use without asking**, **Ask first**, **Off**, or **As chosen above**. To change it later, use **Choose** in the app's **Access** section.
 
-Some apps overlap with what Row-Bot already does, for example Notion with documents or Slack with channels. Their access step notes it, such as "Row-Bot also has its own documents tools", and the choices work as usual. Changes to files and repositories, such as creating a file or a pull request, always ask first.
+Some apps overlap with what Row-Bot already does, for example Notion with documents or Slack with channels. Their access step notes it, such as "Row-Bot also has its own Documents tools.", and the choices work as usual. Changes to files and repositories, such as creating a file or a pull request, always ask first.
 
 :::info Some actions always ask
 Deleting, sending, paying, publishing, running code and anything Row-Bot can't identify always ask first, whatever you choose. Full access only covers routine changes such as creating or editing. Apps connected before this version keep asking before routine changes until you choose otherwise.
 :::
+
+### In Chats And Workflows
+
+An app's access applies wherever Row-Bot uses it, together with the chat's or workflow's **Approvals**. **Auto** lets routine changes run without asking, but actions that always ask still ask, and a workflow waits for you on them; **Block** leaves out anything that would ask. Approval cards name the app and the action, such as "Allow Notion to delete page?"; see [Approvals](/docs/chat/tools-approvals-and-terminal#approvals).
 
 ## Change Settings After Setup
 
@@ -116,10 +127,11 @@ A built-in way's settings are changed in its own settings: choose **Open**, or *
 
 Both are in the app's **⋯** menu.
 
-- **Turn off** stops Row-Bot using the app. Its settings and saved keys are kept.
-- **Remove…** opens **Remove _app_**. Keys and data are kept unless you switch on **Also delete saved keys and data**. Removing a package removes everything it brought.
+- **Turn off** stops Row-Bot using the app and ends its connection. Its settings and saved keys are kept, and **Turn on** brings it back.
+- **Remove…** opens **Remove _app_** and removes the app with its settings and access choices. Its saved sign-in and keys stay in your system keychain unless you switch on **Also delete saved keys and data**, which is offered when it has any.
+- **Removing a package** removes it and everything it brought, but keeps its saved data and keys: its card then says **Removed**, and **Delete saved data** deletes them. Switch on **Also delete saved keys and data** to delete them straight away. An app that came with a package can be turned off, but is removed with its package.
 
-A built-in way has neither; use its own settings instead, such as an account's access switches or **Disconnect**, a channel's **Stop**, or a key tool's switch.
+Removing never revokes access at the service; do that in the service's own settings. Shared runtimes such as Node.js and uv, and what Row-Bot downloaded to run an app on this computer, stay installed. A built-in way has neither action; use its own settings instead, such as an account's access switches or **Disconnect**, a channel's **Stop**, or a key tool's switch.
 
 ## Add From Link Or File
 
@@ -133,11 +145,21 @@ Nothing is downloaded or run until you agree on the item's page.
 
 **Advanced** on the Apps page (`/settings/apps?view=advanced`) holds:
 
-- **Catalogs**: each catalog with its state, such as **Included with Row-Bot**, when it was last updated, **Couldn't update. The last copy is still used.**, or **Not available yet**, with **Update** and **Update all**. **Update catalogs automatically** is off by default; turn it on to update every day, week or month. **Windows connectors** appears only on Windows builds that have them, and **Composio**, a hosted broker, stays off until you turn on **Use Composio** after reading what it means (see [MCP](/docs/integrations/mcp#hosted-brokers-composio)).
-- **Apps in chats**: **Use apps** (turn off to stop every app at once; each keeps its settings), **Show app views in chat** (interactive views from apps that have them; on by default), whether chats are offered app tools, and the shared runtimes (Node.js and uv) that local apps use.
+- **Catalogs**: see [Update catalogs](#update-catalogs).
+- **Apps in chats**: **Use apps** (turn off to stop every app at once; each keeps its settings), **Show app views in chat** (interactive views from apps that have them; on by default), whether chats are offered app tools (**Use apps in chats**), and **Runtimes**, the Node.js and uv that Row-Bot sets up for apps that run on this computer.
 - **Your own connection**: **Add a custom connection** opens the connection editor for a service that isn't in a catalog.
 
 An app's **⋯ › Advanced settings** opens the raw settings for that one app only.
+
+## Update Catalogs
+
+Row-Bot ships a copy of each catalog, so search works offline. **Apps › Advanced › Catalogs** lists each catalog with its state, such as **Included with Row-Bot**, **Updated** with the time and number of entries, **Couldn't update. The last copy is still used.**, or **Not available yet**.
+
+- **Update** refreshes one catalog, and **Update all** every catalog that can be updated.
+- **Update catalogs automatically** is off by default. Turn it on and choose **Every day**, **Every week** or **Every month**.
+- **Windows connectors** appears only on Windows builds that have them. **Composio**, a hosted broker, stays off until you turn on **Use Composio** after reading what it means; see [Hosted brokers](/docs/integrations/mcp#hosted-brokers-composio).
+
+A failed update keeps the last copy. Behind a proxy, see [Troubleshooting](/docs/troubleshooting/#apps-and-skills).
 
 ## Old Links
 
@@ -145,7 +167,7 @@ Settings no longer has Integrations, MCP, Plugins, Accounts or Channels pages. O
 
 ## Privacy And Safety
 
-Searching, browsing and opening an app page stay on this computer. A catalog is contacted only when you choose **Search online catalogs**, **Update**, or automatic updates; updating the Hermes catalog also reads each new package's manifest, never its code. Requests to an app go where its page says once you use it. Keys, tokens and OAuth client secrets are kept in your system keychain, never in settings files, logs or what the page shows. Row-Bot's sign-in details are published at `https://row-bot.ai/oauth/client-metadata.json`; they contain no secret and name only this computer as where a sign-in returns. Checking that a program is open looks only at this computer. Apps that run on this computer are not sandboxed, so add only apps you trust.
+Searching, browsing and opening an app page stay on this computer. A catalog is contacted only when you choose **Search online catalogs**, **Update**, or automatic updates; updating the Hermes catalog also reads each new package's manifest, never its code. Once you agree to connect, add or update something, Row-Bot reads it from its source, for example to check its listing again or to download what it installs. Requests to an app go where its page says once you use it. Keys, tokens and OAuth client secrets are kept in your system keychain, never in settings files, logs or what the page shows. Row-Bot's sign-in details are published at `https://row-bot.ai/oauth/client-metadata.json`; they contain no secret and name only this computer as where a sign-in returns. Checking that a program is open looks only at this computer. Apps that run on this computer are not sandboxed, so add only apps you trust.
 
 ## Control-Level Reference
 
@@ -153,10 +175,7 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- **Sign in needed** or **Key needed**: open the app and use the main action. Overview's **Needs you** lists these apps too, with the fix.
-- **Install Docker Desktop, then try again**: the app runs as a container image; install Docker Desktop or choose another way to connect on the app's page.
-- A program-based app keeps asking to **Check again**: make sure the program and its add-on (for Blender, its MCP add-on) are running on this computer.
-- **Needs attention**: open the app and choose **Fix** or **Retry**.
+Each status has one fix: the main action on the app's page, also offered in Overview's **Needs you**. [Troubleshooting](/docs/troubleshooting/#apps-and-skills) lists every status, and catalog, proxy, Windows connector and app view problems.
+
 - If an app's tools are missing in chat, check that it is **Ready**, that it is checked in that chat's **+ › Apps**, that **Use apps** is on and **Apps in chats** offers app tools, and that the chat's agent profile allows it.
 - A built-in account or channel that won't work: choose **Open** on its app page and use its own **Check**, **Reconnect** or **Start**.
-- If a catalog says **Couldn't update**, Row-Bot keeps using the last copy; try **Update** later.

@@ -1,0 +1,74 @@
+---
+title: "Contribute To The App Catalog"
+description: "For developers: the apps.json record format, verified-vendor rules, bundled icons and their licences, the featured skills and broker lists, and how to check catalog coverage."
+---
+
+# Contribute To The App Catalog
+
+This page is for developers adding or correcting an app, a featured skill or a logo. The app catalog is package data in `src/row_bot/integrations/`; it is validated when Row-Bot loads it, so a bad record fails loudly instead of showing wrong information.
+
+## App Records (`apps.json`)
+
+`apps.json` has `"schema_version": 2` and one record per line under `apps`. Each record is one service people recognise, and catalog entries attach to it only through the references it lists. A record with an unknown field is refused.
+
+| Field | Meaning and rules |
+| --- | --- |
+| `id` | Lowercase `[a-z0-9][a-z0-9-]{0,63}`, unique. Also the page address, `/settings/apps/<id>`. |
+| `name`, `publisher`, `summary` | The display name, who makes the service, and one plain sentence about what it does. |
+| `category` | One of `productivity`, `developer`, `data`, `design`, `communication`, `finance` or `local_tools`. |
+| `synonyms`, `jobs` | Words and tasks people search for, such as "wiki" or "send an email". Search matches them. |
+| `example_prompts` | Things to ask, shown on the app's page. At least two for an app that has a connection of its own. |
+| `refs` | The reviewed references that attach catalog entries: `curated:`, `registry:` (an exact server or a namespace), `endpoint:` (a host), `npm:`, `pypi:`, `oci:`, `repo:`, `hermes:`, `bundled:`, and Row-Bot's own `account:`, `channel:` and `tool:` ways. A reference may belong to one app only. |
+| `vendor` | `domains` and `github_orgs` the vendor controls; the verified badge is granted from these. |
+| `variants` | The app's ways to connect in its preferred order: `hosted_mcp`, `local_mcp`, `package`, `account`, `channel`, `api_key_tool`, `broker`. |
+| `auth` | `oauth`, `api_key`, `none`, `account`, `mixed` or empty. |
+| `docs_url`, `key_url` | https links: the vendor's documentation and where to get a key. |
+| `icon` | `si:<slug>` for a bundled mark, or empty for a letter avatar. |
+| `featured_rank` | Optional. Featured apps are ranked 1 to N with no gaps or repeats. |
+| `local_app`, `local_check` | For an app that works with a program on this computer: its name, and `{"port": 9876}` (a loopback port from 1024 to 65535) or `{"process": "blender"}`. The check looks only at this computer. |
+| `facts` | `checked` (the date you checked) and `sources`: the vendor pages that support the record. |
+
+Unmatched catalog entries stay browsable as **Community**. Never attach an entry by its name alone.
+
+## The Verified Badge
+
+**by _Vendor_** with a check is granted by rule, never by a name or a description:
+
+- a Registry record is the vendor's when its namespace is a vendor domain reversed (`com.notion` for `notion.com`) or `io.github.<vendor org>`. The Registry checks namespace ownership, so Registry records are judged by namespace alone;
+- a reviewed recipe or your own connection is the vendor's when its endpoint is under a vendor domain, or is an `endpoint:` the vendor's documentation names exactly.
+
+Shared hosting domains, where anyone can have a subdomain (`github.io`, `vercel.app`, `netlify.app`, `pages.dev`, `amazonaws.com`, `supabase.co` and others in `apps.SHARED_HOSTING`), are never vendor domains: the catalog refuses to load with one.
+
+Reviewed setup recipes, the **Vendor recommendations** catalog, live in `src/row_bot/mcp_client/recommended_servers.json`. Set a recipe's `tested_with_row_bot` only after its live check passes.
+
+## Icons (`icons.json`)
+
+Logos are Simple Icons marks, bundled only for the apps that name them. Each mark in `icons.json` records its `title`, `hex` colour, SVG `path`, `license` (CC0-1.0 for most marks; others record their own), `source` and, where the brand has them, `guidelines`. Rebuild the file from an extracted `simple-icons` package after changing `icon` fields:
+
+```powershell
+uv run python scripts/build_app_icons.py path/to/simple-icons/package
+```
+
+An app without a mark gets a letter avatar drawn locally. Registry icons are fetched only during a catalog update, as raster images from the publisher's own domain, re-encoded locally; remote SVG is never accepted, and drawing a card never fetches anything.
+
+## Featured Skills (`skills.json`)
+
+`skills.json` lists references, not copies: each skill is read from its repository at the pinned commit when someone adds it. A record has `id`, `name`, `publisher`, `summary`, `category`, `synonyms`, `jobs`, `repo` (`github.com/<owner>/<repo>`), `path`, `commit` (the full 40-character hash), `license`, `license_url`, `featured_rank`, `checked` and, optionally, `app` (an `apps.json` id). Check the licence at that commit. The library takes permissive and weak-copyleft open-source licences (MIT, Apache-2.0, MPL-2.0 so far); proprietary, unlicensed and share-alike skills stay out.
+
+## Broker Names (`broker_apps.json`)
+
+Composio's own catalog can't be listed without an account, so `broker_apps.json` is Row-Bot's own list of well-known app names, each 1 to 80 characters. While Composio is turned on, a search naming one of them shows Composio, and that app's page offers "_App_ via Composio". It is a list of names to search by, not a claim that Composio supports each one.
+
+## Check Coverage
+
+`scripts/integration_coverage.py` computes an install plan for every local catalog entry (the reviewed recipes, the whole shipped Registry mirror, featured skills and examples) in a throwaway data folder. It fetches nothing and reads no user data.
+
+```powershell
+uv run python scripts/integration_coverage.py --output .tmp/integration-coverage
+```
+
+It writes `coverage.json` (each entry with "complete" or the exact blocker) and `coverage.md` (counts per source, every blocker, and featured apps without a complete plan). `--hermes` adds a saved Hermes catalog. Run it before and after a catalog change and explain any featured app that stops connecting.
+
+## Tests
+
+`tests/subsystem/integrations/test_app_catalog.py`, `test_icons.py`, `test_skill_catalog.py`, `test_brokers.py` and `test_apps_and_sources.py` check the featured ranks, categories, prompts, sources, icon licences, badge rules and attachment. Run them with `uv run python -m pytest tests/subsystem/integrations`.
