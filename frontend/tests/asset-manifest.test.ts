@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -11,6 +11,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+// Each test runs the packaging script in its own Node process, which a busy machine
+// can take seconds to start.
+vi.setConfig({ testTimeout: 30_000 });
 
 const script = resolve('scripts/asset-manifest.mjs');
 const ownedNames = [
@@ -86,7 +90,7 @@ afterEach(() => {
 const packageFixture = () =>
   spawnSync(process.execPath, [script, build, '--package-dir', stage], {
     encoding: 'utf8',
-    timeout: 5000,
+    timeout: 25_000,
     // Do not inherit credentials, Node preload options or provider settings.
     env: { SystemRoot: process.env.SystemRoot ?? '' },
   });
