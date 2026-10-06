@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -35,7 +37,11 @@ def test_route_config_defaults_local_and_saves_atomically(tmp_path) -> None:
         "listen_mode": "local_network",
         "version": 2,
     }
-    assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+    assert _files_besides_writer_lock(path.parent) == [path]
+
+
+def _files_besides_writer_lock(folder) -> list:
+    return [item for item in folder.iterdir() if item.suffix != ".lock"]
 
 
 def test_version_one_migrates_without_losing_listen_mode(tmp_path) -> None:
@@ -139,7 +145,35 @@ def test_failed_atomic_replace_preserves_previous_config(tmp_path, monkeypatch) 
         store.add_configured_origin("https://new.example")
 
     assert store.load() == previous
-    assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
+    assert _files_besides_writer_lock(tmp_path) == [path]
+
+
+def test_mutation_survives_windows_briefly_refusing_the_replace(
+    tmp_path, monkeypatch
+) -> None:
+    store = AccessRouteConfigStore(tmp_path / "access_routes.json")
+    store.set_listen_mode(ListenMode.LOCAL_NETWORK)
+    real_replace = os.replace
+    refusals = []
+
+    def refuse_once(source, destination):
+        if not refusals:
+            # What Windows raises while a reader or a virus scan holds the file.
+            refusal = PermissionError(13, "Access is denied")
+            refusal.winerror = 5
+            refusals.append(refusal)
+            raise refusal
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", refuse_once)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    added = store.add_configured_origin("https://row-bot.example")
+
+    assert len(refusals) == 1
+    assert added.listen_mode is ListenMode.LOCAL_NETWORK
+    assert store.load() == added
+    assert _files_besides_writer_lock(tmp_path) == [store.path]
 
 
 def test_malformed_config_fails_closed_with_explicit_recovery_helper(tmp_path) -> None:

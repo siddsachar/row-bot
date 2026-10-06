@@ -940,24 +940,21 @@ describe('Developer inspector', () => {
     }));
     render(<WorkspaceInspector {...options} />);
     await openFile();
+    // 72 page turns: the fake reads resolve at once, so one act() flush
+    // settles each turn. waitFor's real-timer polling and getByRole's
+    // accessible-name pass made this test overrun 5 s under load.
     for (let offset = 1; offset <= 40; offset += 1) {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Next file section' }),
-      );
-      await waitFor(() =>
-        expect(screen.getByLabelText('File text')).toHaveTextContent(
-          new RegExp(`^Section ${offset}$`),
-        ),
+      fireEvent.click(screen.getByText('Next file section'));
+      await act(async () => {});
+      expect(screen.getByLabelText('File text')).toHaveTextContent(
+        new RegExp(`^Section ${offset}$`),
       );
     }
     for (let offset = 39; offset >= 8; offset -= 1) {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Previous file section' }),
-      );
-      await waitFor(() =>
-        expect(screen.getByLabelText('File text')).toHaveTextContent(
-          new RegExp(`^Section ${offset}$`),
-        ),
+      fireEvent.click(screen.getByText('Previous file section'));
+      await act(async () => {});
+      expect(screen.getByLabelText('File text')).toHaveTextContent(
+        new RegExp(`^Section ${offset}$`),
       );
     }
     expect(

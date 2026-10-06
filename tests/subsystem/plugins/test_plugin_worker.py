@@ -295,9 +295,10 @@ def test_large_payload_rejected_without_entering_worker(worker_fixture):
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job Object runtime")
 @pytest.mark.parametrize("phase", ["registered", "startup_timeout"])
-def test_windows_owned_job_terminates_spawned_descendant(worker_fixture, phase):
+def test_windows_owned_job_terminates_spawned_descendant(worker_fixture, phase, monkeypatch):
     import ctypes
     from ctypes import wintypes
+    from row_bot.plugins import worker_protocol
     from row_bot.plugins.worker import WorkerAPI, WorkerError
 
     fixture = worker_fixture
@@ -320,13 +321,24 @@ def register(api):
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.CloseHandle.restype = wintypes.BOOL
     handles = []
+    made = threading.Event()
     original = api.set_config
     def capture(key, value):
         handle = kernel.OpenProcess(0x100000, False, value)
         assert handle
         handles.append(handle)
+        made.set()
         original(key, value)
     api.set_config = capture
+    if phase == "startup_timeout":
+        # The 0.5 s under test counts from the descendant's start: a start slowed by a busy
+        # machine must not use it up before there is a descendant to stop.
+        class AfterDescendant(worker_protocol._Pending):
+            def __init__(self):
+                super().__init__()
+                wait = self.event.wait
+                self.event.wait = lambda timeout=None: made.wait(30) and wait(timeout)
+        monkeypatch.setattr(worker_protocol, "_Pending", AfterDescendant)
     try:
         if phase == "startup_timeout":
             with pytest.raises(WorkerError, match="worker_timeout"):

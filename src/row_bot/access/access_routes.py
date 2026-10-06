@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
 import hashlib
@@ -12,7 +13,6 @@ import json
 import os
 from pathlib import Path
 import socket
-import tempfile
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -164,73 +164,54 @@ class AccessRouteConfigStore:
         except AccessRouteConfigError:
             return AccessRouteConfig()
 
+    def _writer(self) -> AbstractContextManager[None]:
+        """The writer lock the settings commands also take for this file."""
+        from row_bot.providers.config import provider_config_transaction
+
+        return provider_config_transaction(self.path)
+
     def save(self, config: AccessRouteConfig) -> None:
+        # The shared writer retries a replace that Windows briefly refuses
+        # while a reader or a virus scan holds the file.
+        from row_bot.providers.config import write_provider_metadata
+
         normalized = AccessRouteConfig.from_dict(config.to_dict())
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = (
-            json.dumps(normalized.to_dict(), indent=2, sort_keys=True) + "\n"
-        ).encode("utf-8")
-        temporary_path: Path | None = None
-        try:
-            descriptor, raw_path = tempfile.mkstemp(
-                prefix=f".{self.path.name}.",
-                suffix=".tmp",
-                dir=self.path.parent,
-            )
-            temporary_path = Path(raw_path)
-            try:
-                with os.fdopen(descriptor, "wb") as handle:
-                    handle.write(payload)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                try:
-                    temporary_path.chmod(0o600)
-                except OSError:
-                    pass
-                os.replace(temporary_path, self.path)
-            except BaseException:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
-                raise
-        finally:
-            if temporary_path is not None and temporary_path.exists():
-                try:
-                    temporary_path.unlink()
-                except OSError:
-                    pass
+        with self._writer():
+            write_provider_metadata(self.path, normalized.to_dict())
 
     def set_listen_mode(self, mode: ListenMode | str) -> AccessRouteConfig:
-        previous = self.load_or_default()
-        config = AccessRouteConfig(
-            listen_mode=ListenMode(mode),
-            configured_origins=previous.configured_origins,
-        )
-        self.save(config)
+        with self._writer():
+            previous = self.load_or_default()
+            config = AccessRouteConfig(
+                listen_mode=ListenMode(mode),
+                configured_origins=previous.configured_origins,
+            )
+            self.save(config)
         return config
 
     def add_configured_origin(self, origin: object) -> AccessRouteConfig:
-        previous = self.load_or_default()
-        config = AccessRouteConfig(
-            listen_mode=previous.listen_mode,
-            configured_origins=(*previous.configured_origins, str(origin or "")),
-        )
-        self.save(config)
+        with self._writer():
+            previous = self.load_or_default()
+            config = AccessRouteConfig(
+                listen_mode=previous.listen_mode,
+                configured_origins=(*previous.configured_origins, str(origin or "")),
+            )
+            self.save(config)
         return config
 
     def remove_configured_origin(self, origin: object) -> AccessRouteConfig:
         normalized = _normalize_configured_origins((origin,))[0]
-        previous = self.load_or_default()
-        config = AccessRouteConfig(
-            listen_mode=previous.listen_mode,
-            configured_origins=tuple(
-                saved
-                for saved in previous.configured_origins
-                if saved != normalized
-            ),
-        )
-        self.save(config)
+        with self._writer():
+            previous = self.load_or_default()
+            config = AccessRouteConfig(
+                listen_mode=previous.listen_mode,
+                configured_origins=tuple(
+                    saved
+                    for saved in previous.configured_origins
+                    if saved != normalized
+                ),
+            )
+            self.save(config)
         return config
 
 

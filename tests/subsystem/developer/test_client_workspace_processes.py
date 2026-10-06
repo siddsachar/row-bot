@@ -198,7 +198,9 @@ def test_job_owns_spawned_descendant_until_it_is_dead(domain):
         assert kernel.WaitForSingleObject(handle, 0) == 258
         d.service.stop_workspace_process(d.workspace.id, "chat", started.process_id)
         assert state.done.wait(30) and state.quiesced
-        assert kernel.WaitForSingleObject(handle, 0) == 0
+        # The job stops counting a process as soon as it is terminated; Windows signals the
+        # process only after tearing it down, up to a second later on a busy machine.
+        assert kernel.WaitForSingleObject(handle, 5000) == 0
         assert d.runs.list_agent_write_locks() == []
     finally:
         kernel.CloseHandle(handle)

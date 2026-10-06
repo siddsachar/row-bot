@@ -85,6 +85,9 @@ DEFAULT_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("TMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("TEMP", str(DEFAULT_TEST_TMP_DIR))
+# pytest numbers its temporary folders per run under this root, so runs side by side
+# never delete each other's (a fixed --basetemp is wiped by every run that starts).
+os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("ROW_BOT_TEST_MODE", "1")
 # Test folders live under the checkout's .tmp: git run there by the code under test
 # must stop at .tmp instead of finding (and committing to) the checkout (B216).
@@ -341,6 +344,14 @@ def _package_attributes_follow_sys_modules():
             elif current is not value:
                 setattr(package, attribute, current)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_title_model(monkeypatch):
+    # A conversation's first finished turn asks its model for a title on a background
+    # thread. Tests that run turns script the agent, not that model: unscripted, the thread
+    # built a real provider client after the test had ended. The naming tests script it.
+    monkeypatch.setattr("row_bot.application.conversation_naming._ask", lambda *_args: "")
 
 
 @pytest.fixture(autouse=True)
