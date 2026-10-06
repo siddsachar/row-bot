@@ -6827,10 +6827,12 @@ class TraceMediaReference(WireModel):
 
 
 class TraceAppRef(WireModel):
-    """An app a Connect card offers: its catalog id, name and logo, re-read from local data."""
+    """An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,
+    re-read from local data, and for a step the tool's readable title in that app ("Delete page")."""
     item_id: str = Field(min_length=1, max_length=512)
     name: str = Field(max_length=128)
     icon: str = Field(max_length=128)
+    tool: str = Field(default="", max_length=128)
 
 
 class TraceSpecialization(WireModel):
@@ -7268,13 +7270,15 @@ class SlashCommandSpec(WireModel):
 
 
 class ComposerApp(WireModel):
-    """A ready app this chat can use: its switch here, and whether the agent profile allows it."""
+    """A ready app this chat can use: its switch here, and whether the agent profile allows it. A way
+    with no chat tools (``switchable`` false) is listed so the menu matches Your apps, with why."""
     item_id: str = Field(max_length=512)
     app_id: str = Field(max_length=64)
     name: str = Field(max_length=128)
     icon: str = Field(max_length=128)
     on: bool
     available: bool
+    switchable: bool = True
     reason: str = Field(default="", max_length=256)
 
 

@@ -3006,6 +3006,7 @@ def _default_retry_executor(
         orchestration_dependencies=list(member.get("dependency_run_ids_json") or []),
         orchestration_attempt=int(member.get("attempt") or 1) + (0 if explicit_resume else 1),
         retry_of_run_id=str(member["run_id"]),
+        app_scope=original.get("app_scope_json") or None,  # The original message's focus, not this thread's.
         wait=False,
     )
 

@@ -156,6 +156,7 @@ def set_key(env_var: str, value: str):
         _session_keys[env_var] = value
         _set_storage_warning(f"Secure API key storage is unavailable; {env_var} is saved for this session only.")
         logger.warning("Using session-only API key storage for %s: %s", env_var, exc)
+        secret_store.notify_change("api_keys")
     os.environ[env_var] = value
 
 
@@ -195,6 +196,7 @@ def delete_key(env_var: str) -> None:
     _session_keys.pop(env_var, None)
     os.environ.pop(env_var, None)
     _remove_metadata_key(env_var)
+    secret_store.notify_change("api_keys")
 
 
 def apply_keys():

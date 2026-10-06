@@ -139,7 +139,8 @@ export default function ComposerControls({
     : modelRefName(controls.model_selection?.model_ref) || 'Choose model';
   const context = describeContextUsage(contextUsage);
   const apps = composer?.apps ?? [];
-  const appsOn = apps.filter((app) => app.on && app.available).length;
+  const switchable = apps.filter((app) => app.switchable !== false);
+  const appsOn = switchable.filter((app) => app.on && app.available).length;
   /** One app on or off for this chat only; the agent profile still decides what it may use. */
   async function switchApp(itemId: string, on: boolean) {
     if (operation.current || blocked || !id) return;
@@ -384,7 +385,7 @@ export default function ComposerControls({
                     collisionPadding={12}
                     aria-label="Apps in this chat"
                   >
-                    {apps.map((app) => (
+                    {switchable.map((app) => (
                       <Dropdown.CheckboxItem
                         key={app.item_id}
                         className="menu-item"
@@ -405,6 +406,22 @@ export default function ComposerControls({
                         </Dropdown.ItemIndicator>
                       </Dropdown.CheckboxItem>
                     ))}
+                    {apps
+                      .filter((app) => app.switchable === false)
+                      .map((app) => (
+                        // Part of Row-Bot without chat tools: listed as in Your apps, with why it has no switch.
+                        <Dropdown.Item
+                          key={app.item_id}
+                          className="menu-item"
+                          disabled
+                        >
+                          <AppIcon icon={app.icon} size={18} />
+                          <span className="menu-item-label">
+                            {app.name}
+                            <small>{app.reason}</small>
+                          </span>
+                        </Dropdown.Item>
+                      ))}
                     {apps.length > 0 && (
                       <Dropdown.Separator className="menu-separator" />
                     )}

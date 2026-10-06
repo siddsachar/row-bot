@@ -313,6 +313,16 @@ def _reset_agent_runtime_context():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_builtin_ways():
+    # Apps keeps one snapshot of Row-Bot's own ways to connect per data folder; tests share a
+    # folder and fake its owners differently, so each one starts from its owners again.
+    changed = getattr(sys.modules.get("row_bot.integrations.builtin"), "changed", None)
+    if callable(changed):
+        changed()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _package_attributes_follow_sys_modules():
     # Older tests evict row_bot modules from sys.modules by hand and never
     # re-import them, so the package keeps the evicted module as an attribute.

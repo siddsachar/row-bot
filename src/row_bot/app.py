@@ -396,6 +396,14 @@ async def _prewarm_local_embeddings_background() -> None:
         )
 
 
+async def _prewarm_apps_background() -> None:
+    """Read Row-Bot's own ways to connect once (accounts, channels, key tools), so Apps, the catalog
+    and the composer open without waiting for the keychain or the GitHub CLI."""
+    with _startup_phase("apps_prewarm", background=True):
+        from row_bot.integrations import builtin
+        await asyncio.to_thread(builtin.rows)
+
+
 def _schedule_local_embedding_prewarm():
     return _schedule_background_task(
         _prewarm_local_embeddings_background(),
@@ -738,6 +746,7 @@ async def _run_startup_sequence():
     # Ensure channel modules are imported so they self-register.
     with _startup_phase("channel_module_import"):
         skipped_channels = _load_channel_modules()
+    _schedule_background_task(_prewarm_apps_background(), name="row-bot-apps-prewarm")
     for skipped_channel in skipped_channels:
         _startup_warning(
             f"Channel adapter unavailable: {skipped_channel}. "

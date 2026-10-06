@@ -75,7 +75,7 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
       </p>
       <dl>
         <dt>Action</dt>
-        <dd>{approvalAction(view.action_label || '')}</dd>
+        <dd>{approvalAction(view.action_label || '', view.app)}</dd>
         {risk && (
           <>
             <dt>Risk</dt>
@@ -310,7 +310,7 @@ export default function ApprovalCard({
         <>
           <div className="approval-card-context">
             {app && <span className="approval-card-app">{app.name}</span>}
-            <strong>{approvalQuestion(view.action_label || '')}</strong>
+            <strong>{approvalQuestion(view.action_label || '', app)}</strong>
             <span className="approval-card-reason">
               {plainApprovalReason(view.reason || view.summary || '')}
             </span>
@@ -332,7 +332,7 @@ export default function ApprovalCard({
               disabled={busy || Boolean(resolution)}
               onClick={() =>
                 overlay.open({
-                  title: approvalQuestion(view.action_label || ''),
+                  title: approvalQuestion(view.action_label || '', app),
                   description: 'What Row-Bot wants to do, and what it affects.',
                   content: <ApprovalDetails view={view} />,
                 })

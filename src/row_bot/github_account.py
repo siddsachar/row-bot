@@ -22,7 +22,9 @@ GITHUB_API_ROOT = "https://api.github.com"
 USER_AGENT = "Row-Bot-GitHub/1.0"
 _TOKEN_CACHE_TTL_SECONDS = 300
 _STATUS_CACHE_TTL_SECONDS = 300
-_token_cache: tuple[float, bool, "GitHubToken"] | None = None
+# One slot per kind of lookup (with or without the GitHub CLI), so a lookup that skips the CLI never
+# evicts what the CLI said, which costs a ~2 s process start to learn again.
+_token_cache: dict[bool, tuple[float, "GitHubToken"]] = {}
 _status_cache: tuple[float, str, "GitHubAccountStatus"] | None = None
 # The last verified status and the credential it was for: what Accounts and
 # Monitor both show (B118). Unlike the probe cache it does not expire.
@@ -91,37 +93,25 @@ class GitHubAccountStatus:
 
 def resolve_github_token(*, include_cli: bool = True, use_cache: bool = True) -> GitHubToken:
     """Return the best available GitHub token without logging or exposing it."""
-    global _token_cache
     now = time.time()
-    if use_cache and _token_cache is not None and now - _token_cache[0] < _TOKEN_CACHE_TTL_SECONDS:
-        cached_include_cli = _token_cache[1]
-        cached_token = _token_cache[2]
-        if cached_include_cli == include_cli:
-            return cached_token
-        if include_cli and cached_token.configured:
-            return cached_token
+    if use_cache:
+        cached = _token_cache.get(include_cli)
+        if cached is not None and now - cached[0] < _TOKEN_CACHE_TTL_SECONDS:
+            return cached[1]
+        other = _token_cache.get(False)
+        if include_cli and other is not None and now - other[0] < _TOKEN_CACHE_TTL_SECONDS and other[1].configured:
+            return other[1]  # A saved token comes before the CLI's anyway.
 
     env_value = os.environ.get(GITHUB_TOKEN_ENV) or os.environ.get(GH_TOKEN_ENV) or ""
     if env_value:
         token = GitHubToken(env_value, "environment", secret_store.fingerprint(env_value))
-        _token_cache = (now, include_cli, token)
-        return token
-
-    saved = api_keys.get_key(GITHUB_TOKEN_ENV)
-    if saved:
+    elif saved := api_keys.get_key(GITHUB_TOKEN_ENV):
         token = GitHubToken(saved, "keyring", secret_store.fingerprint(saved))
-        _token_cache = (now, include_cli, token)
-        return token
-
-    if include_cli:
-        gh_token = _github_cli_token()
-        if gh_token:
-            token = GitHubToken(gh_token, "github_cli", secret_store.fingerprint(gh_token))
-            _token_cache = (now, include_cli, token)
-            return token
-
-    token = GitHubToken()
-    _token_cache = (now, include_cli, token)
+    elif include_cli and (gh_token := _github_cli_token()):
+        token = GitHubToken(gh_token, "github_cli", secret_store.fingerprint(gh_token))
+    else:
+        token = GitHubToken()
+    _token_cache[include_cli] = (now, token)
     return token
 
 
@@ -214,6 +204,9 @@ def get_verified_github_account_status(*, use_cache: bool = True, timeout: int =
         anonymous = check_github_anonymous_access(timeout=timeout)
         status = _merge_cli_status(anonymous, gh_status)
     _status_cache = (now, cache_key, status)
+    if _last_verified is None or _last_verified[1].state != status.state:
+        from row_bot.integrations import builtin
+        builtin.changed()  # Apps shows the GitHub account as this check found it.
     _last_verified = (cache_key, status)
     return status
 
@@ -652,8 +645,7 @@ def _int_header(value: object) -> int:
 
 
 def clear_github_token_cache() -> None:
-    global _token_cache
-    _token_cache = None
+    _token_cache.clear()
 
 
 def clear_github_status_cache() -> None:

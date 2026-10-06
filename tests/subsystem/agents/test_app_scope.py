@@ -37,7 +37,9 @@ def apps(monkeypatch):
     monkeypatch.setattr(scope, "_skill_names", lambda: {"/writer": ("writer",), "/secret-skill": ("secret-skill",)})
     monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: list(off))
     monkeypatch.setattr(scope, "_profile_allow", lambda conversation_id: profile.get("allow"))
-    return SimpleNamespace(items=items, off=off, profile=profile)
+    builtins: list[dict] = []
+    monkeypatch.setattr("row_bot.integrations.builtin.rows", lambda validate=None, wait=True: builtins)
+    return SimpleNamespace(items=items, off=off, profile=profile, builtins=builtins)
 
 
 def test_nothing_is_narrowed_without_a_switch_or_a_mention(apps):
@@ -45,6 +47,24 @@ def test_nothing_is_narrowed_without_a_switch_or_a_mention(apps):
     listed = scope.chat_apps("chat")
     assert [(a["name"], a["on"], a["available"]) for a in listed] == [
         ("Figma", True, True), ("Linear", True, True), ("Notion", True, True)]  # Ready apps only: Sentry needs a sign-in.
+
+
+def test_the_menu_lists_every_ready_built_in_way_and_says_why_some_have_no_switch(apps):
+    """The composer matches Your apps: the GitHub account and a channel are ready but bring no chat
+    tools, so they are listed without a switch, saying why; mentions still only reach chat tools."""
+    def way(ref, name, tools=(), readiness="ready"):
+        return {"id": "builtin:" + ref, "kind": "builtin", "owner_ref": ref, "name": name, "tools": list(tools),
+                "app": {"id": ref.split(":")[1], "name": name.split()[0]}, "icon": "letter:" + name[0],
+                "lifecycle": "installed", "readiness": readiness}
+    apps.builtins += [way("account:github", "GitHub account"), way("channel:telegram", "Telegram channel"),
+                      way("account:x", "X account", readiness="needs_sign_in")]
+    listed = {a["item_id"]: a for a in scope.chat_apps("chat")}
+    github, telegram = listed["builtin:account:github"], listed["builtin:channel:telegram"]
+    assert (github["switchable"], github["reason"]) == (False, "Used by skills and Developer, not by chat tools.")
+    assert telegram["switchable"] is False and "talk to Row-Bot from Telegram" in telegram["reason"]
+    assert "builtin:account:x" not in listed  # Not ready: Your apps says what it needs.
+    assert all(a["switchable"] for a in listed.values() if a["item_id"].startswith("mcp:"))
+    assert scope.turn_scope("chat", "@GitHub what's open?", None) is None  # Nothing to focus on.
 
 
 def test_a_switch_leaves_an_app_out_of_this_chat_only(apps):
@@ -151,6 +171,8 @@ def identities(apps, monkeypatch):
                        "readiness": "ready", "parent_id": None, "children": []})  # Built-in ways have no server.
     servers = {"mcp_notion_delete_page": "Notion", "mcp_notion_search": "Notion"}
     monkeypatch.setattr("row_bot.mcp_client.runtime.server_for_tool", servers.get)
+    titles = {"mcp_notion_delete_page": "Delete page", "mcp_notion_search": "Search"}
+    monkeypatch.setattr("row_bot.mcp_client.runtime.tool_title", lambda name: titles.get(name, ""))
     return {"item_id": "mcp:notion", "name": "Notion", "icon": "letter:N"}
 
 
@@ -158,7 +180,7 @@ def test_an_approval_names_the_app_asking_with_its_logo(identities):
     from row_bot.application.approval_projection import project_approval_context
     asked = project_approval_context({"tool": "mcp_notion_delete_page", "args": {"page": "Roadmap"},
                                       "description": "Delete a page"})
-    assert asked["app"] == identities
+    assert asked["app"] == {**identities, "tool": "Delete page"}  # "Allow Notion to delete page?"
     assert "app" not in project_approval_context({"tool": "workspace_file_delete", "args": {}})  # Row-Bot's own.
 
 
@@ -171,7 +193,7 @@ def test_a_settled_tool_step_names_its_app_even_when_found_through_discovery(ide
                         {"id": "call-3", "name": "calculate", "args": {}}]},
     ]
     items = [item for group in project_assistant_row_traces(records)[0]["traces"] for item in group["items"]]
-    assert [item.get("app") for item in items] == [identities, identities, None]
+    assert [item.get("app") for item in items] == [{**identities, "tool": "Search"}] * 2 + [None]
 
 
 def test_a_built_in_app_follows_the_same_rules_through_its_own_tools(apps):
@@ -286,6 +308,39 @@ def test_an_agent_a_turn_delegates_to_never_gains_the_apps_the_turn_left_out(pla
     finally:
         agent._current_app_scope_var.reset(token)
     assert seen == [{"exclude_servers": ["Notion"], "exclude_tools": ["gmail"], "focus": [], "skills": []}]
+
+
+def test_a_retry_or_resume_outside_the_turn_keeps_the_messages_focus(platform, monkeypatch):  # noqa: F811
+    """The run remembers what its message left out; a retry or explicit resume started later (outside
+    any turn) narrows the same way, plus whatever the chat has switched off since."""
+    import row_bot.agent as agent
+    from row_bot import agent_orchestrator, agent_runner, threads
+    from row_bot.agent_runs import get_agent_run
+    parent = threads.create_thread("Parent")
+    monkeypatch.setattr(scope, "_items", lambda strict=False: [_item("mcp:notion", "Notion", "Notion"),
+                                                               _item("mcp:linear", "Linear", "Linear")])
+    seen = []
+    monkeypatch.setattr(agent_runner, "_invoke_agent", lambda prompt, tools, config, *, stop_event: (
+        seen.append(config["configurable"].get("app_scope")) or "Child done"))
+    token = agent._current_app_scope_var.set({"exclude_servers": ["Notion"], "exclude_tools": [],
+                                              "focus": ["mcp:linear"], "skills": []})  # "@Linear …"
+    try:
+        run = agent_runner.spawn_agent_run("Summarise the issues.", parent_thread_id=parent,
+                                           enabled_tool_names=["mcp"], wait=True)
+    finally:
+        agent._current_app_scope_var.reset(token)
+    stored = get_agent_run(run["run_id"] if "run_id" in run else run["id"])["app_scope_json"]
+    assert stored["exclude_servers"] == ["Notion"]
+
+    asked, spawn = {}, agent_runner.spawn_agent_run
+    monkeypatch.setattr(agent_runner, "spawn_agent_run", lambda *args, **kwargs: asked.update(kwargs) or {})
+    agent_orchestrator._default_retry_executor({"id": "orchestration-1"}, {"run_id": run.get("run_id", run.get("id")),
+                                                                          "required": True, "attempt": 1}, True)
+    assert asked["app_scope"]["exclude_servers"] == ["Notion"]  # The retry carries the original focus.
+    threads.set_thread_app(parent, "mcp:linear", False)  # Switched off in the chat since.
+    spawn("Summarise the issues.", parent_thread_id=parent, enabled_tool_names=["mcp"],
+          app_scope=asked["app_scope"], wait=True)  # Outside any turn.
+    assert seen[-1]["exclude_servers"] == ["Linear", "Notion"]
 
 
 def test_a_built_in_tool_is_named_from_what_a_turn_bound_and_a_read_builds_no_tool(monkeypatch):

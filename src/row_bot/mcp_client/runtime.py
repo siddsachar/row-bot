@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 import traceback
@@ -82,6 +83,7 @@ class McpToolInfo:
     requires_approval: bool = False
     source: dict[str, Any] = field(default_factory=dict)
     effect: str = ""
+    title: str = ""  # The tool's own readable title, when the server gives one.
 
 
 @dataclass
@@ -104,6 +106,9 @@ _thread: threading.Thread | None = None
 _runtime_lock = threading.RLock()
 _servers: dict[str, "McpServerRuntime"] = {}
 _catalog: dict[str, dict[str, McpToolInfo]] = {}
+# Every chat tool name this runtime gave an agent -> (server, the server's own tool or helper name). Which
+# app a step belongs to is read only from here or the discovered catalog, never guessed from a name.
+_issued: dict[str, tuple[str, str]] = {}
 _statuses: dict[str, McpServerStatus] = {}
 
 
@@ -374,6 +379,11 @@ def _tool_attr(tool: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
+def _annotation_title(tool: Any) -> str:
+    annotations = _tool_attr(tool, "annotations", default=None)
+    return str(_tool_attr(annotations, "title", default="") or "") if annotations is not None else ""
+
+
 def _accepted_tool_matches(server_cfg: dict, info: McpToolInfo) -> bool:
     """A previously accepted catalog never grants a newly deployed capability."""
     accepted = server_cfg.get("tools", {}).get("catalog")
@@ -404,6 +414,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
         if tool_name in exclude:
             continue
         description = str(_tool_attr(tool, "description", default="") or "")
+        title = _tool_attr(tool, "title", default="") or _annotation_title(tool)
         schema = _tool_attr(tool, "inputSchema", "input_schema", default={}) or {}
         destructive = is_destructive_tool(tool_name, description, tool)
         effect = classify_tool_effect(tool_name, description, tool)
@@ -420,6 +431,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             requires_approval=requires,
             source=dict(server_cfg.get("source") or {}),
             effect=effect,
+            title=" ".join(str(title or "").split())[:96],
         )
     for info in normalized.values():
         info.enabled = info.enabled and _accepted_tool_matches(server_cfg, info)
@@ -1339,9 +1351,11 @@ def get_langchain_tools(
             info for tools in _catalog.values() for info in tools.values()
             if info.enabled and _source_plugin_allowed(info, source_plugin_id)
         ]
+    issued: dict[str, tuple[str, str]] = {}
     for info in infos:
         if not _mcp_runtime_name_allowed(info.prefixed_name, allow):
             continue
+        issued[info.prefixed_name] = (info.server_name, info.name)
         try:
             wrappers.append(StructuredTool.from_function(
                 func=_make_tool_func(info.server_name, info.name, enforce_policy=True),
@@ -1358,6 +1372,10 @@ def get_langchain_tools(
             continue
         tools_cfg = server_cfg.get("tools", {})
         safe_server = sanitize_name_component(server_name)
+        for helper in (("list_resources", "read_resource") if tools_cfg.get("resources_enabled") else ()) + (
+                ("list_prompts", "get_prompt") if tools_cfg.get("prompts_enabled") else ()):
+            if _mcp_runtime_name_allowed(f"mcp_{safe_server}_{helper}", allow):
+                issued[f"mcp_{safe_server}_{helper}"] = (server_name, helper)
         if tools_cfg.get("resources_enabled"):
             list_name = f"mcp_{safe_server}_list_resources"
             read_name = f"mcp_{safe_server}_read_resource"
@@ -1390,21 +1408,46 @@ def get_langchain_tools(
                     description=f"Get a prompt from MCP server '{server_name}'.",
                     args_schema=_PromptGetArgs,
                 ))
+    with _runtime_lock:
+        _issued.update(issued)
     return wrappers
 
 
-def server_for_tool(name: str) -> str | None:
-    """The server a chat tool's runtime name comes from: one of its tools, or its resource and
-    prompt helpers. Reads what is already known; never connects."""
-    helpers = ("list_resources", "read_resource", "list_prompts", "get_prompt")
+def _issued_tool(name: str) -> tuple[str, str] | None:
+    """(server, its own tool or helper name) for a chat tool name this runtime issued or discovered."""
     with _runtime_lock:
-        for tools in _catalog.values():
-            for info in tools.values():
-                if info.prefixed_name == name:
-                    return info.server_name
-        servers = list(_servers)
-    return next((server for server in servers for helper in helpers
-                 if name == f"mcp_{sanitize_name_component(server)}_{helper}"), None)
+        if name in _issued:
+            return _issued[name]
+        return next(((info.server_name, info.name) for tools in _catalog.values() for info in tools.values()
+                     if info.prefixed_name == name), None)
+
+
+def server_for_tool(name: str) -> str | None:
+    """The server a chat tool's runtime name comes from: one of its discovered tools, or a resource
+    or prompt helper this runtime gave the agent for it. A look-alike name has none. Never connects."""
+    found = _issued_tool(name)
+    return found[0] if found else None
+
+
+_HELPER_TITLES = {"list_resources": "List resources", "read_resource": "Read a resource",
+                  "list_prompts": "List prompts", "get_prompt": "Get a prompt"}
+
+
+def tool_title(name: str) -> str:
+    """A chat tool's readable title within its app: the server's own title, else its own name in words
+    ("delete_page" -> "Delete page"); "" for a name this runtime never issued."""
+    found = _issued_tool(name)
+    if found is None:
+        return ""
+    server, tool = found
+    with _runtime_lock:
+        info = (_catalog.get(server) or {}).get(tool)
+    if info is not None and info.title:
+        return info.title
+    if tool in _HELPER_TITLES and info is None:
+        return _HELPER_TITLES[tool]
+    words = " ".join(re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", tool).replace("_", " ").replace("-", " ").split())
+    return (words[:1].upper() + words[1:].lower())[:96]
 
 
 def get_plugin_langchain_tools(

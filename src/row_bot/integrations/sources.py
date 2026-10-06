@@ -490,7 +490,7 @@ class Builtin(Source):
         from row_bot.integrations import builtin
         found = Found()
         known = apps.catalog()[0]
-        for row in builtin.rows(search.validate):
+        for row in builtin.rows(search.validate, wait=False):  # Never waits for the owners.
             app = known.get((row["app"] or {}).get("id", ""))
             if matches(search.query, row["name"], row["description"], apps.text(app) if app else ""):
                 found.add(row, {"kind": "builtin"})
@@ -560,6 +560,37 @@ def order(*, exact: bool, preferred: bool, strong: bool, featured_rank: int | No
             name.casefold(), ident)
 
 
+def method(row: dict) -> str:
+    """How an app connects, for its card: signs in, takes a key, is hosted, or runs on this computer."""
+    if row["kind"] == "plugin":
+        return "local"
+    if row["kind"] == "builtin":
+        return "built_in"
+    if row["kind"] != "mcp":
+        return ""
+    setup = row.get("setup")
+    if setup:
+        hosted, auth = setup["execution"] == "hosted", setup["auth_mode"]
+    else:
+        hosted = row["canonical_identity"].startswith("mcp:endpoint:")
+        auth = (row.get("auth_mode") or (row["app"] or {}).get("auth")
+                or ("oauth" if row["auth_requirement"] == "required" else ""))
+        if not hosted and not row["canonical_identity"].startswith("mcp:registry:"):
+            return "local"
+    return "api_key" if auth == "api_key" else "local" if not hosted else "hosted_sign_in" if auth == "oauth" else "hosted"
+
+
+def way_order(row: dict, app: apps.App | None) -> tuple:
+    """One app's ways to connect, recommended first: reviewed ways (the vendor's own, or built into
+    Row-Bot) before community ones, then the app's own order (Tavily: web search, then hosted)."""
+    how = method(row)
+    kind = row["owner_ref"].split(":", 1)[0] if how == "built_in" else "local_mcp" if how == "local" else "hosted_mcp"
+    kind = {"account": "account", "channel": "channel", "tool": "api_key_tool"}.get(kind, kind)
+    variants = app.variants if app else ()
+    return (row["compatibility"] == "unsupported", not (row["verified"] or how == "built_in"),
+            variants.index(kind) if kind in variants else len(variants), how == "local", row["name"].casefold(), row["id"])
+
+
 def rank(rows: list[dict], query: str) -> list[dict]:
     """Merge rows that share any source-neutral identity, keeping every attribution; then one order,
     and one card per app: an app's other ways to connect are on its page (skills are never grouped)."""
@@ -595,13 +626,17 @@ def rank(rows: list[dict], query: str) -> list[dict]:
                 primary["verified"] = primary["app"]["verified"] = True
         for identity in keys:
             merged.setdefault(identity, primary)
-    seen: set[str] = set()
+    at: dict[str, int] = {}
     grouped = []
     for row in sorted(shown, key=key):
         app = (row["app"] or {}).get("id") if row["kind"] != "skill" else None
-        if app is None or app not in seen:
+        if app is None:
             grouped.append(row)
-            seen.add(app or "")
+        elif app not in at:
+            at[app] = len(grouped)
+            grouped.append(row)
+        elif way_order(row, known.get(app)) < way_order(grouped[at[app]], known.get(app)):
+            grouped[at[app]] = row  # The card opens the app's recommended way, where the app ranks.
     return grouped
 
 

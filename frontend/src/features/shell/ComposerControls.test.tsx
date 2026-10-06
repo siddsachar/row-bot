@@ -491,6 +491,16 @@ it('switches a ready app on or off for this chat, shows why the profile leaves o
         available: false,
         reason: "This chat's agent profile doesn't use it.",
       },
+      {
+        item_id: 'builtin:account:github',
+        app_id: 'github',
+        name: 'GitHub account',
+        icon: 'letter:G',
+        on: true,
+        available: true,
+        switchable: false,
+        reason: 'Used by skills and Developer, not by chat tools.',
+      },
     ],
   };
   render(<ComposerControls composer={composer} onError={vi.fn()} />);
@@ -504,6 +514,12 @@ it('switches a ready app on or off for this chat, shows why the profile leaves o
     apps.getByRole('menuitemcheckbox', { name: /^Figma/ }),
   ).toHaveAttribute('aria-disabled', 'true');
   expect(apps.getByText(/agent profile doesn't use it/)).toBeVisible();
+  // Built in without chat tools: listed as in Your apps, with why it has no switch.
+  expect(
+    apps.getByRole('menuitem', { name: /^GitHub account/ }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  expect(apps.queryByRole('menuitemcheckbox', { name: /^GitHub/ })).toBeNull();
+  expect(apps.getByText(/not by chat tools/)).toBeVisible();
   await act(async () =>
     fireEvent.click(apps.getByRole('menuitemcheckbox', { name: 'Notion' })),
   );

@@ -126,3 +126,84 @@ def test_the_github_account_token_and_githubs_hosted_connection_never_share_a_cr
     account = [value for (_, name), value in keychain.values.items() if name.endswith("GITHUB_TOKEN")]
     assert account == ["account-token-1111"] and "connection-token-2222" not in json.dumps(account)
     facts.invalidate()
+
+
+def test_list_reads_serve_one_snapshot_until_an_owner_changes(owners, keychain, monkeypatch):
+    """Apps, the catalog and the composer read the snapshot: no keychain, no saved sign-in, no GitHub
+    CLI on a list read. A saved key (or any owner change) makes the next read see it."""
+    assert {row["id"]: row["lifecycle"] for row in builtin.rows()}["builtin:tool:wolfram_alpha"] == "available"
+
+    def untouchable(*args, **kwargs):
+        raise AssertionError("a list read went to an owner")
+    for target in ("row_bot.application.client_account_oauth.read_account_auth",
+                   "row_bot.application.channel_controls.read_channels"):
+        monkeypatch.setattr(target, untouchable)
+    monkeypatch.setattr(github_account, "shared_github_status", untouchable)
+    monkeypatch.setattr(api_keys, "key_status", untouchable)
+    for _ in range(3):
+        rows = {row["id"]: row for row in builtin.rows()}
+    assert rows["builtin:account:google"]["readiness"] == "ready"
+    rows["builtin:account:google"]["blockers"].append("mutated")  # A caller's copy never changes the snapshot.
+    assert {row["id"]: row for row in builtin.rows()}["builtin:account:google"]["blockers"] == []
+
+    monkeypatch.undo()
+    owners.update(google="connected")
+    monkeypatch.setattr("row_bot.application.client_account_oauth.read_account_auth", lambda account: {"state": owners[account]})
+    monkeypatch.setattr(github_account, "shared_github_status", lambda: SimpleNamespace(state="not_configured"))
+    monkeypatch.setattr("row_bot.application.channel_controls.read_channels", lambda **kwargs: {"items": []})
+    monkeypatch.setattr(builtin, "_tool_on", lambda name: True)
+    monkeypatch.setattr(api_keys, "key_status", lambda name: {"configured": True})
+    assert {row["id"]: row["lifecycle"] for row in builtin.rows()}["builtin:tool:wolfram_alpha"] == "available"
+    secret_store.set_secret("WOLFRAM_ALPHA_APPID", "a-key")  # The keychain says something changed.
+    assert {row["id"]: row["lifecycle"] for row in builtin.rows()}["builtin:tool:wolfram_alpha"] == "installed"
+
+
+def test_catalog_search_never_waits_for_the_owners(owners, monkeypatch):
+    """Before the first snapshot (a GitHub CLI can take seconds), search lists the ways without status
+    and builds the snapshot in the background."""
+    import threading
+    release, started = threading.Event(), threading.Event()
+
+    def slow_github():
+        started.set()
+        release.wait(10)
+        return SimpleNamespace(state="connected")
+    monkeypatch.setattr(github_account, "shared_github_status", slow_github)
+    try:
+        listed = {row["id"]: row for row in builtin.rows(wait=False)}
+        assert listed["builtin:account:github"]["lifecycle"] == "available"
+        assert started.wait(10)  # The background build is asking the owners.
+    finally:
+        release.set()
+    assert {row["id"]: row for row in builtin.rows()}["builtin:account:github"]["lifecycle"] == "installed"
+
+
+def test_a_lookup_without_the_github_cli_never_makes_the_next_one_ask_it_again(monkeypatch):
+    for name in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(github_account.api_keys, "get_key", lambda _name: "")
+    asked = []
+    monkeypatch.setattr(github_account, "_github_cli_token", lambda: asked.append(1) or "cli-token")
+    github_account.clear_github_token_cache()
+    try:
+        for _ in range(3):
+            assert github_account.resolve_github_token(include_cli=True).value == "cli-token"
+            assert github_account.resolve_github_token(include_cli=False).value == ""
+        assert asked == [1]
+    finally:
+        github_account.clear_github_token_cache()
+
+
+def test_an_apps_card_opens_its_recommended_way_built_in_first_when_recommended(owners, tmp_path, monkeypatch):
+    """One card per app, opening the way the app recommends: Tavily's is Row-Bot's own web search
+    (a key tool), GitHub's is GitHub's hosted server; the others are on the app's page."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    builtin.rows()  # The snapshot exists, as after start-up.
+    page = api.read_items(owner_id="owner", scope="catalog", kind="app", query="tavily", limit=50)
+    tavily = next(item for item in page["items"] if (item["app"] or {}).get("id") == "tavily")
+    assert (tavily["id"], tavily["method"]) == ("builtin:tool:web_search", "built_in")
+    detail, _ = api.read_item(owner_id="owner", item_id=tavily["id"])
+    assert detail["about"]["ways"][0]["id"] == "builtin:tool:web_search" and detail["about"]["ways"][0]["recommended"]
+    page = api.read_items(owner_id="owner", scope="catalog", kind="app", query="github", limit=50)
+    github = next(item for item in page["items"] if (item["app"] or {}).get("id") == "github")
+    assert github["id"] == "mcp:curated:github-hosted" and github["verified"]

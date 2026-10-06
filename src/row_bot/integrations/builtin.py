@@ -8,13 +8,18 @@ Credentials stay where each owner keeps them: an account's token is never anothe
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import copy
 import json
 import logging
 import sys
+import threading
+import time
 
+from row_bot import secret_store
 from row_bot.integrations import apps, facts
 
 logger = logging.getLogger(__name__)
+MAX_AGE = 60.0  # A snapshot older than this is still served, and refreshed in the background.
 
 # Account id -> (name, the chat tools it powers).
 ACCOUNTS = {"github": ("GitHub account", ()), "google": ("Google account", ("gmail", "calendar")),
@@ -56,11 +61,11 @@ def _tool_on(tool: str) -> bool:
     return value if isinstance(value, bool) else True
 
 
-def _accounts(chat_tools: bool = False, only: str = "") -> list[dict]:
+def _accounts(only: str = "") -> list[dict]:
     from row_bot.application.client_account_oauth import read_account_auth
     found = []
     for account, (name, tools) in ACCOUNTS.items():
-        if (chat_tools and not tools) or (only and account != only):
+        if only and account != only:
             continue
         try:
             if account == "github":
@@ -129,13 +134,66 @@ def _tools(only: str = "") -> list[dict]:
     return found
 
 
-def rows(validate: Callable[[], None] = lambda: None, *, chat_tools: bool = False) -> list[dict]:
-    """Every built-in way to connect, with its status from its owner. ``chat_tools``: only those that bring
-    chat tools (Google, X, key tools), read without the GitHub CLI or the channel registry."""
+# One snapshot of every way, so list reads (Apps, the catalog, the composer, a turn's scope) never open the
+# keychain, read an account's saved sign-in or ask the GitHub CLI. Owners call ``changed()`` when they change.
+_built = threading.Lock()  # One build at a time; others wait for it rather than read the owners again.
+_snapshot: dict = {}
+_generation = 0
+
+
+def changed(*_: object) -> None:
+    """An owner changed something a way reads (a key, a sign-in, a channel, a tool switch): the next
+    read builds the snapshot again."""
+    global _generation
+    _generation += 1
+
+
+def _key() -> str:
+    from row_bot.data_paths import get_row_bot_data_dir
+    return str(get_row_bot_data_dir(create=False))
+
+
+def _build(key: str) -> list[dict]:
+    with _built:
+        generation = _generation
+        if _snapshot.get("key") == key and _snapshot.get("generation") == generation                 and time.monotonic() - _snapshot["at"] <= MAX_AGE:
+            return _snapshot["rows"]  # Another read built it while this one waited.
+        found = [*_accounts(), *_channels(), *_tools()]
+        _snapshot.update(key=key, generation=generation, at=time.monotonic(), rows=found)
+        return found
+
+
+def _refresh(key: str) -> None:
+    if not _built.locked():
+        threading.Thread(target=lambda: _build(key) if _key() == key else None, daemon=True,
+                         name="builtin-ways-refresh").start()
+
+
+def rows(validate: Callable[[], None] = lambda: None, *, wait: bool = True) -> list[dict]:
+    """Every built-in way to connect, with its status from its owner as of the last snapshot. ``wait=False``
+    (catalog search) never waits for the owners: before the first snapshot it lists the ways without status."""
     validate()
-    found = [*_accounts(chat_tools), *_tools()] if chat_tools else [*_accounts(), *_channels(), *_tools()]
+    key = _key()
+    current = _snapshot if _snapshot.get("key") == key else {}
+    if current and current["generation"] == _generation:
+        if time.monotonic() - current["at"] > MAX_AGE:
+            _refresh(key)
+        found = current["rows"]
+    elif not wait:
+        _refresh(key)
+        found = current.get("rows") or _unread()
+    else:
+        found = _build(key)
     validate()
-    return found
+    return copy.deepcopy(found)
+
+
+def _unread() -> list[dict]:
+    """The accounts and key tools as ways, before their owners have been read (channels need the registry)."""
+    return [*(_row("account:" + account, name, app_ref="account:" + account, lifecycle="available", tools=tools)
+              for account, (name, tools) in ACCOUNTS.items()),
+            *(_row("tool:" + tool, name, app_ref="tool:" + tool, lifecycle="available", tools=(tool,))
+              for tool, (name, _) in TOOLS.items())]
 
 
 def read(item_id: str, validate: Callable[[], None] = lambda: None) -> dict | None:
@@ -189,3 +247,6 @@ def _identity(ref: str, name: str) -> dict:
     app = apps.match([ref])
     return {"item_id": "builtin:" + ref, "name": (app.name if app else name)[:128],
             "icon": (app.icon or apps.letter(app.name)) if app else apps.letter(name)}
+
+
+secret_store.on_change(changed)  # A saved or removed key, token or channel secret.

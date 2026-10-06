@@ -30,31 +30,11 @@ def _digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _method(row: dict) -> str:
-    """How an app connects, for its card: signs in, takes a key, is hosted, or runs on this computer."""
-    if row["kind"] == "plugin":
-        return "local"
-    if row["kind"] == "builtin":
-        return "built_in"
-    if row["kind"] != "mcp":
-        return ""
-    setup = row.get("setup")
-    if setup:
-        hosted, auth = setup["execution"] == "hosted", setup["auth_mode"]
-    else:
-        hosted = row["canonical_identity"].startswith("mcp:endpoint:")
-        auth = (row.get("auth_mode") or (row["app"] or {}).get("auth")
-                or ("oauth" if row["auth_requirement"] == "required" else ""))
-        if not hosted and not row["canonical_identity"].startswith("mcp:registry:"):
-            return "local"
-    return "api_key" if auth == "api_key" else "local" if not hosted else "hosted_sign_in" if auth == "oauth" else "hosted"
-
-
 def entry(row: dict) -> dict:
     """The typed /integrations shape of one entry."""
     return {"id": row["id"], "kind": row["kind"], "parent_id": row["parent_id"], "name": row["name"],
             "description": row["description"], "app": copy.deepcopy(row["app"]), "icon": row["icon"], "verified": row["verified"],
-            "signals": copy.deepcopy(row["signals"]), "source": row["source"], "method": _method(row),
+            "signals": copy.deepcopy(row["signals"]), "source": row["source"], "method": catalog.method(row),
             "publisher": row["publisher"], "version": row["version"], "installed": row["installed"], "enabled": row["enabled"],
             "required": row.get("required", True), "account_label": row["account_label"], "compatibility": row["compatibility"],
             "evidence": row["evidence_stage"], "tested_with_row_bot": row["tested_with_row_bot"], "lifecycle": row["lifecycle"],
@@ -410,17 +390,10 @@ def _ways(row: dict) -> list[dict]:
                  if apps.match(["hermes:" + e["id"].removeprefix("hermes:"), *apps.repository_refs(e["url"])]) is app]
     except (OSError, ValueError, KeyError):
         pass
-    def variant(way: dict) -> int:  # The app's own order of ways (its recommended one first).
-        kind = {"built_in": next((r["owner_ref"].split(":", 1)[0] for r in rows if r["id"] == way["id"]), ""),
-                "local": "local_mcp"}.get(way["method"], "hosted_mcp")
-        kind = {"account": "account", "channel": "channel", "tool": "api_key_tool"}.get(kind, kind)
-        return app.variants.index(kind) if kind in app.variants else len(app.variants)
     found, seen = [], set()
-    for way in sorted((entry(facts.finish(r)) for r in rows), key=lambda w: (
-            # Reviewed ways (the vendor's own, or built into Row-Bot) before community ones, then the app's own order.
-            w["compatibility"] == "unsupported", not (w["verified"] or w["method"] == "built_in"), variant(w),
-            w["method"] == "local", w["name"].casefold(), w["id"])):
-        identity = next((r["canonical_identity"] for r in rows if r["id"] == way["id"]), "") or way["id"]
+    for row in sorted((facts.finish(r) for r in rows), key=lambda r: catalog.way_order(r, app)):
+        way = entry(row)
+        identity = row["canonical_identity"] or way["id"]
         if identity in seen:
             continue
         seen.add(identity)

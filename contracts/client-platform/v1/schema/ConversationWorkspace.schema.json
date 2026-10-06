@@ -42,7 +42,7 @@
     },
     "ComposerApp": {
       "additionalProperties": false,
-      "description": "A ready app this chat can use: its switch here, and whether the agent profile allows it.",
+      "description": "A ready app this chat can use: its switch here, and whether the agent profile allows it. A way\nwith no chat tools (``switchable`` false) is listed so the menu matches Your apps, with why.",
       "properties": {
         "app_id": {
           "maxLength": 64,
@@ -77,6 +77,11 @@
           "maxLength": 256,
           "title": "Reason",
           "type": "string"
+        },
+        "switchable": {
+          "default": true,
+          "title": "Switchable",
+          "type": "boolean"
         }
       },
       "required": [

@@ -9,9 +9,9 @@ import {
   Cpu,
   HardDrive,
   Plug,
-  Radio,
   RefreshCw,
   Search,
+  Sparkles,
   Stethoscope,
   type LucideIcon,
   TriangleAlert,
@@ -193,20 +193,21 @@ const TILES: {
       ['Models', 'Providers', 'Voice'].includes(check.settings_tab),
   },
   {
+    // Accounts, channels and connections are all apps now; older checks still name their old pages.
     key: 'channels',
-    label: 'Channels',
-    icon: Radio,
+    label: 'Apps',
+    icon: Plug,
     match: (check) =>
-      check.name === 'Tunnel' ||
-      ['Channels', 'Accounts'].includes(check.settings_tab),
+      ['MCP', 'Plugins'].includes(check.name) ||
+      ['Channels', 'Accounts', 'MCP', 'Plugins'].includes(check.settings_tab),
   },
   {
     key: 'mcp',
-    label: 'MCP and tools',
-    icon: Plug,
+    label: 'Skills and tools',
+    icon: Sparkles,
     match: (check) =>
-      ['MCP', 'Plugins', 'Skills', 'Tools', 'Search'].includes(check.name) ||
-      ['MCP', 'Plugins', 'Skills', 'Tools'].includes(check.settings_tab),
+      ['Skills', 'Tools', 'Search'].includes(check.name) ||
+      ['Skills', 'Tools'].includes(check.settings_tab),
   },
   {
     key: 'scheduler',
@@ -237,10 +238,10 @@ const SETTINGS_ROUTES: Record<string, string> = {
   Models: 'models',
   Providers: 'providers',
   Voice: 'voice',
-  Channels: 'channels',
-  Accounts: 'accounts',
-  MCP: 'mcp',
-  Plugins: 'plugins',
+  Channels: 'apps',
+  Accounts: 'apps',
+  MCP: 'apps',
+  Plugins: 'apps',
   Skills: 'skills',
   Tools: 'tools',
   Knowledge: 'knowledge',

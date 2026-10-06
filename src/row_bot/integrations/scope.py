@@ -27,7 +27,7 @@ def _items(strict: bool = False) -> list[dict]:
     """Every app a chat could use: connections, and Row-Bot's built-in ways that bring chat tools
     (Google's Gmail and Calendar, X, web search)."""
     from row_bot.integrations import builtin
-    return _mcp_items(strict) + [row for row in builtin.rows(chat_tools=True) if row.get("tools")]
+    return _mcp_items(strict) + [row for row in builtin.rows() if row.get("tools")]
 
 
 def _allowed(item: dict, allow: list[str] | tuple[str, ...] | None) -> bool:
@@ -69,9 +69,18 @@ def _shown(items: list[dict]) -> list[str]:
     return [(name if names.count(name) == 1 else f"{name} ({item['name']})")[:128] for item, name in zip(items, names)]
 
 
+def _not_in_chats(row: dict) -> str:
+    """Why a ready built-in way has no switch in a chat: it brings no chat tools."""
+    if row["owner_ref"].startswith("channel:"):
+        return f"Lets you talk to Row-Bot from {_name(row)}; nothing to switch in a chat."
+    return "Used by skills and Developer, not by chat tools."
+
+
 def chat_apps(conversation_id: str) -> list[dict]:
-    """The ready apps one chat can use, for the composer: on unless switched off here, and
-    unavailable (with why) when the chat's agent profile leaves them out."""
+    """Every ready app, as Your apps lists them, for the composer: on unless switched off here, and
+    unavailable (with why) when the chat's agent profile leaves them out. Built-in ways without chat
+    tools (the GitHub account, channels) are listed without a switch, saying why."""
+    from row_bot.integrations import builtin
     from row_bot.threads import get_thread_apps_off
     off, allow = set(get_thread_apps_off(conversation_id)), _profile_allow(conversation_id)
     ready = [item for item in _items() if item["lifecycle"] == "installed" and item["readiness"] == "ready"]
@@ -80,8 +89,13 @@ def chat_apps(conversation_id: str) -> list[dict]:
         allowed = _allowed(item, allow)
         found.append({"item_id": item["id"], "app_id": (item.get("app") or {}).get("id", ""),
                       "name": name, "icon": item["icon"], "on": item["id"] not in off, "available": allowed,
-                      "reason": "" if allowed else "This chat's agent profile doesn't use it."})
-    return sorted(found, key=lambda app: (app["name"].casefold(), app["item_id"]))[:64]
+                      "switchable": True, "reason": "" if allowed else "This chat's agent profile doesn't use it."})
+    for row in builtin.rows():
+        if not row.get("tools") and row["lifecycle"] == "installed" and row["readiness"] == "ready":
+            found.append({"item_id": row["id"], "app_id": (row.get("app") or {}).get("id", ""), "name": row["name"][:128],
+                          "icon": row["icon"], "on": True, "available": True, "switchable": False,
+                          "reason": _not_in_chats(row)})
+    return sorted(found, key=lambda app: (not app["switchable"], app["name"].casefold(), app["item_id"]))[:64]
 
 
 def _mentioned(text: str, names: dict[str, tuple[str, ...]], sigil: str) -> list[str]:
@@ -133,17 +147,19 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
 
 
 def app_for_tool(tool_name: str) -> dict | None:
-    """The app a chat tool belongs to (``{item_id, name, icon}``), from its runtime name; None for Row-Bot's own."""
+    """The app a chat tool belongs to (``{item_id, name, icon, tool}``, ``tool`` being the tool's readable
+    title), from its exact runtime name; None for Row-Bot's own and for a name no app issued."""
     from row_bot.integrations import builtin
     from row_bot.mcp_client import runtime
     server = runtime.server_for_tool(tool_name) if tool_name.startswith("mcp_") else None
     if not server:
         parent = builtin.tool_parent(tool_name)
-        return builtin.tool_app(parent) if parent else None
+        found = builtin.tool_app(parent) if parent else None
+        return {**found, "tool": ""} if found else None
     item = next((item for item in _mcp_items() if item["server"] == server), None)
     if item is None:
         return None
-    return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"]}
+    return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"], "tool": runtime.tool_title(tool_name)}
 
 
 MAX_SUGGESTIONS = 3

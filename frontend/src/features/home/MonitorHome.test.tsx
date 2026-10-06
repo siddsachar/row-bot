@@ -422,20 +422,20 @@ it('marks a stale connection result and checks again on request', async () => {
   });
 
   await waitFor(() =>
-    expect(healthTile('Channels')).toHaveTextContent(
+    expect(healthTile('Apps')).toHaveTextContent(
       'checked yesterday · Check again',
     ),
   );
-  fireEvent.click(healthTile('Channels'));
-  const drawer = screen.getByRole('dialog', { name: 'Channels' });
+  fireEvent.click(healthTile('Apps'));
+  const drawer = screen.getByRole('dialog', { name: 'Apps' });
   const github = within(drawer).getByText('GitHub').closest('li')!;
   expect(github).toHaveTextContent('checked yesterday');
   fireEvent.click(within(github).getByRole('button', { name: 'Check again' }));
   expect(run).toHaveBeenCalledOnce();
   await waitFor(() =>
-    expect(healthTile('Channels')).toHaveTextContent('checked just now'),
+    expect(healthTile('Apps')).toHaveTextContent('checked just now'),
   );
-  expect(healthTile('Channels')).not.toHaveTextContent('Check again');
+  expect(healthTile('Apps')).not.toHaveTextContent('Check again');
   expect(
     within(drawer).queryByRole('button', { name: 'Check again' }),
   ).toBeNull();
@@ -490,20 +490,20 @@ it('sends each check to the settings page that fixes it, by its name', async () 
   });
   await screen.findByText('Checked just now');
 
-  fireEvent.click(healthTile('Channels'));
-  const channels = screen.getByRole('dialog', { name: 'Channels' });
+  fireEvent.click(healthTile('System'));
+  const system = screen.getByRole('dialog', { name: 'System' });
   expect(
-    within(channels).getByRole('link', {
+    within(system).getByRole('link', {
       name: 'Open Devices & remote access settings',
     }),
   ).toHaveAttribute('href', '/settings/access');
   fireEvent.click(
-    within(channels).getByRole('button', { name: 'Close health detail' }),
+    within(system).getByRole('button', { name: 'Close health detail' }),
   );
 
-  fireEvent.click(healthTile('MCP and tools'));
+  fireEvent.click(healthTile('Skills and tools'));
   expect(
-    within(screen.getByRole('dialog', { name: 'MCP and tools' })).getByRole(
+    within(screen.getByRole('dialog', { name: 'Skills and tools' })).getByRole(
       'link',
       { name: 'Open Tools settings' },
     ),

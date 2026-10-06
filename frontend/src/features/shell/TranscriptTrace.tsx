@@ -315,10 +315,14 @@ function TraceItem({
                 <span className="activity-step-app">
                   <AppIcon icon={item.app.icon} size={14} />
                   {item.app.name}
-                  <span className="visually-hidden">: </span>
+                  {item.app.tool ? (
+                    <span aria-hidden> · </span>
+                  ) : (
+                    <span className="visually-hidden">: </span>
+                  )}
                 </span>
               )}
-              {stepVerb(item.canonical_name, item.status)}
+              {stepVerb(item.canonical_name, item.status, item.app)}
               {reason && <span className="activity-step-tag">{reason}</span>}
             </span>
             {argument ? (
@@ -550,7 +554,9 @@ export default function TranscriptTrace({
         ? 'Waiting for your approval'
         : current
           ? [
-              stepVerb(current.canonical_name, 'pending'),
+              current.app?.tool
+                ? `${current.app.name} · ${current.app.tool}`
+                : stepVerb(current.canonical_name, 'pending'),
               keyArgument(current.safe_input),
             ]
               .filter(Boolean)
@@ -570,7 +576,9 @@ export default function TranscriptTrace({
         : live.waiting
           ? 'Waiting for your approval'
           : current
-            ? stepVerb(current.canonical_name, 'pending')
+            ? current.app?.tool
+              ? `${current.app.name} · ${current.app.tool}`
+              : stepVerb(current.canonical_name, 'pending')
             : answering
               ? 'Answering'
               : running

@@ -237,8 +237,23 @@ function describe(name: string): Verb | null {
   return null;
 }
 
-/** "Searched the web", "Searching the web" or "Web search failed". */
-export function stepVerb(name: string, status: StepStatus): string {
+/** The app behind a step or approval, and the tool's readable title in it ("Delete page"). */
+type ToolApp = { name: string; tool?: string } | null | undefined;
+
+/** "Searched the web", "Searching the web" or "Web search failed"; an app's tool reads as its own
+ * title ("Delete page", shown after the app's name). */
+export function stepVerb(
+  name: string,
+  status: StepStatus,
+  app?: ToolApp,
+): string {
+  const tool = app?.tool;
+  if (tool) {
+    if (status === 'failed') return `${tool} failed`;
+    if (status === 'blocked' || status === 'cancelled')
+      return `${tool} skipped`;
+    return tool;
+  }
   const known = describe(name);
   const fallback = humanizeToken(bareName(name)) || 'Tool';
   if (status === 'pending')
@@ -481,15 +496,17 @@ export function imperative(participle: string): string {
   return [stem, ...rest].join(' ');
 }
 
-/** "Send an email?" for a canonical tool name awaiting approval. */
-export function approvalQuestion(name: string): string {
+/** "Send an email?" for a canonical tool name awaiting approval; "Allow Granola to delete page?" for an app's. */
+export function approvalQuestion(name: string, app?: ToolApp): string {
+  if (app?.tool) return `Allow ${app.name} to ${midSentence(app.tool)}?`;
   if (!describe(name))
     return `Allow ${humanizeToken(bareName(name)) || 'this action'}?`;
   return `${imperative(stepVerb(name, 'pending'))}?`;
 }
 
-/** The action itself, for a label: "Delete a file", or "Fixture action". */
-export function approvalAction(name: string): string {
+/** The action itself, for a label: "Delete a file", "Fixture action", or "Granola · Delete page". */
+export function approvalAction(name: string, app?: ToolApp): string {
+  if (app?.tool) return `${app.name} · ${app.tool}`;
   if (!describe(name)) return humanizeToken(bareName(name)) || 'This action';
   return imperative(stepVerb(name, 'pending'));
 }

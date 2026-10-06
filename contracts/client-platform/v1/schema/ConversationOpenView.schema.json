@@ -189,7 +189,7 @@
     },
     "ComposerApp": {
       "additionalProperties": false,
-      "description": "A ready app this chat can use: its switch here, and whether the agent profile allows it.",
+      "description": "A ready app this chat can use: its switch here, and whether the agent profile allows it. A way\nwith no chat tools (``switchable`` false) is listed so the menu matches Your apps, with why.",
       "properties": {
         "app_id": {
           "maxLength": 64,
@@ -224,6 +224,11 @@
           "maxLength": 256,
           "title": "Reason",
           "type": "string"
+        },
+        "switchable": {
+          "default": true,
+          "title": "Switchable",
+          "type": "boolean"
         }
       },
       "required": [
@@ -1684,7 +1689,7 @@
     },
     "TraceAppRef": {
       "additionalProperties": false,
-      "description": "An app a Connect card offers: its catalog id, name and logo, re-read from local data.",
+      "description": "An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,\nre-read from local data, and for a step the tool's readable title in that app (\"Delete page\").",
       "properties": {
         "icon": {
           "maxLength": 128,
@@ -1700,6 +1705,12 @@
         "name": {
           "maxLength": 128,
           "title": "Name",
+          "type": "string"
+        },
+        "tool": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Tool",
           "type": "string"
         }
       },
