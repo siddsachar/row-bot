@@ -10,12 +10,12 @@ import {
 } from './unified-helpers';
 
 /*
- * Phase 11 · do it by conversation: setup cards, Connect cards, paste and
- * drop, slash commands with arguments, goals that run, and Stop keeping the
- * reply so far. Stop and Message for delegated agents are covered by
- * DelegatedActivity.test.tsx and test_delegated_activity.py. The fixture
- * scripts the model; every server owner (goals, approvals, runs, uploads) is
- * real.
+ * Phase 11 · do it by conversation: setup cards, Connect cards, slash
+ * commands with arguments, goals that run, and Stop keeping the reply so far.
+ * Paste and drop are covered by Conversation.test.tsx, and Stop and Message
+ * for delegated agents by DelegatedActivity.test.tsx and
+ * test_delegated_activity.py. The fixture scripts the model; every server
+ * owner (goals, approvals, runs, uploads) is real.
  */
 
 async function send(page: Page, text: string) {
@@ -83,83 +83,6 @@ test('an account the work needs shows a Connect card that opens its connect shee
   await expect(
     page.getByRole('region', { name: 'Connect Google', exact: true }),
   ).toBeVisible();
-});
-
-test('a pasted screenshot and two dropped files attach to the message', async ({
-  page,
-  browserName,
-}, testInfo) => {
-  // Firefox drops files from a ClipboardEvent made by a script (a real paste
-  // carries them), so this synthetic paste can only run in Chromium and WebKit.
-  test.skip(
-    browserName === 'firefox',
-    'Firefox ignores files in a synthetic paste',
-  );
-  const conversation = await newConversation(page);
-  const field = composer(page);
-  // The pasted picture's tile shows the server's small thumbnail (B232).
-  const thumbnail = page.waitForResponse((response) =>
-    /^\/api\/v1\/attachments\/[^/]+\/thumbnail$/.test(
-      new URL(response.url()).pathname,
-    ),
-  );
-  await field.focus();
-  await field.evaluate((element) => {
-    const pixel = Uint8Array.from(
-      atob(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==',
-      ),
-      (character) => character.charCodeAt(0),
-    );
-    const data = new DataTransfer();
-    data.items.add(new File([pixel], 'image.png', { type: 'image/png' }));
-    element.dispatchEvent(
-      new ClipboardEvent('paste', {
-        clipboardData: data,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  await expect(
-    page.getByRole('button', { name: /^Remove Pasted image .+\.png$/ }),
-  ).toBeVisible();
-  await page.locator('.composer-field').evaluate((element) => {
-    const data = new DataTransfer();
-    data.items.add(new File(['first'], 'notes-a.txt', { type: 'text/plain' }));
-    data.items.add(new File(['second'], 'notes-b.txt', { type: 'text/plain' }));
-    for (const type of ['dragenter', 'dragover', 'drop'])
-      element.dispatchEvent(
-        new DragEvent(type, {
-          dataTransfer: data,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-  });
-  for (const name of ['notes-a.txt', 'notes-b.txt'])
-    await expect(
-      page.getByRole('button', { name: `Remove ${name}`, exact: true }),
-    ).toBeVisible();
-  await expect
-    .poll(
-      async () =>
-        (await conversationState(page, conversation)).draft.attachments.length,
-    )
-    .toBe(3);
-  const shown = await thumbnail;
-  expect(shown.status()).toBe(200);
-  expect(shown.headers()['content-type']).toBe('image/png');
-  const tiles = page.getByRole('list', { name: 'Attachments', exact: true });
-  await expect(
-    tiles
-      .getByRole('button', { name: /^Preview Pasted image .+\.png$/ })
-      .locator('img'),
-  ).toHaveAttribute('src', /^blob:/);
-  await expect(
-    tiles.getByRole('button', { name: 'Preview notes-a.txt', exact: true }),
-  ).toContainText('notes-a.txt');
-  await screenshot(page, testInfo, 'paste-and-drop');
 });
 
 test('slash commands run with their argument instead of reaching the model', async ({
