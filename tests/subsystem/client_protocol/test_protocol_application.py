@@ -197,6 +197,42 @@ def test_upload_idle_expiry_restart_batch_and_inflight_limits(service):
         staging.close()
 
 
+def test_counting_a_transfer_never_waits_for_a_commit_checking_its_session(service):
+    """Routes count transfers on the event loop, and a commit checks its session on that loop: counting
+    waiting for the commit stalled both until the check timed out, a 503 for the upload."""
+    import threading
+    from row_bot import threads
+    from row_bot.application.attachments import AttachmentUploads
+    conversation = str(uuid4())
+    threads._save_thread_meta(conversation, "Fixture")
+    data = b"fixture attachment"
+    staging = AttachmentUploads()
+    upload = staging.create("fixture-session", conversation_id=conversation, batch_id=str(uuid4()),
+                            name="fixture.txt", size_bytes=len(data),
+                            sha256=hashlib.sha256(data).hexdigest())["upload_id"]
+    staging.write("fixture-session", upload, 0, data)
+    committing, counted, results = threading.Event(), threading.Event(), []
+
+    def commit(**kwargs):
+        committing.set()
+        # The session check: it needs the event loop, which is counting another transfer.
+        return {"checked": counted.wait(5), "data": kwargs["data"]}
+
+    worker = threading.Thread(target=lambda: results.append(staging.complete("fixture-session", upload, commit)))
+    worker.start()
+    try:
+        assert committing.wait(5)
+        staging.enter_transfer("other-session")
+        staging.leave_chunk("other-session")
+        counted.set()
+        worker.join(5)
+        assert results == [{"checked": True, "data": data}]
+    finally:
+        counted.set()
+        worker.join(5)
+        staging.close()
+
+
 def test_long_existing_conversation_id_has_bounded_opaque_attachment_reference(service):
     from row_bot import threads
     from row_bot.application.attachments import register_attachment, read_attachment

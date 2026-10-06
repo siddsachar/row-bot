@@ -1447,6 +1447,12 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
           if (complete) return;
           complete = true;
           clearTimeout(timeout);
+          // A removed video keeps reading its source: release it first (as
+          // BuddyAvatar does), or its reads of the revoked URL log
+          // ERR_FILE_NOT_FOUND console errors.
+          probe.pause();
+          probe.removeAttribute('src');
+          probe.load();
           probe.remove();
           URL.revokeObjectURL(url);
           resolve({ supported, reason });
