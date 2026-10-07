@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import re
+from urllib.parse import urlsplit
+
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -14,30 +18,56 @@ class _ReadURLInput(BaseModel):
 
 
 _USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+_PDF_MAX_BYTES = 25 * 1024 * 1024
+_PDF_MAX_PAGES = 200
+
+
+def _is_pdf(response, url: str, head: bytes) -> bool:
+    content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    return (content_type == "application/pdf" or head.startswith(b"%PDF-")
+            or (content_type in {"", "application/octet-stream"} and urlsplit(url).path.lower().endswith(".pdf")))
+
+
+def _pdf_text(data: bytes) -> str:
+    """Text of a PDF's first pages; a PDF link used to come back as binary noise (B297)."""
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(data))
+    pages = []
+    for number, page in enumerate(reader.pages[:_PDF_MAX_PAGES], start=1):
+        text = (page.extract_text() or "").strip()
+        if text:
+            pages.append(f"[Page {number}]\n{text}")
+    if len(reader.pages) > _PDF_MAX_PAGES:
+        pages.append(f"[Only the first {_PDF_MAX_PAGES} of {len(reader.pages)} pages were read.]")
+    return "\n\n".join(pages)
 
 
 def _read_url(url: str) -> str:
-    """Fetch a webpage and return its text content."""
-    import os
-    import re
-    from langchain_community.document_loaders import WebBaseLoader
-
-    # Ensure USER_AGENT is set so WebBaseLoader doesn't warn
-    os.environ.setdefault("USER_AGENT", _USER_AGENT)
+    """Fetch a webpage or PDF and return its text content."""
+    import requests
+    from bs4 import BeautifulSoup
 
     try:
-        loader = WebBaseLoader(
-            web_paths=[url],
-            requests_kwargs={"timeout": 15},
-        )
-        docs = loader.load()
+        with requests.get(url, timeout=15, stream=True, headers={"User-Agent": _USER_AGENT}) as response:
+            chunks, size = [], 0
+            for chunk in response.iter_content(64 * 1024):
+                size += len(chunk)
+                if size > _PDF_MAX_BYTES:
+                    break
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            if _is_pdf(response, url, data[:5]):
+                if size > _PDF_MAX_BYTES:
+                    return f"The PDF is larger than {_PDF_MAX_BYTES // (1024 * 1024)} MB, too large to read."
+                text = _pdf_text(data)
+            else:
+                # BeautifulSoup reads the page's own charset when the server names none.
+                charset = response.headers.get("Content-Type", "").partition("charset=")[2].strip(" \"';") or None
+                text = BeautifulSoup(data, "html.parser", from_encoding=charset).get_text()
+            source = response.url or url
     except Exception as exc:
         return f"Failed to fetch URL: {exc}"
-
-    if not docs:
-        return "No content could be extracted from the URL."
-
-    text = "\n\n".join(doc.page_content for doc in docs)
 
     # Collapse excessive whitespace / blank lines
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -53,7 +83,6 @@ def _read_url(url: str) -> str:
     if len(text) > max_chars:
         text = text[:max_chars] + "\n\n… [content truncated]"
 
-    source = docs[0].metadata.get("source", url)
     return f"SOURCE_URL: {source}\n\n{text}"
 
 
@@ -89,7 +118,7 @@ class URLReaderTool(BaseTool):
                 func=_read_url,
                 name="read_url",
                 description=(
-                    "Fetch a webpage and extract its text content. "
+                    "Fetch a webpage or PDF and extract its text content. "
                     "Input must be a full URL starting with http:// or https://. "
                     "Returns the page's readable text. Use this whenever a user "
                     "shares a link or asks about a specific webpage."
