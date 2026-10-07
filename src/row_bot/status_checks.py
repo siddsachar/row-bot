@@ -228,6 +228,7 @@ def check_channels() -> list[CheckResult]:
     """Dynamic health checks for all registered channels."""
     results = []
     try:
+        from row_bot.channels import config as ch_config
         from row_bot.channels.registry import all_channels
         for ch in all_channels():
             try:
@@ -245,9 +246,13 @@ def check_channels() -> list[CheckResult]:
                     else:
                         results.append(CheckResult(ch.display_name, "ok",
                                                    "Running", settings_tab="Channels"))
-                else:
+                elif ch_config.get(ch.name, "auto_start", False) is True:
                     results.append(CheckResult(ch.display_name, "warn",
                                                "Stopped", settings_tab="Channels"))
+                else:
+                    # Set up but not set to start: off by choice, not a problem (B293).
+                    results.append(CheckResult(ch.display_name, "inactive",
+                                               "Off", settings_tab="Channels"))
             except Exception as exc:
                 results.append(CheckResult(ch.display_name, "error",
                                            str(exc), settings_tab="Channels"))
