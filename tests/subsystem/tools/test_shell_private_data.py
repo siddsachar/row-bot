@@ -90,3 +90,21 @@ def test_file_tools_refuse_paths_inside_the_data_folder(shell, reload_for_data_d
     assert tools["workspace_list_directory"].invoke({"dir_path": ".row-bot"}).startswith(
         "Error: this path is inside Row-Bot's private data folder")
     assert "hello" in tools["workspace_read_file"].invoke({"file_path": "notes.txt"})
+
+
+def test_file_tools_refuse_a_sibling_folder_named_like_the_workspace(shell, reload_for_data_dir):
+    """B320: the workspace check compares folders, not string prefixes."""
+    _shell_tool, registry, home = shell
+    workspace, sibling = home / "Row-Bot", home / "Row-Bot2"
+    workspace.mkdir()
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("private", encoding="utf-8")
+    (workspace / "notes.txt").write_text("hello", encoding="utf-8")
+    (filesystem_tool,) = reload_for_data_dir(home / ".row-bot", "row_bot.tools.filesystem_tool")
+    registry.set_tool_config("filesystem", "workspace_root", str(workspace))
+    tools = {tool.name: tool for tool in filesystem_tool.FileSystemTool().as_langchain_tools()}
+
+    for path in (str(sibling / "secret.txt"), "../Row-Bot2/secret.txt"):
+        assert "private" not in tools["workspace_read_file"].invoke({"file_path": path})
+    assert "outside the workspace" in tools["workspace_list_directory"].invoke({"dir_path": str(sibling)})
+    assert "hello" in tools["workspace_read_file"].invoke({"file_path": str(workspace / "notes.txt")})
