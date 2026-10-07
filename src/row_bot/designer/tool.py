@@ -513,11 +513,26 @@ def _set_brand(primary_color: Optional[str] = None,
     project = _require_project()
     from row_bot.designer.fonts import available_offline, bundled_families
 
+    # Every value is checked before anything changes, and a blank optional value means "not given" (B321).
+    def given(value: Optional[str]) -> Optional[str]:
+        return value if value is None or str(value).strip() else None
+
+    (primary_color, secondary_color, accent_color, bg_color, text_color, heading_font, body_font, logo_mode,
+     logo_scope, logo_position) = map(given, (primary_color, secondary_color, accent_color, bg_color, text_color,
+                                             heading_font, body_font, logo_mode, logo_scope, logo_position))
+    problems = []
     unavailable = [font for font in (heading_font, body_font) if font is not None and not available_offline(font)]
     if unavailable:
         # Previews and exports work offline, so only fonts on this computer can be used (B317).
-        return (f"Error: {', '.join(dict.fromkeys(unavailable))} isn't available offline. Choose one of: "
-                f"{', '.join(bundled_families())}.")
+        problems.append(f"{', '.join(dict.fromkeys(unavailable))} isn't available offline. Choose one of: "
+                        f"{', '.join(bundled_families())}.")
+    for name, value, choices in (("logo_mode", logo_mode, ("auto", "manual")), ("logo_scope", logo_scope, ("all", "first")),
+                                 ("logo_position", logo_position,
+                                  ("top_left", "top_right", "bottom_left", "bottom_right"))):
+        if value is not None and value not in choices:
+            problems.append(f"{name} must be one of {', '.join(choices)} (got {value!r}).")
+    if problems:
+        return "Error: nothing was changed. " + " ".join(problems)
     if project.brand is None:
         project.brand = BrandConfig()
     _pre_mutate(project, "set_brand")
@@ -537,16 +552,10 @@ def _set_brand(primary_color: Optional[str] = None,
     if body_font is not None:
         b.body_font = body_font
     if logo_mode is not None:
-        if logo_mode not in {"auto", "manual"}:
-            return "Error: logo_mode must be 'auto' or 'manual'."
         b.logo_mode = logo_mode
     if logo_scope is not None:
-        if logo_scope not in {"all", "first"}:
-            return "Error: logo_scope must be 'all' or 'first'."
         b.logo_scope = logo_scope
     if logo_position is not None:
-        if logo_position not in {"top_left", "top_right", "bottom_left", "bottom_right"}:
-            return "Error: logo_position must be top_left, top_right, bottom_left, or bottom_right."
         b.logo_position = logo_position
     if logo_max_height is not None:
         b.logo_max_height = max(int(logo_max_height), 24)

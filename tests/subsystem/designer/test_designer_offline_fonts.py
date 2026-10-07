@@ -50,7 +50,27 @@ def test_the_brand_tool_refuses_a_font_that_isnt_offline_and_lists_the_choices(i
     refused = tool._set_brand(heading_font="Cormorant Garamond")
     accepted = tool._set_brand(heading_font="Playfair Display")
 
-    assert refused.startswith("Error: Cormorant Garamond isn't available offline. Choose one of: Anton,")
+    assert refused.startswith("Error: nothing was changed. Cormorant Garamond isn't available offline. "
+                              "Choose one of: Anton,")
     assert "Playfair Display" in refused
     assert project.brand.heading_font == "Playfair Display" != before
     assert not accepted.startswith("Error")
+
+
+
+def test_a_blank_optional_value_doesnt_cost_the_rest_of_the_brand_change(isolated, monkeypatch):
+    """B321: qwen passed an empty logo_mode and the colours it asked for were dropped too."""
+    from row_bot.designer import tool
+
+    project = service.create_deck("brand-deck", service.DeckSetup())
+    monkeypatch.setattr(tool, "_require_project", lambda: project)
+    monkeypatch.setattr(tool, "_pre_mutate", lambda *_args: None)
+    monkeypatch.setattr(tool, "save_project", lambda _project: None)
+
+    applied = tool._set_brand(primary_color="#8a3b12", heading_font="Playfair Display", logo_mode="")
+    refused = tool._set_brand(primary_color="#000000", logo_position="middle")
+
+    assert applied.startswith("Brand updated")
+    assert (project.brand.primary_color, project.brand.heading_font) == ("#8a3b12", "Playfair Display")
+    assert refused.startswith("Error: nothing was changed. logo_position must be one of")
+    assert project.brand.primary_color == "#8a3b12"
