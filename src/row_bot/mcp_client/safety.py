@@ -137,7 +137,10 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
     if name in _BROWSER_SESSION_SAFE_TOOLS:
         return "interaction"
     if _changes(name):
-        return "high_impact" if _SAYS_HIGH_IMPACT.search(words) else "mutation"
+        # Its description can make a change high impact, unless the server says it isn't destructive: words such
+        # as "share" or "comment" in a description are often nouns ("Create pages ... shared with you").
+        said = _SAYS_HIGH_IMPACT.search(words) and _annotation_value(tool, "destructiveHint") is not False
+        return "high_impact" if said else "mutation"
     read_only = _annotation_value(tool, "readOnlyHint")
     if read_only is True:
         return "read_only"
