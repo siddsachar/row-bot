@@ -650,6 +650,29 @@ def check_logging() -> CheckResult:
         return CheckResult("Logging", "error", str(exc), settings_tab="System")
 
 
+def check_client_build() -> list[CheckResult]:
+    """In a development checkout, warn when the app serves a client older than its source (F13).
+
+    Installed apps get no row; a checkout always gets one, so a rebuild clears the warning.
+    """
+    try:
+        from row_bot.client_assets import checkout_client_build
+        build = checkout_client_build()
+    except Exception as exc:
+        return [CheckResult("Client build", "error", str(exc), settings_tab="System")]
+    if build is None:
+        return []
+    built, changed = build
+    if changed <= built:
+        return [CheckResult("Client build", "ok", f"Current: built {built:%d %b %H:%M}", settings_tab="System")]
+    return [CheckResult(
+        "Client build", "warn",
+        f"Older than its source: built {built:%d %b %H:%M}, source changed {changed:%d %b %H:%M}. "
+        "Run npm --prefix frontend run build and restart.",
+        settings_tab="System",
+    )]
+
+
 def check_search_tools() -> CheckResult:
     """Check search/research tool availability."""
     try:
@@ -811,6 +834,7 @@ ALL_CHECKS = [
     check_tts,
     check_wiki_vault,
     check_logging,
+    check_client_build,
     check_disk_space,
     check_threads_db,
     check_faiss_index,
@@ -841,6 +865,7 @@ _RESULT_ORDER = {
     "TTS": 12,
     "Wiki Vault": 13,
     "Logging": 14,
+    "Client build": 14.5,
     "Disk": 15,
     "Threads DB": 16,
     "FAISS Index": 17,
