@@ -3,9 +3,11 @@
 Each account's saved sign-in is one keychain entry (namespace ``accounts``): ``google`` (Google's
 authorised-user token, shared by Gmail and Calendar), ``google_client`` (the person's own Desktop
 client) and ``x``. Earlier versions kept them as files in the data folder. ``migrate`` copies each
-into the keychain, reads it back and compares, and only then deletes the files; until that copy is
-verified (the keychain unavailable, say) the old file is still read, so a sign-in keeps working, but
-nothing writes a token file again.
+into the keychain, reads it back and compares, and only then deletes the files holding that grant;
+until that copy is verified (the keychain unavailable, say) the old file is still read, so a sign-in
+keeps working, but nothing writes a token file again. Gmail's and Calendar's files may hold two
+different grants (each signed in on its own before 3.12): Gmail's moves, Calendar's file stays, and
+Google reads as needing a new sign-in, which replaces both.
 
 The last real check of a sign-in (an explicit Check, Monitor, the start-up and six-hourly checks, or a
 sign-in that just saved it) is remembered with a digest of what it checked. While the saved sign-in is
@@ -19,6 +21,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,8 @@ NAMESPACE = "accounts"
 LEGACY = {"google": ("gmail/token.json", "calendar/token.json"), "google_client": ("gmail/credentials.json",),
           "x": ("x/token.json",)}
 MAX_BYTES = 64 * 1024
+# What Row-Bot's one Google sign-in asks for: Gmail's and Calendar's scopes (their tools' own constants).
+GOOGLE_SCOPES = ("https://mail.google.com/", "https://www.googleapis.com/auth/calendar")
 _LOCK = threading.RLock()
 _GOOGLE_REFRESH = threading.Lock()  # One refresh at a time; others use the token it saved.
 _CHECKS: dict[str, tuple[str, bool]] = {}  # Account -> (digest of the sign-in checked, whether it passed).
@@ -90,27 +95,65 @@ def _moment(value: object) -> datetime | None:
     return None
 
 
+def _scopes(value: dict) -> list[str]:
+    """The scopes a saved Google sign-in lists (none listed: [])."""
+    listed = value.get("scopes")
+    listed = listed.split() if isinstance(listed, str) else listed
+    return [scope for scope in listed if isinstance(scope, str)] if isinstance(listed, list) else []
+
+
+def _covers(value: dict, scopes: Iterable[str]) -> bool:
+    """Whether a sign-in serves these scopes; one that lists none is taken at its word."""
+    listed = _scopes(value)
+    return not listed or set(scopes) <= set(listed)
+
+
+def _same(one: str | None, other: str | None) -> bool:
+    """Whether two saved sign-ins are one grant: the same, or one client's refresh token in copies each
+    refreshed on its own (5.0.0's Gmail and Calendar files)."""
+    first, second = _parse(one), _parse(other)
+    if first is None or second is None:
+        return False
+    return first == second or (bool(first.get("refresh_token")) and all(
+        first.get(key) == second.get(key) for key in ("client_id", "refresh_token")))
+
+
 def _newest(texts: list[str]) -> str:
-    """Of several copies of one sign-in (Gmail and Calendar each refreshed their own), the one whose
-    access lasts longest."""
+    """Of several copies of one grant, the one whose access lasts longest, listing every scope the copies list.
+    5.0.0's Gmail and Calendar each refreshed their own copy for their own scope only; that copy's access token
+    then serves only its scope, so it is left out and the first use refreshes it for all of them."""
     floor = datetime.min.replace(tzinfo=timezone.utc)
 
     def lasts(text: str) -> datetime:
         value = _parse(text) or {}
         return _moment(value.get("expiry", value.get("expires_at"))) or floor
-    return max(texts, key=lasts)
+    chosen = max(texts, key=lasts)
+    value = _parse(chosen) or {}
+    listed = list(dict.fromkeys(scope for text in texts for scope in _scopes(_parse(text) or {})))
+    if _covers(value, listed):
+        return chosen
+    value = {key: item for key, item in value.items() if key not in {"token", "expiry"}}
+    return json.dumps({**value, "scopes": listed}, separators=(",", ":"))
 
 
-def _remove_files(name: str) -> None:
+def _remove_files(name: str, like: str | None = None) -> int:
+    """Delete the old sign-in files; given ``like``, only those holding that same grant. Returns how many hold
+    another grant and were left in place."""
+    other = 0
     for path in _legacy(name):
+        if like is not None and not _same(like, _file_text(path)):
+            other += 1
+            continue
         try:
             path.unlink()
         except OSError:
             logger.warning("An old %s sign-in file could not be removed; it is retried on the next start", name)
+    return other
 
 
 def _migrate(name: str) -> bool:
-    """Copy an old file's sign-in into the keychain; delete the files only once the copy reads back the same."""
+    """Copy an old file's sign-in into the keychain; delete a file only once the keychain holds its grant (the
+    copy read back the same), and never one holding another grant."""
     files = _legacy(name)
     if not files:
         return False
@@ -120,16 +163,11 @@ def _migrate(name: str) -> bool:
         return False
     current = _stored(name)
     if _parse(current) is not None:
-        chosen = current  # The keychain's copy is this version's own: the files are what earlier versions left.
+        chosen = current  # The keychain's copy is this version's own: a file of its grant is what earlier ones left.
     else:
-        # Gmail and Calendar each refreshed their own copy of one sign-in: the longest-lasting of the copies of
-        # the first file's sign-in (same client and refresh token). A different account's file is not merged in.
-        first = _parse(texts[0]) or {}
-        same = [text for text in texts if all((_parse(text) or {}).get(key) == first.get(key)
-                                              for key in ("client_id", "refresh_token"))]
-        if len(same) < len(texts):
-            logger.warning("Old %s sign-in files held different sign-ins; the first is kept", name)
-        chosen = _newest(same)
+        # The copies of the first file's grant. Gmail and Calendar could hold two different grants (each signed in on
+        # its own before 3.12); the other is never merged in, and its file stays.
+        chosen = _newest([text for text in texts if _same(texts[0], text)])
     try:
         if chosen != current:
             secret_store.set_secret(name, chosen, namespace=NAMESPACE)
@@ -140,8 +178,10 @@ def _migrate(name: str) -> bool:
         _RETRY_AT[name] = time.monotonic() + RETRY_SECONDS
         return False
     _RETRY_AT.pop(name, None)
-    _remove_files(name)
-    return True
+    if _remove_files(name, chosen):
+        logger.warning("An old %s sign-in file holds a different sign-in from the saved one; it was left in place "
+                       "and is not used. Signing in again replaces it", name)
+    return chosen != current
 
 
 def migrate() -> dict[str, int]:
@@ -175,13 +215,15 @@ def write(name: str, value: dict[str, Any]) -> None:
     if name not in LEGACY or not isinstance(value, dict) or len(text.encode("utf-8")) > MAX_BYTES:
         raise AccountTokenError("invalid_account_token")
     with _LOCK:
+        previous = _text(name)
         try:
             secret_store.set_secret(name, text, namespace=NAMESPACE)
             if _stored(name) != text:
                 raise secret_store.SecretStoreError("verification failed")
         except secret_store.SecretStoreError:
             raise AccountTokenError("secure_storage_unavailable") from None
-        _remove_files(name)
+        # A refresh (the same grant) clears only that grant's old files; a new sign-in replaces them all.
+        _remove_files(name, text if _same(previous, text) else None)
 
 
 def delete(name: str) -> None:
@@ -217,18 +259,27 @@ def record_check(name: str, status: str) -> None:
             _CHECKS.pop(name, None)
 
 
+def google_covers(scopes: Iterable[str]) -> bool:
+    """Whether Google's saved sign-in serves an app needing these scopes (Gmail's or Calendar's)."""
+    info = read("google")
+    return info is not None and _covers(info, scopes)
+
+
 def state(name: str) -> str:
     """One sign-in's state from its last check or its own expiry: ``connected`` or ``invalid`` while it is as
     its last check left it; otherwise ``not_authenticated`` (none saved), ``expired`` (the access ran out
-    and there is no refresh token) or ``saved_unchecked``."""
+    and there is no refresh token) or ``saved_unchecked``. A Google sign-in without Gmail's and Calendar's
+    access is ``invalid``: it needs signing in again."""
     with _LOCK:
         text = _text(name)
         checked = _CHECKS.get(name)
     if text is None:
         return "not_authenticated"
+    value = _parse(text) or {}
+    if name == "google" and not _covers(value, GOOGLE_SCOPES):
+        return "invalid"  # Gmail's or Calendar's own sign-in from before 3.12, without the other's access.
     if checked is not None and checked[0] == hashlib.sha256(text.encode("utf-8")).hexdigest():
         return "connected" if checked[1] else "invalid"
-    value = _parse(text) or {}
     expiry = value.get("expiry", value.get("expires_at"))
     if expiry is None:
         return "saved_unchecked"

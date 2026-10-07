@@ -216,21 +216,35 @@ def _token_key(token: GitHubToken) -> str:
 
 
 def shared_github_status() -> GitHubAccountStatus:
-    """One GitHub status for Settings › Accounts and Monitor (B118).
+    """One GitHub status for Settings › Accounts, Apps and Monitor (B118).
 
-    The last verified result (Monitor's check or an explicit Check) while it
-    is for the credential in use now; otherwise what is saved, including a
-    GitHub CLI sign-in, as not yet checked. Never contacts GitHub; the CLI is
-    asked only for its local token. Captures stay passive.
+    The last verified result (Monitor's check, the start-up check or an
+    explicit Check) while it is for the credential in use now; otherwise what
+    Row-Bot holds itself (environment or keychain) as not yet checked. Never
+    contacts GitHub or starts the GitHub CLI: a CLI sign-in is known only from
+    the last check that asked it, and an installed CLI not yet checked reads as
+    "Check GitHub". Captures stay passive.
     """
     from row_bot.docs_capture import is_docs_capture
 
     if is_docs_capture():
         return get_passive_github_account_status()
-    token = resolve_github_token(include_cli=True, use_cache=True)
+    token = resolve_github_token(include_cli=False, use_cache=True)
     remembered = _last_verified
-    if remembered is not None and remembered[0] == _token_key(token):
+    if remembered is not None and (remembered[0] == _token_key(token)
+                                   or (not token.configured and remembered[1].source == "github_cli")):
         return remembered[1]
+    if not token.configured and _github_cli_installed():
+        message = "The GitHub CLI is on this computer. Check GitHub to see whether Row-Bot can use its sign-in."
+        return GitHubAccountStatus(
+            connected=False,
+            source="github_cli",
+            gh_installed=True,
+            message=message,
+            state=GITHUB_STATE_CONFIGURED_UNCHECKED,
+            action_label="Check GitHub",
+            settings_message=message,
+        )
     if token.configured:
         message = f"GitHub credential found via {token.source.replace('_', ' ')}. Check GitHub to verify access."
         return GitHubAccountStatus(
@@ -594,6 +608,16 @@ def _github_cli_status():
                 path: str = ""
 
             return _FallbackGhStatus()
+
+
+def _github_cli_installed() -> bool:
+    """Whether the GitHub CLI is on this computer: a path lookup, never a process."""
+    try:
+        from row_bot.developer.executables import resolve_github_cli
+
+        return bool(resolve_github_cli())
+    except Exception:
+        return False
 
 
 def _github_cli_token(timeout: int = 6) -> str:

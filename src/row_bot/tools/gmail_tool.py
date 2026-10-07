@@ -270,7 +270,7 @@ class GmailTool(BaseTool):
         return account_tokens.google_client() is not None
 
     def is_authenticated(self) -> bool:
-        return account_tokens.read("google") is not None
+        return account_tokens.google_covers(GMAIL_SCOPES)
 
     def check_token_health(self) -> tuple[str, str]:
         """Probe the OAuth token and attempt silent refresh if needed.

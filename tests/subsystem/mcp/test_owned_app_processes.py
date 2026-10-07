@@ -94,6 +94,21 @@ def test_only_provably_owned_programs_are_ever_stopped(table, ledger):
     assert json.loads(ledger.read_text(encoding="utf-8"))["agents"] == [running, mine]  # Stale records dropped.
 
 
+def test_a_record_without_a_name_is_never_acted_on_or_written(table, ledger):
+    """Nothing tells a nameless record's program from another one that started at the same moment: start-up
+    cleanup stops nothing (not its tree either) and drops the record; a program whose name cannot be read is
+    never recorded."""
+    table.add(SERVER, 5000.0, name="explorer.exe")
+    table.add(CHILD, 5001.0, name="python.exe")
+    table.parents[CHILD] = SERVER
+    _write(ledger, _entry(SERVER, 5000.0, name=""), _entry(CHILD, 0, name="python.exe"))
+    assert runtime.cleanup_app_processes() == 0
+    assert table.terminated == [] and not ledger.exists()
+    table.add(8400, 5200.0, name="")
+    assert owned_processes.record(ledger, 8400, server="Notes") is False
+    assert not ledger.exists()
+
+
 def test_each_connection_records_its_program_and_forgets_it_once_ended(table, ledger, monkeypatch):
     """The runtime notes the program the SDK starts for a connection (and only one it starts for a
     connection), and forgets it when the connection has ended it."""

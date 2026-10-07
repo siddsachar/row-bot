@@ -1,8 +1,9 @@
 """Built-in ways to connect: Row-Bot's own accounts, channels and key-based tools, in Apps.
 
 Their owners stay authoritative. This only reads what they already know (saved files, whether a
-key is in the keychain, the channel registry and the last check), never contacts a service and
-changes nothing. Each one opens its owner's page scoped to it, so there is one place to edit it.
+key is in the keychain, the channel registry and the last check), never contacts a service, starts
+no program (not even the GitHub CLI) and changes nothing. Each one opens its owner's page scoped to
+it, so there is one place to edit it.
 Credentials stay where each owner keeps them: an account's token is never another app's key.
 """
 from __future__ import annotations
@@ -66,10 +67,15 @@ def _accounts(only: str = "") -> list[dict]:
     for account, (name, tools) in ACCOUNTS.items():
         if only and account != only:
             continue
+        unchecked_cli = ""
         try:
             if account == "github":
                 from row_bot import github_account
-                state = github_account.shared_github_status().state
+                # Never starts the GitHub CLI: its sign-in is known only from the last check that asked it.
+                status = github_account.shared_github_status()
+                state = status.state
+                if state == "configured_unchecked" and getattr(status, "source", "") == "github_cli":
+                    unchecked_cli = status.message  # "Check GitHub", not a guess either way.
             else:
                 state = read_account_auth(account=account)["state"]
         except Exception:
@@ -78,8 +84,8 @@ def _accounts(only: str = "") -> list[dict]:
         if state == "not_configured":
             lifecycle, blockers = "available", []
         else:
-            code = _ACCOUNT_STATES.get(state, "connection_failed")
-            blockers = [facts.blocker(code)] if code else []
+            code = "not_connected" if unchecked_cli else _ACCOUNT_STATES.get(state, "connection_failed")
+            blockers = [facts.blocker(code, unchecked_cli)] if code else []
             on = not tools or any(_tool_on(tool) for tool in tools)
             lifecycle = "installed" if on else "off"
         found.append(_row("account:" + account, name, app_ref="account:" + account, lifecycle=lifecycle, blockers=blockers,

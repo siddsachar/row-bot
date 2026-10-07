@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from row_bot import account_tokens, secret_store
+from row_bot.tools import calendar_tool, gmail_tool
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
@@ -88,12 +89,56 @@ def test_the_keychain_sign_in_wins_over_a_file_left_behind(profile, keychain):
     assert not (profile / "gmail/token.json").exists() and not (profile / "calendar/token.json").exists()
 
 
-def test_different_sign_ins_in_old_files_are_not_merged(profile, keychain):
+_MAIL, _CAL = gmail_tool.GMAIL_SCOPES, calendar_tool.CALENDAR_SCOPES
+
+
+def test_one_sign_in_refreshed_by_gmail_and_calendar_keeps_both_apps_working(profile, keychain):
+    """5.0.0 signed in once for both, then Gmail and Calendar each refreshed their own copy for their own
+    scope only: the saved sign-in lists both scopes, and no access token that serves only one."""
+    for relative, value in (("gmail/token.json", {**_GMAIL, "scopes": _MAIL}),
+                            ("calendar/token.json", {**_CALENDAR, "scopes": _CAL})):
+        (profile / relative).write_text(json.dumps(value), encoding="utf-8")
+    assert account_tokens.migrate()["kept"] == 0
+    saved = account_tokens.read("google")
+    assert saved["refresh_token"] == "fixture-refresh" and set(saved["scopes"]) == {*_MAIL, *_CAL}
+    assert "token" not in saved  # Gmail's access token never reaches Calendar: the first use refreshes it.
+    assert not (profile / "gmail/token.json").exists() and not (profile / "calendar/token.json").exists()
+    assert gmail_tool.GmailTool().is_authenticated() and calendar_tool.CalendarTool().is_authenticated()
+    assert account_tokens.state("google") == "saved_unchecked"
+
+
+def test_separate_gmail_and_calendar_sign_ins_are_never_merged_or_deleted(profile, keychain):
+    """Before 3.12 Gmail and Calendar each signed in on their own (two grants), and 5.0.0 kept both files.
+    Gmail's grant moves; Calendar's file stays, Calendar reads as signed out and Google as needing a new
+    sign-in, which then replaces both."""
+    own = {**_CALENDAR, "refresh_token": "calendar-own-refresh", "scopes": _CAL}
+    (profile / "gmail/token.json").write_text(json.dumps({**_GMAIL, "scopes": _MAIL}), encoding="utf-8")
+    (profile / "calendar/token.json").write_text(json.dumps(own), encoding="utf-8")
+    kept = (profile / "calendar/token.json").read_bytes()
+    assert account_tokens.migrate() == {"migrated": 3, "kept": 1}
+    assert account_tokens.read("google") == {**_GMAIL, "scopes": _MAIL}  # Gmail's own grant, nothing merged in.
+    assert (profile / "calendar/token.json").read_bytes() == kept and not (profile / "gmail/token.json").exists()
+    assert gmail_tool.GmailTool().is_authenticated() and not calendar_tool.CalendarTool().is_authenticated()
+    account_tokens.record_check("google", "valid")  # A check of the token says nothing about Calendar's access.
+    assert account_tokens.state("google") == "invalid"
+    account_tokens.write("google", {**_GMAIL, "scopes": _MAIL, "token": "refreshed"})  # Gmail's refresh.
+    assert account_tokens.migrate() == {"migrated": 0, "kept": 1}  # The next start.
+    assert (profile / "calendar/token.json").read_bytes() == kept
+    account_tokens.write("google", {**_GMAIL, "refresh_token": "new-sign-in", "scopes": _MAIL + _CAL})
+    assert not (profile / "calendar/token.json").exists()  # The new sign-in replaces both.
+    assert calendar_tool.CalendarTool().is_authenticated() and account_tokens.state("google") == "saved_unchecked"
+
+
+def test_a_file_holding_another_sign_in_than_the_keychain_copy_is_never_deleted(profile, keychain):
+    secret_store.set_secret("google", json.dumps(_GMAIL), namespace="accounts")
+    secret_store.set_secret("x", json.dumps({**_X, "refresh_token": "x-newer"}), namespace="accounts")
     other = {**_CALENDAR, "refresh_token": "another-account"}
     (profile / "calendar/token.json").write_text(json.dumps(other), encoding="utf-8")
     account_tokens.migrate()
-    assert account_tokens.read("google") == _GMAIL  # Gmail's own sign-in, not the other account's.
-    assert not _plaintext_left(profile, "another-account", "fixture-refresh")
+    assert not (profile / "gmail/token.json").exists()  # The keychain's grant: what an earlier version left.
+    assert json.loads((profile / "calendar/token.json").read_text(encoding="utf-8")) == other
+    assert json.loads((profile / "x/token.json").read_text(encoding="utf-8")) == _X
+    assert account_tokens.read("google") == _GMAIL  # The keychain's copy is still the one used.
 
 
 def test_reads_do_not_retry_a_failed_keychain_copy_every_time(profile, keychain, monkeypatch):

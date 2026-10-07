@@ -116,7 +116,7 @@ def test_mcp_servers_are_apps_that_keep_their_tool_switches_and_approvals_and_a_
     assert _access(servers["Fixture Docs"]["id"]) == {"search_docs": "use"}
     assert _access(servers["Playwright MCP"]["id"]) == {"browser_snapshot": "use", "browser_click": "off"}
     detail, _ = api.read_item(owner_id=OWNER, item_id=servers["Fixture Docs"]["id"])
-    assert detail["about"]["destination"] == "https://docs.fixture.example/mcp"
+    assert detail["about"]["destination"] == "https://docs.fixture.example"  # Never its path, which can hold a key.
     assert "fixture-header-secret" not in json.dumps(detail) + json.dumps(servers)  # A saved header never leaves.
     assert _owner_files(v5.root) == before
 
@@ -174,8 +174,12 @@ def test_google_and_x_sign_ins_move_into_the_keychain_once_verified_and_read_as_
     saved = {path: json.loads((v5.root / path).read_text(encoding="utf-8")) for path in SIGN_IN_FILES}
     assert account_tokens.migrate() == {"migrated": 3, "kept": 0}  # As start-up does.
     assert not [path for path in SIGN_IN_FILES if (v5.root / path).exists()]
-    # Gmail and Calendar each refreshed their own copy of the one sign-in: the copy whose access lasts longest.
-    assert account_tokens.read("google") == saved["gmail/token.json"]
+    # 5.0.0 signed Gmail and Calendar in together, then each refreshed its own copy for its own scope only: the
+    # one grant is kept with both scopes, without an access token that serves only one of them.
+    gmail, calendar = saved["gmail/token.json"], saved["calendar/token.json"]
+    google = account_tokens.read("google")
+    assert set(google.pop("scopes")) == {*gmail["scopes"], *calendar["scopes"]}
+    assert google == {key: value for key, value in gmail.items() if key not in {"token", "expiry", "scopes"}}
     assert account_tokens.read("google_client") == saved["gmail/credentials.json"]
     assert account_tokens.read("x") == saved["x/token.json"]
     assert (v5.root / "x/tier_info.json").is_file()  # X's own working file is not a sign-in.
@@ -190,6 +194,19 @@ def test_google_and_x_sign_ins_move_into_the_keychain_once_verified_and_read_as_
     assert api_keys.get_key("X_CLIENT_ID") == KEYS["X_CLIENT_ID"]
     assert github_account.resolve_github_token(include_cli=False, use_cache=False).value == KEYS["GITHUB_TOKEN"]
     assert not any(secret in json.dumps(ways) for secret in (*SIGN_IN_SECRETS, *KEYS.values()))
+
+
+def test_gmail_and_calendar_signed_in_apart_before_3_12_are_never_merged_and_google_asks_for_a_new_sign_in(v5):
+    """A folder whose Gmail and Calendar each signed in on their own (before 3.12), which 5.0.0 kept as two
+    grants: Gmail's moves, Calendar's file is never deleted, and Google reads as needing a new sign-in."""
+    calendar = v5.root / "calendar/token.json"
+    own = {**json.loads(calendar.read_text(encoding="utf-8")), "refresh_token": "fixture-calendar-refresh-token"}
+    calendar.write_text(json.dumps(own), encoding="utf-8")
+    assert account_tokens.migrate() == {"migrated": 3, "kept": 1}
+    assert json.loads(calendar.read_text(encoding="utf-8")) == own and not (v5.root / "gmail/token.json").exists()
+    assert account_tokens.read("google")["refresh_token"] == "fixture-google-refresh-token"
+    google = _items("builtin")["Google account"]
+    assert (google["readiness"], google["next_action"]["label"]) == ("needs_sign_in", "Sign in again")
 
 
 def test_a_sign_in_the_keychain_cannot_keep_stays_in_its_file_and_keeps_working(v5):

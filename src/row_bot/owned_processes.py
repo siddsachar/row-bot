@@ -70,13 +70,14 @@ def _name(pid: int) -> str:
 
 
 def record(path: Path, pid: int, **labels: str) -> bool:
-    """Remember a program this process started (``labels``: what it is, for the logs)."""
-    created, owner_created = started(pid), started(os.getpid())
-    if created is None or owner_created is None:
+    """Remember a program this process started (``labels``: what it is, for the logs). One whose creation
+    time or name cannot be read is not recorded: cleanup could not tell it from a later program."""
+    created, owner_created, name = started(pid), started(os.getpid()), _name(pid)
+    if not created or owner_created is None or not name:
         return False
     with _lock:
         entries = [entry for entry in _read(path) if int(entry["pid"]) != int(pid)]
-        entries.append({"pid": int(pid), "created": created, "name": _name(pid), "owner_pid": os.getpid(),
+        entries.append({"pid": int(pid), "created": created, "name": name, "owner_pid": os.getpid(),
                         "owner_created": owner_created, **{key: str(value)[:128] for key, value in labels.items()}})
         _write(path, entries)
     return True
@@ -94,7 +95,8 @@ def cleanup(path: Path, *, dead_owner: int | Iterable[int] | None = None, name: 
 
     ``dead_owner`` is a server process (or tree) the launcher has just stopped by force, which may still
     look alive. ``name`` also requires the program's name to contain it (``ngrok``); a recorded name must
-    match either way. ``tree`` stops the program's own child processes too."""
+    match either way. A record with neither a recorded name nor ``name`` to check, or without a creation
+    time, is dropped and never acted on. ``tree`` stops the program's own child processes too."""
     dead = {dead_owner} if isinstance(dead_owner, int) else set(dead_owner or ())
     stopped = 0
     with _lock:
@@ -111,6 +113,8 @@ def cleanup(path: Path, *, dead_owner: int | Iterable[int] | None = None, name: 
 
 
 def _stop(pid: int, created: float, recorded: str, name: str, tree: bool) -> bool:
+    if not created or not (recorded or name):
+        return False  # No name to check (5.0.0's ngrok records have none, but ngrok's cleanup names it).
     try:
         import psutil
 

@@ -17,6 +17,7 @@ from tests.subsystem.mcp.test_capability_catalog_controls import owner  # noqa: 
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
 pytestmark = [pytest.mark.platform, pytest.mark.mcp_transport]
+_SHARED_GITHUB_STATUS = github_account.shared_github_status  # The real one, before any fixture replaces it.
 
 
 class SilentChannel:
@@ -177,6 +178,68 @@ def test_catalog_search_never_waits_for_the_owners(owners, monkeypatch):
     finally:
         release.set()
     assert {row["id"]: row for row in builtin.rows()}["builtin:account:github"]["lifecycle"] == "installed"
+
+
+def test_no_read_starts_the_github_cli_and_an_explicit_check_does(owners, keychain, tmp_path, monkeypatch):
+    """Signed in only through the GitHub CLI: Apps' list, detail and catalog search, the composer, a chat's
+    Connect card and the start-up prewarm never start it, and say "Check GitHub" rather than guess; the
+    explicit Check asks it, and every read then shows what that check found."""
+    import threading
+
+    from row_bot.application import client_accounts
+    from row_bot.integrations import scope
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    for name in ("GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(github_account, "shared_github_status", _SHARED_GITHUB_STATUS)  # The real one.
+    monkeypatch.setattr(github_account.api_keys, "get_key", lambda _name: "")  # No token of Row-Bot's own.
+    monkeypatch.setattr("row_bot.developer.executables.resolve_github_cli", lambda: "fixture-gh")
+    monkeypatch.setattr(client_accounts, "resolve_github_cli", lambda: "fixture-gh")
+    asked = []  # Every time the (fake) GitHub CLI is started.
+    monkeypatch.setattr(github_account, "_github_cli_token", lambda *a, **k: asked.append("auth token") or "cli-token")
+    monkeypatch.setattr(github_account, "_github_cli_status", lambda: asked.append("auth status") or SimpleNamespace(
+        installed=True, authenticated=True, user="octo", path="fixture-gh"))
+    monkeypatch.setattr(github_account, "check_github_token_access", lambda token, source="", timeout=10: (
+        github_account.GitHubAccountStatus(connected=True, source=token.source, fingerprint=token.fingerprint, user="octo",
+                                           state="connected", authenticated=True, token_valid=True)))
+    monkeypatch.setattr(github_account, "check_github_anonymous_access", lambda timeout=10: pytest.fail("not anonymous"))
+    monkeypatch.setattr(scope, "_mcp_items", lambda strict=False: [])
+    monkeypatch.setattr(scope, "_profile_allow", lambda conversation_id: None)
+    monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: [])
+    github_account.clear_github_caches()
+    try:
+        builtin.changed()
+        api.read_items(owner_id="owner", scope="catalog", kind="app", query="github", limit=50)  # Builds in the background.
+        for thread in [thread for thread in threading.enumerate() if thread.name == "builtin-ways-refresh"]:
+            thread.join(10)
+        listed = {row["id"]: row for row in api.read_items(owner_id="owner", kind="app")["items"]}
+        detail, _ = api.read_item(owner_id="owner", item_id="builtin:account:github")
+        composer = scope.chat_apps("fixture-chat")
+        card = scope.app_card("builtin:account:github")
+        builtin.changed()
+        builtin.rows()  # What the start-up prewarm (app._prewarm_apps_background) runs.
+        settings = client_accounts.read_github_access(owner_id="owner")
+        assert asked == []
+        row = detail["entry"]
+        assert listed["builtin:account:github"]["next_action"] == row["next_action"] == {"kind": "continue_setup",
+                                                                                        "label": "Continue setup"}
+        assert "Check GitHub" in row["blockers"][0]["message"]  # Not "connected", and not silently "not connected".
+        assert "builtin:account:github" not in {app["item_id"] for app in composer} and card["name"]
+        assert (settings["state"], settings["credential_source"]) == ("configured_unchecked", "github_cli")
+
+        checked = client_accounts.execute_github_access(owner_id="owner", command_id=str(uuid4()),
+                                                        expected_revision=settings["revision"], action="check")
+        assert checked["snapshot"]["state"] == "connected" and sorted(asked) == ["auth status", "auth token"]
+        asked.clear()
+        assert builtin.read("builtin:account:github")["readiness"] == "ready"  # The check's verdict, read again.
+        assert {row["id"]: row for row in builtin.rows()}["builtin:account:github"]["readiness"] == "ready"
+        assert client_accounts.read_github_access(owner_id="owner")["state"] == "connected"
+        assert asked == []
+    finally:
+        github_account.clear_github_caches()
+        client_accounts._GITHUB.pop("owner", None)
+        builtin.changed()
 
 
 def test_a_lookup_without_the_github_cli_never_makes_the_next_one_ask_it_again(monkeypatch):

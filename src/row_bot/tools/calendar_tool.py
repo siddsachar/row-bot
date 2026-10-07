@@ -452,7 +452,7 @@ class CalendarTool(BaseTool):
         return account_tokens.google_client() is not None
 
     def is_authenticated(self) -> bool:
-        return account_tokens.read("google") is not None
+        return account_tokens.google_covers(CALENDAR_SCOPES)
 
     def check_token_health(self) -> tuple[str, str]:
         return account_tokens.check_google()
