@@ -456,3 +456,22 @@ def test_a_name_two_apps_share_names_neither_until_one_no_longer_has_it(monkeypa
     asyncio.run(acme._discover_tools())
     assert runtime.server_for_tool("mcp_acme_files_delete") == "acme files"
     assert runtime.tool_title("mcp_acme_files_delete") == "Delete"
+
+
+def test_an_optional_argument_the_model_leaves_out_is_not_sent_to_the_app(monkeypatch) -> None:
+    """Found live with Notion's search: an omitted optional argument was sent as null, which apps that check
+    their own schema refuse."""
+    from row_bot.mcp_client import runtime
+
+    sent = []
+    schema = {"type": "object", "properties": {"query": {"type": "string"}, "page_url": {"type": "string"}},
+              "required": ["query"]}
+    info = runtime.McpToolInfo("fake", "search", "mcp_fake_search", "Search", schema, enabled=True, effect="read_only")
+    monkeypatch.setattr(runtime.mcp_config, "get_config", lambda: {"enabled": True, "servers": {"fake": {"enabled": True}}})
+    monkeypatch.setattr(runtime, "_catalog", {"fake": {"search": info}})
+    monkeypatch.setattr(runtime, "_sync_catalog_from_config", lambda cfg=None: None)
+    monkeypatch.setattr(runtime, "_bind_authority", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runtime, "_call_tool_sync", lambda server, tool, arguments, expected=None: sent.append(arguments) or "ok")
+    tool = next(tool for tool in runtime.get_langchain_tools(refresh=False) if tool.name == "mcp_fake_search")
+    assert tool.invoke({"query": "recent"}) == "ok"
+    assert sent == [{"query": "recent"}]

@@ -1454,7 +1454,10 @@ def _call_tool_sync(server_name: str, tool_name: str, kwargs: dict[str, Any], *,
 def _make_tool_func(server_name: str, tool_name: str, *, enforce_policy: bool = False) -> Callable[..., str]:
     expected = _bind_authority(server_name, tool_name) if enforce_policy else None
     def _run(**kwargs: Any) -> str:
-        return _call_tool_sync(server_name, tool_name, kwargs, expected=expected)
+        # An optional argument the model left out arrives as None; an app gets only what was given, since many
+        # refuse a null where their schema says string (an explicit None can't pass a typed field anyway).
+        given = {key: value for key, value in kwargs.items() if value is not None}
+        return _call_tool_sync(server_name, tool_name, given, expected=expected)
 
     return _run
 

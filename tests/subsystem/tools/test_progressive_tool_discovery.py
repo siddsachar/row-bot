@@ -234,3 +234,18 @@ def test_fingerprint_and_schema_estimate_include_effective_catalog_data() -> Non
     )
     assert effective_tool_schema(first.target)["properties"]["query"]["description"] == "The complete query"
     assert estimate_bound_tool_schema_tokens([first.target]) > 0
+
+
+def test_an_optional_argument_left_out_is_not_sent_as_none() -> None:
+    """Found live with Notion's search: an app tool's optional field (typed, defaulting to None) left out by the
+    model was sent as None, which the tool's own check refused, so the call failed before reaching the app."""
+    class _AppArgs(BaseModel):
+        query: str
+        page_url: str = Field(None, description="Optional page to search within")
+
+    received = []
+    target = StructuredTool.from_function(func=lambda **kwargs: received.append(kwargs) or "found", name="app_search",
+                                          description="Search the app", args_schema=_AppArgs)
+    _search, invoke = build_tool_discovery_tools([_record("app_search", target=target)], context_tokens=32_768)
+    assert invoke.invoke({"name": "app_search", "arguments": {"query": "recent"}}) == "found"
+    assert received[0]["query"] == "recent"  # (LangChain fills in the default; the app's call drops it.)

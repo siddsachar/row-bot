@@ -316,7 +316,9 @@ def _validation_arguments(record: ExternalToolRecord, arguments: dict[str, Any])
     if schema_model is not None and not isinstance(schema_model, dict) and hasattr(schema_model, "model_validate"):
         try:
             parsed = schema_model.model_validate(arguments)
-            return parsed.model_dump(), []
+            # Only the arguments given, as a direct call passes them: an optional field left out would come back as
+            # None, which its own type (an app tool's optional string) then refuses.
+            return parsed.model_dump(exclude_unset=True), []
         except ValidationError as exc:
             fields: list[str] = []
             for error in exc.errors():
