@@ -151,6 +151,15 @@ class _StderrTail:
         return list(self._lines)
 
 
+def _launch_values(cfg: dict) -> list[str]:
+    """What a server starts with that may be a key: every variable and header value, and each argument
+    (or ``--flag=value`` value) that looks like one, since a key can be given on a command line."""
+    from row_bot.integrations.inputs import secret_segment
+    values = [str(value) for field in ("env", "headers") for value in (cfg.get(field) or {}).values()]
+    values += [str(arg).split("=", 1)[-1] for arg in cfg.get("args") or [] if secret_segment(str(arg).split("=", 1)[-1])]
+    return [value for value in values if len(value) >= 4]
+
+
 def stderr_tails() -> dict[str, list[str]]:
     """By server name: what each server that failed to start last wrote, its secrets masked."""
     with _runtime_lock:
@@ -685,6 +694,7 @@ class McpServerRuntime:
             self._status(status="connecting", enabled=True, transport=self.cfg.get("transport", "stdio"), last_error="")
             async with asyncio.timeout(float(self.cfg.get("connect_timeout", 30))):
                 self._validate_launch()
+                self._forget_stderr()
                 await self._connect()
                 self._validate_launch()
                 await self._discover_tools()
@@ -979,8 +989,14 @@ class McpServerRuntime:
         """Keep what a program that failed to start last wrote, its secrets masked, for the person to read."""
         if self._stderr is not None:
             lines = await asyncio.to_thread(self._stderr.lines, 1.0)  # Its last words, once it has exited.
+            masked = (*self._redact, *_launch_values(self.cfg))
             with _runtime_lock:
-                _stderr_tails[self.name] = [redact(line, self._redact) for line in lines]
+                _stderr_tails[self.name] = [redact(line, masked) for line in lines]
+
+    def _forget_stderr(self) -> None:
+        """A new start: an earlier failure's lines never describe it."""
+        with _runtime_lock:
+            _stderr_tails.pop(self.name, None)
 
     async def close(self) -> None:
         if self._start_task is not None and self._start_task is not asyncio.current_task() and not self._start_task.done():
@@ -1300,6 +1316,7 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
     try:
         async with asyncio.timeout(float(server_cfg.get("connect_timeout", 30))):
             runtime._validate_launch()
+            runtime._forget_stderr()
             await runtime._connect()
             runtime._validate_launch()
             result = await runtime.session.list_tools()

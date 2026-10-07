@@ -246,12 +246,30 @@ def _keychain_refs(v5) -> set[str]:
     return {account.split(":")[1] for _, account in v5.keychain.values if account.startswith("mcp_connections:")}
 
 
+def _holding(v5, *secrets: str) -> list[str]:
+    """Every file in the data folder (settings, kept copies, tasks.db) that holds one of ``secrets``."""
+    return [path.relative_to(v5.root).as_posix() for path in v5.root.rglob("*") if path.is_file()
+            and any(secret.encode() in path.read_bytes() for secret in secrets)]
+
+
 def test_keys_typed_into_a_servers_settings_move_into_the_keychain_and_it_starts_as_before(v5, monkeypatch):
     from row_bot.mcp_client import secret_migration
     path = _with_a_typed_variable(v5, monkeypatch)
+    # An earlier save kept the file it replaced, for recovery: it holds the keys too.
+    kept = v5.root / ".row-bot-edit-recovery" / "1d2c3b4a-0000-4000-8000-000000000001" / "previous"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(path.read_bytes())
+    # A copy another unfinished change may still need is never deleted.
+    from row_bot.runtime import admissions
+    needed = v5.root / ".row-bot-edit-recovery" / "1d2c3b4a-0000-4000-8000-000000000002" / "previous"
+    needed.parent.mkdir()
+    needed.write_bytes(path.read_bytes())
+    admissions.claim_command("tools-owner", needed.parent.name, {"command_id": needed.parent.name, "type": "test.change",
+                                                                 "expected_revision": "0"}, "settings:tools")
     before = _launched()
     assert secret_migration.migrate() == {"migrated": 2, "kept": 0}  # As start-up does, before any server starts.
-    assert not any(secret in path.read_text(encoding="utf-8") for secret in MCP_SECRETS)
+    # Not in the settings, a kept copy, or the change records; only where an unfinished change needs it.
+    assert _holding(v5, *MCP_SECRETS) == [".row-bot-edit-recovery/1d2c3b4a-0000-4000-8000-000000000002/previous"]
     assert _launched() == before  # The same header and variable, exactly as typed.
     saved = json.loads(path.read_text(encoding="utf-8"))["servers"]
     assert saved["Fixture Notes"]["env"] == {"NOTES_HOME": "fixture-notes"}  # Only the key moved.
@@ -274,9 +292,28 @@ def test_keys_the_keychain_cannot_keep_stay_in_the_settings_and_move_at_the_next
     assert secret_migration.migrate() == {"migrated": 2, "kept": 0}
 
 
+def test_names_a_binding_cannot_hold_and_settings_that_are_not_keys_stay_and_never_block_mcp_settings(v5, monkeypatch):
+    from row_bot.mcp_client import config, secret_migration
+    path = v5.root / "mcp_servers.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["servers"]["Fixture Notes"]["env"].update({"my.api_key": "fixture-dotted-env-value", "MAX_TOKENS": "4096"})
+    document["servers"]["Fixture Docs"]["headers"]["X.Api.Key"] = "fixture-dotted-header-value"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setattr(config, "_config_cache", None)
+    assert secret_migration.migrate() == {"migrated": 1, "kept": 0}  # Only Fixture Docs' Authorization header.
+    saved = json.loads(path.read_text(encoding="utf-8"))["servers"]
+    assert saved["Fixture Docs"]["headers"] == {"X.Api.Key": "fixture-dotted-header-value"}
+    assert saved["Fixture Notes"]["env"] == {"NOTES_HOME": "fixture-notes", "my.api_key": "fixture-dotted-env-value",
+                                             "MAX_TOKENS": "4096"}
+    assert not config.configuration_recovery_required()
+
+
 def test_a_key_move_a_crash_interrupts_is_finished_or_undone_at_the_next_start(v5, monkeypatch):
     from row_bot.mcp_client import auth, config, secret_migration
     path = _with_a_typed_variable(v5, monkeypatch)
+    document = json.loads(path.read_text(encoding="utf-8"))  # Settings larger than a change record may be.
+    document["servers"]["Old Tool"]["tools"]["catalog"] = {f"tool_{n}": {"description": "d" * 1000} for n in range(300)}
+    path.write_text(json.dumps(document), encoding="utf-8")
     before, publish, write = _launched(), config.publish_saved_configuration, auth.write_credentials
 
     def crash_after_checkpoint(document, **kwargs):  # Its proof is saved, then Row-Bot stops before the file moves.
@@ -290,7 +327,7 @@ def test_a_key_move_a_crash_interrupts_is_finished_or_undone_at_the_next_start(v
     monkeypatch.setattr(config, "publish_saved_configuration", publish)
     assert "fixture-header-secret" in path.read_text(encoding="utf-8")
     assert secret_migration.migrate() == {"migrated": 0, "kept": 0}  # The next start finishes the move it began.
-    assert not any(secret in path.read_text(encoding="utf-8") for secret in MCP_SECRETS) and _launched() == before
+    assert _holding(v5, *MCP_SECRETS) == [] and _launched() == before
     assert not config.configuration_recovery_required()
 
     path = _with_a_typed_variable(v5, monkeypatch, "Old Tool")  # Another server's key; a crash before publishing.

@@ -215,6 +215,15 @@ def read_command_metadata(owner_id: str, command_id: str) -> dict | None:
         return dict(row) if row is not None else None
 
 
+def unfinished(command_id: str) -> bool:
+    """Whether any owner's command with this id is unfinished, so its recovery files may still be needed."""
+    with _read_command_connection() as conn:
+        if conn is None:
+            return False
+        return conn.execute("SELECT 1 FROM client_commands WHERE command_id=? AND "
+                            "(status NOT IN ('completed','rejected') OR status IS NULL) LIMIT 1", (command_id,)).fetchone() is not None
+
+
 def read_command_receipt(owner_id: str, command_id: str) -> dict | None:
     """Read one bounded saved receipt without schema, key or command writes."""
     with _read_command_connection() as conn:

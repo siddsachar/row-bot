@@ -31,13 +31,9 @@ _ROUTINE_RE = re.compile(
 # Words that are also nouns are changes only as the name's verb: tag_issue, not get_tag.
 _ROUTINE_FIRST_RE = re.compile(r"^(tag|label|mark|archive|close|star|link|attach|copy)(_|$)", re.IGNORECASE)
 _READ_RE = re.compile(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", re.IGNORECASE)
-# What a read's description may admit it also does to data. Reads describe themselves with running ("Execute a
-# SELECT query", "Run a search") and with nouns such as order, post or comment, so those never count (B306).
-_DATA_CHANGE_RE = re.compile(
-    r"(^|_)(delete|remove|destroy|drop|purge|erase|wipe|truncate|revoke|overwrite|send|publish|deploy|transfer|"
-    r"create|update|edit|write|modify|insert|append|save|rename|move|patch)(_|$)",
-    re.IGNORECASE,
-)
+# A read that says it runs a read ("Execute a SELECT query", "Run a search") is still a read (B306).
+_RUNS_A_READ = re.compile(r"(^|_)(run|exec|execute)s?_(an?_|the_)?(select|search|read_only|readonly)(_|$)",
+                          re.IGNORECASE)
 HINTS = ("readOnlyHint", "destructiveHint")  # The annotations Row-Bot weighs; a saved catalog keeps them (B307).
 
 _BROWSER_SESSION_SAFE_TOOLS = {
@@ -98,7 +94,7 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
     Trusted in this order (B307, B306): a ``destructiveHint``; a high-impact name; a change named as one (which
     its description can still make high impact); a ``readOnlyHint``; a read verb in the name; and only then the
     description. A read-only hint never outweighs a name, and a description never outweighs either of them,
-    except that a read whose description says it changes data asks first."""
+    except that a read whose description says it changes something asks first."""
     name = sanitize_name_component(tool_name)
     words = sanitize_name_component(description or "")
     if (_annotation_value(tool, "destructiveHint") is True or _DESTRUCTIVE_RE.search(name)
@@ -114,7 +110,9 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
     if read_only is True:
         return "read_only"
     if read_only is not False and _READ_RE.match(name):
-        return "unknown" if _DATA_CHANGE_RE.search(words) else "read_only"
+        # Any other change or high-impact word in its description and it asks first (never runs on its own).
+        said = _RUNS_A_READ.sub("_", words)
+        return "unknown" if _DESTRUCTIVE_RE.search(said) or _ROUTINE_RE.search(said) else "read_only"
     return "high_impact" if _DESTRUCTIVE_RE.search(words) else "unknown"
 
 

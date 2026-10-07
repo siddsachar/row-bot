@@ -42,6 +42,9 @@ _LOCK = threading.RLock()  # Guards the sets below; held only briefly.
 _PLAN_LOCKS: dict[str, threading.RLock] = {}
 _RUNNING: set[str] = set()
 _CANCELLED: set[str] = set()
+# What a server that failed to start wrote, by plan: (step id, masked lines). Only in memory, never in a plan's
+# record, and shown only to the owner at this computer (F22).
+_LOGS: dict[str, tuple[str, list[str]]] = {}
 EXPIRES = 30 * 60
 INTENTS = ("connect", "add", "turn_on", "fix", "access", "settings", "turn_off", "remove", "update")
 _DONE = {"turn_off": "Turned off.", "remove": "Removed.", "update": "Updated."}
@@ -448,7 +451,9 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
               "_keep_off": plan["intent"] == "settings" and row["lifecycle"] != "installed",
               "overrides": _overrides(overrides), "reference": {k: v for k, v in reference.items() if k != "cfg"},
               "target": None if target in (None, {"kind": "standalone"}) else target,
-              "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {}}
+              "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {},
+              # Agreed to turn on "Use apps in chats": only while its settings stay as they were (B308).
+              "_chats": _chats_revision() if plan["consent"].get("turns_on_chats") else None}
     if record["server_id"] and plan["intent"] not in _DONE:
         record["_recipe"] = _recipe(record)
     command = {"command_id": plan_id, "type": "integrations.plan", "item_id": row["id"], "intent": plan["intent"], "digest": digest}
@@ -456,8 +461,9 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         prior = admissions.claim_command(ctx.owner_id, plan_id, command, _target(ctx, row["id"]), exclusive_target=True,
                                          initial_result={"command_id": plan_id, "status": "admitting", "plan": record})
     except admissions.AdmissionError as error:
-        if str(error) == "operation_pending" and (first := open_plan(ctx, row["id"])) is not None:
-            return first  # A second start while one runs (two clicks, two pages): the first one's progress (B309).
+        first = open_plan(ctx, row["id"]) if str(error) == "operation_pending" else None
+        if first is not None and (first["intent"], first["digest"]) == (plan["intent"], digest):
+            return first  # The same start twice (two clicks, two pages): the first one's progress (B309).
         raise PlanError(str(error)) from None
     if prior is not None:  # This exact plan already finished: report it, never run it again.
         return view(prior["plan"])
@@ -530,6 +536,12 @@ def read_plan(ctx: Context, plan_id: str) -> dict:
     """The plan's state, reconciled from owner receipts. Reading never sends a command."""
     with _plan_lock(plan_id):  # Observing never interleaves with this plan's runner, a cancel or another reader.
         found = _read(ctx, plan_id)
+    with _LOCK:
+        log = _LOGS.get(plan_id) if ctx.local_owner else None
+    if log is not None:
+        for step in found["steps"]:
+            if step["id"] == log[0]:
+                step["log"] = list(log[1])
     if found.get("state") in {"completed", "failed", "cancelled", "expired"}:
         with _LOCK:  # Nothing runs a finished plan again: its lock need not outlive it.
             if plan_id not in _RUNNING:
@@ -657,7 +669,12 @@ def _run(ctx: Context, record: dict) -> dict:
         else:
             message = getattr(error, "message", "") or _MESSAGES.get(code, "This step could not finish. Retry, or open its settings.")
             if step is not None:
-                step.update(state="failed", message=message[:512], **({"log": error.log} if getattr(error, "log", None) else {}))
+                step.update(state="failed", message=message[:512])
+                if getattr(error, "log", None):
+                    with _LOCK:
+                        _LOGS[plan_id] = (step["id"], error.log)
+                        while len(_LOGS) > 16:
+                            _LOGS.pop(next(iter(_LOGS)))
             record.update(state="cancelled" if code == "plan_cancelled" else "failed", pause=None, message=message[:512])
             _save(record, terminal=True)
     finally:
@@ -1208,6 +1225,11 @@ def _chats_on() -> bool:
     return read_native_mcp_state().saved_enabled is True
 
 
+def _chats_revision() -> str | None:
+    from row_bot.application.native_mcp_controls import read_native_mcp_state
+    return read_native_mcp_state().resource_revision
+
+
 def _chats(ctx: Context, record: dict) -> None:
     """Turn on "Use apps in chats", as the consent said: the same reviewed command as its switch."""
     from row_bot.application import native_mcp_controls as native
@@ -1363,7 +1385,7 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
         _policy(ctx, record, "enable:global", {"operation": "global_enabled", "enabled": True})
     if (record["intent"] != "settings" and record["target"] is None and "enable:chats" not in record["_commands"]
             and not _chats_on()):
-        if record["consent"].get("turns_on_chats"):
+        if record["consent"].get("turns_on_chats") and record.get("_chats") == _chats_revision():
             from row_bot.application.native_mcp_controls import NativeMcpError
             try:
                 _chats(ctx, record)

@@ -85,8 +85,12 @@ def test_mcp_langchain_wrappers_are_built_from_injected_catalog(monkeypatch) -> 
     ("append_insight", "Add a business insight to the memo", None, "mutation", False),
     ("save_purchase_orders", "Save purchase orders to the ledger", {"readOnlyHint": False}, "mutation", False),
     ("write_query", "Execute an INSERT, UPDATE, or DELETE query on the SQLite database", None, "mutation", True),
-    # 4. The description only when neither says; a read that admits it changes data still asks.
+    # 4. The description only when neither says; a read whose description says it changes anything asks.
     ("get_or_make_page", "Update the page, creating it when missing", None, "unknown", False),
+    ("query", "Execute any SQL statement against the database", None, "unknown", False),
+    ("query", "Execute a GraphQL query or mutation", None, "unknown", False),
+    ("lookup", "Look up an order and refund it", None, "unknown", False),
+    ("search", "Search issues and comment on them", None, "unknown", False),
     ("terminal", "Execute a shell command", None, "mutation", True),
     ("frobnicate", "Does a thing", None, "unknown", False),
 ])

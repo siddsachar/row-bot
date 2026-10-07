@@ -4,15 +4,21 @@
 name reads like a credential (``Authorization``, ``GITHUB_TOKEN``) moves into the keychain behind the
 server's ``api_key`` binding, and the server launches with exactly the header or variable it had. A
 keychain copy is read back before its plaintext is removed; if the keychain can't keep it, that server
-keeps its plaintext and the next start tries again. The keychain names a move will use are recorded
-before anything is written, so a move a crash interrupted is settled at the next start from what the
-settings file holds: a publication that began is finished, and copies of one that never landed are deleted.
+keeps its plaintext and the next start tries again. Copies of the old settings file that earlier saves
+kept for recovery are deleted once they hold no unfinished change, so the plaintext is gone everywhere.
+
+Only the keychain names a move will use, and later its publication proof, are recorded (never a value or
+the settings document), before anything is written. A move a crash interrupted is settled at the next
+start from what the settings file holds: a publication that began is finished, and the copies of one
+that never landed are deleted. No outcome leaves MCP settings waiting for a recovery.
 """
 from __future__ import annotations
 
 import contextlib
-import copy
+import json
 import logging
+import re
+import shutil
 import uuid
 from dataclasses import asdict
 
@@ -23,6 +29,8 @@ from row_bot.runtime import admissions
 
 logger = logging.getLogger(__name__)
 _OWNER, _TYPE, _TARGET = "mcp:secret-migration", "mcp.configuration.secret_migration", "settings:mcp"
+_BINDABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,127}")  # A name a binding can hold (auth.validate_metadata).
+_NOT_A_KEY = re.compile(r"\d+|true|false|yes|no", re.IGNORECASE)  # MAX_TOKENS=4096 is a setting, not a key.
 
 
 def _plaintext(name: str, cfg: dict) -> tuple[str, dict[str, str]]:
@@ -33,8 +41,9 @@ def _plaintext(name: str, cfg: dict) -> tuple[str, dict[str, str]]:
     stdio = config.normalize_server_config(name, cfg)["transport"] == "stdio"
     kind, field = ("env", "env") if stdio else ("header", "headers")
     values = cfg.get(field) if type(cfg.get(field)) is dict else {}
-    found = {key: value for key, value in values.items() if inputs.secretish(key)
-             and type(value) is str and value and len(value) <= 16384 and "\r" not in value and "\n" not in value}
+    found = {key: value for key, value in values.items()
+             if inputs.secretish(key) and _BINDABLE.fullmatch(key) and type(value) is str and value
+             and not _NOT_A_KEY.fullmatch(value) and len(value) <= 16384 and "\r" not in value and "\n" not in value}
     unique = len({inputs.key_of(key) for key in found}) == len(found)
     return (kind, found) if found and len(found) <= 16 and unique else ("", {})
 
@@ -47,8 +56,37 @@ def _forget(refs: list[str]) -> None:
             logger.warning("A keychain copy from an unfinished key move couldn't be deleted yet")
 
 
+def _values(ref: str) -> list[str]:
+    try:
+        return list(auth.read_credentials(ref).get("values", {}).values())
+    except Exception:
+        return []  # Never moved (or already deleted): nothing of it to look for.
+
+
+def _scrub(refs: list[str], command_id: str) -> None:
+    """Delete kept copies of the old settings file (this move's and earlier saves') that hold a moved key,
+    unless another unfinished change may still need them. Never fails the move: what it can't delete stays."""
+    needles = {form.encode() for ref in refs for value in _values(ref) for form in (value, json.dumps(value)[1:-1])}
+    root = config.CONFIG_PATH.parent / ".row-bot-edit-recovery"
+    try:
+        directories = sorted(root.iterdir()) if needles and root.is_dir() else []
+    except OSError:
+        directories = []
+    for directory in directories:
+        try:
+            if (directory.is_symlink() or not directory.is_dir()
+                    or (directory.name != command_id and admissions.unfinished(directory.name))):
+                continue
+            kept = [directory / name for name in ("previous", "candidate")]
+            if any(path.is_file() and not path.is_symlink() and path.stat().st_size <= config.SAVED_CONFIG_BYTE_LIMIT
+                   and any(needle in path.read_bytes() for needle in needles) for path in kept):
+                shutil.rmtree(directory)
+        except Exception:
+            logger.warning("A kept copy of the old MCP settings couldn't be checked or deleted")
+
+
 def _published(command_id: str) -> bool | None:
-    """Whether the settings file holds this move (None: the file is missing, so nothing is guessed)."""
+    """Whether the settings file holds this move (None: the file is missing)."""
     current = config.read_saved_configuration()
     if not current.exists:
         return None
@@ -60,18 +98,45 @@ def _settle() -> None:
     for row in admissions.read_unfinished_target_commands(_TARGET)["items"]:
         if row["owner_id"] != _OWNER:
             continue
-        move = (admissions.read_command_receipt(_OWNER, row["command_id"]) or {}).get("_migration") or {}
-        if move.get("publication"):
-            proof = FileEditRecovery(**move["publication"])
+        command_id = row["command_id"]
+        move = (admissions.read_command_receipt(_OWNER, command_id) or {}).get("_migration") or {}
+        refs, proof = move.get("refs", []), move.get("publication")
+        if proof:
+            candidate = config.CONFIG_PATH.parent / ".row-bot-edit-recovery" / command_id / "candidate"
             with contextlib.suppress(Exception):  # A conflict leaves the file as it is; what it holds decides.
-                config.publish_saved_configuration(move["document"], expected_digest=proof.before_digest,
-                    command_id=row["command_id"], persist_recovery=lambda _proof: None, recovery=proof)
-        published = _published(row["command_id"])
+                config.publish_saved_configuration(json.loads(candidate.read_bytes()),
+                    expected_digest=proof["before_digest"], command_id=command_id,
+                    persist_recovery=lambda _proof: None, recovery=FileEditRecovery(**proof))
+        published = _published(command_id)
         if published:
-            admissions.complete_command(_OWNER, row["key"], {"command_id": row["command_id"], "status": "completed"})
-        elif published is False:
-            _forget(move.get("refs", []))
-            admissions.reject_command(_OWNER, row["key"], "mcp_secret_migration_interrupted")
+            _scrub(refs, command_id)
+            admissions.complete_command(_OWNER, row["key"], {"command_id": command_id, "status": "completed"})
+            continue
+        if published is False or not proof:  # The old settings are in use: these copies are not.
+            _forget(refs)
+        else:
+            logger.warning("A key move found the MCP settings file missing; its kept copy stays for recovery")
+        admissions.reject_command(_OWNER, row["key"], "mcp_secret_migration_interrupted")
+
+
+def _move(servers: dict, name: str, kind: str, values: dict[str, str], ref: str) -> bool:
+    """Copy one server's keys to the keychain, read them back, then bind them in place of the plaintext."""
+    cfg = servers[name]
+    data = {"binding": auth.binding(name, config.normalize_server_config(name, cfg)),
+            "values": {inputs.key_of(key): value for key, value in values.items()}}
+    try:
+        auth.write_credentials(ref, data)
+        if auth.read_credentials(ref) != data:
+            raise ValueError("the keychain copy reads back differently")
+        metadata = auth.validate_metadata({"mode": "api_key", "credential_ref": ref, "binding": data["binding"],
+            "bindings": [{"kind": kind, "name": key, "key": inputs.key_of(key), "prefix": ""} for key in values]})
+    except Exception:
+        _forget([ref])
+        return False
+    field = "env" if kind == "env" else "headers"
+    cfg[field] = {key: value for key, value in cfg[field].items() if key not in values}
+    cfg["auth"] = metadata
+    return True
 
 
 def migrate() -> dict[str, int]:
@@ -81,7 +146,7 @@ def migrate() -> dict[str, int]:
         if config.configuration_recovery_required():
             return {"migrated": 0, "kept": 0}  # Another change awaits recovery: never publish over it.
         saved = config.read_saved_configuration()
-        document = copy.deepcopy(saved.document)
+        document = json.loads(json.dumps(saved.document))
         servers = document.get("servers") if type(document.get("servers")) is dict else {}
         found = {name: _plaintext(name, cfg) for name, cfg in servers.items() if type(cfg) is dict}
         found = {name: value for name, value in found.items() if value[1]}
@@ -91,46 +156,31 @@ def migrate() -> dict[str, int]:
         admissions.claim_command(_OWNER, command_id, {"command_id": command_id, "type": _TYPE,
             "expected_revision": saved.digest, "intent_digest": admissions.keyed_digest(sorted(refs.values()))}, _TARGET)
         progress = {"command_id": command_id, "status": "admitting", "_migration": {"refs": list(refs.values())}}
-        admissions.command_progress(_OWNER, command_id, progress)
-        moved = []
-        for name, (kind, values) in found.items():
-            cfg = servers[name]
-            data = {"binding": auth.binding(name, config.normalize_server_config(name, cfg)),
-                    "values": {inputs.key_of(key): value for key, value in values.items()}}
-            try:
-                auth.write_credentials(refs[name], data)
-                if auth.read_credentials(refs[name]) != data:
-                    raise ValueError("the keychain copy reads back differently")
-            except Exception:
-                _forget([refs[name]])
-                continue
-            field = "env" if kind == "env" else "headers"
-            cfg[field] = {key: value for key, value in cfg[field].items() if key not in values}
-            cfg["auth"] = auth.validate_metadata({"mode": "api_key", "credential_ref": refs[name],
-                "binding": data["binding"],
-                "bindings": [{"kind": kind, "name": key, "key": inputs.key_of(key), "prefix": ""} for key in values]})
-            moved.append(name)
-        if not moved:
-            admissions.reject_command(_OWNER, command_id, "mcp_keychain_unavailable")
-            return {"migrated": 0, "kept": len(found)}
-        document["_client_publication"] = {"owner_id": _OWNER, "key": command_id, "command_id": command_id}
-        progress["_migration"]["document"] = document
-
-        def checkpoint(proof: FileEditRecovery) -> None:
-            progress["_migration"]["publication"] = asdict(proof)
-            admissions.command_progress(_OWNER, command_id, progress)
-
         try:
+            admissions.command_progress(_OWNER, command_id, progress)
+            moved = [name for name, (kind, values) in found.items() if _move(servers, name, kind, values, refs[name])]
+            if not moved:
+                raise ValueError("the keychain kept none of them")
+            document["_client_publication"] = {"owner_id": _OWNER, "key": command_id, "command_id": command_id}
+
+            def checkpoint(proof: FileEditRecovery) -> None:
+                progress["_migration"]["publication"] = asdict(proof)
+                admissions.command_progress(_OWNER, command_id, progress)
+
             config.publish_saved_configuration(document, expected_digest=saved.digest, command_id=command_id,
                                                persist_recovery=checkpoint)
-        except Exception:
-            if "publication" not in progress["_migration"]:  # Nothing was published: the plaintext stays in use.
+        except Exception as error:
+            logger.warning("Moving app keys into the keychain stopped (%s)", type(error).__name__)
+            if "publication" in progress["_migration"]:
+                _settle()  # It began: finish it now, or settle it from what the file holds.
+                if not _published(command_id):
+                    raise
+                moved = [name for name in found if servers[name].get("auth")]
+            else:  # Nothing was published: the plaintext stays in use, and so do the old settings.
                 _forget(list(refs.values()))
                 admissions.reject_command(_OWNER, command_id, "mcp_secret_migration_failed")
-                raise
-            _settle()  # It began: finish it now, or settle it from what the file holds.
-            if not _published(command_id):
-                raise
+                return {"migrated": 0, "kept": len(found)}
         else:
+            _scrub([refs[name] for name in moved], command_id)
             admissions.complete_command(_OWNER, command_id, {"command_id": command_id, "status": "completed"})
     return {"migrated": len(moved), "kept": len(found) - len(moved)}

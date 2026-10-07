@@ -182,6 +182,10 @@ def test_a_second_start_while_one_runs_shows_the_first_instead_of_failing(item, 
     second = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"], background=True)
     assert (second["plan_id"], second["state"]) == (first, "running")
     assert len(queued) == 1 and owner.calls == []  # Nothing else was started.
+    other = plans.compute(facts.read(item), {"kind": "mcp", "reference": item}, intent="remove", cleanup=True)
+    with pytest.raises(plans.PlanError, match="operation_pending"):  # Another choice is never taken for the first.
+        plans.start(ctx(), facts.read(item), {"kind": "mcp", "reference": item}, digest=other["digest"],
+                    intent="remove", cleanup=True, background=True)
 
 
 @pytest.fixture
@@ -198,8 +202,11 @@ def chats(owner, tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "_global_config", {})
     monkeypatch.setattr(registry, "_invalidate_agent_cache", lambda: None)
 
-    def switch(on: bool) -> None:
-        tool_configuration.configuration_path().write_text(json.dumps({"tools": {"mcp": on}}), encoding="utf-8")
+    def switch(on: bool) -> None:  # As the switch saves it: each save names its own change.
+        change = str(uuid4())
+        publication = {"owner_id": "settings", "key": change, "command_id": change}
+        tool_configuration.configuration_path().write_text(json.dumps({"tools": {"mcp": on}, "_client_publication": publication}),
+                                                           encoding="utf-8")
         registry._enabled["mcp"] = on
     switch(False)
     return registry, switch
@@ -216,14 +223,16 @@ def test_connecting_an_app_lets_chats_use_it(item, owner, chats):
     assert "mcp_synthetic_get_record" in {tool.name for tool in registry.get_langchain_tools()}
 
 
-def test_a_chats_switch_turned_off_after_agreeing_stays_off_and_is_named(item, owner, chats):
+@pytest.mark.parametrize("on_at_consent", [True, False])
+def test_a_chats_switch_turned_off_after_agreeing_stays_off_and_is_named(item, owner, chats, on_at_consent):
     registry, switch = chats
-    switch(True)
+    switch(on_at_consent)
     _, plan = api.read_item(owner_id="owner", item_id=item)
-    assert plan["consent"]["turns_on_chats"] is False
+    assert plan["consent"]["turns_on_chats"] is not on_at_consent
     plan_id = str(uuid4())
     paused = api.start_plan(ctx(), plan_id=plan_id, item_id=item, digest=plan["digest"], preset="ask")
-    switch(False)  # The person turns it off meanwhile: connecting never overrides that.
+    switch(True)
+    switch(False)  # The person turns it off meanwhile (on, then off again): connecting never overrides that.
     access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
     done = plans.resume(ctx(tools_digest=access["tools_digest"]), plan_id)
     assert done["state"] == "completed" and "turn on Use apps in chats" in done["message"]
@@ -246,11 +255,16 @@ def test_a_server_that_fails_to_start_shows_what_it_wrote(item, owner, monkeypat
         raise RuntimeError("Connection closed")
     monkeypatch.setattr(mcp_runtime.McpServerRuntime, "_connect", fails)
     _, plan = api.read_item(owner_id="owner", item_id=item)
-    failed = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"])
+    plan_id = str(uuid4())
+    assert api.start_plan(ctx(), plan_id=plan_id, item_id=item, digest=plan["digest"])["state"] == "failed"
+    failed = plans.read_plan(ctx(), plan_id)  # Row-Bot on this computer.
     step = next(s for s in failed["steps"] if s["state"] == "failed")
     assert failed["state"] == "failed" and says in failed["message"]
     assert step["log"] == [line.replace("synthetic-secret", "\u2026") for line in wrote]
     assert "synthetic-secret" not in json.dumps(failed)
+    remote = plans.read_plan(plans.Context(owner_id="owner", mcp_owner_id="owner", validate=lambda: None), plan_id)
+    assert all("log" not in s for s in remote["steps"])  # Never to another device,
+    assert wrote[-1] not in json.dumps(plans._load("owner", plan_id)[0])  # and never kept in the plan's record.
 
 
 def test_a_paused_plan_expires_keeps_what_was_done_and_frees_the_item(item, owner, monkeypatch):
