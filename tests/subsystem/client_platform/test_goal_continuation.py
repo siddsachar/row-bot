@@ -490,3 +490,17 @@ def test_a_tool_call_being_written_shows_as_writing_activity(goal_setup):
             if event["type"] == "generation.activity" and event not in after]
     writing = [payload for payload in seen if payload["state"] == "writing"]
     assert writing and writing[0]["bytes"] == 12288 and "update" in writing[0]["tool"].lower()
+
+
+def test_a_goal_waiting_on_the_person_marks_its_conversation_as_needing_them(goal_setup):
+    """B315: Home's Needs you listed only "Finish setup" while a goal waited for the launch date."""
+    platform, verdicts = goal_setup
+    verdicts.append({"progress": "blocked", "reason": "Needs the launch date."})
+    fake = Recording(completed("Which launch date?"))
+    start(platform, fake, max_turns=5)
+    wait_idle(platform, fake, 1)
+
+    view = platform.get_conversation(CONVERSATION)
+    listed = next(item for item in platform.list_conversations()["items"] if item["id"] == CONVERSATION)
+    assert (view["activity_state"], view["activity_phase"]) == ("attention", "goal_needs_you")
+    assert (listed["activity_state"], listed["activity_phase"]) == ("attention", "goal_needs_you")

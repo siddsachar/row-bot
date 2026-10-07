@@ -432,11 +432,30 @@ class ClientPlatformService:
         except sqlite3.Error:
             return set()
 
+    @staticmethod
+    def _goals_waiting(conversation_ids: list[str]) -> set[str]:
+        """Conversations whose newest goal waits on the person ("Needs you"; B315)."""
+        if not conversation_ids:
+            return set()
+        from row_bot.tasks import _get_conn
+        placeholders = ",".join("?" for _ in conversation_ids)
+        try:
+            with closing(_get_conn()) as conn:
+                newest: dict[str, str] = {}
+                for thread_id, status in conn.execute(
+                        f"SELECT thread_id,status FROM thread_goals WHERE thread_id IN ({placeholders}) "
+                        "ORDER BY updated_at", conversation_ids):
+                    newest[str(thread_id)] = str(status)
+        except sqlite3.Error:
+            return set()
+        return {thread_id for thread_id, status in newest.items() if status == "blocked"}
+
     def get_conversation(
         self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None,
         parent_conversation_id: str | None = None,
         orchestration_activity: dict | None = None,
         awaiting_approval: bool | None = None,
+        goal_waiting: bool | None = None,
     ) -> dict:
         row = self._metadata(conversation_id)
         from row_bot import threads
@@ -454,6 +473,11 @@ class ClientPlatformService:
         if awaiting_approval:
             # Nothing urgent is hidden: a paused approval needs the user.
             orchestration_activity = {"state": "attention", "phase": "waiting_approval"}
+        else:
+            if goal_waiting is None:
+                goal_waiting = conversation_id in self._goals_waiting([conversation_id])
+            if goal_waiting and orchestration_activity.get("state") != "active":
+                orchestration_activity = {"state": "attention", "phase": "goal_needs_you"}
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
                 "updated_at": str(row.get("updated_at") or ""),
@@ -539,10 +563,12 @@ class ClientPlatformService:
         from row_bot.agent_orchestrator import get_thread_orchestration_activity
         activity = get_thread_orchestration_activity([row[0] for row in selected]) if selected else {}
         awaiting = self._awaiting_approval([row[0] for row in selected])
+        goals_waiting = self._goals_waiting([row[0] for row in selected])
         return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
                 parent_conversation_id=parent_ids.get(row[0], ""),
                 orchestration_activity=activity.get(row[0], {}),
-                awaiting_approval=row[0] in awaiting) for row in selected], "has_more": more,
+                awaiting_approval=row[0] in awaiting, goal_waiting=row[0] in goals_waiting)
+                for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:
