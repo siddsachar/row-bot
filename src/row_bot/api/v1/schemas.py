@@ -3541,6 +3541,11 @@ class DeveloperRepositoryCapability(WireModel):
     code: str | None = Field(max_length=128)
 
 
+class DeveloperPullRequestText(WireModel):
+    title: str = Field(max_length=200)
+    body: str = Field(max_length=8000)
+
+
 class DeveloperGitState(WireModel):
     state: Literal["ready", "plain_folder"]
     is_git: bool
@@ -3553,6 +3558,7 @@ class DeveloperGitState(WireModel):
     branches: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
         default_factory=list, max_length=50
     )
+    pull_request: DeveloperPullRequestText | None = None
 
 
 class DeveloperWorktreeState(WireModel):

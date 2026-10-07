@@ -320,7 +320,6 @@ function WorkspaceSurface({
                   session={repositorySession}
                   changedFiles={git.changedFiles}
                   commitSuggestion={git.commitSuggestion}
-                  pullRequestSuggestion={git.pullRequestSuggestion}
                   revisionKey={`${refreshToken}:${git.revision}`}
                   onChanged={bump}
                   load={(signal) =>

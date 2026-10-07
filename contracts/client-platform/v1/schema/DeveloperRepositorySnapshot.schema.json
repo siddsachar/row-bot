@@ -33,6 +33,17 @@
           "title": "Is Root",
           "type": "boolean"
         },
+        "pull_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeveloperPullRequestText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "remote_configured": {
           "title": "Remote Configured",
           "type": "boolean"
@@ -62,6 +73,27 @@
         "tracking_summary"
       ],
       "title": "DeveloperGitState",
+      "type": "object"
+    },
+    "DeveloperPullRequestText": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 8000,
+          "title": "Body",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ],
+      "title": "DeveloperPullRequestText",
       "type": "object"
     },
     "DeveloperRepositoryCapability": {

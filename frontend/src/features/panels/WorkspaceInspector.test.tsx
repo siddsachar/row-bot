@@ -683,7 +683,6 @@ describe('Developer inspector', () => {
       changedFiles: [{ path: 'file-1.txt', status: 'M' }],
     });
     expect(context.commitSuggestion?.subject).toBe('Update file-1.txt');
-    expect(context.pullRequestSuggestion?.body).toContain('First changes');
   });
 
   it('lists detected checks and folder processes without running anything', async () => {

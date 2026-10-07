@@ -145,3 +145,58 @@ def create_worktree(path: str, parent_folder: str, branch_name: str) -> pathlib.
         raise FileExistsError(f"Worktree target already exists: {target}")
     _run_git(source, ["worktree", "add", "-b", branch, str(target)])
     return target
+
+
+@dataclass(frozen=True)
+class BranchChanges:
+    base: str
+    commits: tuple[str, ...]
+    files: tuple[str, ...]
+
+
+def branch_changes(path: str, *, max_commits: int = 20, max_files: int = 100) -> BranchChanges | None:
+    """What the current branch adds to its base branch: commit subjects (oldest first) and changed files.
+
+    The base is the remote's default branch, else a local main or master. None when there is no base or the
+    current branch is the base. No external diff drivers or text conversions run."""
+    folder = pathlib.Path(path).expanduser()
+    try:
+        branch = _run_git(folder, ["branch", "--show-current"])
+        candidates = []
+        try:
+            candidates.append(_run_git(folder, ["rev-parse", "--abbrev-ref", "origin/HEAD"]))
+        except subprocess.CalledProcessError:
+            pass
+        candidates += ["main", "master", "origin/main", "origin/master"]
+        base = ""
+        for candidate in candidates:
+            try:
+                _run_git(folder, ["rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}"])
+                base = candidate
+                break
+            except subprocess.CalledProcessError:
+                continue
+        if not base or not branch or base.split("/", 1)[-1] == branch:
+            return None
+        commits = _run_git(folder, ["log", "--reverse", "--no-merges", f"--max-count={max_commits}",
+                                    "--format=%s", f"{base}..HEAD"])
+        files = _run_git(folder, ["diff", "--name-only", "--no-ext-diff", "--no-textconv", f"{base}...HEAD"])
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+        return None
+    return BranchChanges(base, tuple(line for line in commits.splitlines() if line.strip()),
+                         tuple(line for line in files.splitlines() if line.strip())[:max_files])
+
+
+def pull_request_text(branch: str, changes: BranchChanges | None) -> dict[str, str] | None:
+    """A pull request title and body from what the branch adds to its base (B301); None when it adds nothing."""
+    if changes is None or not changes.commits:
+        return None
+    if len(changes.commits) == 1:
+        title = changes.commits[0]
+    else:
+        words = re.sub(r"^(?:feat|feature|fix|bugfix|hotfix|chore|docs|refactor)/", "", branch, flags=re.I)
+        words = re.sub(r"[-_]+", " ", words).strip()
+        title = words[:1].upper() + words[1:] if words else changes.commits[-1]
+    body = ["## Summary", "", *(f"- {subject}" for subject in changes.commits), "", "## Changed files", "",
+            *(f"- `{name}`" for name in changes.files)]
+    return {"title": title[:200], "body": "\n".join(body)[:8000]}

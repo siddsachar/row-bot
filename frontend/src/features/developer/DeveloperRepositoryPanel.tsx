@@ -72,6 +72,8 @@ export type DeveloperRepositorySnapshot = {
     tracking_summary: string;
     /** Local branches, most recent first (newer servers). */
     branches?: string[];
+    /** Suggested pull request text from the branch's commits and files (B301). */
+    pull_request?: { title: string; body: string } | null;
   };
   worktrees: {
     worktree_id: string;
@@ -259,7 +261,6 @@ export type DeveloperRepositoryPanelProps = {
   /** Changed files the commit can include (from the inspector). */
   changedFiles?: { path: string; status: string }[];
   commitSuggestion?: Suggestion | null;
-  pullRequestSuggestion?: Suggestion | null;
   /** Re-read the repository when this changes (the inspector refreshed). */
   revisionKey?: string;
   /** Called after a confirmed change so the inspector can re-read. */
@@ -953,12 +954,13 @@ export default function DeveloperRepositoryPanel(
                   <IconButton
                     size="sm"
                     label="Suggest pull request text"
-                    disabled={locked || !props.pullRequestSuggestion}
+                    disabled={locked || !repo.pull_request}
                     onClick={() => {
-                      const suggestion = props.pullRequestSuggestion;
+                      // From the branch's commits and files against its base (B301).
+                      const suggestion = repo.pull_request;
                       if (suggestion)
                         patchDrafts({
-                          pullTitle: suggestion.subject,
+                          pullTitle: suggestion.title,
                           pullBody: suggestion.body,
                         });
                     }}

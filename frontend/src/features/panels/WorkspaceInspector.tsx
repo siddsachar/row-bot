@@ -55,11 +55,7 @@ import {
 import CodeView from '../developer/CodeView';
 import DiffView, { type DiffMode } from '../developer/DiffView';
 import { parseTracking } from '../developer/git-status';
-import {
-  suggestCommit,
-  suggestPullRequest,
-  type Suggestion,
-} from '../developer/commit-suggestion';
+import { suggestCommit, type Suggestion } from '../developer/commit-suggestion';
 import type { DeveloperRepositorySnapshot } from '../developer/DeveloperRepositoryPanel';
 import type { WorkspaceProcessInfo } from './WorkspaceProcesses';
 
@@ -86,7 +82,6 @@ export type GitContext = {
   branch: string;
   changedFiles: { path: string; status: string }[];
   commitSuggestion: Suggestion | null;
-  pullRequestSuggestion: Suggestion | null;
 };
 
 export type WorkspaceInspectorProps = {
@@ -630,11 +625,6 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         status: item.status,
       })),
       commitSuggestion: suggestCommit(changedItems, suggestionSets),
-      pullRequestSuggestion: suggestPullRequest(
-        changedItems,
-        suggestionSets,
-        current?.branch ?? '',
-      ),
     }),
     // changedItems derives from `changed`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
