@@ -31,12 +31,14 @@ CLIENT_METADATA_URL = "https://row-bot.ai/oauth/client-metadata.json"
 _DOCUMENT_PORTS = (None, 80, 8080)  # The loopback redirects that document lists exactly (8080: Row-Bot's own port).
 
 
-def names_itself_by_document(callback_uri: str) -> bool:
-    """Whether a sign-in may name Row-Bot by its client ID metadata document: its callback is one the published
-    document lists exactly. On another port (8080 was taken) a server that registers clients records the exact
-    address instead, since not every server accepts any port on a loopback address as RFC 8252 asks."""
+def document_redirect(callback_uri: str) -> str:
+    """How Row-Bot's client ID metadata document covers a sign-in's callback: "listed" (an address it lists
+    exactly), "loopback" (127.0.0.1 on another port, as when 8080 was taken: only its portless entry covers it,
+    and RFC 8252 asks a server to accept any port there, which not every server does), or "" (not at all)."""
     parts = urlsplit(callback_uri)
-    return parts.hostname == "127.0.0.1" and parts.port in _DOCUMENT_PORTS and parts.path == CALLBACK_PATH
+    if parts.hostname != "127.0.0.1" or parts.path != CALLBACK_PATH:
+        return ""
+    return "listed" if parts.port in _DOCUMENT_PORTS else "loopback"
 CALLBACK_PATH = "/api/v1/settings/mcp/auth/callback"
 _REF = re.compile(r"[a-f0-9]{32}")
 _LIMIT = 64 * 1024

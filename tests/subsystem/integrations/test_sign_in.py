@@ -140,24 +140,21 @@ def test_a_401_at_test_turns_sign_in_on_and_cimd_is_preferred_over_registration(
     assert auth.read_credentials(saved["auth"]["credential_ref"])["tokens"]["access_token"] == "synthetic-access-token"
 
 
-@pytest.mark.parametrize(("dcr", "method"), [(True, "oauth_dcr"), (False, "oauth_client")])
-def test_on_another_port_a_server_registers_row_bot_or_asks_for_your_own_app(hosted, dcr, method):
-    """8080 was taken: the published document lists only Row-Bot's own port, and not every server accepts
-    another port on a loopback address, so Row-Bot registers its exact address or asks for your own app."""
+@pytest.mark.parametrize(("dcr", "client"), [(True, "registered-client"), (False, auth.CLIENT_METADATA_URL)])
+def test_on_another_port_a_server_registers_row_bot_or_takes_the_documents_loopback_entry(hosted, dcr, client):
+    """8080 was taken: the published document lists only Row-Bot's own port exactly, so a server that registers
+    clients records Row-Bot's exact address; one that only takes the document gets its portless loopback entry
+    (RFC 8252), never a request for the person's own OAuth app."""
     server = hosted(cimd=True, dcr=dcr)
     elsewhere = "http://127.0.0.1:8766" + auth.CALLBACK_PATH
     _, plan = api.read_item(owner_id="owner", item_id=item_id())
     plan_id = str(uuid4())
-    paused = api.start_plan(context(elsewhere), plan_id=plan_id, item_id=item_id(), digest=plan["digest"])
-    if not dcr:
-        assert paused["pause"] == "inputs"
-        assert next(s for s in paused["steps"] if s["type"] == "sign_in")["sign_in"]["method"] == method
-        return
+    assert api.start_plan(context(elsewhere), plan_id=plan_id, item_id=item_id(), digest=plan["digest"])["pause"] == "sign_in"
     step = next(s for s in until_waiting(plan_id)["steps"] if s["type"] == "sign_in")
-    assert step["sign_in"]["method"] == method
+    assert step["sign_in"]["method"] == ("oauth_dcr" if dcr else "oauth_cimd")
     query = approve(until_waiting(plan_id))
-    assert query["client_id"] == ["registered-client"] and query["redirect_uri"] == [elsewhere]
-    assert any(str(r.url).startswith(ISSUER + "/register") for r in server.seen)
+    assert query["client_id"] == [client] and query["redirect_uri"] == [elsewhere]
+    assert any(str(r.url).startswith(ISSUER + "/register") for r in server.seen) == dcr
 
 
 def test_a_server_that_never_asks_keeps_sign_in_skipped(hosted):
@@ -224,9 +221,10 @@ def test_the_published_client_metadata_names_itself_and_only_this_computer():
     assert document["client_id"] == auth.CLIENT_METADATA_URL == "https://row-bot.ai/oauth/client-metadata.json"
     assert urlsplit(document["client_id"]).path.endswith(path.relative_to(path.parents[1]).as_posix())
     assert document["token_endpoint_auth_method"] == "none" and document["application_type"] == "native"
-    # Row-Bot names itself by the document exactly where the document lists the address it signs in at.
-    assert all(auth.names_itself_by_document(uri) for uri in document["redirect_uris"])
-    assert not auth.names_itself_by_document("http://127.0.0.1:8766" + auth.CALLBACK_PATH)
+    # Row-Bot treats as listed exactly the addresses the document lists; another port has only its loopback entry.
+    assert {auth.document_redirect(uri) for uri in document["redirect_uris"]} == {"listed"}
+    assert auth.document_redirect("http://127.0.0.1:8766" + auth.CALLBACK_PATH) == "loopback"
+    assert auth.document_redirect("http://localhost:8080" + auth.CALLBACK_PATH) == ""
     assert not {"client_secret", "client_secret_expires_at", "jwks", "jwks_uri"} & set(document)
     for uri in document["redirect_uris"]:
         parts = urlsplit(uri)

@@ -40,6 +40,7 @@ class Flow:
     oauth_state: str = ""
     code: str = ""
     callback_used: bool = False
+    document: bool = False  # Name Row-Bot by its client ID metadata document (the plan's choice).
     ref: str = field(default_factory=lambda: uuid4().hex)
 
     def active_authority(self) -> None:
@@ -166,8 +167,7 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
             raise auth.McpAuthError("mcp_auth_denied")
         return flow.code, flow.oauth_state
     provider = auth.oauth_provider(url, flow.callback_uri, storage, redirect=redirect, callback=callback,
-                                   client_metadata_url=auth.CLIENT_METADATA_URL
-                                   if not client and auth.names_itself_by_document(flow.callback_uri) else None,
+                                   client_metadata_url=auth.CLIENT_METADATA_URL if not client and flow.document else None,
                                    scope=str((flow.cfg.get("source") or {}).get("oauth_scope") or ""))
     import httpx
     async with httpx.AsyncClient(auth=provider, timeout=30, follow_redirects=False, trust_env=False, transport=auth.PublicTransport()) as client_http:
@@ -209,7 +209,7 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
 
 def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuration_revision: str,
         action: str, mode: str = "oauth", label: str = "", bindings: list | None = None,
-        values: dict | None = None, client: dict | None = None, redirect_uri: str = "",
+        values: dict | None = None, client: dict | None = None, redirect_uri: str = "", metadata_document: bool = False,
         validate: Callable[[], None] = lambda: None, validate_review: Callable[[dict], None] = lambda review: None,
         target: dict | None = None) -> dict:
     validate()
@@ -217,7 +217,7 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
     intent = {"server_id": server_id, "configuration_revision": configuration_revision, "action": action,
         "mode": mode, "label": label, "bindings": bindings or [], "target": target}
     wire = {"command_id": command_id, "type": "mcp.auth." + action, **intent,
-        "input_digest": admissions.keyed_digest([values, client, redirect_uri])}
+        "input_digest": admissions.keyed_digest([values, client, redirect_uri, metadata_document])}
     existing = admissions.read_command_metadata(owner_id, command_id)
     if existing:
         try:
@@ -233,7 +233,8 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
     validate_review(review)
     config.require_configuration_write_available(target=target)
     saved, name, cfg = _server(server_id, target)
-    flow = Flow(owner_id, command_id, server_id, name, target, configuration_revision, cfg, redirect_uri, validate)
+    flow = Flow(owner_id, command_id, server_id, name, target, configuration_revision, cfg, redirect_uri, validate,
+                document=metadata_document)
     admissions.claim_command(owner_id, command_id, wire, targets.admission_target(target), exclusive_target=True,
         initial_result={"command_id": command_id, "server_id": server_id, "state": "starting",
             "_mcp_auth": {"target": flow.target, "server_id": server_id, "credential_ref": flow.ref}})

@@ -1044,7 +1044,8 @@ def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
     _save(record)
     result = execute_auth(owner_id=ctx.owner_id, command_id=record["_auth"], server_id=record["server_id"],
         configuration_revision=revision, action="start", mode="oauth", label=record["name"], redirect_uri=ctx.redirect_uri,
-        client=client, validate=ctx.validate, validate_review=_bound(review), target=record["target"])
+        client=client, metadata_document=step["sign_in"].get("method") == "oauth_cimd", validate=ctx.validate,
+        validate_review=_bound(review), target=record["target"])
     step["sign_in"]["authorization_url"] = result.get("authorization_url")
     return "sign_in"
 
@@ -1073,7 +1074,10 @@ def _sign_in_client(ctx: Context, record: dict, step: dict) -> dict | None | boo
         except auth.McpAuthError:
             found = {"required": True}  # Unreachable now; the SDK's own discovery reports it when signing in.
     loopback = urlsplit(ctx.redirect_uri).hostname in {"127.0.0.1", "localhost", "::1"}
-    document = bool(found and found.get("cimd")) and auth.names_itself_by_document(ctx.redirect_uri)
+    # The document where it lists this exact address; on another port, a server that registers clients records the
+    # exact address instead, and one that only takes the document gets its portless loopback entry.
+    covered = auth.document_redirect(ctx.redirect_uri)
+    document = bool(found and found.get("cimd")) and (covered == "listed" or covered == "loopback" and not found.get("dcr"))
     own = source.get("oauth_client") == "required" or bool(found and found.get("metadata") is not None and not found.get("dcr")
                                                            and not document)
     if not own:
