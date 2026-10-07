@@ -1719,3 +1719,22 @@ def test_v2_parent_wake_rebinds_exact_designer_project_and_rejects_drift(
     )
     with pytest.raises(orchestrator.OrchestrationError, match="binding changed"):
         orchestrator._bind_recorded_parent_resources(orchestration, config)
+
+
+def test_optional_helpers_finishing_tell_buddy_the_agent_work_is_done(tmp_path, monkeypatch):
+    """B302: Buddy kept saying "Agents working" after every helper had finished."""
+    _tasks, agent_runs, orchestrator = _fresh_modules(tmp_path, monkeypatch)
+    from row_bot.buddy import events as buddy_events
+
+    emitted: list[str] = []
+    monkeypatch.setattr(buddy_events, "emit_buddy_event",
+                        lambda event_type, **_kwargs: emitted.append(event_type.value))
+    orchestration = _orchestration(orchestrator)
+    helper = _run(agent_runs, "helper")
+    orchestrator.register_member(orchestration["id"], helper["id"], required=False)
+    emitted.clear()
+
+    agent_runs.finish_agent_run(helper["id"], "completed", summary="Helper result")
+
+    assert orchestrator.get_orchestration(orchestration["id"])["status"] == "completed"
+    assert buddy_events.BuddyEventType.ORCHESTRATION_DONE.value in emitted
