@@ -112,6 +112,8 @@ export function nodeSize(node: KnowledgeGraphNode) {
 
 // ForceAtlas2's node matrix: x and y lead each node's ten values.
 const NODE_VALUES = 10;
+// A graph this small labels every memory; a larger one labels by room and on focus (F9).
+const LABEL_EVERY = 25;
 
 /** The x, y pairs of a ForceAtlas2 node matrix. */
 function positions(matrix: Float32Array) {
@@ -589,7 +591,8 @@ const KnowledgeGraphCanvas = forwardRef<
               return {
                 ...data,
                 color,
-                forceLabel: Boolean(data.user),
+                forceLabel:
+                  Boolean(data.user) || visibleRef.current.size <= LABEL_EVERY,
               };
             const near = neighbours.current.get(focus);
             if (node === focus)

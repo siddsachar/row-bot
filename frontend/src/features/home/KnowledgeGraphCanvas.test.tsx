@@ -523,6 +523,37 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
     expect(graph.getNodeAttribute('alpha', 'size')).toBeCloseTo(4.5);
   });
 
+  it('labels by room once more than 25 memories show, the user always', async () => {
+    const many = [
+      ...nodes,
+      ...Array.from({ length: 23 }, (_, index) => node(`extra-${index}`)),
+    ];
+    const { sigma, rerender, props } = await renderCanvas({
+      nodes: many,
+      visible: new Set(many.map((item) => item.id)),
+    });
+    const { graph, settings } = sigma;
+    const data = (key: string) => graph.getNodeAttributes(key);
+
+    expect(settings.nodeReducer('alpha', data('alpha'))).toMatchObject({
+      forceLabel: false,
+    });
+    expect(settings.nodeReducer('user', data('user'))).toMatchObject({
+      forceLabel: true,
+    });
+
+    // Filtered down to 25: every one is labelled again.
+    rerender(
+      <KnowledgeGraphCanvas
+        {...props}
+        visible={new Set(many.slice(1).map((item) => item.id))}
+      />,
+    );
+    expect(settings.nodeReducer('alpha', data('alpha'))).toMatchObject({
+      forceLabel: true,
+    });
+  });
+
   it('hides filtered memories in place and highlights the chosen neighbourhood', async () => {
     const { sigma, rerender, props } = await renderCanvas();
     const { graph, settings } = sigma;
@@ -532,13 +563,14 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
     const data = (key: string) => graph.getNodeAttributes(key);
     const theme = { fact: '#3987E5', canvas: '#0B0E13', accent: '#78B8F2' };
 
-    // Nothing chosen: every visible memory keeps its colour; the user is labelled.
+    // Nothing chosen: every visible memory keeps its colour; a graph this
+    // small labels every memory.
     expect(settings.nodeReducer('user', data('user'))).toMatchObject({
       forceLabel: true,
     });
     expect(settings.nodeReducer('alpha', data('alpha'))).toMatchObject({
       color: theme.fact,
-      forceLabel: false,
+      forceLabel: true,
     });
 
     // Hidden by a filter: the memory and its links disappear but stay put.
