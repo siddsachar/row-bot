@@ -8,6 +8,7 @@ import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
 import FolderSetupCard from './FolderSetupCard';
 import { WaitingSince } from './InPlaceApproval';
+import { readPendingApprovalsNow } from './pending-approvals';
 import {
   approvalAction,
   approvalQuestion,
@@ -193,6 +194,7 @@ export default function ApprovalCard({
       setResolution(
         decision === 'approve' ? 'Approval submitted.' : 'Denial submitted.',
       );
+      readPendingApprovalsNow(controller.pendingApprovals);
       onResolved?.();
     } catch (cause) {
       setError(clientError(cause).message);

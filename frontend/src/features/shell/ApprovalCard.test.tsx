@@ -7,12 +7,14 @@ import {
 } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import ApprovalCard from './ApprovalCard';
+import { usePendingApprovals } from './pending-approvals';
 
 const approval = vi.fn();
 const intent = vi.fn();
+const pendingApprovals = vi.fn();
 const open = vi.fn();
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: { approval, intent } }),
+  useRuntime: () => ({ controller: { approval, intent, pendingApprovals } }),
 }));
 vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({ open, notify: vi.fn(), close: vi.fn() }),
@@ -166,4 +168,18 @@ it('keeps the tool off with Not now', async () => {
   expect(await screen.findByRole('status')).toHaveTextContent(
     'Developer tools stays off.',
   );
+});
+
+it('re-reads the waiting approvals at once after an answer (B302)', async () => {
+  pendingApprovals.mockResolvedValue({ items: [], next_cursor: null });
+  function Sidebar() {
+    const { page } = usePendingApprovals(pendingApprovals);
+    return <p>{page ? `${page.items.length} waiting` : 'reading'}</p>;
+  }
+  render(<Sidebar />);
+  await waitFor(() => expect(pendingApprovals).toHaveBeenCalledTimes(1));
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  expect(await screen.findByText('Approval submitted.')).toBeVisible();
+  expect(pendingApprovals).toHaveBeenCalledTimes(2);
 });
