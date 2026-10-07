@@ -4964,6 +4964,20 @@ def create_router(
         )
         return await respond(request, dto.ProfileDetail, result)
 
+    @router.get("/settings/profiles/items/{profile_id}/instructions")
+    async def profile_instructions(profile_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        from row_bot.application.client_goal_profile_commands import (
+            read_profile_instructions,
+        )
+
+        result = await call(
+            read_profile_instructions,
+            profile_id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.ProfileInstructions, result)
+
     @router.post("/settings/profiles/review")
     async def profile_review(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")

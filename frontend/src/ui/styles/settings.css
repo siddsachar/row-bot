@@ -2393,6 +2393,27 @@
   flex: none;
   white-space: nowrap;
 }
+/* A profile's saved instructions, shown on request (F15). */
+.profile-instructions-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+.profile-instructions-text {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--code-background);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .settings-page-content section[aria-label='Goals and Agent Profiles'],
 .settings-page-content section[aria-label='Goal settings'],
 .settings-page-content section[aria-label='Agent Profiles'],

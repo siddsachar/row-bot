@@ -3474,6 +3474,16 @@ class ProfileDetail(WireModel):
     profile: ProfileSummary
 
 
+class ProfileInstructions(WireModel):
+    """A profile's stored instructions, read only when the person asks to see them (F15)."""
+
+    schema_version: Literal[1]
+    profile_id: str = Field(min_length=1, max_length=256)
+    revision: str = Field(pattern=r"^[1-9][0-9]{0,19}$")
+    instructions: str = Field(max_length=49152)
+    truncated: bool
+
+
 class ProfileFields(WireModel):
     slug: str = Field(min_length=2, max_length=64, pattern=r"^[a-z][a-z0-9_-]{1,63}$")
     display_name: str = Field(min_length=1, max_length=160)

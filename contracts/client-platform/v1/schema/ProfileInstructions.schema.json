@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "description": "A profile's stored instructions, read only when the person asks to see them (F15).",
+  "properties": {
+    "instructions": {
+      "maxLength": 49152,
+      "title": "Instructions",
+      "type": "string"
+    },
+    "profile_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[1-9][0-9]{0,19}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile_id",
+    "revision",
+    "instructions",
+    "truncated"
+  ],
+  "title": "ProfileInstructions",
+  "type": "object"
+}

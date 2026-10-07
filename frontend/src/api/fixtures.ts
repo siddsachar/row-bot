@@ -576,6 +576,23 @@ export class FixtureTransport implements ClientTransport {
       },
     };
   }
+  async profileInstructions(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<wire.ProfileInstructions> {
+    this.available(signal);
+    const profile = this.profilesData.find((item) => item.id === id);
+    if (!profile) throw { code: 'not_found', status: 404 };
+    return {
+      schema_version: 1,
+      profile_id: id,
+      revision: profile.revision,
+      instructions: profile.instructions_truncated
+        ? `Instructions for ${profile.display_name}.`
+        : '',
+      truncated: false,
+    };
+  }
   async reviewProfile(
     body: wire.ProfileCommandPayload,
     signal?: AbortSignal,
