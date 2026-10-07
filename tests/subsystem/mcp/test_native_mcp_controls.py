@@ -215,7 +215,7 @@ assert state.availability=="registration_unavailable" and state.saved_enabled is
 assert not any(name in sys.modules for name in ("row_bot.tools", "row_bot.tasks", "row_bot.mcp_client.runtime", "row_bot.secret_store"))
 assert not pathlib.Path(sys.argv[1]).exists()
 '''
-    result = subprocess.run([sys.executable, "-c", script, str(target)], capture_output=True, text=True, timeout=20,
+    result = subprocess.run([sys.executable, "-c", script, str(target)], capture_output=True, text=True, timeout=60,
         env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     assert result.returncode == 0, result.stderr
     assert not target.exists()

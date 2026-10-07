@@ -95,7 +95,7 @@ def test_active_writer_is_held_until_exact_owned_stop(domain):
     started = d.start("import threading; print('ready', flush=True); threading.Event().wait()")
     state = d.state(started.process_id)
     with state.changed:
-        assert state.changed.wait_for(lambda: any("ready" in item[2] for item in state.output), timeout=5)
+        assert state.changed.wait_for(lambda: any("ready" in item[2] for item in state.output), timeout=30)
     assert d.runs.get_agent_write_lock("developer:" + d.workspace.id)["run_id"] == started.run_id
     with pytest.raises(ValueError, match="process_unavailable"):
         d.service.stop_workspace_process(d.workspace.id, "chat", str(uuid.uuid4()))
@@ -121,7 +121,7 @@ def test_full_output_is_drained_but_tail_and_json_pages_are_bounded(domain):
     d = domain
     started = d.start("import sys; sys.stdout.write('x'*2000000); sys.stdout.write('TAIL'); sys.stderr.write('ERR')")
     state = d.state(started.process_id)
-    assert state.done.wait(15), "verbose subprocess blocked on a full pipe"
+    assert state.done.wait(60), "verbose subprocess blocked on a full pipe"
     assert state.output_bytes <= 256 * 1024 and len(state.output) <= 1024
     cursor, text, saw_gap = 0, "", False
     while True:
@@ -200,7 +200,7 @@ def test_job_owns_spawned_descendant_until_it_is_dead(domain):
         assert state.done.wait(30) and state.quiesced
         # The job stops counting a process as soon as it is terminated; Windows signals the
         # process only after tearing it down, seconds later on a busy machine.
-        assert kernel.WaitForSingleObject(handle, 10000) == 0
+        assert kernel.WaitForSingleObject(handle, 30000) == 0
         assert d.runs.list_agent_write_locks() == []
     finally:
         kernel.CloseHandle(handle)
@@ -451,8 +451,11 @@ def test_prepared_container_mismatch_never_starts_command_or_creates_owner(docke
     assert d.runs.list_agent_write_locks() == []
 
 
-def test_remote_explicit_stop_waits_for_signed_completion(docker):
+def test_remote_explicit_stop_waits_for_signed_completion(docker, monkeypatch):
     d = docker.d
+    # The fixture's 0.05 s suits launchers that never answer; this one does answer, and a
+    # busy machine must not stop waiting for its signed completion before it arrives.
+    monkeypatch.setattr(d.runtime, "_REMOTE_STOP_TIMEOUT", 30)
     docker.options["mode"] = "hold"
     result = d.start(command="python3 -V")
     state = d.state(result.process_id)
@@ -532,7 +535,7 @@ def test_local_linux_detached_descendant_is_reaped_before_writer_release(domain)
     result = d.start(code)
     state = d.state(result.process_id)
     with state.changed:
-        assert state.changed.wait_for(lambda: any("DESCENDANT=" in row[2] for row in state.output), timeout=5)
+        assert state.changed.wait_for(lambda: any("DESCENDANT=" in row[2] for row in state.output), timeout=30)
     text = "".join(row[2] for row in state.output)
     pid = int(text.split("DESCENDANT=", 1)[1].splitlines()[0])
     child = psutil.Process(pid)

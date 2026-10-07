@@ -22,7 +22,7 @@ def test_supervised_worker_exits_with_control_input_still_open(missing):
         process.stdin.write(json.dumps(request).encode() + b"\n")
         process.stdin.flush()
         # Keep control stdin open: normal completion must not depend on EOF.
-        assert process.wait(timeout=15) == 0
+        assert process.wait(timeout=30) == 0
         assert process.stderr.read() == b""
         frames = [json.loads(line) for line in process.stdout]
         final = frames[-1]

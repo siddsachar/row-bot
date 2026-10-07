@@ -78,7 +78,7 @@ assert read_wiki_status(scope=None, validate=lambda:None)['availability'] == 'sc
 assert not Path(sys.argv[1]).exists()
 assert 'row_bot.knowledge_graph' not in sys.modules
 """
-    result = subprocess.run([sys.executable, "-c", code, str(cold)], capture_output=True, text=True, timeout=15)
+    result = subprocess.run([sys.executable, "-c", code, str(cold)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
 
 

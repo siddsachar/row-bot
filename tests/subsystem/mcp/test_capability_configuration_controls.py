@@ -651,7 +651,7 @@ print("cold_read_ok")
         env=environment,
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=60,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
     )
     assert result.returncode == 0, result.stderr

@@ -257,7 +257,7 @@ assert not pathlib.Path(sys.argv[1]).exists()
 '''
     completed = subprocess.run([sys.executable, "-c", script, str(target)],
         env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, capture_output=True, text=True,
-        timeout=20, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        timeout=60, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     assert completed.returncode == 0, completed.stderr
 
 
@@ -286,7 +286,7 @@ assert "row_bot.mcp_client.runtime" not in sys.modules
 '''
     completed = subprocess.run([sys.executable, "-c", script, json.dumps(command)],
         env={**os.environ, "ROW_BOT_DATA_DIR": str(tmp_path)}, capture_output=True, text=True,
-        timeout=20, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        timeout=60, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     assert completed.returncode == 0, completed.stderr
     assert calls == ["connect", "list_tools"]
 

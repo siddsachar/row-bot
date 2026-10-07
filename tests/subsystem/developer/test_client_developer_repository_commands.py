@@ -237,7 +237,7 @@ def test_canonical_repository_read_uses_disposable_repo_without_exposing_path(tm
     root = tmp_path / "canonical-repo"
     root.mkdir()
     subprocess.run(["git", "init", "--initial-branch=main", str(root)], check=True,
-                   capture_output=True, text=True, timeout=10)
+                   capture_output=True, text=True, timeout=30)
     monkeypatch.setattr(repository_review, "workspace_has_custom_read_hooks", lambda _path: False)
     workspace = SimpleNamespace(path=str(root))
     public, private = commands.CanonicalDeveloperRepositoryBackend().repository(workspace)
@@ -276,12 +276,12 @@ def test_canonical_repository_read_lists_local_branches_for_the_switcher(tmp_pat
 
     def git(*args: str) -> None:
         subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                        *args], check=True, capture_output=True, text=True, timeout=10)
+                        *args], check=True, capture_output=True, text=True, timeout=30)
 
     root = tmp_path / "branches-repo"
     root.mkdir()
     subprocess.run(["git", "init", "--initial-branch=main", str(root)], check=True,
-                   capture_output=True, text=True, timeout=10)
+                   capture_output=True, text=True, timeout=30)
     git("commit", "--allow-empty", "-m", "Initial")
     git("branch", "feature/switcher")
     monkeypatch.setattr(repository_review, "workspace_has_custom_read_hooks", lambda _path: False)

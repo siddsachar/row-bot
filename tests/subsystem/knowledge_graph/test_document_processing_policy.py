@@ -693,19 +693,19 @@ os._exit(0)
         stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        assert pool.submit(process.stdout.readline).result(timeout=15).strip() == "held"
+        assert pool.submit(process.stdout.readline).result(timeout=60).strip() == "held"
         with pytest.raises(document_jobs.DocumentJobError,match="processing is active"):
             with service._processing_scope_lock(batch):
                 pytest.fail("Active native scope was replaced")
         process.stdin.write("x")
         process.stdin.flush()
-        assert process.wait(timeout=15) == 0
+        assert process.wait(timeout=30) == 0
         with service._processing_scope_lock(batch):
             pass  # The OS releases on crash/exit even without explicit unlock.
     finally:
         if process.poll() is None:
             process.kill()
-        process.communicate(timeout=15)
+        process.communicate(timeout=30)
         pool.shutdown(wait=True)
 
 

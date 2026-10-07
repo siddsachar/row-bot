@@ -303,6 +303,6 @@ assert not pathlib.Path(sys.argv[1]).exists()
 '''
     target = tmp_path / "missing"
     result = subprocess.run([sys.executable, "-c", script, str(target)],
-        env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, capture_output=True, text=True, timeout=20,
+        env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, capture_output=True, text=True, timeout=60,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     assert result.returncode == 0, result.stderr

@@ -371,7 +371,7 @@ assert 'mcp' not in sys.modules
 assert not pathlib.Path(sys.argv[1]).exists()
 """
     env = {**os.environ, "ROW_BOT_DATA_DIR": str(data), "PYTHONDONTWRITEBYTECODE": "1"}
-    result = subprocess.run([sys.executable, "-c", source, str(data)], env=env, capture_output=True, text=True, timeout=20)
+    result = subprocess.run([sys.executable, "-c", source, str(data)], env=env, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
 
 

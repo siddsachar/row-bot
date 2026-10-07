@@ -358,7 +358,7 @@ def _worker_interpreter() -> str:
 def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
         process_id: str | None = None, metadata: dict[str, str] | None = None,
         on_quiesced: Callable[[TrackedProcess], None] | None = None,
-        validate: Callable[[], None] | None = None, startup_timeout: float = 5,
+        validate: Callable[[], None] | None = None, startup_timeout: float = 15,
         bootstrap_argv: list[str] | None = None, request_fields: dict | None = None,
         verify_receipt: Callable[[dict], dict] | None = None,
         on_owner: Callable[[TrackedProcess], None] | None = None) -> TrackedProcess:

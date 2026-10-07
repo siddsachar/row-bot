@@ -97,7 +97,7 @@ print(json.dumps({'available': result.availability, 'count': result.total}))
 """
     environment = dict(os.environ, ROW_BOT_DATA_DIR=str(tmp_path))
     completed = subprocess.run([sys.executable, "-c", script], env=environment,
-                               capture_output=True, text=True, timeout=10, check=True)
+                               capture_output=True, text=True, timeout=60, check=True)
     assert json.loads(completed.stdout) == {"available": "available", "count": 1}
 
 

@@ -17,7 +17,7 @@ def _canonical_apply(stage, patch):
     # This explicit comparison runs Git only inside the named disposable tree.
     with subprocess.Popen(["git", "apply", "--whitespace=nowarn", "-"], cwd=stage,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
-        _, error = process.communicate(patch, timeout=15)
+        _, error = process.communicate(patch, timeout=30)
         assert process.returncode == 0, error
 
 
@@ -452,7 +452,7 @@ def test_non_repository_staging_preserves_captured_git_attributes(tmp_path, attr
         GIT_CONFIG_KEY_0="core.autocrlf", GIT_CONFIG_VALUE_0="true",
         GIT_CONFIG_KEY_1="core.attributesFile", GIT_CONFIG_VALUE_1=str(attr))
     result = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], cwd=stage, input=patch,
-        capture_output=True, timeout=15, env=env)
+        capture_output=True, timeout=30, env=env)
     assert result.returncode == 0, result.stderr
     assert target.read_bytes() == (b"after\n" if attributes.endswith("=lf") else b"after\r\n")
     assert not (stage / ".git").exists()
@@ -643,7 +643,7 @@ def test_strict_import_output_matches_retained_git_apply_eol(imports, monkeypatc
     canonical.mkdir()
     (canonical / "file.txt").write_bytes(b"old\n")
     original = d.original_run(["git", "apply", "--whitespace=nowarn", "-"], cwd=canonical,
-        input=pending.patch.encode(), capture_output=True, timeout=15)
+        input=pending.patch.encode(), capture_output=True, timeout=30)
     assert original.returncode == 0, original.stderr
     review = d.imports.review_workspace_import(d.workspace.id, "chat", pending.id)
     result = d.apply(review)

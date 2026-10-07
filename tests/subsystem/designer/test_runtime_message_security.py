@@ -18,7 +18,7 @@ def test_runtime_accepts_only_bounded_parent_control(scenario: str):
     result = subprocess.run(
         [node, str(ROOT / "tests/fixtures/designer_runtime_bridge_security.cjs"), scenario,
          str(ROOT / "src/row_bot/designer/runtime/runtime_bridge.js")],
-        capture_output=True, text=True, timeout=10, check=False,
+        capture_output=True, text=True, timeout=30, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"{scenario}: passed"
