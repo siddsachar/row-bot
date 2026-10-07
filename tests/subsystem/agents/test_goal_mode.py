@@ -498,3 +498,17 @@ def test_only_a_goal_waiting_on_the_person_resumes_when_they_write(tmp_path, rel
     assert goals.resume_goal_for_answer("paused") is None
     assert goals.get_goal(paused["id"])["status"] == "paused"
     assert goals.get_goal(blocked["id"])["status"] == "active"
+
+
+def test_an_agent_that_stops_to_wait_for_the_person_shows_needs_you(tmp_path, monkeypatch):
+    """B316: in demo 5 the agent's own goal_update said "paused" while it waited for the launch date."""
+    threads, _agent_runs, goals, _slash, _commands, goal_tool = _fresh_goal_modules(tmp_path, monkeypatch)
+    thread_id = threads.create_thread("Launch")
+    goal = goals.start_goal(thread_id, "Draft the launch post")
+
+    payload = json.loads(goal_tool._goal_update(thread_id=thread_id, status="paused",
+                                                next_step="Ask which launch date to use and wait for the answer."))
+
+    assert payload["ok"] is True
+    assert goals.get_goal(goal["id"])["status"] == "blocked"
+    assert goals.resume_goal_for_answer(thread_id)["status"] == "active"
