@@ -9773,6 +9773,7 @@ def create_router(
                 "safe_argument_summary",
                 "requesting_trace_id",
                 "setup",
+                "repeatable",
                 "policy_revision",
             )
             if k in view
