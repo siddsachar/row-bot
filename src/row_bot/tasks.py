@@ -1509,6 +1509,16 @@ def _canonicalize_workflow_model_override(value: str | None) -> str | None:
     return canonical.ref or None
 
 
+def _approval_detail(intr: dict) -> str:
+    """One step's approval in words, as the chat's approval card reads; never a dump of its arguments (B312)."""
+    tool_name = intr.get("tool", "unknown tool")
+    if isinstance(intr.get("args"), dict) and intr["args"]:
+        from row_bot.approval_messages import plain_tool_call
+
+        return plain_tool_call(tool_name, intr["args"], label=str(intr.get("label") or ""))
+    return intr.get("description", "") or f"Tool '{tool_name}' needs approval"
+
+
 def _canonicalize_agent_profile_reference(value: str | None) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -4142,12 +4152,7 @@ def run_task_background(
                 config["configurable"]["tool_allowlist"] = tool_allowlist
 
             def _format_interrupt_details(interrupts: list[dict]) -> list[str]:
-                details = []
-                for intr in interrupts:
-                    tool_name = intr.get("tool", "unknown tool")
-                    desc = intr.get("description", "")
-                    details.append(desc or f"Tool '{tool_name}' needs approval")
-                return details
+                return [_approval_detail(intr) for intr in interrupts]
 
             def _create_graph_interrupt_approval(step_id: str, approval_msg: str) -> tuple[str, str]:
                 return create_approval_request(
@@ -7054,11 +7059,7 @@ def _resume_graph_interrupted(
                 # Fall through to success path
             else:
                 # Approve mode — create a new approval request
-                details = []
-                for intr in interrupts:
-                    tool_name = intr.get("tool", "unknown tool")
-                    desc = intr.get("description", "")
-                    details.append(desc or f"Tool '{tool_name}' needs approval")
+                details = [_approval_detail(intr) for intr in interrupts]
                 approval_msg = (
                     f"Step {paused_step_index + 1}/{total}: "
                     + "; ".join(details)

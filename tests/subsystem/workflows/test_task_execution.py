@@ -909,3 +909,24 @@ def test_a_chained_interrupt_on_a_scheduled_run_follows_the_current_mode(tmp_pat
     else:  # Block refuses and Allow-all approves; neither asks
         assert resumed == [True, second]
         assert pending == []
+
+
+def test_a_workflow_approval_names_the_action_in_words(runtime, monkeypatch):
+    """B312: the run drawer read "Step 2/3: mcp_riverside_shop_save_purchase_orders orders=[{'lines': [...". """
+    import sys
+    fake = sys.modules["row_bot.agent"]
+    orders = [{"supplier": "Northloom Apparel", "lines": [{"sku": "TOTE", "qty": 66}]}, {"supplier": "Kiln"},
+              {"supplier": "Fig & Wick"}]
+
+    def invoke(prompt, tools, config, stop_event=None):
+        return {"type": "interrupt", "interrupts": [{
+            "tool": "mcp_riverside_shop_save_purchase_orders",
+            "description": f"mcp_riverside_shop_save_purchase_orders orders={orders!r}",
+            "args": {"orders": orders}}]}
+
+    monkeypatch.setattr(fake, "invoke_agent", invoke)
+    runtime[0].update_task(runtime[3], prompts=["Draft purchase orders"], safety_mode="approve")
+    assert start(runtime).run.status == "paused"
+
+    card = execution.list_task_approvals(runtime[3], "reviewed-run").items[0]
+    assert card.message == "Step 1/1: Save purchase orders (riverside shop): 3 orders"

@@ -194,3 +194,40 @@ def compact_message(payload: Mapping[str, Any] | None, *, max_chars: int = 420) 
 
 def channel_message(payload: Mapping[str, Any] | None, *, max_chars: int = 420) -> str:
     return compact_message(payload, max_chars=max_chars)
+
+
+def plain_tool_call(tool: str, args: object, *, label: str = "", max_chars: int = 220) -> str:
+    """A tool call in words for an approval message, never a Python dump of its arguments (B312).
+
+    "mcp_riverside_shop_save_purchase_orders" with three orders reads "Save purchase orders
+    (riverside shop): 3 orders"."""
+    name = str(tool or "").strip()
+    words = str(label or "").strip()
+    if not words or words == name:
+        server = ""
+        if name.startswith("mcp_"):
+            server, _, name = name[4:].partition("_") if "_" in name[4:] else ("", "", name[4:])
+        words = name.replace("_", " ").strip().capitalize() or "Run a tool"
+        if server:
+            # The server's name can itself contain "_"; keep the last verb phrase readable.
+            parts = name.split("_")
+            for split in range(1, len(parts)):
+                if parts[split] in {"save", "get", "list", "create", "update", "delete", "send", "read", "add",
+                                    "remove", "set", "run", "post", "write"}:
+                    server = "_".join([server, *parts[:split]])
+                    words = " ".join(parts[split:]).capitalize()
+                    break
+            words = f"{words} ({server.replace('_', ' ')})"
+    details = []
+    if isinstance(args, Mapping):
+        for key, value in list(args.items())[:3]:
+            key_words = str(key).replace("_", " ")
+            if isinstance(value, (list, tuple)):
+                details.append(f"{len(value)} {key_words}")
+            elif isinstance(value, Mapping):
+                details.append(key_words)
+            elif value not in (None, ""):
+                details.append(f"{key_words} {_truncate(_redact(value), 40)}")
+        if len(args) > 3:
+            details.append("…")
+    return _truncate(f"{words}: {', '.join(details)}" if details else words, max_chars)
