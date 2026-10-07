@@ -27,8 +27,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import pathlib
+import re
 import shutil
 import sqlite3
 import threading
@@ -1536,6 +1538,90 @@ def _canonicalize_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
     return steps
 
 
+CONDITION_SYNTAX = (
+    "contains:<text>, not_contains:<text>, equals:<text>, matches:<regex>, gt:/lt:/gte:/lte:<number>, "
+    "length_gt:/length_lt:<count>, empty, not_empty, true, false, json:<path>:<condition>, "
+    "llm:<a yes/no question about the previous output>, and:[<condition>, ...], or:[<condition>, ...]"
+)
+_CONDITION_LITERALS = {"true", "false", "empty", "not_empty"}
+_CONDITION_OPERATORS = {"contains", "not_contains", "equals", "llm", "matches", "gt", "lt", "gte", "lte",
+                        "length_gt", "length_lt", "json", "and", "or"}
+_REQUIRED_STEP_TEXT = {"prompt": "prompt", "condition": "condition", "approval": "message", "notify": "message",
+                       "delegate_agent": "objective", "subtask": "task_id"}
+
+
+class ConditionSyntaxError(ValueError):
+    """A workflow condition that can't be read."""
+
+
+def check_condition(value: str, depth: int = 0) -> None:
+    """Check a condition's syntax without evaluating it; raises ConditionSyntaxError."""
+    if depth > 16:
+        raise ConditionSyntaxError(value)
+    if value in _CONDITION_LITERALS:
+        return
+    operator, separator, argument = value.partition(":")
+    if not separator or operator not in _CONDITION_OPERATORS:
+        raise ConditionSyntaxError(value)
+    if operator == "matches":
+        try:
+            re.compile(argument)
+        except re.error as error:
+            raise ConditionSyntaxError(value) from error
+    elif operator in {"gt", "lt", "gte", "lte", "length_gt", "length_lt"}:
+        try:
+            number = int(argument) if operator.startswith("length_") else float(argument)
+        except ValueError as error:
+            raise ConditionSyntaxError(value) from error
+        if not math.isfinite(number):
+            raise ConditionSyntaxError(value)
+    elif operator == "json":
+        path, separator, child = argument.partition(":")
+        if not separator or not path:
+            raise ConditionSyntaxError(value)
+        check_condition(child, depth + 1)
+    elif operator in {"and", "or"}:
+        if not (argument.startswith("[") and argument.endswith("]")):
+            raise ConditionSyntaxError(value)
+        children = _split_compound(argument[1:-1])
+        if not children or len(children) > 100:
+            raise ConditionSyntaxError(value)
+        for child in children:
+            check_condition(child, depth + 1)
+
+
+def validate_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
+    """Refuse steps that can't run as written, before they are saved (B311, B314).
+
+    A step without its text (an empty prompt sends a blank message) is refused. A condition written in plain
+    words, with no operator, becomes an ``llm:`` question; a condition with an operator must parse."""
+    if not steps:
+        return steps
+    for number, step in enumerate(steps, start=1):
+        if not isinstance(step, dict):
+            continue
+        kind = str(step.get("type") or "prompt")
+        field = _REQUIRED_STEP_TEXT.get(kind)
+        if field and not str(step.get(field) or "").strip():
+            hint = " To tell the person something, use a notify step with a message." if kind == "prompt" else ""
+            raise ValueError(f"Step {number} ({kind}) needs a {field}.{hint}")
+        if kind != "condition":
+            continue
+        condition = str(step["condition"]).strip()
+        operator = condition.partition(":")[0]
+        if condition not in _CONDITION_LITERALS and operator not in _CONDITION_OPERATORS:
+            step["condition"] = f"llm:{condition}"
+            continue
+        try:
+            check_condition(condition)
+        except ConditionSyntaxError:
+            raise ValueError(
+                f"Step {number}'s condition can't be read: {condition!r}. Supported: {CONDITION_SYNTAX}."
+            ) from None
+        step["condition"] = condition
+    return steps
+
+
 def _workflow_model_failure_message(model_ref: str | None, exc: Exception) -> str:
     selected_ref = str(model_ref or "").strip()
     details = {
@@ -1681,6 +1767,7 @@ def create_task(
         raise ValueError(
             "Only one of schedule, at, or delay_minutes may be set."
         )
+    validate_workflow_steps(steps)
 
     # ── delay_minutes → at conversion ────────────────────────────────
     if delay_minutes is not None:
@@ -2106,6 +2193,8 @@ def update_task(
         # The reviewed editor does not run legacy profile conversion or graph
         # rewrites before CAS. Existing unreviewed callers retain their API.
         raise TaskMutationError("task_review_unsupported_fields", task_id)
+    if isinstance(kwargs.get("steps"), list):
+        validate_workflow_steps(kwargs["steps"])
 
     # ── Validate delivery if either field is being changed ───────────
     if {"tools_override", "skills_override"} & set(kwargs):
@@ -7564,8 +7653,7 @@ def evaluate_condition(expr: str, context: dict) -> bool:
         try:
             return bool(_re.search(pattern, prev))
         except _re.error:
-            logger.warning("Invalid regex in condition: %s", pattern)
-            return False
+            raise _unreadable_condition(expr) from None
 
     # ── Numeric comparisons ──────────────────────────────────────────
     _numeric_ops = {"gt:": ">", "lt:": "<", "gte:": ">=", "lte:": "<="}
@@ -7576,8 +7664,7 @@ def evaluate_condition(expr: str, context: dict) -> bool:
             try:
                 threshold_val = float(threshold)
             except ValueError:
-                logger.warning("Invalid number in condition: %s", threshold)
-                return False
+                raise _unreadable_condition(expr) from None
             # Extract first number from prev_output
             match = _re.search(r"-?\d+\.?\d*", prev)
             if not match:
@@ -7620,8 +7707,12 @@ def evaluate_condition(expr: str, context: dict) -> bool:
         sub_exprs = _split_compound(expr[len("or:["):-1])
         return any(evaluate_condition(s, context) for s in sub_exprs)
 
-    logger.warning("Unknown condition expression: %s", expr)
-    return False
+    raise _unreadable_condition(expr)
+
+
+def _unreadable_condition(expr: str) -> ConditionSyntaxError:
+    """A condition that can't be read fails its step; it never quietly counts as false (B311)."""
+    return ConditionSyntaxError(f"The workflow condition {expr!r} can't be read. Supported: {CONDITION_SYNTAX}.")
 
 
 def _split_compound(inner: str) -> list[str]:

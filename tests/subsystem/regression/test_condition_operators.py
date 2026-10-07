@@ -24,18 +24,19 @@ def test_condition_operator_matrix(tmp_path, monkeypatch) -> None:
     assert evaluate("equals:hello", {"prev_output": "hello"}) is True
     assert evaluate("equals:Hello", {"prev_output": "hello"}) is False
     assert evaluate(r"matches:#\d+", {"prev_output": "Order #12345"}) is True
-    assert evaluate(r"matches:[invalid", {"prev_output": "Order #12345"}) is False
 
     numeric_context = {"prev_output": "Score: 75 points"}
     assert evaluate("gt:50", numeric_context) is True
     assert evaluate("lt:80", numeric_context) is True
     assert evaluate("gte:75", numeric_context) is True
     assert evaluate("lte:75", numeric_context) is True
-    assert evaluate("gt:abc", numeric_context) is False
     assert evaluate("gt:50", {"prev_output": "no numbers"}) is False
     assert evaluate("length_gt:3", {"prev_output": "hello"}) is True
     assert evaluate("length_lt:10", {"prev_output": "hello"}) is True
-    assert evaluate("unknown_op:val", {"prev_output": ""}) is False
+    # An unreadable condition fails its step rather than quietly counting as false (B311).
+    for unreadable in (r"matches:[invalid", "gt:abc", "unknown_op:val"):
+        with pytest.raises(tasks.ConditionSyntaxError, match="can't be read"):
+            evaluate(unreadable, numeric_context)
 
 
 def test_json_and_compound_conditions(tmp_path, monkeypatch) -> None:
