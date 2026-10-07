@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from row_bot.providers.catalog import model_info_from_metadata
@@ -50,12 +51,12 @@ def is_ollama_tool_capable(model_id: str) -> bool:
     return normalize_ollama_family(model_id) in TOOL_CAPABLE_FAMILIES
 
 
-def _native_ollama_tool_capability(metadata: dict[str, Any]) -> bool | None:
+def ollama_runtime_capabilities(metadata: Mapping[str, Any]) -> frozenset[str] | None:
+    """What Ollama's /api/show says a model does ("tools", "vision", "thinking"), or None when it didn't say (F12)."""
     capabilities = metadata.get("capabilities")
     if not isinstance(capabilities, (list, tuple, set, frozenset)):
         return None
-    normalized = {str(value).strip().lower() for value in capabilities}
-    return "tools" in normalized
+    return frozenset(str(value).strip().lower() for value in capabilities)
 
 
 def is_ollama_reasoning_model(model_id: str) -> bool:
@@ -189,14 +190,18 @@ def ollama_model_info(
     source: str = "ollama_catalog",
 ) -> ModelInfo:
     metadata = dict(metadata or {})
+    # The runtime's own answer comes first; family lists only cover an Ollama that didn't say (F12).
+    runtime = ollama_runtime_capabilities(metadata)
     if not isinstance(metadata.get("tool_calling"), bool):
-        native_tool_capability = _native_ollama_tool_capability(metadata)
-        metadata["tool_calling"] = (
-            native_tool_capability
-            if native_tool_capability is not None
-            else is_ollama_tool_capable(model_id)
-        )
-    metadata.setdefault("vision", is_ollama_vision_capable(model_id) or _metadata_suggests_vision(metadata))
+        metadata["tool_calling"] = "tools" in runtime if runtime is not None else is_ollama_tool_capable(model_id)
+    if runtime is not None:
+        metadata.setdefault("vision", "vision" in runtime)
+        if "thinking" in runtime and not isinstance(metadata.get("reasoning"), Mapping):
+            from row_bot.providers.reasoning import ollama_thinking_capabilities
+
+            metadata["reasoning"] = ollama_thinking_capabilities(model_id, source="ollama_show").to_json()
+    if "vision" not in metadata and (is_ollama_vision_capable(model_id) or _metadata_suggests_vision(metadata)):
+        metadata["vision"] = True  # unreported: a guess that adds vision, never one that removes it
     if not is_ollama_chat_candidate(model_id):
         metadata.setdefault("embedding", True)
     metadata.setdefault("installed", installed)

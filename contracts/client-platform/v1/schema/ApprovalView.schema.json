@@ -117,6 +117,11 @@
       "title": "Reason",
       "type": "string"
     },
+    "repeatable": {
+      "default": false,
+      "title": "Repeatable",
+      "type": "boolean"
+    },
     "requested_at": {
       "anyOf": [
         {

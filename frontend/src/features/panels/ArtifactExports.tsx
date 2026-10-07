@@ -9,6 +9,7 @@ import {
 } from '../../ui/primitives';
 
 import type { ArtifactExport, ArtifactSavedExport } from '../../api/types';
+import { AppLink } from '../../ui/app-link';
 
 export type ArtifactExportResult = ArtifactExport;
 export type ArtifactExportOptions = {
@@ -74,8 +75,10 @@ function failure(reason: unknown) {
             ? 'Export storage is full. Existing copies are preserved; review local export recovery before retrying.'
             : code === 'export_storage_unavailable'
               ? "The Exports folder can't be used. Check the workspace folder in Settings › System, then export again."
-              : 'The export could not be completed. Any partial local copy is retained; no complete download is available for this attempt.';
-  return { denied, text };
+              : code === 'export_runtime_missing'
+                ? 'Exports need Browser Automation. Install it in Settings › System, then export again.'
+                : 'The export could not be completed. Any partial local copy is retained; no complete download is available for this attempt.';
+  return { denied, text, needsBrowser: code === 'export_runtime_missing' };
 }
 
 export default function ArtifactExports(props: ArtifactExportsProps) {
@@ -88,6 +91,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
   const [saved, setSaved] = useState<ArtifactSavedExport | null>(null);
   const [working, setWorking] = useState<ArtifactExportOptions['format']>();
   const [error, setError] = useState('');
+  const [needsBrowser, setNeedsBrowser] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const operation = useRef<symbol | null>(null);
@@ -118,6 +122,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       if (scope.current.resourceId !== resourceId) return;
       const issue = failure(reason);
       setError(issue.text);
+      setNeedsBrowser(issue.needsBrowser);
       if (issue.denied) {
         setResult(null);
         setSaved(null);
@@ -199,73 +204,90 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       aria-label="Design export"
       aria-busy={busy}
     >
-      <p>Pick a format to export the saved design.</p>
-      <div className="export-formats" role="group" aria-label="Export format">
-        {FORMATS.map((item) => (
-          <Button
-            key={item.format}
-            aria-label={`Export as ${item.label}`}
-            disabled={
-              busy ||
-              props.updating ||
-              props.pageCount < 1 ||
-              (pages === 'range' && !range.trim())
-            }
-            onClick={() => exportAs(item.format)}
-          >
-            {working === item.format ? 'Exporting…' : item.label}
-          </Button>
-        ))}
-      </div>
-      <Disclosure summary="Options">
-        <div className="stack">
-          <Field label="Export pages">
-            <Select
-              aria-label="Export pages"
-              value={pages}
-              disabled={busy}
-              onChange={(event) => setPages(event.target.value)}
-            >
-              <option value="all">All pages</option>
-              <option value="current">Current page</option>
-              <option value="range">Page range</option>
-            </Select>
-          </Field>
-          {pages === 'range' && (
-            <Field label="Page range">
-              <Input
-                aria-label="Page range"
-                placeholder="1-3 or 1,3,5"
-                value={range}
-                maxLength={256}
-                disabled={busy}
-                onChange={(event) => setRange(event.target.value)}
-              />
-            </Field>
-          )}
-          <Field label="PowerPoint slides">
-            <Select
-              aria-label="PPTX mode"
-              value={pptxMode}
-              disabled={busy}
-              onChange={(event) =>
-                setPptxMode(event.target.value as 'screenshot' | 'structured')
+      {!copy && <p>Pick a format to export the saved design.</p>}
+      {!copy && (
+        <div className="export-formats" role="group" aria-label="Export format">
+          {FORMATS.map((item) => (
+            <Button
+              key={item.format}
+              aria-label={`Export as ${item.label}`}
+              disabled={
+                busy ||
+                props.updating ||
+                props.pageCount < 1 ||
+                (pages === 'range' && !range.trim())
               }
+              onClick={() => exportAs(item.format)}
             >
-              <option value="screenshot">High fidelity (pictures)</option>
-              <option value="structured">Editable text and shapes</option>
-            </Select>
-          </Field>
-          <p className="muted">
-            {props.pageCount} {props.pageCount === 1 ? 'page' : 'pages'} · PNG
-            of several pages comes as a ZIP.
-          </p>
+              {working === item.format ? 'Exporting…' : item.label}
+            </Button>
+          ))}
         </div>
-      </Disclosure>
+      )}
+      {!copy && (
+        <Disclosure summary="Options">
+          <div className="stack">
+            <Field label="Export pages">
+              <Select
+                aria-label="Export pages"
+                value={pages}
+                disabled={busy}
+                onChange={(event) => setPages(event.target.value)}
+              >
+                <option value="all">All pages</option>
+                <option value="current">Current page</option>
+                <option value="range">Page range</option>
+              </Select>
+            </Field>
+            {pages === 'range' && (
+              <Field label="Page range">
+                <Input
+                  aria-label="Page range"
+                  placeholder="1-3 or 1,3,5"
+                  value={range}
+                  maxLength={256}
+                  disabled={busy}
+                  onChange={(event) => setRange(event.target.value)}
+                />
+              </Field>
+            )}
+            <Field label="PowerPoint slides">
+              <Select
+                aria-label="PPTX mode"
+                value={pptxMode}
+                disabled={busy}
+                onChange={(event) =>
+                  setPptxMode(event.target.value as 'screenshot' | 'structured')
+                }
+              >
+                <option value="screenshot">High fidelity (pictures)</option>
+                <option value="structured">Editable text and shapes</option>
+              </Select>
+            </Field>
+            <p className="muted">
+              {props.pageCount} {props.pageCount === 1 ? 'page' : 'pages'} · PNG
+              of several pages comes as a ZIP.
+            </p>
+          </div>
+        </Disclosure>
+      )}
       {props.updating && !busy && (
         <p className="muted">Waiting for the saved version…</p>
       )}
-      {error && <ErrorState title="Export unavailable">{error}</ErrorState>}
+      {error && (
+        <ErrorState
+          title="Export unavailable"
+          action={
+            needsBrowser ? (
+              <AppLink to="/settings/system#browser.install">
+                Set up Browser Automation
+              </AppLink>
+            ) : undefined
+          }
+        >
+          {error}
+        </ErrorState>
+      )}
       {current && (
         <div className="export-result" role="status">
           {copy ? (
@@ -299,6 +321,18 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
                 </Button>
                 <Button disabled={busy} onClick={() => reveal('show')}>
                   Show in folder
+                </Button>
+                {/* Once the file is saved the panel keeps only this line (F17). */}
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setResult(null);
+                    setSaved(null);
+                    setNotice('');
+                  }}
+                >
+                  Export again
                 </Button>
               </>
             ) : (

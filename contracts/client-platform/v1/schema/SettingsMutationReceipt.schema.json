@@ -1213,6 +1213,10 @@
     "SettingsShellSnapshot": {
       "additionalProperties": false,
       "properties": {
+        "allow_data_folder": {
+          "title": "Allow Data Folder",
+          "type": "boolean"
+        },
         "available": {
           "title": "Available",
           "type": "boolean"
@@ -1237,7 +1241,8 @@
       "required": [
         "available",
         "enabled",
-        "blocked_patterns"
+        "blocked_patterns",
+        "allow_data_folder"
       ],
       "title": "SettingsShellSnapshot",
       "type": "object"

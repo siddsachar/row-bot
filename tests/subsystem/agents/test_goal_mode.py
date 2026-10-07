@@ -4,6 +4,10 @@ import importlib
 import json
 import sys
 
+import pytest
+
+from tests.fixtures.goals import goal_modules, judge
+
 
 def _fresh_goal_modules(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
@@ -391,29 +395,14 @@ def test_saved_goals_keep_their_turn_limits_after_the_upgrade(tmp_path, reload_f
     assert goals.start_goal("other", "Started after the upgrade")["max_turns"] == 0
 
 
-def _goal_modules(tmp_path, reload_for_data_dir):
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    _tasks, _runs, goals = reload_for_data_dir(
-        data_dir, "row_bot.tasks", "row_bot.agent_runs", "row_bot.goals"
-    )
-    return goals
-
-
-def _judge(goals, thread: str, turn: int, **verdict):
-    return goals.after_turn(
-        thread_id=thread, turn_id=f"turn-{turn}", verifier=lambda _goal, _context: verdict
-    )
-
-
 def test_two_turns_without_progress_pause_the_goal_with_the_reason(tmp_path, reload_for_data_dir):
     """B244: pause when a goal stops making progress, not after N turns."""
-    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goals = goal_modules(tmp_path, reload_for_data_dir)
     goal = goals.start_goal("thread", "Find the flaky test")
 
-    first = _judge(goals, "thread", 1, progress="no_progress", reason="Re-read the same log.")
+    first = judge(goals, "thread", 1, progress="no_progress", reason="Re-read the same log.")
     assert first.should_continue
-    second = _judge(goals, "thread", 2, progress="no_progress", reason="Still reading the same log.")
+    second = judge(goals, "thread", 2, progress="no_progress", reason="Still reading the same log.")
 
     assert not second.should_continue
     paused = goals.get_goal(goal["id"])
@@ -422,27 +411,27 @@ def test_two_turns_without_progress_pause_the_goal_with_the_reason(tmp_path, rel
 
 
 def test_progress_resets_the_no_progress_count_and_resume_starts_it_again(tmp_path, reload_for_data_dir):
-    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goals = goal_modules(tmp_path, reload_for_data_dir)
     goal = goals.start_goal("thread", "Find the flaky test")
 
-    assert _judge(goals, "thread", 1, progress="no_progress", reason="Nothing new.").should_continue
-    assert _judge(goals, "thread", 2, progress="progress", reason="Found the seed.").should_continue
-    assert _judge(goals, "thread", 3, progress="no_progress", reason="Nothing new.").should_continue
-    assert not _judge(goals, "thread", 4, progress="no_progress", reason="Nothing new.").should_continue
+    assert judge(goals, "thread", 1, progress="no_progress", reason="Nothing new.").should_continue
+    assert judge(goals, "thread", 2, progress="progress", reason="Found the seed.").should_continue
+    assert judge(goals, "thread", 3, progress="no_progress", reason="Nothing new.").should_continue
+    assert not judge(goals, "thread", 4, progress="no_progress", reason="Nothing new.").should_continue
 
     goals.resume_goal("thread")
-    assert _judge(goals, "thread", 5, progress="no_progress", reason="Nothing new.").should_continue
+    assert judge(goals, "thread", 5, progress="no_progress", reason="Nothing new.").should_continue
     assert goals.get_goal(goal["id"])["status"] == "active"
 
 
 def test_the_same_failing_step_three_times_pauses_the_goal(tmp_path, reload_for_data_dir):
-    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goals = goal_modules(tmp_path, reload_for_data_dir)
     goal = goals.start_goal("thread", "Get the build green")
     failing = {"progress": "progress", "reason": "Tried another fix.", "failing_step": "Run the test suite"}
 
-    assert _judge(goals, "thread", 1, **failing).should_continue
-    assert _judge(goals, "thread", 2, **{**failing, "failing_step": "run the test  suite"}).should_continue
-    assert not _judge(goals, "thread", 3, **failing).should_continue
+    assert judge(goals, "thread", 1, **failing).should_continue
+    assert judge(goals, "thread", 2, **{**failing, "failing_step": "run the test  suite"}).should_continue
+    assert not judge(goals, "thread", 3, **failing).should_continue
 
     paused = goals.get_goal(goal["id"])
     assert paused["status"] == "paused"
@@ -450,12 +439,12 @@ def test_the_same_failing_step_three_times_pauses_the_goal(tmp_path, reload_for_
 
 
 def test_the_verifier_judgement_done_or_blocked_ends_the_goal(tmp_path, reload_for_data_dir):
-    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goals = goal_modules(tmp_path, reload_for_data_dir)
     done = goals.start_goal("thread", "Write the summary")
-    _judge(goals, "thread", 1, progress="done", reason="The summary is written.")
+    judge(goals, "thread", 1, progress="done", reason="The summary is written.")
     assert goals.get_goal(done["id"])["status"] == "completed"
     blocked = goals.start_goal("other", "Deploy")
-    _judge(goals, "other", 1, progress="blocked", reason="Needs the deploy key.")
+    judge(goals, "other", 1, progress="blocked", reason="Needs the deploy key.")
     assert (goals.get_goal(blocked["id"])["status"], goals.get_goal(blocked["id"])["last_reason"]) == (
         "blocked", "Needs the deploy key.")
 
@@ -464,7 +453,7 @@ def test_a_time_limit_pauses_the_goal_and_resume_gives_another_window(tmp_path, 
     """B244: optional time limit ("up to 8 hours"), checked between turns."""
     from datetime import datetime, timedelta
 
-    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goals = goal_modules(tmp_path, reload_for_data_dir)
     start = datetime(2026, 9, 30, 22, 0)
     clock = {"now": start}
     monkeypatch.setattr(goals, "_now", lambda: clock["now"].isoformat())
@@ -472,9 +461,9 @@ def test_a_time_limit_pauses_the_goal_and_resume_gives_another_window(tmp_path, 
     keep_going = {"progress": "progress", "reason": "Found more."}
 
     clock["now"] = start + timedelta(hours=7, minutes=59)
-    assert _judge(goals, "thread", 1, **keep_going).should_continue
+    assert judge(goals, "thread", 1, **keep_going).should_continue
     clock["now"] = start + timedelta(hours=8, minutes=1)
-    assert not _judge(goals, "thread", 2, **keep_going).should_continue
+    assert not judge(goals, "thread", 2, **keep_going).should_continue
     paused = goals.get_goal(goal["id"])
     assert (paused["status"], paused["last_reason"]) == (
         "paused", "Reached its time limit of 8 hours. Resume to keep going.")
@@ -482,6 +471,44 @@ def test_a_time_limit_pauses_the_goal_and_resume_gives_another_window(tmp_path, 
     clock["now"] = start + timedelta(hours=9)
     goals.resume_goal("thread")
     clock["now"] = start + timedelta(hours=16, minutes=59)
-    assert _judge(goals, "thread", 3, **keep_going).should_continue
+    assert judge(goals, "thread", 3, **keep_going).should_continue
     clock["now"] = start + timedelta(hours=17, minutes=1)
-    assert not _judge(goals, "thread", 4, **keep_going).should_continue
+    assert not judge(goals, "thread", 4, **keep_going).should_continue
+
+
+@pytest.mark.parametrize("verdict", ["paused", "waiting_user", "needs_user"])
+def test_a_goal_waiting_on_the_person_reads_needs_you_not_paused(tmp_path, reload_for_data_dir, verdict):
+    """B316: the verifier never quietly pauses a goal; waiting on the person is "blocked" (Needs you)."""
+    goals = goal_modules(tmp_path, reload_for_data_dir)
+    goal = goals.start_goal("thread", "Draft the launch post")
+
+    judge(goals, "thread", 1, verdict=verdict, reason="Asked the person for the launch date.")
+
+    assert goals.get_goal(goal["id"])["status"] == "blocked"
+
+
+def test_only_a_goal_waiting_on_the_person_resumes_when_they_write(tmp_path, reload_for_data_dir):
+    goals = goal_modules(tmp_path, reload_for_data_dir)
+    blocked = goals.start_goal("asks", "Draft the launch post")
+    judge(goals, "asks", 1, progress="blocked", reason="Needs the launch date.")
+    paused = goals.start_goal("paused", "Write notes")
+    goals.pause_goal("paused")
+
+    assert goals.resume_goal_for_answer("asks")["status"] == "active"
+    assert goals.resume_goal_for_answer("paused") is None
+    assert goals.get_goal(paused["id"])["status"] == "paused"
+    assert goals.get_goal(blocked["id"])["status"] == "active"
+
+
+def test_an_agent_that_stops_to_wait_for_the_person_shows_needs_you(tmp_path, monkeypatch):
+    """B316: in demo 5 the agent's own goal_update said "paused" while it waited for the launch date."""
+    threads, _agent_runs, goals, _slash, _commands, goal_tool = _fresh_goal_modules(tmp_path, monkeypatch)
+    thread_id = threads.create_thread("Launch")
+    goal = goals.start_goal(thread_id, "Draft the launch post")
+
+    payload = json.loads(goal_tool._goal_update(thread_id=thread_id, status="paused",
+                                                next_step="Ask which launch date to use and wait for the answer."))
+
+    assert payload["ok"] is True
+    assert goals.get_goal(goal["id"])["status"] == "blocked"
+    assert goals.resume_goal_for_answer(thread_id)["status"] == "active"

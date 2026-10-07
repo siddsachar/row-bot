@@ -48,7 +48,10 @@ def _public_goal(goal: dict[str, Any] | None) -> dict[str, Any]:
 class _GoalUpdateInput(BaseModel):
     status: str = Field(
         default="active",
-        description="Goal status: active, paused, waiting_approval, blocked, completed, or cleared.",
+        description=(
+            "Goal status: active, blocked, waiting_approval, completed, or cleared. Use blocked when the goal waits "
+            "on the person (you asked them something); it shows as Needs you. Only the person pauses a goal."
+        ),
     )
     progress: str = Field(default="", description="Concise progress update.")
     evidence: list[str] = Field(
@@ -103,6 +106,10 @@ def _goal_update(
 ) -> str:
     runtime = _runtime_context()
     thread_id = thread_id or str(runtime.get("thread_id") or "")
+    if str(status or "").strip().lower() == "paused":
+        # An agent that stops to wait for the person's answer is blocked on them ("Needs you"), never quietly
+        # paused (B316).
+        status = "blocked"
     try:
         goal = goals.update_goal_progress(
             thread_id=thread_id,

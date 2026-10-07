@@ -8,6 +8,12 @@
           "title": "Action",
           "type": "string"
         },
+        "patch": {
+          "default": "",
+          "maxLength": 70000,
+          "title": "Patch",
+          "type": "string"
+        },
         "path": {
           "maxLength": 4096,
           "title": "Path",

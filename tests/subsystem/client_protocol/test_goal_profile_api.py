@@ -127,3 +127,24 @@ def test_profile_route_keeps_private_instructions_out_of_reads(service):
             "stored": True,
         }
         assert "Private profile instructions" not in detail.text
+        page = client.get("/api/v1/settings/profiles", headers=headers)
+        assert "Private profile instructions" not in page.text
+
+        # Shown only on an explicit request from the owner's session (F15).
+        path = f"/api/v1/settings/profiles/items/{profile_id}/instructions"
+        assert client.get(path).status_code in {401, 403}
+        shown = client.get(path, headers=headers)
+        assert shown.status_code == 200, shown.text
+        assert shown.json() == {
+            "schema_version": 1,
+            "profile_id": profile_id,
+            "revision": "1",
+            "instructions": "Private profile instructions",
+            "truncated": False,
+        }
+        assert shown.headers["Cache-Control"] == "no-store"
+        missing = client.get(
+            "/api/v1/settings/profiles/items/no-such-profile/instructions",
+            headers=headers,
+        )
+        assert missing.status_code == 404

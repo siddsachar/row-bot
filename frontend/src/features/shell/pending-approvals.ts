@@ -75,6 +75,15 @@ export function usePendingApprovals(load?: Load): {
   return { page, refresh };
 }
 
+/**
+ * Read the waiting approvals again now, for every view of them, without
+ * subscribing: after an answer in a chat the sidebar no longer keeps
+ * "1 approval is waiting" until its next 15 s read (B302).
+ */
+export function readPendingApprovalsNow(load: Load) {
+  feeds.get(load)?.read();
+}
+
 /** Announced this page, for windows whose storage is refused. */
 const announcedHere = new Set<string>();
 

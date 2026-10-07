@@ -1656,6 +1656,11 @@ export default function ArtifactPreview({
                   </span>
                 )
               )}
+              {current?.font_notice && (
+                <p className="design-hint" role="note">
+                  {current.font_notice}
+                </p>
+              )}
               {(notice || (authoring && !pickedCurrent && current)) && (
                 <p className="design-hint" role="status">
                   {notice ||

@@ -733,6 +733,7 @@ class SettingsToggleSnapshot(WireModel):
 
 class SettingsShellSnapshot(SettingsToggleSnapshot):
     blocked_patterns: str = Field(max_length=4096)
+    allow_data_folder: bool
 
 
 class SettingsRuntimeToggleSnapshot(SettingsToggleSnapshot):
@@ -3473,6 +3474,16 @@ class ProfileDetail(WireModel):
     profile: ProfileSummary
 
 
+class ProfileInstructions(WireModel):
+    """A profile's stored instructions, read only when the person asks to see them (F15)."""
+
+    schema_version: Literal[1]
+    profile_id: str = Field(min_length=1, max_length=256)
+    revision: str = Field(pattern=r"^[1-9][0-9]{0,19}$")
+    instructions: str = Field(max_length=49152)
+    truncated: bool
+
+
 class ProfileFields(WireModel):
     slug: str = Field(min_length=2, max_length=64, pattern=r"^[a-z][a-z0-9_-]{1,63}$")
     display_name: str = Field(min_length=1, max_length=160)
@@ -3540,6 +3551,11 @@ class DeveloperRepositoryCapability(WireModel):
     code: str | None = Field(max_length=128)
 
 
+class DeveloperPullRequestText(WireModel):
+    title: str = Field(max_length=200)
+    body: str = Field(max_length=8000)
+
+
 class DeveloperGitState(WireModel):
     state: Literal["ready", "plain_folder"]
     is_git: bool
@@ -3552,6 +3568,7 @@ class DeveloperGitState(WireModel):
     branches: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
         default_factory=list, max_length=50
     )
+    pull_request: DeveloperPullRequestText | None = None
 
 
 class DeveloperWorktreeState(WireModel):
@@ -3704,6 +3721,7 @@ class DataBackupJob(WireModel):
     finished_at: str | None = Field(default=None, max_length=40)
     code: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=260)
+    skipped: list[Annotated[str, Field(max_length=260)]] | None = Field(default=None, max_length=20)
 
 
 class DataRestorePending(WireModel):
@@ -4653,6 +4671,9 @@ class AgentStartPayload(WireModel):
 class ApprovalPayload(WireModel):
     decision: Literal["approve", "reject"]
     nonce: Annotated[str, StringConstraints(min_length=32, max_length=256)]
+    # "turn" also approves later actions of the same kind until the turn ends (F21); only kinds the view marks
+    # repeatable take it, others are approved once.
+    scope: Literal["once", "turn"] = "once"
 
 
 class DeckSetupPayload(WireModel):
@@ -6263,7 +6284,9 @@ class ToolActivity(WireModel):
 
 
 class GenerationActivity(WireModel):
-    state: Literal["thinking"]
+    state: Literal["thinking", "writing"]
+    tool: str = Field(default="", max_length=120)
+    bytes: int = Field(default=0, ge=0)
 
 
 class ApprovalRequired(WireModel):
@@ -7066,6 +7089,8 @@ class ApprovalView(WireModel):
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
     setup: ApprovalSetup | None = None
+    # Whether "approve the rest of this turn" is offered for this action (F21).
+    repeatable: bool = False
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -7316,6 +7341,7 @@ class ArtifactPreview(WireModel):
     html: str | None = Field(default=None, max_length=2097152)
     unchanged: bool
     scripts_allowed: bool = False
+    font_notice: str = Field(default="", max_length=600)
 
 
 class ArtifactTextElement(WireModel):
@@ -7417,7 +7443,7 @@ class WorkspaceDiffStats(WireModel):
 class WorkspaceCommandStatus(WireModel):
     label: str = Field(max_length=4096)
     kind: str = Field(max_length=128)
-    status: Literal["not_run"]
+    status: Literal["not_run", "passed", "failed"]
     command: str = Field(default="", max_length=4096)
 
 
@@ -7516,6 +7542,7 @@ class WorkspaceChangeSetPage(WireModel):
 class WorkspaceChangeSetFile(WireModel):
     path: str = Field(max_length=4096)
     action: str = Field(max_length=128)
+    patch: str = Field(default="", max_length=70000)
 
 
 class WorkspaceChangeSetFiles(WireModel):

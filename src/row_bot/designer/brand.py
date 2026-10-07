@@ -403,6 +403,10 @@ def brand_from_html(html: str) -> Optional[BrandConfig]:
     if not unique_colors and not unique_fonts:
         return None
 
+    from row_bot.designer.fonts import offline_substitute
+
+    # A site's own fonts are rarely on this computer: use the nearest offline face (B317).
+    unique_fonts = list(dict.fromkeys(offline_substitute(name) for name in unique_fonts))
     brand = BrandConfig()
     if len(unique_colors) >= 1:
         brand.primary_color = unique_colors[0]

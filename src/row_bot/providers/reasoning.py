@@ -232,10 +232,12 @@ def resolve_reasoning_capabilities(provider_id: str, model_id: str) -> Reasoning
     model = str(model_id or "").strip()
     if not provider or not model:
         return None
+    resolved_source = ""
     try:
         from row_bot.providers.capability_resolution import resolve_capability_metadata
 
         resolved = resolve_capability_metadata(provider, model)
+        resolved_source = resolved.source
         live = ReasoningCapabilities.from_json(resolved.snapshot.get("reasoning"))
         if live:
             if not live.source:
@@ -252,6 +254,8 @@ def resolve_reasoning_capabilities(provider_id: str, model_id: str) -> Reasoning
     if provider in {"opencode_zen", "opencode_go"}:
         return _opencode_fallback_capabilities(provider, model)
     if provider in {"ollama", "ollama_cloud"}:
+        if resolved_source == "ollama_catalog_cache":
+            return None  # the catalog already chose, from Ollama's own answer where it gave one (F12)
         return _ollama_fallback_capabilities(model)
     return None
 
@@ -272,7 +276,11 @@ def reasoning_metadata_for_catalog(
     if provider_id in {"opencode_zen", "opencode_go"}:
         fallback = _opencode_fallback_capabilities(provider_id, model_id)
     elif provider_id in {"ollama", "ollama_cloud"}:
-        fallback = _ollama_fallback_capabilities(model_id)
+        from row_bot.providers.ollama import ollama_runtime_capabilities
+
+        # Ollama listed its capabilities without "thinking": no family-list guess (F12).
+        if ollama_runtime_capabilities(raw) is None:
+            fallback = _ollama_fallback_capabilities(model_id)
     return fallback.to_json() if fallback else None
 
 
@@ -527,15 +535,23 @@ def _with_default_request_style(caps: ReasoningCapabilities, provider_id: str) -
     return ReasoningCapabilities(**{**caps.to_json(), "request_style": style})
 
 
+def ollama_thinking_capabilities(model_id: str, *, source: str = "") -> ReasoningCapabilities:
+    """How a thinking Ollama model is controlled: gpt-oss takes levels, the others turn thinking on or off."""
+    from row_bot.providers.ollama import normalize_ollama_family
+
+    if normalize_ollama_family(model_id) == "gpt-oss":
+        caps = _caps(("low", "medium", "high"), style="ollama", mandatory=True)
+    else:
+        caps = _caps(style="ollama", can_disable=True, thinking_mode="toggle")
+    return ReasoningCapabilities(**{**caps.to_json(), "source": source}) if source else caps
+
+
 def _ollama_fallback_capabilities(model_id: str) -> ReasoningCapabilities | None:
     try:
-        from row_bot.providers.ollama import is_ollama_reasoning_model, normalize_ollama_family
+        from row_bot.providers.ollama import is_ollama_reasoning_model
 
-        family = normalize_ollama_family(model_id)
-        if family == "gpt-oss":
-            return _caps(("low", "medium", "high"), style="ollama", mandatory=True)
         if is_ollama_reasoning_model(model_id):
-            return _caps(style="ollama", can_disable=True, thinking_mode="toggle")
+            return ollama_thinking_capabilities(model_id)
     except Exception:
         return None
     return None

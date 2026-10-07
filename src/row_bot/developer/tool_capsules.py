@@ -17,7 +17,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
-from row_bot.developer.runtime import CommandResult, classify_command_action, run_workspace_command, split_command
+from row_bot.developer.runtime import CommandResult, reviewed_command_action, run_workspace_command, split_command
 from row_bot.developer.sandbox import ApprovalDecision, decide_action
 from row_bot.developer.sandbox_runtime import detect_container_runtime, run_docker_sandbox_command
 from row_bot.developer.state import ApprovalMode
@@ -1307,7 +1307,7 @@ def test_custom_tool_draft_command(
     root = Path(draft.installed_path).expanduser().resolve()
     result = _row_bot_env_guard_result(command_text, root)
     if result is None:
-        action = classify_command_action(command_text)
+        action = reviewed_command_action(command_text)
         decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
         if approved_once and decision.requires_approval:
             # The person approved exactly this command once (the standard
@@ -1316,7 +1316,7 @@ def test_custom_tool_draft_command(
                                       installed_path=str(root), source_url=draft.source_url)
             result = _run_approved_custom_tool_test(subject, command_text, action, decision, approval_mode)
         else:
-            result = run_workspace_command(str(root), command_text, approval_mode)
+            result = run_workspace_command(str(root), command_text, approval_mode, reviewed_tool=True)
     setup_hint = _dependency_setup_hint(draft, result)
     draft.test_results[str(command.get("name", "Command"))] = {
         "command": result.command,
@@ -1570,7 +1570,7 @@ def run_custom_tool_command(
 
 
 def classify_custom_tool_command(command: str, approval_mode: ApprovalMode | None = None) -> dict:
-    action = classify_command_action(command)
+    action = reviewed_command_action(command)
     decision = decide_action(approval_mode or _active_approval_mode(), action)  # type: ignore[arg-type]
     label_by_action = {
         "run_safe_command": "Local",
@@ -1643,7 +1643,7 @@ def run_custom_tool_test_command(
     guard = _row_bot_env_guard_result(command, root)
     if guard:
         return guard
-    action = classify_command_action(command)
+    action = reviewed_command_action(command)
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
     if decision.requires_approval and not approved_once:
         return CommandResult(
@@ -1655,7 +1655,7 @@ def run_custom_tool_test_command(
         )
     if approved_once:
         return _run_approved_custom_tool_test(tool, command, action, decision, approval_mode)
-    return run_workspace_command(tool.installed_path, command, approval_mode)
+    return run_workspace_command(tool.installed_path, command, approval_mode, reviewed_tool=True)
 
 
 def _run_approved_custom_tool_test(tool, command: str, action: str, decision, approval_mode: ApprovalMode) -> CommandResult:
@@ -1694,7 +1694,7 @@ def _run_approved_custom_tool_test(tool, command: str, action: str, decision, ap
     if decision.requires_approval:
         decision = ApprovalDecision("allow", "User approved this Custom Tool test run once.")
         return _run_custom_tool_local_direct(tool, command, decision)
-    return run_workspace_command(tool.installed_path, command, approval_mode)
+    return run_workspace_command(tool.installed_path, command, approval_mode, reviewed_tool=True)
 
 
 def _friendly_capsule_name(root: Path, source_url: str = "") -> str:
@@ -1870,7 +1870,7 @@ def run_capsule_command(
     guard = _row_bot_env_guard_result(command, root)
     if guard:
         return guard
-    return run_workspace_command(str(root), command, approval_mode)
+    return run_workspace_command(str(root), command, approval_mode, reviewed_tool=True)
 
 
 class _CapsuleCommandInput(BaseModel):

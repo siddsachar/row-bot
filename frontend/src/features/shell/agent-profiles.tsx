@@ -64,6 +64,7 @@ export function openAgentProfiles({
           controller.profiles(query, scope, cursor, signal)
         }
         loadProfile={controller.profile}
+        loadProfileInstructions={controller.profileInstructions}
         reviewProfile={controller.reviewProfile}
         executeProfile={(command, review) =>
           controller.executeProfile({

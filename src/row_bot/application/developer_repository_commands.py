@@ -201,6 +201,8 @@ class CanonicalDeveloperRepositoryBackend:
             "remote_configured": bool(status.remote),
             "tracking_summary": _text(status.ahead_behind or "", 512),
             "branches": branches,
+            # Built from the branch's own commits and files against its base (B301).
+            "pull_request": git.pull_request_text(branch, git.branch_changes(str(root))) if status.is_git else None,
         }
         private = {
             **public,

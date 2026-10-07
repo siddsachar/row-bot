@@ -89,6 +89,7 @@ const mock = vi.hoisted(() => ({
   attachmentThumbnail: vi.fn(() => new Promise<Blob>(() => undefined)),
   composer: vi.fn(),
   refreshWorkspace: vi.fn(),
+  refreshListedConversation: vi.fn().mockResolvedValue(undefined),
   notify: vi.fn(),
   goals: vi.fn(),
   reviewGoal: vi.fn(),
@@ -123,6 +124,7 @@ vi.mock('../../runtime', () => {
       attachmentThumbnail: mock.attachmentThumbnail,
       composer: mock.composer,
       refreshWorkspace: mock.refreshWorkspace,
+      refreshListedConversation: mock.refreshListedConversation,
       goals: mock.goals,
       reviewGoal: mock.reviewGoal,
       executeGoal: mock.executeGoal,
@@ -3123,4 +3125,27 @@ it('shows the agents a turn started as stubs that update in place and open each 
   expect(within(stubs).getAllByRole('listitem')).toHaveLength(2);
   await act(async () => fireEvent.click(failed));
   expect(mock.selectConversation).toHaveBeenCalledWith('child-2');
+});
+
+it('re-reads its sidebar row when its agents report in (B302)', async () => {
+  await mock.selectConversation('conversation-a');
+  const view = conversation();
+  mock.refreshListedConversation.mockClear();
+  mock.state.activity = [
+    {
+      event: {
+        type: 'agent.activity',
+        event_id: 'agent-event-done',
+        payload: { run_id: 'run-1', status: 'completed' },
+      },
+    },
+  ] as unknown as typeof mock.state.activity;
+  mock.version++;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.refreshListedConversation).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.any(AbortSignal),
+  );
 });

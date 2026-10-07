@@ -65,11 +65,25 @@ def test_destination_description_and_next_available_path(tmp_path) -> None:
     project = _project()
     project.name = "Bad / Name: Demo?"
 
-    assert export._sanitize_name("  ***  ") == "___"
-    assert export.describe_export_destination(project, "html", directory=tmp_path).name == "Bad _ Name_ Demo_.html"
+    assert export.describe_export_destination(project, "html", directory=tmp_path).name == "Bad _ Name - Demo_.html"
     assert export.describe_export_destination(project, "png", pages="1-2", directory=tmp_path).name == (
-        "Bad _ Name_ Demo__pages.zip"
+        "Bad _ Name - Demo__pages.zip"
     )
+
+
+@pytest.mark.parametrize(("name", "file"), [
+    ("Four-Day Week — Leadership Decision", "Four-Day Week - Leadership Decision.pptx"),
+    ("Q3: Sales – “Draft”", "Q3 - Sales - 'Draft'.pptx"),
+    ("Riverside’s autumn sale (v2)", "Riverside's autumn sale (v2).pptx"),
+    ("CON", "CON_.pptx"),
+    ("  ***  ", "___.pptx"),
+    ("Ends with dots...", "Ends with dots.pptx"),
+])
+def test_export_file_names_keep_the_designs_punctuation(tmp_path, name, file) -> None:
+    """B299: "Four-Day Week — Leadership Decision" became "Four-Day Week _ Leadership Decision.pptx"."""
+    project = _project()
+    project.name = name
+    assert export.describe_export_destination(project, "pptx", directory=tmp_path).name == file
     assert export.describe_export_destination(project, "pptx", mode="structured", directory=tmp_path).name.endswith(
         "_editable.pptx"
     )

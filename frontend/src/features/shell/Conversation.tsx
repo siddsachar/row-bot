@@ -763,10 +763,30 @@ export default function Conversation({
   const computerPause =
     Boolean(computer.snapshot?.approval_id) &&
     computer.snapshot?.approval_id === generation?.approval_id;
+  const lastActivity = state.activity.at(-1)?.event;
   const thinkingActive =
-    Boolean(running) &&
-    state.activity.at(-1)?.event.type === 'generation.activity';
+    Boolean(running) && lastActivity?.type === 'generation.activity';
+  const writingTool =
+    thinkingActive &&
+    lastActivity?.type === 'generation.activity' &&
+    lastActivity.payload.state === 'writing'
+      ? `Writing ${lastActivity.payload.tool || 'a tool call'} · ${Math.max(1, Math.round((lastActivity.payload.bytes ?? 0) / 1024))} KB`
+      : undefined;
   const answering = Boolean(running) && answerStreaming(rows, state.activity);
+  // The sidebar row follows this conversation's agents and turn as they end,
+  // not only its 15 s re-read (B302).
+  const lastAgentEvent = state.activity
+    .filter((record) => record.event.type === 'agent.activity')
+    .at(-1)?.event.event_id;
+  const runningNow = Boolean(running);
+  useEffect(() => {
+    if (!id || (!lastAgentEvent && runningNow)) return;
+    const abort = new AbortController();
+    controller
+      .refreshListedConversation(id, abort.signal)
+      .catch(() => undefined);
+    return () => abort.abort();
+  }, [controller, id, lastAgentEvent, runningNow]);
   useEffect(() => {
     const composer = state.workspace?.composer;
     if (composer?.conversation_id === id) setComposerSnapshot(composer);
@@ -2098,6 +2118,7 @@ export default function Conversation({
       conversationId={id}
       conversationRevision={state.workspace?.revision ?? '0'}
       turnActivity={`${generation?.generation_id ?? ''}:${generation?.status ?? ''}`}
+      agentActivity={lastAgentEvent ?? ''}
       turnRunning={Boolean(running)}
       onStopTurn={() => void action('conversation.stop')}
       resources={resources}
@@ -3000,6 +3021,7 @@ export default function Conversation({
                         live={{
                           running: isRunning,
                           thinking: thinkingActive,
+                          writing: writingTool,
                           waiting:
                             generation?.status === 'waiting_approval' &&
                             !computerPause,

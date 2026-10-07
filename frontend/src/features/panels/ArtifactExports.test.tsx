@@ -82,6 +82,11 @@ it('saves into the Exports folder in one click, then opens or shows it', async (
     ['export-a', 'show'],
   ]);
   expect(current.download).not.toHaveBeenCalled();
+  // F17: once saved, the panel keeps only that line until asked again.
+  expect(screen.queryByRole('group', { name: 'Export format' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Export again' }));
+  expect(screen.getByRole('group', { name: 'Export format' })).toBeVisible();
+  expect(screen.queryByText(/Saved ·/)).toBeNull();
 });
 
 it('falls back to a download on a device that cannot save here', async () => {
@@ -178,6 +183,20 @@ it('preserves range options on incomplete failure and never offers its download'
     screen.queryByRole('button', { name: /Download/ }),
   ).not.toBeInTheDocument();
   expect(current.create).toHaveBeenCalledTimes(1);
+});
+
+it('sends the person to set up Browser Automation when exports need it', async () => {
+  const current = props({
+    create: vi.fn().mockRejectedValue({ code: 'export_runtime_missing' }),
+  });
+  render(<ArtifactExports {...current} />);
+  await exportAs('PDF');
+  expect(
+    screen.getByText(/Exports need Browser Automation/),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Set up Browser Automation' }),
+  ).toHaveAttribute('href', '/app-v2/settings/system#browser.install');
 });
 
 it('shows offline asset warnings and captured older revision without rebuilding', async () => {

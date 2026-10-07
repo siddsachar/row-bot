@@ -156,6 +156,9 @@ def _judgement(result: Mapping[str, Any]) -> tuple[str, str, str, str]:
     (B244); an answer with only a verdict counts as progress.
     """
     verdict = _normalize_verdict(str(result.get("verdict") or "continue"))
+    if verdict == "paused":
+        # A verifier that would pause is waiting on the person: that is "Needs you", never a quiet pause (B316).
+        verdict = "needs_user"
     progress = str(result.get("progress") or "").strip().lower().replace(" ", "_")
     progress = {"no": "no_progress", "none": "no_progress", "stalled": "no_progress",
                 "complete": "done", "completed": "done"}.get(progress, progress)
@@ -467,6 +470,16 @@ def resume_goal(thread_id: str) -> dict[str, Any] | None:
     if goal and time_limit_reached(goal):
         goal = restart_time_window(goal["id"])
     return goal
+
+
+def resume_goal_for_answer(thread_id: str) -> dict[str, Any] | None:
+    """The person wrote in a conversation whose newest goal waits on them: that message is their answer, so the
+    goal is active again for the turn and the verifier judges it as usual (B318). A goal the person paused
+    stays paused."""
+    newest = _get_current_goal_for_statuses(thread_id, _GOAL_STATUS_ORDER)
+    if not newest or newest.get("status") != "blocked":
+        return None
+    return resume_goal(thread_id)
 
 
 def turn_limit_reached(goal: Mapping[str, Any]) -> bool:
@@ -985,16 +998,6 @@ def after_turn(
         )
         goal = updated or get_goal(goal["id"]) or goal
         return GoalContinuationDecision(goal, False, reason="verifier blocked" if updated else "goal changed during verification", status=str(goal["status"]))
-    if verdict == "paused":
-        updated = set_goal_status(
-            goal["id"],
-            "paused",
-            reason=reason or "Verifier paused the goal.",
-            verdict="paused",
-            expected_revision=int(goal.get("revision") or 0),
-        )
-        goal = updated or get_goal(goal["id"]) or goal
-        return GoalContinuationDecision(goal, False, reason="verifier paused" if updated else "goal changed during verification", status=str(goal["status"]))
     updated = _record_verifier_reason(
         goal["id"], verdict, reason, progress=progress, failing_step=failing_step,
         expected_revision=int(goal.get("revision") or 0),
@@ -1248,7 +1251,8 @@ def _invoke_goal_verifier(goal: dict[str, Any], context: dict[str, Any]) -> Mapp
         "You are Row-Bot's goal verifier. Judge the latest turn against the objective "
         "and return strict JSON only with keys `progress` (progress: it moved closer; "
         "no_progress: nothing new since the last turn; done: the objective is met with "
-        "evidence; blocked: it cannot go on without the user), `reason` (one short line), "
+        "evidence; blocked: it cannot go on without the user, including when it asked the user a "
+        "question and waits for the answer), `reason` (one short line), "
         "and `failing_step` (the step that failed this turn, in a few words, or an empty "
         "string). Do not use tools."
     )

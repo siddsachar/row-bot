@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -130,14 +132,23 @@ def create_pull_request(
     args = [gh_path, "pr", "create"]
     if title:
         args.extend(["--title", title])
+    body_file = ""
     if body:
-        args.extend(["--body", body])
+        # A file, not an argument: a multi-line body survives Windows command shims and length limits (F20).
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
+            handle.write(body)
+            body_file = handle.name
+        args.extend(["--body-file", body_file])
     if not title and not body:
         args.append("--fill")
     if draft:
         args.append("--draft")
 
-    proc = _run(args, cwd=str(root), timeout=timeout)
+    try:
+        proc = _run(args, cwd=str(root), timeout=timeout)
+    finally:
+        if body_file:
+            os.unlink(body_file)
     output = f"{proc.stdout}\n{proc.stderr}"
     url = ""
     for token in output.split():

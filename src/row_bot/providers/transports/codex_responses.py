@@ -97,10 +97,14 @@ class ChatCodexResponses(BaseChatModel):
             generation_id,
         )
         scope = current_cancellation_scope()
+        writing = _ToolCallProgress()
         for event in self._iter_response_events(body):
             if scope is not None and scope.is_cancelled():
                 return
             event_type = event.get("type")
+            if event_type in {"response.output_item.added", "response.function_call_arguments.delta"}:
+                writing.observe(event)
+                continue
             if event_type == "response.output_text.delta":
                 delta = str(event.get("delta") or "")
                 if not delta:
@@ -598,6 +602,36 @@ def _tool_calls_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]
             "type": "tool_call",
         })
     return calls
+
+
+class _ToolCallProgress:
+    """Reports a tool call that is still being written (B324): a model can stream one call's arguments for
+    minutes (a whole page of HTML), which showed nothing but "Thinking…"."""
+
+    def __init__(self) -> None:
+        self.name, self.size, self.next_report = "", 0, 0.0
+
+    def observe(self, event: dict[str, Any]) -> None:
+        if event.get("type") == "response.output_item.added":
+            item = event.get("item") if isinstance(event.get("item"), dict) else {}
+            if item.get("type") == "function_call":
+                self.name, self.size, self.next_report = str(item.get("name") or ""), 0, 0.0
+            return
+        self.size += len(str(event.get("delta") or ""))
+        now = time.monotonic()
+        if self.name and now >= self.next_report:
+            self.next_report = now + 1.0
+            report_tool_writing(self.name, self.size)
+
+
+def report_tool_writing(name: str, size: int) -> None:
+    """Tell the running turn how far a tool call's arguments have got (a no-op outside an agent graph)."""
+    try:
+        from langgraph.config import get_stream_writer
+
+        get_stream_writer()({"type": "tool_writing", "payload": {"name": name, "bytes": size}})
+    except Exception:
+        pass
 
 
 def _tool_call_chunk_from_item(item: dict[str, Any], index: int) -> dict[str, Any] | None:

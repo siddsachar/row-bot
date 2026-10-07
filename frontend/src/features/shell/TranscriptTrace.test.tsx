@@ -662,3 +662,20 @@ it('gives a thought under a second no line of its own', () => {
   );
   expect(container).toBeEmptyDOMElement();
 });
+
+it('says which tool call is being written while a long one streams', () => {
+  render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={{
+        running: true,
+        thinking: true,
+        writing: 'Writing Designer update page · 12 KB',
+      }}
+    />,
+  );
+  expect(
+    screen.getByText('Writing Designer update page · 12 KB…'),
+  ).toBeInTheDocument();
+});

@@ -174,6 +174,9 @@ def captured_http_clients(base_url: str, validate: Callable[[], None]) -> Iterat
 
     def check_response(response, size):
         validate()
+        check_limits(response, size)
+
+    def check_limits(response, size):
         if response.headers.get("Content-Encoding", "identity").strip().lower() not in {"", "identity"}:
             raise ValueError("document_provider_response_encoding")
         deadline = response.request.extensions.get("row_bot_captured_deadline")
@@ -182,16 +185,27 @@ def captured_http_clients(base_url: str, validate: Callable[[], None]) -> Iterat
         if size > 8 * 1024 * 1024:
             raise ValueError("document_provider_response_too_large")
 
+    def check_chunk(response, size, revalidate_at):
+        """Per streamed chunk: the cheap limits every time, the authority check on the first chunk and then at
+        most once a second (a local model streams one chunk per token; B288). Returns the next check time."""
+        now = time.monotonic()
+        if now >= revalidate_at:
+            validate()
+            revalidate_at = now + 1.0
+        check_limits(response, size)
+        return revalidate_at
+
     class BoundedStream(httpx.SyncByteStream):
         def __init__(self, response):
             self.response, self.inner, self.closed = response, response.stream, False
 
         def __iter__(self):
             size = 0
+            revalidate_at = 0.0
             try:
                 for chunk in self.inner:
                     size += len(chunk)
-                    check_response(self.response, size)
+                    revalidate_at = check_chunk(self.response, size, revalidate_at)
                     yield chunk
                 check_response(self.response, size)
             except BaseException:
@@ -214,10 +228,11 @@ def captured_http_clients(base_url: str, validate: Callable[[], None]) -> Iterat
 
         async def __aiter__(self):
             size = 0
+            revalidate_at = 0.0
             try:
                 async for chunk in self.inner:
                     size += len(chunk)
-                    check_response(self.response, size)
+                    revalidate_at = check_chunk(self.response, size, revalidate_at)
                     yield chunk
                 check_response(self.response, size)
             except BaseException:

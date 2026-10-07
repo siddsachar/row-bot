@@ -512,3 +512,40 @@ it('keeps sandbox choices made while a re-read was on its way (B176)', async () 
     page.sandbox.image,
   );
 });
+
+it('confirms a pull request beside its button and links the result (B300)', async () => {
+  const props = options();
+  props.execute.mockImplementationOnce(async (command) => ({
+    schema_version: 1,
+    command_id: command.command_id,
+    action: command.type,
+    resource_id: page.resource_id,
+    conversation_id: page.conversation_id,
+    status: 'completed',
+    code: null,
+    revision: 'c'.repeat(64),
+    worktree_id: null,
+    external_url: 'https://github.com/example/csv-kit/pull/12',
+  }));
+  render(<DeveloperRepositoryPanel {...props} />);
+  await ready();
+  fireEvent.click(screen.getByText('Pull request', { selector: 'summary' }));
+  fireEvent.change(screen.getByLabelText('Pull request title'), {
+    target: { value: 'Quote CSV fields that contain commas' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }));
+  const remote = screen.getByRole('region', { name: 'Remote' });
+  const confirm = await within(remote).findByRole('group', {
+    name: 'Confirm repository change',
+  });
+  await waitFor(() => expect(confirm).toHaveFocus());
+  fireEvent.click(
+    within(confirm).getByRole('button', { name: 'Confirm repository action' }),
+  );
+  expect(
+    await within(remote).findByText(/Pull request #12 opened\./),
+  ).toBeVisible();
+  expect(
+    within(remote).getByRole('link', { name: 'Open it on GitHub' }),
+  ).toHaveAttribute('href', 'https://github.com/example/csv-kit/pull/12');
+});

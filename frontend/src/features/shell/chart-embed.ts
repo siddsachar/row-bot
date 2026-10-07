@@ -47,20 +47,33 @@ export function chartLayout(
       yaxis: axis,
       legend: { font: { color: text }, bgcolor: 'rgba(0,0,0,0)' },
       title: { font: { color: token(styles, 'text-primary', '#E8EBF0') } },
-      hoverlabel: {
-        bgcolor: token(styles, 'surface-overlay', '#1C222C'),
-        bordercolor: grid,
-        font: { color: token(styles, 'text-primary', '#E8EBF0') },
-      },
     },
   };
-  // The card header shows the title; the plot keeps its full height.
-  const { template: _template, title: _title, ...rest } = layout;
+  // A figure's own hover colours can be unreadable (a pale series name on light
+  // grey, B294): the app's label wins over the tool's.
+  const hoverlabel = {
+    bgcolor: token(styles, 'surface-overlay', '#1C222C'),
+    bordercolor: grid,
+    font: { color: token(styles, 'text-primary', '#E8EBF0') },
+    namelength: -1,
+  };
+  // The card header shows the title; the plot keeps its full height. A fixed
+  // width or height would stop it filling the card or the Expand dialog (B290).
+  const {
+    template: _template,
+    title: _title,
+    width: _width,
+    height: _height,
+    ...rest
+  } = layout;
   void _template;
   void _title;
+  void _width;
+  void _height;
   return {
     ...rest,
     template,
+    hoverlabel,
     // The tool's figure may carry its own dark backgrounds; the card owns them.
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
@@ -68,6 +81,24 @@ export function chartLayout(
     margin: { l: 48, r: 16, t: 16, b: 40 },
     autosize: true,
   };
+}
+
+/**
+ * Traces with the series name inside the themed hover label. Plotly otherwise
+ * draws the name in a second box of its own (a pale series colour on light
+ * grey in the dark theme, B294). Traces with their own template keep it.
+ */
+export function chartTraces(data: unknown[]): unknown[] {
+  return data.map((trace) => {
+    if (!trace || typeof trace !== 'object') return trace;
+    const value = trace as Record<string, unknown>;
+    if (value.hovertemplate || value.type === 'pie' || !value.name)
+      return trace;
+    return {
+      ...value,
+      hovertemplate: '<b>%{fullData.name}</b><br>%{x}: %{y}<extra></extra>',
+    };
+  });
 }
 
 function cell(value: unknown): string {

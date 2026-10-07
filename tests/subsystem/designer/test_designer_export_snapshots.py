@@ -54,5 +54,5 @@ def test_describe_export_destination_sanitizes_names(tmp_path) -> None:
 
     project = DesignerProject(name="Bad / Name: Demo?")
 
-    assert describe_export_destination(project, "html", directory=tmp_path).name == "Bad _ Name_ Demo_.html"
-    assert describe_export_destination(project, "png", pages="1-2", directory=tmp_path).name == "Bad _ Name_ Demo_.png"
+    assert describe_export_destination(project, "html", directory=tmp_path).name == "Bad _ Name - Demo_.html"
+    assert describe_export_destination(project, "png", pages="1-2", directory=tmp_path).name == "Bad _ Name - Demo_.png"

@@ -1037,11 +1037,16 @@ def _model_label_for_error(model_name: str | None = None) -> str:
         return raw
 
 
+PROVIDER_CUT_MESSAGE = (
+    "⚠️ The AI provider closed the streaming connection before the reply finished. Please retry the message."
+)
+
+
 def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     """Return a user-friendly description for an API / provider error."""
     s = exc_str.lower()
     if _is_transient_stream_disconnect(exc_str):
-        return "⚠️ The AI provider closed the streaming connection before the reply finished. Please retry the message."
+        return PROVIDER_CUT_MESSAGE
     if "recursion" in s or "recursion limit" in s:
         try:
             if _developer_context_var.get(""):
@@ -3622,6 +3627,15 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
             task = get_task(tid) if tid else None
             if task:
                 return f"{label}: {task['icon']} {task['name']}"
+        except Exception:
+            pass
+    if tool_name.startswith("designer_"):
+        try:
+            from row_bot.designer.tool import approval_summary
+
+            summary = approval_summary(tool_name, kwargs)
+            if summary:
+                return summary
         except Exception:
             pass
     if len(args_str) > 300:
@@ -6563,6 +6577,7 @@ def _stream_graph(agent, input_data, config: dict,
                     "compaction_started",
                     "compaction_succeeded",
                     "compaction_failed",
+                    "tool_writing",
                 }:
                     yield (event_type, data.get("payload") or {})
             continue

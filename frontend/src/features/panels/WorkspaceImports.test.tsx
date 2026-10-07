@@ -63,6 +63,9 @@ function result(
     ...override,
   };
 }
+// The nth saved change's time, one minute apart.
+const minute = (n: number) =>
+  new Date(Date.UTC(2026, 0, 1) + n * 60_000).toISOString();
 function props(
   overrides: Partial<WorkspaceImportsProps> = {},
 ): WorkspaceImportsProps {
@@ -96,9 +99,17 @@ async function selectPatch() {
 it('opens only saved metadata and renders plain patch text without importing', async () => {
   const p = props();
   render(<WorkspaceImports {...p} />);
-  await screen.findByText('1 saved change');
+  await screen.findByText(
+    '1 waiting for your approval to import · 1 saved in all',
+  );
   expect(p.review).not.toHaveBeenCalled();
   expect(p.apply).not.toHaveBeenCalled();
+  // B325: the saved time reads as a time, not the raw ISO string.
+  const when = screen
+    .getByRole('button', { name: /Pending · 1 file/ })
+    .querySelector('time');
+  expect(when).toHaveAttribute('datetime', '2026-01-01T12:00:00.000Z');
+  expect(screen.queryByText(/2026-01-01T12:00/)).not.toBeInTheDocument();
   await selectPatch();
   expect(screen.getByLabelText('Saved patch')).toHaveValue(
     '<script>untrusted patch text</script>',
@@ -260,14 +271,14 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
           (_, index) => ({
             ...row,
             pending_change_id: `pending-${start + index}`,
-            created_at: `change ${start + index}`,
+            created_at: minute(start + index),
           }),
         ),
       };
     }),
   });
   render(<WorkspaceImports {...p} />);
-  await screen.findByText('303 saved changes');
+  await screen.findByText(/303 saved in all/);
   for (let index = 0; index < 3; index++) {
     fireEvent.click(screen.getByRole('button', { name: 'Load more changes' }));
     await waitFor(() => expect(p.load).toHaveBeenCalledTimes(index + 2));
@@ -279,8 +290,10 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
   }
   const buttons = screen.getAllByRole('button', { name: /Pending · 1 file/ });
   expect(buttons).toHaveLength(200);
-  expect(buttons[0]).toHaveTextContent('change 103');
-  expect(buttons.at(-1)).toHaveTextContent('change 302');
+  const shown = (button: HTMLElement) =>
+    button.querySelector('time')?.getAttribute('datetime');
+  expect(shown(buttons[0])).toBe(minute(103));
+  expect(shown(buttons.at(-1)!)).toBe(minute(302));
   expect(
     screen.queryByRole('button', { name: 'Load more changes' }),
   ).not.toBeInTheDocument();
@@ -348,4 +361,16 @@ it('does not import when policy blocks the action', async () => {
     await screen.findByText(/policy blocks this import/),
   ).toBeInTheDocument();
   expect(p.apply).not.toHaveBeenCalled();
+});
+
+it('reads the list again when the waiting count changes, so both agree (B305)', async () => {
+  const p = props();
+  const { rerender } = render(<WorkspaceImports {...p} waiting={0} />);
+  await screen.findByText(/saved in all/);
+  expect(p.load).toHaveBeenCalledTimes(1);
+  rerender(<WorkspaceImports {...p} waiting={4} />);
+  await waitFor(() => expect(p.load).toHaveBeenCalledTimes(2));
+  expect(
+    await screen.findByText(/4 waiting for your approval to import/),
+  ).toBeInTheDocument();
 });

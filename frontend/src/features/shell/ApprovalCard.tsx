@@ -8,6 +8,7 @@ import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
 import FolderSetupCard from './FolderSetupCard';
 import { WaitingSince } from './InPlaceApproval';
+import { readPendingApprovalsNow } from './pending-approvals';
 import {
   approvalAction,
   approvalQuestion,
@@ -179,7 +180,12 @@ export default function ApprovalCard({
       });
     return () => abort.abort();
   }, [controller, id, notice]);
-  async function resolve(decision: 'approve' | 'reject', allow = false) {
+  async function resolve(
+    decision: 'approve' | 'reject',
+    allow = false,
+    // 'turn' also approves later actions of this kind until the reply ends (F21).
+    scope: 'once' | 'turn' = 'once',
+  ) {
     if (!view || busy || resolution) return;
     setBusy(true);
     try {
@@ -187,12 +193,15 @@ export default function ApprovalCard({
       await controller.intent(
         id,
         'approval.resolve',
-        { decision, nonce: view.nonce },
+        scope === 'turn'
+          ? { decision, nonce: view.nonce, scope }
+          : { decision, nonce: view.nonce },
         view.revision,
       );
       setResolution(
         decision === 'approve' ? 'Approval submitted.' : 'Denial submitted.',
       );
+      readPendingApprovalsNow(controller.pendingApprovals);
       onResolved?.();
     } catch (cause) {
       setError(clientError(cause).message);
@@ -358,6 +367,17 @@ export default function ApprovalCard({
                 </span>
               )}
             </Button>
+            {view.repeatable && (
+              <Hint label="Approve this and the rest of this kind until this reply ends">
+                <Button
+                  variant="ghost"
+                  disabled={busy || Boolean(resolution)}
+                  onClick={() => void resolve('approve', false, 'turn')}
+                >
+                  Approve the rest
+                </Button>
+              </Hint>
+            )}
             {onAllowInChat && (
               <Hint label="Switch this conversation to automatic approvals and approve this request">
                 <Button

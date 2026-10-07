@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from row_bot.brand import DEFAULT_WORKSPACE_DIR_NAME
+from row_bot.data_paths import is_private_data_path
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
@@ -128,6 +131,15 @@ def _max_read_chars() -> int:
     return get_tool_budget(0.25, floor=30_000, ceiling=300_000)
 
 
+def _within(path: Path, root: str | Path) -> bool:
+    """True when *path* is *root* or inside it; a sibling such as ``Row-Bot2`` beside ``Row-Bot`` is not."""
+    import os
+
+    resolved = os.path.normcase(str(Path(path).resolve()))
+    base = os.path.normcase(str(Path(root).resolve()))
+    return resolved == base or resolved.startswith(base.rstrip(os.sep) + os.sep)
+
+
 def _normalise_path(file_path: str, root_dir: str) -> str:
     """Strip the workspace folder name from the front of *file_path* if the
     LLM redundantly included it, and convert absolute paths that fall inside
@@ -150,11 +162,13 @@ def _normalise_path(file_path: str, root_dir: str) -> str:
     elif fp.lower() == root_name.lower():
         fp = "."
 
-    # Handle absolute paths inside the workspace
+    # Handle absolute paths inside the workspace. The stripping above drops a POSIX path's leading "/", so an
+    # absolute path resolves from what was given.
     try:
-        resolved = Path(fp).resolve()
+        given = Path(file_path.strip())
+        resolved = (given if given.is_absolute() else Path(fp)).resolve()
         root_resolved = Path(root_dir).resolve()
-        if str(resolved).lower().startswith(str(root_resolved).lower()):
+        if _within(resolved, root_resolved):
             rel = os.path.relpath(resolved, root_resolved)
             fp = rel.replace("\\", "/")
     except (OSError, ValueError):
@@ -175,9 +189,15 @@ def _is_outside_workspace(value: str, root_dir: str) -> bool:
     try:
         resolved = Path(v).resolve()
         root_resolved = Path(root_dir).resolve()
-        return not str(resolved).lower().startswith(str(root_resolved).lower())
+        return not _within(resolved, root_resolved)
     except (OSError, ValueError):
         return False
+
+
+PRIVATE_DATA_PATH_REFUSAL = (
+    "Error: this path is inside Row-Bot's private data folder (conversations, settings, keys), which agents "
+    "can't read or change."
+)
 
 
 def _wrap_tool_with_path_fix(tool, root_dir: str):
@@ -219,6 +239,8 @@ def _wrap_tool_with_path_fix(tool, root_dir: str):
                         f"tool instead to access paths outside the workspace."
                     )
                 kwargs[key] = _normalise_path(kwargs[key], root_dir)
+                if is_private_data_path(Path(root_dir) / kwargs[key]):
+                    return PRIVATE_DATA_PATH_REFUSAL
         return original_func(**kwargs)
 
     # Rename to workspace_* and enrich description with scope
@@ -280,13 +302,16 @@ def _make_pdf_aware_read_tool(root_dir: str):
         resolved = resolved.resolve()
 
         # Sandbox check — must stay within root
-        if not str(resolved).startswith(str(Path(root_dir).resolve())):
+        if not _within(resolved, root_dir):
             return (
                 f"Error: path '{file_path}' is outside the workspace folder "
                 f"({root_dir}). This tool ONLY operates within the workspace. "
                 f"Use the run_command tool instead to access paths outside "
                 f"the workspace."
             )
+
+        if is_private_data_path(resolved):
+            return PRIVATE_DATA_PATH_REFUSAL
 
         if not resolved.exists() and "/" not in file_path.replace("\\", "/"):
             received = Path(root_dir) / "Received Files" / file_path

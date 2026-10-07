@@ -93,7 +93,10 @@ export function DataBackup({
           );
         else if (job.kind === 'backup')
           setNotice(
-            `Saved “${job.name ?? next.last_backup_name}” in ${next.folder}.`,
+            `Saved “${job.name ?? next.last_backup_name}” in ${next.folder}.` +
+              (job.skipped?.length
+                ? ` Left out ${job.skipped.length === 1 ? 'a file' : `${job.skipped.length} files`} that couldn't be read: ${job.skipped.join(', ')}.`
+                : ''),
           );
       }
     } catch (cause) {

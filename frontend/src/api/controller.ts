@@ -3191,6 +3191,8 @@ export class ClientController {
     this.query(() => this.transport.profiles?.(query, scope, cursor, signal));
   profile = (profile: string, signal?: AbortSignal) =>
     this.query(() => this.transport.profile?.(profile, signal));
+  profileInstructions = (profile: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.profileInstructions?.(profile, signal));
   reviewProfile = (
     body: import('./types').ProfileCommandPayload,
     signal?: AbortSignal,

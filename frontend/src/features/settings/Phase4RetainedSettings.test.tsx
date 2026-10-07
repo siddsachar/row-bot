@@ -109,7 +109,12 @@ const snapshot = {
   system: {
     availability: 'available',
     workspace: { label: 'Workspace', configured: true, exists: true },
-    shell: { available: true, enabled: true, blocked_patterns: 'format c:' },
+    shell: {
+      available: true,
+      enabled: true,
+      blocked_patterns: 'format c:',
+      allow_data_folder: false,
+    },
     browser: {
       available: true,
       enabled: true,
@@ -581,6 +586,25 @@ it('reviews SenseVoice setup only after an explicit action', async () => {
   );
 });
 
+it('keeps the data folder closed to the agent until the person opts in', async () => {
+  renderSetting('system');
+  fireEvent.click(screen.getByText('Advanced'));
+  const toggle = screen.getByRole('switch', {
+    name: "Let the agent read Row-Bot's data folder",
+  });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'shell.allow_data_folder',
+        value: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
 it('does not expose writable System fields when their tool owner is unavailable', () => {
   mutation.page = 'system';
   render(
@@ -612,6 +636,9 @@ it('does not expose writable System fields when their tool owner is unavailable'
   expect(screen.getByText('Computer Use unavailable')).toBeVisible();
   expect(screen.getByText('Filesystem tool unavailable')).toBeVisible();
   expect(screen.queryByLabelText(/Additional blocked patterns/)).toBeNull();
+  expect(
+    screen.queryByRole('switch', { name: /Row-Bot's data folder/ }),
+  ).toBeNull();
   expect(
     screen.queryByRole('radiogroup', { name: 'Work with files' }),
   ).toBeNull();
