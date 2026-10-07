@@ -347,6 +347,20 @@ def _package_attributes_follow_sys_modules():
 
 
 @pytest.fixture(autouse=True)
+def _channel_registry_restored():
+    # Row-Bot's own channels register themselves when imported. Tests that register fakes left them behind,
+    # so a later test on the worker listed the fakes and no Telegram channel at all.
+    registry = importlib.import_module("row_bot.channels.registry")
+    saved = dict(registry._channels), dict(registry._channel_sources)
+    yield
+    registry = sys.modules.get("row_bot.channels.registry", registry)
+    registry._channels.clear()
+    registry._channels.update(saved[0])
+    registry._channel_sources.clear()
+    registry._channel_sources.update(saved[1])
+
+
+@pytest.fixture(autouse=True)
 def _no_title_model(monkeypatch):
     # A conversation's first finished turn asks its model for a title on a background
     # thread. Tests that run turns script the agent, not that model: unscripted, the thread
