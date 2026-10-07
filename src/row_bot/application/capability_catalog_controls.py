@@ -5,13 +5,14 @@ from collections.abc import Callable
 import copy
 import json
 import math
+import re
 from uuid import UUID
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_policy_controls as policy
 from row_bot.integrations import brokers, presets
 from row_bot.mcp_client import config, targets
-from row_bot.mcp_client.safety import is_destructive_tool, saved_hints
+from row_bot.mcp_client.safety import is_destructive_tool, saved_hints, schema_digest
 from row_bot.runtime import admissions
 
 Error = configuration.CapabilityConfigurationError
@@ -73,6 +74,10 @@ def capture_tested_catalog(tested: dict) -> dict:
                     or type(description) is not str or len(description) > 16384 or type(schema) is not dict
                     or type(tool.get("destructive")) is not bool or type(tool.get("requires_approval")) is not bool):
                 raise ValueError
+            # A stored record keeps the digest a test computed; a test's own result has the whole schema.
+            digest = tool.get("input_schema_digest", None if "input_schema_digest" in tool else schema_digest(schema))
+            if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError
             names.add(name)
             runtime_names.add(runtime_name)
             effect = tool.get("effect")
@@ -83,7 +88,8 @@ def capture_tested_catalog(tested: dict) -> dict:
                 raise ValueError
             destructive = tool["destructive"] or is_destructive_tool(name, description, {"annotations": annotations})
             # Recorded safety is never lowered by a catalog edit or a missing hint.
-            row = {"name": name, "description": description, "input_schema": schema,
+            # The schema is kept as its digest: what is agreed to is exact, however large the schema.
+            row = {"name": name, "description": description, "input_schema_digest": digest,
                 "destructive": destructive, "requires_approval": tool["requires_approval"] or destructive or effect == "unknown",
                 "effect": effect}
             if annotations:
@@ -159,9 +165,10 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
         old = catalog.get(tool_name, {})
         if type(old) is not dict:
             raise Error("mcp_policy_unavailable")
-        # Hints are only ever the latest test's: one the server dropped never lingers to relax a tool.
-        updated = {**{key: value for key, value in old.items() if key != "annotations"}, **row}
-        updated["requires_approval"] =(row["requires_approval"] or old.get("requires_approval") is not False and "requires_approval" in old
+        # Hints are only ever the latest test's, so one the server dropped never lingers to relax a tool; a whole
+        # schema an older acceptance kept gives way to its digest.
+        updated = {**{key: value for key, value in old.items() if key not in {"annotations", "input_schema"}}, **row}
+        updated["requires_approval"] = (row["requires_approval"] or old.get("requires_approval") is not False and "requires_approval" in old
             or old.get("destructive") is not False and "destructive" in old or tool_name in approvals)
         updated["destructive"] = row["destructive"] or old.get("destructive") is True
         catalog[tool_name] = updated
@@ -191,7 +198,7 @@ def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target:
     document, names = _document(saved, server_id, captured)
     catalog = document["servers"][names[0]]["tools"]["catalog"]
     return [{"name": row["name"], **{key: catalog[row["name"]].get(key) for key in
-             ("description", "input_schema", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
+             ("description", "input_schema_digest", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
 
 
 def _intent(server_id, test_command_id, preset=None, overrides=None):

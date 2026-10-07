@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -93,6 +95,18 @@ def _annotation_value(tool: Any, key: str) -> Any:
     if isinstance(annotations, dict):
         return annotations.get(key)
     return getattr(annotations, key, None)
+
+
+def schema_digest(schema: Any) -> str:
+    """What an accepted catalog keeps of a tool's input schema: enough to see any change, whatever its size
+    (one of Notion's tools has an 83 KB schema)."""
+    data = json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+def saved_schema_digest(row: dict) -> str:
+    """A saved catalog row's schema digest; a catalog saved before digests kept the whole schema."""
+    return row["input_schema_digest"] if "input_schema_digest" in row else schema_digest(row.get("input_schema"))
 
 
 def hints(tool: Any) -> dict[str, bool]:

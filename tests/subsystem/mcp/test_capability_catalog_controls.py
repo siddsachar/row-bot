@@ -9,6 +9,7 @@ from row_bot.application import capability_catalog_controls as controls
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_runtime_controls as lifecycle
 from row_bot.mcp_client import config
+from row_bot.mcp_client.safety import schema_digest
 from row_bot.runtime import admissions
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport]
@@ -102,7 +103,7 @@ def test_actual_test_metadata_survives_cleanup_and_explicit_acceptance_never_ret
     assert current["future"] == owner.document["future"]
     assert current["servers"]["Synthetic"]["env"] == owner.document["servers"]["Synthetic"]["env"]
     assert current["servers"]["Synthetic"]["tools"]["future"] == {"keep": 2}
-    assert current["servers"]["Synthetic"]["tools"]["catalog"]["get_record"]["input_schema"] == {"type": "object"}
+    assert current["servers"]["Synthetic"]["tools"]["catalog"]["get_record"]["input_schema_digest"] == schema_digest({"type": "object"})
     assert owner.calls == ["connect", "list_tools"]
     assert execute(request) == saved
     assert "synthetic-secret" not in json.dumps([rows, reviewed, saved])
@@ -151,17 +152,12 @@ def test_other_owner_and_unknown_original_cannot_accept_tested_metadata(owner):
         tools(unknown)
 
 
-@pytest.mark.parametrize("kind", ["count", "bytes", "depth", "duplicate-runtime-name"])
+@pytest.mark.parametrize("kind", ["count", "bytes", "duplicate-runtime-name"])
 def test_unavailable_catalog_never_blocks_actual_test_transport_cleanup(owner, kind):
     if kind == "count":
         owner.tools[:] = [{"name": f"get_{index}"} for index in range(1001)]
     elif kind == "bytes":
         owner.tools[:] = [{"name": f"get_{index}", "description": "x" * 16384} for index in range(12)]
-    elif kind == "depth":
-        schema = {}
-        for _ in range(30):
-            schema = {"nested": schema}
-        owner.tools[0]["inputSchema"] = schema
     else:
         owner.tools[:] = [{"name": "get-a"}, {"name": "get_a"}]
     tested = run_test()
@@ -344,3 +340,24 @@ def test_a_hint_the_server_drops_does_not_linger_to_relax_its_tool(owner):
     saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]["check_stock"]
     assert "annotations" not in saved
     assert _policy_rows(tested)["check_stock"].approval_locked is True  # Unknown again: it always asks.
+
+
+def test_a_deeply_nested_schema_is_kept_as_its_digest_and_never_grows_the_record(owner):
+    schema = {}
+    for _ in range(30):
+        schema = {"nested": schema}
+    owner.tools[0]["inputSchema"] = schema
+    tested = run_test()
+    assert tools(tested)[owner.tools[0]["name"]]["input_schema_digest"] == schema_digest(schema)
+    assert len(json.dumps(admissions.read_command_receipt("synthetic-owner", tested["command_id"])).encode()) < 256 * 1024
+
+
+def test_tools_with_very_large_schemas_can_be_accepted_and_only_their_digests_are_kept(owner):
+    """Notion's tools carry about 170 KB of input schemas: what is agreed to stays exact without keeping them."""
+    big = {"type": "object", "properties": {f"field_{n}": {"type": "string", "description": "d" * 200} for n in range(300)}}
+    owner.tools[:] = [{"name": f"get_{n}", "description": "Read records", "inputSchema": big} for n in range(3)]
+    tested = run_test()
+    assert set(tools(tested)) == {"get_0", "get_1", "get_2"}
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]
+    assert all(row["input_schema_digest"] == schema_digest(big) and "input_schema" not in row for row in saved.values())

@@ -33,7 +33,8 @@ from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_c
 from row_bot.mcp_client.results import normalize_call_result
 from row_bot.integrations.presets import locked as recorded_locked
 from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, hints, is_destructive_tool, prefixed_tool_name,
-                                       sanitize_name_component, tool_enabled_by_default)
+                                       sanitize_name_component, saved_schema_digest, schema_digest,
+                                       tool_enabled_by_default)
 
 logger = logging.getLogger(__name__)
 
@@ -498,8 +499,8 @@ def _accepted_tool_matches(server_cfg: dict, info: McpToolInfo) -> bool:
     if type(names) is not list or info.name not in names:
         return False
     old = accepted.get(info.name)
-    return isinstance(old, dict) and all(old.get(key) == value for key, value in (
-        ("description", info.description), ("input_schema", info.input_schema), ("effect", info.effect)))
+    return (isinstance(old, dict) and old.get("description") == info.description and old.get("effect") == info.effect
+            and saved_schema_digest(old) == schema_digest(info.input_schema))
 
 
 def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[Any]) -> dict[str, McpToolInfo]:

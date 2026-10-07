@@ -270,6 +270,13 @@ def test_a_server_that_fails_to_start_shows_what_it_wrote(item, owner, monkeypat
     assert wrote[-1] not in json.dumps(plans._load("owner", plan_id)[0])  # and never kept in the plan's record.
 
 
+def test_a_tool_list_row_bot_cannot_keep_says_so_instead_of_claiming_a_change(item, owner):
+    owner.tools[:] = [{"name": f"get_{n}", "description": "d" * 16000, "inputSchema": {}} for n in range(10)]
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    failed = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"], preset="ask")
+    assert failed["state"] == "failed" and failed["message"] == plans._MESSAGES["tools_unreadable"]
+
+
 def test_a_paused_plan_expires_keeps_what_was_done_and_frees_the_item(item, owner, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(plans, "_now", lambda: clock[0])

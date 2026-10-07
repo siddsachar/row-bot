@@ -36,6 +36,7 @@ from uuid import uuid4
 
 from row_bot.integrations import apps, facts, inputs, presets, safe, sources
 from row_bot.integrations.safe import public_url as public_link
+from row_bot.mcp_client.safety import saved_schema_digest
 
 logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()  # Guards the sets below; held only briefly.
@@ -58,6 +59,8 @@ _MESSAGES = {
     "skill_preview_expired": "The skill check expired. Start again.",
     "package_preview_expired": "The package check expired. Start again.",
     "owner_local_only": "Adding packages works only in Row-Bot on this computer.",
+    "tools_unreadable": "Row-Bot couldn't read the list of what this app can do, so it can't ask you about it. "
+                        "Retry; if it happens again, the app's list is larger or differently shaped than Row-Bot accepts.",
 }
 # A Python server built for an older MCP SDK fails at import with one of these (F22).
 _OLD_SDK = re.compile(r"\b(ImportError|ModuleNotFoundError|AttributeError)\b")
@@ -1268,8 +1271,10 @@ def _tools(ctx: Context | None, record: dict) -> list[dict]:
     try:
         return tested_tools(owner_id=ctx.mcp_owner_id, server_id=record["server_id"], test_command_id=record["_test"],
                             target=record["target"])
-    except Exception:
-        raise PlanError("plan_changed") from None
+    except Exception as error:
+        # A list Row-Bot couldn't keep is not a change since agreeing: say which it is.
+        raise PlanError("tools_unreadable" if getattr(error, "code", "") == "mcp_catalog_unavailable"
+                        else "plan_changed") from None
 
 
 def _tool_view(tool: dict, state: str) -> dict:
@@ -1299,8 +1304,8 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
 
     def unchanged(tool: dict) -> bool:  # Accepted before, exactly as it is now.
         old = (saved.get("catalog") or {}).get(tool["name"])
-        return tool["name"] in kept and isinstance(old, dict) and all(
-            old.get(key) == tool.get(key) for key in ("description", "input_schema", "effect"))
+        return (tool["name"] in kept and isinstance(old, dict) and old.get("description") == tool.get("description")
+                and old.get("effect") == tool.get("effect") and saved_schema_digest(old) == saved_schema_digest(tool))
 
     def state(tool: dict) -> str:
         if tool["name"] in chosen:
