@@ -1510,11 +1510,13 @@
   min-height: 0;
 }
 .rich-chart-large {
-  width: min(88vw, 1100px);
+  width: 100%;
   height: min(70vh, 640px);
 }
-.chart-dialog .dialog-content,
+/* The dialog takes the chart's room; the base dialog is 560px wide, which cut
+   off the plot inside it (B290). */
 .chart-dialog {
+  width: min(94vw, 1180px);
   max-width: min(94vw, 1180px);
 }
 .chart-table.markdown-table-scroll {
