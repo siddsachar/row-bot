@@ -320,7 +320,7 @@ def test_generated_mdx_is_stable_after_inventory_json_round_trip() -> None:
 def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
     build_dir = tmp_path / "build"
     publish_dir = tmp_path / "publish"
-    for name in ("assets", "docs", "img", "pagefind", "search"):
+    for name in ("assets", "docs", "img", "oauth", "pagefind", "search"):
         source = build_dir / name
         source.mkdir(parents=True)
         (source / "artifact.txt").write_text(name, encoding="utf-8")
@@ -372,6 +372,16 @@ def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
     assert check_sync(build_dir, publish_dir) == [
         f"Published directory is stale: {(publish_dir / 'docs').resolve()}"
     ]
+
+
+def test_the_sign_in_client_metadata_is_published_at_the_address_it_names() -> None:
+    path = Path("oauth") / "client-metadata.json"
+    published = json.loads((ROOT / "docs" / path).read_text(encoding="utf-8"))
+    assert published == json.loads((ROOT / "docs-site" / "static" / path).read_text(encoding="utf-8"))
+    site = (ROOT / "docs" / "CNAME").read_text(encoding="utf-8").strip()
+    assert published["client_id"] == f"https://{site}/{path.as_posix()}"  # A client metadata document names itself.
+    assert published["token_endpoint_auth_method"] == "none"
+    assert all(urlsplit(uri).hostname == "127.0.0.1" for uri in published["redirect_uris"])
 
 
 def test_llms_txt_generation_covers_docs_routes(tmp_path: Path) -> None:

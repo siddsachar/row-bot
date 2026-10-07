@@ -1,0 +1,14 @@
+{
+  "client_id": "https://row-bot.ai/oauth/client-metadata.json",
+  "client_name": "Row-Bot",
+  "client_uri": "https://row-bot.ai",
+  "logo_uri": "https://row-bot.ai/img/brand/row_bot_glyph_256.png",
+  "application_type": "native",
+  "redirect_uris": [
+    "http://127.0.0.1/api/v1/settings/mcp/auth/callback",
+    "http://127.0.0.1:8080/api/v1/settings/mcp/auth/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
