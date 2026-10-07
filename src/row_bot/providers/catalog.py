@@ -506,7 +506,11 @@ def classify_model_capabilities(
         default_transport = TransportMode.OLLAMA_CLOUD_CHAT if provider_id == "ollama_cloud" else TransportMode.OLLAMA_CHAT
         endpoint_compatibility = {default_transport}
         family = bare.split(":", 1)[0]
-        if metadata.get("vision") or _metadata_suggests_image_input(metadata) or _name_suggests_vision_model(family):
+        # ollama_model_info decides "vision", from Ollama's own answer where it gave one (F12).
+        vision = metadata.get("vision")
+        if vision is True or (not isinstance(vision, bool) and (
+            _metadata_suggests_image_input(metadata) or _name_suggests_vision_model(family)
+        )):
             input_modalities.add(ModelModality.IMAGE.value)
             capabilities.add("vision")
         if metadata.get("tool_calling") is False:
