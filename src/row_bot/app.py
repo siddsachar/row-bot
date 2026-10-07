@@ -733,6 +733,19 @@ async def _run_startup_sequence():
         logger.warning("Plugin loading failed (non-fatal): %s", exc)
 
     _set("🔌 Starting MCP servers…")
+    # Keys that 5.0.0 kept in a server's headers or variables move into the system keychain before any
+    # server starts; each keeps its plaintext until its keychain copy reads back the same.
+    try:
+        from row_bot.mcp_client.secret_migration import migrate as migrate_app_keys
+        with _startup_phase("mcp_secret_migration"):
+            moved = await asyncio.to_thread(migrate_app_keys)
+        if moved["migrated"]:
+            _safe_console_print(f"[startup] 🔐 Moved the keys of {moved['migrated']} app(s) into the system keychain")
+        if moved["kept"]:
+            logger.warning("%s app(s) keep their keys in their settings until the system keychain can keep them",
+                           moved["kept"])
+    except Exception as exc:
+        logger.warning("App key migration skipped; keys stay in their settings (%s)", type(exc).__name__)
     # A run that crashed may have left local app programs running: stop only the ones it recorded as its
     # own (pid and creation time), before any new one starts.
     try:

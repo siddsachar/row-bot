@@ -220,6 +220,91 @@ def test_a_sign_in_the_keychain_cannot_keep_stays_in_its_file_and_keeps_working(
     assert account_tokens.migrate() == {"migrated": 3, "kept": 0}
 
 
+MCP_SECRETS = ("fixture-header-secret", "fixture-notes-env-secret")
+
+
+def _with_a_typed_variable(v5, monkeypatch, server: str = "Fixture Notes") -> Path:
+    """5.0.0 kept keys as typed: Fixture Docs' Authorization header, and here a variable on a local server too."""
+    from row_bot.mcp_client import config
+    path = v5.root / "mcp_servers.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["servers"][server]["env"]["NOTES_API_TOKEN"] = "fixture-notes-env-secret"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setattr(config, "_config_cache", None)
+    return path
+
+
+def _launched() -> dict[str, dict]:
+    """The headers and variables each server would start with."""
+    from row_bot.mcp_client import auth, config
+    servers = config.load_config()["servers"]
+    return {name: {field: auth.transport_options(name, servers[name])[0][field] for field in ("headers", "env")}
+            for name in ("Fixture Notes", "Fixture Docs")}
+
+
+def _keychain_refs(v5) -> set[str]:
+    return {account.split(":")[1] for _, account in v5.keychain.values if account.startswith("mcp_connections:")}
+
+
+def test_keys_typed_into_a_servers_settings_move_into_the_keychain_and_it_starts_as_before(v5, monkeypatch):
+    from row_bot.mcp_client import secret_migration
+    path = _with_a_typed_variable(v5, monkeypatch)
+    before = _launched()
+    assert secret_migration.migrate() == {"migrated": 2, "kept": 0}  # As start-up does, before any server starts.
+    assert not any(secret in path.read_text(encoding="utf-8") for secret in MCP_SECRETS)
+    assert _launched() == before  # The same header and variable, exactly as typed.
+    saved = json.loads(path.read_text(encoding="utf-8"))["servers"]
+    assert saved["Fixture Notes"]["env"] == {"NOTES_HOME": "fixture-notes"}  # Only the key moved.
+    assert _keychain_refs(v5) == {saved[name]["auth"]["credential_ref"] for name in ("Fixture Notes", "Fixture Docs")}
+    assert secret_migration.migrate() == {"migrated": 0, "kept": 0}  # Once.
+    facts.invalidate()
+    servers = _items("mcp")
+    assert [b["code"] for b in servers["Fixture Docs"]["blockers"]] == ["not_connected"]  # Its key is saved.
+    assert not any(secret in json.dumps(servers) for secret in MCP_SECRETS)
+
+
+def test_keys_the_keychain_cannot_keep_stay_in_the_settings_and_move_at_the_next_start(v5, monkeypatch):
+    from row_bot.mcp_client import secret_migration
+    path = _with_a_typed_variable(v5, monkeypatch)
+    original, before = path.read_bytes(), _launched()
+    v5.keychain.fail = True
+    assert secret_migration.migrate() == {"migrated": 0, "kept": 2}
+    assert path.read_bytes() == original and _launched() == before  # Nothing changed: it starts as in 5.0.0.
+    v5.keychain.fail = False
+    assert secret_migration.migrate() == {"migrated": 2, "kept": 0}
+
+
+def test_a_key_move_a_crash_interrupts_is_finished_or_undone_at_the_next_start(v5, monkeypatch):
+    from row_bot.mcp_client import auth, config, secret_migration
+    path = _with_a_typed_variable(v5, monkeypatch)
+    before, publish, write = _launched(), config.publish_saved_configuration, auth.write_credentials
+
+    def crash_after_checkpoint(document, **kwargs):  # Its proof is saved, then Row-Bot stops before the file moves.
+        def checkpoint(proof):
+            kwargs["persist_recovery"](proof)
+            raise KeyboardInterrupt
+        return publish(document, **{**kwargs, "persist_recovery": checkpoint})
+    monkeypatch.setattr(config, "publish_saved_configuration", crash_after_checkpoint)
+    with pytest.raises(KeyboardInterrupt):
+        secret_migration.migrate()
+    monkeypatch.setattr(config, "publish_saved_configuration", publish)
+    assert "fixture-header-secret" in path.read_text(encoding="utf-8")
+    assert secret_migration.migrate() == {"migrated": 0, "kept": 0}  # The next start finishes the move it began.
+    assert not any(secret in path.read_text(encoding="utf-8") for secret in MCP_SECRETS) and _launched() == before
+    assert not config.configuration_recovery_required()
+
+    path = _with_a_typed_variable(v5, monkeypatch, "Old Tool")  # Another server's key; a crash before publishing.
+    monkeypatch.setattr(auth, "write_credentials", lambda ref, data: (write(ref, data), (_ for _ in ()).throw(KeyboardInterrupt)))
+    with pytest.raises(KeyboardInterrupt):
+        secret_migration.migrate()
+    monkeypatch.setattr(auth, "write_credentials", write)
+    assert secret_migration.migrate() == {"migrated": 1, "kept": 0}  # Its copy is deleted, then the move runs again.
+    saved = json.loads(path.read_text(encoding="utf-8"))["servers"]
+    assert "fixture-notes-env-secret" not in path.read_text(encoding="utf-8")
+    assert _keychain_refs(v5) == {saved[name]["auth"]["credential_ref"] for name in ("Fixture Notes", "Fixture Docs", "Old Tool")}
+    assert not config.configuration_recovery_required()
+
+
 def test_a_configured_channel_is_a_built_in_way_with_its_settings_and_nothing_starts_or_sends(v5):
     """Sending or starting would reach Telegram: the suite's network guard fails the test."""
     from row_bot.application.channel_controls import read_channels
