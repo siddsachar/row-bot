@@ -493,12 +493,14 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       />,
     );
     expect(screen.getByRole('status')).toHaveTextContent('Drawing the graph…');
+    // The first render in this file imports graphology and its layout helpers
+    // on demand; under two parallel suite runs that cold import took ~9 s.
     await waitFor(
       () =>
         expect(
           container.querySelector('.knowledge-network-shell'),
         ).toHaveAttribute('data-renderer-status', 'ready'),
-      { timeout: 5000 },
+      { timeout: 15_000 },
     );
     expect(onStatus.mock.calls.map(([status]) => status)).toEqual([
       'loading',
@@ -521,7 +523,7 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       slot: 4,
     });
     expect(graph.getNodeAttribute('alpha', 'size')).toBeCloseTo(4.5);
-  });
+  }, 20_000);
 
   it('hides filtered memories in place and highlights the chosen neighbourhood', async () => {
     const { sigma, rerender, props } = await renderCanvas();

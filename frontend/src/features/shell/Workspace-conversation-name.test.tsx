@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -88,18 +88,24 @@ it.each(['all', 'code'])(
         </RuntimeContext.Provider>
       </MemoryRouter>,
     );
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', {
-          level: 1,
-          name: 'A place for your ideas',
-        }),
-      ).toBeVisible(),
-    );
+    // The first render of the whole workspace is most of this test, so it
+    // overran 5 s under load. The fixture transport answers at once, so one
+    // act() flush settles each step without waitFor's real-timer turns, and
+    // the sidebar rows are found inside the navigation: a role query computes
+    // every candidate button's name, reading the style of each node in it.
+    await act(async () => {});
+    const sidebar = () =>
+      within(screen.getByRole('navigation', { name: 'Workspace navigation' }));
     expect(
-      screen.getByRole('button', { name: 'A place for your ideas' }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'A place for your ideas',
+      }),
     ).toBeVisible();
-    await waitFor(() => expect(transport.counters.subscribes).toBe(1));
+    expect(
+      sidebar().getByRole('button', { name: 'A place for your ideas' }),
+    ).toBeVisible();
+    expect(transport.counters.subscribes).toBe(1);
 
     // The server renamed it: later reads return a new row.
     transport.conversations[0] = {
@@ -108,16 +114,14 @@ it.each(['all', 'code'])(
     };
     await act(async () => transport.emit(conversationChanged(controller)));
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('heading', {
-          level: 1,
-          name: 'Cornwall Coast Walking Trip',
-        }),
-      ).toBeVisible(),
-    );
     expect(
-      screen.getByRole('button', { name: 'Cornwall Coast Walking Trip' }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Cornwall Coast Walking Trip',
+      }),
+    ).toBeVisible();
+    expect(
+      sidebar().getByRole('button', { name: 'Cornwall Coast Walking Trip' }),
     ).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'A place for your ideas' }),
