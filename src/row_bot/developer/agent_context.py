@@ -82,13 +82,15 @@ def build_developer_agent_context(workspace_id: str, thread_id: str = "") -> str
         "do not call shell, git, filesystem, or browser tools.",
         "For code work, prefer Developer-native tools (developer_read_file, developer_search, "
         "developer_apply_patch, developer_get_diff, developer_update_todos, developer_run_detected_test, "
-        "developer_create_branch, developer_switch_branch, developer_commit_changes, developer_push_current_branch) "
-        "over generic shell or filesystem tools.",
+        "developer_create_branch, developer_switch_branch, developer_commit_changes, developer_push_current_branch, "
+        "developer_create_pull_request) over generic shell or filesystem tools.",
         "When shell is necessary, write commands for the command shell above. On PowerShell, do not use POSIX heredocs like `python - <<'PY'`.",
         "Prefer small targeted edits and preserve unrelated formatting. Avoid whole-file rewrites unless the file format or change requires it.",
         "For structured files, run a cheap parse/validation check when available. For notebooks, JSON parse is the minimum; use nbformat validation if available, but do not execute the whole notebook unless asked or clearly safe.",
         "Execution modes: Local runs commands in the selected repo folder. Docker Sandbox runs commands in an isolated shadow copy; "
-        "real repo files change only after developer_import_sandbox_changes imports an approved sandbox patch.",
+        "real repo files change only after developer_import_sandbox_changes imports an approved sandbox patch. "
+        "Git and GitHub tools (branch, commit, push, pull request) always run on this computer against the real repo, "
+        "never in the sandbox; only commands run in the sandbox.",
         "Do not clone repositories into Row-Bot app data. If cloning is needed, ask for an explicit destination.",
         "Do not install dependencies, delete files, commit, push, or use external network without the configured approval policy.",
     ]

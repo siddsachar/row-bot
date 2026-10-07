@@ -5,7 +5,8 @@
     assert gh.calls() == [["pr", "create", "--draft", ...]]
 
 ``gh auth status`` succeeds (or fails with ``signed_in=False``), ``gh pr create`` prints ``pr_url``,
-anything else exits 0 with no output. Every call's arguments are recorded.
+anything else exits 0 with no output. Every call's arguments are recorded; a ``--body-file`` path is
+recorded as ``"@" + its contents``.
 """
 
 from __future__ import annotations
@@ -22,6 +23,10 @@ _SCRIPT = r'''
 import json, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
 args = sys.argv[2:]
+if "--body-file" in args:
+    # Record the body itself; the file is gone once gh returns.
+    index = args.index("--body-file") + 1
+    args[index] = "@" + open(args[index], encoding="utf-8").read()
 with open(config["log"], "a", encoding="utf-8") as log:
     log.write(json.dumps(args) + "\n")
 if args[:2] == ["auth", "status"]:

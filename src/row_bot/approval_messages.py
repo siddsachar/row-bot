@@ -71,6 +71,8 @@ def _tool_action(tool: str, label: str) -> str:
         "developer_fast_forward_merge",
     }:
         return "update Git"
+    if tool_name == "developer_create_pull_request":
+        return "open a pull request"
     if label_text:
         lowered = label_text[:1].lower() + label_text[1:]
         return lowered

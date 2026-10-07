@@ -13,8 +13,16 @@ from pydantic import BaseModel, Field
 
 from row_bot.developer import change_ledger
 from row_bot.developer import edits as developer_edits
-from row_bot.developer.git import commit_changes, create_branch, fast_forward_merge, get_git_status, switch_branch
-from row_bot.developer.github import push_current_branch
+from row_bot.developer.git import (
+    branch_changes,
+    commit_changes,
+    create_branch,
+    fast_forward_merge,
+    get_git_status,
+    pull_request_text,
+    switch_branch,
+)
+from row_bot.developer.github import create_pull_request, push_current_branch
 from row_bot.developer.sandbox import ApprovalDecision, decide_action
 from row_bot.developer.review import get_file_diff, list_changed_files
 from row_bot.developer.runtime import detect_project_commands, run_workspace_command, run_workspace_shell_command
@@ -371,6 +379,47 @@ def _push_current_branch() -> str:
             return "Push cancelled by user."
         result = push_current_branch(workspace.path, _active_approval_mode(), confirmed=True)
     return json.dumps(result.__dict__, indent=2, default=str)
+
+
+class _PullRequestInput(BaseModel):
+    title: str = Field(default="", description="Pull request title. Leave empty to write it from the branch's commits.")
+    body: str = Field(default="", description="Pull request body. Leave empty to list the branch's commits and files.")
+    draft: bool = Field(default=True, description="Open as a draft. Keep the default unless the person asked for a ready PR.")
+
+
+def _create_pull_request(title: str = "", body: str = "", draft: bool = True) -> str:
+    """Open a pull request for the pushed current branch with the GitHub CLI on this computer (F20)."""
+    workspace, _root = _active_workspace(write=True)
+    if not title.strip():
+        status = get_git_status(workspace.path)
+        suggested = pull_request_text(status.branch or "", branch_changes(workspace.path))
+        if suggested is None:
+            return "The current branch adds no commits to its base branch, so there is nothing to open a pull request for."
+        title = suggested["title"]
+        body = body.strip() or suggested["body"]
+    title, body = title.strip()[:200], body.strip()[:8000]
+    result = create_pull_request(workspace.path, _active_approval_mode(), title=title, body=body, draft=draft)
+    if result.decision and result.decision.requires_approval:
+        approval = interrupt({
+            "tool": "developer_create_pull_request",
+            "label": "Open pull request",
+            "description": f"Open a {'draft ' if draft else ''}pull request from {workspace.name}: {title}",
+            "args": {"workspace": workspace.name, "title": title, "draft": draft},
+        })
+        if not approval:
+            return "Pull request cancelled by user."
+        result = create_pull_request(
+            workspace.path, _active_approval_mode(), title=title, body=body, draft=draft, confirmed=True
+        )
+    if result.ran and not result.ok and "push" in result.stderr.lower():
+        return "GitHub needs the branch first: push it with developer_push_current_branch, then open the pull request."
+    return json.dumps({
+        "ok": result.ok,
+        "url": result.url,
+        "draft": draft,
+        "title": title,
+        "error": "" if result.ok else (result.stderr.strip()[-2000:] or "The pull request was not created."),
+    }, indent=2)
 
 
 class _GitFastForwardInput(BaseModel):
@@ -734,6 +783,7 @@ class DeveloperTool(BaseTool):
             StructuredTool.from_function(func=changes(_switch_branch), name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
             StructuredTool.from_function(func=changes(_commit_changes), name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using the thread approval mode.", args_schema=_GitCommitInput),
             StructuredTool.from_function(func=changes(_push_current_branch), name="developer_push_current_branch", description="Push the current branch to origin using the thread approval mode."),
+            StructuredTool.from_function(func=_create_pull_request, name="developer_create_pull_request", description="Open a GitHub pull request for the current branch once it is pushed. Runs the GitHub CLI on this computer, never in the sandbox, and asks first by the thread approval mode. Draft by default; leave title and body empty to describe the branch's own commits and files.", args_schema=_PullRequestInput),
             StructuredTool.from_function(func=changes(_fast_forward_merge), name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using the thread approval mode.", args_schema=_GitFastForwardInput),
             StructuredTool.from_function(func=_diff, name="developer_get_diff", description="Return changed file summary or one file diff for the active Developer workspace.", args_schema=_DiffInput),
             StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread. Keep it current: mark an item in_progress when you start it and completed when it is done, including work a helper agent finished, before you end your turn.", args_schema=_TodoInput),
