@@ -40,7 +40,7 @@ _LOG = logging.getLogger(__name__)
 # refresh, a smart name). It reads module state such as threads.checkpointer
 # and its shared connection when it runs, so it stays owned until it ends:
 # whoever closes or replaces that state settles it first (settle_background).
-_BACKGROUND_LOCK = threading.Lock()
+_BACKGROUND_LOCK = threading.RLock()  # Re-entrant: a start that runs its work at once may finish under it.
 _BACKGROUND: set[threading.Thread] = set()
 
 
