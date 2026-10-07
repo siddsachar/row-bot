@@ -10,6 +10,7 @@ DeveloperAction = Literal[
     "read",
     "edit",
     "run_safe_command",
+    "run_command",
     "run_install",
     "run_network",
     "start_server",
@@ -41,7 +42,8 @@ class ApprovalDecision:
 _ACTION_LABELS = {
     "read": "read workspace files",
     "edit": "edit workspace files",
-    "run_safe_command": "run a local command",
+    "run_safe_command": "run a read-only command",
+    "run_command": "run a command",
     "run_install": "install dependencies",
     "run_network": "use the network",
     "start_server": "start a local server",

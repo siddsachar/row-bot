@@ -51,7 +51,7 @@ def test_developer_native_tools_read_search_and_status(tmp_path, monkeypatch, re
         tool_context.reset_context(tokens)
 
 
-def test_developer_runtime_classifies_quoted_tool_commands_as_safe():
+def test_developer_runtime_treats_quoted_code_as_running_code():
     from row_bot.developer.runtime import classify_command_action, has_shell_control_operator
 
     local_markdown_parser = (
@@ -61,7 +61,7 @@ def test_developer_runtime_classifies_quoted_tool_commands_as_safe():
     )
 
     assert has_shell_control_operator(local_markdown_parser) is False
-    assert classify_command_action(local_markdown_parser) == "run_safe_command"
+    assert classify_command_action(local_markdown_parser) == "run_command"
     assert has_shell_control_operator('python -c "print(1)" > out.txt') is True
     assert classify_command_action('python -c "print(1)" > out.txt') == "run_network"
     assert classify_command_action("curl https://example.com") == "run_network"

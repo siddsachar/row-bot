@@ -52,8 +52,29 @@ def test_shell_control_operators_ignore_quoted_text_but_detect_unquoted() -> Non
         ("git push origin HEAD", "git_push"),
         ("gh pr create --draft", "git_pr"),
         ("docker run alpine", "run_network"),
-        ("python -m pytest", "run_safe_command"),
-        ("unknown-tool --version", "run_safe_command"),
+        # B292: only known read-only commands skip approval; anything else that runs code is run_command.
+        ("git status", "run_safe_command"),
+        ("git log --oneline -5", "run_safe_command"),
+        ("git branch -a", "run_safe_command"),
+        ("ls src", "run_safe_command"),
+        ("Get-Content README.md", "run_safe_command"),
+        ('rg "a|b" src', "run_safe_command"),
+        ("node --version", "run_safe_command"),
+        ("python -m pytest", "run_command"),
+        ("npm test", "run_command"),
+        ("python script.py", "run_command"),
+        ("node x.js", "run_command"),
+        ('python -c "print(1)"', "run_command"),
+        ("python -c \"import os; os.remove('x')\"", "run_command"),
+        ("pwsh -c Get-Date", "run_command"),
+        ("unknown-tool --version", "run_command"),
+        ("git branch new-name", "run_command"),
+        ("git -c core.pager=evil log", "run_command"),
+        ("git diff --output=patch.txt", "run_command"),
+        ('rg "--pre=evil" x', "run_command"),
+        ("git status; python evil.py", "run_command"),
+        ('git log "$(python evil.py)"', "run_command"),
+        ("cat (python evil.py)", "run_command"),
     ],
 )
 def test_command_classification_covers_risky_and_safe_actions(command: str, expected: str) -> None:
@@ -219,3 +240,42 @@ def test_an_approved_shell_command_records_the_files_it_changed(tmp_path, monkey
     assert "created.txt" in result.changed_files
     changes = change_ledger.list_change_sets(workspace_id="ws-1", thread_id="thread-1")
     assert [change.files[0].path for change in changes] == ["created.txt"]
+
+
+def test_running_code_asks_in_ask_is_refused_in_block_and_read_only_commands_run(tmp_path) -> None:
+    """B292: running code follows the approval mode; only known read-only commands skip it."""
+    from row_bot.developer.runtime import run_workspace_command
+    from row_bot.developer.sandbox import decide_action
+
+    blocked = run_workspace_command(str(tmp_path), 'python -c "print(1)"', "block")
+    asked = run_workspace_command(str(tmp_path), "python script.py", "approve")
+
+    assert (blocked.ran, blocked.decision.decision) == (False, "block")
+    assert (asked.ran, asked.decision.decision) == (False, "ask")
+    assert decide_action("allow_all", "run_command").allowed
+    assert all(decide_action(mode, "run_safe_command").allowed for mode in ("block", "approve", "allow_all"))
+
+
+def test_detected_test_runs_in_the_sandbox_without_asking_but_asks_on_this_computer(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from row_bot.developer import runtime, sandbox_runtime, storage
+
+    ran: list[str] = []
+    monkeypatch.setattr(sandbox_runtime, "run_docker_sandbox_command", lambda _ws, command, **_kw: (
+        ran.append(command) or SimpleNamespace(cwd="/workspace", returncode=0, stdout="ok", stderr="",
+                                               changed_files=[], sandbox_backend="docker", pending_change_id="")))
+    sandboxed = fake_workspace(tmp_path / "sandboxed", execution_mode="docker")
+    local = fake_workspace(tmp_path / "local")
+    monkeypatch.setattr(storage, "get_workspace", lambda workspace_id: {"docker": sandboxed, "local": local}[workspace_id])
+
+    in_sandbox = runtime.run_workspace_command(sandboxed.path, "npm test", "approve", workspace_id="docker",
+                                               detected_test=True)
+    on_host = runtime.run_workspace_command(local.path, "npm test", "approve", workspace_id="local",
+                                            detected_test=True)
+    in_block = runtime.run_workspace_command(sandboxed.path, "npm test", "block", workspace_id="docker",
+                                             detected_test=True)
+
+    assert in_sandbox.ok and ran == ["npm test"]
+    assert (on_host.ran, on_host.decision.decision) == (False, "ask")
+    assert (in_block.ran, in_block.decision.decision) == (False, "block")

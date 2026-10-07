@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 
 from langchain_core.tools import StructuredTool
+from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
-from row_bot.developer.tool_capsules import custom_tool_builder
+from row_bot.developer.sandbox import decide_action
+from row_bot.developer.tool_capsules import _active_approval_mode, custom_tool_builder, get_custom_tool_draft
 from row_bot.tools import registry
 from row_bot.tools.base import BaseTool
 
@@ -45,6 +47,9 @@ def _run_builder(
     overwrite: bool = False,
     delete_files: bool = False,
 ) -> str:
+    refusal = _approve_running_code(action, draft_id, command_name, enable)
+    if refusal:
+        return refusal
     result = custom_tool_builder(
         action,
         source_path=source_path,
@@ -58,6 +63,41 @@ def _run_builder(
         delete_files=delete_files,
     )
     return json.dumps(result, indent=2, default=str)
+
+
+_RUNS_CODE = {
+    "test": "Test",
+    "setup": "Install dependencies for",
+    "create": "Create",
+    "enable": "Turn on",
+    "promote": "Offer in chats",
+}
+
+
+def _approve_running_code(action: str, draft_id: str, command_name: str, enable: bool) -> str:
+    """Testing, setting up, creating, turning on or offering a Custom Tool lets its commands run on this computer,
+    so the agent asks first (by the approval mode) and the card shows the exact commands."""
+    verb = _RUNS_CODE.get(action.strip().lower())
+    if not verb or not draft_id or (action.strip().lower() == "enable" and not enable):
+        return ""
+    try:
+        draft = get_custom_tool_draft(draft_id)
+    except KeyError:
+        return ""
+    decision = decide_action(_active_approval_mode(), "run_command")
+    if decision.allowed:
+        return ""
+    if not decision.requires_approval:
+        return decision.reason
+    commands = [item for item in draft.commands if not command_name or item.get("name") == command_name]
+    listed = "; ".join(str(item.get("command", "")) for item in commands) or "no commands"
+    approval = interrupt({
+        "tool": "custom_tool_builder",
+        "label": f"{verb} Custom Tool",
+        "description": f"{verb} {draft.name}. It runs on this computer: {listed}",
+        "args": {"tool": draft.name, "action": action, "commands": [item.get("command", "") for item in commands]},
+    })
+    return "" if approval else "Cancelled by user."
 
 
 class CustomToolBuilderTool(BaseTool):

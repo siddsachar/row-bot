@@ -230,13 +230,28 @@ def _run_detected(command: str) -> str:
     chosen = next((spec for spec in specs if spec.label == command or spec.command == command), None)
     if chosen is None:
         return "Command is not in the detected Developer command list. Use the Inspector to add/approve custom commands later."
-    result = run_workspace_command(
-        workspace.path,
-        chosen.command,
-        _active_approval_mode(),
-        workspace_id=workspace.id,
-        thread_id=thread_id,
-    )
+    def run(confirmed: bool):
+        return run_workspace_command(
+            workspace.path,
+            chosen.command,
+            _active_approval_mode(),
+            workspace_id=workspace.id,
+            thread_id=thread_id,
+            detected_test=True,
+            confirmed=confirmed,
+        )
+
+    result = run(False)
+    if result.decision and result.decision.requires_approval:
+        approval = interrupt({
+            "tool": "developer_run_detected_test",
+            "label": "Run project command",
+            "description": f"Run in {workspace.name}: {chosen.command}",
+            "args": {"workspace": workspace.name, "command": chosen.command},
+        })
+        if not approval:
+            return "Command cancelled by user."
+        result = run(True)
     return json.dumps(result.__dict__, indent=2, default=str)
 
 

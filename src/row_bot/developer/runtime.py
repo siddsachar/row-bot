@@ -60,6 +60,18 @@ class ManagedProcess:
 
 
 _SHELL_CONTROL_OPERATORS = ("&&", "||", "|", ">", "<")
+# Outside quotes these chain, redirect or (in PowerShell arguments) evaluate; inside double quotes sh and
+# PowerShell still run "$(...)" and backticks, so those count anywhere.
+_UNQUOTED_METACHARACTERS = ("&", "|", ";", "<", ">", "(", ")")
+_SUBSTITUTIONS = ("$(", "`", "\n", "\r")
+# Read-only commands that run without approval. Everything else that executes is "run_command".
+_READ_ONLY_COMMANDS = {"ls", "dir", "pwd", "cat", "type", "get-content", "gc", "rg", "grep", "findstr",
+                       "head", "tail", "wc", "tree"}
+_READ_ONLY_GIT = {"status", "log", "diff", "show", "branch"}
+_GIT_BRANCH_LISTING_FLAGS = {"-a", "-r", "-v", "-vv", "-l", "--all", "--remotes", "--list", "--show-current"}
+_WRITING_FLAGS = ("--output", "--pre", "--ext-diff", "--textconv")
+_VERSION_COMMANDS = {"node", "python", "python3", "py", "npm", "pnpm", "yarn", "bun", "git", "cargo", "go",
+                     "deno", "uv", "rustc", "java", "dotnet"}
 _ACTIVE_PROCESSES: dict[str, list[subprocess.Popen]] = {}
 _PROCESS_LOCK = threading.RLock()
 _PROCESS_LIMIT = 32
@@ -678,7 +690,41 @@ def classify_command_action(command: str) -> str:
         return "run_network"
     if any(token in unquoted for token in (" run dev", " start", "serve", "uvicorn", "flask run")):
         return "start_server"
-    return "run_safe_command"
+    if _is_read_only_command(raw_text):
+        return "run_safe_command"
+    return "run_command"
+
+
+def reviewed_command_action(command: str) -> str:
+    """The action for a custom tool's own command: its code was reviewed when the person created the tool,
+    so only network, install, delete, Git and server actions still ask."""
+    action = classify_command_action(command)
+    return "run_safe_command" if action == "run_command" else action
+
+
+def _is_read_only_command(raw_text: str) -> bool:
+    unquoted = _unquoted_text(raw_text)
+    if any(char in unquoted for char in _UNQUOTED_METACHARACTERS) or any(
+            char in raw_text for char in _SUBSTITUTIONS):
+        return False
+    try:
+        tokens = [token.lower() for token in shlex.split(raw_text, posix=True)]
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    if any(token.startswith(_WRITING_FLAGS) for token in tokens):
+        return False
+    first, rest = tokens[0], tokens[1:]
+    if first in _READ_ONLY_COMMANDS:
+        return True
+    if rest in (["--version"], ["-v"], ["version"]) and first in _VERSION_COMMANDS:
+        return True
+    if first == "git" and rest and rest[0] in _READ_ONLY_GIT:
+        if rest[0] == "branch":
+            return all(flag in _GIT_BRANCH_LISTING_FLAGS for flag in rest[1:])
+        return True
+    return False
 
 
 def run_workspace_command(
@@ -689,11 +735,20 @@ def run_workspace_command(
     timeout: int = 120,
     workspace_id: str = "",
     thread_id: str = "",
+    detected_test: bool = False,
+    reviewed_tool: bool = False,
+    confirmed: bool = False,
 ) -> CommandResult:
+    """Run one command without a shell, under the approval mode.
+
+    ``detected_test`` marks one of the project's own detected commands: in the Docker sandbox it runs without
+    asking. On this computer it asks like any other code, since the agent can rewrite what a test script runs.
+    ``reviewed_tool`` marks a custom tool's own command, reviewed by the person who created the tool.
+    """
     root = pathlib.Path(workspace_path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise ValueError(f"Workspace folder does not exist: {workspace_path}")
-    action = classify_command_action(command)
+    action = reviewed_command_action(command) if reviewed_tool else classify_command_action(command)
     workspace = None
     if workspace_id:
         try:
@@ -708,6 +763,10 @@ def run_workspace_command(
                 workspace_id=workspace_id,
             )
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
+    if decision.requires_approval and detected_test and getattr(workspace, "execution_mode", "") == "docker":
+        decision = ApprovalDecision("allow", "The project's detected commands run in the sandbox without asking.")
+    if decision.requires_approval and confirmed:
+        decision = ApprovalDecision("allow", "User explicitly approved this command.")
     decision = _apply_docker_network_policy(workspace, action, decision)
     if decision.decision != "allow":
         return CommandResult(
@@ -1026,7 +1085,7 @@ def start_workspace_process(
     if not root.exists() or not root.is_dir():
         raise ValueError(f"Workspace folder does not exist: {workspace_path}")
     action = classify_command_action(command)
-    if action == "run_safe_command":
+    if action in {"run_safe_command", "run_command"}:
         action = "start_server"
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
     if decision.decision != "allow":

@@ -337,7 +337,7 @@ def start_workspace_process(resource_id: str, conversation_id: str, command: str
     def policy():
         mode = _get_thread_approval_mode(conversation_id)
         action = runtime.classify_command_action(command)
-        if action == "run_safe_command":
+        if action in {"run_safe_command", "run_command"}:
             action = "start_server"
         decision = decide_action(mode, action)
         decision = runtime._apply_docker_network_policy(workspace, action, decision)

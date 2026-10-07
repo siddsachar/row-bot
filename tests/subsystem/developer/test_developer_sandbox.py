@@ -20,7 +20,7 @@ pytestmark = pytest.mark.subsystem
         ("git commit -m test", "git_commit"),
         ("git push origin HEAD", "git_push"),
         ("gh pr create --draft", "git_pr"),
-        ("python -m pytest", "run_safe_command"),
+        ("python -m pytest", "run_command"),
     ],
 )
 def test_developer_command_classifier_is_conservative(command: str, expected: str) -> None:
