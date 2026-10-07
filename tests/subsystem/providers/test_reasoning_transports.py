@@ -123,3 +123,24 @@ def test_runtime_builds_dynamic_and_unchanged_default_openai_models(monkeypatch)
     assert model.primary.kwargs["reasoning_effort"] == "high"
     assert "reasoning_effort" not in model.provider_default.kwargs
     assert "reasoning" not in model.provider_default.kwargs
+
+
+def test_a_tool_call_still_being_written_reports_its_progress(monkeypatch) -> None:
+    """B324: thousands of argument deltas (a page of HTML) showed nothing but "Thinking…" for minutes."""
+    import langgraph.config
+
+    from row_bot.providers.transports import codex_responses
+
+    reports: list[dict] = []
+    monkeypatch.setattr(langgraph.config, "get_stream_writer", lambda: reports.append)
+    clock = iter([0.0, 0.4, 1.2, 1.3])
+    monkeypatch.setattr(codex_responses.time, "monotonic", lambda: next(clock))
+    model = ChatCodexResponses(model_name="gpt-5.5")
+    events = [{"type": "response.output_item.added", "item": {"type": "function_call", "name": "designer_update_page"}},
+              *({"type": "response.function_call_arguments.delta", "delta": "<p>" * 100} for _ in range(4))]
+    monkeypatch.setattr(model, "_iter_response_events", lambda _body: iter(events))
+
+    list(model._stream([HumanMessage(content="Build the page")]))
+
+    assert [report["payload"] for report in reports] == [
+        {"name": "designer_update_page", "bytes": 300}, {"name": "designer_update_page", "bytes": 900}]

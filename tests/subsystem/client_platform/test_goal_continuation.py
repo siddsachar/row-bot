@@ -448,3 +448,45 @@ def test_a_goal_started_in_an_empty_conversation_names_it(goal_setup):
     wait_idle(platform, fake, 1)
 
     assert platform.get_conversation(CONVERSATION)["title"].startswith("Write three synthetic notes")
+
+
+def test_a_reply_the_provider_cut_off_is_tried_again_once_then_pauses_with_the_reason(goal_setup, monkeypatch):
+    """B324: the provider ended a long reply part-way; the goal read "The reply didn't finish" and stopped."""
+    from row_bot import goals
+    from row_bot.agent import PROVIDER_CUT_MESSAGE
+    from row_bot.application import conversation_followups
+    platform, _ = goal_setup
+    monkeypatch.setattr(conversation_followups, "_RETRIED_AFTER_CUT", set())
+    waits: list[tuple[float, object]] = []
+    monkeypatch.setattr(conversation_followups, "_schedule", lambda delay, run: waits.append((delay, run)))
+    cut = ("error", PROVIDER_CUT_MESSAGE)
+    fake = Recording((cut,), (cut,), completed("never runs"))
+    goal = start(platform, fake, max_turns=0)
+    wait_idle(platform, fake, 1)
+    retrying = goals.get_goal(goal["id"])
+    assert (retrying["status"], retrying["last_reason"]) == (
+        "active", "The provider ended the reply before it finished. Trying the step again.")
+
+    waits[0][1]()
+    wait_idle(platform, fake, 2)
+
+    latest = goals.get_goal(goal["id"])
+    assert latest["status"] == "paused"
+    assert latest["last_reason"].startswith("The provider ended the reply before it finished, twice")
+    assert len(fake.calls) == 2 and len(waits) == 1
+
+
+def test_a_tool_call_being_written_shows_as_writing_activity(goal_setup):
+    """B324: the live line names the tool call that is still being written."""
+    platform, _ = goal_setup
+    after = platform.projection.events_since(CONVERSATION, "0")["events"]
+    fake = Recording(completed("page built", ("tool_writing", {"name": "designer_update_page", "bytes": 12288})))
+    platform.stream_factory = fake.stream
+    platform.resume_factory = fake.resume
+    answer(platform, "Build the page", "writing-progress")
+    wait_idle(platform, fake, 1)
+
+    seen = [event["payload"] for event in platform.projection.events_since(CONVERSATION, "0")["events"]
+            if event["type"] == "generation.activity" and event not in after]
+    writing = [payload for payload in seen if payload["state"] == "writing"]
+    assert writing and writing[0]["bytes"] == 12288 and "update" in writing[0]["tool"].lower()

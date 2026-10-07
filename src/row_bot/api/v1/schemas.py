@@ -6265,7 +6265,9 @@ class ToolActivity(WireModel):
 
 
 class GenerationActivity(WireModel):
-    state: Literal["thinking"]
+    state: Literal["thinking", "writing"]
+    tool: str = Field(default="", max_length=120)
+    bytes: int = Field(default=0, ge=0)
 
 
 class ApprovalRequired(WireModel):

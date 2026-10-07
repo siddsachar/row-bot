@@ -763,9 +763,15 @@ export default function Conversation({
   const computerPause =
     Boolean(computer.snapshot?.approval_id) &&
     computer.snapshot?.approval_id === generation?.approval_id;
+  const lastActivity = state.activity.at(-1)?.event;
   const thinkingActive =
-    Boolean(running) &&
-    state.activity.at(-1)?.event.type === 'generation.activity';
+    Boolean(running) && lastActivity?.type === 'generation.activity';
+  const writingTool =
+    thinkingActive &&
+    lastActivity?.type === 'generation.activity' &&
+    lastActivity.payload.state === 'writing'
+      ? `Writing ${lastActivity.payload.tool || 'a tool call'} · ${Math.max(1, Math.round((lastActivity.payload.bytes ?? 0) / 1024))} KB`
+      : undefined;
   const answering = Boolean(running) && answerStreaming(rows, state.activity);
   useEffect(() => {
     const composer = state.workspace?.composer;
@@ -3000,6 +3006,7 @@ export default function Conversation({
                         live={{
                           running: isRunning,
                           thinking: thinkingActive,
+                          writing: writingTool,
                           waiting:
                             generation?.status === 'waiting_approval' &&
                             !computerPause,

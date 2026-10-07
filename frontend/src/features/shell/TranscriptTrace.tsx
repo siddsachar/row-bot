@@ -390,6 +390,8 @@ export type LiveActivity = {
   running: boolean;
   /** The model signalled private reasoning. */
   thinking?: boolean;
+  /** A tool call is still being written, e.g. "Writing Designer update page · 12 KB" (B324). */
+  writing?: string;
   /** An approval is holding the run. */
   waiting?: boolean;
   /** The run is paused while the person uses the computer. */
@@ -547,11 +549,13 @@ export default function TranscriptTrace({
             ]
               .filter(Boolean)
               .join(' ')
-          : running && (live?.thinking || !steps.length)
-            ? 'Thinking…'
-            : running
-              ? `Working · ${summary.total} ${summary.total === 1 ? 'tool' : 'tools'} so far`
-              : activityLabel(summary);
+          : running && live?.writing
+            ? `${live.writing}…`
+            : running && (live?.thinking || !steps.length)
+              ? 'Thinking…'
+              : running
+                ? `Working · ${summary.total} ${summary.total === 1 ? 'tool' : 'tools'} so far`
+                : activityLabel(summary);
   // Screen readers hear the state change, never the ticking seconds.
   const announcement = !live
     ? ''

@@ -30,6 +30,9 @@ _LOG = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 # Goals waiting for a provider limit to reset: conversation -> seconds.
 _LIMIT_WAITS: dict[str, float] = {}
+# Goals whose last turn the provider cut off and that already tried again once (B324).
+_RETRIED_AFTER_CUT: set[str] = set()
+_CUT_RETRY_SECONDS = 5.0
 
 
 def _schedule(delay: float, run: Callable[[], None]) -> None:
@@ -223,6 +226,7 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
         return
     try:
         if status == "completed":
+            _RETRIED_AFTER_CUT.discard(str(goal["id"]))
             decision = goals.after_turn(thread_id=conversation_id, turn_id=generation_id,
                                         assistant_text=assistant_text, model_override=model_ref)
             if decision.should_continue and decision.goal:
@@ -248,9 +252,24 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
                     reason=f"The provider's usage limit was reached. Continuing in about {_about(wait)}.",
                     expected_revision=int(goal.get("revision") or 0))
                 return
+            from row_bot.agent import PROVIDER_CUT_MESSAGE
+            cut = status == "interrupted" and error_text.strip() == PROVIDER_CUT_MESSAGE
+            if cut and str(goal["id"]) not in _RETRIED_AFTER_CUT:
+                # A provider can end a long reply part-way (a large tool call can pass its time limit): the goal
+                # tries the step again once, by itself (B324).
+                _RETRIED_AFTER_CUT.add(str(goal["id"]))
+                with _LOCK:
+                    _LIMIT_WAITS[conversation_id] = _CUT_RETRY_SECONDS
+                goals.set_goal_status(
+                    str(goal["id"]), "active", verdict="continue",
+                    reason="The provider ended the reply before it finished. Trying the step again.",
+                    expected_revision=int(goal.get("revision") or 0))
+                return
             reason = ("You stopped the reply." if status == "stopped"
                       else "The provider's rate or usage limit stopped the goal. "
                            "Resume it once the limit resets." if wait == 0.0
+                      else "The provider ended the reply before it finished, twice (it may have been writing "
+                           "something very long). Resume to try again." if cut
                       else "The reply didn't finish.")
             goals.set_goal_status(str(goal["id"]), "paused", reason=reason, verdict="paused",
                                   expected_revision=int(goal.get("revision") or 0))

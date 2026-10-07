@@ -1455,6 +1455,11 @@ class ClientPlatformService:
                             "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":
             self.projection.publish(conversation_id, "generation.activity", {"state": "thinking"})
+        elif kind == "tool_writing" and isinstance(payload, dict):
+            from row_bot.agent import _resolve_tool_display_name
+            self.projection.publish(conversation_id, "generation.activity", {
+                "state": "writing", "tool": _resolve_tool_display_name(str(payload.get("name") or ""))[:120],
+                "bytes": max(0, int(payload.get("bytes") or 0))})
         elif kind in {
             "context_usage",
             "compaction_started",

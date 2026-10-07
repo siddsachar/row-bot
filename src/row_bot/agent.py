@@ -1037,11 +1037,16 @@ def _model_label_for_error(model_name: str | None = None) -> str:
         return raw
 
 
+PROVIDER_CUT_MESSAGE = (
+    "⚠️ The AI provider closed the streaming connection before the reply finished. Please retry the message."
+)
+
+
 def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     """Return a user-friendly description for an API / provider error."""
     s = exc_str.lower()
     if _is_transient_stream_disconnect(exc_str):
-        return "⚠️ The AI provider closed the streaming connection before the reply finished. Please retry the message."
+        return PROVIDER_CUT_MESSAGE
     if "recursion" in s or "recursion limit" in s:
         try:
             if _developer_context_var.get(""):
@@ -6563,6 +6568,7 @@ def _stream_graph(agent, input_data, config: dict,
                     "compaction_started",
                     "compaction_succeeded",
                     "compaction_failed",
+                    "tool_writing",
                 }:
                     yield (event_type, data.get("payload") or {})
             continue

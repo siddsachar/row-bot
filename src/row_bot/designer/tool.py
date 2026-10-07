@@ -224,14 +224,19 @@ def _set_pages(pages: list[dict]) -> str:
     return f"Set {len(new_pages)} pages. Preview updated."
 
 
-def _update_page(index: int, html: str, title: Optional[str] = None,
-                 notes: Optional[str] = None) -> str:
-    """Update a single page's HTML (and optionally title/notes)."""
+def _update_page(index: int, html: str = "", title: Optional[str] = None,
+                 notes: Optional[str] = None, append_html: str = "") -> str:
+    """Update a single page's HTML (and optionally title/notes); ``append_html`` adds sections to the end."""
     project = _require_project()
     if index < 0:
         index = len(project.pages) + index
     if index < 0 or index >= len(project.pages):
         return f"Error: page index {index} out of range (0\u2013{len(project.pages) - 1})."
+    if append_html and not html:
+        # A long page is written in parts, so no single call runs past a provider's time limit (B324).
+        current = project.pages[index].html
+        end = current.lower().rfind("</body>")
+        html = current[:end] + append_html + current[end:] if end >= 0 else current + append_html
     if not html:
         return "Error: html cannot be empty."
     html = sanitize_agent_html(html)
@@ -1615,6 +1620,8 @@ class DesignerTool(BaseTool):
                     "Each page's html must be a complete HTML document with inline "
                     "<style>. Example call: designer_set_pages(pages=[{\"html\": "
                     "\"<!doctype html>...\", \"title\": \"Cover\", \"notes\": \"\"}, ...]). "
+                    "Keep this call short (about 15 KB in all): give long pages their opening sections here and "
+                    "add the rest with designer_update_page append_html. "
                     "Never call this tool with no arguments."
                 ),
             ),
@@ -1623,7 +1630,9 @@ class DesignerTool(BaseTool):
                 name="designer_update_page",
                 description=(
                     "Update a single page's HTML in the designer project. "
-                    "Input: index (0-based), html (full HTML), optional title and notes."
+                    "Input: index (0-based), html (full HTML), optional title and notes. "
+                    "Write a long page in parts of about 15 KB: first its opening sections with html, then each "
+                    "further section with append_html (added before </body>) in its own call."
                 ),
             ),
             StructuredTool.from_function(
