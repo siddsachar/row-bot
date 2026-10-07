@@ -1851,7 +1851,7 @@ export const saveArtifactExport = (base: string, proof: SessionProof, conversati
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
 export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
-export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, signal?: AbortSignal): Promise<Blob> {
+export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, sha256Hex: (data: ArrayBuffer) => Promise<string>, signal?: AbortSignal): Promise<Blob> {
   validateWire<ArtifactExport>('ArtifactExport', descriptor);
   const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(descriptor.export_id)}/download`, {
     credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
@@ -1883,8 +1883,8 @@ export async function downloadArtifactExport(base: string, proof: SessionProof, 
   }
   if (size !== descriptor.size_bytes) throw new Error('protocol_incompatible');
   const blob = new Blob(parts, {type: descriptor.media_type});
-  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
-  if (Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('') !== descriptor.sha256)
+  // The caller hashes: pages opened over plain HTTP have no crypto.subtle.
+  if (await sha256Hex(await blob.arrayBuffer()) !== descriptor.sha256)
     throw new Error('protocol_incompatible');
   return blob;
 }
@@ -2047,7 +2047,17 @@ export async function talkOutput(base: string, proof: SessionProof, handle: Dict
   const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/output`, {
     method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id || response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
+  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id) throw new Error('protocol_incompatible');
+  return speechAudio(response);
+}
+export async function speechTest(base: string, proof: SessionProof, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/settings/voice/speech-test`, {
+    method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:proofHeaders(proof)});
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  return speechAudio(response);
+}
+async function speechAudio(response: Response): Promise<Blob> {
+  if (response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
   const reader = response.body?.getReader();
   if (!reader) throw new Error('voice_output_unavailable');
   const chunks: Uint8Array<ArrayBuffer>[] = [];

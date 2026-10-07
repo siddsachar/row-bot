@@ -663,10 +663,9 @@ Embeddings are configured separately from chat models so users can choose the pr
 
 Row-Bot has two voice paths: a local STT/TTS loop for privacy-first dictation
 and playback, and a realtime voice runtime for lower-latency conversational
-sessions with provider-backed events and action handling. Local Talk and
-Dictation can use faster-whisper or the explicitly installed FunASR/SenseVoice
-runtime; browser-local remote voice continues to use its cache-only Whisper
-path.
+sessions with provider-backed events and action handling. Talk and Dictation
+each use their selected local engine, faster-whisper or the explicitly
+installed FunASR/SenseVoice runtime, from cache only.
 
 - **Toggle-based voice** — simple manual toggle to start and stop listening, no wake word required
 - **Classic local pipeline** — stopped -> listening -> transcribing -> muted state transitions keep manual speech input explicit and gate the microphone during playback
@@ -695,7 +694,8 @@ path.
 - **Agent bridge** — `voice/agent_bridge.py` maps realtime voice events into Row-Bot agent actions without letting the voice client bypass tool, approval, or runtime readiness policy
 - **Voice actions** — `voice/actions.py` keeps action dispatch explicit so voice sessions can request supported app actions through controlled handlers
 - **Speech policy** — `voice/speech_policy.py` turns a response into short speakable text and points to the app for the rest
-- **Browser-local remote path** — the React client captures microphone audio only in the authenticated browser (Talk and Dictation), while `voice/browser_local.py` validates/decodes it, runs local Whisper, and returns session-scoped Kokoro output without starting the host device microphone service; non-local browser capture requires HTTPS
+- **Browser-local remote path** — the React client captures microphone audio only in the authenticated browser (Talk and Dictation), while `voice/browser_local.py` validates/decodes it, transcribes it with the selected speech-to-text provider, and returns session-scoped speech output without starting the host device microphone service; non-local browser capture requires HTTPS
+- **Provider selection** — `voice/providers.py` resolves the speech-to-text provider for Dictate or Talk and the speech output provider from Voice settings on every request, so a changed model, Whisper size, SenseVoice install, or Kokoro voice applies to the next utterance or reply without a restart. A provider that is not ready reports its own error code; Row-Bot never substitutes another provider. Speech output is `SynthesizedSpeech(audio, content_type)`, validated against an allowed audio type and signature before it reaches the browser; no provider plays through host devices, and Settings' **Test voice** plays its fixed phrase in the requesting browser
 
 ---
 

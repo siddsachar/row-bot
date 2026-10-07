@@ -1,144 +1,134 @@
 {
   "schema": 1,
-  "story_id": "sovereignty-workbench-v1",
-  "editing": "normal-speed editorial cuts with four-frame dissolves; sharpened encodes from matching reviewed source recordings; no global acceleration; Ship approval remains unmodified from the test-machine recording",
+  "story_id": "react-workbench-v1",
+  "run_id": "20261002T015343Z-6e392a",
+  "editing": "normal-speed editorial cuts with four-frame dissolves; scripted takes of the real app, no acceleration",
+  "production": {
+    "app": "Row-Bot 5.0.0, the real app process and its React client at /app-v2/",
+    "method": "Scripted Playwright capture (scripts/docs/capture_landing_media.py) in Microsoft Edge at 1440x810 CSS px, dark appearance, on an isolated temporary profile seeded with fictional demo data (a neighbourhood solar co-op); no real user data, accounts, names or paths",
+    "models": "No model ran. The local runtime is the docs capture's display-only stand-in on loopback: it lists qwen3.8:27b, the local model the owner runs, and runs nothing. GPT-5.6 Sol via ChatGPT / Codex is display-only: the harness tells the client it is connected, and nothing is connected or called",
+    "outward_actions": "None: the harness answers the Ship clip's Approve request itself, so no email is sent",
+    "pointer": "Drawn by the harness to show where the scripted clicks land",
+    "stills": "Rendered at 2x and downscaled with Lanczos to 1440x810 WebP",
+    "clips": "Browser screencast frames resampled to 30 fps; VP9 WebM and H.264 MP4 (faststart), no audio"
+  },
   "clips": {
     "research": {
-      "source_name": "1.mp4",
-      "source_sha256": "975367434a6e5f9c1349a9e48d8474385d752fa6214a068fd00f73c6fc40cd84",
-      "source_duration_seconds": 47.133,
+      "source": "Screencast of the real Row-Bot 5.0.0 React client",
+      "source_frames": 501,
       "segments_seconds": [
         [
-          3.0,
-          8.6
+          0.0,
+          3.526
         ],
         [
-          44.0,
-          47.05
+          3.768,
+          9.775
         ]
       ],
-      "duration_seconds": 8.533,
+      "duration_seconds": 9.4,
       "dimensions": [
         1440,
         810
       ],
       "fps": 30,
       "webm": "media/landing-story/clips/research.webm",
-      "webm_sha256": "97e8e0238875d785da1d3ecab244c41705e10257d17b4f37cbd1d249e62483e1",
-      "webm_bytes": 602239,
+      "webm_sha256": "66f945575c014f307b24667aae7da64d4969a4b4224d5f3c06951a6dd4374100",
+      "webm_bytes": 791002,
       "mp4": "media/landing-story/clips/research.mp4",
-      "mp4_sha256": "32aa733d8e7f63be8bd7069bb1ad99c771c2fb9e9a69896eb28b08342e567b1f",
-      "mp4_bytes": 339781,
+      "mp4_sha256": "fb222cf2667d296c8ca675578432f45e63221f6a51484cecfef1812dae5867dd",
+      "mp4_bytes": 749915,
       "poster": "media/landing-story/screenshots/research.webp",
-      "poster_sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
-      "poster_bytes": 89492,
-      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions."
+      "poster_sha256": "21f0ddffcbaa7a70b75de21b468990e11048f8a530fcca47d53a4d4f6fa99e17",
+      "poster_bytes": 67816,
+      "editorial_note": "Two takes at normal speed joined by a four-frame dissolve: the local-model conversation's source trace, then the Knowledge graph settling and its co-op memory highlighted."
     },
     "create": {
-      "source_name": "2.mp4",
-      "source_sha256": "6624ace4e8f218a934899f6a9ff81d0208b2b886e68c75988e55a103a01f8055",
-      "source_duration_seconds": 50.0,
+      "source": "Screencast of the real Row-Bot 5.0.0 React client",
+      "source_frames": 325,
       "segments_seconds": [
         [
-          2.0,
-          4.5
-        ],
-        [
-          12.0,
-          14.5
-        ],
-        [
-          22.5,
-          25.5
-        ],
-        [
-          47.0,
-          48.5
+          0.0,
+          9.445
         ]
       ],
-      "duration_seconds": 9.1,
+      "duration_seconds": 9.433,
       "dimensions": [
         1440,
         810
       ],
       "fps": 30,
       "webm": "media/landing-story/clips/create.webm",
-      "webm_sha256": "b4429bfbd43f6be42bd072af7273d563e989590187365fa4207292e7fad9b466",
-      "webm_bytes": 733183,
+      "webm_sha256": "37c3142237e041bf2a431208d3f97a679718e40b3095913075c7c25a29caeaca",
+      "webm_bytes": 285946,
       "mp4": "media/landing-story/clips/create.mp4",
-      "mp4_sha256": "f7cc3f8b29c4fdff22649a321e34584cdb2bc97ded7038a5cc5bf7410e9a826c",
-      "mp4_bytes": 445845,
+      "mp4_sha256": "be7637a203f56c8521dd9d329ac03bec93136f94a2d1ddbd56f01311c419145a",
+      "mp4_bytes": 276072,
       "poster": "media/landing-story/screenshots/create.webp",
-      "poster_sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
-      "poster_bytes": 86514,
-      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions."
+      "poster_sha256": "c532a3d8e9d326162253497e90a347416ecc559eb54b789133377005a6c74dd8",
+      "poster_bytes": 70140,
+      "editorial_note": "One continuous take at normal speed: the hosted model shown in the picker, then the landing page opened for editing in the Design panel."
     },
     "automate": {
-      "source_name": "3.mp4",
-      "source_sha256": "b52e3b3ff45824f452c3b20d76ca54a5831f5e4becfce86947154a7d639477cf",
-      "source_duration_seconds": 23.133,
+      "source": "Screencast of the real Row-Bot 5.0.0 React client",
+      "source_frames": 532,
       "segments_seconds": [
         [
-          0.2,
-          2.2
+          0.0,
+          3.392
         ],
         [
-          2.4,
-          4.0
+          5.795,
+          8.919
         ],
         [
-          7.2,
-          9.8
-        ],
-        [
-          12.0,
-          14.8
+          11.296,
+          13.834
         ]
       ],
-      "duration_seconds": 8.6,
+      "duration_seconds": 8.8,
       "dimensions": [
         1440,
         810
       ],
       "fps": 30,
       "webm": "media/landing-story/clips/automate.webm",
-      "webm_sha256": "5cdadc636b961ad471fecd3ab58413211948871741099eecb5f36235ad3fcccf",
-      "webm_bytes": 330721,
+      "webm_sha256": "460b3b3a72c9bfcf95ec441a45fc417f70a4b58b4df60a4a81dc81103ae5ffef",
+      "webm_bytes": 317374,
       "mp4": "media/landing-story/clips/automate.mp4",
-      "mp4_sha256": "bce62f19eaac16156a18834884679a251d96b671a900ed4044e2cecde31374f3",
-      "mp4_bytes": 213856,
+      "mp4_sha256": "67ac6fbb2398dbff2459c13f9ed63feb9e62907b25c50ea9af9e589815997bbd",
+      "mp4_bytes": 279166,
       "poster": "media/landing-story/screenshots/automate.webp",
-      "poster_sha256": "c980145f3439741e79b567764ed0423f3ae57af1d4d7069d21ae65c9639f4e8e",
-      "poster_bytes": 39512,
-      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions."
+      "poster_sha256": "1a48703370bd98c111ce0a1fa95f8dc89e15ba02df134fab46c4c1e1c516bf0d",
+      "poster_bytes": 66846,
+      "editorial_note": "Three takes at normal speed joined by four-frame dissolves: the workflow delivery defaults (no external channels), the workflow's local model saved, then its retained run history."
     },
     "ship": {
-      "source_name": "4.mp4",
-      "source_sha256": "e4441c570bb7c4c27137ca61c40a0757597c6fadfb2145e1c6d2cbeb8d786d28",
-      "source_duration_seconds": 21.6,
+      "source": "Screencast of the real Row-Bot 5.0.0 React client",
+      "source_frames": 178,
       "segments_seconds": [
         [
-          9.1,
-          11.7
+          0.0,
+          2.887
         ]
       ],
-      "duration_seconds": 2.6,
+      "duration_seconds": 2.9,
       "dimensions": [
         1440,
         810
       ],
       "fps": 30,
       "webm": "media/landing-story/clips/ship.webm",
-      "webm_sha256": "12bb1ee4e1faf736bc66b4fd3428594afd78cf5a7c5d14f25ef3ab24a4495e60",
-      "webm_bytes": 125411,
+      "webm_sha256": "b4732efdc66ccb0a89caa4e3e7f6bceba3e697ac0ca8547e85db7a429b18bc23",
+      "webm_bytes": 107415,
       "mp4": "media/landing-story/clips/ship.mp4",
-      "mp4_sha256": "7d72c19347d937f52fad94061e7104f5c7ab18d37e01f84f2cdfa8034a89a234",
-      "mp4_bytes": 84508,
+      "mp4_sha256": "1295b6b23d32244918f1d683a3fb86aee3657ade02017122a7d34c8b38cad777",
+      "mp4_bytes": 107139,
       "poster": "media/landing-story/screenshots/ship.webp",
-      "poster_sha256": "37c1f310ed1201f05ee916d5d7709897aee1288bfa062fbecd904b9e667bdeb6",
-      "poster_bytes": 39676,
-      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions.",
-      "approval_moment_seconds": 2.25
+      "poster_sha256": "98214f35cfdc1b9eba3c215e79a8128d28739a091d36140450be0f1ec27c2c2a",
+      "poster_bytes": 62198,
+      "editorial_note": "One continuous take at normal speed: the waiting email approval, then Approve.",
+      "approval_moment_seconds": 2.203
     }
   }
 }

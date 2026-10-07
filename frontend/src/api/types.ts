@@ -547,6 +547,8 @@ export interface ClientTransport {
     output: string,
     signal?: AbortSignal,
   ): Promise<Blob>;
+  /** The Voice settings test phrase, spoken by the selected output provider. */
+  speechTest?(signal?: AbortSignal): Promise<Blob>;
   realtimeEvent?(
     handle: Wire.DictationHandle,
     event: Wire.RealtimeEvent,

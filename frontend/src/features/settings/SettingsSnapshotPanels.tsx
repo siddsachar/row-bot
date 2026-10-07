@@ -41,6 +41,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import {
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -49,6 +50,7 @@ import {
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import { RuntimeContext } from '../../runtime';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -1638,6 +1640,89 @@ function whisperOptionLabel(label: string) {
   return match ? `${match[1]} · ${match[2]}` : label;
 }
 
+const SPEECH_MODEL_HINT =
+  'local-whisper, or local-funasr-sensevoice once SenseVoice is installed.';
+
+type VoiceTestPlayback = {
+  abort: AbortController;
+  audio?: HTMLAudioElement;
+  url?: string;
+  settle?: () => void;
+};
+
+/** Speaks the test phrase in this browser, where Talk replies play too. */
+function TestVoiceButton() {
+  const controller = useContext(RuntimeContext)?.controller;
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState('');
+  const active = useRef<VoiceTestPlayback | null>(null);
+
+  function release() {
+    const current = active.current;
+    active.current = null;
+    if (!current) return;
+    current.abort.abort();
+    if (current.audio) {
+      current.audio.onended = null;
+      current.audio.onerror = null;
+      current.audio.pause();
+    }
+    if (current.url) URL.revokeObjectURL(current.url);
+    current.settle?.();
+  }
+  useEffect(() => release, []);
+
+  async function test() {
+    if (!controller || active.current) return;
+    const current: VoiceTestPlayback = { abort: new AbortController() };
+    active.current = current;
+    setPlaying(true);
+    setError('');
+    let fetched = false;
+    try {
+      const blob = await controller.speechTest(current.abort.signal);
+      fetched = true;
+      if (active.current !== current) return;
+      current.url = URL.createObjectURL(blob);
+      const audio = new Audio(current.url);
+      current.audio = audio;
+      await new Promise<void>((resolve, reject) => {
+        current.settle = resolve;
+        audio.onended = () => resolve();
+        audio.onerror = () => reject(new Error('audio_playback_failed'));
+        void audio.play().catch(reject);
+      });
+    } catch (cause) {
+      if (active.current === current)
+        setError(
+          fetched
+            ? "This browser couldn't play the test phrase."
+            : clientError(cause).message,
+        );
+    } finally {
+      if (active.current === current) {
+        release();
+        setPlaying(false);
+      }
+    }
+  }
+
+  return (
+    <span className="settings-inline-action is-icon" aria-busy={playing}>
+      <IconButton
+        label="Test voice"
+        variant="ghost"
+        disabled={!controller || playing}
+        aria-busy={playing || undefined}
+        onClick={() => void test()}
+      >
+        <Volume2 size={16} aria-hidden />
+      </IconButton>
+      {error && <p role="alert">{error}</p>}
+    </span>
+  );
+}
+
 /** Where a voice provider runs, in the provider select (B258). */
 function voiceProviderLabel(
   kind: 'listen' | 'speak',
@@ -1850,18 +1935,7 @@ export function VoiceSnapshotPanel({
               hint="The voice Row-Bot reads with."
               value={snapshot.tts.voice}
               options={snapshot.tts_voice_options}
-              row={{
-                trailing: (
-                  <ReviewedSettingsAction
-                    mutation={mutation}
-                    field="tts.test"
-                    label="Test voice"
-                    description="Plays one fixed local phrase through the selected output device."
-                    presentation="icon"
-                    icon={<Volume2 size={16} aria-hidden />}
-                  />
-                ),
-              }}
+              row={{ trailing: <TestVoiceButton /> }}
             />
             <NumberSetting
               mutation={mutation}
@@ -1901,12 +1975,14 @@ export function VoiceSnapshotPanel({
             mutation={mutation}
             field="runtime.talk_model"
             label="Talk model"
+            hint={realtime ? undefined : SPEECH_MODEL_HINT}
             value={snapshot.runtime.talk_model}
           />
           <TextSetting
             mutation={mutation}
             field="runtime.dictation_model"
             label="Dictation model"
+            hint={SPEECH_MODEL_HINT}
             value={snapshot.runtime.dictation_model}
           />
           <TextSetting

@@ -1,4 +1,5 @@
 import type { ClientError, ClientStatus, ErrorAction } from './types';
+import { isNetworkFailure } from './network-failure';
 
 /**
  * The error catalog. Every code the server can put in a problem response
@@ -2716,6 +2717,11 @@ const CATALOG: Record<string, Entry> = {
     'review',
     PROVIDERS,
   ],
+  sensevoice_unavailable: [
+    "SenseVoice isn't ready on this computer. Install it in Voice settings, or choose Whisper.",
+    'review',
+    VOICE,
+  ],
   transcript_too_large: [
     'The transcript was too long for Dictate. Try a shorter recording.',
     'review',
@@ -2755,6 +2761,11 @@ const CATALOG: Record<string, Entry> = {
     'Voice settings changed. Start again.',
     'retry',
     RETRY,
+  ],
+  voice_provider_unavailable: [
+    "The selected voice provider isn't available. Choose another in Voice settings.",
+    'review',
+    VOICE,
   ],
   voice_run_changed: [
     'The conversation moved on. Start Talk again.',
@@ -2885,14 +2896,16 @@ export function clientError(value: unknown): ClientError {
   if (known) return known;
   if (value instanceof Error && value.message === 'protocol_incompatible')
     return describe('protocol_incompatible')!;
-  if (value instanceof TypeError) return describe('network_unavailable')!;
+  if (isNetworkFailure(value)) return describe('network_unavailable')!;
   // An unknown code still says what happened and names itself, so a person
-  // can report it and a developer can find it.
+  // can report it and a developer can find it. Any other TypeError is a fault
+  // in this client, not a lost connection that reconnecting would fix.
+  const detail = code || (value instanceof TypeError ? 'client_error' : '');
   return {
     code: 'request_failed',
     message:
-      code && /^[a-z][a-z0-9_]{0,79}$/.test(code)
-        ? `Something went wrong. Try again. Details: ${code}`
+      detail && /^[a-z][a-z0-9_]{0,79}$/.test(detail)
+        ? `Something went wrong. Try again. Details: ${detail}`
         : 'Something went wrong. Try again.',
     recovery: 'retry',
     action: RETRY,

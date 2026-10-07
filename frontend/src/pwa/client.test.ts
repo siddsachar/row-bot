@@ -126,6 +126,68 @@ it('ignores a late registration result after its presentation owner is gone', as
   expect(observed).toHaveBeenCalledTimes(1);
 });
 
+it.each([
+  ['nothing controls the page yet', false],
+  ['the browser already names it as the controller', true],
+])(
+  'does not offer an update when the first worker is still waiting and %s',
+  async (_case, early) => {
+    const value = fixture();
+    const first = new FakeWorker();
+    value.workers.controller = early ? first : null;
+    value.workers.registration.waiting = first;
+    const client = new PwaClient(value.environment);
+    render(createElement(PwaStatus, { client }));
+    await waitFor(() => expect(client.getSnapshot().phase).toBe('ready'));
+    expect(client.getSnapshot().updateAvailable).toBe(false);
+    expect(screen.getByTestId('pwa-status')).not.toBeVisible();
+    value.setOnline(false);
+    value.event('offline');
+    value.setOnline(true);
+    value.event('online');
+    expect(client.getSnapshot().phase).toBe('ready');
+  },
+);
+
+it('does not offer an update when the first worker reports "installed" after taking control', async () => {
+  // WebKit can name the new worker as the controller before the page hears
+  // its "installed" state change.
+  const value = fixture();
+  const first = new FakeWorker();
+  first.state = 'installing';
+  value.workers.controller = null;
+  value.workers.registration.installing = first;
+  const client = new PwaClient(value.environment);
+  render(createElement(PwaStatus, { client }));
+  await waitFor(() => expect(client.getSnapshot().phase).toBe('ready'));
+  value.workers.controller = first;
+  first.state = 'installed';
+  first.dispatchEvent(new Event('statechange'));
+  expect(client.getSnapshot()).toMatchObject({
+    phase: 'ready',
+    updateAvailable: false,
+  });
+  expect(screen.getByTestId('pwa-status')).not.toBeVisible();
+});
+
+it('offers an update when a new worker installs behind an older controller', async () => {
+  const value = fixture();
+  const next = new FakeWorker();
+  next.state = 'installing';
+  const client = new PwaClient(value.environment);
+  await client.start();
+  expect(client.getSnapshot().updateAvailable).toBe(false);
+  value.workers.registration.installing = next;
+  value.workers.registration.dispatchEvent(new Event('updatefound'));
+  next.state = 'installed';
+  next.dispatchEvent(new Event('statechange'));
+  expect(client.getSnapshot()).toMatchObject({
+    phase: 'update_available',
+    updateAvailable: true,
+  });
+  client.dispose();
+});
+
 it('requires a direct user activation before a waiting worker can reload', async () => {
   const value = fixture({ active: false });
   const waiting = new FakeWorker();

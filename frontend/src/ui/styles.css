@@ -1369,6 +1369,7 @@ small {
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
+  width: fit-content;
   max-width: 720px;
   margin-inline: auto;
   padding: 10px 12px;
@@ -1380,6 +1381,13 @@ small {
 }
 .pwa-status[hidden] {
   display: none;
+}
+/* While it shows, the composer sits above it: the notice never covers the
+   message field or its Send button. PwaStatus publishes its height. */
+body:has(.pwa-status:not([hidden])) .composer {
+  padding-bottom: calc(
+    var(--pwa-status-height, 0px) + 12px + 8px + env(safe-area-inset-bottom)
+  );
 }
 .toast-viewport {
   display: grid;

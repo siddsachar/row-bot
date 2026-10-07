@@ -1,5 +1,6 @@
 import * as wire from '../../../contracts/client-platform/v1/typescript/client';
 import type { ClientTransport } from './types';
+import { sha256Hex } from '../platform/crypto';
 
 /** Same-origin generated transport; only the in-memory owner holds the CSRF proof. */
 export class HttpTransport implements ClientTransport {
@@ -1355,13 +1356,7 @@ export class HttpTransport implements ClientTransport {
       throw { code: 'payload_too_large' };
     const proof = this.session();
     signal?.throwIfAborted();
-    const digest = await crypto.subtle.digest(
-      'SHA-256',
-      await file.arrayBuffer(),
-    );
-    const sha256 = [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
+    const sha256 = await sha256Hex(await file.arrayBuffer());
     const upload = await wire.beginUpload(
       this.base,
       proof,
@@ -1459,6 +1454,9 @@ export class HttpTransport implements ClientTransport {
       output,
       signal,
     );
+  }
+  speechTest(signal?: AbortSignal) {
+    return wire.speechTest(this.base, this.session(), signal);
   }
   realtimeEvent(
     handle: wire.DictationHandle,
@@ -2325,6 +2323,7 @@ export class HttpTransport implements ClientTransport {
       conversation,
       binding,
       descriptor,
+      sha256Hex,
       signal,
     );
   }
@@ -2865,13 +2864,7 @@ export class HttpTransport implements ClientTransport {
     if (file.size < 1 || file.size > 26214400)
       throw { code: 'payload_too_large' };
     signal?.throwIfAborted();
-    const hash = await crypto.subtle.digest(
-      'SHA-256',
-      await file.arrayBuffer(),
-    );
-    const sha256 = [...new Uint8Array(hash)]
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
+    const sha256 = await sha256Hex(await file.arrayBuffer());
     const session = await wire.beginUpload(
       this.base,
       this.session(),

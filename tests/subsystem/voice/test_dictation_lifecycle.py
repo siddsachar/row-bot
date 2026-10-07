@@ -10,6 +10,8 @@ from row_bot.voice.client_transport import (
     ClientDictationTransport, DictationError, DictationOwner, MAX_INPUT_BYTES,
 )
 from row_bot.voice.coordinator import VoiceSessionCoordinator
+from row_bot.voice.provider_base import VoiceProviderStatus
+from tests.helpers.voice_fakes import fake_browser_speech
 
 
 class Voice:
@@ -22,6 +24,9 @@ class Voice:
 
     def whisper_model_available(self):
         return self.ready
+
+    def sync_saved_models(self):
+        """This fake's models are fixed; there are no saved settings to adopt."""
 
     def start(self):
         self.effects.append("start")
@@ -49,14 +54,15 @@ def runtime():
     clock = [0.0]
     voice = Voice()
     coordinator = VoiceSessionCoordinator(voice)
-    calls, factories = [], []
+    calls, factories, modes = [], [], []
 
-    def transcribe(key, audio, mime, *, validate):
+    def transcribe(key, audio, mime, *, validate, mode):
         validate()
         calls.append((key, audio, mime))
+        modes.append(mode)
         return "  dictation result  "
 
-    service = SimpleNamespace(voice_service=voice, transcribe=transcribe)
+    service = fake_browser_speech(voice, transcribe=transcribe)
 
     def factory():
         factories.append(True)
@@ -66,7 +72,7 @@ def runtime():
                                        clock=lambda: clock[0])
     owner = DictationOwner(str(uuid4()), "local:https://isolated.test", "conversation-A", "epoch")
     return SimpleNamespace(adapter=adapter, coordinator=coordinator, voice=voice, service=service,
-                           calls=calls, factories=factories, clock=clock, owner=owner)
+                           calls=calls, factories=factories, clock=clock, owner=owner, modes=modes)
 
 
 def start(runtime):
@@ -266,7 +272,7 @@ def test_stt_stop_keeps_real_worker_slot_until_return(runtime):
     entered, release = threading.Event(), threading.Event()
     outcomes = []
 
-    def transcribe(*args, validate):
+    def transcribe(*args, validate, mode):
         validate()
         entered.set()
         assert release.wait(3)
@@ -334,6 +340,30 @@ def test_missing_model_releases_initial_lease_without_device_start(runtime):
     runtime.voice.ready = True
     assert start(runtime).quiesced
     assert not runtime.voice.effects
+
+
+def test_start_reports_the_selected_speech_model_that_is_not_ready(runtime):
+    asked = []
+
+    def sensevoice_missing(mode):
+        asked.append(mode)
+        return VoiceProviderStatus("local_funasr", "SenseVoice", False,
+                                   unavailable_code="sensevoice_unavailable")
+
+    runtime.service.speech_input_status = sensevoice_missing
+    with pytest.raises(DictationError, match="sensevoice_unavailable"):
+        start(runtime)
+    assert asked == ["dictate"]
+    lease = runtime.coordinator._dictation_lease
+    snapshot = runtime.adapter.snapshot(runtime.owner, lease.handle, validate=lambda: None)
+    assert snapshot.state == "stopped" and snapshot.quiesced
+    assert not runtime.voice.effects
+
+
+def test_dictation_transcribes_with_the_dictate_selection(runtime):
+    snapshot = start(runtime)
+    finish(runtime, receive(runtime, snapshot))
+    assert runtime.modes == ["dictate"]
 
 
 def test_legacy_start_expires_completed_api_replay(runtime):

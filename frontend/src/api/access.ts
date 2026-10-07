@@ -1,3 +1,5 @@
+import { markNetworkFailure } from './network-failure';
+
 export type AccessSession = {
   id: string;
   device_id: string;
@@ -33,18 +35,24 @@ async function request(
   options: RequestInit,
   body?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(path, {
-    ...options,
-    credentials: 'same-origin',
-    headers: {
-      Accept: 'application/json',
-      ...(options.method === 'POST'
-        ? { 'Content-Type': 'application/json' }
-        : {}),
-    },
-    body: options.method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
-  });
-  const text = await response.text();
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(path, {
+      ...options,
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        ...(options.method === 'POST'
+          ? { 'Content-Type': 'application/json' }
+          : {}),
+      },
+      body: options.method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+    });
+    text = await response.text();
+  } catch (error) {
+    throw markNetworkFailure(error);
+  }
   if (text.length > 256 * 1024) throw { code: 'payload_too_large' };
   let value: unknown;
   try {

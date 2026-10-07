@@ -523,6 +523,14 @@ class TTSService:
         )
         return np.asarray(samples), int(sample_rate)
 
+    def reload_settings(self) -> None:
+        """Adopt the voice and speed saved in Voice settings.
+
+        Settings writes ``tts_settings.json`` directly, so a long-lived service
+        re-reads it rather than keeping the values it started with.
+        """
+        self._load_settings()
+
     def _load_settings(self) -> None:
         try:
             if _SETTINGS_PATH.exists():

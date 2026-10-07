@@ -1,3 +1,4 @@
+import './platform/random-uuid';
 import { createBuddySessions } from './features/buddy/buddy-sessions';
 import {
   OpenConversationRequests,

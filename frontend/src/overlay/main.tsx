@@ -1,3 +1,4 @@
+import '../platform/random-uuid';
 import { createRoot } from 'react-dom/client';
 import { createClientController } from '../api';
 import { selectClientPlatform } from '../platform';

@@ -2202,6 +2202,82 @@ describe('event order, atomic reset and commands', () => {
     }
     expect(transport.counters.commands).toBe(260);
   });
+  it('sends a command from a plain-HTTP network page without secure-only crypto', async () => {
+    // A computer opening Row-Bot at http://<network address> has
+    // getRandomValues but neither crypto.randomUUID nor crypto.subtle.
+    vi.stubGlobal('crypto', {
+      getRandomValues: (array: Uint8Array<ArrayBuffer>) =>
+        webcrypto.getRandomValues(array),
+    });
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    const command: Command = {
+      command_id: '00000000-0000-4000-8000-000000000015',
+      client_session_id: value.getSnapshot().handshake!.client_session_id,
+      type: 'conversation.rename',
+      expected_revision: '1',
+      payload: { title: 'Synthetic rename' },
+    };
+    await expect(
+      value.command('conversation-a', command, 'plain-http-page'),
+    ).resolves.toMatchObject({ status: 'completed' });
+    expect(transport.counters.commands).toBe(1);
+    await expect(
+      value.retryCommand(
+        'conversation-a',
+        { ...command, payload: { title: 'Different rename' } },
+        'plain-http-page',
+      ),
+    ).rejects.toMatchObject({ code: 'idempotency_mismatch' });
+  });
+  it('reports a fault in the client as one, not as a lost connection', async () => {
+    // #385: a TypeError raised before anything was sent read "Disconnected".
+    vi.stubGlobal('crypto', {
+      subtle: {
+        digest: () => {
+          throw new TypeError('digest is unavailable');
+        },
+      },
+    });
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    const command: Command = {
+      command_id: '00000000-0000-4000-8000-000000000016',
+      client_session_id: value.getSnapshot().handshake!.client_session_id,
+      type: 'conversation.rename',
+      expected_revision: '1',
+      payload: { title: 'Synthetic rename' },
+    };
+    await expect(
+      value.command('conversation-a', command, 'client-fault'),
+    ).rejects.toMatchObject({
+      code: 'request_failed',
+      message: 'Something went wrong. Try again. Details: client_error',
+    });
+    expect(transport.counters.commands).toBe(0);
+    expect(value.getSnapshot().status).toBe('ready');
+  });
+  it('still reports a command the network loses as Disconnected', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const transport = new FixtureTransport();
+    vi.spyOn(transport, 'command').mockRejectedValueOnce(
+      new TypeError('Failed to fetch'),
+    );
+    const value = client(transport);
+    await value.start();
+    const command: Command = {
+      command_id: '00000000-0000-4000-8000-000000000017',
+      client_session_id: value.getSnapshot().handshake!.client_session_id,
+      type: 'conversation.rename',
+      expected_revision: '1',
+      payload: { title: 'Synthetic rename' },
+    };
+    await expect(
+      value.command('conversation-a', command, 'network-loss'),
+    ).rejects.toMatchObject({ code: 'network_unavailable' });
+  });
   it.each(['dispose', 'reconnect'] as const)(
     'does not dispatch delayed command verification across %s',
     async (transition) => {

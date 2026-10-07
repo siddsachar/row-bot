@@ -2056,7 +2056,8 @@ def main() -> None:
     def deny_host_capture():
         raise AssertionError("Browser fixture must never start host audio capture")
     voice.start = deny_host_capture
-    def transcribe_fixture(session_key, audio, mime, *, validate):
+    from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
+    def transcribe_fixture(session_key, audio, mime, *, validate, mode="dictate"):
         validate()
         _voice_fixture["transcriptions"] += 1
         _voice_fixture["bytes"] += len(audio)
@@ -2072,8 +2073,12 @@ def main() -> None:
             audio.setsampwidth(2)
             audio.setframerate(16000)
             audio.writeframes(b'\0\0' * 1600)
-        return output.getvalue()
-    synthetic_speech = SimpleNamespace(voice_service=voice, transcribe=transcribe_fixture, synthesize=synthesize_fixture)
+        return SynthesizedSpeech(output.getvalue(), "audio/wav")
+    def speech_input_status_fixture(mode):
+        return VoiceProviderStatus("fixture", "Fixture speech", True)
+    synthetic_speech = SimpleNamespace(voice_service=voice, transcribe=transcribe_fixture,
+                                       synthesize=synthesize_fixture,
+                                       speech_input_status=speech_input_status_fixture)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):

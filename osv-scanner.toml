@@ -26,3 +26,19 @@ ecosystem = "PyPI"
 vulnerability.ignore = true
 effectiveUntil = 2026-10-29
 reason = "Fixed in 2.13.0, but Torchaudio has no release after 2.11.0 on PyPI or the CPU index (re-checked 2026-09-29), and the two are pinned as a pair; 2.11 is the newest matching pair."
+
+[[PackageOverrides]]
+name = "braces"
+version = "3.0.3"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-11-05
+reason = "GHSA-vfj7-8cjw-p6xm (deeply nested patterns) has no fixed release; 3.0.3 is the latest (re-checked 2026-10-05). Only the docs-site build tooling uses it, on the repository's own file patterns; nothing Row-Bot ships includes it."
+
+[[PackageOverrides]]
+name = "http-cache-semantics"
+version = "4.2.0"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-11-05
+reason = "GHSA-ch52-4w7c-c8xp (max-stale cross-user cache) has no fixed release; 4.2.0 is the latest (re-checked 2026-10-05). Only the docs-site build tooling uses it, as a single-user build-time cache; nothing Row-Bot ships includes it."
