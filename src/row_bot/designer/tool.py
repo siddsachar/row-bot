@@ -486,6 +486,12 @@ def _generate_notes(page_index: int = -1) -> str:
     return f"Generated speaker notes for page {page_index + 1}: \"{page.title}\"."
 
 
+def _bundled_font_names() -> list[str]:
+    from row_bot.designer.fonts import bundled_families
+
+    return bundled_families()
+
+
 def _set_brand(primary_color: Optional[str] = None,
                secondary_color: Optional[str] = None,
                accent_color: Optional[str] = None,
@@ -500,6 +506,13 @@ def _set_brand(primary_color: Optional[str] = None,
                logo_padding: Optional[int] = None) -> str:
     """Update the project's brand configuration."""
     project = _require_project()
+    from row_bot.designer.fonts import available_offline, bundled_families
+
+    unavailable = [font for font in (heading_font, body_font) if font is not None and not available_offline(font)]
+    if unavailable:
+        # Previews and exports work offline, so only fonts on this computer can be used (B317).
+        return (f"Error: {', '.join(dict.fromkeys(unavailable))} isn't available offline. Choose one of: "
+                f"{', '.join(bundled_families())}.")
     if project.brand is None:
         project.brand = BrandConfig()
     _pre_mutate(project, "set_brand")
@@ -1711,7 +1724,8 @@ class DesignerTool(BaseTool):
                     "Update the project's brand colors, fonts, and logo placement settings. "
                     "Input: any combination of primary_color, secondary_color, "
                     "accent_color, bg_color, text_color, heading_font, body_font, "
-                    "logo_mode, logo_scope, logo_position, logo_max_height, and logo_padding."
+                    "logo_mode, logo_scope, logo_position, logo_max_height, and logo_padding. "
+                    "Fonts must be available offline: " + ", ".join(_bundled_font_names()) + "."
                 ),
             ),
             StructuredTool.from_function(

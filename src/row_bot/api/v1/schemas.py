@@ -7318,6 +7318,7 @@ class ArtifactPreview(WireModel):
     html: str | None = Field(default=None, max_length=2097152)
     unchanged: bool
     scripts_allowed: bool = False
+    font_notice: str = Field(default="", max_length=600)
 
 
 class ArtifactTextElement(WireModel):

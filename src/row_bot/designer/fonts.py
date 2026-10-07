@@ -312,6 +312,37 @@ def _font_files(family: str):
     return result
 
 
+_SERIF_HINTS = ("serif", "garamond", "baskerville", "times", "georgia", "caslon", "bodoni", "didot", "playfair",
+                 "cormorant", "lora", "merriweather", "crimson", "spectral", "fraunces", "libre")
+
+
+def available_offline(family: str) -> bool:
+    """True when Row-Bot has the family on this computer (bundled, cached or a system face)."""
+    try:
+        _font_files(family)
+    except FontReadError as error:
+        if str(error) == 'font_unavailable':
+            return False
+        raise
+    return True
+
+
+def offline_substitute(family: str) -> str:
+    """The family itself when available offline, else the nearest bundled face by style (B317)."""
+    if available_offline(family):
+        return family
+    name = str(family or "").lower()
+    if any(hint in name for hint in ("mono", "code", "courier", "console")):
+        return "IBM Plex Mono"
+    if "sans" not in name and any(hint in name for hint in _SERIF_HINTS):
+        return "Lora"
+    return "Inter"
+
+
+def bundled_families() -> list[str]:
+    return sorted(_manifest)
+
+
 def offline_font_fingerprint(families: list[str]) -> tuple:
     """Bounded saved file identities for client preview invalidation, no cache."""
     if len(families) > 8:
