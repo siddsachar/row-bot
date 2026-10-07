@@ -642,7 +642,10 @@ describe('knowledge exploration', () => {
   });
 
   it('Clear filters and Show everything restore every filter and toggle', async () => {
-    const user = userEvent.setup();
+    // 24 user actions: the default delay waits a setTimeout(0) in and after
+    // each one, which Windows rounds up to about 15 ms, and this test overran
+    // 5 s under load. delay: null sends the same events without the waits.
+    const user = userEvent.setup({ delay: null });
     render(<KnowledgeHome {...props()} />);
     const legend = screen.getByRole('group', { name: 'Memory types' });
     const restoredEverything = async () => {

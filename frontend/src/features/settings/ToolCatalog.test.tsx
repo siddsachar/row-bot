@@ -71,31 +71,47 @@ it('keeps at most 200 tool rows while forward paging reaches the entire catalog'
     async (_source?: Tool['source'], _query?: string, cursor?: string) =>
       chunk(Number(cursor ?? 0)),
   );
+  // 200 rows make whole-page queries costly in jsdom (getByText tests every
+  // node, getByRole computes names and visibility), and findBy repeats them
+  // on each real-timer poll; this overran 5 s under load. The fake reads
+  // resolve at once, so one act() flush settles each step, and the queries
+  // look only at buttons, row titles or the page's text.
+  const rowTitle = (text: string) =>
+    screen.getByText(text, { selector: '.settings-results strong' });
+  const button = (name: string) =>
+    screen.getByText(name, { selector: 'button' });
   const view = render(<ToolCatalog load={load} />);
   await openCatalog();
-  await screen.findByText('Tool 099 · Core');
+  await act(async () => {});
+  expect(rowTitle('Tool 099 · Core')).toBeInTheDocument();
   for (const end of [199, 299, 399]) {
-    fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
-    await screen.findByText(`Tool ${end} · Core`);
+    fireEvent.click(button('Load more tools'));
+    await act(async () => {});
+    expect(rowTitle(`Tool ${end} · Core`)).toBeInTheDocument();
     expect(
       view.container.querySelectorAll('.settings-results > li'),
     ).toHaveLength(200);
   }
-  expect(screen.queryByText('Tool 000 · Core')).not.toBeInTheDocument();
-  expect(screen.getByText('Tool 200 · Core')).toBeVisible();
-  expect(screen.getByText(/Showing entries 201–400/)).toBeVisible();
+  expect(document.body).not.toHaveTextContent('Tool 000 · Core');
+  expect(rowTitle('Tool 200 · Core')).toBeVisible();
+  expect(
+    screen.getByText(/Showing entries 201–400/, {
+      selector: '[role="status"]',
+    }),
+  ).toBeVisible();
   expect(load.mock.calls.map((call) => call[2])).toEqual([
     undefined,
     '100',
     '200',
     '300',
   ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Reload cached tools' }));
-  await screen.findByText('Tool 000 · Core');
+  fireEvent.click(button('Reload cached tools'));
+  await act(async () => {});
+  expect(rowTitle('Tool 000 · Core')).toBeInTheDocument();
   expect(
     view.container.querySelectorAll('.settings-results > li'),
   ).toHaveLength(100);
-  expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent('Showing entries');
 });
 
 it('distinguishes cached zero counts from unavailable sources and unknown runtime readiness', async () => {
