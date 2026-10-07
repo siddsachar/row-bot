@@ -1572,13 +1572,24 @@ def get_langchain_tools(
     return wrappers
 
 
+def _candidates(name: str) -> set[tuple[str, str]]:
+    """Every (server, tool or helper) a chat tool name could come from: two apps can share one ("acme" +
+    "files_delete" and "acme files" + "delete")."""
+    with _runtime_lock:
+        return {(info.server_name, info.name) for tools in _catalog.values() for info in tools.values()
+                if info.prefixed_name == name} | ({_issued[name]} if name in _issued else set())
+
+
 def _issued_tool(name: str) -> tuple[str, str] | None:
     """(server, its own tool or helper name) for a chat tool name this runtime issued or discovered; None
-    when two apps' tools share that name ("acme" + "files_delete" and "acme files" + "delete")."""
-    with _runtime_lock:
-        found = {(info.server_name, info.name) for tools in _catalog.values() for info in tools.values()
-                 if info.prefixed_name == name} | ({_issued[name]} if name in _issued else set())
+    when two apps' tools share that name."""
+    found = _candidates(name)
     return found.pop() if len(found) == 1 else None
+
+
+def servers_for_tool(name: str) -> set[str]:
+    """Every server a chat tool's name could come from, so leaving an app out leaves out a shared name too."""
+    return {server for server, _ in _candidates(name)}
 
 
 def tool_names(server_name: str) -> list[str]:

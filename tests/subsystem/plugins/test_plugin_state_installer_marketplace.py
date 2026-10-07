@@ -549,3 +549,36 @@ def test_a_package_5_0_0_added_from_the_marketplace_can_be_checked_for_updates(
     row = next(row for row in read_integration_packages(validate=lambda: None) if row["plugin_id"] == "kit")
     assert row["source_url"] == "https://github.com/example/market/tree/main/plugins/kit"
     assert state.package_origin("kit") == "marketplace"
+
+
+def test_what_a_removed_packages_servers_kept_is_never_handed_to_another_source(
+    plugin_modules: dict[str, Any], tmp_path: Path,
+) -> None:
+    installer = plugin_modules["installer"]
+    first = write_plugin(tmp_path / "acme", "kit", manifest=manifest_payload("kit"))
+    assert installer.install_plugin("kit", source_dir=first, source_ref="https://github.com/acme/kit").success
+    kept = installer.DATA_DIR / "plugin_data" / "kit"
+    kept.mkdir(parents=True)
+    (kept / "sign-in.json").write_text("{}", encoding="utf-8")  # Its servers' own data folder (PLUGIN_DATA).
+    assert installer.uninstall_plugin("kit").success
+    other = write_plugin(tmp_path / "other", "kit", manifest=manifest_payload("kit"))
+    refused = installer.install_plugin("kit", source_dir=other, source_ref="https://github.com/mallory/kit")
+    assert (refused.success, refused.code) == (False, "plugin_data_retained")
+
+
+def test_a_package_5_0_0_installed_from_the_marketplace_can_be_added_again_from_apps(
+    plugin_modules: dict[str, Any], tmp_path: Path,
+) -> None:
+    installer, state = plugin_modules["installer"], plugin_modules["state"]
+    first = write_plugin(tmp_path / "v500", "kit", manifest=manifest_payload("kit"))
+    described = "https://github.com/example/market/archive/refs/heads/main.zip (folder plugins/kit)"  # As 5.0.0 kept it.
+    assert installer.install_plugin("kit", source_dir=first, source="marketplace", source_ref=described).success
+    state.set_plugin_secret("kit", "api_key", "mine")
+    assert installer.uninstall_plugin("kit").success
+    again = write_plugin(tmp_path / "apps", "kit", manifest=manifest_payload("kit"))
+    elsewhere = installer.install_plugin("kit", source_dir=again, source="marketplace",
+                                         source_ref="https://github.com/example/market#plugins/other")
+    assert elsewhere.code == "plugin_data_retained"  # Another folder of that repository is another package.
+    assert installer.install_plugin("kit", source_dir=again, source="marketplace",
+                                    source_ref="https://github.com/example/market#plugins/kit").success
+    assert state.get_plugin_secret("kit", "api_key") == "mine"

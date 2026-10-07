@@ -293,9 +293,10 @@ def test_a_package_is_added_only_after_the_person_has_seen_what_it_runs_and_may_
                          intent="add")
     review = next(s for s in paused["steps"] if s.get("review"))["review"]
     assert paused["pause"] == "digest_changed" and sent == []  # Nothing is added before the person has seen it.
-    assert review["summary"] == "Kit 1.1.0 by Example" and review["lines"] == [
+    assert review["summary"] == "Kit 1.1.0" and review["lines"] == [
         "Runs its own code on this computer for: Sample Tool.", "Runs node server.js on this computer.",
-        "Asks to run programs on this computer, send messages or posts for you."]
+        "Asks to run programs on this computer, send messages or posts for you.",
+        "Says it comes from Example; Row-Bot hasn't checked that."]
     assert plans.resume(ctx(review_digest="sha256:" + "2" * 64), paused["plan_id"])["pause"] == "digest_changed"
     assert sent == []  # Agreeing to something else adds nothing.
     assert plans.resume(ctx(review_digest=review["digest"]), paused["plan_id"])["state"] == "completed" and sent == ["install"]

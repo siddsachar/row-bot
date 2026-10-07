@@ -153,7 +153,10 @@ def retained_source(plugin_id: str) -> str | None:
     _ensure_loaded()
     record = _environment_state_document().get(plugin_id, {})
     record = record if isinstance(record, dict) else {}
-    if not (record.get("config") or record.get("mcp") or _metadata_secret_keys(plugin_id) or _secrets.get(plugin_id)):
+    folder = DATA_DIR / "plugin_data" / plugin_id  # What its servers kept (a portable package's PLUGIN_DATA).
+    kept_files = folder.is_dir() and any(folder.iterdir())
+    if not (record.get("config") or record.get("mcp") or _metadata_secret_keys(plugin_id) or _secrets.get(plugin_id)
+            or kept_files):
         return None
     package = record.get("package") if isinstance(record.get("package"), dict) else {}
     installed = record.get("installed") if isinstance(record.get("installed"), dict) else {}

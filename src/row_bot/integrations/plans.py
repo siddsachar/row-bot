@@ -1404,8 +1404,9 @@ def _package_review(summary: dict) -> dict:
               f"Runs {' '.join([server['command'], *server['args']])} on this computer." for server in summary["servers"]]
     lines += ["Asks to " + ", ".join(_PERMISSIONS.get(name, name) for name in summary["permissions"]) + "."]         if summary["permissions"] else []
     lines += ["Adds skills: " + ", ".join(skill["name"] for skill in summary["skills"]) + "."] if summary["skills"] else []
-    return {"summary": f"{summary['name']} {summary['version']}" + (f" by {summary['publisher']}" if summary["publisher"] else ""),
-            "lines": [line[:256] for line in lines], "items": [], "digest": summary["tree_digest"]}
+    lines += [f"Says it comes from {summary['publisher']}; Row-Bot hasn't checked that."] if summary["publisher"] else []
+    return {"summary": f"{summary['name']} {summary['version']}", "lines": [line[:256] for line in lines], "items": [],
+            "digest": summary["tree_digest"]}
 
 
 def _package_test(ctx: Context, record: dict, step: dict) -> str:

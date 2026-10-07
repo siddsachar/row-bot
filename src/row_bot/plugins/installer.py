@@ -354,6 +354,16 @@ def _prepare_package(plugin_id: str, staged: pathlib.Path, *, source_dir, source
     return manifest
 
 
+def _same_source(retained: str, install_ref: str) -> bool:
+    """Whether data a removed package kept is this package's: the same source, or the same folder of a
+    repository as 5.0.0 recorded a marketplace install ("<its archive> (folder <path>)", or just the repository)."""
+    found = re.fullmatch(r"(https://github\.com/[^/]+/[^/#]+?)(?:/archive/refs/heads/[^/ ]+\.zip)?(?: \(folder (.+)\))?", retained)
+    if found is None:
+        return retained == install_ref
+    repository, folder = found[1], found[2]
+    return install_ref == f"{repository}#{folder}" if folder else install_ref == repository or install_ref.startswith(repository + "#")
+
+
 @_environment_serialized
 def install_plugin(
     plugin_id: str, *, source_dir: pathlib.Path | None = None,
@@ -382,7 +392,7 @@ def install_plugin(
             return InstallResult(False, plugin_id, "The marketplace lists no checksum; nothing was downloaded.", code="plugin_checksum_unavailable")
         install_ref = source_ref or (str(source_dir.resolve()) if source_dir else archive_url or DEFAULT_REPO_URL)
         retained = state.retained_source(plugin_id)
-        if not _updating and retained not in (None, install_ref) and not install_ref.startswith(retained + "#"):
+        if not _updating and retained is not None and not _same_source(retained, install_ref):
             # Another package left settings and keys under this id: they are never handed to a different one.
             return InstallResult(False, plugin_id, "Saved data from a different package with this name is still kept. "
                                  "Delete it from that package's page first.", code="plugin_data_retained")

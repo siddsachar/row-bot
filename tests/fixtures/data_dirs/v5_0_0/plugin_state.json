@@ -4,7 +4,7 @@
     "installed": {
       "version": "1.2.0",
       "source": "marketplace",
-      "source_ref": "https://github.com/fixture-org/row-bot-plugins",
+      "source_ref": "https://github.com/fixture-org/row-bot-plugins/archive/refs/heads/main.zip (folder plugins/fixture-notes-pack)",
       "installed_at": "2026-08-01T10:00:00+00:00"
     },
     "config": {

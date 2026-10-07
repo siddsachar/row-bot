@@ -4198,7 +4198,8 @@ def _apply_app_scope(core: list[dict], external: list[dict], scope: dict) -> tup
         source = str(entry.get("source") or "")
         if source == "mcp":
             from row_bot.mcp_client import runtime as mcp_runtime
-            return mcp_runtime.server_for_tool(str(getattr(entry["tool"], "name", "") or "")) not in servers
+            # A name two apps share goes when either is left out: narrowing never widens.
+            return not mcp_runtime.servers_for_tool(str(getattr(entry["tool"], "name", "") or "")) & servers
         return not (":mcp:" in source and source.rsplit(":mcp:", 1)[1] in servers)
     return [entry for entry in core if kept(entry)], [entry for entry in external if kept(entry)]
 

@@ -148,7 +148,7 @@ def test_tools_of_apps_left_out_are_never_bound_and_kept_ones_still_ask_first(mo
     from row_bot.plugins import registry as plugin_registry
     monkeypatch.setattr(mcp_runtime, "get_langchain_tools", lambda allow_names=None: list(tools.values()))
     monkeypatch.setattr(mcp_runtime, "get_destructive_tool_names", lambda allow_names=None: {"mcp_notion_delete_page"})
-    monkeypatch.setattr(mcp_runtime, "server_for_tool", servers.get)
+    monkeypatch.setattr(mcp_runtime, "servers_for_tool", lambda name: {servers[name]} if name in servers else set())
     monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
     monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
 
@@ -407,3 +407,21 @@ def test_the_skills_catalog_failing_never_refuses_a_turn(apps, monkeypatch):
         [item for item in apps.items if item["id"] != "mcp:notion"], [{"source": "skills", "status": "error"}]))
     apps.off.append("mcp:notion")  # Removed since; only the skills catalog failed to read.
     assert scope.turn_scope("chat", "Find the roadmap", None) is None
+
+
+def test_an_app_left_out_takes_a_tool_name_it_shares_with_another_app_with_it(monkeypatch):
+    """"acme" + "files_list" and "acme files" + "list" share one name: leaving either app out of a turn leaves
+    that name out too (narrowing never widens), whichever of them was given to the agent."""
+    from row_bot import agent
+    from row_bot.mcp_client import runtime
+    from row_bot.mcp_client.runtime import McpToolInfo
+    name = "mcp_acme_files_list"
+    acme = McpToolInfo(server_name="acme", name="files_list", prefixed_name=name, enabled=True, effect="read_only")
+    files = McpToolInfo(server_name="acme files", name="list", prefixed_name=name, enabled=True, effect="read_only",
+                        visibility=("app",))  # Its view's tool: never given to the agent.
+    monkeypatch.setattr(runtime, "_catalog", {"acme": {"files_list": acme}, "acme files": {"list": files}})
+    monkeypatch.setattr(runtime, "_issued", {name: ("acme", "files_list")})
+    entry = {"tool": SimpleNamespace(name=name), "source": "mcp", "parent": "mcp"}
+    for left_out in ("acme", "acme files"):
+        assert agent._apply_app_scope([], [entry], {"exclude_servers": [left_out]}) == ([], [])
+    assert agent._apply_app_scope([], [entry], {"exclude_servers": ["other"]}) == ([], [entry])
