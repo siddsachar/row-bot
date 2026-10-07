@@ -4,6 +4,8 @@ import importlib
 import json
 import sys
 
+import pytest
+
 from tests.fixtures.goals import goal_modules, judge
 
 
@@ -472,3 +474,27 @@ def test_a_time_limit_pauses_the_goal_and_resume_gives_another_window(tmp_path, 
     assert judge(goals, "thread", 3, **keep_going).should_continue
     clock["now"] = start + timedelta(hours=17, minutes=1)
     assert not judge(goals, "thread", 4, **keep_going).should_continue
+
+
+@pytest.mark.parametrize("verdict", ["paused", "waiting_user", "needs_user"])
+def test_a_goal_waiting_on_the_person_reads_needs_you_not_paused(tmp_path, reload_for_data_dir, verdict):
+    """B316: the verifier never quietly pauses a goal; waiting on the person is "blocked" (Needs you)."""
+    goals = goal_modules(tmp_path, reload_for_data_dir)
+    goal = goals.start_goal("thread", "Draft the launch post")
+
+    judge(goals, "thread", 1, verdict=verdict, reason="Asked the person for the launch date.")
+
+    assert goals.get_goal(goal["id"])["status"] == "blocked"
+
+
+def test_only_a_goal_waiting_on_the_person_resumes_when_they_write(tmp_path, reload_for_data_dir):
+    goals = goal_modules(tmp_path, reload_for_data_dir)
+    blocked = goals.start_goal("asks", "Draft the launch post")
+    judge(goals, "asks", 1, progress="blocked", reason="Needs the launch date.")
+    paused = goals.start_goal("paused", "Write notes")
+    goals.pause_goal("paused")
+
+    assert goals.resume_goal_for_answer("asks")["status"] == "active"
+    assert goals.resume_goal_for_answer("paused") is None
+    assert goals.get_goal(paused["id"])["status"] == "paused"
+    assert goals.get_goal(blocked["id"])["status"] == "active"

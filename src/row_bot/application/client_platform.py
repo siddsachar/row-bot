@@ -1177,6 +1177,10 @@ class ClientPlatformService:
             except Exception:
                 _LOG.warning("The sent draft could not be cleared for %s", conversation_id, exc_info=True)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
+        if followup is None and not resume and str(payload.get("text") or "").strip():
+            # The person's message answers a goal that waits on them (B318).
+            from row_bot import goals
+            goals.resume_goal_for_answer(conversation_id)
 
         def producer() -> None:
             from row_bot.application.conversation_followups import after_platform_turn, live_goal

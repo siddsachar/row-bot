@@ -160,6 +160,11 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
     goal = live_goal(conversation_id)
     if followup.kind == "goal" and (goal is None or goal.get("status") != "active"):
         return  # Paused, stopped or done since it was scheduled.
+    if followup.kind == "resource" and goal is None and _goal_waits_on_person(conversation_id):
+        # A goal that asked the person something starts no work until they answer (B316): the hand-off
+        # waits and runs after their answer turn, once the goal is active again.
+        schedule(conversation_id, followup)
+        return
     start(service, conversation_id, followup, model_ref=handle.model_ref,
           runtime_surface=handle.runtime_surface)
 
@@ -171,6 +176,12 @@ def goal_note(goal: dict[str, Any]) -> str:
     used = int(goal.get("turns_used") or 0)
     limit = int(goal.get("max_turns") or 0)
     return f"Goal · turn {min(used + 1, limit)} of {limit}" if limit else f"Goal · turn {used + 1}"
+
+
+def _goal_waits_on_person(conversation_id: str) -> bool:
+    from row_bot import goals
+    goal = goals.get_current_goal(conversation_id, include_terminal=True)
+    return bool(goal) and goal.get("status") in {"blocked", "paused"}
 
 
 def live_goal(conversation_id: str) -> dict[str, Any] | None:

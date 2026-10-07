@@ -370,3 +370,71 @@ def test_the_turn_that_finishes_a_goal_counts(goal_setup):
                          "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}))
     wait_idle(platform, fake, 2)
     assert goals.get_goal(goal["id"])["turns_used"] == 1, "a chat turn after the goal ended is not counted"
+
+
+def answer(platform, text: str, label: str) -> None:  # noqa: F811
+    platform.execute(owner_id="fixture", idempotency_key=label, target=CONVERSATION,
+                     command=command("conversation.submit", label, {
+                         "text": text, "submission_id": label,
+                         "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}))
+
+
+def test_answering_the_goals_question_resumes_it_and_the_verifier_judges_the_answer(goal_setup):
+    """B318: the person's message is the answer; the goal needs no Resume click."""
+    from row_bot import goals
+    platform, verdicts = goal_setup
+    verdicts.extend([{"progress": "blocked", "reason": "Needs the launch date."},
+                     {"progress": "done", "reason": "The X post uses 18 October."}])
+    fake = Recording(completed("Which launch date?"), completed("Here is the post for 18 October."))
+    goal = start(platform, fake, max_turns=10)
+    wait_idle(platform, fake, 1)
+    assert goals.get_goal(goal["id"])["status"] == "blocked"
+
+    answer(platform, "Launch is 18 October.", "goal-answer")
+    wait_idle(platform, fake, 2)
+
+    latest = goals.get_goal(goal["id"])
+    assert (latest["status"], latest["last_reason"]) == ("completed", "The X post uses 18 October.")
+
+
+def test_a_paused_goal_stays_paused_when_the_person_chats(goal_setup):
+    from row_bot import goals
+    platform, _ = goal_setup
+    fake = Recording(completed("step 0"), completed("chat"))
+    goal = start(platform, fake, max_turns=1)
+    wait_idle(platform, fake, 1)
+    assert goals.get_goal(goal["id"])["status"] == "paused"
+    answer(platform, "What did you do so far?", "goal-chat")
+    wait_idle(platform, fake, 2)
+    assert goals.get_goal(goal["id"])["status"] == "paused"
+
+
+def test_a_goal_waiting_on_the_person_starts_no_hand_off_until_they_answer(goal_setup):
+    """B316: no "Continuing in <design>" turn runs while the goal reads Needs you."""
+    from row_bot import goals
+    from row_bot.application import conversation_followups
+    platform, verdicts = goal_setup
+    verdicts.extend([{"progress": "blocked", "reason": "Needs the launch date."},
+                     {"progress": "progress", "reason": "Has the date."},
+                     {"progress": "done", "reason": "Page and post are ready."}])
+    hand_off = conversation_followups.Followup("resource", "Build the landing page now.",
+                                               "Continuing in Launch page")
+
+    class SetsUpADesign(Recording):
+        def stream(self, text, enabled_tools, config, *, stop_event=None):
+            if not self.prompts:
+                conversation_followups.schedule(CONVERSATION, hand_off)
+            yield from super().stream(text, enabled_tools, config, stop_event=stop_event)
+
+    fake = SetsUpADesign(completed("Which launch date?"), completed("Noted."), completed("Page built."))
+    goal = start(platform, fake, max_turns=10)
+    wait_idle(platform, fake, 1)
+    threading.Event().wait(0.3)
+    assert len(fake.calls) == 1 and goals.get_goal(goal["id"])["status"] == "blocked"
+    assert conversation_followups.pending(CONVERSATION) == hand_off
+
+    answer(platform, "Launch is 18 October.", "goal-answer-design")
+    wait_idle(platform, fake, 3)
+
+    assert fake.prompts[2] == "Build the landing page now."
+    assert goals.get_goal(goal["id"])["status"] == "completed"
