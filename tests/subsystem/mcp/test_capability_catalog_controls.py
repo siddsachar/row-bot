@@ -303,3 +303,43 @@ def test_remote_catalog_change_requires_renewed_acceptance_before_exposure(owner
     cfg = config.read_saved_configuration().document
     owner.runtime._catalog["Synthetic"] = owner.runtime._normalize_tools("Synthetic", cfg["servers"]["Synthetic"], owner.tools)
     assert any(tool.name.endswith("_" + name) for tool in owner.runtime.get_langchain_tools(refresh=False))
+
+
+def _policy_rows(tested):
+    from row_bot.application import capability_policy_controls as policy
+    return {row.name: row for row in policy.read_mcp_policy(server_id=tested["payload"]["server_id"]).items}
+
+
+def test_annotations_reach_the_saved_catalog_so_read_only_tools_run_and_destructive_ones_stay_locked(owner):
+    """B307: what a server declares about its tools is weighed after acceptance too, not just while testing."""
+    owner.tools[:] = [
+        {"name": "check_stock", "description": "Execute a stock check", "inputSchema": {},
+         "annotations": {"readOnlyHint": True, "title": "Check stock"}},
+        {"name": "lookup", "description": "Look a record up", "inputSchema": {}, "annotations": {"destructiveHint": True}},
+        {"name": "save_purchase_orders", "description": "Save purchase orders", "inputSchema": {},
+         "annotations": {"readOnlyHint": False}}]
+    tested = run_test()
+    found = tools(tested)
+    assert found["check_stock"]["effect"] == "read_only" and not found["check_stock"]["requires_approval"]
+    assert found["lookup"]["destructive"] and found["save_purchase_orders"]["effect"] == "mutation"
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]
+    assert saved["catalog"]["check_stock"]["annotations"] == {"readOnlyHint": True}  # Only the hints Row-Bot weighs.
+    assert saved["enabled"] == {"check_stock": True, "lookup": False, "save_purchase_orders": False}
+    rows = _policy_rows(tested)
+    assert rows["check_stock"].enabled is True and rows["check_stock"].requires_approval is False
+    assert rows["check_stock"].approval_locked is False
+    assert rows["lookup"].approval_locked is True and rows["lookup"].destructive is True
+    assert rows["save_purchase_orders"].requires_approval is True and rows["save_purchase_orders"].approval_locked is False
+
+
+def test_a_hint_the_server_drops_does_not_linger_to_relax_its_tool(owner):
+    owner.tools[:] = [{"name": "check_stock", "description": "Check stock", "inputSchema": {},
+                       "annotations": {"readOnlyHint": True}}]
+    assert execute(command(run_test()))["status"] == "completed"
+    del owner.tools[0]["annotations"]
+    tested = run_test()
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]["check_stock"]
+    assert "annotations" not in saved
+    assert _policy_rows(tested)["check_stock"].approval_locked is True  # Unknown again: it always asks.

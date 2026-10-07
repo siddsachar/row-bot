@@ -30,6 +30,15 @@ _ROUTINE_RE = re.compile(
 )
 # Words that are also nouns are changes only as the name's verb: tag_issue, not get_tag.
 _ROUTINE_FIRST_RE = re.compile(r"^(tag|label|mark|archive|close|star|link|attach|copy)(_|$)", re.IGNORECASE)
+_READ_RE = re.compile(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", re.IGNORECASE)
+# What a read's description may admit it also does to data. Reads describe themselves with running ("Execute a
+# SELECT query", "Run a search") and with nouns such as order, post or comment, so those never count (B306).
+_DATA_CHANGE_RE = re.compile(
+    r"(^|_)(delete|remove|destroy|drop|purge|erase|wipe|truncate|revoke|overwrite|send|publish|deploy|transfer|"
+    r"create|update|edit|write|modify|insert|append|save|rename|move|patch)(_|$)",
+    re.IGNORECASE,
+)
+HINTS = ("readOnlyHint", "destructiveHint")  # The annotations Row-Bot weighs; a saved catalog keeps them (B307).
 
 _BROWSER_SESSION_SAFE_TOOLS = {
     "browser_click",
@@ -48,6 +57,8 @@ _BROWSER_SESSION_SAFE_TOOLS = {
     "browser_take_screenshot",
     "browser_wait_for",
 }
+_BROWSER_READS = {"browser_console_messages", "browser_network_requests", "browser_snapshot",
+                  "browser_take_screenshot", "browser_wait_for"}
 
 
 def sanitize_name_component(value: str) -> str:
@@ -70,28 +81,46 @@ def _annotation_value(tool: Any, key: str) -> Any:
     return getattr(annotations, key, None)
 
 
-def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = None) -> bool:
-    """Whether a tool is destructive or high impact, so it asks in every access preset.
+def hints(tool: Any) -> dict[str, bool]:
+    """The annotations of ``tool`` that Row-Bot weighs, as its saved catalog keeps them."""
+    return {key: value for key in HINTS if type(value := _annotation_value(tool, key)) is bool}
 
-    Its name, its description or a ``destructiveHint`` can make it high impact; a
-    ``readOnlyHint`` never outweighs a high-impact name."""
-    normalized_name = sanitize_name_component(tool_name)
-    if tool_obj is not None:
-        destructive_hint = _annotation_value(tool_obj, "destructiveHint")
-        read_only_hint = _annotation_value(tool_obj, "readOnlyHint")
-        if destructive_hint is True:
-            return True
-        if _DESTRUCTIVE_RE.search(normalized_name) or _sensitive_change(normalized_name, description):
-            return True
-        if read_only_hint is True:
-            return False
-    if normalized_name in _BROWSER_SESSION_SAFE_TOOLS:
-        return False
-    if _sensitive_change(normalized_name, description):
-        return True
-    haystack = f"{tool_name} {description or ''}"
-    normalized = sanitize_name_component(haystack)
-    return bool(_DESTRUCTIVE_RE.search(normalized))
+
+def saved_hints(value: Any) -> dict[str, bool] | None:
+    """Saved annotations as :func:`hints` wrote them, or None when they aren't."""
+    valid = type(value) is dict and set(value) <= set(HINTS) and all(type(hint) is bool for hint in value.values())
+    return value if valid else None
+
+
+def _classify(tool_name: str, description: str, tool: Any) -> str:
+    """``high_impact``, ``mutation``, ``read_only``, ``interaction`` or ``unknown``.
+
+    Trusted in this order (B307, B306): a ``destructiveHint``; a high-impact name; a change named as one (which
+    its description can still make high impact); a ``readOnlyHint``; a read verb in the name; and only then the
+    description. A read-only hint never outweighs a name, and a description never outweighs either of them,
+    except that a read whose description says it changes data asks first."""
+    name = sanitize_name_component(tool_name)
+    words = sanitize_name_component(description or "")
+    if (_annotation_value(tool, "destructiveHint") is True or _DESTRUCTIVE_RE.search(name)
+            or _sensitive_change(name, description)):
+        return "high_impact"
+    if name in _BROWSER_READS:
+        return "read_only"
+    if name in _BROWSER_SESSION_SAFE_TOOLS:
+        return "interaction"
+    if _changes(name):
+        return "high_impact" if _DESTRUCTIVE_RE.search(words) else "mutation"
+    read_only = _annotation_value(tool, "readOnlyHint")
+    if read_only is True:
+        return "read_only"
+    if read_only is not False and _READ_RE.match(name):
+        return "unknown" if _DATA_CHANGE_RE.search(words) else "read_only"
+    return "high_impact" if _DESTRUCTIVE_RE.search(words) else "unknown"
+
+
+def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = None) -> bool:
+    """Whether a tool is destructive or high impact, so it asks in every access preset."""
+    return _classify(tool_name, description, tool_obj) == "high_impact"
 
 
 def _changes(name: str) -> bool:
@@ -122,26 +151,5 @@ def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = 
     classification remains distinct from an observational/read-only operation.
     Server annotations are hints, never evidence of an operating-system sandbox.
     """
-    name = sanitize_name_component(tool_name)
-    if is_destructive_tool(tool_name, description, tool_obj):
-        return "mutation"
-    if name in {
-        "browser_console_messages", "browser_network_requests", "browser_snapshot",
-        "browser_take_screenshot", "browser_wait_for",
-    }:
-        return "read_only"
-    if name in _BROWSER_SESSION_SAFE_TOOLS:
-        return "interaction"
-    # A change named as one stays a change whatever its hints say; unknown names stay unknown.
-    if _changes(name):
-        return "mutation"
-    read_only_hint = _annotation_value(tool_obj, "readOnlyHint") if tool_obj is not None else None
-    if read_only_hint is True:
-        return "read_only"
-    if _ROUTINE_RE.search(sanitize_name_component(description or "")):
-        return "unknown"  # Only its description says it changes something: it always asks.
-    if read_only_hint is False:
-        return "unknown"
-    if re.match(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", name):
-        return "read_only"
-    return "unknown"
+    found = _classify(tool_name, description, tool_obj)
+    return "mutation" if found == "high_impact" else found

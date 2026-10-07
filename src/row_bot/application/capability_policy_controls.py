@@ -12,7 +12,7 @@ import re
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.mcp_client import config, targets
-from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool
+from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool, saved_hints
 
 Error = configuration.CapabilityConfigurationError
 _TOOL_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_. -]{0,127}\Z")
@@ -90,12 +90,14 @@ def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
             description = metadata.get("description", "")
             destructive = _boolean(metadata.get("destructive", False))
             declared = _boolean(metadata.get("requires_approval", False))
-            if type(description) is not str or len(description) > 16384:
+            readable = (type(description) is str and len(description) <= 16384
+                        and saved_hints(metadata.get("annotations", {})) is not None)
+            if not readable:
                 destructive = None
-            elif is_destructive_tool(name, description):
+            elif is_destructive_tool(name, description, metadata):
                 destructive = True
-            if type(description) is str and len(description) <= 16384:
-                effect = classify_tool_effect(name, description)
+            if readable:
+                effect = classify_tool_effect(name, description, metadata)  # With its saved hints (B307).
         locked = destructive is None or declared is None or presets.locked(
             {"destructive": destructive, "requires_approval": declared, "effect": effect})
         asks = locked or name in approvals or (effect == "mutation" and name not in allowed)

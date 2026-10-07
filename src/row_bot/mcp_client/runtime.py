@@ -31,7 +31,7 @@ from row_bot.mcp_client.logging import log_event, redact
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
 from row_bot.mcp_client.results import normalize_call_result
 from row_bot.integrations.presets import locked as recorded_locked
-from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, is_destructive_tool, prefixed_tool_name,
+from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, hints, is_destructive_tool, prefixed_tool_name,
                                        sanitize_name_component, tool_enabled_by_default)
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ class McpToolInfo:
     ui: str = ""  # The ``ui://`` view it declares (MCP Apps), if any.
     visibility: tuple[str, ...] = ("model", "app")  # Who may call it: the agent ("model"), its view ("app").
     locked: bool = False  # Asks every time in every approval mode: destructive, unknown effect, or recorded so.
+    annotations: dict[str, bool] = field(default_factory=dict)  # Its readOnlyHint/destructiveHint, kept with its catalog.
 
 
 @dataclass
@@ -494,6 +495,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             ui=view,
             visibility=visibility,
             locked=locked,
+            annotations=hints(tool),
         )
     for info in normalized.values():
         info.enabled = info.enabled and _accepted_tool_matches(server_cfg, info)

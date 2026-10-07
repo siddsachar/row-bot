@@ -69,3 +69,31 @@ def test_mcp_langchain_wrappers_are_built_from_injected_catalog(monkeypatch) -> 
     with runtime._runtime_lock:
         runtime._catalog.clear()
         runtime._servers.clear()
+
+
+@pytest.mark.parametrize(("name", "description", "annotations", "effect", "high_impact"), [
+    # 1. A destructiveHint is destructive.
+    ("lookup", "Look a record up", {"destructiveHint": True}, "mutation", True),
+    # 2. A readOnlyHint is read-only whatever the description says (B307)...
+    ("check_stock", "Execute a stock check", {"readOnlyHint": True}, "read_only", False),
+    # ...but never outweighs a name that changes things.
+    ("delete_order", "", {"readOnlyHint": True}, "mutation", True),
+    ("save_purchase_orders", "", {"readOnlyHint": True}, "mutation", False),
+    # 3. Otherwise the name's verb, above its description (B306).
+    ("read_query", "Execute a SELECT query on the SQLite database", None, "read_only", False),
+    ("search_docs", "Run a search over the docs", None, "read_only", False),
+    ("append_insight", "Add a business insight to the memo", None, "mutation", False),
+    ("save_purchase_orders", "Save purchase orders to the ledger", {"readOnlyHint": False}, "mutation", False),
+    ("write_query", "Execute an INSERT, UPDATE, or DELETE query on the SQLite database", None, "mutation", True),
+    # 4. The description only when neither says; a read that admits it changes data still asks.
+    ("get_or_make_page", "Update the page, creating it when missing", None, "unknown", False),
+    ("terminal", "Execute a shell command", None, "mutation", True),
+    ("frobnicate", "Does a thing", None, "unknown", False),
+])
+def test_tool_classification_weighs_annotations_then_names_then_descriptions(name, description, annotations, effect,
+                                                                             high_impact) -> None:
+    from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool
+
+    tool = {"annotations": annotations} if annotations else None
+    assert classify_tool_effect(name, description, tool) == effect
+    assert is_destructive_tool(name, description, tool) is high_impact

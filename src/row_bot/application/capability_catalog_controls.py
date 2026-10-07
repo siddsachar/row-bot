@@ -11,7 +11,7 @@ from row_bot.application import capability_configuration_controls as configurati
 from row_bot.application import capability_policy_controls as policy
 from row_bot.integrations import brokers, presets
 from row_bot.mcp_client import config, targets
-from row_bot.mcp_client.safety import is_destructive_tool
+from row_bot.mcp_client.safety import is_destructive_tool, saved_hints
 from row_bot.runtime import admissions
 
 Error = configuration.CapabilityConfigurationError
@@ -78,11 +78,16 @@ def capture_tested_catalog(tested: dict) -> dict:
             effect = tool.get("effect")
             if type(effect) is not str or effect not in {"read_only", "mutation", "interaction", "unknown"}:
                 effect = "unknown"
-            destructive = tool["destructive"] or is_destructive_tool(name, description)
+            annotations = saved_hints(tool.get("annotations", {}))
+            if annotations is None:
+                raise ValueError
+            destructive = tool["destructive"] or is_destructive_tool(name, description, {"annotations": annotations})
             # Recorded safety is never lowered by a catalog edit or a missing hint.
             row = {"name": name, "description": description, "input_schema": schema,
                 "destructive": destructive, "requires_approval": tool["requires_approval"] or destructive or effect == "unknown",
                 "effect": effect}
+            if annotations:
+                row["annotations"] = annotations  # The policy weighs them again when it reads this catalog (B307).
             row.update(brokers.tool_rules(name))  # A broker's remote code and acting tools: only ever stricter.
             view, visibility = tool.get("ui", ""), tool.get("visibility") or ["model", "app"]
             if isinstance(view, str) and view.startswith("ui://") and len(view) <= 512:
@@ -154,8 +159,9 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
         old = catalog.get(tool_name, {})
         if type(old) is not dict:
             raise Error("mcp_policy_unavailable")
-        updated = {**old, **row}
-        updated["requires_approval"] = (row["requires_approval"] or old.get("requires_approval") is not False and "requires_approval" in old
+        # Hints are only ever the latest test's: one the server dropped never lingers to relax a tool.
+        updated = {**{key: value for key, value in old.items() if key != "annotations"}, **row}
+        updated["requires_approval"] =(row["requires_approval"] or old.get("requires_approval") is not False and "requires_approval" in old
             or old.get("destructive") is not False and "destructive" in old or tool_name in approvals)
         updated["destructive"] = row["destructive"] or old.get("destructive") is True
         catalog[tool_name] = updated
