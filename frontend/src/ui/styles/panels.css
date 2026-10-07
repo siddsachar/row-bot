@@ -1913,6 +1913,7 @@ button.design-tile-main:focus-visible {
 }
 .dev-earlier {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
   padding: 0;
@@ -1949,6 +1950,7 @@ button.design-tile-main:focus-visible {
 }
 .dev-earlier-files {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   flex-basis: 100%;
   gap: 6px;
   min-width: 0;
