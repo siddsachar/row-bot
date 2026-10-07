@@ -76,3 +76,25 @@ def test_sandbox_import_rejects_pending_change_for_other_workspace(tmp_path, mon
 
     with pytest.raises(ValueError, match="not found"):
         developer_tool._import_sandbox_changes(pending.id)
+
+
+def test_a_sandbox_change_that_no_longer_fits_is_explained_in_words(tmp_path, monkeypatch) -> None:
+    """B303: a real conflict reads as what happened, not as git's patch error."""
+    from row_bot.tools import developer_tool
+
+    workspace = fake_workspace(tmp_path)
+    pending = fake_pending_change(workspace.id)
+
+    def conflict(**_kwargs):
+        raise ValueError("error: patch failed: app.py:27\nerror: app.py: patch does not apply")
+
+    monkeypatch.setattr(developer_tool, "_active_workspace", lambda **_kwargs: (workspace, tmp_path / "workspace"))
+    monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "allow_all")
+    monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
+    monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending)
+    monkeypatch.setattr(developer_tool.developer_edits, "apply_patch_to_workspace", conflict)
+
+    result = developer_tool._import_sandbox_changes(pending.id)
+
+    assert result.startswith(f"Sandbox change {pending.id} (app.py) couldn't be applied: those files changed")
+    assert "patch failed" not in result

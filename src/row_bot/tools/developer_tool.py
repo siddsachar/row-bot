@@ -21,6 +21,7 @@ from row_bot.developer.runtime import detect_project_commands, run_workspace_com
 from row_bot.developer.sandbox_runtime import (
     apply_patch_in_docker_sandbox,
     get_pending_change,
+    list_pending_changes,
     mark_pending_change_imported,
     write_file_in_docker_sandbox,
 )
@@ -405,35 +406,48 @@ def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
         raise ValueError(f"Sandbox pending change not found: {pending_change_id}")
     if pending.imported:
         return f"Sandbox change {pending_change_id} was already imported."
+    # Each sandbox change builds on the ones before it, so earlier unimported changes go in first, oldest
+    # first (B303).
+    batch = sorted((change for change in list_pending_changes(workspace_id=workspace.id, thread_id=pending.thread_id)
+                    if change.created_at < pending.created_at), key=lambda change: change.created_at) + [pending]
+    files = list(dict.fromkeys(path for change in batch for path in change.files))
     decision = decide_action(_active_approval_mode(), "edit")
     if decision.decision == "block":
         return decision.reason
     confirmed = False
     if decision.requires_approval:
+        earlier = f" ({len(batch) - 1} earlier sandbox change(s) first)" if len(batch) > 1 else ""
         approval = interrupt({
             "tool": "developer_import_sandbox_changes",
             "label": "Import sandbox changes",
-            "description": summary or f"Import {len(pending.files)} file change(s) from Docker Sandbox",
-            "args": {"workspace": workspace.name, "pending_change_id": pending_change_id, "files": pending.files},
+            "description": summary or f"Import {len(files)} file change(s) from Docker Sandbox{earlier}",
+            "args": {"workspace": workspace.name, "pending_change_id": pending_change_id, "files": files},
         })
         if not approval:
             return "Sandbox import cancelled by user."
         confirmed = True
-    change_set, decision = developer_edits.apply_patch_to_workspace(
-        workspace_id=workspace.id,
-        thread_id=thread_id,
-        patch=pending.patch,
-        approval_mode=_active_approval_mode(),
-        summary=summary or f"Import sandbox changes from: {pending.command[:80]}",
-        confirmed=confirmed,
-    )
-    if change_set is None:
-        return decision.reason
-    mark_pending_change_imported(pending_change_id)
-    return (
-        f"Imported sandbox change {pending_change_id} as change set {change_set.id}.\n"
-        + "\n".join(f"- {item.action} {item.path}" for item in change_set.files)
-    )
+    lines = []
+    for change in batch:
+        try:
+            change_set, decision = developer_edits.apply_patch_to_workspace(
+                workspace_id=workspace.id,
+                thread_id=thread_id,
+                patch=change.patch,
+                approval_mode=_active_approval_mode(),
+                summary=(summary if change is pending else "") or f"Import sandbox changes from: {change.command[:80]}",
+                confirmed=confirmed,
+            )
+        except ValueError:
+            done = f" {len(lines)} earlier change(s) were imported first." if lines else ""
+            return (f"Sandbox change {change.id} ({', '.join(change.files)}) couldn't be applied: those files "
+                    f"changed in the code folder since the sandbox made it.{done} Compare the files, then make the "
+                    "edit again in the code folder or re-run it in the sandbox.")
+        if change_set is None:
+            return decision.reason
+        mark_pending_change_imported(change.id)
+        lines.append(f"Imported sandbox change {change.id} as change set {change_set.id}.\n"
+                     + "\n".join(f"- {item.action} {item.path}" for item in change_set.files))
+    return "\n".join(lines)
 
 
 class _PatchInput(BaseModel):
