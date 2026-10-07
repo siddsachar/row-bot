@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Tools
 
 <!-- generated-from: scripts/docs/collect_inventory.py -->
-<!-- inventory-hash: 474215a1520358dc -->
+<!-- inventory-hash: c7941a1de4450300 -->
 
 <GeneratedNotice source="scripts/docs/collect_inventory.py" />
 
@@ -19,13 +19,13 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | agent | Agent | Agents tool for delegating and inspecting child Agent runs. | Approval-gated: agent_profile_save, agent_promote |  | `src/row_bot/tools/agent_tool.py` |
 | arxiv | Arxiv | Arxiv retrieval tool - uses the ``arxiv`` package directly (no LangChain ArxivRetriever) for reliable rate-limiting and newest-first sorting. | No tool-wide destructive classification |  | `src/row_bot/tools/arxiv_tool.py` |
 | browser | browser_guide | Guidance for browser automation workflows. | Operation-dependent approval | `tool_guides/browser_guide/SKILL.md` | `src/row_bot/tools/browser_tool.py` |
-| calculator | Calculator | Calculator tool - safe math expression evaluation via simpleeval. | No tool-wide destructive classification |  | `src/row_bot/tools/calculator_tool.py` |
+| calculator | Calculator | Calculator tool - safe math, date and text-length evaluation via simpleeval. | No tool-wide destructive classification |  | `src/row_bot/tools/calculator_tool.py` |
 | calendar | calendar_guide | Guidance for Google Calendar event creation and management. | Approval-gated: delete_calendar_event, move_calendar_event | `tool_guides/calendar_guide/SKILL.md` | `src/row_bot/tools/calendar_tool.py` |
 | chart | chart_guide | Guidance for data visualisation and chart creation. | No tool-wide destructive classification | `tool_guides/chart_guide/SKILL.md` | `src/row_bot/tools/chart_tool.py` |
 | computer_use | computer_use_guide | Provider-neutral, self-gating Computer Use tool. | Operation-dependent approval | `tool_guides/computer_use_guide/SKILL.md` | `src/row_bot/tools/computer_use_tool.py` |
 | conversation_search | Conversation Search | Conversation Search tool - search past conversations by keyword | No tool-wide destructive classification |  | `src/row_bot/tools/conversation_search_tool.py` |
 | conversation_setup | Conversation Setup | Designs and code folders the assistant creates when the work needs one | Operation-dependent approval |  | `src/row_bot/tools/conversation_setup_tool.py` |
-| custom_tool_builder | custom_tool_builder_guide | Guidance for creating reusable Custom Tools from repos or folders. | No tool-wide destructive classification | `tool_guides/custom_tool_builder_guide/SKILL.md` | `src/row_bot/tools/custom_tool_builder_tool.py` |
+| custom_tool_builder | custom_tool_builder_guide | Guidance for creating reusable Custom Tools from repos or folders. | Operation-dependent approval | `tool_guides/custom_tool_builder_guide/SKILL.md` | `src/row_bot/tools/custom_tool_builder_tool.py` |
 | developer | developer_guide | Guidance for using the Developer tools to inspect, edit, test, and review code folders safely. | Operation-dependent approval | `tool_guides/developer_guide/SKILL.md` | `src/row_bot/tools/developer_tool.py` |
 | documents | Documents | Document retrieval tool - searches the local FAISS vector store. | No tool-wide destructive classification |  | `src/row_bot/tools/documents_tool.py` |
 | duckduckgo | Duckduckgo | DuckDuckGo web search tool - no API key required. | No tool-wide destructive classification |  | `src/row_bot/tools/duckduckgo_tool.py` |
