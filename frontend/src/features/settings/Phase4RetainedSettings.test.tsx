@@ -109,7 +109,12 @@ const snapshot = {
   system: {
     availability: 'available',
     workspace: { label: 'Workspace', configured: true, exists: true },
-    shell: { available: true, enabled: true, blocked_patterns: 'format c:', allow_data_folder: false },
+    shell: {
+      available: true,
+      enabled: true,
+      blocked_patterns: 'format c:',
+      allow_data_folder: false,
+    },
     browser: {
       available: true,
       enabled: true,
@@ -591,7 +596,10 @@ it('keeps the data folder closed to the agent until the person opts in', async (
   fireEvent.click(toggle);
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
-      expect.objectContaining({ field: 'shell.allow_data_folder', value: true }),
+      expect.objectContaining({
+        field: 'shell.allow_data_folder',
+        value: true,
+      }),
       expect.any(AbortSignal),
     ),
   );
