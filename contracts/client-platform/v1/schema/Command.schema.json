@@ -265,6 +265,15 @@
           "minLength": 32,
           "title": "Nonce",
           "type": "string"
+        },
+        "scope": {
+          "default": "once",
+          "enum": [
+            "once",
+            "turn"
+          ],
+          "title": "Scope",
+          "type": "string"
         }
       },
       "required": [

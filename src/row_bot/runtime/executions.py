@@ -31,6 +31,8 @@ class ExecutionHandle:
     status: str = "running"
     revision: int = 1
     approval_id: str = ""
+    # The pending approval's actions were approved for the rest of the turn (F21).
+    approval_granted: bool = False
     producer_done: threading.Event = field(default_factory=threading.Event)
     cleanup_complete: bool = False
     external_outcome: str = "known_not_sent"

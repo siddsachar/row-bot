@@ -4671,6 +4671,9 @@ class AgentStartPayload(WireModel):
 class ApprovalPayload(WireModel):
     decision: Literal["approve", "reject"]
     nonce: Annotated[str, StringConstraints(min_length=32, max_length=256)]
+    # "turn" also approves later actions of the same kind until the turn ends (F21); only kinds the view marks
+    # repeatable take it, others are approved once.
+    scope: Literal["once", "turn"] = "once"
 
 
 class DeckSetupPayload(WireModel):
@@ -7086,6 +7089,8 @@ class ApprovalView(WireModel):
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
     setup: ApprovalSetup | None = None
+    # Whether "approve the rest of this turn" is offered for this action (F21).
+    repeatable: bool = False
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 

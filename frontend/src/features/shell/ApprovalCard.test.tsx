@@ -183,3 +183,27 @@ it('re-reads the waiting approvals at once after an answer (B302)', async () => 
   expect(await screen.findByText('Approval submitted.')).toBeVisible();
   expect(pendingApprovals).toHaveBeenCalledTimes(2);
 });
+
+it('offers approving the rest of the reply only for a repeatable action (F21)', async () => {
+  await renderCard();
+  expect(
+    screen.queryByRole('button', { name: 'Approve the rest' }),
+  ).not.toBeInTheDocument();
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'developer_commit_changes',
+    repeatable: true,
+  });
+  render(<ApprovalCard id="approval-b" />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Approve the rest' }),
+  );
+  await waitFor(() =>
+    expect(intent).toHaveBeenCalledWith(
+      'approval-b',
+      'approval.resolve',
+      { decision: 'approve', nonce: 'nonce-a', scope: 'turn' },
+      '3',
+    ),
+  );
+});

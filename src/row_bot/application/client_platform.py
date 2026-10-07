@@ -348,6 +348,25 @@ class ClientPlatformService:
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
             self.projection.publish(handle.conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
+            from row_bot.application import approval_grants
+            if status == "waiting_approval" and handle.approval_granted:
+                try:
+                    self._resolve_approval_locked(handle.approval_id, {"decision": "approve"},
+                                                  runtime_surface=handle.runtime_surface)
+                except ClientPlatformError:
+                    # Not answered after all: the person sees the card as usual.
+                    _LOG.warning("A turn-approved action in %s still needs its approval", handle.conversation_id,
+                                 exc_info=True)
+                    view = self.get_approval(handle.approval_id)
+                    if view["status"] == "pending":
+                        self.projection.publish(handle.conversation_id, "approval.required", {
+                            "status": "waiting_approval", "approval_id": handle.approval_id,
+                            **{key: view[key] for key in ("action_label", "reason", "risk_class", "scope",
+                                                          "safe_argument_summary", "requesting_trace_id", "setup")
+                               if key in view}})
+                return
+            if status != "waiting_approval":
+                approval_grants.end_turn(handle.conversation_id)
             if status == "completed":
                 try:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)
@@ -1081,6 +1100,9 @@ class ClientPlatformService:
                followup: Any = None) -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
+        if not resume:
+            from row_bot.application import approval_grants
+            approval_grants.end_turn(conversation_id)
         from row_bot.application import client_queue
         frozen_config = (frozen_context or {}).get("configurable") or {}
         selection = payload.get("model_selection") or {}
@@ -1518,9 +1540,12 @@ class ClientPlatformService:
                 source_thread_id=conversation_id, parent_thread_id=conversation_id,
                 approval_payload_json=context)
             handle.status = "waiting_approval"
-            self.projection.publish(conversation_id, "approval.required", {
-                "status": "waiting_approval", "approval_id": handle.approval_id,
-                **public_approval})
+            from row_bot.application import approval_grants
+            handle.approval_granted = approval_grants.granted(conversation_id, payload)
+            if not handle.approval_granted:
+                self.projection.publish(conversation_id, "approval.required", {
+                    "status": "waiting_approval", "approval_id": handle.approval_id,
+                    **public_approval})
         elif kind == "error":
             self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
 
@@ -1544,8 +1569,10 @@ class ClientPlatformService:
             context.get("interrupts") if agent_request else context.get("interrupt"),
             fallback_reason=str((context.get("reason") if agent_request else "") or row["message"] or ""),
         )
+        from row_bot.application.approval_grants import approval_kinds
+        repeatable = row["resume_kind"] == "conversation" and approval_kinds(context.get("interrupt")) is not None
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
-                "requested_at": row["requested_at"],
+                "requested_at": row["requested_at"], "repeatable": repeatable,
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
                 "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
                 **public_context}
@@ -1618,6 +1645,11 @@ class ClientPlatformService:
             from row_bot.application.conversation_followups import after_approval
             after_approval(conversation_id, approved=approved)
             interrupt = stored.get("interrupt")
+            if approved and payload.get("scope") == "turn":
+                from row_bot.application import approval_grants
+                kinds = approval_grants.approval_kinds(interrupt)
+                if kinds:
+                    approval_grants.grant(conversation_id, kinds)
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
                                  approval_context={"approved": approved,
                                                    "interrupt_ids": context["interrupt_ids"],
