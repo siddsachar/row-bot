@@ -293,6 +293,11 @@ test('a package brings its own app and finishes setup in one plan', async ({
     .getByRole('dialog')
     .getByRole('button', { name: 'Add', exact: true })
     .click();
+  // What the package runs and may do is shown before anything is added.
+  await expect(
+    page.getByText('Asks to run programs on this computer.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page).toHaveURL(
     /settings\/apps\/item\?id=plugin%3A[a-z-]*local-text-tools/,
   );
