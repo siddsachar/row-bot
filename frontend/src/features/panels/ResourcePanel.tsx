@@ -404,6 +404,7 @@ function WorkspaceSurface({
               <WorkspaceImports
                 {...importSession.api}
                 session={importSession.session}
+                waiting={pendingImports}
                 onImported={bump}
               />
             ) : (

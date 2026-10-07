@@ -353,6 +353,8 @@ export class WorkspaceImportsSession {
 export type WorkspaceImportsProps = {
   scope: string;
   session?: WorkspaceImportsSession;
+  /** Changes waiting for import, from the workspace's own count; a new count reloads the list (B305). */
+  waiting?: number;
   load: (cursor?: string, signal?: AbortSignal) => Promise<WorkspaceImportPage>;
   patch: (
     row: WorkspaceImportSummary,
@@ -396,6 +398,16 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
     )
       void session.load(callbacks.current);
   }, [session, props.scope]);
+  // The agent saved or imported a change: read the list again so it agrees with
+  // the "N waiting" count above it (B305).
+  const seenWaiting = useRef(props.waiting);
+  useEffect(() => {
+    if (seenWaiting.current === props.waiting) return;
+    seenWaiting.current = props.waiting;
+    const snapshot = session.getSnapshot();
+    if (session.scope === props.scope && !snapshot.busy && !snapshot.pending)
+      void session.load(callbacks.current);
+  }, [session, props.scope, props.waiting]);
   if (!state.active || session.scope !== props.scope)
     return (
       <ErrorState title="Workspace access changed">
@@ -403,6 +415,10 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
       </ErrorState>
     );
   const locked = state.busy || state.reading || !!state.pending;
+  const waiting =
+    props.waiting ??
+    state.page?.items.filter((row) => !row.imported).length ??
+    0;
   return (
     <section
       className="stack studio-section"
@@ -439,9 +455,12 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
         </Button>
       </div>
       {state.page?.total === 0 && <p>No saved sandbox changes.</p>}
-      {state.page && (
+      {state.page && state.page.total > 0 && (
         <p>
-          {state.page.total} saved change{state.page.total === 1 ? '' : 's'}
+          {waiting
+            ? `${waiting} waiting for your approval to import · `
+            : 'None waiting to import · '}
+          {state.page.total} saved in all
         </p>
       )}
       <ul className="stack" aria-label="Saved sandbox changes">

@@ -96,7 +96,9 @@ async function selectPatch() {
 it('opens only saved metadata and renders plain patch text without importing', async () => {
   const p = props();
   render(<WorkspaceImports {...p} />);
-  await screen.findByText('1 saved change');
+  await screen.findByText(
+    '1 waiting for your approval to import · 1 saved in all',
+  );
   expect(p.review).not.toHaveBeenCalled();
   expect(p.apply).not.toHaveBeenCalled();
   await selectPatch();
@@ -267,7 +269,7 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
     }),
   });
   render(<WorkspaceImports {...p} />);
-  await screen.findByText('303 saved changes');
+  await screen.findByText(/303 saved in all/);
   for (let index = 0; index < 3; index++) {
     fireEvent.click(screen.getByRole('button', { name: 'Load more changes' }));
     await waitFor(() => expect(p.load).toHaveBeenCalledTimes(index + 2));
@@ -348,4 +350,16 @@ it('does not import when policy blocks the action', async () => {
     await screen.findByText(/policy blocks this import/),
   ).toBeInTheDocument();
   expect(p.apply).not.toHaveBeenCalled();
+});
+
+it('reads the list again when the waiting count changes, so both agree (B305)', async () => {
+  const p = props();
+  const { rerender } = render(<WorkspaceImports {...p} waiting={0} />);
+  await screen.findByText(/saved in all/);
+  expect(p.load).toHaveBeenCalledTimes(1);
+  rerender(<WorkspaceImports {...p} waiting={4} />);
+  await waitFor(() => expect(p.load).toHaveBeenCalledTimes(2));
+  expect(
+    await screen.findByText(/4 waiting for your approval to import/),
+  ).toBeInTheDocument();
 });
