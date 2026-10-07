@@ -826,6 +826,30 @@ def test_publication_budget_invalid_before_effect(owner, limit):
     assert not (owner / "never.txt").exists()
 
 
+def test_pasted_configuration_never_accepts_or_allows_tools_and_an_edit_keeps_what_was_chosen(owner):
+    chosen = {"catalog": {"delete_notes": {"digest": "fixture"}}, "accepted_names": ["delete_notes"],
+              "run_without_asking": ["delete_notes"], "require_approval": ["delete_notes"]}
+    sign_in = {"mode": "api_key", "credential_ref": "a" * 32}
+    saved({"Chosen": {"command": "synthetic", "tools": chosen, "auth": sign_in}})
+    identity = controls.read_mcp_configuration().items[0].server_id
+    # An edit in the advanced editor keeps the person's saved choices; its own text cannot carry any.
+    execute(command({"operation": "edit", "server_id": identity, "fields": {"tool_timeout": 35}}))
+    kept = config.read_saved_configuration().document["servers"]["Chosen"]
+    assert kept["tools"] == chosen and kept["auth"] == sign_in and kept["tool_timeout"] == 35
+    with pytest.raises(controls.CapabilityConfigurationError, match="invalid_command"):
+        execute(command({"operation": "edit", "server_id": identity, "fields": {"tools": {"run_without_asking": []}}}))
+    # JSON pasted from a README (or any import) cannot accept, allow or sign in for the person.
+    pasted = {"command": "synthetic", "enabled": True, "tools": chosen, "auth": sign_in,
+              "managed_launch": {"id": "b" * 32, "kind": "npm"}}
+    execute(command({"operation": "import", "import_json": json.dumps({"mcpServers": {"Pasted": pasted}})}))
+    server = config.read_saved_configuration().document["servers"]["Pasted"]
+    assert server["enabled"] is False and server["tools"] == {"require_approval": ["delete_notes"]}
+    assert "auth" not in server and "managed_launch" not in server
+    pairs = {"command": "synthetic", "tools": [["run_without_asking", ["delete_notes"]]]}
+    with pytest.raises(controls.CapabilityConfigurationError, match="invalid_command"):
+        execute(command({"operation": "import", "import_json": json.dumps({"mcpServers": {"Pairs": pairs}})}))
+
+
 def test_save_disabled_creates_exact_argv_once_and_omitted_edit_values_are_retained(
     owner,
 ):

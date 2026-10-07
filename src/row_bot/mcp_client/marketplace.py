@@ -182,6 +182,8 @@ def _arguments(arguments: object, inputs: dict) -> list[str]:
         flag = str(argument.get("name") or "")
         if not re.fullmatch(r"--?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", flag):
             raise _Declared(_UNSUPPORTED_PACKAGE)
+        if not argument.get("isRequired") and (argument.get("isSecret") or declared.secretish(flag.lstrip("-"))):
+            continue  # An optional key is left off the command line, where any program here could read it.
         if argument in bare and len(bare) <= 8 and not declared.secretish(flag.lstrip("-")):
             argv.append(flag)  # A plain switch.
             continue
@@ -202,6 +204,8 @@ def _checked(install: dict) -> dict:
             raise declared.InputError("invalid_inputs")
     except declared.InputError as exc:
         raise _Declared("Its address is chosen when you set it up; add it from a link instead." if "url" in str(exc)
+                        else "It takes a key on its command line, where other programs on this computer could read it."
+                        if str(exc) == "secret_argument"
                         else _UNSUPPORTED_PACKAGE if install.get("command") else _UNSUPPORTED_REMOTE) from None
     return install
 

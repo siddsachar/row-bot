@@ -62,7 +62,7 @@ def test_every_curated_recipe_has_a_valid_plan_and_only_supported_ones_can_start
     assert own["sign_in"]["state"] == "pending" and own["sign_in"]["sign_in"]["method"] == "oauth_client"
     notion = review("mcp:curated:makenotion-notion-mcp-server")[1]
     assert [s["type"] for s in notion["steps"]] == ["consent", "sign_in", "test", "access", "enable"]
-    assert notion["consent"]["destinations"] == ["https://mcp.notion.com/mcp"] and notion["consent"]["access_preset"] == "ask"
+    assert notion["consent"]["destinations"] == ["https://mcp.notion.com"] and notion["consent"]["access_preset"] == "ask"
     assert review("mcp:curated:makenotion-notion-mcp-server")[1]["digest"] == notion["digest"]
 
 

@@ -107,6 +107,23 @@ def test_node_bundle_maps_user_config_to_declared_inputs_and_templates(home):
     assert folder["default"] == str(home / "Documents") + os.sep + "notes"
 
 
+def test_a_key_stays_a_secret_whatever_the_bundle_calls_it_and_never_goes_on_a_command_line(home):
+    def plain(value):
+        value["user_config"]["api_key"].update(sensitive=False, default="fixture-not-a-key")
+        value["user_config"]["max_tokens"] = {"type": "number", "title": "Most tokens", "description": "D.", "default": 512}
+        value["server"]["mcp_config"]["args"] += ["--max", "${user_config.max_tokens}"]
+    key, _folder, limit = bundles.read(archive(manifest(plain)), platform="linux").inputs
+    # Kept in the keychain, never saved as a plain setting or shown back as a default.
+    assert (key["key"], key["secret"], key["default"]) == ("api_key", True, "")
+    assert (limit["key"], limit["secret"], limit["default"]) == ("max_tokens", False, "512")  # A number, not a key.
+
+    def on_argv(value):
+        value["server"]["mcp_config"]["env"].pop("NOTES_TOKEN")
+        value["server"]["mcp_config"]["args"] += ["--key", "${user_config.api_key}"]
+    with pytest.raises(ValueError, match="^bundle_inputs_unsupported$"):
+        bundles.read(archive(manifest(on_argv)), platform="linux")
+
+
 def test_platform_override_and_declared_platforms(home):
     def override(value):
         value["server"]["mcp_config"]["platform_overrides"] = {

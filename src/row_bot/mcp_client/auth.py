@@ -22,6 +22,7 @@ from uuid import uuid4
 import httpx
 
 from row_bot import secret_store
+from row_bot.integrations.safe import _global
 
 _NAMESPACE = "mcp_connections"
 # Row-Bot's OAuth client identity for servers that accept Client ID Metadata Documents: a static file
@@ -64,11 +65,11 @@ def public_endpoint(url: str, *, resolve: bool = False) -> str:
         literal = ipaddress.ip_address(p.hostname)
     except ValueError:
         literal = None
-    if literal is not None and not literal.is_global:
+    if literal is not None and not _global(literal):
         raise McpAuthError("mcp_auth_endpoint_invalid")
     if resolve:
         addresses = socket.getaddrinfo(p.hostname, 443, type=socket.SOCK_STREAM)
-        if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        if not addresses or any(not _global(ipaddress.ip_address(item[4][0])) for item in addresses):
             raise McpAuthError("mcp_auth_endpoint_invalid")
     return value
 
@@ -81,7 +82,7 @@ class PublicTransport(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request):
         authority = public_endpoint(str(request.url))
         addresses = await asyncio.to_thread(socket.getaddrinfo, request.url.host, 443, type=socket.SOCK_STREAM)
-        if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        if not addresses or any(not _global(ipaddress.ip_address(item[4][0])) for item in addresses):
             raise McpAuthError("mcp_auth_endpoint_invalid")
         address = addresses[0][4][0]
         transport = self.transports.get(authority)

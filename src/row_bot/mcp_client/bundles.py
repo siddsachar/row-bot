@@ -296,8 +296,11 @@ def _inputs(user_config: dict, found: dict) -> tuple[dict, ...]:
         if (spec.get("type") not in _FORMATS or type(spec.get("title")) is not str or type(spec.get("description")) is not str
                 or any(type(spec.get(flag, False)) is not bool for flag in ("required", "sensitive", "multiple"))):
             raise ValueError("bundle_invalid")
+        # A key is kept in the keychain even when the bundle calls it non-sensitive.
+        secret = spec.get("sensitive", False) or (spec["type"] == "string" and (inputs.secretish(key)
+                                                                                 or inputs.secretish(found.get(key) or "")))
         declared.append(inputs.declaration(key, target="env" if found.get(key) else "argument", name=found.get(key) or key,
-            label=spec["title"], description=spec["description"], secret=spec.get("sensitive", False),
+            label=spec["title"], description=spec["description"], secret=secret,
             required=spec.get("required", False), default=_default(spec.get("default")), format=_FORMATS[spec["type"]]))
     if any(key not in user_config for key in found):
         raise ValueError("bundle_invalid")

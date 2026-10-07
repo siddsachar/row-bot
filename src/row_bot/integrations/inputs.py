@@ -87,7 +87,8 @@ def declaration(key: str, *, target: str, name: str, label: str = "", descriptio
 
 
 def check(declared: object) -> list[dict]:
-    """A declaration list from a catalog or a saved configuration, or ``invalid_inputs``."""
+    """A declaration list from a catalog or a saved configuration, or ``invalid_inputs``
+    (``secret_argument``: a key is never put on a command line, which any local user can read)."""
     if declared is None:
         return []
     if type(declared) is not list or len(declared) > LIMIT:
@@ -102,6 +103,8 @@ def check(declared: object) -> list[dict]:
                         item.get("flag", ""), *item.get("choices", [])])
                 or (item["secret"] and item.get("default"))):
             raise InputError("invalid_inputs")
+        if item["secret"] and item["target"] == "argument":
+            raise InputError("secret_argument")
         if item["target"] == "env" and (not _ENV.fullmatch(item["name"]) or item["name"].upper() in NEVER_ENV):
             raise InputError("invalid_inputs")
         if item["target"] == "header" and not _HEADER.fullmatch(item["name"]):
@@ -241,7 +244,10 @@ def resolve(cfg: dict, secrets: dict, *, partial: bool = False) -> dict:
         if name.lower() == "authorization" and name in resolved["headers"] and _PLACEHOLDER.search(str(text)):
             resolved["headers"][name] = _scheme(resolved["headers"][name])
     args, flags = [], {item["flag"] for item in declared if item.get("flag")}
+    secret = {item["key"] for item in declared if item["secret"]}
     for arg in [str(arg) for arg in cfg.get("args") or []]:
+        if secret & set(_PLACEHOLDER.findall(arg)):
+            raise InputError("secret_argument")  # A key declared for a header or variable is not put on argv either.
         if empty(arg):
             if args and args[-1] in flags:
                 args.pop()  # A named argument goes with its value.

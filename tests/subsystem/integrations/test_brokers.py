@@ -53,7 +53,7 @@ def test_once_on_apps_offer_it_by_name_and_it_connects_through_the_hosted_plan(l
 
     row, reference = sources.catalog_entry("mcp:composio:composio")
     plan = plans.compute(row, reference, intent="connect")
-    assert plan["supported"] and plan["consent"]["destinations"] == ["https://connect.composio.dev/mcp"]
+    assert plan["supported"] and plan["consent"]["destinations"] == ["https://connect.composio.dev"]
     assert "sign_in" in [step["type"] for step in plan["steps"]]
     row, reference = sources.catalog_entry("mcp:composio:composio-key")
     plan = plans.compute(row, reference, intent="connect")

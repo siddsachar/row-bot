@@ -140,8 +140,8 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
     destination = "Local process"
     if not local:
         try:
-            url = urlsplit(str(cfg.get("url", "")))
-            destination = f"{url.scheme}://{url.hostname or ''}" + (f":{url.port}" if url.port else "") + url.path
+            url = urlsplit(str(cfg.get("url", "")))  # Never its path: a link's path can hold a key.
+            destination = f"{url.scheme}://{url.hostname or ''}" + (f":{url.port}" if url.port else "")
         except ValueError:
             destination = "Invalid connection destination"
     return {"auth_mode": mode, "execution": "local" if local else "hosted", "destination": destination[:2048],

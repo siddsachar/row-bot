@@ -46,6 +46,10 @@ _FIELDS = {
     "input_values",
 }
 _PRIVATE_FIELDS = ("command", "args", "cwd", "url", "env", "headers", "input_values")
+# The person's own choices (a sign-in, a reviewed package, which tools were accepted or run without
+# asking): never taken from imported text, as for a package's manifest.
+_CHOICES = {"auth", "managed_launch"}
+_TOOL_CHOICES = {"run_without_asking", "catalog", "accepted_names"}
 
 
 class CapabilityConfigurationError(ValueError):
@@ -399,10 +403,13 @@ def _next_document(
             _name(name)
             if name in servers:
                 raise CapabilityConfigurationError("mcp_server_collision")
-            if type(value) is not dict:
+            if type(value) is not dict or type(value.get("tools") or {}) is not dict:
                 raise CapabilityConfigurationError("invalid_command")
             fields = _fields({key: value[key] for key in value if key in _FIELDS})
-            servers[name] = _server(value, fields, name)
+            pasted = {key: item for key, item in value.items() if key not in _CHOICES}
+            if "tools" in value:
+                pasted["tools"] = {key: item for key, item in (value["tools"] or {}).items() if key not in _TOOL_CHOICES}
+            servers[name] = _server(pasted, fields, name)
             affected.append(name)
     elif operation == "delete":
         if set(intent) - {"operation", "server_id", "delete_credentials"} or type(intent.get("delete_credentials", False)) is not bool:

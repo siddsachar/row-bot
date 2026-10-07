@@ -127,10 +127,22 @@ def test_chunked_protected_storage_and_failed_write_preserve_original(isolated, 
     assert auth.read_credentials(ref) == original
 
 
-@pytest.mark.parametrize("url", ["http://example.test", "https://127.0.0.1", "https://169.254.169.254/metadata", "https://localhost", "https://u:p@example.test", "https://example.test:9000"])
+@pytest.mark.parametrize("url", ["http://example.test", "https://127.0.0.1", "https://169.254.169.254/metadata", "https://localhost", "https://u:p@example.test", "https://example.test:9000",
+                                 # IPv6 forms that carry a private IPv4 address: NAT64, IPv4-compatible, IPv4-mapped.
+                                 "https://[64:ff9b::a9fe:a9fe]/", "https://[::a9fe:a9fe]/", "https://[::ffff:10.0.0.1]/"])
 def test_oauth_discovery_rejects_unapproved_internal_origins(url):
     with pytest.raises(auth.McpAuthError):
         auth.public_endpoint(url)
+
+
+@pytest.mark.parametrize("address", ["64:ff9b::a9fe:a9fe", "::a9fe:a9fe", "::ffff:10.0.0.1"])
+def test_a_sign_in_never_follows_a_name_to_a_private_address_written_as_ipv6(monkeypatch, address):
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, 443, 0, 0))])
+    with pytest.raises(auth.McpAuthError, match="mcp_auth_endpoint_invalid"):
+        auth.public_endpoint("https://notes.example.test/mcp", resolve=True)
+    with pytest.raises(auth.McpAuthError, match="mcp_auth_endpoint_invalid"):
+        asyncio.run(auth.PublicTransport().handle_async_request(httpx.Request("GET", "https://notes.example.test/token")))
 
 
 def test_callback_origin_selection_and_unmatched_state(isolated):

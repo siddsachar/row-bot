@@ -145,6 +145,37 @@ def test_a_portable_plugin_asks_for_its_placeholders_instead_of_sending_them_lit
     assert {i["key"]: (i["target"], i["secret"]) for i in entry["inputs"]} == {"api_key": ("env", True), "team": ("argument", False)}
 
 
+def test_a_key_is_never_put_on_a_command_line_any_local_user_can_read(tmp_path, monkeypatch):
+    on_argv = declared("token", "argument", "token", secret=True, required=True, flag="--token")
+    with pytest.raises(inputs.InputError, match="^secret_argument$"):
+        inputs.check([on_argv])
+    inputs.check([declared("region", "argument", "region", flag="--region")])  # A plain setting still may.
+    in_env = declared("token", "env", "NOTES_TOKEN", secret=True, required=True)
+    with pytest.raises(inputs.InputError, match="^secret_argument$"):  # Nor a key declared for a variable.
+        inputs.resolve({"command": "notes", "args": ["--token", "{token}"], "env": {"NOTES_TOKEN": "{token}"},
+                        "inputs": [in_env]}, {"token": SECRET})
+    from row_bot.plugins.portable import declared_inputs
+    with pytest.raises(inputs.InputError):
+        declared_inputs({"type": "stdio", "command": "node", "args": ["--token", "${API_TOKEN}"]})
+    # A recipe listed before this rule (an older catalog copy) is shown as one Row-Bot can't connect to yet.
+    from row_bot.mcp_client.marketplace import MarketplaceEntry
+    from tests.helpers.registry import use_registry
+    listed = MarketplaceEntry(id="org.example/notes@1.0.0", name="Notes", description="Notes.", source="official",
+        install={"transport": "stdio", "command": "npx", "args": ["notes@1.0.0", "--token", "{token}"], "inputs": [on_argv]},
+        metadata={"canonical_name": "org.example/notes", "version": "1.0.0", "status": "active", "setup_digest": "fixture"})
+    use_registry(monkeypatch, tmp_path, [listed])
+    _, plan = api.read_item(owner_id="owner", item_id="mcp:official:org.example/notes@1.0.0")
+    assert not plan["supported"] and "can't connect" in plan["unsupported_reason"]
+
+
+def test_a_hosted_address_is_shown_without_its_path_which_can_hold_a_key():
+    page = api.resolve_reference(owner_id="owner", reference="https://hooks.example.com/s/secret-key-123/mcp")
+    (row,) = page["items"]
+    detail, plan = api.read_item(owner_id="owner", item_id=row["id"], revision=page["revision"])
+    assert detail["about"]["destination"] == "https://hooks.example.com" and plan["consent"]["destinations"] == [detail["about"]["destination"]]
+    assert "secret-key-123" not in json.dumps([page, detail, plan])
+
+
 def test_a_key_inside_a_pasted_link_is_never_saved_with_the_address():
     key = "k7Qx9vR2mP4tL8wZ3nB6"
     page = api.resolve_reference(owner_id="owner", reference=f"https://mcp.notes.example.test/s/{key}/mcp")

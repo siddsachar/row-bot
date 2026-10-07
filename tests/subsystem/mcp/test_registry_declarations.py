@@ -71,12 +71,12 @@ def test_package_runtimes_are_pinned_and_dozens_of_optional_settings_stay_at_the
     assert entry.install["args"] == ["--from", "notes[mcp]==1.2.3", "notes-mcp"]  # The record's own version, never unpinned.
     settings = [{"type": "named", "name": f"--option{n}", "description": "A tuning option"} for n in range(40)]
     envelope["server"]["packages"] = [{"registryType": "npm", "identifier": "fixture-notes", "version": "1.2.3", "transport": {"type": "stdio"},
-        "packageArguments": [*settings, {"type": "named", "name": "--apiSecret"}],
+        "packageArguments": [*settings, {"type": "named", "name": "--workspace", "isRequired": True}],
         "environmentVariables": [{"name": f"NOTES_{n}", "format": "number"} for n in range(40)] + [{"name": "NOTES_KEY", "isRequired": True}]}]
     (entry,) = marketplace.registry_entries({"servers": [envelope]})
-    assert entry.install["args"] == ["fixture-notes@1.2.3", "--apiSecret", "{apisecret}"]  # A secret flag is never a bare switch.
+    assert entry.install["args"] == ["fixture-notes@1.2.3", "--workspace", "{workspace}"]
     assert entry.install["env"] == {"NOTES_KEY": "{notes_key}"}
-    assert [(i["key"], i["secret"], i["required"]) for i in entry.install["inputs"]] == [("notes_key", True, True), ("apisecret", True, False)]
+    assert [(i["key"], i["secret"], i["required"]) for i in entry.install["inputs"]] == [("notes_key", True, True), ("workspace", False, True)]
 
 
 def test_a_credential_is_secret_by_its_name_even_when_its_listing_forgets_to_say(envelope):
@@ -87,8 +87,17 @@ def test_a_credential_is_secret_by_its_name_even_when_its_listing_forgets_to_say
     envelope["server"].pop("remotes")
     envelope["server"]["packages"] = [{"registryType": "npm", "identifier": "fixture-notes", "version": "1.2.3",
         "transport": {"type": "stdio"}, "packageArguments": [{"type": "named", "name": "--api-key", "valueHint": "your_value"}]}]
+    # A key is never put on a command line, which any program on this computer can read. Secret by its flag,
+    # whatever its hint says (and a bare secret flag is never a switch): an optional one is left out...
     (entry,) = marketplace.registry_entries({"servers": [envelope]})
-    assert entry.install["inputs"][0]["secret"]  # Secret by its flag, whatever its hint says.
+    assert entry.install["args"] == ["fixture-notes@1.2.3"] and not entry.install.get("inputs")
+    envelope["server"]["packages"][0]["packageArguments"] = [{"type": "named", "name": "--apiSecret"}]
+    (entry,) = marketplace.registry_entries({"servers": [envelope]})
+    assert entry.install["args"] == ["fixture-notes@1.2.3"]
+    # ...and one the server needs means Row-Bot doesn't offer the recipe.
+    envelope["server"]["packages"][0]["packageArguments"] = [{"type": "named", "name": "--api-key", "isRequired": True}]
+    (entry,) = marketplace.registry_entries({"servers": [envelope]})
+    assert entry.install is None and "command line" in " ".join(entry.notes)
 
 
 @pytest.mark.parametrize(("declaration", "reason"), [
