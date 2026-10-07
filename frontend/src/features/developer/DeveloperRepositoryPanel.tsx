@@ -42,6 +42,18 @@ export type DeveloperRepositoryAction =
   | 'developer.repository.sandbox.rebuild'
   | 'developer.repository.sandbox.cleanup';
 
+/** Where an action's confirmation and result show: beside the control that asked (B300). */
+type ActionPlace = 'commit' | 'push' | 'pull_request' | 'sandbox' | 'top';
+function placeOf(
+  action: DeveloperRepositoryAction | null | undefined,
+): ActionPlace {
+  if (action === 'developer.repository.commit') return 'commit';
+  if (action === 'developer.repository.push') return 'push';
+  if (action === 'developer.repository.pull_request') return 'pull_request';
+  if (action?.startsWith('developer.repository.sandbox.')) return 'sandbox';
+  return 'top';
+}
+
 function requiresConfirmation(action: DeveloperRepositoryAction) {
   return [
     'developer.repository.push',
@@ -438,6 +450,17 @@ export default function DeveloperRepositoryPanel(
 
   // Pull requests need the GitHub command-line tool, signed in: when it is
   // missing the section shows the same Connect card the chat uses (row 36).
+  const [lastAction, setLastAction] =
+    useState<DeveloperRepositoryAction | null>(null);
+  const [pullRequestUrl, setPullRequestUrl] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
+  const reviewing = session.getSnapshot().reviewed?.command.command_id;
+  useEffect(() => {
+    // The confirmation appears beside its control; bring it into view (B300).
+    if (!reviewing) return;
+    confirmRef.current?.scrollIntoView?.({ block: 'nearest' });
+    confirmRef.current?.focus({ preventScroll: true });
+  }, [reviewing]);
   const [github, setGithub] = useState<
     'github_cli_missing' | 'github_cli_unauthenticated' | null
   >(null);
@@ -453,6 +476,8 @@ export default function DeveloperRepositoryPanel(
     action: DeveloperRepositoryAction,
     extra: Record<string, unknown> = {},
   ) => {
+    setLastAction(action);
+    setPullRequestUrl(null);
     const current = session.getSnapshot();
     if (
       locked ||
@@ -576,6 +601,11 @@ export default function DeveloperRepositoryPanel(
               ? (DONE_WORDS[attempt.command.type] ?? 'Done.')
               : `The repository change was refused: ${reasonText(receipt.code) || labelCode(receipt.code)}.`,
         });
+        if (
+          receipt.status === 'completed' &&
+          attempt.command.type === 'developer.repository.pull_request'
+        )
+          setPullRequestUrl(receipt.external_url);
         if (receipt.status === 'completed') {
           await refresh(true);
           callbacks.current.onChanged?.();
@@ -636,30 +666,37 @@ export default function DeveloperRepositoryPanel(
     state.reviewed && requiresConfirmation(state.reviewed.command.type)
       ? state.reviewed
       : null;
+  const place = placeOf(confirm?.review.action ?? lastAction);
+  const pullRequestNumber = pullRequestUrl?.match(/\/pull\/(\d+)/)?.[1];
   const disclosureWords: Record<string, string> = {
     'developer.repository.push': 'Push the current branch',
     'developer.repository.pull_request': 'Open a pull request',
     'developer.repository.sandbox.rebuild': 'Rebuild the sandbox',
     'developer.repository.sandbox.cleanup': 'Clean up the sandbox',
   };
-  return (
-    <section className="dev-git" aria-label="Developer repository controls">
-      {state.error && (
-        <div className="dev-error-card" role="alert">
-          <strong>Repository action needs attention</strong>
-          <p>{state.error}</p>
-          <Button disabled={locked} onClick={() => void refresh()}>
-            Retry
-          </Button>
-        </div>
-      )}
+  // Results and confirmations show beside the control that asked (B300).
+  const notices = (
+    <>
       {state.message && (
         <p className="dev-git-status" role="status">
-          {state.message}
+          {pullRequestUrl ? (
+            <>
+              {pullRequestNumber
+                ? `Pull request #${pullRequestNumber} opened.`
+                : 'Pull request opened.'}{' '}
+              <a href={pullRequestUrl} target="_blank" rel="noreferrer">
+                Open it on GitHub
+              </a>
+            </>
+          ) : (
+            state.message
+          )}
         </p>
       )}
       {confirm && (
         <div
+          ref={confirmRef}
+          tabIndex={-1}
           className="dev-confirm"
           role="group"
           aria-label="Confirm repository change"
@@ -718,6 +755,20 @@ export default function DeveloperRepositoryPanel(
           </Button>
         </div>
       )}
+    </>
+  );
+  return (
+    <section className="dev-git" aria-label="Developer repository controls">
+      {state.error && (
+        <div className="dev-error-card" role="alert">
+          <strong>Repository action needs attention</strong>
+          <p>{state.error}</p>
+          <Button disabled={locked} onClick={() => void refresh()}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {place === 'top' && notices}
       {!repo.is_git ? (
         <p className="dev-empty">
           This folder is not a Git repository. Branches, commits and pull
@@ -892,6 +943,7 @@ export default function DeveloperRepositoryPanel(
                 </span>
               )}
             </div>
+            {place === 'commit' && notices}
           </section>
 
           <section className="dev-git-section" aria-label="Remote">
@@ -910,6 +962,7 @@ export default function DeveloperRepositoryPanel(
                   : 'No remote is set up, so nothing can be pushed.'}
               </span>
             </div>
+            {place === 'push' && notices}
             <Disclosure
               summary="Pull request"
               className="dev-disclosure"
@@ -1014,6 +1067,7 @@ export default function DeveloperRepositoryPanel(
                     </span>
                   )}
                 </div>
+                {place === 'pull_request' && notices}
               </div>
             </Disclosure>
           </section>
@@ -1184,6 +1238,7 @@ export default function DeveloperRepositoryPanel(
                 Clean up sandbox
               </Button>
             </div>
+            {place === 'sandbox' && notices}
           </div>
         </section>
         {props.advanced}
