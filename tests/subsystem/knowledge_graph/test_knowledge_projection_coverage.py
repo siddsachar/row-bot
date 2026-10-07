@@ -193,5 +193,10 @@ def test_internal_batch_with_no_prior_generation_never_starts_provider(projectio
     monkeypatch.setattr(kg, "_get_embedding_model", lambda **_kw: pytest.fail("batch query must not repair"))
     with kg.projection_batch(drain_on_exit=False):
         add(kg)
+        # A fresh profile: nothing saved before the batch, so nothing to compare against (B323).
+        assert kg.semantic_search("New source requires explicit projection") == []
+    add(kg, "Saved before the next batch")
+    with kg.projection_batch(drain_on_exit=False):
+        add(kg, "Another new source")
         with pytest.raises(kg.MemorySemanticUnavailable):
-            kg.semantic_search("New source requires explicit projection")
+            kg.semantic_search("Prior knowledge without an index still needs a rebuild")
