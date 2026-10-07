@@ -165,6 +165,10 @@ def check_managed_browser_runtime(
     )
 
 
+class BrowserRuntimeMissing(RuntimeError):
+    """Browser Automation (the managed Chromium) isn't installed, so nothing that renders a page can run."""
+
+
 def check_packaged_browser_runtime(
     env: Mapping[str, str] | None = None,
     *,
@@ -211,7 +215,7 @@ def playwright_chromium_launch_options(*, headless: bool = True) -> dict[str, An
     if not readiness.ready:
         readiness = check_managed_browser_runtime()
     if not readiness.ready or not readiness.executable_path:
-        raise RuntimeError(
+        raise BrowserRuntimeMissing(
             "The Python Playwright-matched Chromium runtime is not ready. "
             "Install or repair Browser Automation in Settings."
         )

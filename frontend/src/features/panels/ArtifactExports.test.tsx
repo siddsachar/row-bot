@@ -180,6 +180,20 @@ it('preserves range options on incomplete failure and never offers its download'
   expect(current.create).toHaveBeenCalledTimes(1);
 });
 
+it('sends the person to set up Browser Automation when exports need it', async () => {
+  const current = props({
+    create: vi.fn().mockRejectedValue({ code: 'export_runtime_missing' }),
+  });
+  render(<ArtifactExports {...current} />);
+  await exportAs('PDF');
+  expect(
+    screen.getByText(/Exports need Browser Automation/),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Set up Browser Automation' }),
+  ).toHaveAttribute('href', '/app-v2/settings/system#browser.install');
+});
+
 it('shows offline asset warnings and captured older revision without rebuilding', async () => {
   const current = props({
     create: vi.fn(async (): Promise<ArtifactExportResult> => ({

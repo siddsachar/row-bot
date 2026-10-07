@@ -63,7 +63,7 @@ def execute_export(service: Any, command: dict, conversation_id: str, *, owner_i
         except ArtifactError as exc:
             # An existing incomplete attempt is retained and is never rendered
             # again under the same ID. The user can review then start a new one.
-            if exc.code in {"export_incomplete", "export_unavailable", "export_size_limit"}:
+            if exc.code in {"export_incomplete", "export_runtime_missing", "export_unavailable", "export_size_limit"}:
                 result.update(status="partial", code=exc.code)
                 admissions.command_progress(owner_id, key, result)
                 return result

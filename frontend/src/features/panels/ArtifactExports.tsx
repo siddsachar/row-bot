@@ -9,6 +9,7 @@ import {
 } from '../../ui/primitives';
 
 import type { ArtifactExport, ArtifactSavedExport } from '../../api/types';
+import { AppLink } from '../../ui/app-link';
 
 export type ArtifactExportResult = ArtifactExport;
 export type ArtifactExportOptions = {
@@ -74,8 +75,10 @@ function failure(reason: unknown) {
             ? 'Export storage is full. Existing copies are preserved; review local export recovery before retrying.'
             : code === 'export_storage_unavailable'
               ? "The Exports folder can't be used. Check the workspace folder in Settings › System, then export again."
-              : 'The export could not be completed. Any partial local copy is retained; no complete download is available for this attempt.';
-  return { denied, text };
+              : code === 'export_runtime_missing'
+                ? 'Exports need Browser Automation. Install it in Settings › System, then export again.'
+                : 'The export could not be completed. Any partial local copy is retained; no complete download is available for this attempt.';
+  return { denied, text, needsBrowser: code === 'export_runtime_missing' };
 }
 
 export default function ArtifactExports(props: ArtifactExportsProps) {
@@ -88,6 +91,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
   const [saved, setSaved] = useState<ArtifactSavedExport | null>(null);
   const [working, setWorking] = useState<ArtifactExportOptions['format']>();
   const [error, setError] = useState('');
+  const [needsBrowser, setNeedsBrowser] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const operation = useRef<symbol | null>(null);
@@ -118,6 +122,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       if (scope.current.resourceId !== resourceId) return;
       const issue = failure(reason);
       setError(issue.text);
+      setNeedsBrowser(issue.needsBrowser);
       if (issue.denied) {
         setResult(null);
         setSaved(null);
@@ -265,7 +270,20 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       {props.updating && !busy && (
         <p className="muted">Waiting for the saved version…</p>
       )}
-      {error && <ErrorState title="Export unavailable">{error}</ErrorState>}
+      {error && (
+        <ErrorState
+          title="Export unavailable"
+          action={
+            needsBrowser ? (
+              <AppLink to="/settings/system#browser.install">
+                Set up Browser Automation
+              </AppLink>
+            ) : undefined
+          }
+        >
+          {error}
+        </ErrorState>
+      )}
       {current && (
         <div className="export-result" role="status">
           {copy ? (
