@@ -326,6 +326,13 @@ def continue_goals_after_restart(service: Any) -> int:
 def after_goal_change(service: Any, conversation_id: str, operation: str,
                       goal: dict[str, Any] | None) -> None:
     """Start, resume, pause or end the goal's turns after a goal command."""
+    if operation == "start" and goal:
+        from row_bot import threads
+        from row_bot.application.conversation_naming import name_first_message
+
+        if not threads.get_latest_checkpoint_revision(conversation_id):
+            # A goal started in an empty conversation names it, as a first message would (B319).
+            name_first_message(conversation_id, str(goal.get("objective") or ""))
     if operation in {"start", "resume"} and goal and goal.get("status") == "active":
         start_goal_turn(service, conversation_id, goal, initial=operation == "start")
     elif operation in {"pause", "complete", "clear"}:

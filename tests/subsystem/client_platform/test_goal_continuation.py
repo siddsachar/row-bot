@@ -438,3 +438,13 @@ def test_a_goal_waiting_on_the_person_starts_no_hand_off_until_they_answer(goal_
 
     assert fake.prompts[2] == "Build the landing page now."
     assert goals.get_goal(goal["id"])["status"] == "completed"
+
+
+def test_a_goal_started_in_an_empty_conversation_names_it(goal_setup):
+    """B319: the sidebar, header and Home kept "New conversation" for a goal's conversation."""
+    platform, _ = goal_setup
+    fake = Recording(completed("step 0"))
+    start(platform, fake, max_turns=1)
+    wait_idle(platform, fake, 1)
+
+    assert platform.get_conversation(CONVERSATION)["title"].startswith("Write three synthetic notes")
