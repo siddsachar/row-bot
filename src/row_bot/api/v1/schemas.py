@@ -3705,6 +3705,7 @@ class DataBackupJob(WireModel):
     finished_at: str | None = Field(default=None, max_length=40)
     code: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=260)
+    skipped: list[Annotated[str, Field(max_length=260)]] | None = Field(default=None, max_length=20)
 
 
 class DataRestorePending(WireModel):

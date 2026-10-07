@@ -73,6 +73,7 @@ it('backs up in the background, then says where it went and offers the folder', 
       kind: 'backup',
       status: 'completed',
       name: 'Row-Bot backup 2026-09-29 0700.zip',
+      skipped: ['media/c/locked.png'],
     },
   };
   fake.send.mockResolvedValueOnce(receipt(running, { status: 'accepted' }));
@@ -91,6 +92,11 @@ it('backs up in the background, then says where it went and offers the folder', 
     await screen.findByText(
       'Saved “Row-Bot backup 2026-09-29 0700.zip” in Row-Bot › Backups.',
       { exact: false },
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      /Left out a file that couldn't be read: media\/c\/locked\.png\./,
     ),
   ).toBeVisible();
   expect(screen.getByText(/Last backup:/)).not.toHaveTextContent('never');

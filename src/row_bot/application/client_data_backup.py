@@ -62,7 +62,8 @@ def _job_view() -> dict | None:
     with _LOCK:
         if not _JOB:
             return None
-        return {key: _JOB.get(key) for key in ("kind", "status", "started_at", "finished_at", "code", "name")}
+        return {key: _JOB.get(key) for key in ("kind", "status", "started_at", "finished_at", "code", "name",
+                                               "skipped")}
 
 
 def read_state(*, local_owner: bool) -> dict:
@@ -116,7 +117,8 @@ def _start(kind: str, work: Callable[[], dict]) -> None:
             outcome = work()
             with _LOCK:
                 _JOB.update(status="completed", finished_at=datetime.now().isoformat(timespec="seconds"),
-                            name=outcome.get("name"))
+                            name=outcome.get("name"),
+                            skipped=list(outcome.get("skipped") or [])[:profile_backup.SKIPPED_SHOWN])
         except profile_backup.BackupError as exc:
             with _LOCK:
                 _JOB.update(status="failed", code=exc.code, finished_at=datetime.now().isoformat(timespec="seconds"))

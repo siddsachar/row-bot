@@ -279,3 +279,46 @@ def test_an_older_backup_with_files_now_left_out_still_restores_without_them(tmp
     with pytest.raises(backup.BackupError, match="backup_invalid"):
         backup.inspect_backup(_zip(tmp_path / "keys.zip", {backup.MANIFEST: _manifest(),
                                                            "x/token.json": "{}"}), app_version="4.9.1")
+
+
+@pytest.mark.platform
+def test_a_backup_leaves_out_an_open_upload_staging_file_but_keeps_attachments(tmp_path):
+    """B289: on Windows an attachment upload's open staging file can't be read; it is never user data."""
+    import tempfile
+
+    data = tmp_path / "profile"
+    media = data / "media" / "conversation-1"
+    media.mkdir(parents=True)
+    (media / "upload_notes.pdf").write_bytes(b"%PDF-1.4 kept")
+    with tempfile.TemporaryFile(mode="w+b", dir=media, prefix="upload_") as staging:
+        staging.write(b"chunk")
+        staging.flush()
+        result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 7, 9, 0))
+
+    with zipfile.ZipFile(result["path"]) as archive:
+        names = archive.namelist()
+    assert "media/conversation-1/upload_notes.pdf" in names
+    assert [name for name in names if name.startswith("media/") and name != "media/conversation-1/upload_notes.pdf"] == []
+    assert result["skipped"] == []
+
+
+def test_a_file_that_cant_be_read_is_named_instead_of_failing_the_backup(tmp_path, monkeypatch):
+    data = tmp_path / "profile"
+    (data / "media" / "c").mkdir(parents=True)
+    (data / "media" / "c" / "locked.png").write_bytes(b"png")
+    (data / "media" / "c" / "photo.png").write_bytes(b"png")
+    write = zipfile.ZipFile.write
+
+    def locked(self, filename, arcname=None, *args, **kwargs):
+        if arcname == "media/c/locked.png":
+            raise PermissionError(13, "The process cannot access the file")
+        return write(self, filename, arcname, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "write", locked)
+    result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 7, 9, 0))
+
+    with zipfile.ZipFile(result["path"]) as archive:
+        manifest = json.loads(archive.read(backup.MANIFEST))
+        assert "media/c/photo.png" in archive.namelist()
+    assert result["skipped"] == manifest["skipped"] == ["media/c/locked.png"]
+    assert result["files"] == 1

@@ -16,6 +16,8 @@ kept aside (``profile_restore.apply_pending``).
 from __future__ import annotations
 
 import json
+import logging
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -33,6 +35,12 @@ MANIFEST = "row-bot-backup.json"
 STATE_FILE = "backup_state.json"
 MAX_ENTRIES = 500_000
 MAX_BYTES = 256 * 1024 ** 3
+# An attachment upload's staging file while it is kept for retries (attachments.py: a Windows TemporaryFile
+# named upload_ plus 8 random characters, no extension). It is never user data, and on Windows it can't be
+# read while open.
+_UPLOAD_STAGING = re.compile(r"upload_[a-z0-9_]{8}")
+SKIPPED_SHOWN = 20
+logger = logging.getLogger(__name__)
 LEFT_OUT = (
     "API keys, sign-in tokens and passwords",
     "Browser, WhatsApp and device sessions",
@@ -79,6 +87,8 @@ def _files(data_dir: Path) -> list[Path]:
             if any(SECRET_NAMES.fullmatch(part) for part in relative.parts):
                 continue
             if any(part.endswith(("-wal", "-shm")) for part in relative.parts):
+                continue
+            if relative.parts[0] == "media" and _UPLOAD_STAGING.fullmatch(path.name):
                 continue
             chosen.append(path)
     return chosen
@@ -174,6 +184,7 @@ def create_backup(data_dir: Path, destination: Path, *, now: datetime | None = N
     files = 0
     total = 0
     mcp: list[str] = []
+    skipped: list[str] = []
     webhooks = 0
     try:
         with tempfile.TemporaryDirectory() as scratch, zipfile.ZipFile(
@@ -194,7 +205,13 @@ def create_backup(data_dir: Path, destination: Path, *, now: datetime | None = N
                     archive.writestr(arcname, text)
                     total += len(text.encode())
                 else:
-                    archive.write(path, arcname)
+                    try:
+                        archive.write(path, arcname)
+                    except OSError as error:
+                        # One unreadable file (locked or vanished) is named, not a failed backup.
+                        logger.warning("Backup left out %s: %s", arcname, error)
+                        skipped.append(arcname)
+                        continue
                     total += path.stat().st_size
                 files += 1
             manifest = {
@@ -206,6 +223,7 @@ def create_backup(data_dir: Path, destination: Path, *, now: datetime | None = N
                 "bytes": total,
                 "left_out": list(LEFT_OUT),
                 "sign_in_again": _sign_in_again(data_dir, mcp, webhooks),
+                "skipped": skipped,
             }
             archive.writestr(MANIFEST, json.dumps(manifest, indent=2))
         partial.replace(target)
