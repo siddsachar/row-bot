@@ -137,8 +137,9 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
             cfg[key] = copy.deepcopy(overrides[key])
     for key in ("env", "headers"):
         cfg[key].update(overrides.get(key, {}))
-    if entry.get("portable"):
-        cfg["enabled"] = overrides.get("enabled") is True and isinstance(cfg["tools"].get("catalog"), dict)
+    # A package's server runs only once the person has turned it on with its tools accepted, never on the
+    # package's word alone.
+    cfg["enabled"] = cfg["enabled"] and overrides.get("enabled") is True and isinstance(cfg["tools"].get("catalog"), dict)
     return cfg
 
 

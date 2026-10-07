@@ -325,8 +325,6 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         if kind == "plugin":  # A package for a desktop app (Blender): its program is open before it is turned on.
             steps[-1:-1] = _local_app_step(apps.catalog()[0].get((row["app"] or {}).get("id", "")))
         consent["downloads"] = [row["source_url"] or name]
-        if reference.get("kind") not in {"skill", "plugin"}:
-            steps[1].update(state="unsupported", message="Add this one from its marketplace page for now.")
         declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id", "install_ref",
                                                             "link", "upload")}
     elif intent == "fix" and kind == "plugin" and _checkable(row):
@@ -428,9 +426,7 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         raise PlanError("plan_unsupported")
     if preset and preset not in presets.PRESETS:
         raise PlanError("invalid_access_preset")
-    if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"})
-                                or reference.get("kind") == "hermes_mcp" or registry_bundle(reference) or any(
-            s["type"] == "runtime" and s["runtime"]["id"] in PACKAGES for s in plan["steps"])):
+    if not ctx.local_owner and _local_only(plan, reference):
         raise PlanError("owner_local_only")
     installed = row["lifecycle"] != "available"
     target = row.get("target") if installed else None
@@ -462,6 +458,13 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     return _launch(ctx, record, background)
 
 
+def _local_only(plan: dict, reference: dict) -> bool:
+    """Changes only the owner at this computer may agree to: packages, Hermes recipes, Registry bundles and
+    installed runtimes, which put code on this computer."""
+    return ((plan["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"}) or reference.get("kind") == "hermes_mcp"
+            or registry_bundle(reference) or any(s["type"] == "runtime" and s["runtime"]["id"] in PACKAGES for s in plan["steps"]))
+
+
 def resume(ctx: Context, plan_id: str, *, preset: str = "", overrides: dict | None = None, background: bool = False) -> dict:
     """Continue from the current step: after a sign-in, an input, access, or a finished background step."""
     record, open_ = _load(ctx.owner_id, plan_id)
@@ -470,6 +473,8 @@ def resume(ctx: Context, plan_id: str, *, preset: str = "", overrides: dict | No
         open_ = False
     if not open_:
         raise PlanError("plan_not_resumable")
+    if not ctx.local_owner and _local_only(record, record["reference"]):  # Continuing is agreeing again.
+        raise PlanError("owner_local_only")
     if preset:
         if preset not in presets.PRESETS:
             raise PlanError("invalid_access_preset")
@@ -1386,6 +1391,23 @@ def _hub_record_named(name: str):
     return record
 
 
+_PERMISSIONS = {"network": "use the internet", "files": "read and change files", "account": "use your accounts",
+                "external_send": "send messages or posts for you", "messaging": "use your messaging channels",
+                "memory_documents": "read your memory and documents", "shell_processes": "run programs on this computer"}
+
+
+def _package_review(summary: dict) -> dict:
+    """What a package declares, shown in place before it is added: the code it runs, what it starts or
+    connects to, what it may do, and its skills. Only that exact package (its tree digest) is added."""
+    lines = [f"Runs its own code on this computer for: {', '.join(summary['tools'])}."] if summary["tools"] else []
+    lines += [f"Connects to {server['url']}." if server["url"] else
+              f"Runs {' '.join([server['command'], *server['args']])} on this computer." for server in summary["servers"]]
+    lines += ["Asks to " + ", ".join(_PERMISSIONS.get(name, name) for name in summary["permissions"]) + "."]         if summary["permissions"] else []
+    lines += ["Adds skills: " + ", ".join(skill["name"] for skill in summary["skills"]) + "."] if summary["skills"] else []
+    return {"summary": f"{summary['name']} {summary['version']}" + (f" by {summary['publisher']}" if summary["publisher"] else ""),
+            "lines": [line[:256] for line in lines], "items": [], "digest": summary["tree_digest"]}
+
+
 def _package_test(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.plugins.hermes_catalog import inspect_package
     reference = record["reference"]
@@ -1399,17 +1421,25 @@ def _package_test(ctx: Context, record: dict, step: dict) -> str:
             raise PlanError("package_failed", "The package's check didn't pass. Open its advanced settings to see why.")
         step["message"] = "Checks passed."
         return "done"
-    if record["intent"] == "update":
-        # A package added from the Hermes catalog updates to the catalog's pin, never the repository's head.
+    summary = record.get("_inspected")  # Read once; continuing after the review never fetches it again.
+    if summary is None and record["intent"] == "update":
+        # A package updates from where it came: a marketplace package against the marketplace's checksum, a Hermes
+        # package to the catalog's pin (never the repository's head), a package from a link from that link.
         from row_bot.plugins import hermes_catalog
+        from row_bot.plugins.state import get_plugin_package_state, package_origin
+        plugin_id = record["item_id"].removeprefix("plugin:")
+        origin = package_origin(plugin_id)
         listed = next((e for e in hermes_catalog.read_catalog()["entries"] if reference.get("identity")
                        and "plugin:" + e["source_identity"] == reference["identity"].rsplit("@", 1)[0]), None)
-        summary = inspect_package(owner_id=ctx.owner_id, reference=listed["id"] if listed else reference["source_url"])
-        if summary["plugin_id"] != record["item_id"].removeprefix("plugin:"):
+        if origin == "hermes" and listed is None:
+            raise PlanError("package_unlisted", "This package has left its catalog, so Row-Bot won't update it.")
+        source = "marketplace:" + plugin_id if origin == "marketplace" else listed["id"] if listed else reference["source_url"]
+        summary = inspect_package(owner_id=ctx.owner_id, reference=source)
+        if summary["plugin_id"] != plugin_id:
             raise PlanError("plan_changed")
-        if summary["pin"] and summary["pin"] == reference["pin"]:
+        if summary["tree_digest"] == get_plugin_package_state(plugin_id).get("digest"):
             return _latest(record, step)
-    else:
+    elif summary is None:
         if reference.get("reference", "").startswith("hermes:"):
             from row_bot.plugins import hermes_catalog
             listed = next((e for e in hermes_catalog.read_catalog()["entries"] if e["id"] == reference["reference"]), None)
@@ -1417,7 +1447,12 @@ def _package_test(ctx: Context, record: dict, step: dict) -> str:
                 raise PlanError("plan_changed")  # The catalog moved since consent: never fetch another version.
         summary = inspect_package(owner_id=ctx.owner_id, reference=reference.get("upload") or reference["reference"],
                                   local=bool(reference.get("upload")))
+    record["_inspected"] = summary
     record["_package"] = {"preview_id": summary["preview_id"], "plugin_id": summary["plugin_id"]}
+    step["review"] = _package_review(summary)
+    if ctx.review_digest != summary["tree_digest"]:
+        step["message"] = "Check what this package does, then continue."
+        return "digest_changed"
     step["message"] = f"{len(summary['skills'])} skills and {len(summary['servers'])} connections found."
     return "done"
 

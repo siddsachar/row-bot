@@ -641,6 +641,11 @@ def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
         record = state.get(row["plugin_id"], {})
         package = record.get("package", {})
         source = str(package.get("source_identity", ""))
+        if not source and (record.get("installed") or {}).get("source") == "marketplace":  # Added by 5.0.0.
+            from row_bot.plugins import marketplace
+            index = marketplace.get_cached_index()
+            entry = marketplace.get_entry(row["plugin_id"], index) if index else None
+            source = marketplace.github_folder(entry) if entry else ""
         if urlsplit(source).hostname == "github.com" and "#" in source:
             source = source.replace("#", "/tree/HEAD/", 1)
         source = public_url(source)

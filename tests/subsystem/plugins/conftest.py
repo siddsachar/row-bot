@@ -87,6 +87,14 @@ def manifest_payload(plugin_id: str = "sample-plugin", **overrides: object) -> d
     return payload
 
 
+def accept_child(state, plugin_id: str, server_key: str) -> None:
+    """The person turned a package's server on with its tools accepted, as Apps' access step does."""
+    data = json.loads(state._STATE_PATH.read_text(encoding="utf-8")) if state._STATE_PATH.exists() else {}
+    data.setdefault(plugin_id, {}).setdefault("mcp", {})[server_key] = {"enabled": True, "tools": {"catalog": {}}}
+    state._STATE_PATH.write_text(json.dumps(data), encoding="utf-8")
+    state.reload()
+
+
 def write_plugin(
     root: Path,
     plugin_id: str = "sample-plugin",

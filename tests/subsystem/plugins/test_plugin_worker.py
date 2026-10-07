@@ -11,7 +11,7 @@ import venv
 
 import pytest
 
-from tests.subsystem.plugins.conftest import write_plugin
+from tests.subsystem.plugins.conftest import accept_child, write_plugin
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
@@ -755,6 +755,7 @@ def _mcp_config(fixture, code, *, register_only=False):
     else:
         result = fixture.loader._load_single_plugin(fixture.source)
         assert result.success, result.error
+    accept_child(fixture.state, "sample-plugin", "fixture")
     config = plugin_mcp_servers()["plugin_sample_plugin_fixture"]
     return config
 

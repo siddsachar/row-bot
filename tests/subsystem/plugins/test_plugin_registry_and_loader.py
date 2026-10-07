@@ -10,7 +10,7 @@ from langchain_core.tools import StructuredTool
 from row_bot.plugins.api import PluginAPI, PluginTool
 from row_bot.plugins.manifest import PluginAuthor, PluginManifest, PluginProvides
 
-from .conftest import manifest_payload, prepare_worker_environment, write_plugin
+from .conftest import accept_child, manifest_payload, prepare_worker_environment, write_plugin
 
 
 pytestmark = pytest.mark.subsystem
@@ -201,6 +201,10 @@ def test_plugin_mcp_overlay_uses_enabled_manifests_and_resolves_config(
     state.set_plugin_enabled("office-plugin", True)
 
     from row_bot.plugins.mcp import plugin_mcp_server_name, with_plugin_mcp_servers
+
+    # A package's server runs only once its tools are accepted, never on the package's word alone.
+    assert with_plugin_mcp_servers({"servers": {}})["servers"][plugin_mcp_server_name("office-plugin", "office")]["enabled"] is False
+    accept_child(state, "office-plugin", "office")
 
     cfg = with_plugin_mcp_servers({
         "enabled": False,

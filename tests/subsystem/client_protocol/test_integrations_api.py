@@ -131,7 +131,12 @@ def test_reviewed_package_uses_same_owner_across_http_plan_install_and_recovery(
         # The package is inspected and installed by one owner: the install consumes that owner's own review.
         response = client.post("/api/v1/integrations/plans", headers={**headers, "Idempotency-Key": plan_id}, json=body)
         assert response.status_code == 200, response.text
-        assert response.json()["state"] == "completed", response.text
+        # What the package runs and may do is shown before anything is added; continuing agrees to exactly that.
+        review = next(s for s in response.json()["steps"] if s["type"] == "test")["review"]
+        assert response.json()["pause"] == "digest_changed" and "Asks to run programs on this computer." in review["lines"]
+        response = client.post(f"/api/v1/integrations/plans/{plan_id}/continue", headers=headers,
+                               json={"review_digest": review["digest"]})
+        assert response.status_code == 200 and response.json()["state"] == "completed", response.text
         assert next(s for s in response.json()["steps"] if s["type"] == "test")["message"] == "2 skills and 1 connections found."
         _, new_headers = bootstrap(client)
         receipt = "/api/v1/integrations/plans/" + plan_id

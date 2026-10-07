@@ -239,6 +239,14 @@ def entry_source(entry: MarketplaceEntry) -> EntrySource:
     ))
 
 
+def github_folder(entry: MarketplaceEntry) -> str:
+    """A marketplace package's folder on GitHub, where Apps reads it at a pinned commit and checks it
+    against the checksum the marketplace publishes; '' when it lives elsewhere or can't be checked."""
+    origin = entry_source(entry)
+    found = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/archive/refs/heads/main\.zip", origin.archive_url)
+    return f"https://github.com/{found[1]}/tree/main/{origin.archive_path}" if found and origin.archive_path and not origin.problem else ""
+
+
 def _downloaded(entry: MarketplaceEntry, source: EntrySource) -> EntrySource:
     if _SHA256.fullmatch(entry.checksum.strip()):
         return source

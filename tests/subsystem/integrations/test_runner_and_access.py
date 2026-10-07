@@ -264,39 +264,84 @@ def test_saving_access_never_runs_setup_steps_nobody_agreed_to(item, owner, monk
     assert not signed_out["supported"] and "Finish setting up" in signed_out["unsupported_reason"]
 
 
-def test_an_update_that_changes_nothing_the_package_can_do_is_applied(monkeypatch):
+def _found(**fields):
+    """What inspecting a package found."""
+    return {"plugin_id": "kit", "name": "Kit", "version": "1.1.0", "publisher": "Example", "pin": "new", "preview_id": "preview",
+            "tree_digest": "sha256:" + "1" * 64, "skills": [], "servers": [], "tools": [], "permissions": [], **fields}
+
+
+def _reviewed(row, plan):
+    """Start a package plan; it shows what the package declares and waits; continue on exactly that."""
+    paused = plans.start(ctx(), row, {}, digest=plan["digest"], intent=plan["intent"])
+    review = next(s for s in paused["steps"] if s.get("review"))["review"]
+    assert paused["pause"] == "digest_changed"
+    return plans.resume(ctx(review_digest=review["digest"]), paused["plan_id"])
+
+
+def test_a_package_is_added_only_after_the_person_has_seen_what_it_runs_and_may_do(monkeypatch):
     from row_bot.application import client_plugin_lifecycle as lifecycle
     from row_bot.plugins import hermes_catalog
-    from row_bot.plugins.lifecycle_review import NO_CHANGES
-    row = facts.finish(facts.entry("plugin", "kit", "Kit", installed=True, lifecycle="installed", pin="old",
-                                   source_url="https://github.com/example/kit"))
-    monkeypatch.setattr(hermes_catalog, "inspect_package", lambda **_: {
-        "plugin_id": "kit", "pin": "new", "preview_id": "preview", "skills": [], "servers": []})
-    monkeypatch.setattr(lifecycle, "review_plugin_lifecycle", lambda action, plugin_id, **_: {"changes": [NO_CHANGES], "revision": "r"})
+    row = facts.finish(facts.entry("plugin", "kit", "Kit", lifecycle="available"))
+    monkeypatch.setattr(hermes_catalog, "inspect_package", lambda **_: _found(
+        tools=["Sample Tool"], permissions=["shell_processes", "external_send"],
+        servers=[{"key": "notes", "transport": "stdio", "command": "node", "args": ["server.js"], "url": ""}]))
+    monkeypatch.setattr(lifecycle, "review_plugin_lifecycle", lambda action, plugin_id, **_: {"changes": [], "revision": "r"})
     sent = []
     monkeypatch.setattr(lifecycle, "execute_plugin_lifecycle", lambda command, **_: sent.append(command["action"]) or {"status": "completed"})
-    plan = plans.compute(row, {}, intent="update")
-    done = plans.start(ctx(), row, {}, digest=plan["digest"], intent="update")
-    assert (done["state"], done["message"], sent) == ("completed", "Updated.", ["update"])
+    plan = plans.compute(row, {"kind": "plugin", "reference": "https://github.com/example/kit"}, intent="add")
+    paused = plans.start(ctx(), row, {"kind": "plugin", "reference": "https://github.com/example/kit"}, digest=plan["digest"],
+                         intent="add")
+    review = next(s for s in paused["steps"] if s.get("review"))["review"]
+    assert paused["pause"] == "digest_changed" and sent == []  # Nothing is added before the person has seen it.
+    assert review["summary"] == "Kit 1.1.0 by Example" and review["lines"] == [
+        "Runs its own code on this computer for: Sample Tool.", "Runs node server.js on this computer.",
+        "Asks to run programs on this computer, send messages or posts for you."]
+    assert plans.resume(ctx(review_digest="sha256:" + "2" * 64), paused["plan_id"])["pause"] == "digest_changed"
+    assert sent == []  # Agreeing to something else adds nothing.
+    assert plans.resume(ctx(review_digest=review["digest"]), paused["plan_id"])["state"] == "completed" and sent == ["install"]
 
 
-def test_a_package_added_from_hermes_updates_to_the_catalog_pin_not_the_repository_head(monkeypatch):
+def _updating_kit(monkeypatch, origin, entries):
+    """An installed package from ``origin`` with the catalog holding ``entries``; records what is read and sent."""
     from row_bot.application import client_plugin_lifecycle as lifecycle
-    from row_bot.plugins import hermes_catalog
+    from row_bot.plugins import hermes_catalog, state
     from row_bot.plugins.lifecycle_review import NO_CHANGES
     source = "https://github.com/example/kit"
     row = facts.finish(facts.entry("plugin", "kit", "Kit", installed=True, lifecycle="installed", pin="a" * 40,
                                    source_url=source, canonical_identity="plugin:" + source + "@" + "a" * 40))
-    monkeypatch.setattr(hermes_catalog, "read_catalog", lambda **_: {"entries": [
-        {"id": "hermes:kit", "source_identity": source, "pin": "b" * 40}]})
-    inspected = []
-    monkeypatch.setattr(hermes_catalog, "inspect_package", lambda **kwargs: inspected.append(kwargs["reference"]) or {
-        "plugin_id": "kit", "pin": "b" * 40, "preview_id": "preview", "skills": [], "servers": []})
+    monkeypatch.setattr(state, "package_origin", lambda plugin_id: origin)
+    monkeypatch.setattr(state, "get_plugin_package_state", lambda plugin_id: {"digest": "sha256:" + "9" * 64})
+    monkeypatch.setattr(hermes_catalog, "read_catalog", lambda **_: {"entries": [{**e, "source_identity": source} for e in entries]})
+    inspected, sent = [], []
+    monkeypatch.setattr(hermes_catalog, "inspect_package", lambda **kwargs: inspected.append(kwargs["reference"]) or _found())
     monkeypatch.setattr(lifecycle, "review_plugin_lifecycle", lambda action, plugin_id, **_: {"changes": [NO_CHANGES], "revision": "r"})
-    monkeypatch.setattr(lifecycle, "execute_plugin_lifecycle", lambda command, **_: {"status": "completed"})
-    plan = plans.compute(row, {}, intent="update")
-    assert plans.start(ctx(), row, {}, digest=plan["digest"], intent="update")["state"] == "completed"
+    monkeypatch.setattr(lifecycle, "execute_plugin_lifecycle", lambda command, **_: sent.append(command["action"]) or {"status": "completed"})
+    return row, inspected, sent
+
+
+def test_an_update_that_changes_nothing_the_package_can_do_is_applied(monkeypatch):
+    row, inspected, sent = _updating_kit(monkeypatch, "local", [])
+    done = _reviewed(row, plans.compute(row, {}, intent="update"))
+    assert (done["state"], done["message"], sent, inspected) == ("completed", "Updated.", ["update"], ["https://github.com/example/kit"])
+
+
+def test_a_package_added_from_hermes_updates_to_the_catalog_pin_not_the_repository_head(monkeypatch):
+    row, inspected, _ = _updating_kit(monkeypatch, "hermes", [{"id": "hermes:kit", "pin": "b" * 40}])
+    assert _reviewed(row, plans.compute(row, {}, intent="update"))["state"] == "completed"
     assert inspected == ["hermes:kit"]  # The catalog's pinned entry, never the repository's moving head.
+
+
+def test_a_package_that_left_its_catalog_is_never_updated_from_its_repository(monkeypatch):
+    row, inspected, _ = _updating_kit(monkeypatch, "hermes", [])
+    plan = plans.compute(row, {}, intent="update")
+    failed = plans.start(ctx(), row, {}, digest=plan["digest"], intent="update")
+    assert failed["state"] == "failed" and "left its catalog" in failed["message"] and inspected == []
+
+
+def test_a_marketplace_package_updates_against_the_marketplace(monkeypatch):
+    row, inspected, _ = _updating_kit(monkeypatch, "marketplace", [])
+    assert _reviewed(row, plans.compute(row, {}, intent="update"))["state"] == "completed"
+    assert inspected == ["marketplace:kit"]  # Checked against the checksum the marketplace publishes.
 
 
 def test_removing_what_a_package_left_behind_is_agreed_as_deleting_its_data():

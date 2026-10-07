@@ -423,7 +423,24 @@ class Hermes(Source):
 
 class Native(Source):
     id, kind, label = "native", "plugin", "Row-Bot marketplace"
-    message = "Saved Row-Bot marketplace; refresh through its reviewed lifecycle action."
+    message = "Saved Row-Bot marketplace; update catalogs to read it again."
+
+    def row(self, plugin_id: str, name: str, description: str, version: str) -> tuple[dict, dict]:
+        """A marketplace package, added from its GitHub folder and checked against the marketplace's checksum."""
+        from row_bot.plugins import marketplace
+        index = marketplace.get_cached_index()
+        entry = marketplace.get_entry(plugin_id, index) if index else None
+        folder = marketplace.github_folder(entry) if entry else ""
+        return (_available("plugin", plugin_id, name, app=None, source=self.id, description=description, version=version,
+                           source_url=folder, compatibility="not_inspected" if folder else "unsupported",
+                           unsupported="" if folder else "Row-Bot can't check this package against the marketplace."),
+                {"kind": "plugin", "reference": "marketplace:" + plugin_id})
+
+    def lookup(self, plugin_id: str) -> tuple[dict, dict] | None:
+        from row_bot.plugins import marketplace
+        index = marketplace.get_cached_index()
+        entry = marketplace.get_entry(plugin_id, index) if index else None
+        return self.row(entry.id, entry.name, entry.description, entry.version) if entry else None
 
     def search(self, search: Search) -> Found:
         from row_bot.application import plugin_commands
@@ -432,9 +449,7 @@ class Native(Source):
             page = plugin_commands.read_plugin_catalog(query=search.query, source="marketplace", cursor=cursor, limit=50,
                                                        validate=search.validate)
             for row in page["items"]:
-                found.add(_available("plugin", row["plugin_id"], row["name"], app=None, source=self.id, description=row["description"],
-                    version=row["version"], compatibility="not_inspected"),
-                    {"kind": "native", "plugin_id": row["plugin_id"]})
+                found.add(*self.row(row["plugin_id"], row["name"], row["description"], row["version"]))
             cursor = page.get("next_cursor")
             if not cursor:
                 break
@@ -615,7 +630,7 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
         found = SOURCES["hermes"].row(entry) if entry else None
     elif kind == "plugin":
         example = SOURCES["examples"].lookup(reference)
-        found = SOURCES["examples"].row(*example) if example else None
+        found = SOURCES["examples"].row(*example) if example else SOURCES["native"].lookup(reference)
     return (facts.finish(found[0]), found[1]) if found else None
 
 

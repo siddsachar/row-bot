@@ -182,7 +182,15 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
     from row_bot.plugins.installer import _safe_extract_zip
     from row_bot.plugins.devtools import compute_plugin_checksum
 
-    pin = subdir = archive_digest = ""
+    pin = subdir = archive_digest = expected = ""
+    kind = "hermes" if reference.startswith("hermes:") else "marketplace" if reference.startswith("marketplace:") else ""
+    if kind == "marketplace":
+        from row_bot.plugins import marketplace
+        index = marketplace.get_cached_index()
+        entry = marketplace.get_entry(reference.removeprefix("marketplace:"), index) if index else None
+        reference, expected = (marketplace.github_folder(entry), entry.checksum.strip()) if entry else ("", "")
+        if not reference or not expected:
+            raise ValueError("This marketplace package can't be added here. Update catalogs and try again.")
     if reference.startswith("hermes:"):
         catalog = read_catalog()
         entry = next((e for e in catalog["entries"] if e["id"] == reference), None)
@@ -247,6 +255,8 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
         check_package_tree(root)
         manifest = parse_manifest(root, source_identity=source_identity)
         digest = compute_plugin_checksum(root)
+        if expected and digest != expected:
+            raise ValueError("The Row-Bot marketplace lists a different version of this package. Update catalogs and try again.")
         summary = {"preview_id": preview_id, "plugin_id": manifest.id, "name": manifest.name, "description": manifest.description[:1000],
             "version": manifest.version, "license": manifest.license, "publisher": manifest.author.name,
             "format": manifest.package_format, "compatibility": "partial" if manifest.diagnostics else "supported",
@@ -254,7 +264,8 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
             "tree_digest": digest, "archive_digest": archive_digest,
             "skills": [{"name": s.get("display_name") or s["name"], "description": str(s.get("description", ""))[:1024]} for s in manifest.provides.skills],
             "servers": [{"key": s["id"], "transport": s["transport"], "command": s.get("command", ""), "args": s.get("args", []), "url": s.get("url", "")} for s in manifest.provides.mcp_servers],
-            "permissions": manifest.permissions}
+            "tools": [str(t.get("name") or t["id"])[:128] for t in [*manifest.provides.native_tools, *manifest.provides.channels]][:64],
+            "permissions": manifest.permissions, **({"source_kind": kind} if kind else {})}
         _PREVIEWS.put((owner_id, preview_id), PackagePreview(preview_id, manifest.id, owner_id, source_identity, pin, digest,
             archive_digest, root, summary, reference if reference.startswith("hermes:") else ""))
         return summary

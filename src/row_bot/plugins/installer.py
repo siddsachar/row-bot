@@ -380,10 +380,15 @@ def install_plugin(
             return InstallResult(False, plugin_id, "Plugin is already installed; use Update." if dest.exists() else "Plugin is not installed; use Add.", code="plugin_already_installed" if dest.exists() else "plugin_not_installed")
         if not source_dir and not (expected_checksum or "").strip():
             return InstallResult(False, plugin_id, "The marketplace lists no checksum; nothing was downloaded.", code="plugin_checksum_unavailable")
+        install_ref = source_ref or (str(source_dir.resolve()) if source_dir else archive_url or DEFAULT_REPO_URL)
+        retained = state.retained_source(plugin_id)
+        if not _updating and retained not in (None, install_ref) and not install_ref.startswith(retained + "#"):
+            # Another package left settings and keys under this id: they are never handed to a different one.
+            return InstallResult(False, plugin_id, "Saved data from a different package with this name is still kept. "
+                                 "Delete it from that package's page first.", code="plugin_data_retained")
         PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
         staging_root = contained_path(DATA_DIR, "plugin_staging")
         staging_root.mkdir(exist_ok=True)
-        install_ref = source_ref or (str(source_dir.resolve()) if source_dir else archive_url or DEFAULT_REPO_URL)
         with tempfile.TemporaryDirectory(prefix="publish-", dir=staging_root) as tmp:
             staged = pathlib.Path(tmp) / "package"
             manifest = _prepare_package(plugin_id, staged, source_dir=source_dir, source_ref=install_ref,

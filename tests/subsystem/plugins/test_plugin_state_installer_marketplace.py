@@ -483,3 +483,69 @@ def test_marketplace_fetch_falls_back_to_stale_disk_cache_on_refresh_failure(
     index = marketplace.fetch_index(force_refresh=True)
 
     assert [entry.id for entry in index.plugins] == ["stale-plugin"]
+
+
+def test_a_different_package_never_takes_over_what_a_removed_one_kept(plugin_modules: dict[str, Any], tmp_path: Path) -> None:
+    installer, state = plugin_modules["installer"], plugin_modules["state"]
+    first = write_plugin(tmp_path / "acme", "kit", manifest=manifest_payload("kit"))
+    assert installer.install_plugin("kit", source_dir=first, source_ref="https://github.com/acme/kit").success
+    state.set_plugin_config("kit", "workspace", "acme-workspace")
+    state.set_plugin_secret("kit", "api_key", "acme-key")
+    assert installer.uninstall_plugin("kit").success  # Its settings and key are kept.
+    other = write_plugin(tmp_path / "other", "kit", manifest=manifest_payload("kit"))
+    refused = installer.install_plugin("kit", source_dir=other, source_ref="https://github.com/mallory/kit")
+    assert (refused.success, refused.code) == (False, "plugin_data_retained") and not installer.is_installed("kit")
+    assert state.get_plugin_secret("kit", "api_key") == "acme-key"  # Kept for its own package, never handed over.
+    assert installer.install_plugin("kit", source_dir=other, source_ref="https://github.com/acme/kit").success
+    assert state.get_plugin_config("kit", "workspace") == "acme-workspace"  # The same package takes its own back.
+
+
+def _market(monkeypatch, marketplace: Any, checksum: str) -> None:
+    entry = marketplace.MarketplaceEntry(id="kit", name="Kit", version="1.0.0", description="", path="plugins/kit",
+                                         checksum=checksum, index_source="https://github.com/example/market")
+    monkeypatch.setattr(marketplace, "get_cached_index", lambda **_: marketplace.MarketplaceIndex(plugins=[entry]))
+
+
+def test_a_marketplace_package_is_added_only_as_the_marketplace_published_it(
+    plugin_modules: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+    from row_bot.plugins import hermes_catalog
+    folder = write_plugin(tmp_path / "pkg", "kit", manifest=manifest_payload("kit"))
+    published = plugin_modules["devtools"].compute_plugin_checksum(folder)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipped:
+        for path in folder.rglob("*"):
+            if path.is_file():
+                zipped.writestr("market-pin/plugins/kit/" + path.relative_to(folder).as_posix(), path.read_bytes())
+    fetched = []
+
+    def download(url: str, **_: Any) -> bytes:
+        fetched.append(url)
+        if url == "https://api.github.com/repos/example/market/commits/main":
+            return json.dumps({"sha": "c" * 40}).encode()
+        assert url == "https://codeload.github.com/example/market/zip/" + "c" * 40
+        return archive.getvalue()
+    monkeypatch.setattr(hermes_catalog, "_public_bytes", download)
+    _market(monkeypatch, plugin_modules["marketplace"], published)
+    found = hermes_catalog.inspect_package(owner_id="fixture", reference="marketplace:kit")
+    assert (found["plugin_id"], found["tree_digest"], found["source_kind"], found["pin"]) == ("kit", published, "marketplace", "c" * 40)
+    _market(monkeypatch, plugin_modules["marketplace"], "sha256:" + "0" * 64)  # The marketplace lists other bytes.
+    with pytest.raises(ValueError, match="lists a different version"):
+        hermes_catalog.inspect_package(owner_id="fixture", reference="marketplace:kit")
+
+
+def test_a_package_5_0_0_added_from_the_marketplace_can_be_checked_for_updates(
+    plugin_modules: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from row_bot.application.plugin_commands import read_integration_packages
+    installer, state = plugin_modules["installer"], plugin_modules["state"]
+    folder = write_plugin(tmp_path / "pkg", "kit", manifest=manifest_payload("kit"))
+    assert installer.install_plugin("kit", source_dir=folder, source="marketplace").success
+    saved = json.loads(state._STATE_PATH.read_text(encoding="utf-8"))
+    saved["kit"].pop("package")  # 5.0.0 kept only {"installed": {"source": "marketplace", "source_ref": <its repository>}}.
+    state._STATE_PATH.write_text(json.dumps(saved), encoding="utf-8")
+    _market(monkeypatch, plugin_modules["marketplace"], "sha256:" + "0" * 64)
+    row = next(row for row in read_integration_packages(validate=lambda: None) if row["plugin_id"] == "kit")
+    assert row["source_url"] == "https://github.com/example/market/tree/main/plugins/kit"
+    assert state.package_origin("kit") == "marketplace"

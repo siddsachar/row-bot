@@ -137,6 +137,30 @@ def set_plugin_package_state(plugin_id: str, value: dict[str, Any]) -> None:
 
 
 @_locked_state
+def package_origin(plugin_id: str) -> str:
+    """Where an installed package came from: marketplace, hermes, portable or local ('' when unknown)."""
+    record = _environment_state_document().get(plugin_id, {})
+    record = record if isinstance(record, dict) else {}
+    package = record.get("package") if isinstance(record.get("package"), dict) else {}
+    installed = record.get("installed") if isinstance(record.get("installed"), dict) else {}
+    return str(package.get("source") or installed.get("source") or "")
+
+
+@_locked_state
+def retained_source(plugin_id: str) -> str | None:
+    """Where the settings, keys or approvals a removed package left behind came from, or None when it left
+    none. Only a package from that same source may take them over."""
+    _ensure_loaded()
+    record = _environment_state_document().get(plugin_id, {})
+    record = record if isinstance(record, dict) else {}
+    if not (record.get("config") or record.get("mcp") or _metadata_secret_keys(plugin_id) or _secrets.get(plugin_id)):
+        return None
+    package = record.get("package") if isinstance(record.get("package"), dict) else {}
+    installed = record.get("installed") if isinstance(record.get("installed"), dict) else {}
+    return str(package.get("source_identity") or installed.get("source_ref") or "")
+
+
+@_locked_state
 def publish_plugin_package(plugin_id: str, package: dict[str, Any], *, updating: bool) -> None:
     """Commit a validated package without resetting update policy or secrets."""
     global _state
