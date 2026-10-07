@@ -134,6 +134,12 @@ describe('tool activity', () => {
     expect(imperative('Scrolling')).toBe('Scroll');
     expect(approvalQuestion('send_gmail_message')).toBe('Send an email?');
     expect(approvalQuestion('fixture_action')).toBe('Allow Fixture action?');
+    expect(approvalQuestion('developer_create_pull_request')).toBe(
+      'Open a pull request?',
+    );
+    expect(approvalQuestion('developer_import_sandbox_changes')).toBe(
+      'Apply the sandbox changes?',
+    );
     expect(approvalAction('workspace_file_delete')).toBe('Delete a file');
     expect(approvalAction('fixture_action')).toBe('Fixture action');
   });
