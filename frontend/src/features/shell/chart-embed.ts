@@ -83,6 +83,24 @@ export function chartLayout(
   };
 }
 
+/**
+ * Traces with the series name inside the themed hover label. Plotly otherwise
+ * draws the name in a second box of its own (a pale series colour on light
+ * grey in the dark theme, B294). Traces with their own template keep it.
+ */
+export function chartTraces(data: unknown[]): unknown[] {
+  return data.map((trace) => {
+    if (!trace || typeof trace !== 'object') return trace;
+    const value = trace as Record<string, unknown>;
+    if (value.hovertemplate || value.type === 'pie' || !value.name)
+      return trace;
+    return {
+      ...value,
+      hovertemplate: '<b>%{fullData.name}</b><br>%{x}: %{y}<extra></extra>',
+    };
+  });
+}
+
 function cell(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'number')

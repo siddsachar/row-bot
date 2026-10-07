@@ -21,7 +21,7 @@ import { useOverlay } from '../../ui/overlays';
 import { IconButton } from '../../ui/primitives';
 import { useResolvedTheme } from '../../ui/theme';
 import SafeMarkdown from './chat-parity-markdown';
-import { chartLayout, figureTable } from './chart-embed';
+import { chartLayout, chartTraces, figureTable } from './chart-embed';
 import { CodeBlock } from './CodeBlock';
 import {
   fileKind,
@@ -259,7 +259,7 @@ function Plot({
         };
         await window.Plotly.newPlot(
           element,
-          value.data,
+          chartTraces(value.data),
           chartLayout(value.layout, getComputedStyle(document.documentElement)),
           { responsive: true, displaylogo: false, displayModeBar: false },
         );
