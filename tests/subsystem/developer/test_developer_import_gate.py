@@ -26,6 +26,7 @@ def test_sandbox_import_requires_approval_before_host_patch(tmp_path, monkeypatc
     monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "approve")
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending if change_id == pending.id else None)
+    monkeypatch.setattr(developer_tool, "list_pending_changes", lambda **_kwargs: [pending])
     monkeypatch.setattr(developer_tool, "mark_pending_change_imported", lambda change_id: marked.append(change_id))
     monkeypatch.setattr(developer_tool, "interrupt", lambda _payload: True)
     monkeypatch.setattr(developer_tool.developer_edits, "apply_patch_to_workspace", fake_apply_patch_to_workspace)
@@ -55,6 +56,7 @@ def test_sandbox_import_cancel_does_not_apply_or_mark_pending(tmp_path, monkeypa
     monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "approve")
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending if change_id == pending.id else None)
+    monkeypatch.setattr(developer_tool, "list_pending_changes", lambda **_kwargs: [pending])
     monkeypatch.setattr(developer_tool, "mark_pending_change_imported", lambda change_id: marked.append(change_id))
     monkeypatch.setattr(developer_tool, "interrupt", lambda _payload: False)
     monkeypatch.setattr(developer_tool.developer_edits, "apply_patch_to_workspace", fake_apply_patch_to_workspace)
@@ -92,6 +94,7 @@ def test_a_sandbox_change_that_no_longer_fits_is_explained_in_words(tmp_path, mo
     monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "allow_all")
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending)
+    monkeypatch.setattr(developer_tool, "list_pending_changes", lambda **_kwargs: [pending])
     monkeypatch.setattr(developer_tool.developer_edits, "apply_patch_to_workspace", conflict)
 
     result = developer_tool._import_sandbox_changes(pending.id)

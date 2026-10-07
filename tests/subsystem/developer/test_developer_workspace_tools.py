@@ -929,16 +929,15 @@ def test_import_sandbox_changes_applies_patch_to_host_workspace(tmp_path, monkey
     assert sandbox_runtime.get_pending_change(outcome.pending_change_id).imported is True
 
 
-def test_importing_the_newest_sandbox_change_brings_in_the_earlier_ones_first(tmp_path, monkeypatch,
-                                                                               reload_for_data_dir):
-    """B303: sandbox changes build on each other; importing the latest no longer fails with a git error."""
+def _two_sandbox_changes(tmp_path, monkeypatch, reload_for_data_dir, approval_mode):
+    """A Docker workspace whose sandbox made two changes to README.md, the second building on the first."""
     storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("before\n", encoding="utf-8")
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, approval_mode)
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
     monkeypatch.setattr(sandbox_runtime, "detect_container_runtime",
@@ -965,15 +964,41 @@ def test_importing_the_newest_sandbox_change_brings_in_the_earlier_ones_first(tm
     first = sandbox_runtime.run_docker_sandbox_command(workspace, "python step1.py", thread_id=thread_id)
     second = sandbox_runtime.run_docker_sandbox_command(workspace, "python step2.py", thread_id=thread_id)
     tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
+    return repo, sandbox_runtime, developer_tool, first, second, lambda: tool_context.reset_context(tokens)
+
+
+def test_importing_the_newest_sandbox_change_brings_in_the_earlier_ones_first(tmp_path, monkeypatch,
+                                                                               reload_for_data_dir):
+    """B303: sandbox changes build on each other; importing the latest no longer fails with a git error."""
+    repo, sandbox_runtime, developer_tool, first, second, reset = _two_sandbox_changes(
+        tmp_path, monkeypatch, reload_for_data_dir, "auto_edit")
     try:
         result = developer_tool._import_sandbox_changes(second.pending_change_id, "Import the latest change")
     finally:
-        tool_context.reset_context(tokens)
+        reset()
 
     assert (repo / "README.md").read_text(encoding="utf-8") == "after\nand more\n"
     assert result.index(first.pending_change_id) < result.index(second.pending_change_id)
     assert all(sandbox_runtime.get_pending_change(change).imported
                for change in (first.pending_change_id, second.pending_change_id))
+
+
+def test_one_approval_applies_every_pending_sandbox_change(tmp_path, monkeypatch, reload_for_data_dir):
+    """F21: importing the oldest change asks once and applies all of them; later calls ask nothing."""
+    repo, sandbox_runtime, developer_tool, first, second, reset = _two_sandbox_changes(
+        tmp_path, monkeypatch, reload_for_data_dir, "approve")
+    approvals = []
+    monkeypatch.setattr(developer_tool, "interrupt", lambda request: approvals.append(request) or True)
+    try:
+        developer_tool._import_sandbox_changes(first.pending_change_id)
+        again = developer_tool._import_sandbox_changes(second.pending_change_id)
+    finally:
+        reset()
+
+    assert [request["label"] for request in approvals] == ["Apply these changes"]
+    assert approvals[0]["args"]["changes"] == 2
+    assert (repo / "README.md").read_text(encoding="utf-8") == "after\nand more\n"
+    assert again == f"Sandbox change {second.pending_change_id} was already imported."
 
 
 def test_an_agent_branch_switch_makes_the_workspace_card_read_the_folder_again(tmp_path, monkeypatch,

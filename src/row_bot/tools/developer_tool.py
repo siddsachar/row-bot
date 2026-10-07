@@ -443,34 +443,40 @@ def _fast_forward_merge(branch_name: str) -> str:
 
 
 class _ImportSandboxInput(BaseModel):
-    pending_change_id: str = Field(description="Sandbox pending change id to import into the host workspace.")
+    pending_change_id: str = Field(
+        default="",
+        description="Any pending sandbox change id from this conversation, or empty. Every pending change is imported "
+        "together, oldest first, under one approval.",
+    )
     summary: str = Field(default="", description="Short summary for the imported sandbox patch.")
 
 
-def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
+def _import_sandbox_changes(pending_change_id: str = "", summary: str = "") -> str:
     workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
-    pending = get_pending_change(pending_change_id)
-    if pending is None or pending.workspace_id != workspace.id:
+    pending = get_pending_change(pending_change_id) if pending_change_id else None
+    if pending_change_id and (pending is None or pending.workspace_id != workspace.id):
         raise ValueError(f"Sandbox pending change not found: {pending_change_id}")
-    if pending.imported:
+    if pending is not None and pending.imported:
         return f"Sandbox change {pending_change_id} was already imported."
-    # Each sandbox change builds on the ones before it, so earlier unimported changes go in first, oldest
-    # first (B303).
-    batch = sorted((change for change in list_pending_changes(workspace_id=workspace.id, thread_id=pending.thread_id)
-                    if change.created_at < pending.created_at), key=lambda change: change.created_at) + [pending]
+    # Each sandbox change builds on the ones before it, so they go in oldest first (B303), and one approval
+    # covers all of this conversation's pending changes rather than a card each (F21).
+    batch = sorted(list_pending_changes(workspace_id=workspace.id, thread_id=pending.thread_id if pending else thread_id),
+                   key=lambda change: change.created_at)
+    if not batch:
+        return "There are no sandbox changes waiting to import."
     files = list(dict.fromkeys(path for change in batch for path in change.files))
     decision = decide_action(_active_approval_mode(), "edit")
     if decision.decision == "block":
         return decision.reason
     confirmed = False
     if decision.requires_approval:
-        earlier = f" ({len(batch) - 1} earlier sandbox change(s) first)" if len(batch) > 1 else ""
+        sets = f" ({len(batch)} sandbox changes)" if len(batch) > 1 else ""
         approval = interrupt({
             "tool": "developer_import_sandbox_changes",
-            "label": "Import sandbox changes",
-            "description": summary or f"Import {len(files)} file change(s) from Docker Sandbox{earlier}",
-            "args": {"workspace": workspace.name, "pending_change_id": pending_change_id, "files": files},
+            "label": "Apply these changes",
+            "description": summary or f"Apply {len(files)} changed file(s) from Docker Sandbox to {workspace.name}{sets}",
+            "args": {"workspace": workspace.name, "files": files, "changes": len(batch)},
         })
         if not approval:
             return "Sandbox import cancelled by user."
@@ -483,7 +489,7 @@ def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
                 thread_id=thread_id,
                 patch=change.patch,
                 approval_mode=_active_approval_mode(),
-                summary=(summary if change is pending else "") or f"Import sandbox changes from: {change.command[:80]}",
+                summary=(summary if change is batch[-1] else "") or f"Import sandbox changes from: {change.command[:80]}",
                 confirmed=confirmed,
             )
         except ValueError:
@@ -789,7 +795,7 @@ class DeveloperTool(BaseTool):
             StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread. Keep it current: mark an item in_progress when you start it and completed when it is done, including work a helper agent finished, before you end your turn.", args_schema=_TodoInput),
             StructuredTool.from_function(func=changes(_run_detected), name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),
             StructuredTool.from_function(func=changes(_run_command), name="developer_run_command", description="Run a shell command in the active Developer workspace after policy checks and record file side effects.", args_schema=_RunCommandInput),
-            StructuredTool.from_function(func=changes(_import_sandbox_changes), name="developer_import_sandbox_changes", description="Import a Docker Sandbox pending patch into the real workspace after approval.", args_schema=_ImportSandboxInput),
+            StructuredTool.from_function(func=changes(_import_sandbox_changes), name="developer_import_sandbox_changes", description="Import this conversation's pending Docker Sandbox changes into the real workspace, all together and oldest first, after one approval. Call it once when the work is ready, not once per change.", args_schema=_ImportSandboxInput),
             StructuredTool.from_function(func=_preview_patch, name="developer_preview_patch", description="Validate and preview a unified diff patch without writing files.", args_schema=_PatchInput),
             StructuredTool.from_function(func=changes(_apply_patch), name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),
             StructuredTool.from_function(func=changes(_write_file), name="developer_write_file", description="Create or replace a workspace-relative text file and record an agent-owned change set.", args_schema=_WriteFileInput),
