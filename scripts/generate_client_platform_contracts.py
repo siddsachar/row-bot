@@ -148,6 +148,7 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange", "bytes", "bytes"),
     ("get", "/conversations/{conversation_id}/voice/talk/{lease_id}/run", None, "VoiceRunView"),
     ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}/run", None, "VoiceRunView"),
+    ("post", "/settings/voice/speech-test", None, "bytes"),
     ("get", "/settings/providers", None, "ProviderStatusSnapshot"),
     ("get", "/settings/providers/live", None, "ProviderLiveSnapshot"),
     ("post", "/settings/providers/live/{provider_id}/refresh", None, "ProviderCatalogRefresh"),
@@ -437,6 +438,8 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/change-sets", None, "WorkspaceChangeSetPage"),
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/change-sets/{change_set_id}", None, "WorkspaceChangeSetFiles"),
 )
+# Byte responses that carry synthesized speech for the browser to play.
+SPEECH_OUTPUTS = ("/voice/talk/{lease_id}/output", "/settings/voice/speech-test")
 
 
 def schema_bundle() -> dict:
@@ -1530,7 +1533,17 @@ export async function talkOutput(base: string, proof: SessionProof, handle: Dict
   const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/output`, {
     method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id || response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
+  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id) throw new Error('protocol_incompatible');
+  return speechAudio(response);
+}
+export async function speechTest(base: string, proof: SessionProof, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/settings/voice/speech-test`, {
+    method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:proofHeaders(proof)});
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  return speechAudio(response);
+}
+async function speechAudio(response: Response): Promise<Blob> {
+  if (response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
   const reader = response.body?.getReader();
   if (!reader) throw new Error('voice_output_unavailable');
   const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -1650,10 +1663,10 @@ def outputs() -> dict[Path, str]:
         response_schema = ({"type": "string", "format": "binary", "maxLength":
                             67108864 if suffix.endswith("/exports/{export_id}/download") else
                             65536 if suffix.endswith("/webhook-configuration") else
-                            8388608 if suffix.endswith("/voice/talk/{lease_id}/output") else
+                            8388608 if suffix.endswith(SPEECH_OUTPUTS) else
                             1048576 if suffix.endswith("/voice/realtime/{lease_id}/exchange") else 26214400} if response == "bytes"
                            else {"$ref": f"./{response}.schema.json"})
-        mime = "text/event-stream" if suffix == "/events" else "application/sdp" if suffix.endswith("/voice/realtime/{lease_id}/exchange") else "audio/wav" if suffix.endswith("/voice/talk/{lease_id}/output") else "application/octet-stream" if response == "bytes" else "application/json"
+        mime = "text/event-stream" if suffix == "/events" else "application/sdp" if suffix.endswith("/voice/realtime/{lease_id}/exchange") else "audio/wav" if suffix.endswith(SPEECH_OUTPUTS) else "application/octet-stream" if response == "bytes" else "application/json"
         operation = {"parameters": parameters, "responses": {
             "200": {"description": "Authenticated result", "content": {mime: {"schema": response_schema}}},
             "default": {"description": "Safe problem", "content": {"application/problem+json": {

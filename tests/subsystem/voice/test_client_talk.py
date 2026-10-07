@@ -6,26 +6,29 @@ from uuid import uuid4
 
 import pytest
 
-from row_bot.voice.client_talk import ClientTalkTransport, TalkSpeechSource
+from row_bot.voice.client_talk import SPEECH_TEST_PHRASE, ClientTalkTransport, TalkSpeechSource
 from row_bot.voice.client_transport import ClientDictationTransport, DictationError, DictationOwner
 from row_bot.voice.coordinator import VoiceSessionCoordinator
+from row_bot.voice.provider_base import SynthesizedSpeech
+from tests.helpers.voice_fakes import fake_browser_speech
 
 
 @pytest.fixture
 def runtime():
     clock = [0.0]
-    calls = []
+    calls, modes = [], []
     voice = SimpleNamespace(is_running=False, whisper_model_available=lambda: True)
 
-    def transcribe(*args, validate):
+    def transcribe(*args, validate, mode):
         validate()
         calls.append("stt")
+        modes.append(mode)
         return "Hello from Talk"
 
     def synthesize(key, text, *, validate):
         validate()
         calls.append(("speech", text))
-        return b"RIFF-synthetic"
+        return SynthesizedSpeech(b"RIFF-synthetic", "audio/wav")
 
     def submit(owner, text, utterance, validate):
         validate()
@@ -33,14 +36,14 @@ def runtime():
         return "run-" + utterance
 
     coordinator = VoiceSessionCoordinator(voice)
-    service = SimpleNamespace(voice_service=voice, transcribe=transcribe, synthesize=synthesize)
+    service = fake_browser_speech(voice, transcribe=transcribe, synthesize=synthesize)
     dictation = ClientDictationTransport(coordinator=coordinator, browser_service=lambda: service,
                                          clock=lambda: clock[0])
     talk = ClientTalkTransport(dictation=dictation, submit=submit,
                                resolve_output=lambda *args: TalkSpeechSource("**Saved answer.**"))
     owner = DictationOwner(str(uuid4()), "synthetic-owner", "conversation-A", "epoch")
     return SimpleNamespace(talk=talk, dictation=dictation, coordinator=coordinator,
-                           owner=owner, service=service, calls=calls, clock=clock)
+                           owner=owner, service=service, calls=calls, clock=clock, modes=modes)
 
 
 def start(r):
@@ -250,7 +253,7 @@ def test_stop_during_synthesis_withholds_bytes_and_waits_for_worker(runtime):
         validate()
         entered.set()
         assert release.wait(3)
-        return b"private synthetic speech"
+        return SynthesizedSpeech(b"private synthetic speech", "audio/wav")
 
     r.service.synthesize = synthesize
     snapshot = start(r)
@@ -339,9 +342,40 @@ def test_synthesis_owner_validates_before_model_and_after_worker(runtime):
             raise DictationError("revoked")
 
     service = BrowserLocalVoiceService(voice_service=object(), tts_service=SimpleNamespace(
-        is_installed=lambda: True, synthesize_wav_bytes=speak))
+        is_installed=lambda: True, reload_settings=lambda: None, synthesize_wav_bytes=speak))
     with pytest.raises(DictationError, match="revoked"):
         service.synthesize("isolated", "Saved response", validate=validate)
     with pytest.raises(DictationError, match="revoked"):
         service.synthesize("isolated", "Never spoken", validate=validate)
     assert effects == ["Saved response"]
+
+
+def test_talk_transcribes_with_the_talk_selection(runtime):
+    r = runtime
+    finish(r, receive(r, start(r)))
+    assert r.modes == ["talk"]
+
+
+def test_spoken_reply_keeps_the_output_providers_content_type(runtime):
+    r = runtime
+    r.service.synthesize = lambda *args, validate: SynthesizedSpeech(b"OggS-synthetic", "audio/ogg")
+    snapshot = start(r)
+    result = finish(r, receive(r, snapshot))
+    output = r.talk.output(r.owner, snapshot.handle, run_id=result.run_id, output_id="message",
+                           validate=lambda: None)
+    assert output.audio == b"OggS-synthetic" and output.content_type == "audio/ogg"
+
+
+def test_speech_test_speaks_only_the_fixed_phrase_without_a_session(runtime):
+    r = runtime
+    speech = r.talk.speech_test(r.owner.client_session_id, validate=lambda: None)
+    assert speech == SynthesizedSpeech(b"RIFF-synthetic", "audio/wav")
+    assert r.calls == [("speech", SPEECH_TEST_PHRASE)]
+    assert r.coordinator._dictation_lease is None and not r.coordinator.is_running
+
+    def revoked():
+        raise DictationError("authority_revoked")
+
+    with pytest.raises(DictationError, match="authority_revoked"):
+        r.talk.speech_test(r.owner.client_session_id, validate=revoked)
+    assert r.calls == [("speech", SPEECH_TEST_PHRASE)]

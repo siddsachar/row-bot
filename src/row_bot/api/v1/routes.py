@@ -910,6 +910,8 @@ _STATUS.update(
         "voice_service_busy": 503,
         "voice_session_expired": 410,
         "whisper_model_missing": 409,
+        "sensevoice_unavailable": 409,
+        "voice_provider_unavailable": 409,
         "ffmpeg_unavailable": 503,
         "unsupported_audio_type": 415,
         "empty_audio": 422,
@@ -2264,6 +2266,18 @@ def create_router(
                 "X-Voice-Output": result.output_id,
             },
         )
+
+    @router.post("/settings/voice/speech-test")
+    async def voice_speech_test(request: Request) -> Response:
+        """Speak the fixed test phrase to this browser, never the host speaker."""
+        current = await session(request, lane="mutation")
+        talk = getattr(service, "talk", None)
+        if talk is None:
+            raise ProtocolError("capability_unavailable", 403)
+        validate = dispatch_validation(request, current)
+        speech = await call(talk.speech_test, current.id, validate=validate)
+        await call(validate)
+        return Response(speech.audio, media_type=speech.content_type, headers=HEADERS)
 
     @router.post("/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange")
     async def realtime_exchange(

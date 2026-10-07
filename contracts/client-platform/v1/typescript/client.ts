@@ -1985,7 +1985,17 @@ export async function talkOutput(base: string, proof: SessionProof, handle: Dict
   const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/output`, {
     method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id || response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
+  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id) throw new Error('protocol_incompatible');
+  return speechAudio(response);
+}
+export async function speechTest(base: string, proof: SessionProof, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/settings/voice/speech-test`, {
+    method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:proofHeaders(proof)});
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  return speechAudio(response);
+}
+async function speechAudio(response: Response): Promise<Blob> {
+  if (response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
   const reader = response.body?.getReader();
   if (!reader) throw new Error('voice_output_unavailable');
   const chunks: Uint8Array<ArrayBuffer>[] = [];

@@ -7,7 +7,9 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from row_bot.voice.coordinator import VoiceSessionCoordinator
+from row_bot.voice.provider_base import SynthesizedSpeech
 from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier
+from tests.helpers.voice_fakes import fake_browser_speech
 from tests.subsystem.client_protocol.test_protocol_application import _client, _command, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 from tests.subsystem.voice.test_dictation_lifecycle import Voice
@@ -20,15 +22,15 @@ def api(service):
     voice = Voice()
     coordinator = VoiceSessionCoordinator(voice)
     effects = []
-    def transcribe(key, audio, mime, *, validate):
+    def transcribe(key, audio, mime, *, validate, mode):
         validate()
         effects.append('transcribe')
         return 'Synthetic request from microphone'
     def synthesize(key, text, *, validate):
         validate()
         effects.append(('synthesize', text))
-        return b'RIFF-synthetic-WAVE'
-    browser = SimpleNamespace(voice_service=voice, transcribe=transcribe, synthesize=synthesize)
+        return SynthesizedSpeech(b'RIFF-synthetic-WAVE', 'audio/wav')
+    browser = fake_browser_speech(voice, transcribe=transcribe, synthesize=synthesize)
     def credentials(**kwargs):
         effects.append('ephemeral-credential')
         return {'value': 'synthetic-ephemeral-only', 'expires_at': 60.0}
@@ -249,3 +251,29 @@ def test_sdp_exchange_rejects_another_client_before_provider_and_retains_owner_l
     response = api.client.post(url(api, capture, 'realtime', 'exchange'), headers=headers, content=b'v=0\r\n')
     assert response.status_code == 403 and api.effects == ['ephemeral-credential']
     assert not api.service.dictation.coordinator._dictation_lease.revoked
+
+
+SPEECH_TEST = '/api/v1/settings/voice/speech-test'
+
+
+def test_speech_test_plays_only_the_fixed_phrase_to_the_requesting_browser(api):
+    from row_bot.voice.client_talk import SPEECH_TEST_PHRASE
+
+    assert api.client.post(SPEECH_TEST).status_code in {401, 403}
+    assert api.client.post(SPEECH_TEST, headers={'Origin': 'http://localhost'}).status_code in {401, 403}
+    assert not api.effects
+    response = api.client.post(SPEECH_TEST, headers=api.headers)
+    assert response.status_code == 200, response.text
+    assert response.content == b'RIFF-synthetic-WAVE'
+    assert response.headers['Content-Type'] == 'audio/wav'
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert api.effects == [('synthesize', SPEECH_TEST_PHRASE)]
+    # It needs no voice session and never touches host audio.
+    assert api.service.dictation.coordinator._dictation_lease is None and not api.voice.effects
+
+
+def test_speech_test_reports_missing_voice_instead_of_playing_on_the_host(service):  # noqa: F811
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        response = client.post(SPEECH_TEST, headers=headers)
+    assert response.status_code == 403 and response.json()['code'] == 'capability_unavailable'

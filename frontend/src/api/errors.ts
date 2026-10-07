@@ -2405,6 +2405,11 @@ const CATALOG: Record<string, Entry> = {
     'review',
     PROVIDERS,
   ],
+  sensevoice_unavailable: [
+    "SenseVoice isn't ready on this computer. Install it in Voice settings, or choose Whisper.",
+    'review',
+    VOICE,
+  ],
   transcript_too_large: [
     'The transcript was too long for Dictate. Try a shorter recording.',
     'review',
@@ -2444,6 +2449,11 @@ const CATALOG: Record<string, Entry> = {
     'Voice settings changed. Start again.',
     'retry',
     RETRY,
+  ],
+  voice_provider_unavailable: [
+    "The selected voice provider isn't available. Choose another in Voice settings.",
+    'review',
+    VOICE,
   ],
   voice_run_changed: [
     'The conversation moved on. Start Talk again.',

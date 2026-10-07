@@ -11,6 +11,25 @@ class VoiceProviderStatus:
     ready: bool
     reason: str = ""
     local: bool = False
+    # The public error code a voice session reports when it needs this
+    # provider and it is not ready. Never a message: only codes leave the app.
+    unavailable_code: str = "voice_provider_unavailable"
+
+
+@dataclass(frozen=True)
+class SynthesizedSpeech:
+    """Encoded audio for the requesting browser to play."""
+
+    audio: bytes
+    content_type: str
+
+
+class VoiceProviderError(RuntimeError):
+    """A provider failure carrying only a public error code, never audio or text."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class SpeechToTextProvider(Protocol):
@@ -21,6 +40,7 @@ class SpeechToTextProvider(Protocol):
         ...
 
     def transcribe_bytes(self, audio_bytes: bytes) -> str:
+        """Transcribe 16 kHz mono signed 16-bit little-endian PCM."""
         ...
 
 
@@ -31,7 +51,8 @@ class SpeechOutputProvider(Protocol):
     def status(self) -> VoiceProviderStatus:
         ...
 
-    def speak_now(self, text: str) -> None:
+    def synthesize(self, text: str) -> SynthesizedSpeech:
+        """Return audio for the browser to play; never use host audio devices."""
         ...
 
 

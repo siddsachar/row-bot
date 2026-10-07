@@ -1397,6 +1397,9 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  speechTest(signal?: AbortSignal) {
+    return wire.speechTest(this.base, this.session(), signal);
+  }
   realtimeEvent(
     handle: wire.DictationHandle,
     event: wire.RealtimeEvent,

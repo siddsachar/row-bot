@@ -138,7 +138,6 @@ _BOOL_FIELDS = {
 _ACTION_FIELDS = {
     ("voice", "tts.install"),
     ("voice", "whisper.install"),
-    ("voice", "tts.test"),
     ("voice", "sensevoice.install"),
     ("system", "browser.install"),
     ("system", "computer_use.install"),
@@ -415,8 +414,6 @@ def review_settings_update(
         summary = "Download and install SenseVoice Small locally"
     elif (page, field) == ("voice", "whisper.install"):
         summary = "Download the selected Whisper speech recognition model from Hugging Face and keep it on this computer"
-    elif (page, field) == ("voice", "tts.test"):
-        summary = "Play one local test phrase through the selected output device"
     elif (page, field) == ("system", "browser.install"):
         summary = "Download and install Row-Bot's managed Playwright Chromium runtime"
     elif (page, field) == ("system", "computer_use.install"):
@@ -691,14 +688,6 @@ def _run_voice_action(field: str) -> None:
         from row_bot.voice import VoiceService
 
         VoiceService().install_sensevoice_model()
-        return
-    if field == "tts.test":
-        from row_bot.tts import TTSService
-
-        service = TTSService()
-        if not service.is_installed():
-            raise SettingsCommandError("voice_test_unavailable")
-        service.speak_now("Hello! This is your local Row-Bot voice test.")
         return
     raise SettingsCommandError("settings_action_unavailable")
 

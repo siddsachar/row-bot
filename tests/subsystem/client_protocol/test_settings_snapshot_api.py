@@ -723,10 +723,6 @@ def test_workspace_folder_uses_ephemeral_local_owner_grant_without_path_input(ap
     [
         ("tts.install", "Download and install Kokoro speech output locally"),
         ("sensevoice.install", "Download and install SenseVoice Small locally"),
-        (
-            "tts.test",
-            "Play one local test phrase through the selected output device",
-        ),
     ],
 )
 def test_voice_actions_are_passive_during_review_and_execute_once(
@@ -763,6 +759,21 @@ def test_voice_actions_are_passive_during_review_and_execute_once(
         _execute(client, headers, request, review, command_id).json() == result.json()
     )
     assert calls == [field]
+
+
+def test_voice_test_is_no_longer_a_settings_action_on_the_host(api, monkeypatch):
+    """Test voice plays in the browser (/settings/voice/speech-test) instead."""
+    from row_bot.application import settings_commands
+
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    calls = []
+    monkeypatch.setattr(settings_commands, "_run_voice_action", calls.append)
+    refused = client.post(BASE + "/review", headers=headers, json={
+        "settings_revision": snapshot["revision"], "page": "voice", "field": "tts.test", "value": True})
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "settings_action_unavailable"
+    assert not calls
 
 
 @pytest.mark.parametrize(
