@@ -773,6 +773,20 @@ export default function Conversation({
       ? `Writing ${lastActivity.payload.tool || 'a tool call'} · ${Math.max(1, Math.round((lastActivity.payload.bytes ?? 0) / 1024))} KB`
       : undefined;
   const answering = Boolean(running) && answerStreaming(rows, state.activity);
+  // The sidebar row follows this conversation's agents and turn as they end,
+  // not only its 15 s re-read (B302).
+  const lastAgentEvent = state.activity
+    .filter((record) => record.event.type === 'agent.activity')
+    .at(-1)?.event.event_id;
+  const runningNow = Boolean(running);
+  useEffect(() => {
+    if (!id || (!lastAgentEvent && runningNow)) return;
+    const abort = new AbortController();
+    controller
+      .refreshListedConversation(id, abort.signal)
+      .catch(() => undefined);
+    return () => abort.abort();
+  }, [controller, id, lastAgentEvent, runningNow]);
   useEffect(() => {
     const composer = state.workspace?.composer;
     if (composer?.conversation_id === id) setComposerSnapshot(composer);
