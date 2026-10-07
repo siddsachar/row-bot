@@ -62,9 +62,18 @@ class _TaskCreateInput(BaseModel):
         default=None,
         description=(
             "Set a one-shot timer that fires after this many minutes. "
-            "Use for quick reminders like 'remind me in 30 minutes'. "
+            "Use only for 'remind me in 30 minutes'; for a stated date or time use run_at. "
             "The task auto-deletes after firing. "
-            "Mutually exclusive with schedule."
+            "Mutually exclusive with schedule and run_at."
+        ),
+    )
+    run_at: str | None = Field(
+        default=None,
+        description=(
+            "A one-off date and time, in the person's local time, as 'YYYY-MM-DDTHH:MM' "
+            "(e.g. '2026-10-08T09:00' for 'remind me at 9am on 8 October'). Must be in the future. "
+            "Use this for any reminder or task at a stated time; use delay_minutes only for 'in N minutes'. "
+            "Mutually exclusive with schedule and delay_minutes."
         ),
     )
     notify_only: bool = Field(
@@ -182,6 +191,13 @@ class _TaskUpdateInput(BaseModel):
             "Set to empty string '' to clear schedule (make manual)."
         ),
     )
+    run_at: str | None = Field(
+        default=None,
+        description=(
+            "Move the task to one new local date and time, 'YYYY-MM-DDTHH:MM' (e.g. '2026-10-08T09:00'). "
+            "Must be in the future; replaces any recurring schedule."
+        ),
+    )
     prompts: list[str] | None = Field(
         default=None,
         description=(
@@ -230,6 +246,21 @@ class _TaskUpdateInput(BaseModel):
 
 # ── Tool functions ───────────────────────────────────────────────────────────
 
+def _local_run_at(value: str) -> str:
+    """A one-off time as the scheduler stores it: local, to the minute, in the future (B291)."""
+    try:
+        moment = datetime.fromisoformat(str(value).strip())
+    except ValueError:
+        raise ValueError(f"run_at must be a date and time like 2026-10-08T09:00, not {value!r}.") from None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone().replace(tzinfo=None)
+    moment = moment.replace(second=0, microsecond=0)
+    now = datetime.now()
+    if moment <= now:
+        raise ValueError(f"run_at {moment:%Y-%m-%d %H:%M} is in the past (it's now {now:%Y-%m-%d %H:%M}).")
+    return moment.isoformat(timespec="minutes")
+
+
 def _task_create(
     name: str,
     prompts: list[str] | None = None,
@@ -237,6 +268,7 @@ def _task_create(
     icon: str = "⚡",
     schedule: str | None = None,
     delay_minutes: float | None = None,
+    run_at: str | None = None,
     notify_only: bool = False,
     notify_label: str = "",
     delivery_channel: str | None = None,
@@ -250,8 +282,9 @@ def _task_create(
 ) -> str:
     """Create a new task or quick timer."""
     try:
-        # Default to notify_only for delay_minutes with no prompts
-        if delay_minutes and not prompts and not steps:
+        at = _local_run_at(run_at) if run_at else None
+        # Default to notify_only for a timer or a one-off time with no prompts
+        if (delay_minutes or at) and not prompts and not steps:
             notify_only = True
 
         # Generate persistent_thread_id if requested
@@ -266,6 +299,7 @@ def _task_create(
             description=description,
             icon=icon,
             schedule=schedule,
+            at=at,
             delay_minutes=delay_minutes,
             notify_only=notify_only,
             notify_label=notify_label,
@@ -388,6 +422,7 @@ def _task_update(
     model: str | None = None,
     agent_profile: str | None = None,
     persistent_thread: bool | None = None,
+    run_at: str | None = None,
 ) -> str:
     """Update fields on an existing task."""
     task = tasks_db.get_task(task_id)
@@ -399,6 +434,12 @@ def _task_update(
         updates["name"] = name
     if schedule is not None:
         updates["schedule"] = schedule if schedule else None
+    if run_at:
+        try:
+            updates["at"] = _local_run_at(run_at)
+        except ValueError as exc:
+            return f"Error updating task: {exc}"
+        updates["schedule"] = None
     if prompts is not None:
         updates["prompts"] = prompts
     if steps is not None:
@@ -428,7 +469,9 @@ def _task_update(
         parts = [f"Updated task '{task['icon']} {task['name']}'."]
         if "name" in updates:
             parts.append(f"  Name: {updates['name']}")
-        if "schedule" in updates:
+        if "at" in updates:
+            parts.append(f"  Fires at: {task.get('at')}")
+        elif "schedule" in updates:
             parts.append(f"  Schedule: {task.get('schedule') or 'manual'}")
         if "prompts" in updates:
             parts.append(f"  Steps: {len(task['prompts'])}")
@@ -490,7 +533,7 @@ class TaskTool(BaseTool):
         return (
             "Create, list, and run scheduled tasks and quick timers. "
             "Use for recurring automations (daily briefings, research digests) "
-            "and one-shot reminders ('remind me in 30 minutes')."
+            "and one-shot reminders ('remind me in 30 minutes', 'remind me at 9 tomorrow')."
         )
 
     @property
@@ -511,9 +554,11 @@ class TaskTool(BaseTool):
                 func=_task_create,
                 name="task_create",
                 description=(
-                    "Create a new task or quick timer. For simple reminders, set "
-                    "notify_only=true and use delay_minutes (e.g. 'remind me in "
-                    "30 minutes' → delay_minutes=30, notify_only=true). For "
+                    "Create a new task or quick timer. For a reminder at a stated time, "
+                    "use run_at in local time ('remind me at 09:00 on 8 October' → "
+                    "run_at='2026-10-08T09:00', notify_only=true); for 'in N minutes' use "
+                    "delay_minutes. To change a reminder's time, use task_update with run_at "
+                    "rather than deleting and re-creating it. For "
                     "recurring agent tasks, provide prompts and a schedule. "
                     "Supports template variables in prompts: {{date}}, {{day}}, "
                     "{{time}}, {{month}}, {{year}}. "
