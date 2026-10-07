@@ -192,6 +192,17 @@ def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, mo
         return "done"
 
     monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+    # The dispatcher says why a child waits from its own thread: wait for that, not for a fixed time.
+    waiting = threading.Event()
+    publish = agent_runs.update_agent_status
+
+    def recording(run_id, status, *args, **kwargs):
+        published = publish(run_id, status, *args, **kwargs)
+        if status == "queued" and "Queued for Agent capacity" in args:
+            waiting.set()
+        return published
+
+    monkeypatch.setattr(agent_runs, "update_agent_status", recording)
     first = agent_runner.spawn_agent_run("First", parent_thread_id=parent_thread_id)
     assert first_started.wait(2)
     first_live = agent_runs.get_agent_run(first["id"])
@@ -199,7 +210,8 @@ def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, mo
     assert first_live["status_message"] == ""
     second = agent_runner.spawn_agent_run("Second", parent_thread_id=parent_thread_id)
 
-    assert not second_started.wait(0.15)
+    assert waiting.wait(2)
+    assert not second_started.is_set()
     second_queued = agent_runs.get_agent_run(second["id"])
     assert second_queued["status"] == "queued"
     assert second_queued["status_message"] == "Queued for Agent capacity"

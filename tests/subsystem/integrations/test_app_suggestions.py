@@ -62,6 +62,8 @@ def test_a_built_in_way_is_suggested_like_any_app_and_sets_up_in_its_own_setting
     monkeypatch.setattr("row_bot.application.channel_controls.read_channels", lambda **_: {"items": [
         {"channel_id": "telegram", "display_name": "Telegram", "configured": False, "running": False,
          "source": {"kind": "builtin"}}]})  # The channel registry, as its owner lists it.
+    from row_bot.integrations import builtin
+    builtin.rows()  # Their owners read once, as Apps does: a catalog search never waits for them.
     answer = json.loads(suggest_apps("Gmail"))
     assert answer["kind"] == "connect_apps" and answer["apps"][0] == "builtin:account:google"
     card = scope.app_card("builtin:account:google")
