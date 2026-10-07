@@ -172,6 +172,18 @@ def test_a_background_plan_reports_progress_and_reads_never_step_it(item, owner,
     assert "catalog" not in saved().get("tools", {}), "nothing is accepted before access is confirmed"
 
 
+def test_a_second_start_while_one_runs_shows_the_first_instead_of_failing(item, owner, monkeypatch):
+    """B309: two clicks, or two pages, each agreed to connect; the second shows the first one's progress."""
+    queued = []
+    monkeypatch.setattr(plans, "_spawn", queued.append)
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    first = str(uuid4())
+    assert api.start_plan(ctx(), plan_id=first, item_id=item, digest=plan["digest"], background=True)["state"] == "running"
+    second = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"], background=True)
+    assert (second["plan_id"], second["state"]) == (first, "running")
+    assert len(queued) == 1 and owner.calls == []  # Nothing else was started.
+
+
 def test_a_paused_plan_expires_keeps_what_was_done_and_frees_the_item(item, owner, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(plans, "_now", lambda: clock[0])

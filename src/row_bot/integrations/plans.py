@@ -452,6 +452,8 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         prior = admissions.claim_command(ctx.owner_id, plan_id, command, _target(ctx, row["id"]), exclusive_target=True,
                                          initial_result={"command_id": plan_id, "status": "admitting", "plan": record})
     except admissions.AdmissionError as error:
+        if str(error) == "operation_pending" and (first := open_plan(ctx, row["id"])) is not None:
+            return first  # A second start while one runs (two clicks, two pages): the first one's progress (B309).
         raise PlanError(str(error)) from None
     if prior is not None:  # This exact plan already finished: report it, never run it again.
         return view(prior["plan"])

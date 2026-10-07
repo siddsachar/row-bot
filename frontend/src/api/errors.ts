@@ -492,7 +492,7 @@ const CATALOG: Record<string, Entry> = {
   ],
   view_tool_failed: ["The app couldn't do that just now.", 'retry'],
   operation_pending: [
-    'The earlier Tailscale step is still running. Check it again in a moment.',
+    'An earlier change is still running. Check again in a moment.',
     'retry',
     RETRY,
   ],
