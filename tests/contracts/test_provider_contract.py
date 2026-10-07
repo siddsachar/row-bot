@@ -109,3 +109,54 @@ def test_every_builtin_provider_has_refresh_ownership_or_an_explicit_exemption()
 
     assert set(REFRESHABLE_CLOUD_PROVIDER_IDS).isdisjoint(explicit_exemptions)
     assert set(REFRESHABLE_CLOUD_PROVIDER_IDS) | explicit_exemptions == provider_ids
+
+
+def _counting_clock(monkeypatch, step: float = 0.01) -> None:
+    """Each look at the clock moves it on, so a long stream spans many seconds without real waiting."""
+    from row_bot.providers import runtime
+
+    now = {"t": 0.0}
+
+    def monotonic() -> float:
+        now["t"] += step
+        return now["t"]
+
+    monkeypatch.setattr(runtime, "time", types.SimpleNamespace(monotonic=monotonic))
+
+
+def test_a_token_by_token_local_stream_rechecks_authority_about_once_a_second(monkeypatch) -> None:
+    """B288: a streaming Ollama sends one chunk per token; the per-response authority check is costly."""
+    from row_bot.providers.runtime import captured_http_clients
+    from tests.helpers.fake_ollama import fake_streaming_ollama
+
+    _counting_clock(monkeypatch)
+    checks = []
+    with fake_streaming_ollama(tokens=[f"w{i} " for i in range(400)]) as server:
+        with captured_http_clients(server.url, lambda: checks.append(1)) as (sync, _async):
+            response = sync.post(f"{server.url}/api/chat", json={"model": server.model, "stream": True})
+            lines = [line for line in response.iter_lines() if line]
+
+    assert len(lines) == 401
+    assert 3 <= len(checks) <= 25  # request, response, about one a second of the stream, and the end
+
+
+def test_revoking_authority_still_stops_a_stream_part_way(monkeypatch) -> None:
+    from row_bot.providers.runtime import captured_http_clients
+    from tests.helpers.fake_ollama import fake_streaming_ollama
+
+    _counting_clock(monkeypatch)
+    checks = []
+
+    def validate() -> None:
+        checks.append(1)
+        if len(checks) > 4:
+            raise PermissionError("document authority revoked")
+
+    with fake_streaming_ollama(tokens=[f"w{i} " for i in range(400)]) as server:
+        with captured_http_clients(server.url, validate) as (sync, _async):
+            read = []
+            with pytest.raises(PermissionError):
+                with sync.stream("POST", f"{server.url}/api/chat", json={"model": server.model}) as response:
+                    for line in response.iter_lines():
+                        read.append(line)
+    assert 0 < len(read) < 400
