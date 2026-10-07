@@ -2979,6 +2979,10 @@ def _finish_run(run_id: str, status: str = "completed",
         "WHERE id = ?",
         (status, status_message, datetime.now().isoformat(), run_id),
     )
+    if status in ("completed", "completed_delivery_failed"):
+        # A finished run is done, however it got there: a last notify step, "next": "end", a condition that
+        # ended early or a resumed approval all used to leave it at "2 of 3 steps" (B313).
+        conn.execute("UPDATE task_runs SET steps_done = steps_total WHERE id = ?", (run_id,))
     # Clean up pipeline_state for terminal statuses (no longer needed)
     if status in ("completed", "completed_delivery_failed", "failed", "stopped", "blocked"):
         conn.execute("DELETE FROM pipeline_state WHERE run_id = ?", (run_id,))

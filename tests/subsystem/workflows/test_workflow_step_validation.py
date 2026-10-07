@@ -84,3 +84,22 @@ def test_a_saved_condition_that_cant_be_read_fails_the_run_instead_of_completing
     run = tasks.get_run_history(task_id, limit=1)[0]
     assert run["status"] == "failed"
     assert "can't be read" in run["status_message"]
+
+
+def test_a_completed_run_reads_all_its_steps_done(runtime, monkeypatch):
+    """B313: a run that finished with its notify step read "2 of 3 steps"."""
+    tasks, threads, _task_tool = runtime
+    _install_fake_agent(monkeypatch, [])
+    _run_workflow_synchronously(monkeypatch, tasks)
+    monkeypatch.setattr(tasks, "_deliver_to_channels", lambda *_, **__: ("", ""))
+    from row_bot import notifications
+    monkeypatch.setattr(notifications, "notify", lambda **_kwargs: None)
+    steps = [{"type": "prompt", "prompt": "Summarise sales"}, {"type": "prompt", "prompt": "Check stock"},
+             {"type": "notify", "message": "Report ready", "next": "end"}]
+    task_id = tasks.create_task("Morning report", steps=steps, channels=[], apply_default_skills=False)
+    thread_id = threads.create_thread("Run", thread_id="three-step-run", seed_default_skills=False)
+
+    tasks.run_task_background(task_id, thread_id, [], notification=False)
+
+    run = tasks.get_run_history(task_id, limit=1)[0]
+    assert (run["status"], run["steps_done"], run["steps_total"]) == ("completed", 3, 3)
