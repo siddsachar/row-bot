@@ -95,10 +95,12 @@ def capture_tested_catalog(tested: dict) -> dict:
             if annotations:
                 row["annotations"] = annotations  # The policy weighs them again when it reads this catalog (B307).
             row.update(brokers.tool_rules(name))  # A broker's remote code and acting tools: only ever stricter.
-            view, visibility = tool.get("ui", ""), tool.get("visibility") or ["model", "app"]
+            # A test's result says "ui" and "visibility"; a stored record (read back to be checked) "view" and
+            # "view_only": both read the same, or an app with views could never be accepted.
+            view, visibility = tool.get("ui", tool.get("view", "")), tool.get("visibility") or ["model", "app"]
             if isinstance(view, str) and view.startswith("ui://") and len(view) <= 512:
                 row["view"] = view  # It shows an interactive view in chat (MCP Apps): part of what is agreed to.
-            if list(visibility) == ["app"]:
+            if tool.get("view_only") is True or list(visibility) == ["app"]:
                 row["view_only"] = True  # Only its own view calls it; the agent never sees it.
             rows.append(row)
         result = {"availability": "available", "tools": rows}

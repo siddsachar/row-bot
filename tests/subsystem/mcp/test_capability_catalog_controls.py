@@ -361,3 +361,20 @@ def test_tools_with_very_large_schemas_can_be_accepted_and_only_their_digests_ar
     assert execute(command(tested))["status"] == "completed"
     saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]
     assert all(row["input_schema_digest"] == schema_digest(big) and "input_schema" not in row for row in saved.values())
+
+
+def test_tools_with_views_can_be_accepted_after_their_record_is_read_back(owner):
+    """Found live with Notion: a tool with an MCP Apps view (and one only its view may call) lost its view when
+    the stored record was checked, so the record never matched and no such app could be accepted."""
+    owner.tools[:] = [
+        {"name": "get_card", "description": "Show a card", "inputSchema": {},
+         "_meta": {"ui": {"resourceUri": "ui://fixture/card.html", "visibility": ["model"]}}},
+        {"name": "get_card_page", "description": "The card's next page", "inputSchema": {},
+         "_meta": {"ui": {"resourceUri": "ui://fixture/card.html", "visibility": ["app"]}}}]
+    tested = run_test()
+    found = tools(tested)
+    assert set(found) == {"get_card", "get_card_page"}
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]
+    assert saved["get_card"]["view"] == saved["get_card_page"]["view"] == "ui://fixture/card.html"
+    assert saved["get_card_page"]["view_only"] is True and "view_only" not in saved["get_card"]
