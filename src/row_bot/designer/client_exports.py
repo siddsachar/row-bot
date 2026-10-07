@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import math
 import re
@@ -16,10 +17,13 @@ from pathlib import Path
 from itertools import islice
 from uuid import UUID
 
+from row_bot.browser.runtime import BrowserRuntimeMissing
 from row_bot.designer import export, storage
 from row_bot.designer.client_service import ArtifactError, read_artifact
 from row_bot.designer.preview import preview_fingerprint
 from row_bot.designer.state import DESIGNER_MODES
+
+_LOG = logging.getLogger(__name__)
 
 MAX_EXPORTS = 32
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
@@ -272,9 +276,12 @@ def create_export(project_id: str, *, expected_revision: str, export_id: str,
                 return result
         except ArtifactError:
             raise
+        except BrowserRuntimeMissing:
+            raise ArtifactError('export_runtime_missing') from None
         except Exception as exc:
             if exc is validation_failure:
                 raise
+            _LOG.exception('A design export failed')
             raise ArtifactError('export_incomplete') from None
 
 

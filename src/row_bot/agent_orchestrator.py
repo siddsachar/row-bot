@@ -1191,13 +1191,14 @@ def transfer_member(
             "WHERE orchestration_id = ? AND status != 'transferred'",
             (source_id,),
         ).fetchone()
+        source_completed = False
         if int(remaining["value"] or 0) == 0:
-            conn.execute(
+            source_completed = conn.execute(
                 "UPDATE agent_orchestrations SET status = 'completed', completed_at = ?, "
                 "updated_at = ? WHERE id = ? AND status NOT IN "
                 "('failed', 'stopped', 'completed', 'completed_partial')",
                 (_now(), _now(), source_id),
-            )
+            ).rowcount == 1
         conn.execute(
             "INSERT INTO agent_orchestration_members "
             "(orchestration_id, run_id, required, wave, sequence, attempt, "
@@ -1238,6 +1239,9 @@ def transfer_member(
     parsed = _member_row(row)
     if not parsed:
         raise OrchestrationError("Could not transfer orchestration membership.")
+    if source_completed:
+        # Its last member moved on: Buddy stops saying "Agents working" (B302).
+        _emit_orchestration_buddy_event(get_orchestration(source_id) or {"id": source_id}, terminal=True)
     if (
         _is_unified_parent(_orchestration_row(target))
         and str(run["status"] or "") in TERMINAL_MEMBER_STATUSES
@@ -3681,7 +3685,7 @@ def handle_run_terminal(run_or_id: Mapping[str, Any] | str) -> bool:
             )
             conn = _conn()
             try:
-                conn.execute(
+                finished = conn.execute(
                     "UPDATE agent_orchestrations SET status = ?, completed_at = ?, "
                     "updated_at = ? WHERE id = ? AND status NOT IN "
                     "('completed', 'completed_partial', 'stopped')",
@@ -3691,10 +3695,14 @@ def handle_run_terminal(run_or_id: Mapping[str, Any] | str) -> bool:
                         _now(),
                         orchestration_id,
                     ),
-                )
+                ).rowcount == 1
                 conn.commit()
             finally:
                 conn.close()
+            if finished:
+                # Only optional helpers, all done: Buddy stops saying "Agents working" (B302).
+                _emit_orchestration_buddy_event(
+                    get_orchestration(orchestration_id) or {"id": orchestration_id}, terminal=True)
     return owns_completion_delivery
 
 

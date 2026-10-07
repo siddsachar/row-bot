@@ -268,3 +268,27 @@ def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
                         "name": "Google"},
         "ollama": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"},
     }
+
+
+def test_a_channel_that_isnt_set_to_start_is_off_not_a_health_warning(monkeypatch):
+    """B293: a fresh profile read "1 warning · WhatsApp: Stopped" though WhatsApp was never set up."""
+    from row_bot.channels import config as ch_config, registry
+
+    class Stopped:
+        def __init__(self, name: str, label: str) -> None:
+            self.name, self.display_name = name, label
+
+        def is_configured(self) -> bool:
+            return True
+
+        def is_running(self) -> bool:
+            return False
+
+    monkeypatch.setattr(registry, "all_channels", lambda: [Stopped("whatsapp", "WhatsApp"),
+                                                            Stopped("telegram", "Telegram")])
+    monkeypatch.setattr(ch_config, "get", lambda section, key, default=None:
+                        section == "telegram" and key == "auto_start" or default)
+
+    results = {result.name: (result.status, result.detail) for result in status_checks.check_channels()}
+
+    assert results == {"WhatsApp": ("inactive", "Off"), "Telegram": ("warn", "Stopped")}

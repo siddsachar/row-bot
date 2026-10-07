@@ -1636,3 +1636,21 @@ it('lists an app that is on but signed out or broken under Needs you, with its f
   fireEvent.click(within(needs).getByRole('button', { name: 'Sign in again' }));
   expect(onOpenApp).toHaveBeenCalledWith('mcp:notion', true);
 });
+
+it('lists a goal waiting for your answer in Needs you', async () => {
+  show({
+    conversations: [
+      conversation('chat-goal', 'Autumn launch', {
+        activity_state: 'attention',
+        activity_phase: 'goal_needs_you',
+      }),
+    ],
+    loadTasks: vi.fn().mockResolvedValue(page([])),
+  });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText('Autumn launch');
+  expect(within(needs).getByText('Goal waiting for your answer')).toBeVisible();
+  expect(buttonNames('Needs you')).toContain(
+    'Answer the goal in Autumn launch',
+  );
+});

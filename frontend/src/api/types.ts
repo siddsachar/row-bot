@@ -1019,6 +1019,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ProfilePage>;
   profile?(profile: string, signal?: AbortSignal): Promise<Wire.ProfileDetail>;
+  profileInstructions?(
+    profile: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProfileInstructions>;
   reviewProfile?(
     body: Wire.ProfileCommandPayload,
     signal?: AbortSignal,

@@ -38,6 +38,8 @@ type Props = {
   conversationRevision: string;
   /** Changes when a turn of this conversation starts or ends (goal refresh). */
   turnActivity?: string;
+  /** The latest of the conversation's agent events; the workspace summary is read again on it (B302). */
+  agentActivity?: string;
   /** A turn of this conversation is running now. */
   turnRunning?: boolean;
   onStopTurn?: () => void;
@@ -77,6 +79,7 @@ export default function ConversationContextRail({
   conversationId,
   conversationRevision,
   turnActivity = '',
+  agentActivity = '',
   turnRunning = false,
   onStopTurn,
   resources,
@@ -286,7 +289,15 @@ export default function ConversationContextRail({
         if (!request.signal.aborted) setLoading(false);
       });
     return () => request.abort();
-  }, [controller, conversationId, ready, resources]);
+    // A turn or an agent ending can change the folder's branch and changes (B302).
+  }, [
+    controller,
+    conversationId,
+    ready,
+    resources,
+    turnActivity,
+    agentActivity,
+  ]);
 
   const writerShown = writerQueued || writerStatus === 'queued';
   const agentsFirst = !agentsEmpty && (agentsLive > 0 || childConversation);

@@ -190,3 +190,33 @@ def test_first_run_routes(tmp_path, monkeypatch, fake_ollama):
         assert "sk-ant-wrong" not in checked.text
         snapshot = client.get("/api/v1/setup/onboarding", headers=headers).json()
         assert snapshot["needs_model"] is True
+
+
+def test_home_health_follows_the_first_pick_at_once(tmp_path, monkeypatch, fake_ollama):
+    """B295: the start-up check ran while Setup was open; choosing a model checks the model again now."""
+    from row_bot import status_checks
+    from row_bot.application import client_diagnosis
+    from tests.subsystem.runtime.test_monitor_checks import FakeScheduler
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(models, "_current_model", "")
+    monkeypatch.setattr("row_bot.providers.selection.add_quick_choice_for_model", lambda *_a, **_kw: None)
+    monkeypatch.setattr("row_bot.providers.model_catalog_cache.refresh_model_catalog_cache", lambda **_kw: None)
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_active_model,))
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(client_diagnosis, "_scheduler", scheduler)
+    fake_ollama.update(running=True, models=["qwen3.8:27b"])
+
+    def model_check() -> dict:
+        return next(check for check in client_diagnosis.read_system_health()["checks"] if check["name"] == "Model")
+
+    client_diagnosis.run_local_checks()
+    assert (model_check()["status"], model_check()["detail"]) == ("warn", "No model selected")
+    first = client_onboarding.read_onboarding()
+    client_onboarding.execute_onboarding(
+        command_id=str(uuid4()), expected_revision=first["revision"], action="choose_model",
+        profile=[], step="", model_ref="model:ollama:qwen3.8:27b",
+    )
+    scheduler.jobs[client_diagnosis.DEFAULT_MODEL_JOB].func()
+
+    assert model_check()["status"] == "ok"

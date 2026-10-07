@@ -44,6 +44,12 @@
       "title": "Canvas Width",
       "type": "integer"
     },
+    "font_notice": {
+      "default": "",
+      "maxLength": 600,
+      "title": "Font Notice",
+      "type": "string"
+    },
     "html": {
       "anyOf": [
         {

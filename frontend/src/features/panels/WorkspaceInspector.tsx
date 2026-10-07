@@ -55,11 +55,7 @@ import {
 import CodeView from '../developer/CodeView';
 import DiffView, { type DiffMode } from '../developer/DiffView';
 import { parseTracking } from '../developer/git-status';
-import {
-  suggestCommit,
-  suggestPullRequest,
-  type Suggestion,
-} from '../developer/commit-suggestion';
+import { suggestCommit, type Suggestion } from '../developer/commit-suggestion';
 import type { DeveloperRepositorySnapshot } from '../developer/DeveloperRepositoryPanel';
 import type { WorkspaceProcessInfo } from './WorkspaceProcesses';
 
@@ -77,7 +73,13 @@ const DIFF_MODE_KEY = 'row-bot.diff-mode.v1';
 const EAGER_CHANGE_SETS = 10;
 
 export type InspectorTab = 'changes' | 'files' | 'run' | 'git';
-export type InspectorCheck = { label: string; kind: string; command: string };
+export type InspectorCheck = {
+  label: string;
+  kind: string;
+  command: string;
+  /** The last result of an agent's run of this command (B302). */
+  result?: 'not_run' | 'passed' | 'failed';
+};
 export type RunContext = { checks: InspectorCheck[] };
 export type GitContext = {
   /** The inspector's snapshot; the Git tab re-reads when it changes. */
@@ -86,7 +88,6 @@ export type GitContext = {
   branch: string;
   changedFiles: { path: string; status: string }[];
   commitSuggestion: Suggestion | null;
-  pullRequestSuggestion: Suggestion | null;
 };
 
 export type WorkspaceInspectorProps = {
@@ -206,8 +207,18 @@ export function checksStatus(
 ): ChecksState {
   if (!checks.length)
     return { tone: 'neutral', label: 'No checks', pulse: false };
-  const latest = checks.map((check) =>
-    [...processes].reverse().find((item) => item.command === check.command),
+  // A Run-tab process for the command, else the agent's last run of it.
+  const latest = checks.map(
+    (check) =>
+      [...processes].reverse().find((item) => item.command === check.command) ??
+      (check.result === 'passed' || check.result === 'failed'
+        ? {
+            command: check.command,
+            quiesced: true,
+            state: 'exited',
+            exit_code: check.result === 'passed' ? 0 : 1,
+          }
+        : undefined),
   );
   if (latest.some((item) => item && !item.quiesced && item.state !== 'failed'))
     return { tone: 'info', label: 'Checks running', pulse: true };
@@ -266,6 +277,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   const [diffPath, setDiffPath] = useState('');
   const [diffOffset, setDiffOffset] = useState(0);
   const [diffMode, setDiffModeState] = useState<DiffMode>(readDiffMode);
+  const [openEarlier, setOpenEarlier] = useState<string | null>(null);
   const [ledger, setLedger] = useState<WorkspaceChangeSetPage | null>(null);
   const [ledgerFiles, setLedgerFiles] = useState<
     Record<string, WorkspaceChangeSetFiles>
@@ -600,6 +612,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         label: command.label,
         kind: command.kind,
         command: command.command?.trim() || command.label,
+        result: command.status,
       })),
     [current?.commands],
   );
@@ -629,11 +642,6 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         status: item.status,
       })),
       commitSuggestion: suggestCommit(changedItems, suggestionSets),
-      pullRequestSuggestion: suggestPullRequest(
-        changedItems,
-        suggestionSets,
-        current?.branch ?? '',
-      ),
     }),
     // changedItems derives from `changed`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1001,12 +1009,22 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
               Their files are committed or back to how they were.
             </p>
             <ul className="dev-earlier" aria-label="Earlier agent changes">
-              {earlierGroups.map(({ set }) => (
+              {earlierGroups.map(({ set, files }) => (
                 <li key={set.id}>
                   <Sparkles size={13} aria-hidden />
-                  <span className="dev-group-title">
+                  {/* An earlier change opens what the agent changed, read-only (B304). */}
+                  <button
+                    type="button"
+                    className="dev-group-title dev-earlier-open"
+                    aria-expanded={openEarlier === set.id}
+                    onClick={() =>
+                      setOpenEarlier((value) =>
+                        value === set.id ? null : set.id,
+                      )
+                    }
+                  >
                     {set.summary || 'Agent change'}
-                  </span>
+                  </button>
                   <span className="dev-group-meta">
                     {set.file_count} {set.file_count === 1 ? 'file' : 'files'}
                   </span>
@@ -1018,6 +1036,35 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
                     >
                       <span aria-hidden>⋯</span>
                     </Menu>
+                  )}
+                  {openEarlier === set.id && (
+                    <div className="dev-earlier-files">
+                      {(files?.items ?? []).map((item) => (
+                        <div key={item.path}>
+                          <p className="dev-earlier-path">
+                            {item.action} {item.path}
+                          </p>
+                          {item.patch ? (
+                            <div
+                              className="dev-diff-scroll"
+                              role="region"
+                              aria-label={`Diff of ${item.path}`}
+                              tabIndex={0}
+                            >
+                              <DiffView
+                                path={item.path}
+                                text={item.patch}
+                                mode={diffMode}
+                              />
+                            </div>
+                          ) : (
+                            <p className="dev-muted-line">
+                              No saved diff for this file.
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </li>
               ))}

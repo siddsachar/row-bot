@@ -972,12 +972,17 @@ export default function OverviewHome({
           tone: 'warning',
           title,
           meta:
-            row.activity_state === 'attention' &&
-            row.activity_phase !== 'waiting_approval'
-              ? 'Agent work needs your attention'
-              : 'Waiting for your approval',
+            row.activity_phase === 'goal_needs_you'
+              ? 'Goal waiting for your answer'
+              : row.activity_state === 'attention' &&
+                  row.activity_phase !== 'waiting_approval'
+                ? 'Agent work needs your attention'
+                : 'Waiting for your approval',
           time: <When value={row.updated_at} now={now} />,
-          label: `Review approval in ${title}`,
+          label:
+            row.activity_phase === 'goal_needs_you'
+              ? `Answer the goal in ${title}`
+              : `Review approval in ${title}`,
           onOpen: () => onOpenConversation(row.id),
         },
       };

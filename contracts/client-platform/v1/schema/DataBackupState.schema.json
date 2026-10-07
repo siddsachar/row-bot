@@ -50,6 +50,23 @@
           "default": null,
           "title": "Name"
         },
+        "skipped": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 260,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skipped"
+        },
         "started_at": {
           "anyOf": [
             {

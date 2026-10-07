@@ -605,9 +605,18 @@ class ProjectionBatch:
     """Outcome of one explicitly bounded, context-local projection drain."""
 
     result: dict[str, object] | None = None
+    empty_at_start: bool = False
 
 
 _projection_batch: ContextVar[ProjectionBatch | None] = ContextVar("knowledge_projection_batch", default=None)
+
+
+def _has_knowledge() -> bool:
+    conn = _get_conn()
+    try:
+        return conn.execute("SELECT 1 FROM entities LIMIT 1").fetchone() is not None
+    finally:
+        conn.close()
 
 
 @contextmanager
@@ -622,7 +631,9 @@ def projection_batch(*, max_entities: int = 256, cancelled: Callable[[], bool] |
     if existing is not None:
         yield existing
         return
-    batch = ProjectionBatch()
+    # A fresh profile has no vector index and no knowledge: the batch's dedup then has nothing to compare
+    # against, rather than an index to refuse without (B323).
+    batch = ProjectionBatch(empty_at_start=not _projection_state()["generation"] and not _has_knowledge())
     token = _projection_batch.set(batch)
     try:
         yield batch
@@ -1480,10 +1491,13 @@ def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_a
 
     status, loaded = _vector_readiness()
     if not status["ready"]:
-        if _projection_batch.get() is not None:
+        batch = _projection_batch.get()
+        if batch is not None:
             # Internal dedup may reuse unchanged prior candidates while its own
             # new rows remain pending. It never repairs implicitly or advertises
             # this incomplete cut as ready to ordinary application recall.
+            if status["state"] == "missing" and batch.empty_at_start:
+                return []
             if status["state"] != "pending":
                 raise MemorySemanticUnavailable(f"memory_index_{status['state']}", str(status["detail"]))
             from row_bot.embedding_config import active_embedding_metadata

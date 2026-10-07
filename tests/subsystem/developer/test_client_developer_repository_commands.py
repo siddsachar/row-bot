@@ -325,3 +325,34 @@ def test_pull_request_failures_name_what_to_fix(result, code):
     from row_bot.developer.github import GhResult
 
     assert commands._pull_request_error(GhResult(**result)) == code
+
+
+def test_suggested_pull_request_text_describes_the_branch(tmp_path, monkeypatch):
+    """B301: the suggestion read "1 csv quoted fields", "No local changes" and "Tests: Not run yet" for a branch
+    with a commit; it now comes from the branch's commits and files against its base."""
+    from row_bot.developer import review as repository_review
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        *args], check=True, capture_output=True, text=True, timeout=10)
+
+    root = tmp_path / "csv-repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "--initial-branch=main", str(root)], check=True,
+                   capture_output=True, text=True, timeout=10)
+    (root / "export.js").write_text("module.exports = rows => rows.join(',');\n", encoding="utf-8")
+    git("add", "export.js")
+    git("commit", "-m", "Initial")
+    git("switch", "-c", "fix/1-csv-quoted-fields")
+    (root / "export.js").write_text("module.exports = rows => rows.map(quote).join(',');\n", encoding="utf-8")
+    git("commit", "-am", "Quote CSV fields that contain commas")
+    monkeypatch.setattr(repository_review, "workspace_has_custom_read_hooks", lambda _path: False)
+    backend = commands.CanonicalDeveloperRepositoryBackend()
+
+    public, _private = backend.repository(SimpleNamespace(path=str(root)))
+
+    assert public["pull_request"]["title"] == "Quote CSV fields that contain commas"
+    assert public["pull_request"]["body"] == (
+        "## Summary\n\n- Quote CSV fields that contain commas\n\n## Changed files\n\n- `export.js`")
+    git("switch", "main")
+    assert backend.repository(SimpleNamespace(path=str(root)))[0]["pull_request"] is None

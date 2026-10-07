@@ -51,7 +51,7 @@ def test_developer_native_tools_read_search_and_status(tmp_path, monkeypatch, re
         tool_context.reset_context(tokens)
 
 
-def test_developer_runtime_classifies_quoted_tool_commands_as_safe():
+def test_developer_runtime_treats_quoted_code_as_running_code():
     from row_bot.developer.runtime import classify_command_action, has_shell_control_operator
 
     local_markdown_parser = (
@@ -61,7 +61,7 @@ def test_developer_runtime_classifies_quoted_tool_commands_as_safe():
     )
 
     assert has_shell_control_operator(local_markdown_parser) is False
-    assert classify_command_action(local_markdown_parser) == "run_safe_command"
+    assert classify_command_action(local_markdown_parser) == "run_command"
     assert has_shell_control_operator('python -c "print(1)" > out.txt') is True
     assert classify_command_action('python -c "print(1)" > out.txt') == "run_network"
     assert classify_command_action("curl https://example.com") == "run_network"
@@ -927,3 +927,99 @@ def test_import_sandbox_changes_applies_patch_to_host_workspace(tmp_path, monkey
     assert "Imported sandbox change" in result
     assert (repo / "README.md").read_text(encoding="utf-8") == "after\n"
     assert sandbox_runtime.get_pending_change(outcome.pending_change_id).imported is True
+
+
+def _two_sandbox_changes(tmp_path, monkeypatch, reload_for_data_dir, approval_mode):
+    """A Docker workspace whose sandbox made two changes to README.md, the second building on the first."""
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "README.md").write_text("before\n", encoding="utf-8")
+    workspace = storage.add_or_update_local_workspace(str(repo))
+    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
+    storage.set_workspace_approval_mode(workspace.id, approval_mode)
+    workspace = storage.get_workspace(workspace.id)
+    thread_id = storage.ensure_workspace_thread(workspace.id)
+    monkeypatch.setattr(sandbox_runtime, "detect_container_runtime",
+                        lambda: sandbox_runtime.SandboxProbe(True, binary="docker", version="Docker version test"))
+    real_subprocess_run = subprocess.run
+    docker = {"exists": False, "shadow": "", "writes": ["after\n", "after\nand more\n"]}
+
+    def fake_run(args, **kwargs):
+        if args[:2] == ["git", "apply"]:
+            return real_subprocess_run(args, **kwargs)
+        if args[:2] == ["docker", "inspect"]:
+            return SimpleNamespace(returncode=0 if docker["exists"] else 1, stdout="true\n" if docker["exists"] else "",
+                                   stderr="")
+        if args[:2] == ["docker", "run"]:
+            docker["shadow"] = args[args.index("-v") + 1].split(":/workspace", 1)[0]
+            docker["exists"] = True
+            return SimpleNamespace(returncode=0, stdout="container\n", stderr="")
+        if args[:2] == ["docker", "exec"]:
+            (pathlib.Path(docker["shadow"]) / "README.md").write_text(docker["writes"].pop(0), encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(sandbox_runtime.subprocess, "run", fake_run)
+    first = sandbox_runtime.run_docker_sandbox_command(workspace, "python step1.py", thread_id=thread_id)
+    second = sandbox_runtime.run_docker_sandbox_command(workspace, "python step2.py", thread_id=thread_id)
+    tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
+    return repo, sandbox_runtime, developer_tool, first, second, lambda: tool_context.reset_context(tokens)
+
+
+def test_importing_the_newest_sandbox_change_brings_in_the_earlier_ones_first(tmp_path, monkeypatch,
+                                                                               reload_for_data_dir):
+    """B303: sandbox changes build on each other; importing the latest no longer fails with a git error."""
+    repo, sandbox_runtime, developer_tool, first, second, reset = _two_sandbox_changes(
+        tmp_path, monkeypatch, reload_for_data_dir, "auto_edit")
+    try:
+        result = developer_tool._import_sandbox_changes(second.pending_change_id, "Import the latest change")
+    finally:
+        reset()
+
+    assert (repo / "README.md").read_text(encoding="utf-8") == "after\nand more\n"
+    assert result.index(first.pending_change_id) < result.index(second.pending_change_id)
+    assert all(sandbox_runtime.get_pending_change(change).imported
+               for change in (first.pending_change_id, second.pending_change_id))
+
+
+def test_one_approval_applies_every_pending_sandbox_change(tmp_path, monkeypatch, reload_for_data_dir):
+    """F21: importing the oldest change asks once and applies all of them; later calls ask nothing."""
+    repo, sandbox_runtime, developer_tool, first, second, reset = _two_sandbox_changes(
+        tmp_path, monkeypatch, reload_for_data_dir, "approve")
+    approvals = []
+    monkeypatch.setattr(developer_tool, "interrupt", lambda request: approvals.append(request) or True)
+    try:
+        developer_tool._import_sandbox_changes(first.pending_change_id)
+        again = developer_tool._import_sandbox_changes(second.pending_change_id)
+    finally:
+        reset()
+
+    assert [request["label"] for request in approvals] == ["Apply these changes"]
+    assert approvals[0]["args"]["changes"] == 2
+    assert (repo / "README.md").read_text(encoding="utf-8") == "after\nand more\n"
+    assert again == f"Sandbox change {second.pending_change_id} was already imported."
+
+
+def test_an_agent_branch_switch_makes_the_workspace_card_read_the_folder_again(tmp_path, monkeypatch,
+                                                                                reload_for_data_dir):
+    """B302: the card kept "main · 0 changed" after the agent created a branch."""
+    storage, tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
+    from row_bot.developer import inspector_snapshot
+
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    workspace = storage.add_or_update_local_workspace(str(repo))
+    storage.set_workspace_approval_mode(workspace.id, "allow_all")
+    thread_id = storage.ensure_workspace_thread(workspace.id)
+    monkeypatch.setattr(inspector_snapshot, "_snapshots", {
+        (workspace.id, thread_id): object(), (workspace.id, "parent-chat"): object(), ("other", thread_id): object()})
+    branch_tool = next(tool for tool in developer_tool.DeveloperTool().as_langchain_tools()
+                       if tool.name == "developer_create_branch")
+    tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
+    try:
+        branch_tool.invoke({"branch_name": "fix/1-csv-quoted-fields"})
+    finally:
+        tool_context.reset_context(tokens)
+
+    assert list(inspector_snapshot._snapshots) == [("other", thread_id)]

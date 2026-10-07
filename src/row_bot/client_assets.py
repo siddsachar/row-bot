@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 from html.parser import HTMLParser
 import json
@@ -161,13 +162,40 @@ def load_client_assets(root: Path) -> dict[str, ClientAsset]:
         raise AssetValidationError("client_build_unavailable") from exc
 
 
+def _development_checkout() -> Path | None:
+    checkout = Path(__file__).resolve().parent.parent.parent
+    if not getattr(sys, "frozen", False) and (checkout / "frontend/package.json").is_file():
+        return checkout
+    return None
+
+
 def default_client_asset_root() -> Path:
     """Use checkout output during development, bundled assets when installed."""
-    package = Path(__file__).resolve().parent
-    checkout = package.parent.parent
-    if not getattr(sys, "frozen", False) and (checkout / "frontend/package.json").is_file():
+    checkout = _development_checkout()
+    if checkout is not None:
         return checkout / "frontend/dist"
-    return package / "static/client-v2"
+    return Path(__file__).resolve().parent / "static/client-v2"
+
+
+def checkout_client_build(checkout: Path | None = None) -> tuple[datetime, datetime] | None:
+    """In a development checkout, (build time, newest client source change); compare them to see a stale build (F13).
+
+    None when installed or when there is no build yet (the app reports that itself).
+    """
+    checkout = checkout or _development_checkout()
+    if checkout is None:
+        return None
+    frontend = checkout / "frontend"
+    try:
+        built = (frontend / "dist/.vite/manifest.json").stat().st_mtime
+    except OSError:
+        return None
+    sources = [frontend / "index.html", *(
+        path for path in (frontend / "src").rglob("*")
+        if path.is_file() and ".test." not in path.name
+    )]
+    newest = max((path.stat().st_mtime for path in sources if path.is_file()), default=0.0)
+    return datetime.fromtimestamp(built), datetime.fromtimestamp(newest)
 
 
 def _shell_headers(content: bytes) -> dict[str, str]:

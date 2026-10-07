@@ -4,7 +4,6 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 import json
-import math
 import re
 import sqlite3
 from typing import Callable
@@ -152,45 +151,12 @@ def get_task_graph(task_id: str) -> TaskGraphSnapshot:
     return _snapshot(task_id, task, revision)
 
 
-def _condition(value: str, depth: int = 0) -> None:
+def _condition(value: str) -> None:
     """Check syntax only: never evaluate a saved LLM or regular expression."""
-    if depth > 16:
+    try:
+        tasks.check_condition(value)
+    except tasks.ConditionSyntaxError:
         _fail()
-    if value in {"true", "false", "empty", "not_empty"}:
-        return
-    operator, separator, argument = value.partition(":")
-    if not separator:
-        _fail()
-    if operator in {"contains", "not_contains", "equals", "llm"}:
-        return
-    if operator == "matches":
-        try:
-            re.compile(argument)
-        except re.error:
-            _fail()
-        return
-    if operator in {"gt", "lt", "gte", "lte", "length_gt", "length_lt"}:
-        try:
-            number = int(argument) if operator.startswith("length_") else float(argument)
-            if not math.isfinite(number):
-                _fail()
-        except ValueError:
-            _fail()
-        return
-    if operator == "json":
-        path, separator, child = argument.partition(":")
-        if not separator or not path:
-            _fail()
-        _condition(child, depth + 1)
-        return
-    if operator in {"and", "or"} and argument.startswith("[") and argument.endswith("]"):
-        children = tasks._split_compound(argument[1:-1])
-        if not children or len(children) > 100:
-            _fail()
-        for child in children:
-            _condition(child, depth + 1)
-        return
-    _fail()
 
 
 def _validate_fields(kind: str, fields: TaskGraphFields, *, semantic: bool) -> None:

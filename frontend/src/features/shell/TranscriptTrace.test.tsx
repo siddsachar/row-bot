@@ -681,3 +681,20 @@ it('names the app a tool step belongs to, with its logo', () => {
   const named = screen.getByText('Notion', { selector: '.activity-step-app' });
   expect(named.querySelector('.app-icon')).not.toBeNull();
 });
+
+it('says which tool call is being written while a long one streams', () => {
+  render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={{
+        running: true,
+        thinking: true,
+        writing: 'Writing Designer update page · 12 KB',
+      }}
+    />,
+  );
+  expect(
+    screen.getByText('Writing Designer update page · 12 KB…'),
+  ).toBeInTheDocument();
+});

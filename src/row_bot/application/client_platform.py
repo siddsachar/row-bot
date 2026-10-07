@@ -400,6 +400,25 @@ class ClientPlatformService:
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
             self.projection.publish(handle.conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
+            from row_bot.application import approval_grants
+            if status == "waiting_approval" and handle.approval_granted:
+                try:
+                    self._resolve_approval_locked(handle.approval_id, {"decision": "approve"},
+                                                  runtime_surface=handle.runtime_surface)
+                except ClientPlatformError:
+                    # Not answered after all: the person sees the card as usual.
+                    _LOG.warning("A turn-approved action in %s still needs its approval", handle.conversation_id,
+                                 exc_info=True)
+                    view = self.get_approval(handle.approval_id)
+                    if view["status"] == "pending":
+                        self.projection.publish(handle.conversation_id, "approval.required", {
+                            "status": "waiting_approval", "approval_id": handle.approval_id,
+                            **{key: view[key] for key in ("action_label", "reason", "risk_class", "scope",
+                                                          "safe_argument_summary", "requesting_trace_id", "setup")
+                               if key in view}})
+                return
+            if status != "waiting_approval":
+                approval_grants.end_turn(handle.conversation_id)
             if status == "completed":
                 try:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)
@@ -484,11 +503,30 @@ class ClientPlatformService:
         except sqlite3.Error:
             return set()
 
+    @staticmethod
+    def _goals_waiting(conversation_ids: list[str]) -> set[str]:
+        """Conversations whose newest goal waits on the person ("Needs you"; B315)."""
+        if not conversation_ids:
+            return set()
+        from row_bot.tasks import _get_conn
+        placeholders = ",".join("?" for _ in conversation_ids)
+        try:
+            with closing(_get_conn()) as conn:
+                newest: dict[str, str] = {}
+                for thread_id, status in conn.execute(
+                        f"SELECT thread_id,status FROM thread_goals WHERE thread_id IN ({placeholders}) "
+                        "ORDER BY updated_at", conversation_ids):
+                    newest[str(thread_id)] = str(status)
+        except sqlite3.Error:
+            return set()
+        return {thread_id for thread_id, status in newest.items() if status == "blocked"}
+
     def get_conversation(
         self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None,
         parent_conversation_id: str | None = None,
         orchestration_activity: dict | None = None,
         awaiting_approval: bool | None = None,
+        goal_waiting: bool | None = None,
     ) -> dict:
         row = self._metadata(conversation_id)
         from row_bot import threads
@@ -506,6 +544,11 @@ class ClientPlatformService:
         if awaiting_approval:
             # Nothing urgent is hidden: a paused approval needs the user.
             orchestration_activity = {"state": "attention", "phase": "waiting_approval"}
+        else:
+            if goal_waiting is None:
+                goal_waiting = conversation_id in self._goals_waiting([conversation_id])
+            if goal_waiting and orchestration_activity.get("state") != "active":
+                orchestration_activity = {"state": "attention", "phase": "goal_needs_you"}
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
                 "updated_at": str(row.get("updated_at") or ""),
@@ -591,10 +634,12 @@ class ClientPlatformService:
         from row_bot.agent_orchestrator import get_thread_orchestration_activity
         activity = get_thread_orchestration_activity([row[0] for row in selected]) if selected else {}
         awaiting = self._awaiting_approval([row[0] for row in selected])
+        goals_waiting = self._goals_waiting([row[0] for row in selected])
         return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
                 parent_conversation_id=parent_ids.get(row[0], ""),
                 orchestration_activity=activity.get(row[0], {}),
-                awaiting_approval=row[0] in awaiting) for row in selected], "has_more": more,
+                awaiting_approval=row[0] in awaiting, goal_waiting=row[0] in goals_waiting)
+                for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:
@@ -1116,6 +1161,9 @@ class ClientPlatformService:
                followup: Any = None) -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
+        if not resume:
+            from row_bot.application import approval_grants
+            approval_grants.end_turn(conversation_id)
         from row_bot.application import client_queue
         frozen_config = (frozen_context or {}).get("configurable") or {}
         selection = payload.get("model_selection") or {}
@@ -1257,6 +1305,10 @@ class ClientPlatformService:
             except Exception:
                 _LOG.warning("The sent draft could not be cleared for %s", conversation_id, exc_info=True)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
+        if followup is None and not resume and str(payload.get("text") or "").strip():
+            # The person's message answers a goal that waits on them (B318).
+            from row_bot import goals
+            goals.resume_goal_for_answer(conversation_id)
 
         def producer() -> None:
             from row_bot.application.conversation_followups import after_platform_turn, live_goal
@@ -1539,6 +1591,11 @@ class ClientPlatformService:
                             "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":
             self.projection.publish(conversation_id, "generation.activity", {"state": "thinking"})
+        elif kind == "tool_writing" and isinstance(payload, dict):
+            from row_bot.agent import _resolve_tool_display_name
+            self.projection.publish(conversation_id, "generation.activity", {
+                "state": "writing", "tool": _resolve_tool_display_name(str(payload.get("name") or ""))[:120],
+                "bytes": max(0, int(payload.get("bytes") or 0))})
         elif kind in {
             "context_usage",
             "compaction_started",
@@ -1571,9 +1628,12 @@ class ClientPlatformService:
                 source_thread_id=conversation_id, parent_thread_id=conversation_id,
                 approval_payload_json=context)
             handle.status = "waiting_approval"
-            self.projection.publish(conversation_id, "approval.required", {
-                "status": "waiting_approval", "approval_id": handle.approval_id,
-                **public_approval})
+            from row_bot.application import approval_grants
+            handle.approval_granted = approval_grants.granted(conversation_id, payload)
+            if not handle.approval_granted:
+                self.projection.publish(conversation_id, "approval.required", {
+                    "status": "waiting_approval", "approval_id": handle.approval_id,
+                    **public_approval})
         elif kind == "error":
             self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
 
@@ -1597,8 +1657,10 @@ class ClientPlatformService:
             context.get("interrupts") if agent_request else context.get("interrupt"),
             fallback_reason=str((context.get("reason") if agent_request else "") or row["message"] or ""),
         )
+        from row_bot.application.approval_grants import approval_kinds
+        repeatable = row["resume_kind"] == "conversation" and approval_kinds(context.get("interrupt")) is not None
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
-                "requested_at": row["requested_at"],
+                "requested_at": row["requested_at"], "repeatable": repeatable,
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
                 "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
                 **public_context}
@@ -1671,6 +1733,11 @@ class ClientPlatformService:
             from row_bot.application.conversation_followups import after_approval
             after_approval(conversation_id, approved=approved)
             interrupt = stored.get("interrupt")
+            if approved and payload.get("scope") == "turn":
+                from row_bot.application import approval_grants
+                kinds = approval_grants.approval_kinds(interrupt)
+                if kinds:
+                    approval_grants.grant(conversation_id, kinds)
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
                                  approval_context={"approved": approved,
                                                    "interrupt_ids": context["interrupt_ids"],

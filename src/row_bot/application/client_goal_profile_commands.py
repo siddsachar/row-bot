@@ -369,6 +369,34 @@ def read_profile(
     return {"schema_version": 1, "profile": value}
 
 
+def read_profile_instructions(
+    profile_id: str,
+    *,
+    validate: Callable[[], None],
+    profile_owner: Any = agent_profiles,
+) -> dict[str, Any]:
+    """The stored instructions, for an explicit "Show instructions" only (F15).
+
+    Lists and details keep the body out; this read is its own request so the
+    body reaches the browser only when the person asks for it.
+    """
+    validate()
+    profile_id = _text(profile_id, 256, required=True)
+    profile = profile_owner.get_agent_profile(profile_id, enabled_only=False)
+    if profile is None:
+        raise GoalProfileCommandError("not_found")
+    instructions = str(profile.get("instructions") or "")
+    shown = instructions[:_INSTRUCTIONS_SHOWN]
+    validate()
+    return {
+        "schema_version": 1,
+        "profile_id": _public_text(profile.get("id"), 256),
+        "revision": str(max(1, int(profile.get("revision") or 1))),
+        "instructions": shown,
+        "truncated": len(shown) < len(instructions),
+    }
+
+
 def _current_goal(goal_owner: Any, conversation_id: str) -> dict[str, Any] | None:
     return goal_owner.get_current_goal(conversation_id, include_terminal=True)
 
@@ -468,6 +496,10 @@ def review_goal_command(
     return _goal_review(payload, validate=validate, goal_owner=goal_owner)
 
 
+# The most an instruction edit accepts, so a shown body can be edited and saved whole.
+_INSTRUCTIONS_SHOWN = 48 * 1024
+
+
 def _profile_fields(value: object, *, create: bool) -> dict[str, Any]:
     keys = {
         "slug",
@@ -490,7 +522,7 @@ def _profile_fields(value: object, *, create: bool) -> dict[str, Any]:
         raise GoalProfileCommandError("invalid_fields")
     instructions = value["instructions"]
     if instructions is not None:
-        instructions = _text(instructions, 48 * 1024)
+        instructions = _text(instructions, _INSTRUCTIONS_SHOWN)
     if create and instructions is None:
         instructions = ""
     if (

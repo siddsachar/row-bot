@@ -228,6 +228,7 @@ def check_channels() -> list[CheckResult]:
     """Dynamic health checks for all registered channels."""
     results = []
     try:
+        from row_bot.channels import config as ch_config
         from row_bot.channels.registry import all_channels
         for ch in all_channels():
             try:
@@ -245,9 +246,13 @@ def check_channels() -> list[CheckResult]:
                     else:
                         results.append(CheckResult(ch.display_name, "ok",
                                                    "Running", settings_tab="Channels"))
-                else:
+                elif ch_config.get(ch.name, "auto_start", False) is True:
                     results.append(CheckResult(ch.display_name, "warn",
                                                "Stopped", settings_tab="Channels"))
+                else:
+                    # Set up but not set to start: off by choice, not a problem (B293).
+                    results.append(CheckResult(ch.display_name, "inactive",
+                                               "Off", settings_tab="Channels"))
             except Exception as exc:
                 results.append(CheckResult(ch.display_name, "error",
                                            str(exc), settings_tab="Channels"))
@@ -645,6 +650,29 @@ def check_logging() -> CheckResult:
         return CheckResult("Logging", "error", str(exc), settings_tab="System")
 
 
+def check_client_build() -> list[CheckResult]:
+    """In a development checkout, warn when the app serves a client older than its source (F13).
+
+    Installed apps get no row; a checkout always gets one, so a rebuild clears the warning.
+    """
+    try:
+        from row_bot.client_assets import checkout_client_build
+        build = checkout_client_build()
+    except Exception as exc:
+        return [CheckResult("Client build", "error", str(exc), settings_tab="System")]
+    if build is None:
+        return []
+    built, changed = build
+    if changed <= built:
+        return [CheckResult("Client build", "ok", f"Current: built {built:%d %b %H:%M}", settings_tab="System")]
+    return [CheckResult(
+        "Client build", "warn",
+        f"Older than its source: built {built:%d %b %H:%M}, source changed {changed:%d %b %H:%M}. "
+        "Run npm --prefix frontend run build and restart.",
+        settings_tab="System",
+    )]
+
+
 def check_search_tools() -> CheckResult:
     """Check search/research tool availability."""
     try:
@@ -806,6 +834,7 @@ ALL_CHECKS = [
     check_tts,
     check_wiki_vault,
     check_logging,
+    check_client_build,
     check_disk_space,
     check_threads_db,
     check_faiss_index,
@@ -836,6 +865,7 @@ _RESULT_ORDER = {
     "TTS": 12,
     "Wiki Vault": 13,
     "Logging": 14,
+    "Client build": 14.5,
     "Disk": 15,
     "Threads DB": 16,
     "FAISS Index": 17,

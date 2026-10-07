@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import GoalProfileSettings, {
   createGoalProfileSettingsSession,
@@ -112,6 +113,15 @@ function options() {
       schema_version: 1 as const,
       profile: profileId === userProfile.id ? userProfile : builtinProfile,
     })),
+    loadProfileInstructions: vi
+      .fn()
+      .mockImplementation(async (profileId: string) => ({
+        schema_version: 1 as const,
+        profile_id: profileId,
+        revision: '4',
+        instructions: `Saved body of ${profileId}`,
+        truncated: false,
+      })),
     reviewGoal: vi.fn().mockImplementation(async (payload) => ({
       schema_version: 1 as const,
       ...payload,
@@ -280,6 +290,49 @@ it('preserves stored profile instructions unless replacement is explicit', async
   );
 });
 
+it('edits a copy of the saved instructions only after showing them', async () => {
+  const props = options();
+  render(<GoalProfileSettings {...props} />);
+  await screen.findByText('Complete the migration');
+  await openProfiles();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Focused Writer' }));
+  await screen.findByRole('group', { name: 'Edit profile' });
+  expect(props.loadProfileInstructions).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Show instructions' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Edit these instructions' }),
+  );
+  const field = screen.getByLabelText(/^New instructions/);
+  expect(field).toHaveValue('Saved body of profile-1');
+  fireEvent.change(field, {
+    target: { value: 'Saved body of profile-1, tightened.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  await waitFor(() => expect(props.reviewProfile).toHaveBeenCalledTimes(1));
+  expect(props.reviewProfile.mock.calls[0][0].fields.instructions).toBe(
+    'Saved body of profile-1, tightened.',
+  );
+});
+
+it('starts new instructions from a template while the field is empty', async () => {
+  const user = userEvent.setup();
+  const props = options();
+  render(<GoalProfileSettings {...props} />);
+  await screen.findByText('Complete the migration');
+  await openProfiles();
+  fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
+  await user.click(
+    screen.getByRole('button', { name: 'Start from a template' }),
+  );
+  await user.click(await screen.findByRole('menuitem', { name: 'Reviewer' }));
+  expect(
+    (screen.getByLabelText(/^New instructions/) as HTMLTextAreaElement).value,
+  ).toMatch(/^You review work before it ships\./);
+  expect(
+    screen.queryByRole('button', { name: 'Start from a template' }),
+  ).not.toBeInTheDocument();
+});
+
 it('keeps built-ins read only while allowing an explicit duplicate', async () => {
   const props = options();
   render(<GoalProfileSettings {...props} />);
@@ -330,9 +383,28 @@ it('manages grouped profiles without a conversation and starts a selected profil
       screen.getByRole('region', { name: 'Profile details' }),
     ).toHaveFocus(),
   );
+  // F15: the saved body loads only when asked for.
+  expect(props.loadProfileInstructions).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Show instructions' }));
   expect(
-    screen.getByText(/Stored instructions are private/),
-  ).toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Saved instructions' }),
+  ).toHaveTextContent('Saved body of builtin:general');
+  expect(props.loadProfileInstructions).toHaveBeenCalledTimes(1);
+  // A built-in is read only: no edit from the details.
+  expect(
+    screen.queryByRole('button', { name: 'Edit these instructions' }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Hide instructions' }));
+  expect(
+    screen.queryByRole('region', { name: 'Saved instructions' }),
+  ).not.toBeInTheDocument();
+  // B296: the policy reads in words, never the stored ids.
+  const details = screen.getByRole('region', { name: 'Profile details' });
+  expect(details).toHaveTextContent(
+    'Workspace: Read only · Approvals: Same as the chat',
+  );
+  expect(details).toHaveTextContent('Reads only · Automatic context');
+  expect(details).not.toHaveTextContent(/read_only|inherit/);
   fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
   await waitFor(() =>
     expect(

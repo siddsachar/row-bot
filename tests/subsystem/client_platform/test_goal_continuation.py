@@ -370,3 +370,137 @@ def test_the_turn_that_finishes_a_goal_counts(goal_setup):
                          "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}))
     wait_idle(platform, fake, 2)
     assert goals.get_goal(goal["id"])["turns_used"] == 1, "a chat turn after the goal ended is not counted"
+
+
+def answer(platform, text: str, label: str) -> None:  # noqa: F811
+    platform.execute(owner_id="fixture", idempotency_key=label, target=CONVERSATION,
+                     command=command("conversation.submit", label, {
+                         "text": text, "submission_id": label,
+                         "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}))
+
+
+def test_answering_the_goals_question_resumes_it_and_the_verifier_judges_the_answer(goal_setup):
+    """B318: the person's message is the answer; the goal needs no Resume click."""
+    from row_bot import goals
+    platform, verdicts = goal_setup
+    verdicts.extend([{"progress": "blocked", "reason": "Needs the launch date."},
+                     {"progress": "done", "reason": "The X post uses 18 October."}])
+    fake = Recording(completed("Which launch date?"), completed("Here is the post for 18 October."))
+    goal = start(platform, fake, max_turns=10)
+    wait_idle(platform, fake, 1)
+    assert goals.get_goal(goal["id"])["status"] == "blocked"
+
+    answer(platform, "Launch is 18 October.", "goal-answer")
+    wait_idle(platform, fake, 2)
+
+    latest = goals.get_goal(goal["id"])
+    assert (latest["status"], latest["last_reason"]) == ("completed", "The X post uses 18 October.")
+
+
+def test_a_paused_goal_stays_paused_when_the_person_chats(goal_setup):
+    from row_bot import goals
+    platform, _ = goal_setup
+    fake = Recording(completed("step 0"), completed("chat"))
+    goal = start(platform, fake, max_turns=1)
+    wait_idle(platform, fake, 1)
+    assert goals.get_goal(goal["id"])["status"] == "paused"
+    answer(platform, "What did you do so far?", "goal-chat")
+    wait_idle(platform, fake, 2)
+    assert goals.get_goal(goal["id"])["status"] == "paused"
+
+
+def test_a_goal_waiting_on_the_person_starts_no_hand_off_until_they_answer(goal_setup):
+    """B316: no "Continuing in <design>" turn runs while the goal reads Needs you."""
+    from row_bot import goals
+    from row_bot.application import conversation_followups
+    platform, verdicts = goal_setup
+    verdicts.extend([{"progress": "blocked", "reason": "Needs the launch date."},
+                     {"progress": "progress", "reason": "Has the date."},
+                     {"progress": "done", "reason": "Page and post are ready."}])
+    hand_off = conversation_followups.Followup("resource", "Build the landing page now.",
+                                               "Continuing in Launch page")
+
+    class SetsUpADesign(Recording):
+        def stream(self, text, enabled_tools, config, *, stop_event=None):
+            if not self.prompts:
+                conversation_followups.schedule(CONVERSATION, hand_off)
+            yield from super().stream(text, enabled_tools, config, stop_event=stop_event)
+
+    fake = SetsUpADesign(completed("Which launch date?"), completed("Noted."), completed("Page built."))
+    goal = start(platform, fake, max_turns=10)
+    wait_idle(platform, fake, 1)
+    threading.Event().wait(0.3)
+    assert len(fake.calls) == 1 and goals.get_goal(goal["id"])["status"] == "blocked"
+    assert conversation_followups.pending(CONVERSATION) == hand_off
+
+    answer(platform, "Launch is 18 October.", "goal-answer-design")
+    wait_idle(platform, fake, 3)
+
+    assert fake.prompts[2] == "Build the landing page now."
+    assert goals.get_goal(goal["id"])["status"] == "completed"
+
+
+def test_a_goal_started_in_an_empty_conversation_names_it(goal_setup):
+    """B319: the sidebar, header and Home kept "New conversation" for a goal's conversation."""
+    platform, _ = goal_setup
+    fake = Recording(completed("step 0"))
+    start(platform, fake, max_turns=1)
+    wait_idle(platform, fake, 1)
+
+    assert platform.get_conversation(CONVERSATION)["title"].startswith("Write three synthetic notes")
+
+
+def test_a_reply_the_provider_cut_off_is_tried_again_once_then_pauses_with_the_reason(goal_setup, monkeypatch):
+    """B324: the provider ended a long reply part-way; the goal read "The reply didn't finish" and stopped."""
+    from row_bot import goals
+    from row_bot.agent import PROVIDER_CUT_MESSAGE
+    from row_bot.application import conversation_followups
+    platform, _ = goal_setup
+    monkeypatch.setattr(conversation_followups, "_RETRIED_AFTER_CUT", set())
+    waits: list[tuple[float, object]] = []
+    monkeypatch.setattr(conversation_followups, "_schedule", lambda delay, run: waits.append((delay, run)))
+    cut = ("error", PROVIDER_CUT_MESSAGE)
+    fake = Recording((cut,), (cut,), completed("never runs"))
+    goal = start(platform, fake, max_turns=0)
+    wait_idle(platform, fake, 1)
+    retrying = goals.get_goal(goal["id"])
+    assert (retrying["status"], retrying["last_reason"]) == (
+        "active", "The provider ended the reply before it finished. Trying the step again.")
+
+    waits[0][1]()
+    wait_idle(platform, fake, 2)
+
+    latest = goals.get_goal(goal["id"])
+    assert latest["status"] == "paused"
+    assert latest["last_reason"].startswith("The provider ended the reply before it finished, twice")
+    assert len(fake.calls) == 2 and len(waits) == 1
+
+
+def test_a_tool_call_being_written_shows_as_writing_activity(goal_setup):
+    """B324: the live line names the tool call that is still being written."""
+    platform, _ = goal_setup
+    after = platform.projection.events_since(CONVERSATION, "0")["events"]
+    fake = Recording(completed("page built", ("tool_writing", {"name": "designer_update_page", "bytes": 12288})))
+    platform.stream_factory = fake.stream
+    platform.resume_factory = fake.resume
+    answer(platform, "Build the page", "writing-progress")
+    wait_idle(platform, fake, 1)
+
+    seen = [event["payload"] for event in platform.projection.events_since(CONVERSATION, "0")["events"]
+            if event["type"] == "generation.activity" and event not in after]
+    writing = [payload for payload in seen if payload["state"] == "writing"]
+    assert writing and writing[0]["bytes"] == 12288 and "update" in writing[0]["tool"].lower()
+
+
+def test_a_goal_waiting_on_the_person_marks_its_conversation_as_needing_them(goal_setup):
+    """B315: Home's Needs you listed only "Finish setup" while a goal waited for the launch date."""
+    platform, verdicts = goal_setup
+    verdicts.append({"progress": "blocked", "reason": "Needs the launch date."})
+    fake = Recording(completed("Which launch date?"))
+    start(platform, fake, max_turns=5)
+    wait_idle(platform, fake, 1)
+
+    view = platform.get_conversation(CONVERSATION)
+    listed = next(item for item in platform.list_conversations()["items"] if item["id"] == CONVERSATION)
+    assert (view["activity_state"], view["activity_phase"]) == ("attention", "goal_needs_you")
+    assert (listed["activity_state"], listed["activity_phase"]) == ("attention", "goal_needs_you")

@@ -4,6 +4,8 @@ import importlib
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 
 def _fresh_modules(tmp_path, monkeypatch, *, offline_fallback=True):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
@@ -618,7 +620,7 @@ def test_custom_tool_test_runner_substitutes_query_placeholder(tmp_path, monkeyp
     command = 'python -c "q = {query}.lower(); print(q)"'
     captured: dict[str, str] = {}
 
-    def fake_run_workspace_command(cwd, cmd, approval_mode):
+    def fake_run_workspace_command(cwd, cmd, approval_mode, **_kwargs):
         captured["command"] = cmd
         return capsules.CommandResult(command=cmd, cwd=str(cwd), returncode=0, stdout="python\n")
 
@@ -651,7 +653,7 @@ def test_custom_tool_draft_test_substitutes_query_placeholder(tmp_path, monkeypa
     capsules._save_draft(draft)
     captured: dict[str, str] = {}
 
-    def fake_run_workspace_command(cwd, cmd, approval_mode):
+    def fake_run_workspace_command(cwd, cmd, approval_mode, **_kwargs):
         captured["command"] = cmd
         return capsules.CommandResult(command=cmd, cwd=str(cwd), returncode=0, stdout="python\n")
 
@@ -810,3 +812,29 @@ def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_pat
     assert install_path.exists()
     assert plugin_registry.get_manifest(promoted.promoted_plugin_id) is None
     assert capsules.list_capsules()[0].promoted_plugin_id == ""
+
+
+@pytest.mark.parametrize(("mode", "asks", "builds"), [("approve", True, False), ("block", False, False),
+                                                      ("allow_all", False, True)])
+def test_the_agent_asks_before_testing_or_turning_on_a_custom_tool(monkeypatch, mode, asks, builds):
+    """B292: a Custom Tool's commands run on this computer, so the agent can't test or enable one unasked."""
+    from types import SimpleNamespace
+
+    from row_bot.tools import custom_tool_builder_tool as builder
+
+    asked, built = [], []
+    draft = SimpleNamespace(name="Weather", commands=[{"name": "Run", "command": "python evil.py"}])
+    monkeypatch.setattr(builder, "get_custom_tool_draft", lambda _draft_id: draft)
+    monkeypatch.setattr(builder, "_active_approval_mode", lambda: mode)
+    monkeypatch.setattr(builder, "interrupt", lambda request: asked.append(request) or False)
+    monkeypatch.setattr(builder, "custom_tool_builder", lambda action, **_kw: built.append(action) or {})
+
+    for action in ("test", "enable", "promote"):
+        builder._run_builder(action, draft_id="draft-1")
+
+    assert bool(asked) is asks and bool(built) is builds
+    if asks:
+        assert asked[0]["args"]["commands"] == ["python evil.py"]
+        assert "python evil.py" in asked[0]["description"]
+    builder._run_builder("enable", draft_id="draft-1", enable=False)
+    assert built[-1:] == ["enable"]

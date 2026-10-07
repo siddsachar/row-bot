@@ -169,7 +169,8 @@ def test_inspector_complete_changes_cache_and_revocation(domain, tmp_path, monke
         storage.get_workspace(choice.resource_id), {"is_git": True, "branch": "fixture", "remote": "secret", "repo_root": str(tmp_path)}, [],
         [ChangedFile(f"file-{i:04}.txt", "M") for i in range(1003)], None,
         [ChangeSet(f"set-{i}", choice.resource_id, "chat-a", i, f"Fixture {i}",
-                   [FileChange(f"changed-{j}.txt", "update", "old", "new", before_text="private-before-text")
+                   [FileChange(f"changed-{j}.txt", "update", "old", "new", before_text="private-before-text",
+                               patch="@@ -1 +1 @@\n-old\n+new\n" if j == 0 else "")
                     for j in range(203)],
                    guarded_import={"kind": "workspace.import.v1"} if i == 0 else None) for i in range(17)], [],
         DevcontainerInfo(present=False), SandboxProbe(False), None, [])
@@ -203,6 +204,8 @@ def test_inspector_complete_changes_cache_and_revocation(domain, tmp_path, monke
         files = service.list_inspector_change_set_files(choice.resource_id, "chat-a", "set-16", limit=33)
         paths = [item.path for item in files.items]
         assert "private-before-text" not in json.dumps(asdict(files))
+        # B304: an earlier change opens what the agent changed, read-only.
+        assert files.items[0].patch == "@@ -1 +1 @@\n-old\n+new\n" and files.items[1].patch == ""
         while files.next_cursor:
             files = service.list_inspector_change_set_files(choice.resource_id, "chat-a", "set-16", cursor=files.next_cursor, limit=33)
             paths.extend(item.path for item in files.items)

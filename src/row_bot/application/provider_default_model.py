@@ -79,6 +79,9 @@ def _adopt(reference: str) -> None:
     runtime = sys.modules.get("row_bot.models")
     if runtime is not None:
         runtime.adopt_saved_default(reference)
+    from row_bot.application.client_diagnosis import recheck_default_model
+
+    recheck_default_model()
 
 
 def execute_default_model(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],

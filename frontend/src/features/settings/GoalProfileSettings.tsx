@@ -30,6 +30,7 @@ import {
   Trash2,
   UserRound,
   Eye,
+  EyeOff,
   Copy,
   type LucideIcon,
 } from 'lucide-react';
@@ -38,6 +39,7 @@ import {
   Field,
   IconButton,
   Input,
+  Menu,
   Select,
   Tabs,
   Toggle,
@@ -252,10 +254,8 @@ function profileGroup(profile: ProfileSummary) {
 }
 function profilePolicy(profile: ProfileSummary) {
   return [
-    profile.capability.replaceAll('_', ' '),
-    profile.context_mode === 'auto'
-      ? 'Automatic context'
-      : `${profile.context_mode} context`,
+    CAPABILITIES[profile.capability] ?? profile.capability.replaceAll('_', ' '),
+    `${CONTEXT_MODES[profile.context_mode] ?? profile.context_mode} context`,
     profile.allow_tools.length
       ? `${profile.allow_tools.length} selected tool${profile.allow_tools.length === 1 ? '' : 's'}`
       : 'Inherits enabled tools',
@@ -411,6 +411,45 @@ export type GoalProfileSettingsSession = ReturnType<
   typeof createGoalProfileSettingsSession
 >;
 
+export type ProfileInstructions = {
+  schema_version: 1;
+  profile_id: string;
+  revision: string;
+  instructions: string;
+  truncated: boolean;
+};
+
+// Starting points for a profile's instructions (F15).
+const INSTRUCTION_TEMPLATES: { label: string; text: string }[] = [
+  {
+    label: 'Research lead',
+    text: [
+      'You lead research on the question you are given.',
+      '- Break it into a few concrete questions and answer each from sources you can cite.',
+      '- Prefer primary sources, note their dates, and say where sources disagree.',
+      '- Reply with the short answer first, then the evidence, then what is still open.',
+    ].join('\n'),
+  },
+  {
+    label: 'Reviewer',
+    text: [
+      'You review work before it ships.',
+      '- Read all of it first, then list problems from most to least serious.',
+      '- For each problem say where it is, why it matters and a concrete fix.',
+      '- Say plainly what is good enough to keep; do not rewrite what is not broken.',
+    ].join('\n'),
+  },
+  {
+    label: 'Writer',
+    text: [
+      'You write clear, plain text for the audience you are given.',
+      '- Lead with the point; keep sentences short and words concrete.',
+      '- Match the requested length and format exactly.',
+      '- Check facts against the material provided and flag anything you could not check.',
+    ].join('\n'),
+  },
+];
+
 export type GoalProfileSettingsProps = {
   conversationId?: string;
   profilesOnly?: boolean;
@@ -428,6 +467,11 @@ export type GoalProfileSettingsProps = {
     profileId: string,
     signal: AbortSignal,
   ) => Promise<{ schema_version: 1; profile: ProfileSummary }>;
+  /** Reads the stored instructions; called only when the person asks (F15). */
+  loadProfileInstructions?: (
+    profileId: string,
+    signal: AbortSignal,
+  ) => Promise<ProfileInstructions>;
   reviewGoal?: (
     payload: GoalPayload,
     signal: AbortSignal,
@@ -499,6 +543,11 @@ function fieldsFromDraft(draft: ProfileDraft, create: boolean): ProfileFields {
 }
 
 // Profile policy values in words; the option values stay the stable ids.
+const CAPABILITIES: Record<string, string> = {
+  read_only: 'Reads only',
+  write_capable: 'Can make changes',
+  orchestrator: 'Runs other agents',
+};
 const CONTEXT_MODES: Record<ProfileDraft['context_mode'], string> = {
   auto: 'Automatic',
   focused: 'Focused',
@@ -529,6 +578,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     loadGoals,
     loadProfiles,
     loadProfile,
+    loadProfileInstructions,
     reviewGoal,
     executeGoal,
     reviewProfile,
@@ -536,6 +586,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   } = props;
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const favourites = useAgentFavourites();
+  // Saved instructions shown on request, for the profile they belong to.
+  const [shownInstructions, setShownInstructions] =
+    useState<ProfileInstructions | null>(null);
+  const [instructionsError, setInstructionsError] = useState('');
+  const shown =
+    shownInstructions?.profile_id === state.selectedProfile?.id
+      ? shownInstructions
+      : null;
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(['Everyday']),
   );
@@ -804,6 +862,86 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     } finally {
       session.endRead(abort);
     }
+  };
+
+  const showInstructions = async (profileId: string) => {
+    if (!loadProfileInstructions) return;
+    const abort = session.beginRead();
+    setInstructionsError('');
+    try {
+      const result = await loadProfileInstructions(profileId, abort.signal);
+      if (result.schema_version !== 1 || result.profile_id !== profileId)
+        throw Error('profile instructions mismatch');
+      if (!abort.signal.aborted) setShownInstructions(result);
+    } catch {
+      if (!abort.signal.aborted)
+        setInstructionsError('The saved instructions could not be read.');
+    } finally {
+      session.endRead(abort);
+    }
+  };
+
+  // Stored instructions stay out of every list and detail; they load only
+  // when the person chooses Show instructions (F15).
+  const savedInstructions = (profile: ProfileSummary, editing: boolean) => {
+    if (!profile.instructions_truncated)
+      return <p className="muted">No saved instructions.</p>;
+    if (!loadProfileInstructions) return null;
+    return (
+      <div className="profile-instructions stack">
+        <div className="profile-instructions-head">
+          <span>Saved instructions</span>
+          {shown ? (
+            <IconButton
+              size="sm"
+              label="Hide instructions"
+              onClick={() => setShownInstructions(null)}
+            >
+              <EyeOff size={14} aria-hidden />
+            </IconButton>
+          ) : (
+            <IconButton
+              size="sm"
+              label="Show instructions"
+              disabled={locked}
+              onClick={() => void showInstructions(profile.id)}
+            >
+              <Eye size={14} aria-hidden />
+            </IconButton>
+          )}
+        </div>
+        {instructionsError && !shown && <p role="alert">{instructionsError}</p>}
+        {shown && (
+          <>
+            <pre
+              className="profile-instructions-text"
+              role="region"
+              aria-label="Saved instructions"
+              tabIndex={0}
+            >
+              {shown.instructions}
+            </pre>
+            {shown.truncated && (
+              <p className="muted">Showing the first 48 KB.</p>
+            )}
+            {editing && !shown.truncated && (
+              <Button
+                disabled={locked}
+                onClick={() =>
+                  session.updateProfileDraft({
+                    replace_instructions: true,
+                    instructions: shown.instructions,
+                  })
+                }
+              >
+                <Pencil size={14} aria-hidden />
+                Edit these instructions
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+    );
   };
 
   const requestProfileReview = async (operation: ProfileOperation) => {
@@ -1193,6 +1331,10 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               }
             />
           </Field>
+          {state.profileMode === 'edit' &&
+            state.selectedProfile &&
+            !state.profileDraft.replace_instructions &&
+            savedInstructions(state.selectedProfile, true)}
           {state.profileMode === 'edit' && (
             <label>
               <Toggle
@@ -1210,22 +1352,37 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           )}
           {(state.profileMode === 'create' ||
             state.profileDraft.replace_instructions) && (
-            <Field
-              label="New instructions"
-              hint="The saved instruction body is never loaded into this editor."
-            >
-              <textarea
-                className="input"
-                rows={6}
-                maxLength={49152}
-                value={state.profileDraft.instructions ?? ''}
-                onChange={(event) =>
-                  session.updateProfileDraft({
-                    instructions: event.target.value,
-                  })
-                }
-              />
-            </Field>
+            <>
+              {!state.profileDraft.instructions && (
+                <Menu
+                  label="Start from a template"
+                  variant="ghost"
+                  actions={INSTRUCTION_TEMPLATES.map((template) => ({
+                    label: template.label,
+                    onSelect: () =>
+                      session.updateProfileDraft({
+                        instructions: template.text,
+                      }),
+                  }))}
+                >
+                  <Sparkles size={14} aria-hidden />
+                  Start from a template
+                </Menu>
+              )}
+              <Field label="New instructions">
+                <textarea
+                  className="input"
+                  rows={6}
+                  maxLength={49152}
+                  value={state.profileDraft.instructions ?? ''}
+                  onChange={(event) =>
+                    session.updateProfileDraft({
+                      instructions: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+            </>
           )}
           <Field label="Capability">
             <Select
@@ -1473,8 +1630,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         <>
           <h2>Agent Profiles</h2>
           <p>
-            Reusable profiles are global. Stored instruction bodies stay
-            private; edits either preserve or explicitly replace them.
+            Reusable profiles are global. Saved instructions load only when you
+            choose Show instructions.
           </p>
         </>
       )}
@@ -1612,12 +1769,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           <p>{state.selectedProfile.when_to_use}</p>
           <p>{profilePolicy(state.selectedProfile)}</p>
           <p>
-            Workspace: {state.selectedProfile.workspace_mode} · Approval:{' '}
-            {state.selectedProfile.approval_mode}
+            Workspace:{' '}
+            {WORKSPACE_MODES[state.selectedProfile.workspace_mode] ??
+              state.selectedProfile.workspace_mode}{' '}
+            · Approvals:{' '}
+            {APPROVAL_MODES[state.selectedProfile.approval_mode] ??
+              state.selectedProfile.approval_mode}
           </p>
-          <p>
-            Stored instructions are private and can only be replaced explicitly.
-          </p>
+          {savedInstructions(state.selectedProfile, false)}
           <Button
             onClick={() =>
               session.update({ profileMode: '', selectedProfile: null })

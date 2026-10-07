@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { suggestCommit, suggestPullRequest } from './commit-suggestion';
+import { suggestCommit } from './commit-suggestion';
 
 describe('suggestCommit', () => {
   it('uses the one agent change set that covers the change', () => {
@@ -59,28 +59,5 @@ describe('suggestCommit', () => {
     )?.subject;
     expect(subject!.length).toBeLessThanOrEqual(72);
     expect(subject).toMatch(/…$/);
-  });
-});
-
-describe('suggestPullRequest', () => {
-  it('fills a summary, the changed files and a tests section', () => {
-    const value = suggestPullRequest(
-      [{ path: 'src/app.py', status: 'M' }],
-      [{ summary: 'Add greeting', reverted: false }],
-      'feat/greeting-endpoint',
-    );
-    expect(value?.subject).toBe('Add greeting');
-    expect(value?.body).toContain('## Summary\n\n- Add greeting');
-    expect(value?.body).toContain('- `src/app.py`');
-    expect(value?.body).toContain('## Tests');
-  });
-
-  it('falls back to the branch name when nothing changed locally', () => {
-    expect(suggestPullRequest([], [], 'fix/login-timeout')?.subject).toBe(
-      'Login timeout',
-    );
-    expect(suggestPullRequest([], [], 'feature/subtract')?.subject).toBe(
-      'Subtract',
-    );
   });
 });

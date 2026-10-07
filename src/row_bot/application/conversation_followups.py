@@ -30,6 +30,9 @@ _LOG = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 # Goals waiting for a provider limit to reset: conversation -> seconds.
 _LIMIT_WAITS: dict[str, float] = {}
+# Goals whose last turn the provider cut off and that already tried again once (B324).
+_RETRIED_AFTER_CUT: set[str] = set()
+_CUT_RETRY_SECONDS = 5.0
 
 
 def _schedule(delay: float, run: Callable[[], None]) -> None:
@@ -160,6 +163,11 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
     goal = live_goal(conversation_id)
     if followup.kind == "goal" and (goal is None or goal.get("status") != "active"):
         return  # Paused, stopped or done since it was scheduled.
+    if followup.kind == "resource" and goal is None and _goal_waits_on_person(conversation_id):
+        # A goal that asked the person something starts no work until they answer (B316): the hand-off
+        # waits and runs after their answer turn, once the goal is active again.
+        schedule(conversation_id, followup)
+        return
     start(service, conversation_id, followup, model_ref=handle.model_ref,
           runtime_surface=handle.runtime_surface)
 
@@ -171,6 +179,12 @@ def goal_note(goal: dict[str, Any]) -> str:
     used = int(goal.get("turns_used") or 0)
     limit = int(goal.get("max_turns") or 0)
     return f"Goal · turn {min(used + 1, limit)} of {limit}" if limit else f"Goal · turn {used + 1}"
+
+
+def _goal_waits_on_person(conversation_id: str) -> bool:
+    from row_bot import goals
+    goal = goals.get_current_goal(conversation_id, include_terminal=True)
+    return bool(goal) and goal.get("status") in {"blocked", "paused"}
 
 
 def live_goal(conversation_id: str) -> dict[str, Any] | None:
@@ -212,6 +226,7 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
         return
     try:
         if status == "completed":
+            _RETRIED_AFTER_CUT.discard(str(goal["id"]))
             decision = goals.after_turn(thread_id=conversation_id, turn_id=generation_id,
                                         assistant_text=assistant_text, model_override=model_ref)
             if decision.should_continue and decision.goal:
@@ -237,9 +252,24 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
                     reason=f"The provider's usage limit was reached. Continuing in about {_about(wait)}.",
                     expected_revision=int(goal.get("revision") or 0))
                 return
+            from row_bot.agent import PROVIDER_CUT_MESSAGE
+            cut = status == "interrupted" and error_text.strip() == PROVIDER_CUT_MESSAGE
+            if cut and str(goal["id"]) not in _RETRIED_AFTER_CUT:
+                # A provider can end a long reply part-way (a large tool call can pass its time limit): the goal
+                # tries the step again once, by itself (B324).
+                _RETRIED_AFTER_CUT.add(str(goal["id"]))
+                with _LOCK:
+                    _LIMIT_WAITS[conversation_id] = _CUT_RETRY_SECONDS
+                goals.set_goal_status(
+                    str(goal["id"]), "active", verdict="continue",
+                    reason="The provider ended the reply before it finished. Trying the step again.",
+                    expected_revision=int(goal.get("revision") or 0))
+                return
             reason = ("You stopped the reply." if status == "stopped"
                       else "The provider's rate or usage limit stopped the goal. "
                            "Resume it once the limit resets." if wait == 0.0
+                      else "The provider ended the reply before it finished, twice (it may have been writing "
+                           "something very long). Resume to try again." if cut
                       else "The reply didn't finish.")
             goals.set_goal_status(str(goal["id"]), "paused", reason=reason, verdict="paused",
                                   expected_revision=int(goal.get("revision") or 0))
@@ -315,6 +345,13 @@ def continue_goals_after_restart(service: Any) -> int:
 def after_goal_change(service: Any, conversation_id: str, operation: str,
                       goal: dict[str, Any] | None) -> None:
     """Start, resume, pause or end the goal's turns after a goal command."""
+    if operation == "start" and goal:
+        from row_bot import threads
+        from row_bot.application.conversation_naming import name_first_message
+
+        if not threads.get_latest_checkpoint_revision(conversation_id):
+            # A goal started in an empty conversation names it, as a first message would (B319).
+            name_first_message(conversation_id, str(goal.get("objective") or ""))
     if operation in {"start", "resume"} and goal and goal.get("status") == "active":
         start_goal_turn(service, conversation_id, goal, initial=operation == "start")
     elif operation in {"pause", "complete", "clear"}:

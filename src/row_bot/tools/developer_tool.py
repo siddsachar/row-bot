@@ -13,14 +13,23 @@ from pydantic import BaseModel, Field
 
 from row_bot.developer import change_ledger
 from row_bot.developer import edits as developer_edits
-from row_bot.developer.git import commit_changes, create_branch, fast_forward_merge, get_git_status, switch_branch
-from row_bot.developer.github import push_current_branch
+from row_bot.developer.git import (
+    branch_changes,
+    commit_changes,
+    create_branch,
+    fast_forward_merge,
+    get_git_status,
+    pull_request_text,
+    switch_branch,
+)
+from row_bot.developer.github import create_pull_request, push_current_branch
 from row_bot.developer.sandbox import ApprovalDecision, decide_action
 from row_bot.developer.review import get_file_diff, list_changed_files
 from row_bot.developer.runtime import detect_project_commands, run_workspace_command, run_workspace_shell_command
 from row_bot.developer.sandbox_runtime import (
     apply_patch_in_docker_sandbox,
     get_pending_change,
+    list_pending_changes,
     mark_pending_change_imported,
     write_file_in_docker_sandbox,
 )
@@ -230,13 +239,28 @@ def _run_detected(command: str) -> str:
     chosen = next((spec for spec in specs if spec.label == command or spec.command == command), None)
     if chosen is None:
         return "Command is not in the detected Developer command list. Use the Inspector to add/approve custom commands later."
-    result = run_workspace_command(
-        workspace.path,
-        chosen.command,
-        _active_approval_mode(),
-        workspace_id=workspace.id,
-        thread_id=thread_id,
-    )
+    def run(confirmed: bool):
+        return run_workspace_command(
+            workspace.path,
+            chosen.command,
+            _active_approval_mode(),
+            workspace_id=workspace.id,
+            thread_id=thread_id,
+            detected_test=True,
+            confirmed=confirmed,
+        )
+
+    result = run(False)
+    if result.decision and result.decision.requires_approval:
+        approval = interrupt({
+            "tool": "developer_run_detected_test",
+            "label": "Run project command",
+            "description": f"Run in {workspace.name}: {chosen.command}",
+            "args": {"workspace": workspace.name, "command": chosen.command},
+        })
+        if not approval:
+            return "Command cancelled by user."
+        result = run(True)
     return json.dumps(result.__dict__, indent=2, default=str)
 
 
@@ -357,6 +381,47 @@ def _push_current_branch() -> str:
     return json.dumps(result.__dict__, indent=2, default=str)
 
 
+class _PullRequestInput(BaseModel):
+    title: str = Field(default="", description="Pull request title. Leave empty to write it from the branch's commits.")
+    body: str = Field(default="", description="Pull request body. Leave empty to list the branch's commits and files.")
+    draft: bool = Field(default=True, description="Open as a draft. Keep the default unless the person asked for a ready PR.")
+
+
+def _create_pull_request(title: str = "", body: str = "", draft: bool = True) -> str:
+    """Open a pull request for the pushed current branch with the GitHub CLI on this computer (F20)."""
+    workspace, _root = _active_workspace(write=True)
+    if not title.strip():
+        status = get_git_status(workspace.path)
+        suggested = pull_request_text(status.branch or "", branch_changes(workspace.path))
+        if suggested is None:
+            return "The current branch adds no commits to its base branch, so there is nothing to open a pull request for."
+        title = suggested["title"]
+        body = body.strip() or suggested["body"]
+    title, body = title.strip()[:200], body.strip()[:8000]
+    result = create_pull_request(workspace.path, _active_approval_mode(), title=title, body=body, draft=draft)
+    if result.decision and result.decision.requires_approval:
+        approval = interrupt({
+            "tool": "developer_create_pull_request",
+            "label": "Open pull request",
+            "description": f"Open a {'draft ' if draft else ''}pull request from {workspace.name}: {title}",
+            "args": {"workspace": workspace.name, "title": title, "draft": draft},
+        })
+        if not approval:
+            return "Pull request cancelled by user."
+        result = create_pull_request(
+            workspace.path, _active_approval_mode(), title=title, body=body, draft=draft, confirmed=True
+        )
+    if result.ran and not result.ok and "push" in result.stderr.lower():
+        return "GitHub needs the branch first: push it with developer_push_current_branch, then open the pull request."
+    return json.dumps({
+        "ok": result.ok,
+        "url": result.url,
+        "draft": draft,
+        "title": title,
+        "error": "" if result.ok else (result.stderr.strip()[-2000:] or "The pull request was not created."),
+    }, indent=2)
+
+
 class _GitFastForwardInput(BaseModel):
     branch_name: str = Field(description="Branch name to fast-forward merge into the current branch.")
 
@@ -378,47 +443,66 @@ def _fast_forward_merge(branch_name: str) -> str:
 
 
 class _ImportSandboxInput(BaseModel):
-    pending_change_id: str = Field(description="Sandbox pending change id to import into the host workspace.")
+    pending_change_id: str = Field(
+        default="",
+        description="Any pending sandbox change id from this conversation, or empty. Every pending change is imported "
+        "together, oldest first, under one approval.",
+    )
     summary: str = Field(default="", description="Short summary for the imported sandbox patch.")
 
 
-def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
+def _import_sandbox_changes(pending_change_id: str = "", summary: str = "") -> str:
     workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
-    pending = get_pending_change(pending_change_id)
-    if pending is None or pending.workspace_id != workspace.id:
+    pending = get_pending_change(pending_change_id) if pending_change_id else None
+    if pending_change_id and (pending is None or pending.workspace_id != workspace.id):
         raise ValueError(f"Sandbox pending change not found: {pending_change_id}")
-    if pending.imported:
+    if pending is not None and pending.imported:
         return f"Sandbox change {pending_change_id} was already imported."
+    # Each sandbox change builds on the ones before it, so they go in oldest first (B303), and one approval
+    # covers all of this conversation's pending changes rather than a card each (F21).
+    batch = sorted(list_pending_changes(workspace_id=workspace.id, thread_id=pending.thread_id if pending else thread_id),
+                   key=lambda change: change.created_at)
+    if not batch:
+        return "There are no sandbox changes waiting to import."
+    files = list(dict.fromkeys(path for change in batch for path in change.files))
     decision = decide_action(_active_approval_mode(), "edit")
     if decision.decision == "block":
         return decision.reason
     confirmed = False
     if decision.requires_approval:
+        sets = f" ({len(batch)} sandbox changes)" if len(batch) > 1 else ""
         approval = interrupt({
             "tool": "developer_import_sandbox_changes",
-            "label": "Import sandbox changes",
-            "description": summary or f"Import {len(pending.files)} file change(s) from Docker Sandbox",
-            "args": {"workspace": workspace.name, "pending_change_id": pending_change_id, "files": pending.files},
+            "label": "Apply these changes",
+            "description": summary or f"Apply {len(files)} changed file(s) from Docker Sandbox to {workspace.name}{sets}",
+            "args": {"workspace": workspace.name, "files": files, "changes": len(batch)},
         })
         if not approval:
             return "Sandbox import cancelled by user."
         confirmed = True
-    change_set, decision = developer_edits.apply_patch_to_workspace(
-        workspace_id=workspace.id,
-        thread_id=thread_id,
-        patch=pending.patch,
-        approval_mode=_active_approval_mode(),
-        summary=summary or f"Import sandbox changes from: {pending.command[:80]}",
-        confirmed=confirmed,
-    )
-    if change_set is None:
-        return decision.reason
-    mark_pending_change_imported(pending_change_id)
-    return (
-        f"Imported sandbox change {pending_change_id} as change set {change_set.id}.\n"
-        + "\n".join(f"- {item.action} {item.path}" for item in change_set.files)
-    )
+    lines = []
+    for change in batch:
+        try:
+            change_set, decision = developer_edits.apply_patch_to_workspace(
+                workspace_id=workspace.id,
+                thread_id=thread_id,
+                patch=change.patch,
+                approval_mode=_active_approval_mode(),
+                summary=(summary if change is batch[-1] else "") or f"Import sandbox changes from: {change.command[:80]}",
+                confirmed=confirmed,
+            )
+        except ValueError:
+            done = f" {len(lines)} earlier change(s) were imported first." if lines else ""
+            return (f"Sandbox change {change.id} ({', '.join(change.files)}) couldn't be applied: those files "
+                    f"changed in the code folder since the sandbox made it.{done} Compare the files, then make the "
+                    "edit again in the code folder or re-run it in the sandbox.")
+        if change_set is None:
+            return decision.reason
+        mark_pending_change_imported(change.id)
+        lines.append(f"Imported sandbox change {change.id} as change set {change_set.id}.\n"
+                     + "\n".join(f"- {item.action} {item.path}" for item in change_set.files))
+    return "\n".join(lines)
 
 
 class _PatchInput(BaseModel):
@@ -655,6 +739,24 @@ def _list_agent_changes() -> str:
     ], indent=2)
 
 
+def _changes_workspace(func):
+    """After a tool that can change the folder, its Inspector snapshot is read again (B302)."""
+    from functools import wraps
+
+    @wraps(func)
+    def changed(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        finally:
+            workspace_id = get_workspace_id() or infer_workspace_id_from_thread(get_thread_id())
+            if workspace_id:
+                from row_bot.developer.inspector_snapshot import invalidate_workspace_snapshots
+
+                invalidate_workspace_snapshots(workspace_id)
+
+    return changed
+
+
 class DeveloperTool(BaseTool):
     @property
     def name(self) -> str:
@@ -676,28 +778,30 @@ class DeveloperTool(BaseTool):
         return _workspace_info()
 
     def as_langchain_tools(self) -> list:
+        changes = _changes_workspace
         return [
             StructuredTool.from_function(func=_workspace_info, name="developer_workspace_info", description="Return the active Developer workspace, path, branch, dirty state, remote, and approval mode."),
             StructuredTool.from_function(func=_list_files, name="developer_list_files", description="List files under the active Developer workspace. Paths must be workspace-relative.", args_schema=_ListFilesInput),
             StructuredTool.from_function(func=_read_file, name="developer_read_file", description="Read a workspace-relative text file from the active Developer workspace.", args_schema=_ReadFileInput),
             StructuredTool.from_function(func=_search, name="developer_search", description="Search text in the active Developer workspace using a safe workspace-scoped search.", args_schema=_SearchInput),
             StructuredTool.from_function(func=_git_status, name="developer_git_status", description="Return structured Git state for the active Developer workspace."),
-            StructuredTool.from_function(func=_create_branch, name="developer_create_branch", description="Create a Git branch in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
-            StructuredTool.from_function(func=_switch_branch, name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
-            StructuredTool.from_function(func=_commit_changes, name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using the thread approval mode.", args_schema=_GitCommitInput),
-            StructuredTool.from_function(func=_push_current_branch, name="developer_push_current_branch", description="Push the current branch to origin using the thread approval mode."),
-            StructuredTool.from_function(func=_fast_forward_merge, name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using the thread approval mode.", args_schema=_GitFastForwardInput),
+            StructuredTool.from_function(func=changes(_create_branch), name="developer_create_branch", description="Create a Git branch in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
+            StructuredTool.from_function(func=changes(_switch_branch), name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
+            StructuredTool.from_function(func=changes(_commit_changes), name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using the thread approval mode.", args_schema=_GitCommitInput),
+            StructuredTool.from_function(func=changes(_push_current_branch), name="developer_push_current_branch", description="Push the current branch to origin using the thread approval mode."),
+            StructuredTool.from_function(func=_create_pull_request, name="developer_create_pull_request", description="Open a GitHub pull request for the current branch once it is pushed. Runs the GitHub CLI on this computer, never in the sandbox, and asks first by the thread approval mode. Draft by default; leave title and body empty to describe the branch's own commits and files.", args_schema=_PullRequestInput),
+            StructuredTool.from_function(func=changes(_fast_forward_merge), name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using the thread approval mode.", args_schema=_GitFastForwardInput),
             StructuredTool.from_function(func=_diff, name="developer_get_diff", description="Return changed file summary or one file diff for the active Developer workspace.", args_schema=_DiffInput),
-            StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread.", args_schema=_TodoInput),
-            StructuredTool.from_function(func=_run_detected, name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),
-            StructuredTool.from_function(func=_run_command, name="developer_run_command", description="Run a shell command in the active Developer workspace after policy checks and record file side effects.", args_schema=_RunCommandInput),
-            StructuredTool.from_function(func=_import_sandbox_changes, name="developer_import_sandbox_changes", description="Import a Docker Sandbox pending patch into the real workspace after approval.", args_schema=_ImportSandboxInput),
+            StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread. Keep it current: mark an item in_progress when you start it and completed when it is done, including work a helper agent finished, before you end your turn.", args_schema=_TodoInput),
+            StructuredTool.from_function(func=changes(_run_detected), name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),
+            StructuredTool.from_function(func=changes(_run_command), name="developer_run_command", description="Run a shell command in the active Developer workspace after policy checks and record file side effects.", args_schema=_RunCommandInput),
+            StructuredTool.from_function(func=changes(_import_sandbox_changes), name="developer_import_sandbox_changes", description="Import this conversation's pending Docker Sandbox changes into the real workspace, all together and oldest first, after one approval. Call it once when the work is ready, not once per change.", args_schema=_ImportSandboxInput),
             StructuredTool.from_function(func=_preview_patch, name="developer_preview_patch", description="Validate and preview a unified diff patch without writing files.", args_schema=_PatchInput),
-            StructuredTool.from_function(func=_apply_patch, name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),
-            StructuredTool.from_function(func=_write_file, name="developer_write_file", description="Create or replace a workspace-relative text file and record an agent-owned change set.", args_schema=_WriteFileInput),
-            StructuredTool.from_function(func=_import_media, name="developer_import_media", description="Copy one generated image or video from this conversation into a new code-folder file through Developer's writer lease and change ledger. Requires the exact media reference and an unused path.", args_schema=_ImportMediaInput),
+            StructuredTool.from_function(func=changes(_apply_patch), name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),
+            StructuredTool.from_function(func=changes(_write_file), name="developer_write_file", description="Create or replace a workspace-relative text file and record an agent-owned change set.", args_schema=_WriteFileInput),
+            StructuredTool.from_function(func=changes(_import_media), name="developer_import_media", description="Copy one generated image or video from this conversation into a new code-folder file through Developer's writer lease and change ledger. Requires the exact media reference and an unused path.", args_schema=_ImportMediaInput),
             StructuredTool.from_function(func=_list_agent_changes, name="developer_list_agent_changes", description="List agent-owned change sets recorded for this Developer thread."),
-            StructuredTool.from_function(func=_revert_change_set, name="developer_revert_agent_changes", description="Revert an agent-owned change set if files have not drifted.", args_schema=_RevertInput),
+            StructuredTool.from_function(func=changes(_revert_change_set), name="developer_revert_agent_changes", description="Revert an agent-owned change set if files have not drifted.", args_schema=_RevertInput),
         ]
 
 

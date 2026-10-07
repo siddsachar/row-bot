@@ -540,6 +540,7 @@ def _system(
             "available": "shell" in registered or "shell" in tools,
             "enabled": _enabled("shell", tools, registered),
             "blocked_patterns": _text(shell.get("blocked_commands"), 4096),
+            "allow_data_folder": shell.get("allow_data_folder") is True,
         },
         "browser": {
             "available": "browser" in registered or "browser" in tools,

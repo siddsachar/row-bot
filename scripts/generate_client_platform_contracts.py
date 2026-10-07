@@ -64,7 +64,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "PluginCatalogPage", "PluginDetail", "PluginReviewRequest", "PluginReview", "PluginReceipt",
     "SkillPage", "SkillDetail", "SkillProposalPage", "SkillReviewRequest", "SkillReview", "SkillReceipt",
     "GoalPage", "GoalDetail", "GoalCommandPayload", "GoalReview", "GoalReceipt",
-    "ProfilePage", "ProfileDetail", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
+    "ProfilePage", "ProfileDetail", "ProfileInstructions", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
     "CustomToolSnapshot", "CustomToolCommand", "CustomToolReceipt",
     "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
@@ -279,6 +279,7 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/goals/commands", "Command", "GoalReceipt"),
     ("get", "/settings/profiles", None, "ProfilePage"),
     ("get", "/settings/profiles/items/{profile_id}", None, "ProfileDetail"),
+    ("get", "/settings/profiles/items/{profile_id}/instructions", None, "ProfileInstructions"),
     ("post", "/settings/profiles/review", "ProfileCommandPayload", "ProfileReview"),
     ("get", "/settings/profiles/{profile_ref}/receipts/{command_id}", None, "ProfileReceipt"),
     ("post", "/settings/profiles/commands", "Command", "ProfileReceipt"),
@@ -938,6 +939,8 @@ export const getProfiles = (base: string, proof: SessionProof, search = '', scop
   jsonRequest(base, '/settings/profiles' + query({query:search,scope,cursor}), 'ProfilePage', proof, 'GET', undefined, undefined, signal);
 export const getProfile = (base: string, proof: SessionProof, profile: string, signal?: AbortSignal): Promise<ProfileDetail> =>
   jsonRequest(base, `/settings/profiles/items/${id(profile)}`, 'ProfileDetail', proof, 'GET', undefined, undefined, signal);
+export const getProfileInstructions = (base: string, proof: SessionProof, profile: string, signal?: AbortSignal): Promise<ProfileInstructions> =>
+  jsonRequest(base, `/settings/profiles/items/${id(profile)}/instructions`, 'ProfileInstructions', proof, 'GET', undefined, undefined, signal);
 export const reviewProfile = (base: string, proof: SessionProof, body: ProfileCommandPayload, signal?: AbortSignal): Promise<ProfileReview> =>
   jsonRequest(base, '/settings/profiles/review', 'ProfileReview', proof, 'POST', validateWire('ProfileCommandPayload', body), undefined, signal);
 export const getProfileReceipt = (base: string, proof: SessionProof, profile: string, command: string, signal?: AbortSignal): Promise<ProfileReceipt> =>

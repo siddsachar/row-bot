@@ -186,7 +186,9 @@ def test_captured_response_stream_bounds_and_cleanup(runtime, monkeypatch, async
                 assert str(caught.value) == "document_provider_response_" + ("too_large" if outcome == "bytes" else "deadline")
         else:
             run()
-    assert received == ([b"first",b"last"] if outcome == "complete" else [b"first"])
+    # A revocation is seen within a second or at the end of the stream at the latest (B288), so the
+    # chunk already on its way still arrives, but the read fails with the revocation.
+    assert received == ([b"first",b"last"] if outcome in {"complete","revoked"} else [b"first"])
     assert state["closed"] == 1 and state["requests"] == 1
 
 

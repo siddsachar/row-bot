@@ -1363,6 +1363,10 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  export_runtime_missing: [
+    'Exports need Browser Automation. Install it in Settings › System.',
+    'review',
+  ],
   export_size_limit: ['The export is too large.', 'none'],
   export_storage_unavailable: [
     "Exports can't be saved right now. Try again.",

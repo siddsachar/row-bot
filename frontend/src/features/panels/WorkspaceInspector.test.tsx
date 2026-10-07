@@ -513,6 +513,55 @@ describe('Developer inspector', () => {
     ).toBeInTheDocument();
   });
 
+  it('opens an earlier agent change to show what it changed (B304)', async () => {
+    const options = props();
+    options.changes = vi.fn(async () => ({
+      items: [{ path: 'other.txt', status: 'M', additions: 1, deletions: 0 }],
+      total: 1,
+      snapshot_revision: '1',
+      next_cursor: null,
+    }));
+    options.changeSets = vi.fn(async () => ({
+      items: [
+        {
+          id: 'set-csv',
+          summary: 'Fix quoted fields in the CSV exporter',
+          reviewed: true,
+          reverted: false,
+          file_count: 1,
+          undoable: false,
+        },
+      ],
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 1,
+    }));
+    options.changeSetFiles = vi.fn(async (identifier) => ({
+      items: [
+        {
+          path: 'src/export.js',
+          action: 'update',
+          patch: '@@ -1 +1 @@\n-const q = "";\n+const q = \'"\';\n',
+        },
+      ],
+      change_set_id: identifier,
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 1,
+    }));
+    render(<WorkspaceInspector {...options} />);
+    fireEvent.click(await screen.findByText('Earlier agent changes'));
+    const open = await screen.findByRole('button', {
+      name: 'Fix quoted fields in the CSV exporter',
+    });
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(open);
+    expect(open).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('region', { name: 'Diff of src/export.js' }),
+    ).toBeInTheDocument();
+  });
+
   it('groups files under the agent change that made them and keeps other changes apart', async () => {
     const options = props();
     const onUndo = vi.fn();
@@ -634,7 +683,6 @@ describe('Developer inspector', () => {
       changedFiles: [{ path: 'file-1.txt', status: 'M' }],
     });
     expect(context.commitSuggestion?.subject).toBe('Update file-1.txt');
-    expect(context.pullRequestSuggestion?.body).toContain('First changes');
   });
 
   it('lists detected checks and folder processes without running anything', async () => {
@@ -654,7 +702,12 @@ describe('Developer inspector', () => {
     await waitFor(() =>
       expect(renderRun).toHaveBeenCalledWith({
         checks: [
-          { label: 'pytest', kind: 'test', command: 'python -m pytest' },
+          {
+            label: 'pytest',
+            kind: 'test',
+            command: 'python -m pytest',
+            result: 'not_run',
+          },
         ],
       }),
     );
@@ -1299,5 +1352,18 @@ describe('Developer inspector', () => {
     expect(
       screen.queryByRole('button', { name: 'Revert' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('checksStatus', () => {
+  it("counts the agent's own check runs, not only the Run tab's (B302)", () => {
+    const check = { label: 'npm test', kind: 'test', command: 'npm test' };
+    expect(checksStatus([check], []).label).toBe('Checks not run');
+    expect(checksStatus([{ ...check, result: 'passed' }], []).label).toBe(
+      'Checks passed',
+    );
+    expect(checksStatus([{ ...check, result: 'failed' }], []).label).toBe(
+      'Checks failed',
+    );
   });
 });

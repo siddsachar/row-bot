@@ -677,9 +677,24 @@
     "GenerationActivity": {
       "additionalProperties": false,
       "properties": {
+        "bytes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
         "state": {
-          "const": "thinking",
+          "enum": [
+            "thinking",
+            "writing"
+          ],
           "title": "State",
+          "type": "string"
+        },
+        "tool": {
+          "default": "",
+          "maxLength": 120,
+          "title": "Tool",
           "type": "string"
         }
       },

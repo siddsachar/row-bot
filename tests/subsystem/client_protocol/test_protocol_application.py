@@ -303,6 +303,33 @@ def test_attachment_preflight_and_read_reject_malformed_manifest(service, manife
             operation(expected["attachment_ref"])
 
 
+def test_an_approval_view_offers_approving_the_rest_of_the_turn_for_a_repeatable_kind(service):
+    """F21: the card learns from the view whether "Approve the rest" applies, and the answer may carry it."""
+    fake = ScriptedAgentStream(
+        (("interrupt", [{"__interrupt_id": "commit-1", "tool": "developer_commit_changes",
+                         "args": {"message": "Fix"}}]),),
+        (("done", None),),
+    )
+    service.stream_factory, service.resume_factory = fake.stream, fake.resume
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _command(client, headers, "conversation.create", {"title": "Commit"}).json()["conversation_id"]
+        submitted = _command(client, headers, "conversation.submit", {"submission_id": str(uuid4()), "text": "Commit",
+                    "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}, target=conversation)
+        handle = service.registry.get(submitted.json()["execution_id"])
+        assert handle.producer_done.wait(5)
+        view = client.get(f"/api/v1/approvals/{handle.approval_id}", headers=headers)
+        assert view.json()["repeatable"] is True
+        body = {"command_id": str(uuid4()), "client_session_id": headers["X-Client-Session"], "type": "approval.resolve",
+                "expected_revision": view.json()["revision"],
+                "payload": {"decision": "approve", "nonce": view.json()["nonce"], "scope": "turn"}}
+        resolved = client.post(f"/api/v1/approvals/{handle.approval_id}/commands",
+                               headers={**headers, "Idempotency-Key": str(uuid4())}, json=body)
+        assert resolved.status_code == 202, resolved.text
+        assert service.registry.get(resolved.json()["execution_id"]).producer_done.wait(5)
+        assert fake.calls[1]["approved"] is True
+
+
 def test_real_durable_approval_resume_and_response_loss_replay(service):
     from langchain_core.messages import AIMessage
     fake = ScriptedAgentStream(
@@ -322,6 +349,7 @@ def test_real_durable_approval_resume_and_response_loss_replay(service):
         view = client.get(f"/api/v1/approvals/{handle.approval_id}", headers=headers)
         assert view.status_code == 200, view.text
         assert "private-argument" not in view.text and "action_digest" not in view.text
+        assert view.json()["repeatable"] is False
         body = {"command_id": str(uuid4()), "client_session_id": headers["X-Client-Session"], "type": "approval.resolve",
                 "expected_revision": view.json()["revision"], "payload": {"decision": "approve", "nonce": view.json()["nonce"]}}
         commit_headers = {**headers, "Idempotency-Key": str(uuid4())}

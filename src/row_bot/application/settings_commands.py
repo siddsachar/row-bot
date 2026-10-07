@@ -122,6 +122,7 @@ _BOOL_FIELDS = {
     ("voice", "tts.enabled"),
     ("voice", "tts.auto_speak"),
     ("system", "shell.enabled"),
+    ("system", "shell.allow_data_folder"),
     ("system", "browser.enabled"),
     ("system", "computer_use.enabled"),
     ("system", "computer_use.disclosure_acknowledged"),
@@ -596,6 +597,8 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
             configs.setdefault("filesystem", {})["workspace_root"] = value
         elif page == "system" and field == "shell.blocked_patterns":
             configs.setdefault("shell", {})["blocked_commands"] = value
+        elif page == "system" and field == "shell.allow_data_folder":
+            configs.setdefault("shell", {})["allow_data_folder"] = value
         elif page == "system" and field == "file_operations.selected":
             configs.setdefault("filesystem", {})["selected_operations"] = value
         elif page == "system" and field in {
@@ -919,6 +922,7 @@ def _apply(
             "workspace.path",
             "shell.enabled",
             "shell.blocked_patterns",
+            "shell.allow_data_folder",
             "browser.enabled",
             "computer_use.enabled",
             "file_operations.enabled",

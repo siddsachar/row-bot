@@ -135,7 +135,7 @@ def get_workspace_process_review(resource_id: str, conversation_id: str, command
         raise ClientPlatformError("process_command_invalid") from None
     workspace, binding, revision, mode = _scope(resource_id, conversation_id, validate)
     action = runtime.classify_command_action(command)
-    if action == "run_safe_command":
+    if action in {"run_safe_command", "run_command"}:
         action = "start_server"
     decision = runtime._apply_docker_network_policy(workspace, action, decide_action(mode, action))
     policy = {"mode": mode, "execution_mode": workspace.execution_mode,

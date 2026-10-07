@@ -632,6 +632,14 @@ export class HttpTransport implements ClientTransport {
   profile(profile: string, signal?: AbortSignal) {
     return wire.getProfile(this.base, this.session(), profile, signal);
   }
+  profileInstructions(profile: string, signal?: AbortSignal) {
+    return wire.getProfileInstructions(
+      this.base,
+      this.session(),
+      profile,
+      signal,
+    );
+  }
   reviewProfile(body: wire.ProfileCommandPayload, signal?: AbortSignal) {
     return wire.reviewProfile(this.base, this.session(), body, signal);
   }

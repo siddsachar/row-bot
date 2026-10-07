@@ -7,6 +7,8 @@ the visible Designer session.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass
@@ -87,6 +89,7 @@ class ArtifactPreview:
     html: str | None
     unchanged: bool
     scripts_allowed: bool = False
+    font_notice: str = ""
 
 
 @dataclass(frozen=True)
@@ -319,7 +322,24 @@ def read_preview(project_id: str, *, page_id: str | None = None,
     )
     if not 0 <= index < len(pages):
         raise ArtifactError("page_unavailable")
-    from row_bot.designer.fonts import FontReadError, offline_font_fingerprint, strict_offline_fonts
+    from row_bot.designer.fonts import (
+        FontReadError, offline_font_fingerprint, offline_substitute, strict_offline_fonts,
+    )
+    font_notice = ""
+    if project.brand:
+        try:
+            heading, body = (offline_substitute(project.brand.heading_font),
+                             offline_substitute(project.brand.body_font))
+        except FontReadError as exc:
+            raise ArtifactError(str(exc)) from None
+        swapped = {old: new for old, new in ((project.brand.heading_font, heading), (project.brand.body_font, body))
+                   if old != new}
+        if swapped:
+            # A font that isn't on this computer previews in the nearest bundled face (B317).
+            project = copy.copy(project)
+            project.brand = dataclasses.replace(project.brand, heading_font=heading, body_font=body)
+            font_notice = "; ".join(f"{old} isn't available offline, so this preview uses {new}"
+                                    for old, new in swapped.items()) + "."
     families = [project.brand.heading_font, project.brand.body_font] if project.brand else []
     try:
         inputs = (preview_fingerprint(project, page_index=index), offline_font_fingerprint(families))
@@ -360,4 +380,4 @@ def read_preview(project_id: str, *, page_id: str | None = None,
         raise ArtifactError("resource_revision_conflict", metadata["updated_at"] if metadata else None)
     return ArtifactPreview(project.id, project.updated_at, revision, project.mode, pages[index].id,
                            index, len(pages), pages[index].title, project.canvas_width,
-                           project.canvas_height, pages, markup, unchanged, scripts_allowed)
+                           project.canvas_height, pages, markup, unchanged, scripts_allowed, font_notice)

@@ -32,6 +32,7 @@ LOCAL_JOB = "system_health_local"
 NETWORK_JOB = "system_health_network"
 MODEL_JOB = "system_health_model"
 CHANNELS_JOB = "system_health_channels"
+DEFAULT_MODEL_JOB = "system_health_default_model"
 # The first runs wait for start-up to settle.
 _LOCAL_AFTER_START = timedelta(seconds=30)
 _NETWORK_AFTER_START = timedelta(minutes=5)
@@ -360,6 +361,17 @@ def recheck_channels() -> None:
 
 def _recheck_channels() -> None:
     _record(_results((status_checks.check_channels,), network=False))
+
+
+def recheck_default_model() -> None:
+    """The default model was chosen or changed (first run, Settings): check it again now, so Home doesn't keep
+    "No model selected" from a check that ran before the choice (B295)."""
+    if _scheduler is not None:
+        _scheduler.add_job(_recheck_default_model, id=DEFAULT_MODEL_JOB, replace_existing=True)
+
+
+def _recheck_default_model() -> None:
+    _record(_results((status_checks.check_active_model,), network=False))
 
 
 def attention_problems() -> list[dict[str, str]]:

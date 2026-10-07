@@ -56,6 +56,13 @@ def get_snapshot(workspace_id: str, thread_id: str | None) -> InspectorSnapshot 
     return _snapshots.get((workspace_id, thread_id))
 
 
+def invalidate_workspace_snapshots(workspace_id: str) -> None:
+    """Forget every conversation's cached snapshot of one workspace, so the next read scans it again: an agent
+    changed its branch or files, and the card kept "main · 0 changed" (B302)."""
+    for key in [key for key in _snapshots if key[0] == workspace_id]:
+        _snapshots.pop(key, None)
+
+
 def clear_thread_snapshots(thread_id: str) -> int:
     """Drop cached Inspector snapshots and pending refreshes for one thread."""
 

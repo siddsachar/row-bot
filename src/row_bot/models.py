@@ -706,12 +706,13 @@ def _chat_ollama(model: str, **kwargs):
         ChatOllama = _ChatOllama
     if "reasoning" not in kwargs:
         try:
-            from row_bot.providers.ollama import is_ollama_reasoning_model
+            from row_bot.providers.reasoning import resolve_reasoning_capabilities
 
-            if is_ollama_reasoning_model(model):
+            # From the catalog (Ollama's own answer where it gave one), else the family list (F12).
+            if resolve_reasoning_capabilities("ollama", model) is not None:
                 kwargs["reasoning"] = True
         except Exception:
-            pass
+            logger.debug("Could not resolve thinking for Ollama model %s", model, exc_info=True)
     return ChatOllama(model=model, base_url=_ollama_base_url(), **kwargs)
 
 
@@ -3125,7 +3126,12 @@ def is_tool_compatible(model_name: str) -> bool:
             return snapshot.get("tool_calling") is not False
         return True
     try:
+        from row_bot.providers.capability_resolution import cached_ollama_capability_snapshot
         from row_bot.providers.ollama import is_ollama_tool_capable
+
+        snapshot = cached_ollama_capability_snapshot(model_name)
+        if isinstance(snapshot.get("tool_calling"), bool):
+            return snapshot["tool_calling"]  # what Ollama reported, cached by the catalog (F12)
         return is_ollama_tool_capable(model_name)
     except Exception:
         pass

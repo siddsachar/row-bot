@@ -315,6 +315,44 @@ def test_ollama_catalog_uses_daemon_reported_vision_capabilities_for_unknown_fam
     assert "image" in rows[0]["capabilities_snapshot"]["input_modalities"]
 
 
+def test_ollama_reported_thinking_and_vision_decide_over_family_lists():
+    # qwen3.8 is in no family list; Ollama says it thinks and sees (F12).
+    new_family = ollama_model_info(
+        "qwen3.8:27b", metadata={"capabilities": ["completion", "vision", "tools", "thinking"]}
+    )
+    # qwen3 and gemma3 are in the lists, but this Ollama says they neither think nor see.
+    listed = ollama_model_info("qwen3:14b", metadata={"capabilities": ["completion", "tools"]})
+    listed_vision = ollama_model_info("gemma3:4b", metadata={"capabilities": ["completion"]})
+
+    assert new_family.reasoning["thinking_mode"] == "toggle"
+    assert new_family.reasoning["source"] == "ollama_show"
+    assert model_supports_surface(new_family, "vision") is True
+    assert listed.reasoning is None
+    assert model_supports_surface(listed_vision, "vision") is False
+
+
+def test_ollama_family_lists_still_cover_an_ollama_that_reports_nothing():
+    assert ollama_model_info("qwen3:14b").reasoning["thinking_mode"] == "toggle"
+    assert ollama_model_info("gpt-oss:20b").reasoning["supported_efforts"] == ["low", "medium", "high"]
+    assert ollama_model_info("qwen3.8:27b").reasoning is None
+
+
+def test_a_conversation_thinks_as_the_catalog_reported(monkeypatch):
+    from row_bot.providers import capability_resolution
+    from row_bot.providers.reasoning import resolve_reasoning_capabilities
+
+    snapshots = {
+        model_id: ollama_model_info(model_id, metadata={"capabilities": capabilities}).capability_snapshot()
+        for model_id, capabilities in (("qwen3.8:27b", ["completion", "thinking"]), ("qwen3:14b", ["completion"]))
+    }
+    monkeypatch.setattr(
+        capability_resolution, "cached_ollama_capability_snapshot", lambda model, **_: snapshots.get(model, {})
+    )
+
+    assert resolve_reasoning_capabilities("ollama", "qwen3.8:27b").thinking_mode == "toggle"
+    assert resolve_reasoning_capabilities("ollama", "qwen3:14b") is None
+
+
 def test_ollama_cloud_provider_definition_and_capabilities():
     definition = get_provider_definition("ollama_cloud")
     classified = classify_model_capabilities("ollama_cloud", "gpt-oss:120b-cloud")

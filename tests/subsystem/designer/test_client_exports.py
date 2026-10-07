@@ -458,3 +458,32 @@ def test_the_opener_never_uses_a_shell(monkeypatch, tmp_path):
     client._open_path('show', target)
     assert calls[0][0] == ['open', str(target)] and calls[1][0] == ['open', '-R', str(target)]
     assert all(not kwargs.get('shell') for _args, kwargs in calls)
+
+
+def test_without_browser_automation_an_export_says_so_instead_of_failing_vaguely(project, monkeypatch):
+    """B298: a missing Chromium runtime is named, so the panel can offer the install."""
+    import playwright.sync_api
+
+    from row_bot.browser import runtime
+
+    @contextmanager
+    def fake_playwright():
+        yield SimpleNamespace(chromium=SimpleNamespace(launch=lambda **_kw: pytest.fail("launched")))
+
+    missing = runtime.BrowserRuntimeReadiness(False, "missing", "No Chromium.")
+    monkeypatch.setattr(playwright.sync_api, 'sync_playwright', fake_playwright)
+    monkeypatch.setattr(runtime, 'check_packaged_browser_runtime', lambda *_a, **_kw: missing)
+    monkeypatch.setattr(runtime, 'check_managed_browser_runtime', lambda *_a, **_kw: missing)
+
+    with pytest.raises(client_service.ArtifactError, match='export_runtime_missing'):
+        create(project, format='pdf')
+
+
+def test_an_unexpected_export_failure_is_logged_with_its_cause(project, monkeypatch, caplog):
+    monkeypatch.setattr(export, 'export_html', lambda *_a, **_kw: (_ for _ in ()).throw(KeyError('page-css')))
+
+    with caplog.at_level('ERROR', logger='row_bot.designer.client_exports'):
+        with pytest.raises(client_service.ArtifactError, match='export_incomplete'):
+            create(project)
+
+    assert 'A design export failed' in caplog.text and 'page-css' in caplog.text

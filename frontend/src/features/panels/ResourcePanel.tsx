@@ -320,7 +320,6 @@ function WorkspaceSurface({
                   session={repositorySession}
                   changedFiles={git.changedFiles}
                   commitSuggestion={git.commitSuggestion}
-                  pullRequestSuggestion={git.pullRequestSuggestion}
                   revisionKey={`${refreshToken}:${git.revision}`}
                   onChanged={bump}
                   load={(signal) =>
@@ -404,6 +403,7 @@ function WorkspaceSurface({
               <WorkspaceImports
                 {...importSession.api}
                 session={importSession.session}
+                waiting={pendingImports}
                 onImported={bump}
               />
             ) : (
