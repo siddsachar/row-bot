@@ -383,13 +383,12 @@ def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
     ]
 
 
-def test_the_sign_in_client_metadata_is_published_where_row_bot_names_it() -> None:
-    from row_bot.mcp_client.auth import CLIENT_METADATA_URL
-
-    path = urlsplit(CLIENT_METADATA_URL).path.lstrip("/")
+def test_the_sign_in_client_metadata_is_published_at_the_address_it_names() -> None:
+    path = Path("oauth") / "client-metadata.json"
     published = json.loads((ROOT / "docs" / path).read_text(encoding="utf-8"))
     assert published == json.loads((ROOT / "docs-site" / "static" / path).read_text(encoding="utf-8"))
-    assert published["client_id"] == CLIENT_METADATA_URL  # A client metadata document names itself.
+    site = (ROOT / "docs" / "CNAME").read_text(encoding="utf-8").strip()
+    assert published["client_id"] == f"https://{site}/{path.as_posix()}"  # A client metadata document names itself.
     assert published["token_endpoint_auth_method"] == "none"
     assert all(urlsplit(uri).hostname == "127.0.0.1" for uri in published["redirect_uris"])
 
