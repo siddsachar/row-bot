@@ -164,6 +164,20 @@ def test_tools_of_apps_left_out_are_never_bound_and_kept_ones_still_ask_first(mo
     assert set(tools) <= set(_bound_tools(agent.get_agent_graph(["mcp"])))  # Unscoped turns are unchanged.
 
 
+def test_the_status_check_says_an_app_is_left_out_of_this_turn(monkeypatch):
+    import row_bot.agent as agent
+    from row_bot.tools.row_bot_status_tool import _query_mcp
+    servers = {"Linear": {"status": "connected", "transport": "http"}, "Notion": {"status": "connected", "transport": "http"}}
+    monkeypatch.setattr("row_bot.mcp_client.runtime.get_status_summary", lambda: {"enabled": True, "servers": servers})
+    agent._current_app_scope_var.set({"exclude_servers": ["Linear"], "exclude_tools": [], "focus": [], "skills": []})
+    try:
+        lines = {line.split(":")[0].strip("- "): line for line in _query_mcp().splitlines() if ": connected" in line}
+    finally:
+        agent._current_app_scope_var.set(None)
+    assert "switched off in this chat" in lines["Linear"] and "switched off" not in lines["Notion"]
+    assert "switched off" not in _query_mcp()  # An unscoped turn says nothing about it.
+
+
 @pytest.fixture
 def identities(apps, monkeypatch):
     apps.items.insert(0, {"id": "builtin:account:google", "kind": "builtin", "tools": ["gmail"], "name": "Google account",
