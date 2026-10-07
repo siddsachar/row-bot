@@ -166,6 +166,9 @@ def choose_model(model_ref: str) -> str:
     runtime = sys.modules.get("row_bot.models")
     if runtime is not None:
         runtime.adopt_saved_default(reference)
+    from row_bot.application.client_diagnosis import recheck_default_model
+
+    recheck_default_model()
     try:
         add_quick_choice_for_model(model_id, provider_id=provider_id, surface="chat")
     except Exception:
