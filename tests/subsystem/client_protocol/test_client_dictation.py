@@ -120,7 +120,7 @@ def test_actual_bytes_are_bounded_independently_of_declared_length(api):
 
 
 def test_late_revocation_discards_completed_transcript_and_cached_result(api):
-    def transcribe(key, audio, mime, *, validate):
+    def transcribe(key, audio, mime, *, validate, mode):
         validate()
         api.active["value"] = False
         return "PRIVATE_TRANSCRIPT"
@@ -222,7 +222,7 @@ def test_http_cancellation_cannot_release_a_running_transcription(runtime, monke
     service._metadata = lambda _: {}
     entered, release = threading.Event(), threading.Event()
 
-    def transcribe(key, audio, mime, *, validate):
+    def transcribe(key, audio, mime, *, validate, mode):
         validate()
         entered.set()
         assert release.wait(10), "Test did not release synthetic speech worker"

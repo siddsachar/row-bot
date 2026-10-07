@@ -393,6 +393,10 @@ export class ClientController {
     this.voiceHandle(scope, handle);
     return result;
   }
+  async speechTest(signal: AbortSignal) {
+    if (!this.transport.speechTest) throw { code: 'capability_unavailable' };
+    return this.transport.speechTest(signal);
+  }
   async realtimeEvent(
     scope: DictationScope,
     handle: DictationHandle,

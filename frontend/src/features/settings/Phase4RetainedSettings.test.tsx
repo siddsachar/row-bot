@@ -495,16 +495,80 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
   );
 });
 
-it('reviews local voice output and SenseVoice setup only after explicit actions', async () => {
-  renderSetting('voice');
-  // Test voice is an icon beside the Voice select (B258).
-  fireEvent.click(screen.getByRole('button', { name: 'Test voice' }));
-  await waitFor(() =>
-    expect(mutation.review).toHaveBeenCalledWith(
-      expect.objectContaining({ field: 'tts.test', value: true }),
-      expect.any(AbortSignal),
-    ),
+function renderVoiceWith(speechTest: (signal: AbortSignal) => Promise<Blob>) {
+  mutation.page = 'voice';
+  const controller = { speechTest } as unknown as ClientController;
+  return render(
+    <RuntimeContext.Provider
+      value={{ controller, platform: {} as ClientPlatform }}
+    >
+      <MemoryRouter>
+        <OverlayProvider>
+          <Phase4RetainedSettings
+            setting="voice"
+            snapshot={snapshot}
+            mutation={mutation}
+            selectedConversationId="conversation-a"
+          />
+        </OverlayProvider>
+      </MemoryRouter>
+    </RuntimeContext.Provider>,
   );
+}
+
+it('plays Test voice in this browser instead of a reviewed host action', async () => {
+  const original = {
+    create: URL.createObjectURL,
+    revoke: URL.revokeObjectURL,
+  };
+  const revoke = vi.fn();
+  URL.createObjectURL = vi.fn(() => 'blob:voice-test');
+  URL.revokeObjectURL = revoke;
+  try {
+    const played: string[] = [];
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      played.push(this.src);
+      queueMicrotask(() => this.dispatchEvent(new Event('ended')));
+      return Promise.resolve();
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const speechTest = vi.fn(
+      async () => new Blob(['RIFF'], { type: 'audio/wav' }),
+    );
+    renderVoiceWith(speechTest);
+    // Test voice is an icon beside the Voice select (B258).
+    const button = screen.getByRole('button', { name: 'Test voice' });
+    fireEvent.click(button);
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:voice-test'));
+    expect(played).toEqual(['blob:voice-test']);
+    expect(speechTest).toHaveBeenCalledTimes(1);
+    expect(button).toBeEnabled();
+    expect(mutation.review).not.toHaveBeenCalled();
+  } finally {
+    URL.createObjectURL = original.create;
+    URL.revokeObjectURL = original.revoke;
+  }
+});
+
+it('says why Test voice could not speak, and waits for a client', async () => {
+  const play = vi.spyOn(HTMLMediaElement.prototype, 'play');
+  const view = renderVoiceWith(async () => {
+    throw { code: 'voice_service_busy' };
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Test voice' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Speech recognition is busy.',
+  );
+  expect(play).not.toHaveBeenCalled();
+  view.unmount();
+  renderSetting('voice');
+  expect(screen.getByRole('button', { name: 'Test voice' })).toBeDisabled();
+});
+
+it('reviews SenseVoice setup only after an explicit action', async () => {
+  renderSetting('voice');
   fireEvent.click(screen.getByText('Advanced'));
   fireEvent.click(
     screen.getByRole('button', { name: 'Install SenseVoice Small' }),

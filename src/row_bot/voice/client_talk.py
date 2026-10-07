@@ -17,10 +17,12 @@ from row_bot.voice.client_transport import (
     ClientDictationTransport, DictationError, DictationHandle, DictationOperation,
     DictationOwner, LEASE_SECONDS, _CONVERSATION,
 )
+from row_bot.voice.provider_base import SynthesizedSpeech
 from row_bot.voice.speech_policy import make_speakable_response
 
 MAX_SESSION_SECONDS = 600.0
 NO_SPEECH_SECONDS = 45.0
+SPEECH_TEST_PHRASE = "Hello! This is your Row-Bot voice test."
 
 
 @dataclass(frozen=True)
@@ -185,9 +187,10 @@ class ClientTalkTransport:
             if len(text) > MAX_TEXT_CHARS:
                 raise DictationError("voice_output_too_large")
             admitted()
-            audio = self._transport._browser_service().synthesize(owner.client_session_id, text, validate=admitted)
+            speech = self._transport._browser_service().synthesize(owner.client_session_id, text, validate=admitted)
             admitted()
-            if not isinstance(audio, bytes) or not audio or len(audio) > MAX_OUTPUT_BYTES:
+            if (not isinstance(speech, SynthesizedSpeech) or not isinstance(speech.audio, bytes)
+                    or not speech.audio or len(speech.audio) > MAX_OUTPUT_BYTES):
                 raise DictationError("voice_output_unavailable")
             with self.coordinator._dictation_lock:
                 self._transport._operation(operation)
@@ -195,7 +198,7 @@ class ClientTalkTransport:
                 self.coordinator.record_assistant_output(text, session_id=handle.voice_session_id)
                 lease.state = "completed"
                 self._transport._release(lease, operation)
-                return TalkAudio(self._snapshot(lease), run_id, output_id, audio)
+                return TalkAudio(self._snapshot(lease), run_id, output_id, speech.audio, speech.content_type)
         finally:
             with self.coordinator._dictation_lock:
                 # Stop keeps this exact slot occupied until the synthesizer
@@ -212,3 +215,14 @@ class ClientTalkTransport:
             lease = self._lease(owner, handle, active=False)
             self._transport._invalidate(lease)
             return self._snapshot(lease)
+
+    def speech_test(self, client_session_id: str, *,
+                    validate: Callable[[], None]) -> SynthesizedSpeech:
+        """Speak the fixed Voice settings test phrase for the requesting browser.
+
+        It needs no lease: the text is fixed, and the browser service's
+        per-session rate limit and concurrency slots still apply.
+        """
+        validate()
+        return self._transport._browser_service().synthesize(
+            client_session_id, SPEECH_TEST_PHRASE, validate=validate)

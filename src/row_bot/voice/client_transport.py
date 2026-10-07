@@ -245,11 +245,9 @@ class ClientDictationTransport:
                         self._lease(owner, handle)
                 _prepare(admitted_validation)
             else:
-                if mode == "talk":
-                    self.coordinator._apply_selected_local_stt_model(mode)
-                service = self._browser_service()
-                if not service.voice_service.whisper_model_available():
-                    raise DictationError("whisper_model_missing")
+                status = self._browser_service().speech_input_status(mode)
+                if not status.ready:
+                    raise DictationError(status.unavailable_code)
             validate()
             with self.coordinator._dictation_lock:
                 self._lease(owner, handle).ready = True
@@ -392,7 +390,8 @@ class ClientDictationTransport:
                         self._operation(operation)
                 admitted_validation()
                 text = self._browser_service().transcribe(operation.owner.client_session_id, audio,
-                                                         operation.content_type, validate=admitted_validation)
+                                                         operation.content_type, validate=admitted_validation,
+                                                         mode=lease.mode)
                 if not isinstance(text, str):
                     raise DictationError("voice_operation_failed")
                 if len(text) > MAX_TEXT_CHARS:

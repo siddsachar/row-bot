@@ -53,6 +53,7 @@ _MIN_SPEECH_CHUNKS = 5      # minimum chunks to count as real speech (~400 ms)
 
 # Whisper
 _DEFAULT_WHISPER_SIZE = "small"
+_WHISPER_SIZES = frozenset({"tiny", "base", "small", "medium"})
 
 # Grace period after TTS unmutes — discard audio to let speaker buffer drain
 _UNMUTE_GRACE_S = 0.6
@@ -111,6 +112,7 @@ class VoiceService:
         # Whisper (lazy loaded)
         self._whisper_model = None
         self._funasr_provider = None
+        self._models_lock = threading.Lock()
 
         # Mic gating
         self._mute_event = threading.Event()
@@ -174,7 +176,7 @@ class VoiceService:
 
     def _ensure_whisper(self, *, allow_download: bool = True):
         if self._whisper_model is not None:
-            return
+            return self._whisper_model
         from faster_whisper import WhisperModel
 
         _WHISPER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -187,6 +189,7 @@ class VoiceService:
             local_files_only=not allow_download,
         )
         logger.info("Loaded Whisper model: %s (cpu/int8)", self._whisper_size)
+        return self._whisper_model
 
     def whisper_model_available(self) -> bool:
         """Return whether the configured model is already cached locally."""
@@ -218,6 +221,29 @@ class VoiceService:
         self._sensevoice_model_path = str(model_path)
         self._funasr_provider = None
         return model_path
+
+    def sync_saved_models(self) -> None:
+        """Adopt the Whisper size and SenseVoice path saved in Voice settings.
+
+        Settings writes ``voice_settings.json`` directly and installs SenseVoice
+        with its own service, so browser voice re-reads the saved choice before
+        each utterance instead of keeping the values this service started with.
+        """
+        settings = _load_voice_settings()
+        size = str(settings.get("whisper_model") or _DEFAULT_WHISPER_SIZE)
+        path = str(settings.get("sensevoice_model_path") or "")
+        with self._models_lock:
+            if size in _WHISPER_SIZES and size != self._whisper_size:
+                self._whisper_size = size
+                self._whisper_model = None
+            if path != self._sensevoice_model_path:
+                self._sensevoice_model_path = path
+                self._funasr_provider = None
+
+    def sensevoice_provider(self):
+        """The SenseVoice provider for the saved model path."""
+        with self._models_lock:
+            return self._get_funasr_provider()
 
     def _get_funasr_provider(self):
         if self._funasr_provider is None:
@@ -431,9 +457,10 @@ class VoiceService:
         allow_download: bool = False,
     ) -> str:
         """Transcribe 16 kHz mono signed-16 PCM."""
-        self._ensure_whisper(allow_download=allow_download)
+        # Keep this call's model: a saved size change may drop the shared one.
+        model = self._ensure_whisper(allow_download=allow_download)
         f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        segs, _ = self._whisper_model.transcribe(
+        segs, _ = model.transcribe(
             f32, beam_size=5, language="en", vad_filter=True,
         )
         return " ".join(s.text.strip() for s in segs).strip()

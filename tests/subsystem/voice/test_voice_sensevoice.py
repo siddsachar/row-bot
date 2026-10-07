@@ -223,3 +223,87 @@ def test_whisper_transcription_path_is_unchanged(monkeypatch: pytest.MonkeyPatch
 
     assert service.transcribe_bytes(b"pcm") == "whisper text"
     assert calls == [(b"pcm", True)]
+
+
+def _browser(service: VoiceService):
+    from types import SimpleNamespace
+
+    from row_bot.voice.browser_local import BrowserLocalVoiceService
+
+    def decoded(command, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=b"\0" * 3_200, stderr=b"")
+
+    return BrowserLocalVoiceService(
+        voice_service=service,
+        tts_service=SimpleNamespace(),
+        runner=decoded,
+        ffmpeg_path="ffmpeg",
+    )
+
+
+def test_browser_dictation_uses_sensevoice_installed_after_the_service_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import row_bot.voice as voice
+
+    _packages_ready(monkeypatch)
+    data_dir = voice._DATA_DIR
+    data_dir.mkdir(parents=True)
+    (data_dir / "voice_runtime_settings.json").write_text(
+        json.dumps({"dictation_model": "local-funasr-sensevoice"}), encoding="utf-8"
+    )
+    service = VoiceService()
+    monkeypatch.setattr(
+        service,
+        "transcribe_pcm16",
+        lambda *args, **kwargs: pytest.fail("Whisper must not stand in for SenseVoice"),
+    )
+    browser = _browser(service)
+
+    status = browser.speech_input_status("dictate")
+    assert not status.ready and status.unavailable_code == "sensevoice_unavailable"
+
+    # Settings installs SenseVoice through its own service and saves the path.
+    model_path = _snapshot(data_dir / "cache" / "sensevoice" / "snapshot")
+    (data_dir / "voice_settings.json").write_text(
+        json.dumps({"sensevoice_model_path": str(model_path)}), encoding="utf-8"
+    )
+
+    class _Model:
+        def generate(self, **kwargs):
+            return [{"text": "sensevoice text"}]
+
+    class _Provider(local_provider.LocalFunASRProvider):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(
+                *args,
+                model_factory=lambda **_: _Model(),
+                postprocessor=lambda text: text,
+                **kwargs,
+            )
+
+    monkeypatch.setattr(local_provider, "LocalFunASRProvider", _Provider)
+
+    assert browser.speech_input_status("dictate").ready
+    assert browser.transcribe("session", b"encoded", "audio/webm", mode="dictate") == (
+        "sensevoice text"
+    )
+
+
+def test_browser_voice_uses_the_whisper_size_saved_after_start() -> None:
+    import row_bot.voice as voice
+
+    data_dir = voice._DATA_DIR
+    data_dir.mkdir(parents=True)
+    service = VoiceService()
+    browser = _browser(service)
+    cached = voice._WHISPER_CACHE_DIR / "models--Systran--faster-whisper-base"
+    cached.mkdir(parents=True)
+    (cached / "model.bin").write_bytes(b"synthetic weights")
+
+    assert not browser.speech_input_status("dictate").ready
+    (data_dir / "voice_settings.json").write_text(
+        json.dumps({"whisper_model": "base"}), encoding="utf-8"
+    )
+    assert browser.speech_input_status("talk").ready
+    assert service.whisper_size == "base"

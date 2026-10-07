@@ -11,6 +11,12 @@ from typing import Any, Callable
 
 from row_bot.tts import TTSService
 from row_bot.voice import SAMPLE_RATE, VoiceService, get_voice_service
+from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
+from row_bot.voice.providers import (
+    SpeechMode,
+    speech_output_provider,
+    speech_to_text_provider,
+)
 
 MAX_INPUT_BYTES = 8 * 1024 * 1024
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
@@ -30,6 +36,14 @@ ALLOWED_AUDIO_TYPES = frozenset(
         "audio/mpeg",
     }
 )
+
+
+def _is_wav(audio: bytes) -> bool:
+    return audio[:4] == b"RIFF" and audio[8:12] == b"WAVE"
+
+
+# Speech the browser may be sent, by content type, with its signature check.
+SPEECH_OUTPUT_TYPES: dict[str, Callable[[bytes], bool]] = {"audio/wav": _is_wav}
 
 
 class BrowserVoiceError(RuntimeError):
@@ -73,6 +87,10 @@ class BrowserLocalVoiceService:
             "max_utterance_seconds": MAX_UTTERANCE_SECONDS,
         }
 
+    def speech_input_status(self, mode: SpeechMode) -> VoiceProviderStatus:
+        """Whether the speech-to-text provider selected for ``mode`` is ready."""
+        return speech_to_text_provider(mode, voice_service=self.voice_service).status()
+
     def transcribe(
         self,
         session_key: str,
@@ -80,6 +98,7 @@ class BrowserLocalVoiceService:
         content_type: str,
         *,
         validate: Callable[[], None] | None = None,
+        mode: SpeechMode = "dictate",
     ) -> str:
         mime = str(content_type or "").partition(";")[0].strip().lower()
         if mime not in ALLOWED_AUDIO_TYPES:
@@ -91,18 +110,17 @@ class BrowserLocalVoiceService:
         with self._job(session_key):
             if validate is not None:
                 validate()
-            if not self.voice_service.whisper_model_available():
-                raise BrowserVoiceError("whisper_model_missing", status_code=409)
+            provider = speech_to_text_provider(mode, voice_service=self.voice_service)
+            status = provider.status()
+            if not status.ready:
+                raise BrowserVoiceError(status.unavailable_code, status_code=409)
             pcm = self._decode(audio_bytes)
             if validate is not None:
                 validate()
-            return self.voice_service.transcribe_pcm16(
-                pcm,
-                allow_download=False,
-            )
+            return provider.transcribe_bytes(pcm)
 
     def synthesize(self, session_key: str, text: str, *,
-                   validate: Callable[[], None] | None = None) -> bytes:
+                   validate: Callable[[], None] | None = None) -> SynthesizedSpeech:
         clean = str(text or "").strip()
         if not clean:
             raise BrowserVoiceError("text_required")
@@ -111,16 +129,23 @@ class BrowserLocalVoiceService:
         with self._job(session_key):
             if validate is not None:
                 validate()
-            if not self.tts_service.is_installed():
-                raise BrowserVoiceError("kokoro_model_missing", status_code=409)
+            provider = speech_output_provider(tts_service=self.tts_service)
+            status = provider.status()
+            if not status.ready:
+                raise BrowserVoiceError(status.unavailable_code, status_code=409)
             if validate is not None:
                 validate()
-            payload = self.tts_service.synthesize_wav_bytes(clean)
+            speech = provider.synthesize(clean)
             if validate is not None:
                 validate()
-            if not payload or len(payload) > MAX_OUTPUT_BYTES:
+            if not isinstance(speech, SynthesizedSpeech) or not isinstance(speech.audio, bytes):
+                raise BrowserVoiceError("voice_output_unavailable", status_code=409)
+            if not speech.audio or len(speech.audio) > MAX_OUTPUT_BYTES:
                 raise BrowserVoiceError("audio_output_too_large", status_code=413)
-            return payload
+            valid = SPEECH_OUTPUT_TYPES.get(speech.content_type)
+            if valid is None or not valid(speech.audio):
+                raise BrowserVoiceError("voice_output_unavailable", status_code=409)
+            return speech
 
     def install_whisper(self, session_key: str) -> None:
         with self._job(session_key):

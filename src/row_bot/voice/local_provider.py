@@ -207,6 +207,7 @@ class LocalFunASRProvider:
             ready=status.ready,
             reason=status.reason,
             local=True,
+            unavailable_code="sensevoice_unavailable",
         )
 
     def ensure_model(self):
