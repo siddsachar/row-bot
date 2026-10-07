@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from row_bot.brand import DEFAULT_WORKSPACE_DIR_NAME
+from row_bot.data_paths import is_private_data_path
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
@@ -180,6 +183,12 @@ def _is_outside_workspace(value: str, root_dir: str) -> bool:
         return False
 
 
+PRIVATE_DATA_PATH_REFUSAL = (
+    "Error: this path is inside Row-Bot's private data folder (conversations, settings, keys), which agents "
+    "can't read or change."
+)
+
+
 def _wrap_tool_with_path_fix(tool, root_dir: str):
     """Return a copy of *tool* that:
     1. Rejects absolute paths outside the workspace with a redirect hint.
@@ -219,6 +228,8 @@ def _wrap_tool_with_path_fix(tool, root_dir: str):
                         f"tool instead to access paths outside the workspace."
                     )
                 kwargs[key] = _normalise_path(kwargs[key], root_dir)
+                if is_private_data_path(Path(root_dir) / kwargs[key]):
+                    return PRIVATE_DATA_PATH_REFUSAL
         return original_func(**kwargs)
 
     # Rename to workspace_* and enrich description with scope
@@ -287,6 +298,9 @@ def _make_pdf_aware_read_tool(root_dir: str):
                 f"Use the run_command tool instead to access paths outside "
                 f"the workspace."
             )
+
+        if is_private_data_path(resolved):
+            return PRIVATE_DATA_PATH_REFUSAL
 
         if not resolved.exists() and "/" not in file_path.replace("\\", "/"):
             received = Path(root_dir) / "Received Files" / file_path

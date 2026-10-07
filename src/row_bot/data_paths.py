@@ -22,6 +22,16 @@ def get_row_bot_data_dir(*, create: bool = True) -> Path:
     return get_row_bot_target_data_dir(create=create)
 
 
+def is_private_data_path(path: str | os.PathLike[str]) -> bool:
+    """True when *path* is Row-Bot's data folder or inside it (conversations, settings, keys)."""
+    try:
+        resolved = Path(path).expanduser().resolve()
+        data_dir = get_row_bot_data_dir(create=False).expanduser().resolve()
+    except (OSError, ValueError):
+        return False
+    return resolved == data_dir or data_dir in resolved.parents
+
+
 def get_tasks_db_path(*, create_parent: bool = True) -> Path:
     """Return the task database path."""
     data_dir = get_row_bot_data_dir(create=create_parent)

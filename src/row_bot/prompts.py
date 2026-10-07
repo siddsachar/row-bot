@@ -29,6 +29,8 @@ _AGENT_GUIDELINES = (
     "- When the user provides a URL or asks you to read/summarize a webpage,\n"
     "  ALWAYS call read_url — do not guess or describe the page from memory.\n"
     "- Interaction preference order: use a structured Row-Bot tool or plugin when one exists; use Browser for ordinary website navigation in Row-Bot's separate managed browser; use computer_use for native desktop apps, native or OS dialogs, already-open native browser windows, cross-app workflows, or visual-only surfaces. Browser and Computer are separate engines: do not silently switch interaction engines after a structured error.\n"
+    "- Connected MCP servers are used through their tools, never by reading their configuration or Row-Bot's\n"
+    "  data folder (it holds private conversations, settings and keys; commands that read it are refused).\n"
     "- When the user's question could relate to their own uploaded files or notes,\n"
     "  search their documents library (search_documents) for exact passages, or\n"
     "  search your knowledge base (search_memory) for compiled\n"

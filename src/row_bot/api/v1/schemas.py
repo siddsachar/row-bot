@@ -733,6 +733,7 @@ class SettingsToggleSnapshot(WireModel):
 
 class SettingsShellSnapshot(SettingsToggleSnapshot):
     blocked_patterns: str = Field(max_length=4096)
+    allow_data_folder: bool
 
 
 class SettingsRuntimeToggleSnapshot(SettingsToggleSnapshot):

@@ -29,15 +29,26 @@ import threading
 import time
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
+from row_bot.approval_policy import normalize_approval_mode
+from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
-from row_bot.tools.approval_gate import APPROVAL_NOT_NEEDED_SAFE, approval_check, with_approval
+from row_bot.tools import approval_gate
+from row_bot.tools.approval_gate import (
+    APPROVAL_DENIED,
+    APPROVAL_GIVEN,
+    APPROVAL_NOT_NEEDED_SAFE,
+    approval_check,
+    resolve_approval,
+    with_approval,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +156,38 @@ def _strip_quoted(text: str) -> str:
     return "".join(result)
 
 
+# Ways a command can name the home folder, so "~/.row-bot" and "$env:USERPROFILE\.row-bot" both match.
+_HOME_REFERENCES = re.compile(r"(\$env:userprofile|\$env:home|%userprofile%|\$\{home\}|\$home|~)(?=/|$)")
+_DATA_DIR_SEGMENT = re.compile(r"(^|[/\s\"'=:])" + re.escape(DEFAULT_DATA_DIR_NAME.lower()) + r"($|[/\s\"'*])")
+PRIVATE_DATA_REFUSAL = (
+    "BLOCKED: this command reads Row-Bot's private data folder (conversations, settings, keys), which agents "
+    "can't read. The person can allow it, with approval each time, in Settings > System > Advanced. Connected "
+    "MCP servers are used through their tools, never through their configuration files."
+)
+
+
+def _slashes(text: str) -> str:
+    return re.sub(r"/+", "/", text.lower().replace("\\", "/"))
+
+
+def names_private_data(command: str) -> bool:
+    """True when a command names Row-Bot's data folder: its path in any common spelling, or its variable."""
+    text = _slashes(command)
+    if APP_DATA_DIR_ENV.lower() in text:
+        return True
+    home = _slashes(str(Path.home()))
+    text = _HOME_REFERENCES.sub(lambda _match: home, text)
+    data_dir = _slashes(str(get_row_bot_data_dir(create=False).expanduser().resolve()))
+    return data_dir in text or _DATA_DIR_SEGMENT.search(text) is not None
+
+
 def _append_process_note(output: str, note: str) -> str:
     text = str(output or "").rstrip()
     return f"{text}\n{note}" if text else note
 
 
 def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None) -> str:
-    """Classify a command as ``'safe'``, ``'needs_approval'``, or ``'blocked'``.
+    """Classify a command as ``'safe'``, ``'needs_approval'``, ``'private_data'`` or ``'blocked'``.
 
     Parameters
     ----------
@@ -163,13 +199,14 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
     Returns
     -------
     str
-        One of ``'safe'``, ``'needs_approval'``, ``'blocked'``.
+        One of ``'safe'``, ``'needs_approval'``, ``'private_data'`` (it names Row-Bot's data folder),
+        ``'blocked'``.
     """
     cmd = command.strip()
 
     # Multi-line commands: classify each line, take the most severe.
     if '\n' in cmd:
-        severities = {"blocked": 2, "needs_approval": 1, "safe": 0}
+        severities = {"blocked": 3, "private_data": 2, "needs_approval": 1, "safe": 0}
         worst = "safe"
         for line in cmd.split('\n'):
             line = line.strip()
@@ -192,6 +229,9 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
         for pattern in extra_blocked:
             if pattern.search(cmd):
                 return "blocked"
+
+    if names_private_data(cmd):
+        return "private_data"
 
     # Disqualify from "safe" if the command contains shell operators that
     # can chain, redirect, or substitute — these make any prefix unsafe.
@@ -458,6 +498,11 @@ class ShellTool(BaseTool):
                 "type": "text",
                 "default": "",
             },
+            "allow_data_folder": {
+                "label": "Let the agent read Row-Bot's data folder (asks each time)",
+                "type": "bool",
+                "default": False,
+            },
         }
 
     @property
@@ -599,6 +644,28 @@ class ShellTool(BaseTool):
             )
 
         approval = APPROVAL_NOT_NEEDED_SAFE
+        if classification == "private_data":
+            if self.get_config("allow_data_folder", False) is not True:
+                return PRIVATE_DATA_REFUSAL
+            if normalize_approval_mode(approval_gate.current_approval_mode()) == "block":
+                return f"BLOCKED: this command reads Row-Bot's private data folder: {command}"
+            # Never allowed without asking, even in Auto.
+            outcome = resolve_approval(
+                {
+                    "tool": "run_command",
+                    "label": "Read Row-Bot's private data?",
+                    "description": (
+                        "This reads Row-Bot's private data folder (conversations, settings, keys): "
+                        f"{command}"
+                    ),
+                    "approval_reason": approval_reason,
+                    "args": {"command": command},
+                },
+                approval_mode="approve",
+            )
+            if outcome != "allow":
+                return with_approval(APPROVAL_DENIED, "Command cancelled by user.")
+            approval = APPROVAL_GIVEN
         if classification == "needs_approval":
             # Determine execution context for background-audit compatibility.
             # approval_check() below handles block / approve / allow_all.
