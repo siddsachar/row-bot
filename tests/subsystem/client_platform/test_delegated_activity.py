@@ -414,3 +414,30 @@ def test_the_service_settles_outside_change_refreshes_and_the_work_they_start(se
     release.set()
     assert settle_background(timeout=5) is True
     assert refreshed == ["first", "second"]
+
+
+def test_settling_waits_for_work_that_is_still_starting(monkeypatch):
+    """Work is registered and started as one step: settling while a thread is still starting waits for it
+    rather than failing to join a thread that hasn't started."""
+    import threading
+    from row_bot.application.client_platform import run_in_background, settle_background
+
+    starting, release, outcome = threading.Event(), threading.Event(), []
+    real_start = threading.Thread.start
+
+    def slow_start(thread):
+        if thread.name == "slow-start":
+            starting.set()
+            assert release.wait(5)
+        real_start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", slow_start)
+    starter = threading.Thread(target=run_in_background, args=(lambda: None,), kwargs={"name": "slow-start"})
+    starter.start()
+    assert starting.wait(5)
+    settler = threading.Thread(target=lambda: outcome.append(settle_background(timeout=5)))
+    settler.start()
+    release.set()
+    starter.join(5)
+    settler.join(5)
+    assert outcome == [True]

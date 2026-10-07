@@ -54,14 +54,14 @@ def run_in_background(target: Callable[[], None], *, name: str) -> None:
                 _BACKGROUND.discard(thread)
 
     thread = threading.Thread(target=run, daemon=True, name=name)
+    # Registered and started as one step: settle_background never sees (and joins) a thread not yet started.
     with _BACKGROUND_LOCK:
         _BACKGROUND.add(thread)
-    try:
-        thread.start()
-    except BaseException:
-        with _BACKGROUND_LOCK:
+        try:
+            thread.start()
+        except BaseException:
             _BACKGROUND.discard(thread)
-        raise
+            raise
 
 
 def settle_background(timeout: float | None = None) -> bool:
