@@ -4,8 +4,8 @@
 name reads like a credential (``Authorization``, ``GITHUB_TOKEN``) moves into the keychain behind the
 server's ``api_key`` binding, and the server launches with exactly the header or variable it had. A
 keychain copy is read back before its plaintext is removed; if the keychain can't keep it, that server
-keeps its plaintext and the next start tries again. Copies of the old settings file that earlier saves
-kept for recovery are deleted once they hold no unfinished change, so the plaintext is gone everywhere.
+keeps its plaintext and the next start tries again. Every start deletes the copies of the settings file that
+saves keep for recovery once no unfinished change needs them, so no old copy keeps a key.
 
 Only the keychain names a move will use, and later its publication proof, are recorded (never a value or
 the settings document), before anything is written. A move a crash interrupted is settled at the next
@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import re
 import shutil
 import uuid
@@ -56,33 +57,45 @@ def _forget(refs: list[str]) -> None:
             logger.warning("A keychain copy from an unfinished key move couldn't be deleted yet")
 
 
-def _values(ref: str) -> list[str]:
-    try:
-        return list(auth.read_credentials(ref).get("values", {}).values())
-    except Exception:
-        return []  # Never moved (or already deleted): nothing of it to look for.
-
-
-def _scrub(refs: list[str], command_id: str) -> None:
-    """Delete kept copies of the old settings file (this move's and earlier saves') that hold a moved key,
-    unless another unfinished change may still need them. Never fails the move: what it can't delete stays."""
-    needles = {form.encode() for ref in refs for value in _values(ref) for form in (value, json.dumps(value)[1:-1])}
+def _recovery_root():
+    """The settings folder's own kept-copies folder, never one a link or junction points elsewhere."""
     root = config.CONFIG_PATH.parent / ".row-bot-edit-recovery"
     try:
-        directories = sorted(root.iterdir()) if needles and root.is_dir() else []
+        real = root.is_dir() and not root.is_symlink() and not root.is_junction()
+        return root if real and root.resolve() == config.CONFIG_PATH.parent.resolve() / root.name else None
+    except OSError:
+        return None
+
+
+def _mcp_copy(path) -> bool:
+    """A kept copy of the MCP settings file (a JSON object with its servers)."""
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > config.SAVED_CONFIG_BYTE_LIMIT:
+        return False
+    try:
+        value = json.loads(path.read_bytes())
+    except ValueError:
+        return False
+    return type(value) is dict and type(value.get("servers")) is dict
+
+
+def _forget_old_copies(command_id: str = "") -> None:
+    """Delete the kept copies of the MCP settings file that no unfinished change needs (``command_id``'s own
+    included): saves keep the file they replaced, keys and all. Runs at every start, so one that couldn't be
+    deleted is tried again; never fails a move."""
+    root = _recovery_root()
+    try:
+        directories = sorted(root.iterdir()) if root is not None else []
     except OSError:
         directories = []
     for directory in directories:
         try:
-            if (directory.is_symlink() or not directory.is_dir()
+            if (directory.is_symlink() or directory.is_junction() or not directory.is_dir()
                     or (directory.name != command_id and admissions.unfinished(directory.name))):
                 continue
-            kept = [directory / name for name in ("previous", "candidate")]
-            if any(path.is_file() and not path.is_symlink() and path.stat().st_size <= config.SAVED_CONFIG_BYTE_LIMIT
-                   and any(needle in path.read_bytes() for needle in needles) for path in kept):
+            if any(_mcp_copy(directory / name) for name in ("previous", "candidate")):
                 shutil.rmtree(directory)
         except Exception:
-            logger.warning("A kept copy of the old MCP settings couldn't be checked or deleted")
+            logger.warning("A kept copy of the MCP settings couldn't be checked or deleted; the next start tries again")
 
 
 def _published(command_id: str) -> bool | None:
@@ -102,14 +115,22 @@ def _settle() -> None:
         move = (admissions.read_command_receipt(_OWNER, command_id) or {}).get("_migration") or {}
         refs, proof = move.get("refs", []), move.get("publication")
         if proof:
-            candidate = config.CONFIG_PATH.parent / ".row-bot-edit-recovery" / command_id / "candidate"
-            with contextlib.suppress(Exception):  # A conflict leaves the file as it is; what it holds decides.
-                config.publish_saved_configuration(json.loads(candidate.read_bytes()),
+            kept = config.CONFIG_PATH.parent / ".row-bot-edit-recovery" / command_id
+            try:  # A conflict leaves the file as it is; what it holds decides below.
+                if not _mcp_copy(kept / "candidate"):
+                    raise ValueError("the move's settings copy is missing or unreadable")
+                config.publish_saved_configuration(json.loads((kept / "candidate").read_bytes()),
                     expected_digest=proof["before_digest"], command_id=command_id,
                     persist_recovery=lambda _proof: None, recovery=FileEditRecovery(**proof))
+            except Exception:
+                # Never leave the settings file missing while the file it replaced is kept.
+                with contextlib.suppress(OSError):
+                    if not config.CONFIG_PATH.exists() and _mcp_copy(kept / "previous"):
+                        os.link(kept / "previous", config.CONFIG_PATH)
+                        config._config_cache = None
         published = _published(command_id)
         if published:
-            _scrub(refs, command_id)
+            _forget_old_copies(command_id)
             admissions.complete_command(_OWNER, row["key"], {"command_id": command_id, "status": "completed"})
             continue
         if published is False or not proof:  # The old settings are in use: these copies are not.
@@ -145,6 +166,7 @@ def migrate() -> dict[str, int]:
         _settle()
         if config.configuration_recovery_required():
             return {"migrated": 0, "kept": 0}  # Another change awaits recovery: never publish over it.
+        _forget_old_copies()
         saved = config.read_saved_configuration()
         document = json.loads(json.dumps(saved.document))
         servers = document.get("servers") if type(document.get("servers")) is dict else {}
@@ -181,6 +203,6 @@ def migrate() -> dict[str, int]:
                 admissions.reject_command(_OWNER, command_id, "mcp_secret_migration_failed")
                 return {"migrated": 0, "kept": len(found)}
         else:
-            _scrub([refs[name] for name in moved], command_id)
+            _forget_old_copies(command_id)
             admissions.complete_command(_OWNER, command_id, {"command_id": command_id, "status": "completed"})
     return {"migrated": len(moved), "kept": len(found) - len(moved)}

@@ -152,11 +152,16 @@ class _StderrTail:
 
 
 def _launch_values(cfg: dict) -> list[str]:
-    """What a server starts with that may be a key: every variable and header value, and each argument
-    (or ``--flag=value`` value) that looks like one, since a key can be given on a command line."""
-    from row_bot.integrations.inputs import secret_segment
+    """What a server starts with that may be a key: every variable and header value, and each argument that
+    looks like one or follows (or is given to) a flag named like one, since a key can go on a command line."""
+    from row_bot.integrations.inputs import secret_segment, secretish
     values = [str(value) for field in ("env", "headers") for value in (cfg.get(field) or {}).values()]
-    values += [str(arg).split("=", 1)[-1] for arg in cfg.get("args") or [] if secret_segment(str(arg).split("=", 1)[-1])]
+    flag = ""
+    for arg in map(str, cfg.get("args") or []):
+        name, given, value = arg.partition("=")
+        if secretish(flag.lstrip("-")) or (given and secretish(name.lstrip("-"))) or secret_segment(value or name):
+            values.append(value if given else arg)
+        flag = arg if arg.startswith("-") and not given else ""
     return [value for value in values if len(value) >= 4]
 
 
@@ -692,9 +697,9 @@ class McpServerRuntime:
                 self._status(status="dependency_missing", last_error="Python package 'mcp' is not installed")
                 return
             self._status(status="connecting", enabled=True, transport=self.cfg.get("transport", "stdio"), last_error="")
+            self._forget_stderr()
             async with asyncio.timeout(float(self.cfg.get("connect_timeout", 30))):
                 self._validate_launch()
-                self._forget_stderr()
                 await self._connect()
                 self._validate_launch()
                 await self._discover_tools()
@@ -1314,9 +1319,9 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
         _servers[name] = runtime
     outcome = None
     try:
+        runtime._forget_stderr()
         async with asyncio.timeout(float(server_cfg.get("connect_timeout", 30))):
             runtime._validate_launch()
-            runtime._forget_stderr()
             await runtime._connect()
             runtime._validate_launch()
             result = await runtime.session.list_tools()

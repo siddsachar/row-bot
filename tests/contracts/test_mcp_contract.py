@@ -91,6 +91,13 @@ def test_mcp_langchain_wrappers_are_built_from_injected_catalog(monkeypatch) -> 
     ("query", "Execute a GraphQL query or mutation", None, "unknown", False),
     ("lookup", "Look up an order and refund it", None, "unknown", False),
     ("search", "Search issues and comment on them", None, "unknown", False),
+    ("query", "Executes any SQL statement", None, "unknown", False),  # A description is prose: any form counts.
+    ("query", "Runs arbitrary SQL, including inserts, updates and deletes", None, "unknown", False),
+    ("read_query", "Executes a SELECT query, then drops the table", None, "unknown", False),
+    ("search_files", "Run a search and replace across files", None, "unknown", False),
+    ("query", "Execute a SELECT INTO statement", None, "unknown", False),
+    ("list_orders", "List recent orders", None, "read_only", False),  # Nouns a read describes stay reads.
+    ("get_posts", "Get the latest posts and their comments", None, "read_only", False),
     ("terminal", "Execute a shell command", None, "mutation", True),
     ("frobnicate", "Does a thing", None, "unknown", False),
 ])

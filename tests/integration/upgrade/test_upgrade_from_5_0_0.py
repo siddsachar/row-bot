@@ -266,10 +266,15 @@ def test_keys_typed_into_a_servers_settings_move_into_the_keychain_and_it_starts
     needed.write_bytes(path.read_bytes())
     admissions.claim_command("tools-owner", needed.parent.name, {"command_id": needed.parent.name, "type": "test.change",
                                                                  "expected_revision": "0"}, "settings:tools")
+    # Another file's finished copy is never touched, even if it holds the same text.
+    other = v5.root / ".row-bot-edit-recovery" / "1d2c3b4a-0000-4000-8000-000000000003" / "previous"
+    other.parent.mkdir()
+    other.write_text(json.dumps({"tools": {"note": "fixture-header-secret"}}), encoding="utf-8")
     before = _launched()
     assert secret_migration.migrate() == {"migrated": 2, "kept": 0}  # As start-up does, before any server starts.
     # Not in the settings, a kept copy, or the change records; only where an unfinished change needs it.
-    assert _holding(v5, *MCP_SECRETS) == [".row-bot-edit-recovery/1d2c3b4a-0000-4000-8000-000000000002/previous"]
+    assert _holding(v5, *MCP_SECRETS) == [".row-bot-edit-recovery/1d2c3b4a-0000-4000-8000-000000000002/previous",
+                                          ".row-bot-edit-recovery/1d2c3b4a-0000-4000-8000-000000000003/previous"]
     assert _launched() == before  # The same header and variable, exactly as typed.
     saved = json.loads(path.read_text(encoding="utf-8"))["servers"]
     assert saved["Fixture Notes"]["env"] == {"NOTES_HOME": "fixture-notes"}  # Only the key moved.
@@ -308,6 +313,25 @@ def test_names_a_binding_cannot_hold_and_settings_that_are_not_keys_stay_and_nev
     assert not config.configuration_recovery_required()
 
 
+def test_kept_copies_are_only_ever_deleted_inside_the_data_folder(v5, monkeypatch, tmp_path):
+    """A kept-copies folder that is a link or junction to somewhere else is left alone."""
+    import os
+    from row_bot.mcp_client import secret_migration
+    _with_a_typed_variable(v5, monkeypatch)
+    outside = tmp_path / "outside"
+    (outside / "1d2c3b4a-0000-4000-8000-000000000004").mkdir(parents=True)
+    victim = outside / "1d2c3b4a-0000-4000-8000-000000000004" / "previous"
+    victim.write_bytes((v5.root / "mcp_servers.json").read_bytes())
+    link = v5.root / ".row-bot-edit-recovery"
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(outside), str(link))
+    else:
+        link.symlink_to(outside, target_is_directory=True)
+    secret_migration.migrate()
+    assert victim.is_file()
+
+
 def test_a_key_move_a_crash_interrupts_is_finished_or_undone_at_the_next_start(v5, monkeypatch):
     from row_bot.mcp_client import auth, config, secret_migration
     path = _with_a_typed_variable(v5, monkeypatch)
@@ -330,7 +354,21 @@ def test_a_key_move_a_crash_interrupts_is_finished_or_undone_at_the_next_start(v
     assert _holding(v5, *MCP_SECRETS) == [] and _launched() == before
     assert not config.configuration_recovery_required()
 
-    path = _with_a_typed_variable(v5, monkeypatch, "Old Tool")  # Another server's key; a crash before publishing.
+    # A crash after the old file was set aside, with the move's own copy lost: the settings come back, never vanish.
+    path = _with_a_typed_variable(v5, monkeypatch, "Old Tool")
+    monkeypatch.setattr(config, "publish_saved_configuration", crash_after_checkpoint)
+    with pytest.raises(KeyboardInterrupt):
+        secret_migration.migrate()
+    monkeypatch.setattr(config, "publish_saved_configuration", publish)
+    kept = next(p for p in (v5.root / ".row-bot-edit-recovery").iterdir() if (p / "candidate").exists())
+    path.rename(kept / "previous")
+    (kept / "candidate").unlink()
+    monkeypatch.setattr(config, "_config_cache", None)
+    assert secret_migration.migrate() == {"migrated": 1, "kept": 0}  # Restored, then moved again from scratch.
+    assert path.is_file() and "fixture-notes-env-secret" not in path.read_text(encoding="utf-8")
+    assert not config.configuration_recovery_required()
+
+    path = _with_a_typed_variable(v5, monkeypatch, "Playwright MCP")  # Another key; a crash before publishing.
     monkeypatch.setattr(auth, "write_credentials", lambda ref, data: (write(ref, data), (_ for _ in ()).throw(KeyboardInterrupt)))
     with pytest.raises(KeyboardInterrupt):
         secret_migration.migrate()
@@ -338,7 +376,8 @@ def test_a_key_move_a_crash_interrupts_is_finished_or_undone_at_the_next_start(v
     assert secret_migration.migrate() == {"migrated": 1, "kept": 0}  # Its copy is deleted, then the move runs again.
     saved = json.loads(path.read_text(encoding="utf-8"))["servers"]
     assert "fixture-notes-env-secret" not in path.read_text(encoding="utf-8")
-    assert _keychain_refs(v5) == {saved[name]["auth"]["credential_ref"] for name in ("Fixture Notes", "Fixture Docs", "Old Tool")}
+    assert _keychain_refs(v5) == {saved[name]["auth"]["credential_ref"]
+                                  for name in ("Fixture Notes", "Fixture Docs", "Old Tool", "Playwright MCP")}
     assert not config.configuration_recovery_required()
 
 

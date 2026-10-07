@@ -242,16 +242,19 @@ def test_a_chats_switch_turned_off_after_agreeing_stays_off_and_is_named(item, o
 @pytest.mark.parametrize(("wrote", "says"), [
     (["Traceback (most recent call last):", "AttributeError: 'Server' object has no attribute 'list_resources'"],
      "Pin its mcp dependency"),
-    (["Starting with key synthetic-secret", "Could not reach the database"], "What it wrote last is below."),
+    (["Starting with key synthetic-secret and password shortpw99", "Could not reach the database"],
+     "What it wrote last is below."),
 ])
 def test_a_server_that_fails_to_start_shows_what_it_wrote(item, owner, monkeypatch, wrote, says):
-    """F22: the person sees why, in the program's own last lines, with its secrets masked."""
+    """F22: the person sees why, in the program's own last lines, with what it was started with masked: its
+    variables (the fixture's PRIVATE) and a key given on its command line."""
     class Wrote:
         def lines(self, wait=0.0):
             return wrote
 
     async def fails(server):
-        server._redact, server._stderr = ("synthetic-secret",), Wrote()
+        server._stderr = Wrote()
+        server.cfg = {**server.cfg, "args": ["--password", "shortpw99"]}
         raise RuntimeError("Connection closed")
     monkeypatch.setattr(mcp_runtime.McpServerRuntime, "_connect", fails)
     _, plan = api.read_item(owner_id="owner", item_id=item)
@@ -260,8 +263,8 @@ def test_a_server_that_fails_to_start_shows_what_it_wrote(item, owner, monkeypat
     failed = plans.read_plan(ctx(), plan_id)  # Row-Bot on this computer.
     step = next(s for s in failed["steps"] if s["state"] == "failed")
     assert failed["state"] == "failed" and says in failed["message"]
-    assert step["log"] == [line.replace("synthetic-secret", "\u2026") for line in wrote]
-    assert "synthetic-secret" not in json.dumps(failed)
+    assert step["log"] == [line.replace("synthetic-secret", "\u2026").replace("shortpw99", "\u2026") for line in wrote]
+    assert "synthetic-secret" not in json.dumps(failed) and "shortpw99" not in json.dumps(failed)
     remote = plans.read_plan(plans.Context(owner_id="owner", mcp_owner_id="owner", validate=lambda: None), plan_id)
     assert all("log" not in s for s in remote["steps"])  # Never to another device,
     assert wrote[-1] not in json.dumps(plans._load("owner", plan_id)[0])  # and never kept in the plan's record.

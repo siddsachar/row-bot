@@ -158,7 +158,8 @@ def test_registration_process_after_timeout_cannot_publish(plugin_modules, tmp_p
     state.set_plugin_enabled("fixture-plugin", True)
     prepare_worker_environment(plugin_modules, plugin)
     api = WorkerAPI("fixture-plugin", plugin, state, staged=True)
-    monkeypatch.setattr(loader, "REGISTER_TIMEOUT", 1.0)
+    # Long enough for a busy machine to start the worker and enter register (seconds under load), short of forever.
+    monkeypatch.setattr(loader, "REGISTER_TIMEOUT", 5.0)
     try:
         with pytest.raises(TimeoutError):
             loader._call_register_with_timeout(plugin, api)

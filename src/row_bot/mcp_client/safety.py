@@ -32,8 +32,26 @@ _ROUTINE_RE = re.compile(
 _ROUTINE_FIRST_RE = re.compile(r"^(tag|label|mark|archive|close|star|link|attach|copy)(_|$)", re.IGNORECASE)
 _READ_RE = re.compile(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", re.IGNORECASE)
 # A read that says it runs a read ("Execute a SELECT query", "Run a search") is still a read (B306).
-_RUNS_A_READ = re.compile(r"(^|_)(run|exec|execute)s?_(an?_|the_)?(select|search|read_only|readonly)(_|$)",
+_RUNS_A_READ = re.compile(r"(^|_)(run|exec|execute)s?_(an?_|the_)?(select|search|read_only|readonly)(?!_into)(_|$)",
                           re.IGNORECASE)
+# Words that are also nouns: a read describes them ("List orders", "Get posts"), so their -s form never counts.
+_NOUNS = {"order", "post", "comment", "share", "invite", "book", "charge", "payment", "pay", "trade", "buy", "sell",
+          "reply", "forward", "set", "add", "save", "edit", "move", "put", "patch", "command", "shell", "permission",
+          "permissions", "eval"}
+
+
+def _any_form(*patterns: re.Pattern, extra: tuple[str, ...] = ()) -> re.Pattern:
+    """A description's verbs as it says them ("Executes", "Runs … inserts, updates and deletes"). Past and -ing
+    forms stay out: reads describe what they return with them ("recently updated", "deleted items")."""
+    verbs = [verb for pattern in patterns
+             for verb in re.search(r"\(\^\|_\)\(([a-z|]+)\)\(_\|\$\)", pattern.pattern).group(1).split("|")]
+    forms = {form for verb in (*verbs, *extra)
+             for form in ((verb,) if verb in _NOUNS else (verb, verb + "s", verb + "es"))}
+    return re.compile(r"(^|_)(" + "|".join(sorted(forms)) + r")(_|$)", re.IGNORECASE)
+
+
+_SAYS_HIGH_IMPACT = _any_form(_DESTRUCTIVE_RE)
+_SAYS_A_CHANGE = _any_form(_ROUTINE_RE, extra=("replace", "clear"))
 HINTS = ("readOnlyHint", "destructiveHint")  # The annotations Row-Bot weighs; a saved catalog keeps them (B307).
 
 _BROWSER_SESSION_SAFE_TOOLS = {
@@ -105,15 +123,15 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
     if name in _BROWSER_SESSION_SAFE_TOOLS:
         return "interaction"
     if _changes(name):
-        return "high_impact" if _DESTRUCTIVE_RE.search(words) else "mutation"
+        return "high_impact" if _SAYS_HIGH_IMPACT.search(words) else "mutation"
     read_only = _annotation_value(tool, "readOnlyHint")
     if read_only is True:
         return "read_only"
     if read_only is not False and _READ_RE.match(name):
         # Any other change or high-impact word in its description and it asks first (never runs on its own).
         said = _RUNS_A_READ.sub("_", words)
-        return "unknown" if _DESTRUCTIVE_RE.search(said) or _ROUTINE_RE.search(said) else "read_only"
-    return "high_impact" if _DESTRUCTIVE_RE.search(words) else "unknown"
+        return "unknown" if _SAYS_HIGH_IMPACT.search(said) or _SAYS_A_CHANGE.search(said) else "read_only"
+    return "high_impact" if _SAYS_HIGH_IMPACT.search(words) else "unknown"
 
 
 def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = None) -> bool:
