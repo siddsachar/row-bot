@@ -248,8 +248,8 @@ def _keychain_refs(v5) -> set[str]:
 
 def _holding(v5, *secrets: str) -> list[str]:
     """Every file in the data folder (settings, kept copies, tasks.db) that holds one of ``secrets``."""
-    return [path.relative_to(v5.root).as_posix() for path in v5.root.rglob("*") if path.is_file()
-            and any(secret.encode() in path.read_bytes() for secret in secrets)]
+    return sorted(path.relative_to(v5.root).as_posix() for path in v5.root.rglob("*") if path.is_file()
+                  and any(secret.encode() in path.read_bytes() for secret in secrets))
 
 
 def test_keys_typed_into_a_servers_settings_move_into_the_keychain_and_it_starts_as_before(v5, monkeypatch):
