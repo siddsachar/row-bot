@@ -184,6 +184,52 @@ def test_a_second_start_while_one_runs_shows_the_first_instead_of_failing(item, 
     assert len(queued) == 1 and owner.calls == []  # Nothing else was started.
 
 
+@pytest.fixture
+def chats(owner, tmp_path, monkeypatch):
+    """The "Use apps in chats" switch, off, on a tool registry of its own (it finds its file by data folder)."""
+    from row_bot import tool_configuration
+    from row_bot.tools import registry
+    from row_bot.tools.mcp_tool import McpTool
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(registry, "_active_config_path", tool_configuration.configuration_path())
+    monkeypatch.setattr(registry, "_tools", {"mcp": McpTool()})
+    monkeypatch.setattr(registry, "_enabled", {"mcp": False})
+    monkeypatch.setattr(registry, "_tool_configs", {})
+    monkeypatch.setattr(registry, "_global_config", {})
+    monkeypatch.setattr(registry, "_invalidate_agent_cache", lambda: None)
+
+    def switch(on: bool) -> None:
+        tool_configuration.configuration_path().write_text(json.dumps({"tools": {"mcp": on}}), encoding="utf-8")
+        registry._enabled["mcp"] = on
+    switch(False)
+    return registry, switch
+
+
+def test_connecting_an_app_lets_chats_use_it(item, owner, chats):
+    """B308: connecting is asking to use the app, so the consent says chats will, and its tools reach a chat."""
+    registry, _ = chats
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    assert plan["consent"]["turns_on_chats"] is True
+    connect(item, "ask")
+    from row_bot.application.native_mcp_controls import read_native_mcp_state
+    assert read_native_mcp_state().saved_enabled is True and registry.is_enabled("mcp")
+    assert "mcp_synthetic_get_record" in {tool.name for tool in registry.get_langchain_tools()}
+
+
+def test_a_chats_switch_turned_off_after_agreeing_stays_off_and_is_named(item, owner, chats):
+    registry, switch = chats
+    switch(True)
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    assert plan["consent"]["turns_on_chats"] is False
+    plan_id = str(uuid4())
+    paused = api.start_plan(ctx(), plan_id=plan_id, item_id=item, digest=plan["digest"], preset="ask")
+    switch(False)  # The person turns it off meanwhile: connecting never overrides that.
+    access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
+    done = plans.resume(ctx(tools_digest=access["tools_digest"]), plan_id)
+    assert done["state"] == "completed" and "turn on Use apps in chats" in done["message"]
+    assert registry.is_enabled("mcp") is False
+
+
 def test_a_paused_plan_expires_keeps_what_was_done_and_frees_the_item(item, owner, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(plans, "_now", lambda: clock[0])

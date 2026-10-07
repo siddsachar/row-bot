@@ -16,9 +16,10 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport]
 
 @pytest.fixture
 def owner(tmp_path, monkeypatch):
-    from row_bot import tasks
+    from row_bot import tasks, tool_configuration
     from row_bot.mcp_client import runtime
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
+    monkeypatch.setattr(tool_configuration, "configuration_path", lambda: tmp_path / "tools_config.json")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "mcp_servers.json")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "_config_cache", None)

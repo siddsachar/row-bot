@@ -56,6 +56,7 @@ _MESSAGES = {
     "package_preview_expired": "The package check expired. Start again.",
     "owner_local_only": "Adding packages works only in Row-Bot on this computer.",
 }
+_CHATS_OFF = "Connected. To use it in chats, turn on Use apps in chats in Apps › Advanced."
 
 
 class PlanError(ValueError):
@@ -167,7 +168,8 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     consent = {"destinations": [setup["destination"]] if hosted else [], "runs_locally": not hosted,
                "downloads": [s["runtime"]["label"] for s in steps if s["type"] == "runtime" and s["state"] == "pending"],
                "access_preset": presets.DEFAULT, "turns_on_mcp": intent != "access" and standalone and not _mcp_on(),
-               "cleanup": False}
+               # Connecting an app is asking to use it: chats can, unless the person later turns that off (B308).
+               "turns_on_chats": intent != "access" and standalone and not _chats_on(), "cleanup": False}
     declaration = {"transport": cfg.get("transport"), "url": cfg.get("url", ""), "command": cfg.get("command", ""),
                    "args": cfg.get("args", []), "headers": sorted(cfg.get("headers") or {}), "env": sorted(cfg.get("env") or {}),
                    "auth": setup["auth_mode"], "bindings": setup["bindings"], "source": cfg.get("source") or {}}
@@ -1184,6 +1186,25 @@ def _mcp_on() -> bool:
     return config.read_saved_configuration(None).document.get("enabled") is True
 
 
+def _chats_on() -> bool:
+    """Whether chats are offered connected apps' tools ("Use apps in chats")."""
+    from row_bot.application.native_mcp_controls import read_native_mcp_state
+    return read_native_mcp_state().saved_enabled is True
+
+
+def _chats(ctx: Context, record: dict) -> None:
+    """Turn on "Use apps in chats", as the consent said: the same reviewed command as its switch."""
+    from row_bot.application import native_mcp_controls as native
+
+    def build():
+        revision = native.read_native_mcp_state(validate=ctx.validate).resource_revision or ""
+        review = native.review_native_mcp_command(revision, True, validate=ctx.validate)
+        return _mcp_command("mcp.facade.control", resource_revision=revision, enabled=True), review
+    command, review = _once(record, "enable:chats", build)
+    _completed(native.execute_native_mcp_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
+        validate=ctx.validate, validate_review=_bound(review)))
+
+
 def _recipe(record: dict) -> str:
     """What runs and where it connects."""
     cfg = _saved(record["target"], record["server_id"])[1]
@@ -1324,6 +1345,17 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
         _policy(ctx, record, "enable:server", {"operation": "server_enabled", "server_id": record["server_id"], "enabled": True})
     if record["target"] is None and state.global_enabled is not True:
         _policy(ctx, record, "enable:global", {"operation": "global_enabled", "enabled": True})
+    if (record["intent"] != "settings" and record["target"] is None and "enable:chats" not in record["_commands"]
+            and not _chats_on()):
+        if record["consent"].get("turns_on_chats"):
+            from row_bot.application.native_mcp_controls import NativeMcpError
+            try:
+                _chats(ctx, record)
+            except NativeMcpError:
+                if "enable:chats" in record["_commands"]:
+                    raise  # Sent: its outcome is settled like any other owner command's.
+        if not _chats_on():  # Not agreed, or it couldn't be turned on now: the person can, with one switch.
+            record["_done_message"] = _CHATS_OFF
     if record["target"] is not None:
         from row_bot.plugins.state import is_plugin_enabled
         if not is_plugin_enabled(record["target"]["plugin_id"]):

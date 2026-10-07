@@ -437,6 +437,23 @@ it("lists an app's other ways to connect, recommended first", async () => {
   );
 });
 
+it('says when connecting also lets chats use the app (B308)', async () => {
+  const controller = {
+    integrationDetail: vi.fn(async () => detail()),
+    reviewInstallPlan: vi.fn(async () =>
+      plan({ consent: { ...plan().consent, turns_on_chats: true } }),
+    ),
+  };
+  show('/settings/apps/item?id=mcp%3Acurated%3Anotion', controller);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  const consent = await screen.findByRole('dialog', { name: 'Connect Notion' });
+  expect(
+    within(consent).getByText(
+      'This also turns on Use apps in chats, so chats can use it.',
+    ),
+  ).toBeVisible();
+});
+
 it('connects after one consent, follows the plan, and lets the access sheet choose', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const running = plan({

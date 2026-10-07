@@ -7931,6 +7931,7 @@ class PlanConsent(WireModel):
     downloads: list[str] = Field(max_length=16)
     access_preset: AccessPresetId
     turns_on_mcp: bool = False
+    turns_on_chats: bool = False  # Also turns on "Use apps in chats" (B308).
     # Remove only: also delete saved keys and data.
     cleanup: bool = False
 
