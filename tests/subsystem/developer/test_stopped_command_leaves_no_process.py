@@ -49,7 +49,7 @@ def test_stop_ends_a_long_running_command(tmp_path) -> None:
         runtime.stop_tracked_process(state)
         assert state.done.wait(10) and state.quiesced
 
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 15  # Windows lists a terminated process until it is torn down.
         while _processes_with(marker) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert not _processes_with(marker), "the stopped command is still running"

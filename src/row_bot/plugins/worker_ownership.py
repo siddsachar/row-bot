@@ -64,7 +64,7 @@ class WindowsJob:
         try:
             if not self._kernel.TerminateJobObject(handle, 130):
                 return False
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 10  # A busy machine can take seconds to end a job's processes.
             while True:
                 info = self._accounting()
                 if not self._kernel.QueryInformationJobObject(handle, 1, self._ctypes.byref(info), self._ctypes.sizeof(info), None):
