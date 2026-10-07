@@ -20,7 +20,11 @@
           "type": "string"
         },
         "status": {
-          "const": "not_run",
+          "enum": [
+            "not_run",
+            "passed",
+            "failed"
+          ],
           "title": "Status",
           "type": "string"
         }

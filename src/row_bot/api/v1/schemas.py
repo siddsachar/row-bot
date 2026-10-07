@@ -7428,7 +7428,7 @@ class WorkspaceDiffStats(WireModel):
 class WorkspaceCommandStatus(WireModel):
     label: str = Field(max_length=4096)
     kind: str = Field(max_length=128)
-    status: Literal["not_run"]
+    status: Literal["not_run", "passed", "failed"]
     command: str = Field(default="", max_length=4096)
 
 

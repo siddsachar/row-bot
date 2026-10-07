@@ -702,7 +702,12 @@ describe('Developer inspector', () => {
     await waitFor(() =>
       expect(renderRun).toHaveBeenCalledWith({
         checks: [
-          { label: 'pytest', kind: 'test', command: 'python -m pytest' },
+          {
+            label: 'pytest',
+            kind: 'test',
+            command: 'python -m pytest',
+            result: 'not_run',
+          },
         ],
       }),
     );
@@ -1350,5 +1355,18 @@ describe('Developer inspector', () => {
     expect(
       screen.queryByRole('button', { name: 'Revert' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('checksStatus', () => {
+  it("counts the agent's own check runs, not only the Run tab's (B302)", () => {
+    const check = { label: 'npm test', kind: 'test', command: 'npm test' };
+    expect(checksStatus([check], []).label).toBe('Checks not run');
+    expect(checksStatus([{ ...check, result: 'passed' }], []).label).toBe(
+      'Checks passed',
+    );
+    expect(checksStatus([{ ...check, result: 'failed' }], []).label).toBe(
+      'Checks failed',
+    );
   });
 });

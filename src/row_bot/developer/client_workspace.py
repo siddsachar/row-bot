@@ -95,7 +95,8 @@ class WorkspaceChoicePage:
 class WorkspaceCommandStatus:
     label: str
     kind: str
-    status: Literal["not_run"] = "not_run"
+    # The last result of an agent's run of this command (B302).
+    status: Literal["not_run", "passed", "failed"] = "not_run"
     # The exact detected command line, so the client can offer to run it
     # through the reviewed process flow.
     command: str = ""
@@ -528,6 +529,11 @@ def _query_workspace(resource_id: str, conversation_id: str) -> DeveloperWorkspa
     return workspace
 
 
+def _check_status(results: dict[str, tuple[int, str]], command: str) -> str:
+    found = results.get(" ".join(command.split()))
+    return "not_run" if found is None else "passed" if found[0] == 0 else "failed"
+
+
 async def get_workspace_inspector(resource_id: str, conversation_id: str,
                                   refresh: bool = False) -> WorkspaceInspector:
     from row_bot.developer import inspector_snapshot as owner
@@ -547,12 +553,14 @@ async def get_workspace_inspector(resource_id: str, conversation_id: str,
                       for p in runtime._ACTIVE_PROCESSES.get(str(Path(workspace.path).resolve()), ())[:100])
     policy = WorkspacePolicy(workspace.execution_mode, _get_thread_approval_mode(conversation_id), workspace.sandbox_network)
     refresh_error = owner.get_snapshot_refresh_error(resource_id, conversation_id)
+    from row_bot.developer.check_results import latest
+    results = latest(resource_id)
     return WorkspaceInspector(resource_id, _get_thread_project_workspace(conversation_id) or resource_id,
         resource_id, conversation_id, workspace.name, policy, str(snapshot.version),
         "stale" if snapshot.error or refresh_error else "ready", bool(snapshot.git_summary.get("is_git")),
         str(snapshot.git_summary.get("branch") or ""), bool(snapshot.git_summary.get("dirty")),
         len(snapshot.changed_files), snapshot.diff_stats,
-        tuple(WorkspaceCommandStatus(c.label, c.kind, command=c.command[:4096])
+        tuple(WorkspaceCommandStatus(c.label, c.kind, _check_status(results, c.command), command=c.command[:4096])
               for c in snapshot.command_specs[:100]), processes,
         tuple(WorkspaceTodo(t.id[:256], t.label[:4096], t.status[:80]) for t in snapshot.todos[:100]),
         "inspector_refresh_failed" if snapshot.error or refresh_error else "")

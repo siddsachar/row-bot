@@ -73,7 +73,13 @@ const DIFF_MODE_KEY = 'row-bot.diff-mode.v1';
 const EAGER_CHANGE_SETS = 10;
 
 export type InspectorTab = 'changes' | 'files' | 'run' | 'git';
-export type InspectorCheck = { label: string; kind: string; command: string };
+export type InspectorCheck = {
+  label: string;
+  kind: string;
+  command: string;
+  /** The last result of an agent's run of this command (B302). */
+  result?: 'not_run' | 'passed' | 'failed';
+};
 export type RunContext = { checks: InspectorCheck[] };
 export type GitContext = {
   /** The inspector's snapshot; the Git tab re-reads when it changes. */
@@ -201,8 +207,18 @@ export function checksStatus(
 ): ChecksState {
   if (!checks.length)
     return { tone: 'neutral', label: 'No checks', pulse: false };
-  const latest = checks.map((check) =>
-    [...processes].reverse().find((item) => item.command === check.command),
+  // A Run-tab process for the command, else the agent's last run of it.
+  const latest = checks.map(
+    (check) =>
+      [...processes].reverse().find((item) => item.command === check.command) ??
+      (check.result === 'passed' || check.result === 'failed'
+        ? {
+            command: check.command,
+            quiesced: true,
+            state: 'exited',
+            exit_code: check.result === 'passed' ? 0 : 1,
+          }
+        : undefined),
   );
   if (latest.some((item) => item && !item.quiesced && item.state !== 'failed'))
     return { tone: 'info', label: 'Checks running', pulse: true };
@@ -596,6 +612,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         label: command.label,
         kind: command.kind,
         command: command.command?.trim() || command.label,
+        result: command.status,
       })),
     [current?.commands],
   );

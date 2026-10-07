@@ -727,6 +727,23 @@ def _is_read_only_command(raw_text: str) -> bool:
     return False
 
 
+def _records_checks(func):
+    """A finished run of a detected check command counts for Checks (B302); a stopped one doesn't."""
+    from functools import wraps
+
+    @wraps(func)
+    def run(workspace_path, command, *args, **kwargs):
+        result = func(workspace_path, command, *args, **kwargs)
+        if result.returncode not in (None, 130) and kwargs.get("workspace_id"):
+            from row_bot.developer.check_results import record
+
+            record(str(kwargs["workspace_id"]), workspace_path, command, result.returncode)
+        return result
+
+    return run
+
+
+@_records_checks
 def run_workspace_command(
     workspace_path: str,
     command: str,
@@ -832,6 +849,7 @@ def run_workspace_command(
     )
 
 
+@_records_checks
 def run_workspace_shell_command(
     workspace_path: str,
     command: str,

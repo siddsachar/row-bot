@@ -266,6 +266,7 @@ def test_detected_test_runs_in_the_sandbox_without_asking_but_asks_on_this_compu
         ran.append(command) or SimpleNamespace(cwd="/workspace", returncode=0, stdout="ok", stderr="",
                                                changed_files=[], sandbox_backend="docker", pending_change_id="")))
     sandboxed = fake_workspace(tmp_path / "sandboxed", execution_mode="docker")
+    (pathlib.Path(sandboxed.path) / "package.json").write_text('{"scripts": {"test": "node --test"}}', encoding="utf-8")
     local = fake_workspace(tmp_path / "local")
     monkeypatch.setattr(storage, "get_workspace", lambda workspace_id: {"docker": sandboxed, "local": local}[workspace_id])
 
@@ -279,3 +280,7 @@ def test_detected_test_runs_in_the_sandbox_without_asking_but_asks_on_this_compu
     assert in_sandbox.ok and ran == ["npm test"]
     assert (on_host.ran, on_host.decision.decision) == (False, "ask")
     assert (in_block.ran, in_block.decision.decision) == (False, "block")
+    # The agent's run of the project's own test command counts for Checks (B302).
+    from row_bot.developer import check_results
+    assert check_results.latest("docker")["npm test"][0] == 0
+    assert "npm test" not in check_results.latest("local")
