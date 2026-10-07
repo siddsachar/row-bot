@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { clientError } from '../../api/errors';
 import { Button, ErrorState, Field, Skeleton } from '../../ui/primitives';
+import { When } from '../../ui/When';
 
 // These closed structural types match the canonical import domain. The shared
 // adapter adds its session-bound review nonce; no host path is renderer authority.
@@ -475,7 +476,7 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
             >
               {row.imported ? 'Imported' : 'Pending'} · {row.file_count} file
               {row.file_count === 1 ? '' : 's'} ·{' '}
-              {row.created_at || row.pending_change_id}
+              <When value={row.created_at} fallback={row.pending_change_id} />
             </Button>
           </li>
         ))}

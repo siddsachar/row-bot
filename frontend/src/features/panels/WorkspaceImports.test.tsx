@@ -63,6 +63,9 @@ function result(
     ...override,
   };
 }
+// The nth saved change's time, one minute apart.
+const minute = (n: number) =>
+  new Date(Date.UTC(2026, 0, 1) + n * 60_000).toISOString();
 function props(
   overrides: Partial<WorkspaceImportsProps> = {},
 ): WorkspaceImportsProps {
@@ -101,6 +104,12 @@ it('opens only saved metadata and renders plain patch text without importing', a
   );
   expect(p.review).not.toHaveBeenCalled();
   expect(p.apply).not.toHaveBeenCalled();
+  // B325: the saved time reads as a time, not the raw ISO string.
+  const when = screen
+    .getByRole('button', { name: /Pending · 1 file/ })
+    .querySelector('time');
+  expect(when).toHaveAttribute('datetime', '2026-01-01T12:00:00.000Z');
+  expect(screen.queryByText(/2026-01-01T12:00/)).not.toBeInTheDocument();
   await selectPatch();
   expect(screen.getByLabelText('Saved patch')).toHaveValue(
     '<script>untrusted patch text</script>',
@@ -262,7 +271,7 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
           (_, index) => ({
             ...row,
             pending_change_id: `pending-${start + index}`,
-            created_at: `change ${start + index}`,
+            created_at: minute(start + index),
           }),
         ),
       };
@@ -281,8 +290,10 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
   }
   const buttons = screen.getAllByRole('button', { name: /Pending · 1 file/ });
   expect(buttons).toHaveLength(200);
-  expect(buttons[0]).toHaveTextContent('change 103');
-  expect(buttons.at(-1)).toHaveTextContent('change 302');
+  const shown = (button: HTMLElement) =>
+    button.querySelector('time')?.getAttribute('datetime');
+  expect(shown(buttons[0])).toBe(minute(103));
+  expect(shown(buttons.at(-1)!)).toBe(minute(302));
   expect(
     screen.queryByRole('button', { name: 'Load more changes' }),
   ).not.toBeInTheDocument();
