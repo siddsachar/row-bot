@@ -28,6 +28,15 @@ _NAMESPACE = "mcp_connections"
 # Row-Bot's OAuth client identity for servers that accept Client ID Metadata Documents: a static file
 # published with the docs site (docs-site/static/oauth/client-metadata.json). It holds no secret.
 CLIENT_METADATA_URL = "https://row-bot.ai/oauth/client-metadata.json"
+_DOCUMENT_PORTS = (None, 80, 8080)  # The loopback redirects that document lists exactly (8080: Row-Bot's own port).
+
+
+def names_itself_by_document(callback_uri: str) -> bool:
+    """Whether a sign-in may name Row-Bot by its client ID metadata document: its callback is one the published
+    document lists exactly. On another port (8080 was taken) a server that registers clients records the exact
+    address instead, since not every server accepts any port on a loopback address as RFC 8252 asks."""
+    parts = urlsplit(callback_uri)
+    return parts.hostname == "127.0.0.1" and parts.port in _DOCUMENT_PORTS and parts.path == CALLBACK_PATH
 CALLBACK_PATH = "/api/v1/settings/mcp/auth/callback"
 _REF = re.compile(r"[a-f0-9]{32}")
 _LIMIT = 64 * 1024

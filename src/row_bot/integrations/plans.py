@@ -1070,10 +1070,11 @@ def _sign_in_client(ctx: Context, record: dict, step: dict) -> dict | None | boo
         except auth.McpAuthError:
             found = {"required": True}  # Unreachable now; the SDK's own discovery reports it when signing in.
     loopback = urlsplit(ctx.redirect_uri).hostname in {"127.0.0.1", "localhost", "::1"}
+    document = bool(found and found.get("cimd")) and auth.names_itself_by_document(ctx.redirect_uri)
     own = source.get("oauth_client") == "required" or bool(found and found.get("metadata") is not None and not found.get("dcr")
-                                                           and not (found.get("cimd") and loopback))
+                                                           and not document)
     if not own:
-        step["sign_in"]["method"] = "oauth_cimd" if found and found.get("cimd") and loopback else "oauth_dcr"
+        step["sign_in"]["method"] = "oauth_cimd" if document else "oauth_dcr"
         return None
     step["sign_in"]["method"] = "oauth_client"
     callback = "http://127.0.0.1" + auth.CALLBACK_PATH if loopback else ctx.redirect_uri

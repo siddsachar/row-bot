@@ -150,7 +150,6 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
     if flow.cfg.get("inputs"):  # An address with the person's own values (a tenant) filled in.
         from row_bot.integrations import inputs
         url = inputs.resolve(flow.cfg, {}, partial=True)["url"]
-    loopback = urlsplit(flow.callback_uri).hostname in {"127.0.0.1", "localhost", "::1"}
     async def redirect(url: str) -> None:
         flow.authority()
         auth.public_endpoint(url)
@@ -167,7 +166,8 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
             raise auth.McpAuthError("mcp_auth_denied")
         return flow.code, flow.oauth_state
     provider = auth.oauth_provider(url, flow.callback_uri, storage, redirect=redirect, callback=callback,
-                                   client_metadata_url=None if client or not loopback else auth.CLIENT_METADATA_URL,
+                                   client_metadata_url=auth.CLIENT_METADATA_URL
+                                   if not client and auth.names_itself_by_document(flow.callback_uri) else None,
                                    scope=str((flow.cfg.get("source") or {}).get("oauth_scope") or ""))
     import httpx
     async with httpx.AsyncClient(auth=provider, timeout=30, follow_redirects=False, trust_env=False, transport=auth.PublicTransport()) as client_http:
