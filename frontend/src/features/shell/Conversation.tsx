@@ -2118,6 +2118,7 @@ export default function Conversation({
       conversationId={id}
       conversationRevision={state.workspace?.revision ?? '0'}
       turnActivity={`${generation?.generation_id ?? ''}:${generation?.status ?? ''}`}
+      agentActivity={lastAgentEvent ?? ''}
       turnRunning={Boolean(running)}
       onStopTurn={() => void action('conversation.stop')}
       resources={resources}

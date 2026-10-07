@@ -684,6 +684,24 @@ def _list_agent_changes() -> str:
     ], indent=2)
 
 
+def _changes_workspace(func):
+    """After a tool that can change the folder, its Inspector snapshot is read again (B302)."""
+    from functools import wraps
+
+    @wraps(func)
+    def changed(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        finally:
+            workspace_id = get_workspace_id() or infer_workspace_id_from_thread(get_thread_id())
+            if workspace_id:
+                from row_bot.developer.inspector_snapshot import invalidate_workspace_snapshots
+
+                invalidate_workspace_snapshots(workspace_id)
+
+    return changed
+
+
 class DeveloperTool(BaseTool):
     @property
     def name(self) -> str:
@@ -705,28 +723,29 @@ class DeveloperTool(BaseTool):
         return _workspace_info()
 
     def as_langchain_tools(self) -> list:
+        changes = _changes_workspace
         return [
             StructuredTool.from_function(func=_workspace_info, name="developer_workspace_info", description="Return the active Developer workspace, path, branch, dirty state, remote, and approval mode."),
             StructuredTool.from_function(func=_list_files, name="developer_list_files", description="List files under the active Developer workspace. Paths must be workspace-relative.", args_schema=_ListFilesInput),
             StructuredTool.from_function(func=_read_file, name="developer_read_file", description="Read a workspace-relative text file from the active Developer workspace.", args_schema=_ReadFileInput),
             StructuredTool.from_function(func=_search, name="developer_search", description="Search text in the active Developer workspace using a safe workspace-scoped search.", args_schema=_SearchInput),
             StructuredTool.from_function(func=_git_status, name="developer_git_status", description="Return structured Git state for the active Developer workspace."),
-            StructuredTool.from_function(func=_create_branch, name="developer_create_branch", description="Create a Git branch in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
-            StructuredTool.from_function(func=_switch_branch, name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
-            StructuredTool.from_function(func=_commit_changes, name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using the thread approval mode.", args_schema=_GitCommitInput),
-            StructuredTool.from_function(func=_push_current_branch, name="developer_push_current_branch", description="Push the current branch to origin using the thread approval mode."),
-            StructuredTool.from_function(func=_fast_forward_merge, name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using the thread approval mode.", args_schema=_GitFastForwardInput),
+            StructuredTool.from_function(func=changes(_create_branch), name="developer_create_branch", description="Create a Git branch in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
+            StructuredTool.from_function(func=changes(_switch_branch), name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
+            StructuredTool.from_function(func=changes(_commit_changes), name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using the thread approval mode.", args_schema=_GitCommitInput),
+            StructuredTool.from_function(func=changes(_push_current_branch), name="developer_push_current_branch", description="Push the current branch to origin using the thread approval mode."),
+            StructuredTool.from_function(func=changes(_fast_forward_merge), name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using the thread approval mode.", args_schema=_GitFastForwardInput),
             StructuredTool.from_function(func=_diff, name="developer_get_diff", description="Return changed file summary or one file diff for the active Developer workspace.", args_schema=_DiffInput),
             StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread.", args_schema=_TodoInput),
-            StructuredTool.from_function(func=_run_detected, name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),
-            StructuredTool.from_function(func=_run_command, name="developer_run_command", description="Run a shell command in the active Developer workspace after policy checks and record file side effects.", args_schema=_RunCommandInput),
-            StructuredTool.from_function(func=_import_sandbox_changes, name="developer_import_sandbox_changes", description="Import a Docker Sandbox pending patch into the real workspace after approval.", args_schema=_ImportSandboxInput),
+            StructuredTool.from_function(func=changes(_run_detected), name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),
+            StructuredTool.from_function(func=changes(_run_command), name="developer_run_command", description="Run a shell command in the active Developer workspace after policy checks and record file side effects.", args_schema=_RunCommandInput),
+            StructuredTool.from_function(func=changes(_import_sandbox_changes), name="developer_import_sandbox_changes", description="Import a Docker Sandbox pending patch into the real workspace after approval.", args_schema=_ImportSandboxInput),
             StructuredTool.from_function(func=_preview_patch, name="developer_preview_patch", description="Validate and preview a unified diff patch without writing files.", args_schema=_PatchInput),
-            StructuredTool.from_function(func=_apply_patch, name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),
-            StructuredTool.from_function(func=_write_file, name="developer_write_file", description="Create or replace a workspace-relative text file and record an agent-owned change set.", args_schema=_WriteFileInput),
-            StructuredTool.from_function(func=_import_media, name="developer_import_media", description="Copy one generated image or video from this conversation into a new code-folder file through Developer's writer lease and change ledger. Requires the exact media reference and an unused path.", args_schema=_ImportMediaInput),
+            StructuredTool.from_function(func=changes(_apply_patch), name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),
+            StructuredTool.from_function(func=changes(_write_file), name="developer_write_file", description="Create or replace a workspace-relative text file and record an agent-owned change set.", args_schema=_WriteFileInput),
+            StructuredTool.from_function(func=changes(_import_media), name="developer_import_media", description="Copy one generated image or video from this conversation into a new code-folder file through Developer's writer lease and change ledger. Requires the exact media reference and an unused path.", args_schema=_ImportMediaInput),
             StructuredTool.from_function(func=_list_agent_changes, name="developer_list_agent_changes", description="List agent-owned change sets recorded for this Developer thread."),
-            StructuredTool.from_function(func=_revert_change_set, name="developer_revert_agent_changes", description="Revert an agent-owned change set if files have not drifted.", args_schema=_RevertInput),
+            StructuredTool.from_function(func=changes(_revert_change_set), name="developer_revert_agent_changes", description="Revert an agent-owned change set if files have not drifted.", args_schema=_RevertInput),
         ]
 
 

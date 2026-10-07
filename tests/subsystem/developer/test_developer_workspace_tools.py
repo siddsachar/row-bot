@@ -974,3 +974,27 @@ def test_importing_the_newest_sandbox_change_brings_in_the_earlier_ones_first(tm
     assert result.index(first.pending_change_id) < result.index(second.pending_change_id)
     assert all(sandbox_runtime.get_pending_change(change).imported
                for change in (first.pending_change_id, second.pending_change_id))
+
+
+def test_an_agent_branch_switch_makes_the_workspace_card_read_the_folder_again(tmp_path, monkeypatch,
+                                                                                reload_for_data_dir):
+    """B302: the card kept "main · 0 changed" after the agent created a branch."""
+    storage, tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
+    from row_bot.developer import inspector_snapshot
+
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    workspace = storage.add_or_update_local_workspace(str(repo))
+    storage.set_workspace_approval_mode(workspace.id, "allow_all")
+    thread_id = storage.ensure_workspace_thread(workspace.id)
+    monkeypatch.setattr(inspector_snapshot, "_snapshots", {
+        (workspace.id, thread_id): object(), (workspace.id, "parent-chat"): object(), ("other", thread_id): object()})
+    branch_tool = next(tool for tool in developer_tool.DeveloperTool().as_langchain_tools()
+                       if tool.name == "developer_create_branch")
+    tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
+    try:
+        branch_tool.invoke({"branch_name": "fix/1-csv-quoted-fields"})
+    finally:
+        tool_context.reset_context(tokens)
+
+    assert list(inspector_snapshot._snapshots) == [("other", thread_id)]
