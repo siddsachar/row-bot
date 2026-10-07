@@ -51,6 +51,27 @@ def test_streamable_http_transport_connects_with_fake_sdk(monkeypatch) -> None:
     asyncio.run(server.close())
 
 
+def test_a_connection_logs_where_it_connected_but_never_a_key_in_its_address_or_arguments(monkeypatch, caplog) -> None:
+    import logging
+    from row_bot.mcp_client import runtime
+
+    monkeypatch.setattr(runtime, "streamablehttp_client",
+                        lambda url, *, headers, httpx_client_factory: FakeAsyncContext(("read", "write", "session")))
+    monkeypatch.setattr(runtime, "ClientSession", FakeClientSession)
+    server = runtime.McpServerRuntime("keyed", {
+        "transport": "streamable_http", "connect_timeout": 1, "args": ["--token", "arg-secret"],
+        "url": "http://127.0.0.1:9/k/path-secret/mcp?api_key=query-secret"})
+
+    with caplog.at_level(logging.INFO, logger="row_bot.mcp"):
+        asyncio.run(server._connect())
+    asyncio.run(server.close())
+
+    [line] = [record.getMessage() for record in caplog.records if "mcp.server.connected" in record.getMessage()]
+    assert '"host": "http://127.0.0.1"' in line and '"args": 2' in line
+    for secret in ("path-secret", "query-secret", "arg-secret", "--token"):
+        assert secret not in caplog.text
+
+
 def test_sse_transport_connects_with_fake_sdk(monkeypatch) -> None:
     from row_bot.mcp_client import runtime
 

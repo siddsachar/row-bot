@@ -42,19 +42,25 @@ def _allowed(item: dict, allow: list[str] | tuple[str, ...] | None) -> bool:
     return "mcp" in allow or bool(package and package in allow) or any(name.startswith(prefix) for name in allow)
 
 
-def _profile_allow(conversation_id: str) -> list[str] | None:
-    """The tool ceiling of the chat's agent profile, as a turn would freeze it (None: no limit)."""
+def _profile(conversation_id: str) -> dict | None:
+    """The chat's agent profile as a turn would freeze it: {} when it names none, None when the one it
+    names is gone or switched off (a turn is refused then)."""
     from row_bot.threads import get_thread_composer_context
     try:
         context = get_thread_composer_context(conversation_id)
     except ValueError:
-        return None
+        return {}
     reference = context["agent_profile_id"] or context["agent_profile_slug"]
     if not reference:
-        return None
+        return {}
     from row_bot.agent_profiles import get_agent_profile
-    profile = get_agent_profile(reference, enabled_only=True) or {}
-    policy = profile.get("tool_policy_json") or {}
+    return get_agent_profile(reference, enabled_only=True) or None
+
+
+def _profile_allow(conversation_id: str, profile: dict | None = None) -> list[str] | None:
+    """The tool ceiling of the chat's agent profile (or of ``profile``, already read), as a turn would
+    freeze it (None: no limit)."""
+    policy = (profile if profile is not None else _profile(conversation_id) or {}).get("tool_policy_json") or {}
     allowed = [str(v).strip() for v in (policy.get("allow_tools") or []) if str(v).strip()] if isinstance(policy, dict) else []
     return allowed or None
 

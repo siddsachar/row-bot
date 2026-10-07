@@ -506,7 +506,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
-    if "app tool fixture" in text or "is connected now" in text:
+    if "app tool fixture" in text or "connected now" in text:
         # Apps in chat: a step through the connected synthetic app (its logo and name on the step), then
         # one change that asks first (its approval names the app). What the turn left out is recorded.
         from row_bot.mcp_client import runtime
@@ -515,7 +515,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         call["app_scope"] = config["configurable"].get("app_scope")
         thread = call["conversation_id"]
         try:
-            if "is connected now" in text:
+            if "connected now" in text:
                 yield from _natural_final(call, thread, "Continuing with what you asked.", "app-continue")
                 return
             wanted = text.split("app tool fixture", 1)[1].strip().casefold()

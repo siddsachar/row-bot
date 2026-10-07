@@ -2229,9 +2229,9 @@ export default function Conversation({
       navigate(
         `/settings/apps/${encodeURIComponent(target === 'email' ? 'google' : target)}`,
       ),
-    // The person's own message, focused on the app they just connected.
-    continueWith: (name) =>
-      send(`@${name} is connected now. Please continue with my request.`),
+    // The person's own message, in fixed words: an app's name can come from a third-party listing.
+    continueWith: () =>
+      send("It's connected now. Please continue with my request."),
   };
   // Retry and Send again resend the last message as it was: its words and
   // its files, never the files' names as text (B136). A follow-up note is

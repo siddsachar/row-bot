@@ -381,9 +381,10 @@ def test_a_step_names_its_app_and_tool_only_from_names_the_runtime_issued(monkey
     assert runtime.server_for_tool("mcp_granola_delete_page") is None  # Close, but not a name it issued.
 
 
-def test_tools_that_ask_in_every_approval_mode_are_known_by_name(monkeypatch):
+def test_tools_that_ask_in_every_approval_mode_ask_even_when_allowed_to_run(monkeypatch):
     """Destructive tools, tools of unknown effect, and tools recorded as always asking when accepted
-    (a broker's acting tools) are approval-locked; a reading tool is not."""
+    (a broker's acting tools) ask in Ask and in Allow all, even set to run without asking; a reading tool
+    doesn't."""
     from row_bot.application.capability_catalog_controls import capture_tested_catalog
     from row_bot.mcp_client import runtime
 
@@ -393,11 +394,65 @@ def test_tools_that_ask_in_every_approval_mode_are_known_by_name(monkeypatch):
     cfg = {"enabled": True, "tools": {"enabled": {tool["name"]: True for tool in tools}}}
     found = runtime._normalize_tools("Broker", cfg, tools)
     recorded = capture_tested_catalog({"ok": True, "tools": [info.__dict__ for info in found.values()]})["tools"]
-    cfg["tools"].update(catalog={row["name"]: row for row in recorded}, accepted_names=[row["name"] for row in recorded])
+    cfg["tools"].update(catalog={row["name"]: row for row in recorded}, accepted_names=[row["name"] for row in recorded],
+                        run_without_asking=[tool["name"] for tool in tools])
     with runtime._runtime_lock:
         runtime._catalog["Broker"] = runtime._normalize_tools("Broker", cfg, tools)
     monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {"Broker": cfg}})
-    locked = runtime.get_locked_tool_names()
-    assert "mcp_broker_list_pages" not in locked
-    assert {"mcp_broker_delete_page", "mcp_broker_frobnicate", "mcp_broker_composio_multi_execute_tool"} <= locked
+    asking = runtime.get_destructive_tool_names()
+    assert "mcp_broker_list_pages" not in asking
+    assert {"mcp_broker_delete_page", "mcp_broker_frobnicate", "mcp_broker_composio_multi_execute_tool"} <= asking
     assert all(info.enabled for info in runtime._catalog["Broker"].values())  # Recording it never unaccepts it.
+
+
+def test_a_recorded_code_running_tool_asks_whatever_its_server_hints(monkeypatch):
+    """A broker's workbench (it runs code) the person switched on by its own toggle, whose server calls it
+    read-only: it still asks before running, in Ask as under Allow all."""
+    from row_bot.mcp_client import runtime
+
+    tools = [{"name": "COMPOSIO_REMOTE_WORKBENCH", "description": "Workbench.", "inputSchema": {"type": "object"},
+              "annotations": {"readOnlyHint": True}}]
+    cfg = {"enabled": True, "tools": {"enabled": {"COMPOSIO_REMOTE_WORKBENCH": True}, "require_approval": [],
+                                      "catalog": {"COMPOSIO_REMOTE_WORKBENCH": {
+                                          "effect": "read_only", "requires_approval": True, "runs_code": True,
+                                          "description": "Workbench.", "input_schema": {"type": "object"}}}}}
+    with runtime._runtime_lock:
+        runtime._catalog["broker"] = runtime._normalize_tools("broker", cfg, tools)
+    monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {"broker": cfg}})
+    info = runtime.tool_info("broker", "COMPOSIO_REMOTE_WORKBENCH")
+    assert info.enabled and info.effect == "read_only" and info.requires_approval
+    assert runtime.get_destructive_tool_names() == {"mcp_broker_composio_remote_workbench"}
+
+
+def test_a_name_two_apps_share_names_neither_until_one_no_longer_has_it(monkeypatch) -> None:
+    """Connection "acme" with "files_delete" and connection "acme files" with "delete" both make
+    mcp_acme_files_delete: that name names neither app, so no card shows the wrong one. Once "acme"
+    rediscovers its tools without it, the name is "acme files"'s alone."""
+    from row_bot.mcp_client import runtime
+
+    class Tools:
+        def __init__(self, tools):
+            self.tools = tools
+
+        async def list_tools(self):
+            return type("ToolList", (), {"tools": self.tools})()
+
+    cfg = {"enabled": True, "tools": {"enabled": {"files_delete": True, "delete": True}}}
+    monkeypatch.setattr(runtime, "_get_effective_config",
+                        lambda: {"enabled": True, "servers": {"acme": cfg, "acme files": cfg}})
+    monkeypatch.setattr(runtime, "discover_enabled_servers", lambda: None)
+    acme, files = runtime.McpServerRuntime("acme", cfg), runtime.McpServerRuntime("acme files", cfg)
+    acme.session = Tools([FakeMcpTool("files_delete", "Delete files.", {"type": "object"})])
+    files.session = Tools([{"name": "delete", "description": "Delete everything.", "inputSchema": {"type": "object"},
+                            "_meta": {"ui": {"visibility": ["app"]}}}])  # Only its own view calls it.
+    with runtime._runtime_lock:
+        runtime._servers.update({"acme": acme, "acme files": files})
+    for server in (acme, files):
+        asyncio.run(server._discover_tools())
+    assert [tool.name for tool in runtime.get_langchain_tools(allow_names=["mcp"])] == ["mcp_acme_files_delete"]
+    assert runtime.server_for_tool("mcp_acme_files_delete") is None
+    assert runtime.tool_title("mcp_acme_files_delete") == ""
+    acme.session = Tools([])
+    asyncio.run(acme._discover_tools())
+    assert runtime.server_for_tool("mcp_acme_files_delete") == "acme files"
+    assert runtime.tool_title("mcp_acme_files_delete") == "Delete"

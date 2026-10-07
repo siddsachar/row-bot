@@ -179,5 +179,5 @@ it('offers Continue once the app is ready, and the request goes on in this chat'
   });
   const card = await screen.findByRole('listitem', { name: 'Notion, Ready' });
   fireEvent.click(within(card).getByRole('button', { name: 'Continue' }));
-  expect(onContinue).toHaveBeenCalledWith('Notion');
+  expect(onContinue).toHaveBeenCalledExactlyOnceWith(); // Never the app's name: it can come from a listing.
 });

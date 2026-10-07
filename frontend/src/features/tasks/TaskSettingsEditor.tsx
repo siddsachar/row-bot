@@ -452,7 +452,7 @@ export default function TaskSettingsEditor({
               htmlFor={`${inputId}-approval`}
               description={
                 fields.approval_mode === 'allow_all'
-                  ? 'Auto permits actions without asking when the selected profile allows them. Existing sandbox limits still apply.'
+                  ? 'Auto permits actions without asking when the selected profile allows them; apps still ask when their access says to. Existing sandbox limits still apply.'
                   : 'What happens when a run wants to act.'
               }
             >

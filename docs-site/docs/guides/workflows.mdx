@@ -48,7 +48,7 @@ Choose **Home**, then the **Workflows** tab. Overview's **New workflow** quick s
 
 - **Start from a template**, below the workflow list, offers workflows that use apps: **GitHub pull-request digest**, **Linear triage** and **Notion weekly summary**. Each is created switched off, with a schedule and **Ask before actions** approvals; turn it on when it suits you. A template whose app isn't connected shows **Connect** instead. Templates never add a webhook or change how Row-Bot can be reached.
 - In the step editor, a prompt step's **Apps this step uses** limits that step to the apps you choose, as mentioning an app in chat does. With none chosen, the step can use every app the workflow may. The workflow's Agent profile and approvals still apply.
-- An app's high-impact tools, and tools whose effect is unknown, ask even when a workflow uses **Auto** approvals, so the run waits for you on them.
+- An app's tools ask whenever its access says to, even when a workflow uses **Auto** approvals: its changes unless you gave it **Full access**, and always its high-impact tools and tools whose effect is unknown. The run waits for you on them.
 
 ## Approvals In Workflows
 

@@ -6,9 +6,9 @@ view's HTML is read from that app's own connection (``resources/read``, its exac
 1 MiB) and served once, with a header CSP that admits nothing but the app's declared https domains, to a
 frame the client creates with ``sandbox="allow-scripts"`` only: an opaque origin, with no Row-Bot cookie,
 storage, page or API. A view's calls reach only its own app's tools that allow it (visibility ``app``), at
-most 20 a minute, and go through the app's access and the chat's approvals as any other call does:
-destructive, high-impact and unknown tools always ask, and a routine change asks unless the person chose
-to let it run.
+most 20 a minute, and go through the chat's agent profile, the app's access and the chat's approvals as
+any other call does: destructive, high-impact and unknown tools always ask, and a routine change asks
+unless the person let it run (Full access, or that one tool), in Allow all too; Block refuses either.
 """
 from __future__ import annotations
 
@@ -237,18 +237,25 @@ def has_view(tool_name: str, item: dict | None = None) -> bool:
         return False
 
 
-def _in_chat(item: dict, conversation_id: str, tool: str = "") -> bool:
-    """Whether this chat may use the app (or one of its tools, by runtime name): not switched off here, and
-    within its agent profile's tools."""
+def _in_chat(item: dict, conversation_id: str, info: Any = None, arguments: dict | None = None) -> bool:
+    """Whether this chat may use the app (or, with ``info``, make this call to one of its tools) as a turn
+    of it could: not switched off here, its agent profile still there and on, the app within the profile's
+    tools, and the call not refused by the profile (denied, outside its tools, or a change while read-only)."""
     from row_bot.integrations import scope
     from row_bot.threads import get_thread_apps_off
+    from row_bot.tools.profile_policy import dispatch_refusal
     if item["id"] in set(get_thread_apps_off(conversation_id)):
         return False
-    allow = scope._profile_allow(conversation_id)
-    if not scope._allowed(item, allow):
+    profile = scope._profile(conversation_id)
+    if profile is None or not scope._allowed(item, scope._profile_allow(conversation_id, profile)):
         return False
-    package = (item.get("parent_id") or "").removeprefix("plugin:")
-    return not tool or allow is None or "mcp" in allow or bool(package and package in allow) or tool in allow
+    if info is None:
+        return True
+    origin = info.source if isinstance(info.source, dict) else {}
+    source, parent = "mcp", "mcp"  # As the agent binds it: a standalone connection's tool, or a plugin's.
+    if origin.get("kind") == "plugin" and origin.get("plugin_id"):
+        source, parent = f"plugin:{origin['plugin_id']}:mcp:{info.server_name}", str(origin.get("server_id") or info.server_name)
+    return dispatch_refusal(profile, info.prefixed_name, arguments or {}, source=source, parent=parent) is None
 
 
 def render(conversation_id: str, call_id: str) -> dict:
@@ -326,14 +333,12 @@ def _approval_mode(conversation_id: str) -> str:
 
 
 def gate(info: Any, approval_mode: str) -> str:
-    """``run``, ``ask`` or ``refuse`` for one call from a view, as for the agent: approval-locked tools
-    (destructive, high-impact, unknown, or recorded so when accepted) ask in every mode but Block (which
-    refuses them); a routine change asks unless the app's access lets it run or the chat chose Allow all;
-    a read runs."""
-    if info.locked or info.destructive or info.effect == "unknown":
-        return "refuse" if approval_mode == "block" else "ask"
+    """``run``, ``ask`` or ``refuse`` for one call from a view, as for the agent: a tool the app's access
+    says to ask about (a routine change unless the app has Full access or that tool may run without
+    asking; high-impact and unknown ones always) asks in Ask and in Allow all alike, and Block refuses it;
+    anything else runs."""
     if info.requires_approval:
-        return {"block": "refuse", "allow_all": "run"}.get(approval_mode, "ask")
+        return "refuse" if approval_mode == "block" else "ask"
     return "run"
 
 
@@ -342,6 +347,8 @@ async def _ask(record: dict, info: Any, runtime_name: str, arguments: dict) -> b
     waits: their answer, or the request's timeout, resolves it)."""
     from row_bot.application.approval_projection import project_approval_context
     from row_bot.application.client_platform import client_platform_service
+    from row_bot.integrations.scope import _name
+    from row_bot.mcp_client import runtime
     from row_bot.tasks import create_approval_request
     loop = asyncio.get_running_loop()
     answer = loop.create_future()
@@ -351,6 +358,11 @@ async def _ask(record: dict, info: Any, runtime_name: str, arguments: dict) -> b
         interrupt = {"id": record["render_id"], "tool": runtime_name, "args": arguments,
                      "label": info.title or info.name, "description": f"{info.title or info.name} (asked from its view in this chat)"}
         public = project_approval_context(interrupt)
+        public.pop("app", None)
+        item = _app_of(record["server"])  # The view's own app: never one read from a name two apps may share.
+        if item is not None:
+            public["app"] = {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"],
+                             "tool": runtime.title_of(record["server"], info.name)}
         _, approval_id = create_approval_request(
             record["render_id"], "", "view", public["reason"], timeout_minutes=APPROVAL_MINUTES, resume_kind="mcp_app",
             source_thread_id=record["conversation_id"], parent_thread_id=record["conversation_id"],
@@ -402,8 +414,8 @@ def _admit(render_id: str, name: str, arguments: dict) -> tuple[dict, Any, Any, 
     item = _app_of(record["server"])
     if item is None or not app_on(item):
         raise ViewError("views_off", "Views from this app are off.")
-    if not _in_chat(item, record["conversation_id"], info.prefixed_name):
-        raise ViewError("view_tool_refused", "This app is off in this chat.")
+    if not _in_chat(item, record["conversation_id"], info, arguments):  # Before anything asks.
+        raise ViewError("view_tool_refused", "This chat doesn't allow that.")
     expected = runtime._bind_authority(record["server"], name)  # What is asked about is what runs.
     decision = gate(info, _approval_mode(record["conversation_id"]))
     if decision == "refuse":

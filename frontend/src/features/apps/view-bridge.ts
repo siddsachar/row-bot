@@ -224,23 +224,23 @@ export class ViewBridge {
           !['http:', 'https:'].includes(new URL(url).protocol)
         )
           return this.refuse(id, -32000, 'Only web links can be opened.');
-        // Only right after the person clicks in the view (a click there activates this page too), and
-        // never so often that a view could flood the desktop with browser windows.
+        // Never so often that a view could flood the desktop with browser windows (refused tries count
+        // too), and only right after the person clicks in this view: the click activates the page and
+        // focuses this view's own frame. An engine that can't tell (no `userActivation`) opens none.
+        const now = Date.now();
+        this.links = this.links.filter((at) => now - at < 60_000);
+        if (this.links.length >= LINKS_PER_MINUTE)
+          return this.refuse(id, -32000, 'Too many links from this view.');
+        this.links.push(now);
         if (
-          typeof navigator !== 'undefined' &&
-          navigator.userActivation &&
-          !navigator.userActivation.isActive
+          navigator.userActivation?.isActive !== true ||
+          document.activeElement !== this.frame
         )
           return this.refuse(
             id,
             -32000,
             'Links open only when you click in the view.',
           );
-        const now = Date.now();
-        this.links = this.links.filter((at) => now - at < 60_000);
-        if (this.links.length >= LINKS_PER_MINUTE)
-          return this.refuse(id, -32000, 'Too many links from this view.');
-        this.links.push(now);
         this.host.openLink(url);
         return this.reply(id, {});
       }

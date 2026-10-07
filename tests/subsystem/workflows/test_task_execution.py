@@ -911,28 +911,35 @@ def test_a_chained_interrupt_on_a_scheduled_run_follows_the_current_mode(tmp_pat
         assert pending == []
 
 
-_LOCKED = {"type": "interrupt", "interrupts": [{"tool": "mcp_notes_delete_page", "description": "Delete a page",
-                                                "always_ask": True}]}
+def _app_asks(tool: str, description: str) -> dict:
+    """An app tool the agent asked about even under Allow all (its interrupt says so)."""
+    return {"type": "interrupt", "interrupts": [{"tool": tool, "description": description, "always_ask": True}]}
 
 
-def test_an_approval_locked_app_tool_waits_for_a_person_even_under_allow_all(runtime, monkeypatch):
+# A high-impact tool, and a routine change its app's access (Ask before changes, not Full access) asks about.
+_APP_ASKS = [_app_asks("mcp_notes_delete_page", "Delete a page"), _app_asks("mcp_notes_update_page", "Update a page")]
+
+
+@pytest.mark.parametrize("interrupt", _APP_ASKS, ids=["high_impact", "routine_change"])
+def test_an_app_tool_that_asks_waits_for_a_person_even_under_allow_all(runtime, monkeypatch, interrupt):
     resumed = []
-    _fake_graph(monkeypatch, invoke=lambda prompt, tools, config, stop_event=None: _LOCKED,
-                resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or _LOCKED)
+    _fake_graph(monkeypatch, invoke=lambda prompt, tools, config, stop_event=None: interrupt,
+                resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or interrupt)
     runtime[0].update_task(runtime[3], prompts=["Tidy my notes"], safety_mode="allow_all")
     assert start(runtime).run.status == "paused"
     assert resumed == []  # Never approved unattended.
     _approve_pending(runtime)
     assert resumed == [True]
-    [pending] = runtime[0].get_pending_approvals()  # A second locked call asks again, still under Allow all.
-    assert "Delete a page" in pending["message"]
+    [pending] = runtime[0].get_pending_approvals()  # A second such call asks again, still under Allow all.
+    assert interrupt["interrupts"][0]["description"] in pending["message"]
 
 
-def test_a_subtask_refuses_an_approval_locked_app_tool_even_when_it_allows_all(delivery_runtime, monkeypatch):
+@pytest.mark.parametrize("interrupt", _APP_ASKS, ids=["high_impact", "routine_change"])
+def test_a_subtask_refuses_an_app_tool_that_asks_even_when_it_allows_all(delivery_runtime, monkeypatch, interrupt):
     tasks, _, _, _, thread_id, _ = delivery_runtime
     child_id = tasks.create_task("Synthetic subtask", prompts=["Tidy"], enabled=False, channels=[], safety_mode="allow_all")
     resumed = []
-    _fake_graph(monkeypatch, invoke=lambda *a, **k: _LOCKED,
+    _fake_graph(monkeypatch, invoke=lambda *a, **k: interrupt,
                 resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or "")
     output = tasks._run_subtask_sync(tasks.get_task(child_id), thread_id, [], {"configurable": {}},
                                      threading.Event(), validate=lambda: None)

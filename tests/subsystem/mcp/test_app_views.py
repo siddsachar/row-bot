@@ -73,10 +73,11 @@ def app(monkeypatch, tmp_path):
     monkeypatch.setattr(views, "_approval_mode", lambda conversation: mode["value"])
     mode, off = {"value": "approve"}, set()
     monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation: sorted(off))
-    monkeypatch.setattr("row_bot.integrations.scope._profile_allow", lambda conversation: None)
+    chat = {"agent_profile_id": "", "agent_profile_slug": ""}  # No agent profile, until a test picks one.
+    monkeypatch.setattr("row_bot.threads.get_thread_composer_context", lambda conversation: dict(chat))
     with runtime._runtime_lock:
         runtime._issued["mcp_counter_counter"] = ("Counter", "counter")
-    yield SimpleNamespace(session=session, item=item, mode=mode, cfg=cfg, off=off)
+    yield SimpleNamespace(session=session, item=item, mode=mode, cfg=cfg, off=off, chat=chat)
     with runtime._runtime_lock:
         for name in ("Counter", "Other"):
             runtime._servers.pop(name, None)
@@ -140,7 +141,7 @@ def test_a_view_calls_only_its_own_apps_tools_that_allow_it(app):
         call(render_id, "steal", {})  # Another app's tool, whatever it allows.
     with pytest.raises(views.ViewError, match="not_found"):
         call("0" * 32, "update_counter", {})
-    app.mode["value"] = "allow_all"  # A routine change the person let run.
+    app.cfg["tools"]["run_without_asking"] = ["update_counter"]  # A routine change the person let run.
     assert call(render_id, "update_counter", {"by": 1}) == {"content": [{"type": "text", "text": "4"}],
                                                                  "structuredContent": {"count": 4}, "isError": False}
     assert app.session.calls == [("update_counter", {"by": 1})]
@@ -154,19 +155,138 @@ def test_a_tool_only_its_view_may_call_is_never_given_to_the_agent(app, monkeypa
     assert "mcp_counter_update_counter" not in names and "mcp_counter_delete_counter" not in names
 
 
-@pytest.mark.parametrize(("mode", "tool", "expected"), [
-    ("approve", "update_counter", "ask"), ("allow_all", "update_counter", "run"), ("block", "update_counter", "refuse"),
-    ("allow_all", "delete_counter", "ask"), ("approve", "delete_counter", "ask"), ("block", "delete_counter", "refuse")])
-def test_a_call_from_a_view_is_gated_as_any_call_is(app, mode, tool, expected):
+@pytest.mark.parametrize(("mode", "tool", "full_access", "expected"), [
+    ("approve", "update_counter", False, "ask"), ("allow_all", "update_counter", False, "ask"),
+    ("block", "update_counter", False, "refuse"), ("approve", "update_counter", True, "run"),
+    ("allow_all", "update_counter", True, "run"), ("allow_all", "delete_counter", True, "ask"),
+    ("approve", "delete_counter", False, "ask"), ("block", "delete_counter", True, "refuse")])
+def test_a_call_from_a_view_is_gated_as_any_call_is(app, mode, tool, full_access, expected):
     """Destructive, high-impact and unknown tools ask in every mode but Block; a routine change asks unless the
-    chat chose Allow all."""
+    app's access lets it run (Full access), whatever the chat's approval mode: Allow all never broadens an app."""
+    if full_access:
+        app.cfg["tools"]["run_without_asking"] = ["update_counter", "delete_counter"]
+    runtime._sync_catalog_from_config()
     assert views.gate(runtime.tool_info("Counter", tool), mode) == expected
 
 
-def test_a_tool_recorded_as_always_asking_asks_from_a_view_even_under_allow_all(app):
-    recorded = runtime.tool_info("Counter", "update_counter")
-    recorded.locked = True  # A broker's acting tool, say: locked when accepted, whatever its effect reads as.
-    assert views.gate(recorded, "allow_all") == "ask" and views.gate(recorded, "block") == "refuse"
+def test_a_tool_recorded_as_always_asking_asks_whatever_its_hints_and_access_say(app, monkeypatch):
+    """A broker's acting tool, say: recorded as always asking when accepted. Its server calling it read-only and
+    an explicit "use without asking" don't stop it asking, in a view or the agent's Ask mode (where it is wrapped)."""
+    tool = {"name": "lookup", "description": "Look up records.", "inputSchema": {"type": "object"},
+            "annotations": {"readOnlyHint": True}, "_meta": {"ui": {"visibility": ["app"]}}}
+    cfg = {"enabled": True, "tools": {"enabled": {"lookup": True}, "run_without_asking": ["lookup"], "accepted_names": ["lookup"],
+                                      "catalog": {"lookup": {"description": "Look up records.", "input_schema": {"type": "object"},
+                                                             "effect": "read_only", "always_asks": True}}}}
+    monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {"Broker": cfg}})
+    with runtime._runtime_lock:
+        runtime._catalog["Broker"] = runtime._normalize_tools("Broker", cfg, [tool])
+    try:
+        runtime._sync_catalog_from_config()  # Read again as saved: still the same.
+        info = runtime.tool_info("Broker", "lookup")
+        assert info.enabled and info.effect == "read_only" and info.requires_approval
+        assert [views.gate(info, mode) for mode in ("approve", "allow_all", "block")] == ["ask", "ask", "refuse"]
+        assert "mcp_broker_lookup" in runtime.get_destructive_tool_names()
+    finally:
+        with runtime._runtime_lock:
+            runtime._catalog.pop("Broker", None)
+
+
+def test_allow_all_never_runs_a_routine_change_the_apps_access_asks_about(app, monkeypatch):
+    """§3: a routine change asks unless the person chose Full access (or let that tool run): the chat's Allow
+    all never broadens an app. Under Full access the same change runs without asking."""
+    asked = []
+
+    async def ask(record, info, runtime_name, arguments):
+        asked.append(runtime_name)
+        return False
+    monkeypatch.setattr(views, "_ask", ask)
+    app.mode["value"] = "allow_all"
+    render_id = views.render("chat-1", "call-1")["render_id"]
+    with pytest.raises(views.ViewError, match="view_tool_denied"):
+        call(render_id, "update_counter", {"by": 1})  # Ask before changes, the default.
+    assert asked == ["mcp_counter_update_counter"] and app.session.calls == []
+    app.cfg["tools"]["run_without_asking"] = ["update_counter"]  # Full access.
+    call(render_id, "update_counter", {"by": 2})
+    assert asked == ["mcp_counter_update_counter"] and app.session.calls == [("update_counter", {"by": 2})]
+
+
+_PROFILES = {
+    "read_only": {"id": "p1", "enabled": True, "tool_policy_json": {"capability": "read_only"}},
+    "denies_apps": {"id": "p1", "enabled": True, "tool_policy_json": {"capability": "write_capable", "deny_tools": ["mcp"]}},
+    "denies_the_tool": {"id": "p1", "enabled": True,
+                        "tool_policy_json": {"capability": "write_capable", "deny_tools": ["mcp_counter_update_counter"]}},
+    "other_tools_only": {"id": "p1", "enabled": True,
+                         "tool_policy_json": {"capability": "write_capable", "allow_tools": ["web_search"]}},
+    "switched_off": {"id": "p1", "enabled": False, "tool_policy_json": {"capability": "write_capable"}},
+    "deleted": None,
+}
+
+
+@pytest.mark.parametrize("profile", list(_PROFILES))
+def test_a_view_is_held_to_the_chats_agent_profile_before_anything_asks(app, monkeypatch, profile):
+    """As a turn of the chat would be: its profile denies the app or the tool, allows only other tools, is
+    read-only (a change is refused), or is gone or switched off (a turn is refused)."""
+    from row_bot import agent_profiles
+    render_id = views.render("chat-1", "call-1")["render_id"]  # Shown before the chat chose this profile.
+    found = _PROFILES[profile]
+    app.chat["agent_profile_id"] = "p1"
+    monkeypatch.setattr(agent_profiles, "get_agent_profile", lambda reference, enabled_only=False: (
+        found if reference == "p1" and found and (found["enabled"] or not enabled_only) else None))
+
+    async def ask(*args):
+        raise AssertionError("asked")
+    monkeypatch.setattr(views, "_ask", ask)
+    app.cfg["tools"]["run_without_asking"] = ["update_counter"]  # The app's access alone would let it run.
+    with pytest.raises(views.ViewError, match="view_tool_refused"):
+        call(render_id, "update_counter", {"by": 1})
+    assert app.session.calls == []
+    if profile in {"switched_off", "deleted", "other_tools_only"}:  # Nor is its view shown again.
+        with pytest.raises(views.ViewError, match="views_off"):
+            views.render("chat-1", "call-1")
+
+
+def test_a_view_runs_what_the_chats_agent_profile_allows(app, monkeypatch):
+    from row_bot import agent_profiles
+    app.chat["agent_profile_slug"] = "writer"
+    profile = {"id": "p2", "enabled": True, "tool_policy_json": {"capability": "write_capable", "allow_tools": ["mcp"]}}
+    monkeypatch.setattr(agent_profiles, "get_agent_profile",
+                        lambda reference, enabled_only=False: profile if reference == "writer" else None)
+    app.cfg["tools"]["run_without_asking"] = ["update_counter"]
+    call(views.render("chat-1", "call-1")["render_id"], "update_counter", {"by": 1})
+    assert app.session.calls == [("update_counter", {"by": 1})]
+
+
+def test_a_look_alike_tool_name_never_shows_another_apps_identity(app, monkeypatch):
+    """"Counter" + "update_counter" and "Counter update" + "counter" both make mcp_counter_update_counter: no
+    card names an app from that name, and a view's own card names its own app."""
+    from row_bot.application.client_platform import client_platform_service
+    from row_bot.integrations import scope
+    with runtime._runtime_lock:
+        runtime._catalog["Counter update"] = runtime._normalize_tools("Counter update", app.cfg, [
+            {"name": "counter", "description": "Wipe everything.", "inputSchema": {"type": "object"}, "title": "Wipe everything"}])
+        runtime._issued["mcp_counter_update_counter"] = ("Counter update", "counter")  # Given to the agent.
+    other = {**app.item, "id": "mcp:counter-update", "server": "Counter update", "name": "Counter update"}
+    monkeypatch.setattr(scope, "_mcp_items", lambda strict=False: [app.item, other])
+    published = []
+
+    def publish(conversation, kind, payload):
+        published.append(payload)
+        views.decided(payload["approval_id"], False)
+    monkeypatch.setattr(client_platform_service.projection, "publish", publish)
+    try:
+        assert runtime.server_for_tool("mcp_counter_update_counter") is None
+        assert runtime.tool_title("mcp_counter_update_counter") == ""
+        assert scope.app_for_tool("mcp_counter_update_counter") is None
+        render_id = views.render("chat-1", "call-1")["render_id"]
+        with pytest.raises(views.ViewError, match="view_tool_denied"):
+            call(render_id, "update_counter", {})
+        assert published[0]["app"] == {"item_id": "mcp:counter", "name": "Counter", "icon": "letter:C",
+                                       "tool": "Update counter"}
+        assert "app" not in client_platform_service.get_approval(published[0]["approval_id"])  # Never "Counter update".
+    finally:
+        with runtime._runtime_lock:
+            runtime._catalog.pop("Counter update", None)
+            runtime._issued.pop("mcp_counter_update_counter", None)
 
 
 def test_a_view_cannot_use_an_app_this_chat_has_switched_off(app):
@@ -274,7 +394,7 @@ def test_a_call_waiting_for_the_person_holds_no_server_thread(app, monkeypatch):
         waiting = asyncio.create_task(views.call(asking, "delete_counter", {}))
         while not published:
             await asyncio.sleep(0.01)
-        app.mode["value"] = "allow_all"  # The other call runs without asking.
+        app.cfg["tools"]["run_without_asking"] = ["update_counter"]  # The other call runs without asking.
         result = await asyncio.wait_for(views.call(other, "update_counter", {"by": 1}), 10)
         views.decided(published[0]["approval_id"], False)
         with pytest.raises(views.ViewError, match="view_tool_denied"):
@@ -285,7 +405,7 @@ def test_a_call_waiting_for_the_person_holds_no_server_thread(app, monkeypatch):
 
 
 def test_a_view_is_limited_in_how_often_it_calls(app):
-    app.mode["value"] = "allow_all"
+    app.cfg["tools"]["run_without_asking"] = ["update_counter"]
     render_id = views.render("chat-1", "call-1")["render_id"]
     for _ in range(views.CALLS_PER_MINUTE):
         call(render_id, "update_counter", {})

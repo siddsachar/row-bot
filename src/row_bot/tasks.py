@@ -7753,8 +7753,9 @@ def _use_step_apps(config: dict, step: dict) -> None:
 
 
 def _always_asks(interrupts: list) -> bool:
-    """An approval-locked app tool asked (destructive or of unknown effect): it waits for the person even
-    under Allow all, so a run pauses on it rather than approving it unattended."""
+    """An app tool asked that its access says must ask (a change without Full access, or a destructive,
+    high-impact or unknown one): it waits for the person even under Allow all, so a run pauses on it
+    rather than approving it unattended."""
     return any(isinstance(item, dict) and item.get("always_ask") for item in interrupts)
 
 

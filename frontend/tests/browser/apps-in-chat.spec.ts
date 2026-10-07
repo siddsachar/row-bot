@@ -89,7 +89,7 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   await expect(ready).toBeVisible();
   await screenshot(page, testInfo, 'chat-connect-ready');
 
-  // Continue is the person's own message, focused on the app they connected.
+  // Continue is the person's own message, in fixed words (an app's name can come from a third-party listing).
   await ready.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(
     page
@@ -97,8 +97,6 @@ test('an app found in the chat connects there, names itself on its steps, and fo
       .getByText('Continuing with what you asked.', { exact: true })
       .first(),
   ).toBeVisible();
-  const resumed = await lastCall(page);
-  expect(resumed.app_scope?.focus).toHaveLength(1);
 
   // A step through the app shows its logo and name, and its change asks first, named too.
   await send(page, 'app tool fixture Granola');

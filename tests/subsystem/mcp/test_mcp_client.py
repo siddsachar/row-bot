@@ -575,25 +575,31 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("STRUCTURED_CONTENT", output)
         self.assertEqual(runtime.get_destructive_tool_names(), set())
 
-    def test_background_allow_all_still_asks_for_a_locked_app_tool(self) -> None:
+    def test_allow_all_still_asks_where_the_apps_access_says_to(self) -> None:
+        """§3: a routine change asks unless the person chose Full access for the app (or let that tool run);
+        the chat's or workflow's Allow all never broadens an app. A high-impact tool asks even then."""
         import row_bot.agent as agent
         import row_bot.mcp_client.runtime as mcp_runtime
         from langchain_core.tools import StructuredTool
 
         interrupt_calls: list[dict] = []
         captured_tools: dict[str, object] = {}
+        tools = [{"name": "update_note", "description": "Update a note.", "inputSchema": {"type": "object"}},
+                 {"name": "delete_note", "description": "Delete a note for good.", "inputSchema": {"type": "object"}}]
 
-        def _dangerous() -> str:
+        def _run() -> str:
             return "ran"
 
         def _make_mcp_parent(tool):
-            return SimpleNamespace(
-                as_langchain_tools=lambda: [tool],
-                destructive_tool_names={"mcp_manual_delete_note"},
-            )
+            return SimpleNamespace(as_langchain_tools=lambda: [tool], destructive_tool_names=set())
 
-        def _build_graph_and_call(mode: str, tool, locked: frozenset[str] = frozenset()) -> str:
+        def _build_graph_and_call(mode: str, name: str, access: dict, background: bool = True) -> str:
+            """The app's access as saved; the agent's own tool for ``name``, called once."""
             captured_tools.clear()
+            tool = StructuredTool.from_function(func=_run, name=f"mcp_manual_{name}", description="A note tool.")
+            cfg = {"enabled": True, "tools": {"enabled": {"update_note": True, "delete_note": True}, **access}}
+            with mcp_runtime._runtime_lock:
+                mcp_runtime._catalog["Manual"] = mcp_runtime._normalize_tools("Manual", cfg, tools)
 
             def _capture_agent(*, tools, **kwargs):
                 from langgraph.prebuilt import ToolNode
@@ -603,11 +609,12 @@ class McpClientFoundationTests(unittest.TestCase):
                 return SimpleNamespace(tools=tools)
 
             agent.clear_agent_cache()
-            bg_token = agent._background_workflow_var.set(True)
+            bg_token = agent._background_workflow_var.set(background)
             mode_token = agent._approval_mode_var.set(mode)
             discovery_token = agent._current_external_discovery_active_var.set(False)
             try:
                 with patch.object(agent.tool_registry, "get_tool", return_value=_make_mcp_parent(tool)), \
+                     patch.object(agent.tool_registry, "get_external_tool_loading_mode", return_value="eager"), \
                      patch.object(agent, "get_llm", return_value=object()), \
                      patch.object(agent, "get_current_model", return_value="test-model"), \
                      patch.object(agent, "get_context_size", return_value=8192), \
@@ -621,44 +628,36 @@ class McpClientFoundationTests(unittest.TestCase):
                      patch.object(agent, "create_react_agent", side_effect=_capture_agent), \
                      patch.object(agent, "interrupt", side_effect=lambda payload: interrupt_calls.append(payload) or True), \
                      patch.object(mcp_runtime, "get_langchain_tools", return_value=[tool]), \
-                     patch.object(mcp_runtime, "get_destructive_tool_names", return_value={"mcp_manual_delete_note"}),                      patch.object(mcp_runtime, "get_locked_tool_names", return_value=set(locked)):
+                     patch.object(mcp_runtime, "_get_effective_config",
+                                  return_value={"enabled": True, "servers": {"Manual": cfg}}):
                     agent.get_agent_graph(["mcp"])
-                    return captured_tools["mcp_manual_delete_note"].func()
+                    return captured_tools[f"mcp_manual_{name}"].func()
             finally:
                 agent._current_external_discovery_active_var.reset(discovery_token)
                 agent._approval_mode_var.reset(mode_token)
                 agent._background_workflow_var.reset(bg_token)
                 agent.clear_agent_cache()
+                with mcp_runtime._runtime_lock:
+                    mcp_runtime._catalog.pop("Manual", None)
 
-        # Allow all: a routine change runs without asking...
-        routine_tool = StructuredTool.from_function(
-            func=_dangerous,
-            name="mcp_manual_delete_note",
-            description="Delete a note through MCP.",
-        )
-        self.assertEqual(_build_graph_and_call("allow_all", routine_tool), "ran")
+        asked = "Approval: asked; approved by you\nran"  # An approved result leads with its approval line (B235).
+        full_access = {"run_without_asking": ["update_note", "delete_note"]}
+        for background in (True, False):  # A workflow's run, and a chat.
+            # Ask before changes (the default): Allow all still asks before a routine change, so a run waits.
+            self.assertEqual(_build_graph_and_call("allow_all", "update_note", {}, background), asked)
+            self.assertIs(interrupt_calls.pop()["always_ask"], True)
+            # Full access: the same change runs without asking...
+            self.assertEqual(_build_graph_and_call("allow_all", "update_note", full_access, background), "ran")
+            self.assertEqual(interrupt_calls, [])
+            # ...unless that one tool is set to ask first; and a high-impact tool asks whatever the access.
+            self.assertEqual(_build_graph_and_call("allow_all", "update_note",
+                                                   {**full_access, "require_approval": ["update_note"]}, background), asked)
+            self.assertIs(interrupt_calls.pop()["always_ask"], True)
+            self.assertEqual(_build_graph_and_call("allow_all", "delete_note", full_access, background), asked)
+            self.assertIs(interrupt_calls.pop()["always_ask"], True)
+        self.assertEqual(_build_graph_and_call("approve", "update_note", {}), asked)
+        self.assertEqual(interrupt_calls.pop()["tool"], "mcp_manual_update_note")
         self.assertEqual(interrupt_calls, [])
-        # ...but an approval-locked app tool (destructive, unknown effect) asks, so the run waits for a person.
-        locked_tool = StructuredTool.from_function(
-            func=_dangerous,
-            name="mcp_manual_delete_note",
-            description="Delete a note through MCP.",
-        )
-        self.assertEqual(_build_graph_and_call("allow_all", locked_tool, frozenset({"mcp_manual_delete_note"})),
-                         "Approval: asked; approved by you\nran")
-        self.assertEqual(len(interrupt_calls), 1)
-        self.assertIs(interrupt_calls.pop()["always_ask"], True)
-
-        approve_tool = StructuredTool.from_function(
-            func=_dangerous,
-            name="mcp_manual_delete_note",
-            description="Delete a note through MCP.",
-        )
-        # An approved result leads with its approval line (B235).
-        self.assertEqual(_build_graph_and_call("approve", approve_tool),
-                         "Approval: asked; approved by you\nran")
-        self.assertEqual(len(interrupt_calls), 1)
-        self.assertEqual(interrupt_calls[0]["tool"], "mcp_manual_delete_note")
 
     def test_mcp_dynamic_tool_display_name_uses_actual_tool(self) -> None:
         import row_bot.agent as agent

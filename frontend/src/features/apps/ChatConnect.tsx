@@ -18,7 +18,7 @@ export default function ChatConnect({
   onContinue,
 }: {
   apps: TraceAppRef[];
-  onContinue(name: string): void;
+  onContinue(): void;
 }) {
   return (
     <div
@@ -45,7 +45,7 @@ function SuggestedApp({
   onContinue,
 }: {
   app: TraceAppRef;
-  onContinue(name: string): void;
+  onContinue(): void;
 }) {
   const { controller } = useRuntime();
   const [itemId, setItemId] = useState(app.item_id);
@@ -92,7 +92,7 @@ function SuggestedApp({
             Details
           </Link>
           {ready ? (
-            <Button variant="primary" onClick={() => onContinue(name)}>
+            <Button variant="primary" onClick={() => onContinue()}>
               Continue
             </Button>
           ) : action &&

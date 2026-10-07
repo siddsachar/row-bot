@@ -28,8 +28,32 @@ function setup(overrides: Partial<ViewHost> = {}) {
     { source = contentWindow, origin = 'null' } = {},
   ) => bridge.handle({ data, source, origin } as unknown as MessageEvent);
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-  return { bridge, host, posted, send, flush, contentWindow };
+  return { bridge, host, posted, send, flush, contentWindow, frame };
 }
+
+/** The page as a click leaves it: its user activation (none: an engine without the API) and the focus. */
+function clickIn(
+  focused: Element | HTMLIFrameElement,
+  userActivation: { isActive: boolean } | null = { isActive: true },
+) {
+  vi.stubGlobal('navigator', {
+    language: 'en',
+    ...(userActivation && {
+      userActivation: { hasBeenActive: true, ...userActivation },
+    }),
+  });
+  vi.spyOn(document, 'activeElement', 'get').mockReturnValue(
+    focused as Element,
+  );
+}
+
+const openLink = (view: ReturnType<typeof setup>, id: number) =>
+  view.send({
+    jsonrpc: '2.0',
+    id,
+    method: 'ui/open-link',
+    params: { url: `https://example.test/${id}` },
+  });
 
 const start = async (view: ReturnType<typeof setup>) => {
   view.send({
@@ -48,7 +72,11 @@ const start = async (view: ReturnType<typeof setup>) => {
 
 describe('ViewBridge', () => {
   beforeEach(() => vi.useRealTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it('answers only its own frame, and only from an opaque origin', async () => {
     const view = setup();
@@ -185,6 +213,7 @@ describe('ViewBridge', () => {
   it('opens web links only, and keeps the view inline and within its height', async () => {
     const view = setup();
     await start(view);
+    clickIn(view.frame);
     view.send({
       jsonrpc: '2.0',
       id: 30,
@@ -228,13 +257,8 @@ describe('ViewBridge', () => {
   it('opens only a few links a minute', async () => {
     const view = setup();
     await start(view);
-    for (let id = 40; id < 45; id += 1)
-      view.send({
-        jsonrpc: '2.0',
-        id,
-        method: 'ui/open-link',
-        params: { url: `https://example.test/${id}` },
-      });
+    clickIn(view.frame);
+    for (let id = 40; id < 45; id += 1) openLink(view, id);
     await view.flush();
     expect(view.host.openLink).toHaveBeenCalledTimes(3);
     expect(view.posted.slice(-2)).toMatchObject([
@@ -243,30 +267,54 @@ describe('ViewBridge', () => {
     ]);
   });
 
-  it('opens a link only right after a click in the view', async () => {
+  it('opens a link only right after a click in the view itself', async () => {
+    const refused = {
+      code: -32000,
+      message: 'Links open only when you click in the view.',
+    };
     const view = setup();
     await start(view);
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      language: 'en',
-      userActivation: { isActive: false, hasBeenActive: true },
+    clickIn(view.frame, null); // An engine that can't tell whether there was a click.
+    openLink(view, 50);
+    clickIn(document.body); // A click elsewhere in Row-Bot: the page is active, the view isn't focused.
+    openLink(view, 51);
+    clickIn(view.frame, { isActive: false }); // Focused, but not clicked just now.
+    openLink(view, 52);
+    await view.flush();
+    expect(view.host.openLink).not.toHaveBeenCalled();
+    expect(view.posted.slice(-3)).toEqual(
+      [50, 51, 52].map((id) => ({ jsonrpc: '2.0', id, error: refused })),
+    );
+
+    const clicked = setup();
+    await start(clicked);
+    clickIn(clicked.frame);
+    openLink(clicked, 53);
+    await clicked.flush();
+    expect(clicked.host.openLink).toHaveBeenCalledWith(
+      'https://example.test/53',
+    );
+    expect(clicked.posted.pop()).toEqual({
+      jsonrpc: '2.0',
+      id: 53,
+      result: {},
     });
-    try {
-      view.send({
-        jsonrpc: '2.0',
-        id: 50,
-        method: 'ui/open-link',
-        params: { url: 'https://example.test/doc' },
-      });
-      await view.flush();
-      expect(view.host.openLink).not.toHaveBeenCalled();
-      expect(view.posted.pop()).toMatchObject({
-        id: 50,
-        error: { code: -32000 },
-      });
-    } finally {
-      vi.unstubAllGlobals();
-    }
+  });
+
+  it('counts links it refused toward its limit', async () => {
+    const view = setup();
+    await start(view);
+    clickIn(document.body);
+    for (let id = 60; id < 63; id += 1) openLink(view, id);
+    clickIn(view.frame);
+    openLink(view, 63);
+    await view.flush();
+    expect(view.host.openLink).not.toHaveBeenCalled();
+    expect(view.posted.pop()).toEqual({
+      jsonrpc: '2.0',
+      id: 63,
+      error: { code: -32000, message: 'Too many links from this view.' },
+    });
   });
 
   it('gives up on a view that never starts, and ends one that navigates away', () => {

@@ -129,7 +129,7 @@ export type CardActions = {
   /** Opens that connection's app page (cards from chats before apps). */
   connect: (page: 'accounts' | 'channels', target: string) => void;
   /** Sends the request on in this chat once a suggested app is ready. */
-  continueWith: (appName: string) => void;
+  continueWith: () => void;
 };
 
 export const CardActionsContext = createContext<CardActions | null>(null);
@@ -318,10 +318,7 @@ function AppsCard({
 }) {
   const actions = useContext(CardActionsContext);
   return (
-    <ChatConnect
-      apps={card.apps}
-      onContinue={(name) => actions?.continueWith(name)}
-    />
+    <ChatConnect apps={card.apps} onContinue={() => actions?.continueWith()} />
   );
 }
 

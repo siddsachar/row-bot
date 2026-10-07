@@ -20,13 +20,14 @@ import uuid
 from contextlib import AsyncExitStack
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterable
+from urllib.parse import urlsplit
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.mcp_client import config as mcp_config
-from row_bot.mcp_client.logging import log_event, mask_mapping, redact
+from row_bot.mcp_client.logging import log_event, redact
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
 from row_bot.mcp_client.results import normalize_call_result
 from row_bot.integrations.presets import locked as recorded_locked
@@ -475,9 +476,9 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
         destructive = is_destructive_tool(tool_name, description, tool)
         effect = classify_tool_effect(tool_name, description, tool)
         enabled = bool(saved_enabled.get(tool_name, tool_enabled_by_default(destructive or effect in {"unknown", "mutation"})))
-        requires = asks_first(tool_name, destructive, effect, approval_overrides, allowed)
         recorded = (tool_cfg.get("catalog") or {}).get(tool_name)
         locked = destructive or effect == "unknown" or (isinstance(recorded, dict) and recorded_locked(recorded))
+        requires = asks_first(tool_name, destructive, effect, approval_overrides, allowed) or locked  # Locked asks in Ask too.
         normalized[tool_name] = McpToolInfo(
             server_name=server_name,
             name=tool_name,
@@ -513,10 +514,11 @@ def _sync_catalog_from_config(config: dict[str, Any] | None = None) -> None:
                 effect = info.effect or classify_tool_effect(info.name, info.description)
                 info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(
                     info.destructive or effect in {"unknown", "mutation"}))) and _accepted_tool_matches(server_cfg, info)
-                info.requires_approval = asks_first(info.name, info.destructive, effect, approval_overrides, allowed)
                 recorded = (tools_cfg.get("catalog") or {}).get(info.name)
                 info.locked = info.destructive or effect == "unknown" or (isinstance(recorded, dict)
                                                                           and recorded_locked(recorded))
+                info.requires_approval = (asks_first(info.name, info.destructive, effect, approval_overrides, allowed)
+                                          or info.locked)
             status = _statuses.get(server_name)
             if status:
                 status.tool_count = len(tools)
@@ -765,7 +767,12 @@ class McpServerRuntime:
         self.session = await self.exit_stack.enter_async_context(session_type(read_stream, write_stream))
         await asyncio.wait_for(self.session.initialize(), timeout=float(self.cfg.get("connect_timeout", 30)))
         self._status(status="connected", last_connected_at=_now(), last_error="")
-        log_event("mcp.server.connected", server=self.name, transport=transport, cfg=mask_mapping(self.cfg))
+        host = ""  # Only where it connected: an address's path, query or sign-in, or an argument, can hold a key.
+        with contextlib.suppress(ValueError):
+            address = urlsplit(str(self.cfg.get("url") or ""))
+            host = f"{address.scheme}://{address.hostname}" if address.hostname else ""
+        log_event("mcp.server.connected", server=self.name, transport=transport, host=host,
+                  args=len(self.cfg.get("args") or []))
 
     async def _discover_tools(self) -> None:
         if not self.session:
@@ -781,6 +788,8 @@ class McpServerRuntime:
                     or _servers.get(self.name, self) is not self):
                 return  # An old discovery callback cannot revive a replaced runtime.
             _catalog[self.name] = normalized
+            for name in [name for name, (server, tool) in _issued.items() if server == self.name and tool not in _HELPER_TITLES]:
+                del _issued[name]  # Its tools are read from the new catalog; a gone one names no app.
         accepted = self.cfg.get("tools", {}).get("catalog")
         options = self.cfg.get("tools", {})
         expected = {name for name in options.get("accepted_names", list(accepted)) if name not in options.get("exclude", []) and (not options.get("include") or name in options["include"])} if isinstance(accepted, dict) else set(normalized)
@@ -1564,12 +1573,12 @@ def get_langchain_tools(
 
 
 def _issued_tool(name: str) -> tuple[str, str] | None:
-    """(server, its own tool or helper name) for a chat tool name this runtime issued or discovered."""
+    """(server, its own tool or helper name) for a chat tool name this runtime issued or discovered; None
+    when two apps' tools share that name ("acme" + "files_delete" and "acme files" + "delete")."""
     with _runtime_lock:
-        if name in _issued:
-            return _issued[name]
-        return next(((info.server_name, info.name) for tools in _catalog.values() for info in tools.values()
-                     if info.prefixed_name == name), None)
+        found = {(info.server_name, info.name) for tools in _catalog.values() for info in tools.values()
+                 if info.prefixed_name == name} | ({_issued[name]} if name in _issued else set())
+    return found.pop() if len(found) == 1 else None
 
 
 def tool_names(server_name: str) -> list[str]:
@@ -1608,12 +1617,14 @@ _HELPER_TITLES = {"list_resources": "List resources", "read_resource": "Read a r
 
 
 def tool_title(name: str) -> str:
-    """A chat tool's readable title within its app: the server's own title, else its own name in words
-    ("delete_page" -> "Delete page"); "" for a name this runtime never issued."""
+    """A chat tool's readable title within its app; "" for a name this runtime never issued."""
     found = _issued_tool(name)
-    if found is None:
-        return ""
-    server, tool = found
+    return title_of(*found) if found else ""
+
+
+def title_of(server: str, tool: str) -> str:
+    """One server's tool (or helper) in words: the server's own title, else its own name in words
+    ("delete_page" -> "Delete page"). A view names its own app's tool this way, never by a shared name."""
     with _runtime_lock:
         info = (_catalog.get(server) or {}).get(tool)
     if info is not None and info.title:
@@ -1642,6 +1653,7 @@ def get_destructive_tool_names(
     *,
     source_plugin_id: str | None = None,
 ) -> set[str]:
+    """App tools whose access says ask (and every locked one): they ask in Ask and in Allow all alike."""
     allow = _allow_names_set(allow_names)
     _sync_catalog_from_config()
     with _runtime_lock:
@@ -1656,15 +1668,6 @@ def get_destructive_tool_names(
                 and _mcp_runtime_name_allowed(info.prefixed_name, allow)
             )
         }
-
-
-def get_locked_tool_names(allow_names: Iterable[str] | None = None) -> set[str]:
-    """App tools that ask every time, even where everything else may run without asking (Allow all)."""
-    allow = _allow_names_set(allow_names)
-    _sync_catalog_from_config()
-    with _runtime_lock:
-        return {info.prefixed_name for tools in _catalog.values() for info in tools.values()
-                if info.enabled and info.locked and _mcp_runtime_name_allowed(info.prefixed_name, allow)}
 
 
 def get_plugin_destructive_tool_names(

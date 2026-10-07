@@ -132,7 +132,8 @@ function editableTarget(target: EventTarget | null) {
 /**
  * An inline card anchored at the step that needs a decision: what will
  * happen, how risky it is, and Approve (⌘↵) / Deny. "Always allow in this
- * chat" switches the conversation to automatic approvals, then approves.
+ * chat" switches the conversation to automatic approvals, then approves;
+ * an app's tools still ask when its access says to.
  *
  * Turning on a tool the work needs is a setup card instead (decision 12):
  * "Turn on Web search?" with Turn on (⌘↵) / Not now, in place of sending
@@ -363,7 +364,7 @@ export default function ApprovalCard({
               )}
             </Button>
             {onAllowInChat && (
-              <Hint label="Switch this conversation to automatic approvals and approve this request">
+              <Hint label="Approves this and switches this chat to Auto. Apps still ask when their access says to.">
                 <Button
                   variant="ghost"
                   className="approval-card-allow"
