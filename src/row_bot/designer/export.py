@@ -402,9 +402,19 @@ def get_export_workspace() -> pathlib.Path:
     return _WORKSPACE
 
 
+_NAME_PUNCTUATION = str.maketrans({"—": "-", "–": "-", "‒": "-", "―": "-", "‘": "'", "’": "'",
+                                   "“": "'", "”": "'", '"': "'", "…": "...", ":": " -"})
+_NAME_FORBIDDEN = set('<>/\\|?*') | {chr(code) for code in range(32)}
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(1, 10)), *(f"LPT{n}" for n in range(1, 10))}
+
+
 def _sanitize_name(text: str, max_len: int = 60) -> str:
-    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in (text or ""))
-    safe = safe.strip()[:max_len]
+    """A file name that reads like the design's name: dashes and quotes become their plain forms, "_" stands
+    only for characters a file system forbids (B299)."""
+    safe = "".join("_" if c in _NAME_FORBIDDEN else c for c in (text or "").translate(_NAME_PUNCTUATION))
+    safe = " ".join(safe.split())[:max_len].strip(" .")
+    if safe.split(".")[0].upper() in _WINDOWS_RESERVED:
+        safe += "_"
     return safe or "Designer Export"
 
 
