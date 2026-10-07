@@ -162,9 +162,11 @@ def _normalise_path(file_path: str, root_dir: str) -> str:
     elif fp.lower() == root_name.lower():
         fp = "."
 
-    # Handle absolute paths inside the workspace
+    # Handle absolute paths inside the workspace. The stripping above drops a POSIX path's leading "/", so an
+    # absolute path resolves from what was given.
     try:
-        resolved = Path(fp).resolve()
+        given = Path(file_path.strip())
+        resolved = (given if given.is_absolute() else Path(fp)).resolve()
         root_resolved = Path(root_dir).resolve()
         if _within(resolved, root_resolved):
             rel = os.path.relpath(resolved, root_resolved)
