@@ -145,6 +145,9 @@ def test_dependencies_without_a_shrinkwrap_are_locked_by_npm_with_scripts_off_in
     (call,) = tools.calls
     assert {"--package-lock-only", "--ignore-scripts"} <= set(call["argv"])
     assert call["env"]["npm_config_ignore_scripts"] == "true" and call["env"]["npm_config_userconfig"].startswith(str(data))
+    # Real npm refuses one file loaded as both its user and its global settings.
+    assert call["env"]["npm_config_globalconfig"].startswith(str(data))
+    assert call["env"]["npm_config_globalconfig"] != call["env"]["npm_config_userconfig"]
     assert call["env"]["npm_config_cache"].startswith(str(data)) and Path(call["cwd"]).is_relative_to(data)
     assert not Path(call["cwd"]).exists()  # The resolving folder is gone.
     assert [i["name"] for i in lock["items"]] == ["fixture-mcp", "dep"]  # Another platform's optional binary is left out.

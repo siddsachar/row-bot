@@ -285,9 +285,10 @@ def _npm_resolve(name: str, version: str, check: Callable[[], None]) -> list[dic
     try:
         (staging / "package.json").write_text(json.dumps({"name": "row-bot-resolve", "version": "0.0.0", "private": True,
                                                            "dependencies": {name: version}}), encoding="utf-8")
-        (staging / ".npmrc").write_text("", encoding="utf-8")
+        for empty in (".npmrc", "global.npmrc"):  # npm refuses one file as both its user and global settings.
+            (staging / empty).write_text("", encoding="utf-8")
         env = _env(npm_config_cache=str(_folder(".npm-cache")), npm_config_userconfig=str(staging / ".npmrc"),
-                   npm_config_globalconfig=str(staging / ".npmrc"), npm_config_registry=NPM_REGISTRY,
+                   npm_config_globalconfig=str(staging / "global.npmrc"), npm_config_registry=NPM_REGISTRY,
                    npm_config_ignore_scripts="true", npm_config_update_notifier="false", npm_config_fund="false",
                    npm_config_audit="false", PATH=str(Path(node).parent) + os.pathsep + os.environ.get("PATH", ""))
         _run([node, npm, "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund",

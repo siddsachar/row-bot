@@ -117,9 +117,10 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
         if requirement["available"]:
             continue
         supported = requirement["id"] in {"node", "uv"} and requirement["installable"]
+        where = (" in Settings › System › Browser and computer use" if requirement["id"] == "playwright-chrome" else "")
         steps.append(_step("runtime", "pending" if supported else "unsupported", f"Get ready to run {name}",
                            f"Row-Bot sets up {requirement['label']} for its own use." if supported
-                           else f"Install {requirement['label']}, then try again.",
+                           else f"Install {requirement['label']}{where}, then try again.",
                            runtime={"id": requirement["id"], "label": requirement["label"]}))
     if setup["package_required"]:
         found = {"npm": ("npm_package", "npm package"), "pypi": ("pypi_package", "Python package"), "oci": ("oci_image", "container image"),

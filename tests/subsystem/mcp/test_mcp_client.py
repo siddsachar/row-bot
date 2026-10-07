@@ -409,6 +409,14 @@ class McpClientFoundationTests(unittest.TestCase):
         env = requirements.apply_managed_runtime_env(playwright_cfg, base_env)
         self.assertEqual(env["PLAYWRIGHT_BROWSERS_PATH"], str(browsers_dir))
         self.assertEqual(env["PLAYWRIGHT_MCP_EXECUTABLE_PATH"], str(browser_exe))
+        # Its profile and page snapshots stay in the data folder, not the user's AppData or the working folder.
+        for name in ("PLAYWRIGHT_MCP_USER_DATA_DIR", "PLAYWRIGHT_MCP_OUTPUT_DIR"):
+            self.assertTrue(Path(env[name]).is_relative_to(requirements.DATA_DIR), name)
+        self.assertEqual(
+            requirements.apply_managed_runtime_env(playwright_cfg, {"PLAYWRIGHT_MCP_USER_DATA_DIR": "chosen"})[
+                "PLAYWRIGHT_MCP_USER_DATA_DIR"],
+            "chosen",
+        )
         self.assertNotIn("PLAYWRIGHT_BROWSERS_PATH", base_env)
         self.assertNotIn("PLAYWRIGHT_MCP_EXECUTABLE_PATH", base_env)
         self.assertEqual(original_process_env["PLAYWRIGHT_BROWSERS_PATH"], os.environ.get("PLAYWRIGHT_BROWSERS_PATH"))
@@ -418,6 +426,7 @@ class McpClientFoundationTests(unittest.TestCase):
         unrelated_env = requirements.apply_managed_runtime_env(unrelated_cfg, {"PATH": ""})
         self.assertNotIn("PLAYWRIGHT_BROWSERS_PATH", unrelated_env)
         self.assertNotIn("PLAYWRIGHT_MCP_EXECUTABLE_PATH", unrelated_env)
+        self.assertNotIn("PLAYWRIGHT_MCP_USER_DATA_DIR", unrelated_env)
 
         with patch.object(requirements, "_install_playwright_chrome", return_value=requirements.RuntimeInstallResult(True, "playwright-chrome", "installed", str(browsers_dir), "chromium")) as browser_installer:
             browser_result = requirements.install_managed_runtime("playwright-chrome")

@@ -71,6 +71,19 @@ def test_a_container_app_needs_docker_on_this_computer(owner, monkeypatch):
     assert not plan["supported"] and "Install Docker Desktop" in plan["unsupported_reason"]
 
 
+def test_a_browser_app_says_where_to_install_its_browser(owner, monkeypatch):
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Synthetic"] = {"transport": "stdio", "command": "npx", "enabled": False,
+                                        "args": ["-y", "@playwright/mcp@0.0.82"]}
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    from row_bot.mcp_client import requirements
+    monkeypatch.setattr(requirements, "check_requirement", lambda requirement, env=None: requirements.RuntimeCheck(
+        requirement=requirement, available=requirement.id != "playwright-chrome"))
+    facts.invalidate()
+    _, plan = api.read_item(owner_id="owner", item_id=item())
+    assert not plan["supported"] and "Settings › System › Browser and computer use" in plan["unsupported_reason"]
+
+
 def test_a_desktop_app_is_looked_for_only_on_this_computer(monkeypatch):
     import socket
     listener = socket.socket()

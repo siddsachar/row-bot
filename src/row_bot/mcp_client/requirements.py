@@ -588,6 +588,10 @@ def apply_managed_runtime_env(server_cfg: dict[str, Any] | None, env: dict[str, 
             executable_path = playwright_browser_executable_path()
             if executable_path:
                 next_env.setdefault("PLAYWRIGHT_MCP_EXECUTABLE_PATH", executable_path)
+            # Its browser profile and page snapshots stay in Row-Bot's data folder, never the user's own
+            # AppData or whatever folder Row-Bot was started from.
+            next_env.setdefault("PLAYWRIGHT_MCP_USER_DATA_DIR", str(DATA_DIR / "playwright-mcp" / "profile"))
+            next_env.setdefault("PLAYWRIGHT_MCP_OUTPUT_DIR", str(DATA_DIR / "playwright-mcp" / "output"))
     return next_env
 
 
