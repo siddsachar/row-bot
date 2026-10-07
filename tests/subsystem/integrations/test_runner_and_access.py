@@ -230,6 +230,29 @@ def test_a_chats_switch_turned_off_after_agreeing_stays_off_and_is_named(item, o
     assert registry.is_enabled("mcp") is False
 
 
+@pytest.mark.parametrize(("wrote", "says"), [
+    (["Traceback (most recent call last):", "AttributeError: 'Server' object has no attribute 'list_resources'"],
+     "Pin its mcp dependency"),
+    (["Starting with key synthetic-secret", "Could not reach the database"], "What it wrote last is below."),
+])
+def test_a_server_that_fails_to_start_shows_what_it_wrote(item, owner, monkeypatch, wrote, says):
+    """F22: the person sees why, in the program's own last lines, with its secrets masked."""
+    class Wrote:
+        def lines(self, wait=0.0):
+            return wrote
+
+    async def fails(server):
+        server._redact, server._stderr = ("synthetic-secret",), Wrote()
+        raise RuntimeError("Connection closed")
+    monkeypatch.setattr(mcp_runtime.McpServerRuntime, "_connect", fails)
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    failed = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"])
+    step = next(s for s in failed["steps"] if s["state"] == "failed")
+    assert failed["state"] == "failed" and says in failed["message"]
+    assert step["log"] == [line.replace("synthetic-secret", "\u2026") for line in wrote]
+    assert "synthetic-secret" not in json.dumps(failed)
+
+
 def test_a_paused_plan_expires_keeps_what_was_done_and_frees_the_item(item, owner, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(plans, "_now", lambda: clock[0])

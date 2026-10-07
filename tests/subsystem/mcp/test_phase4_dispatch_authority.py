@@ -121,7 +121,7 @@ def test_prepared_plugin_launch_does_not_inherit_unrelated_host_credentials(monk
     captured = []
 
     @asynccontextmanager
-    async def stdio(params):
+    async def stdio(params, errlog=None):
         captured.append(params)
         yield (object(), object())
 

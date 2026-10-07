@@ -122,3 +122,31 @@ def test_the_mcp_sdk_never_logs_a_server_session_id(caplog) -> None:
         )
     assert transport.session_id == "synthetic-session-4f2a"
     assert "synthetic-session-4f2a" not in caplog.text
+
+
+def test_a_stdio_programs_stderr_keeps_only_its_last_lines() -> None:
+    from row_bot.mcp_client.runtime import _StderrTail
+
+    tail = _StderrTail()
+    tail.stream.write("".join(f"line {n}\n" for n in range(100)) + "x" * 5000 + "\n")
+    tail.stream.flush()
+    tail.release()
+    lines = tail.lines(wait=10)
+    assert len(lines) == 40 and lines[-3] == "line 99"
+    assert lines[-2:] == ["x" * 300, "x" * 300]  # A long line is read in bounded pieces, each cut short.
+
+
+@pytest.mark.slow
+def test_a_stdio_server_that_fails_to_start_leaves_its_last_lines() -> None:
+    from row_bot.mcp_client import runtime
+
+    script = ("import sys\nfor n in range(50): print(f'starting {n}', file=sys.stderr)\n"
+              "raise AttributeError(\"'Server' object has no attribute 'list_resources'\")\n")
+    try:
+        result = runtime.probe_server("broken", {"transport": "stdio", "command": sys.executable, "args": ["-c", script],
+                                                 "connect_timeout": 20})
+        assert result["ok"] is False
+        lines = runtime.stderr_tails()["broken"]
+        assert len(lines) == 40 and lines[-1] == "AttributeError: 'Server' object has no attribute 'list_resources'"
+    finally:
+        runtime.shutdown()

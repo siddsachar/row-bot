@@ -435,6 +435,14 @@
           ],
           "default": null
         },
+        "log": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Log",
+          "type": "array"
+        },
         "message": {
           "maxLength": 512,
           "title": "Message",

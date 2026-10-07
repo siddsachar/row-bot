@@ -56,13 +56,15 @@ _MESSAGES = {
     "package_preview_expired": "The package check expired. Start again.",
     "owner_local_only": "Adding packages works only in Row-Bot on this computer.",
 }
+# A Python server built for an older MCP SDK fails at import with one of these (F22).
+_OLD_SDK = re.compile(r"\b(ImportError|ModuleNotFoundError|AttributeError)\b")
 _CHATS_OFF = "Connected. To use it in chats, turn on Use apps in chats in Apps › Advanced."
 
 
 class PlanError(ValueError):
-    def __init__(self, code: str, message: str = "") -> None:
+    def __init__(self, code: str, message: str = "", log: list[str] | None = None) -> None:
         super().__init__(code)
-        self.code, self.message = code, message
+        self.code, self.message, self.log = code, message, log or []
 
 
 @dataclass
@@ -655,7 +657,7 @@ def _run(ctx: Context, record: dict) -> dict:
         else:
             message = getattr(error, "message", "") or _MESSAGES.get(code, "This step could not finish. Retry, or open its settings.")
             if step is not None:
-                step.update(state="failed", message=message[:512])
+                step.update(state="failed", message=message[:512], **({"log": error.log} if getattr(error, "log", None) else {}))
             record.update(state="cancelled" if code == "plan_cancelled" else "failed", pause=None, message=message[:512])
             _save(record, terminal=True)
     finally:
@@ -1170,7 +1172,7 @@ def _mcp_test(ctx: Context, record: dict, step: dict) -> str:
         record["_test"] = outcome["command_id"]
         return "done"
     if outcome.get("state") == "failed" or outcome.get("code") == "mcp_connection_failed":
-        raise PlanError("mcp_connection_failed")
+        raise _connection_failed(record)
     return "running"
 
 
@@ -1184,6 +1186,20 @@ def _saved(target: dict | None, server_id: str) -> tuple[str, dict]:
 def _mcp_on() -> bool:
     from row_bot.mcp_client import config
     return config.read_saved_configuration(None).document.get("enabled") is True
+
+
+def _connection_failed(record: dict) -> PlanError:
+    """The connection failed: with what its program last wrote, when it wrote anything (F22)."""
+    import sys
+    from row_bot.application.capability_configuration_controls import _server_id
+    runtime = sys.modules.get("row_bot.mcp_client.runtime")
+    tails = runtime.stderr_tails() if runtime is not None else {}
+    log = next((lines for name, lines in tails.items() if _server_id(name) == record["server_id"]), [])
+    if any(_OLD_SDK.search(line) for line in log):
+        return PlanError("mcp_connection_failed", "It didn't start: it looks like a Python server made for an older "
+                         "version of the mcp package. Pin its mcp dependency to an earlier version, or ask its maker "
+                         "for an update.", log)
+    return PlanError("mcp_connection_failed", "It didn't start. What it wrote last is below." if log else "", log)
 
 
 def _chats_on() -> bool:
@@ -1368,7 +1384,7 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
     if outcome.get("state") == "connected":
         return "done"
     if outcome.get("code") == "mcp_connection_failed" or outcome.get("state") in {"failed", "dependency_missing", "stopped"}:
-        raise PlanError("mcp_connection_failed")
+        raise _connection_failed(record)
     return "running"
 
 

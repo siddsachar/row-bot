@@ -437,6 +437,26 @@ it("lists an app's other ways to connect, recommended first", async () => {
   );
 });
 
+it('shows what a server wrote when it failed to start (F22)', async () => {
+  const failed = plan({
+    plan_id: 'b1b1b1b1-0000-4000-8000-000000000009',
+    state: 'failed',
+    current_step: 'test',
+    message: "It didn't start. What it wrote last is below.",
+    steps: [
+      step('consent', 'done'),
+      step('test', 'failed', { log: ['Could not reach the database'] }),
+    ],
+  });
+  const controller = {
+    integrationDetail: vi.fn(async () => detail({ plan: failed })),
+    reviewInstallPlan: vi.fn(async () => failed),
+  };
+  show('/settings/apps/item?id=mcp%3Acurated%3Anotion', controller);
+  fireEvent.click(await screen.findByText('What it wrote'));
+  expect(await screen.findByText('Could not reach the database')).toBeVisible();
+});
+
 it('says when connecting also lets chats use the app (B308)', async () => {
   const controller = {
     integrationDetail: vi.fn(async () => detail()),

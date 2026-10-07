@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import concurrent.futures
 import contextvars
 import copy
@@ -121,6 +122,39 @@ _spawning: contextvars.ContextVar["McpServerRuntime | None"] = contextvars.Conte
 # app a step belongs to is read only from here or the discovered catalog, never guessed from a name.
 _issued: dict[str, tuple[str, str]] = {}
 _statuses: dict[str, McpServerStatus] = {}
+_stderr_tails: dict[str, list[str]] = {}  # What a server that failed to start last wrote, secrets masked (F22).
+
+
+class _StderrTail:
+    """The last lines a stdio program writes to stderr, so a failed start can say why (F22)."""
+
+    def __init__(self) -> None:
+        read_fd, write_fd = os.pipe()
+        self.stream = os.fdopen(write_fd, "w")  # The program's stderr; this process never writes to it.
+        self._lines: collections.deque[str] = collections.deque(maxlen=40)
+        self._thread = threading.Thread(target=self._read, args=(os.fdopen(read_fd, "rb"),), daemon=True,
+                                        name="mcp-stderr")
+        self._thread.start()
+
+    def _read(self, pipe) -> None:
+        with pipe, contextlib.suppress(OSError, ValueError):
+            while chunk := pipe.readline(4096):  # A line without an end is read in bounded pieces.
+                self._lines.append(chunk.decode("utf-8", "replace").rstrip()[:300])
+
+    def release(self) -> None:
+        """The program holds its own copy; closing this one lets the program's exit end the tail."""
+        with contextlib.suppress(OSError):
+            self.stream.close()
+
+    def lines(self, wait: float = 0.0) -> list[str]:
+        self._thread.join(wait)
+        return list(self._lines)
+
+
+def stderr_tails() -> dict[str, list[str]]:
+    """By server name: what each server that failed to start last wrote, its secrets masked."""
+    with _runtime_lock:
+        return {name: list(lines) for name, lines in _stderr_tails.items()}
 
 
 def _failure(exc: BaseException) -> str:
@@ -571,6 +605,7 @@ class McpServerRuntime:
         self.name = name
         self.cfg = cfg
         self._redact: tuple[str, ...] = ()  # Secret values this connection was given, never shown in its errors.
+        self._stderr: _StderrTail | None = None
         self.runtime_id = str(uuid.uuid4())
         self.state = "not_started"
         self.session: Any = None
@@ -664,6 +699,7 @@ class McpServerRuntime:
             log_event("mcp.server.dependency_missing", level=logging.WARNING, server=self.name, error=redact(str(exc), self._redact))
         except Exception as exc:
             self._status(status="failed", last_error=redact(_failure(exc), self._redact))
+            await self._keep_stderr()
             log_event("mcp.server.failed", level=logging.WARNING, server=self.name, error=redact(str(exc), self._redact),
                       traceback=redact(traceback.format_exc(), self._redact))
         finally:
@@ -740,10 +776,14 @@ class McpServerRuntime:
                 cwd=self.cfg.get("cwd") or None,
             )
             spawning = _spawning.set(self)  # The program the SDK starts now is this connection's.
+            self._stderr = _StderrTail()
+            self.exit_stack.callback(self._stderr.release)
             try:
-                read_stream, write_stream = await self.exit_stack.enter_async_context(stdio_client(params))
+                read_stream, write_stream = await self.exit_stack.enter_async_context(
+                    stdio_client(params, errlog=self._stderr.stream))
             finally:
                 _spawning.reset(spawning)
+            self._stderr.release()
         elif transport in {"streamable_http", "http", "streamable-http"}:
             if streamablehttp_client is None:
                 raise RuntimeError("MCP Streamable HTTP transport is unavailable")
@@ -769,6 +809,8 @@ class McpServerRuntime:
         self.session = await self.exit_stack.enter_async_context(session_type(read_stream, write_stream))
         await asyncio.wait_for(self.session.initialize(), timeout=float(self.cfg.get("connect_timeout", 30)))
         self._status(status="connected", last_connected_at=_now(), last_error="")
+        with _runtime_lock:
+            _stderr_tails.pop(self.name, None)
         host = ""  # Only where it connected: an address's path, query or sign-in, or an argument, can hold a key.
         with contextlib.suppress(ValueError):
             address = urlsplit(str(self.cfg.get("url") or ""))
@@ -932,6 +974,13 @@ class McpServerRuntime:
             text = getattr(content, "text", None) if content is not None else None
             parts.append(f"[{role}] {text if text is not None else content}")
         return "\n\n".join(parts) or "MCP prompt returned no messages."
+
+    async def _keep_stderr(self) -> None:
+        """Keep what a program that failed to start last wrote, its secrets masked, for the person to read."""
+        if self._stderr is not None:
+            lines = await asyncio.to_thread(self._stderr.lines, 1.0)  # Its last words, once it has exited.
+            with _runtime_lock:
+                _stderr_tails[self.name] = [redact(line, self._redact) for line in lines]
 
     async def close(self) -> None:
         if self._start_task is not None and self._start_task is not asyncio.current_task() and not self._start_task.done():
@@ -1265,6 +1314,7 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
         }
     except Exception as exc:
         outcome = {"ok": False, "error": redact(str(exc), getattr(runtime, "_redact", ())), "tools": []}
+        await runtime._keep_stderr()
     finally:
         await runtime.close()
         runtime._probe_result = outcome

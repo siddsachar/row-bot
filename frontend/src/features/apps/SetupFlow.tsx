@@ -224,6 +224,11 @@ function Stepper({ steps }: { steps: PlanStep[] }) {
                 <strong>{step.title}</strong>
                 <span className="visually-hidden">: {step.state}</span>
                 {step.message && <small>{step.message}</small>}
+                {step.log && step.log.length > 0 && (
+                  <Disclosure summary="What it wrote">
+                    <pre className="plan-log">{step.log.join('\n')}</pre>
+                  </Disclosure>
+                )}
               </span>
             </li>
           );

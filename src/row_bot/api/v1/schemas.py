@@ -7923,6 +7923,8 @@ class PlanStep(WireModel):
     local_app: PlanLocalApp | None = None
     access: PlanAccess | None = None
     review: PlanReview | None = None
+    # A failed connection: what its program last wrote, secrets masked (F22).
+    log: list[str] = Field(default_factory=list, max_length=40)
 
 
 class PlanConsent(WireModel):

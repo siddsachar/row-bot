@@ -23,7 +23,7 @@ def owner(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "mcp_servers.json")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "_config_cache", None)
-    for name in ("_servers", "_catalog", "_statuses"):
+    for name in ("_servers", "_catalog", "_statuses", "_stderr_tails"):
         monkeypatch.setattr(runtime, name, {})
     monkeypatch.setattr(runtime, "_loop", None)
     monkeypatch.setattr(runtime, "_thread", None)
