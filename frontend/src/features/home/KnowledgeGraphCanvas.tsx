@@ -541,7 +541,8 @@ const KnowledgeGraphCanvas = forwardRef<
           zIndex: true,
           minCameraRatio: 0.06,
           maxCameraRatio: 4,
-          stagePadding: 36,
+          // Clears the toolbar, count chip and zoom controls that float over the canvas (B326).
+          stagePadding: 64,
           // Labels sit on a canvas-coloured halo so crossing edges never
           // run through the text.
           defaultDrawNodeLabel: (context, data, settings) => {
