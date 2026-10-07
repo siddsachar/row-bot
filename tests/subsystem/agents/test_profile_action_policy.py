@@ -655,3 +655,30 @@ def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypa
     assert deleted == [] and asked[0]["always_ask"] is True and asked[0]["tool"] == "mcp_notes_delete_page"
     runtime._approval_mode_var.set("block")
     assert tool.invoke({"page": "Plans"}).startswith("BLOCKED") and len(asked) == 1
+
+
+def test_a_workflow_reaches_app_tools_through_discovery_and_their_approvals_still_ask(runtime, monkeypatch):
+    """Workflows discover external tools as chats do: an app with many tools (Notion's 46) no longer sends every
+    schema with each model call of a step, and a tool that asks still asks."""
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
+
+    agent = _prepare_graph(monkeypatch)
+    agent._approval_mode_var.set("approve")
+    calls, approvals = [], []
+    original = StructuredTool.from_function(lambda page: calls.append(page) or "deleted", name="notes_delete_page",
+                                            description="Delete a page")
+    entry = {"tool": original, "source": "plugin:synthetic", "parent": "synthetic"}
+    monkeypatch.setattr(agent, "_collect_agent_tool_candidates", lambda *_: ([], [dict(entry)], {original.name}))
+    monkeypatch.setattr(agent.tool_registry, "get_external_tool_loading_mode", lambda: "auto")
+    monkeypatch.setattr(agent, "interrupt", lambda request: approvals.append(request) or False)
+    token = agent._background_workflow_var.set(True)
+    try:
+        graph = agent.get_agent_graph(["synthetic"])
+    finally:
+        agent._background_workflow_var.reset(token)
+    assert original.name not in graph.tools.tools_by_name and "tool_invoke" in graph.tools.tools_by_name
+    invoke = graph.tools.tools_by_name["tool_invoke"]
+    assert "read-only" in invoke.invoke({"name": original.name, "arguments": {"page": "p1"}})  # The profile first,
+    agent._current_agent_profile_snapshot_var.set({"tool_policy_json": {"capability": "write_capable"}})
+    invoke.invoke({"name": original.name, "arguments": {"page": "p1"}})
+    assert calls == [] and len(approvals) == 1  # then the approval: declined, nothing was deleted.  # It asked; declined, nothing was deleted.

@@ -4320,9 +4320,10 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
 
     loading_mode = tool_registry.get_external_tool_loading_mode()
     force_external_discovery = bool(_current_external_discovery_active_var.get(False))
-    effective_loading_mode = (
-        "auto" if force_external_discovery else "eager" if is_background else loading_mode
-    )
+    # Workflows discover external tools as chats do: an app with many tools (Notion's 46 carry about 220 KB of
+    # schemas) would otherwise go with every model call of a step. Gates are applied to each tool before it is
+    # bridged, so approvals are the same either way.
+    effective_loading_mode = "auto" if force_external_discovery else loading_mode
     discovery_fingerprint = capability_fingerprint(
         external_records,
         mode=effective_loading_mode,
