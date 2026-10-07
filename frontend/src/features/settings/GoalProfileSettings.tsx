@@ -252,10 +252,8 @@ function profileGroup(profile: ProfileSummary) {
 }
 function profilePolicy(profile: ProfileSummary) {
   return [
-    profile.capability.replaceAll('_', ' '),
-    profile.context_mode === 'auto'
-      ? 'Automatic context'
-      : `${profile.context_mode} context`,
+    CAPABILITIES[profile.capability] ?? profile.capability.replaceAll('_', ' '),
+    `${CONTEXT_MODES[profile.context_mode] ?? profile.context_mode} context`,
     profile.allow_tools.length
       ? `${profile.allow_tools.length} selected tool${profile.allow_tools.length === 1 ? '' : 's'}`
       : 'Inherits enabled tools',
@@ -499,6 +497,11 @@ function fieldsFromDraft(draft: ProfileDraft, create: boolean): ProfileFields {
 }
 
 // Profile policy values in words; the option values stay the stable ids.
+const CAPABILITIES: Record<string, string> = {
+  read_only: 'Reads only',
+  write_capable: 'Can make changes',
+  orchestrator: 'Runs other agents',
+};
 const CONTEXT_MODES: Record<ProfileDraft['context_mode'], string> = {
   auto: 'Automatic',
   focused: 'Focused',
@@ -1612,8 +1615,12 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           <p>{state.selectedProfile.when_to_use}</p>
           <p>{profilePolicy(state.selectedProfile)}</p>
           <p>
-            Workspace: {state.selectedProfile.workspace_mode} · Approval:{' '}
-            {state.selectedProfile.approval_mode}
+            Workspace:{' '}
+            {WORKSPACE_MODES[state.selectedProfile.workspace_mode] ??
+              state.selectedProfile.workspace_mode}{' '}
+            · Approvals:{' '}
+            {APPROVAL_MODES[state.selectedProfile.approval_mode] ??
+              state.selectedProfile.approval_mode}
           </p>
           <p>
             Stored instructions are private and can only be replaced explicitly.

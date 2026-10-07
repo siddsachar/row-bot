@@ -333,6 +333,13 @@ it('manages grouped profiles without a conversation and starts a selected profil
   expect(
     screen.getByText(/Stored instructions are private/),
   ).toBeInTheDocument();
+  // B296: the policy reads in words, never the stored ids.
+  const details = screen.getByRole('region', { name: 'Profile details' });
+  expect(details).toHaveTextContent(
+    'Workspace: Read only · Approvals: Same as the chat',
+  );
+  expect(details).toHaveTextContent('Reads only · Automatic context');
+  expect(details).not.toHaveTextContent(/read_only|inherit/);
   fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
   await waitFor(() =>
     expect(
