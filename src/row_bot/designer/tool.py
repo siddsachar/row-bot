@@ -303,6 +303,23 @@ def _add_page(html: str, title: str, index: int = -1,
     return f"Added page \"{title}\" at position {pos}. Total: {len(project.pages)} pages."
 
 
+def approval_summary(tool_name: str, args: dict) -> str:
+    """What a gated designer call does, in words, for its approval card (B322); "" when unknown."""
+    project = get_active_project()
+    if tool_name != "designer_delete_page" or project is None:
+        return ""
+    try:
+        index = int(args.get("index"))
+    except (TypeError, ValueError):
+        return ""
+    if index < 0:
+        index += len(project.pages)
+    if not 0 <= index < len(project.pages):
+        return ""
+    title = (project.pages[index].title or "").strip()
+    return f"Delete page {index + 1}{f', “{title}”,' if title else ''} from {project.name}"
+
+
 def _delete_page(index: int) -> str:
     """Remove a page by index."""
     project = _require_project()

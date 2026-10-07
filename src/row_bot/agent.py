@@ -3629,6 +3629,15 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
                 return f"{label}: {task['icon']} {task['name']}"
         except Exception:
             pass
+    if tool_name.startswith("designer_"):
+        try:
+            from row_bot.designer.tool import approval_summary
+
+            summary = approval_summary(tool_name, kwargs)
+            if summary:
+                return summary
+        except Exception:
+            pass
     if len(args_str) > 300:
         args_str = args_str[:300] + "…"
     return f"{label}: {args_str}"
