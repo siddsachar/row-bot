@@ -513,6 +513,55 @@ describe('Developer inspector', () => {
     ).toBeInTheDocument();
   });
 
+  it('opens an earlier agent change to show what it changed (B304)', async () => {
+    const options = props();
+    options.changes = vi.fn(async () => ({
+      items: [{ path: 'other.txt', status: 'M', additions: 1, deletions: 0 }],
+      total: 1,
+      snapshot_revision: '1',
+      next_cursor: null,
+    }));
+    options.changeSets = vi.fn(async () => ({
+      items: [
+        {
+          id: 'set-csv',
+          summary: 'Fix quoted fields in the CSV exporter',
+          reviewed: true,
+          reverted: false,
+          file_count: 1,
+          undoable: false,
+        },
+      ],
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 1,
+    }));
+    options.changeSetFiles = vi.fn(async (identifier) => ({
+      items: [
+        {
+          path: 'src/export.js',
+          action: 'update',
+          patch: '@@ -1 +1 @@\n-const q = "";\n+const q = \'"\';\n',
+        },
+      ],
+      change_set_id: identifier,
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 1,
+    }));
+    render(<WorkspaceInspector {...options} />);
+    fireEvent.click(await screen.findByText('Earlier agent changes'));
+    const open = await screen.findByRole('button', {
+      name: 'Fix quoted fields in the CSV exporter',
+    });
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(open);
+    expect(open).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('region', { name: 'Diff of src/export.js' }),
+    ).toBeInTheDocument();
+  });
+
   it('groups files under the agent change that made them and keeps other changes apart', async () => {
     const options = props();
     const onUndo = vi.fn();

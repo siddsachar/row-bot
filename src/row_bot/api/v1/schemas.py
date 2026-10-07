@@ -7521,6 +7521,7 @@ class WorkspaceChangeSetPage(WireModel):
 class WorkspaceChangeSetFile(WireModel):
     path: str = Field(max_length=4096)
     action: str = Field(max_length=128)
+    patch: str = Field(default="", max_length=70000)
 
 
 class WorkspaceChangeSetFiles(WireModel):

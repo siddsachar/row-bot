@@ -167,6 +167,16 @@ class WorkspaceChangeSetPage:
 class WorkspaceChangeSetFile:
     path: str
     action: str
+    # What the agent changed, as the ledger kept it (read-only; "" when none was kept; B304).
+    patch: str = ""
+
+
+_CHANGE_PATCH_LIMIT = 64 * 1024
+
+
+def _bounded_patch(text: str) -> str:
+    text = str(text or "")
+    return text if len(text) <= _CHANGE_PATCH_LIMIT else text[:_CHANGE_PATCH_LIMIT] + "\n… (diff shortened)\n"
 
 
 @dataclass(frozen=True)
@@ -613,7 +623,8 @@ def list_inspector_change_set_files(resource_id: str, conversation_id: str, chan
         raise ValueError("change_set_unavailable")
     scope = f"ledger-files:{resource_id}:{conversation_id}:{change_set_id}"
     offset = _page_cursor(cursor, scope, revision)
-    items = tuple(WorkspaceChangeSetFile(item.path, item.action) for item in change.files[offset:offset + limit])
+    items = tuple(WorkspaceChangeSetFile(item.path, item.action, _bounded_patch(getattr(item, "patch", "")))
+                  for item in change.files[offset:offset + limit])
     return WorkspaceChangeSetFiles(items, _next_cursor(scope, revision, offset + len(items), len(change.files)),
                                    revision, len(change.files), change.id)
 

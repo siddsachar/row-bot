@@ -1906,6 +1906,8 @@ button.design-tile-main:focus-visible {
 }
 .dev-disclosure .disclosure-body {
   display: grid;
+  /* A long title must not widen the tab and scroll it sideways (B304). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding-top: 8px;
 }
@@ -1918,11 +1920,45 @@ button.design-tile-main:focus-visible {
 }
 .dev-earlier li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   min-height: 28px;
   padding-left: 4px;
   color: var(--text-secondary);
+}
+.dev-earlier .dev-group-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dev-earlier-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dev-earlier-open:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.dev-earlier-files {
+  display: grid;
+  flex-basis: 100%;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0 8px 19px;
+}
+.dev-earlier-path {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
 }
 .dev-earlier li svg {
   flex: none;
