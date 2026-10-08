@@ -9,6 +9,7 @@ import re
 import shutil
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import replace
@@ -338,6 +339,21 @@ def publication_result(operation_id: str, name: str, action: str) -> bool:
         return False
 
 
+_MOVE_RETRY_WINERRORS = {5, 32}  # Access denied, sharing violation: Windows, while a scanner holds a new file.
+
+
+def _move(source: pathlib.Path, target: pathlib.Path) -> None:
+    """Move a folder into place, trying again briefly while another program still holds a file in it."""
+    for attempt in range(5):
+        try:
+            source.rename(target)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in _MOVE_RETRY_WINERRORS or attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
 def _publish_bundle(bundle: SkillBundle, name: str, *, operation_id: str, replacing: bool) -> None:
     import row_bot.skills as skills
     from row_bot.package_files import contained_path
@@ -363,12 +379,12 @@ def _publish_bundle(bundle: SkillBundle, name: str, *, operation_id: str, replac
                 (previous.parent / "record.json").write_text(json.dumps(old.as_dict()), encoding="utf-8")
         _save_publication(operation_id, {"name": name, "action": "update" if replacing else "install", "complete": False, "content_hash": bundle.content_hash})
         if dest.exists():
-            dest.rename(previous)
+            _move(dest, previous)
         try:
-            staged.rename(dest)
+            _move(staged, dest)
         except BaseException:
             if previous.exists() and not dest.exists():
-                previous.rename(dest)
+                _move(previous, dest)
             raise
 
 

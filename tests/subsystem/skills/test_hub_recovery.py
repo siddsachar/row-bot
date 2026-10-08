@@ -36,6 +36,28 @@ def test_failed_record_publication_can_restore_proven_previous_files(tmp_path, m
     assert (skills.USER_SKILLS_DIR / "writing/references/chart.bin").read_bytes() == b"\x89PNG\r\n\x00fixture"
 
 
+def test_a_skill_still_installs_when_windows_briefly_refuses_to_move_it_into_place(tmp_path, monkeypatch, reload_for_data_dir):
+    """Found in the Apps browser spec on Windows: moving the new skill's folder into place failed with "Access
+    is denied" while another program held a just-written file, and adding the skill stayed unfinished."""
+    import pathlib
+    skills, = reload_for_data_dir(tmp_path, "row_bot.skills")
+    reload_for_data_dir(tmp_path, "row_bot.tasks")
+    monkeypatch.setattr(installer, "_clear_agent_cache", lambda: None)
+    rename, refused = pathlib.Path.rename, []
+
+    def busy_once(self, target):
+        if pathlib.Path(target).name == "writing" and not refused:
+            refused.append(self)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5  # How Windows reports it, on every platform this test runs on.
+            raise error
+        return rename(self, target)
+    monkeypatch.setattr(pathlib.Path, "rename", busy_once)
+    result = installer.install_bundle(bundle("Original."), enabled=False)
+    assert result.success, result.message
+    assert refused and "Original." in (skills.USER_SKILLS_DIR / "writing" / "SKILL.md").read_text()
+
+
 def test_local_edits_survive_update_and_restore(tmp_path, monkeypatch, reload_for_data_dir):
     skills, = reload_for_data_dir(tmp_path, "row_bot.skills")
     monkeypatch.setattr(installer, "_clear_agent_cache", lambda: None)
