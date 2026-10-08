@@ -193,20 +193,30 @@ MAX_SUGGESTIONS = 3
 
 
 def suggestions(need: str) -> list[dict]:
-    """Apps that could do what a chat needs, from the local catalogs only (no network): vendors and
-    featured apps first, then the community. Only catalog ids come back; nothing is installed."""
+    """Apps that could do what a chat needs, from what is set up here and the local catalogs only (no
+    network). One the person added but hasn't finished or turned on comes first: its card turns it on,
+    where adding it again would be refused. Then vendors and featured apps, then the community. A need
+    that names an app ("Sentry organizations") finds it though its listing never says the other words.
+    Only ids come back; nothing is installed."""
     from row_bot.application.client_integrations import read_items
+    from row_bot.integrations import apps
     need = " ".join(str(need or "").split())[:200]
     if not need:
         return []
-    page = read_items(owner_id="chat-suggestions", query=need, kind="app", scope="catalog", limit=24)
-    found = []
-    for row in page["items"]:
-        card = app_card(row["id"])
-        if card is not None and row["compatibility"] != "unsupported":
-            found.append(card)
-        if len(found) == MAX_SUGGESTIONS:
-            break
+    named = [app.name for app in apps.catalog()[0].values()
+             if re.search(rf"(?<!\w){re.escape(app.name)}(?!\w)", need, re.IGNORECASE)]
+    found, seen = [], set()
+    for where in ("installed", "catalog"):
+        for query in dict.fromkeys([need, *named]):
+            for row in read_items(owner_id="chat-suggestions", query=query, kind="app", scope=where, limit=24)["items"]:
+                app = (row.get("app") or {}).get("id") or row["id"]
+                ready = where == "installed" and row["lifecycle"] == "installed" and row["readiness"] == "ready"
+                card = None if app in seen or ready or row["compatibility"] == "unsupported" else app_card(row["id"])
+                seen.add(app)  # An app already in use is never offered again from the catalog.
+                if card is not None:
+                    found.append(card)
+                if len(found) == MAX_SUGGESTIONS:
+                    return found
     return found
 
 

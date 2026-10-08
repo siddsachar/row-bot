@@ -39,6 +39,24 @@ def test_suggestions_come_from_the_local_catalogs_vendor_first_and_install_nothi
     assert not config.CONFIG_PATH.exists() and not [r for r in facts.inventory()[0] if r["kind"] != "skill"]
 
 
+def test_a_need_that_names_an_app_finds_it_whatever_else_it_says(local):
+    """"Notion zzqx pages": the listing never says the other words, but the app is named."""
+    assert json.loads(suggest_apps("Notion zzqx pages"))["apps"][0] == "mcp:curated:makenotion-notion-mcp-server"
+
+
+def test_an_app_added_but_turned_off_is_offered_as_itself_never_added_again(local):
+    config.CONFIG_PATH.write_text(json.dumps({"version": 1, "enabled": True, "servers": {"Notion MCP": {
+        "transport": "streamable_http", "url": "https://mcp.notion.com/mcp", "enabled": False,
+        "source": {"marketplace": "curated", "id": "makenotion-notion-mcp-server"}}}}))
+    config._config_cache = None
+    facts.invalidate()
+    added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
+    assert added["lifecycle"] != "installed" or added["readiness"] != "ready"
+    answer = json.loads(suggest_apps("Notion zzqx pages"))
+    assert answer["apps"][0] == added["id"]  # Its card turns it on.
+    assert "mcp:curated:makenotion-notion-mcp-server" not in answer["apps"]  # Adding it again would be refused.
+
+
 def test_nothing_suitable_says_so_without_pointing_anywhere_else(local):
     answer = json.loads(suggest_apps("zzqx frobnicate"))
     assert answer["kind"] == "no_apps" and "Don't suggest websites" in answer["next"]
