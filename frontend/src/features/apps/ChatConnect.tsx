@@ -73,8 +73,9 @@ function SuggestedApp({
   const status = entry ? statusOf(entry) : null;
   const ready = entry?.lifecycle === 'installed' && entry.readiness === 'ready';
   const action = entry?.next_action;
-  // Ready but it only looks things up: the card allows changes (a sign-in made for reads signs in once more).
-  const access = ready ? detail?.about.access : null;
+  // Offered for a change, ready but it only looks things up: the card allows changes (a sign-in made for
+  // reads signs in once more). Offered to connect or turn on, a ready app continues the request.
+  const access = ready && app.allow_changes ? detail?.about.access : null;
   const readsOnly =
     access &&
     (access.limited ||

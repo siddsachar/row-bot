@@ -571,7 +571,9 @@ def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpec
                                    resource_id=resource, binding_id=binding)
     if name == "suggest_apps" and payload.get("kind") == "connect_apps" and isinstance(payload.get("apps"), list):
         from row_bot.integrations.scope import MAX_SUGGESTIONS, app_card
-        apps = tuple(card for item in payload["apps"][:MAX_SUGGESTIONS] if (card := app_card(item)) is not None)
+        allow = payload.get("allow") if isinstance(payload.get("allow"), list) else []
+        apps = tuple({**card, "allow_changes": True} if item in allow else card
+                     for item in payload["apps"][:MAX_SUGGESTIONS] if (card := app_card(item)) is not None)
         return TraceSpecialization(kind="connect_apps", apps=apps) if apps else None
     if name == "request_connection" and payload.get("kind") == "setup_needed":  # Chats from before Phase 5.
         target = _clean_text(payload.get("target"), 64)

@@ -311,6 +311,7 @@ def suggest_apps(need: str, changes: bool = False) -> str:
         "ok": True,
         "kind": "connect_apps",
         "apps": [app["item_id"] for app in [*allow, *found]],
+        "allow": [app["item_id"] for app in allow],  # Only these cards offer to allow changes; the rest Continue.
         "names": names,
         "display_summary": "Suggested " + ", ".join(names),
         "next": " ".join(offer) + " Say in one sentence what you will do once it's ready, then stop; they press "

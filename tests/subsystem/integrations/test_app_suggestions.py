@@ -93,6 +93,11 @@ def test_an_app_that_only_looks_things_up_is_offered_to_allow_changes_never_as_a
     answer = json.loads(suggest_apps("Notion zzqx pages", changes=True))
     assert answer["kind"] == "connect_apps" and answer["apps"] == [added["id"]], answer
     assert "only looks things up" in answer["next"]
+    # Its card offers to allow changes; an app offered to connect or turn on continues once ready.
+    card = specialize_tool_result({"name": "suggest_apps", "content": json.dumps(answer)})
+    assert [app.get("allow_changes", False) for app in card.apps] == [True]
+    card = specialize_tool_result({"name": "suggest_apps", "content": json.dumps({**answer, "allow": []})})
+    assert [app.get("allow_changes", False) for app in card.apps] == [False]
     # Reading needs no more access: no card asks for it.
     answer = json.loads(suggest_apps("Notion zzqx pages"))
     assert answer["kind"] == "apps_added" and "apps" not in answer and "already added and on" in answer["next"]

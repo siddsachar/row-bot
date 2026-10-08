@@ -75,6 +75,11 @@
       "additionalProperties": false,
       "description": "An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,\nre-read from local data, and for a step the tool's readable title in that app (\"Delete page\").",
       "properties": {
+        "allow_changes": {
+          "default": false,
+          "title": "Allow Changes",
+          "type": "boolean"
+        },
         "icon": {
           "maxLength": 128,
           "title": "Icon",

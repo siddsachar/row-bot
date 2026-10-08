@@ -6586,6 +6586,9 @@ class TraceAppRef(WireModel):
     tool: str = Field(default="", max_length=128)
     # The step can show its app's view in chat (MCP Apps).
     view: bool = False
+    # A Connect card's app offered to allow changes: the work changes something in an app that only looks
+    # things up. Any other ready app's card continues the request.
+    allow_changes: bool = False
 
 
 class AppViewRenderRequest(WireModel):

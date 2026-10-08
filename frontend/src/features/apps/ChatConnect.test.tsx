@@ -108,7 +108,11 @@ const review: InstallPlan = {
   consent_token: 'token',
 };
 
-function show(controller: Record<string, unknown>, onContinue = vi.fn()) {
+function show(
+  controller: Record<string, unknown>,
+  onContinue = vi.fn(),
+  allowChanges = false,
+) {
   const fake = {
     integrationIcons: vi.fn(async () => ({ schema_version: 1, items: [] })),
     ...controller,
@@ -124,6 +128,7 @@ function show(controller: Record<string, unknown>, onContinue = vi.fn()) {
               item_id: 'mcp:curated:notion',
               name: 'Notion',
               icon: 'letter:N',
+              ...(allowChanges ? { allow_changes: true } : {}),
             },
           ]}
           onContinue={onContinue}
@@ -252,7 +257,7 @@ it('sends Look things up when the person keeps the first choice', async () => {
   );
 });
 
-it('offers to allow changes for a ready app that only looks things up', async () => {
+function readOnlyReady() {
   const ready = entry({
     id: 'mcp:abc',
     installed: true,
@@ -278,11 +283,33 @@ it('offers to allow changes for a ready app that only looks things up', async ()
       },
     ],
   };
-  const { controller, onContinue } = show({
-    integrationDetail: vi.fn(async () => value),
-    reviewInstallPlan: vi.fn(async () => ({ ...review, intent: 'access' })),
-    startInstallPlan: vi.fn(() => new Promise(() => {})),
+  return value;
+}
+
+it('continues a read once a looking-only app it was asked to turn on is ready', async () => {
+  // Found live (GitHub): turned on from the card for a read, it offered "Allow changes", not Continue.
+  const { onContinue } = show({
+    integrationDetail: vi.fn(async () => readOnlyReady()),
   });
+  const card = await screen.findByRole('listitem', { name: 'Notion, Ready' });
+  expect(
+    within(card).queryByRole('button', { name: 'Allow changes' }),
+  ).toBeNull();
+  fireEvent.click(within(card).getByRole('button', { name: 'Continue' }));
+  expect(onContinue).toHaveBeenCalledOnce();
+});
+
+it('offers to allow changes for a ready app that only looks things up', async () => {
+  const value = readOnlyReady();
+  const { controller, onContinue } = show(
+    {
+      integrationDetail: vi.fn(async () => value),
+      reviewInstallPlan: vi.fn(async () => ({ ...review, intent: 'access' })),
+      startInstallPlan: vi.fn(() => new Promise(() => {})),
+    },
+    vi.fn(),
+    true, // Offered for a change.
+  );
   const card = await screen.findByRole('listitem', { name: 'Notion, Ready' });
   expect(within(card).queryByRole('button', { name: 'Continue' })).toBeNull();
   await act(async () =>
