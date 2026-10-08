@@ -601,6 +601,32 @@ def open_plan(ctx: Context, item_id: str) -> dict | None:
     return None if found is None or found["state"] == "expired" else found
 
 
+def left_behind(ctx: Context, exists: Callable[[str], bool]) -> list[tuple[dict, dict]]:
+    """This owner's unfinished plans on items that are gone (a Remove that deleted the app but couldn't
+    finish, then a restart), each as a row and its plan, so the person can still find, finish or stop it.
+    Reading one settles what its owners can prove (a Remove's saved keys are deleted then)."""
+    from row_bot.integrations import apps
+    from row_bot.runtime import admissions
+    prefix = _target(ctx, "")
+    try:
+        pending = admissions.read_unfinished_commands(prefixes=(prefix,), limit=32)
+    except admissions.AdmissionError:
+        return []
+    found = []
+    for command in pending["items"]:
+        item_id = command["target"][len(prefix):]
+        if command["owner_id"] != ctx.owner_id or command["type"] != "integrations.plan" or exists(item_id):
+            continue
+        current = open_plan(ctx, item_id)
+        if current is None:
+            continue
+        app = apps.catalog()[0].get(_load(ctx.owner_id, current["plan_id"])[0].get("app_id") or "")
+        kind, _, ref = item_id.partition(":")
+        found.append((facts.finish(facts.entry(kind, ref, current["name"], app=app.ref() if app else None, blockers=[
+            facts.blocker("change_unconfirmed", "Its last change didn't finish. Open it to finish or stop it.")])), current))
+    return found
+
+
 def _spawn(work: Callable[[], None]) -> None:
     """The background seam; tests replace it to run a plan at a chosen moment."""
     threading.Thread(target=work, daemon=True, name="integration-plan").start()

@@ -297,6 +297,34 @@ def test_a_refused_key_fails_the_check_and_lets_the_app_go(item, owner, monkeypa
     assert removed["state"] == "completed" and "Synthetic" not in config.read_saved_configuration().document["servers"]
 
 
+def test_a_remove_left_unfinished_after_the_app_is_gone_can_still_be_found_and_finished(item, owner, monkeypatch):
+    """Found live (GitHub): Remove deleted the app but its cleanup stayed unconfirmed, so its page said "Couldn't
+    open this", Apps didn't list it, and its saved key stayed until something read the plan."""
+    stuck = {"on": True}
+    stop = mcp_runtime.stop_server_owned
+    monkeypatch.setattr(mcp_runtime, "get_server_lifecycle",
+                        lambda name: {"runtime_id": "stuck"} if stuck["on"] else {"runtime_id": None})
+    monkeypatch.setattr(mcp_runtime, "stop_server_owned",
+                        lambda name, runtime_id, **kw: {"state": "cleanup_incomplete"} if stuck["on"] else stop(name, runtime_id, **kw))
+    _, remove = api.read_item(owner_id="owner", item_id=item, intent="remove", cleanup=True)
+    api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, intent="remove", digest=remove["digest"], cleanup=True)
+    assert "Synthetic" not in config.read_saved_configuration().document["servers"]  # The app is gone,
+    from row_bot.api.v1 import schemas as dto
+    mine = dto.IntegrationEntryPage.model_validate_json(json.dumps(api.read_items(owner_id="owner")))  # As sent.
+    listed = next(i for i in mine.model_dump(mode="json")["items"] if i["id"] == item)
+    assert (listed["readiness"], listed["next_action"]["kind"]) == ("attention", "retry")  # but still listed,
+    page, _ = api.read_item(owner_id="owner", item_id=item)  # and its page shows the change, not "Couldn't open this".
+    sent = dto.IntegrationDetail.model_validate_json(json.dumps(page)).model_dump(mode="json")
+    assert (sent["plan"]["intent"], sent["plan"]["state"]) == ("remove", "uncertain")
+    stuck["on"] = False  # A restart later: what held it has gone.
+    assert api.settle_item(ctx(), item_id=item)["plan"]["pause"] == "resume"  # Retry proves the cleanup,
+    done = plans.resume(ctx(), page["plan"]["plan_id"])  # and Continue finishes the Remove.
+    assert (done["state"], done["message"]) == ("completed", "Removed.")
+    assert all(i["id"] != item for i in api.read_items(owner_id="owner")["items"])
+    with pytest.raises(ClientPlatformError, match="not_found"):
+        api.read_item(owner_id="owner", item_id=item)
+
+
 def test_a_tool_list_row_bot_cannot_keep_says_so_instead_of_claiming_a_change(item, owner):
     owner.tools[:] = [{"name": f"get_{n}", "description": "d" * 16000, "inputSchema": {}} for n in range(10)]
     _, plan = api.read_item(owner_id="owner", item_id=item)

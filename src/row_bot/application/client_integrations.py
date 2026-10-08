@@ -37,13 +37,20 @@ def entry(row: dict) -> dict:
             "attributions": copy.deepcopy(row["attributions"]), "children": [entry(child) for child in row["children"]]}
 
 
-def _installed(*, query: str, kind: str, cursor: str | None, limit: int, validate: Callable[[], None]) -> dict:
+def _exists(item_id: str, validate: Callable[[], None]) -> bool:
+    from row_bot.integrations import builtin
+    return (facts.read(item_id, validate) or builtin.read(item_id, validate) or catalog.catalog_entry(item_id)) is not None
+
+
+def _installed(*, owner_id: str, query: str, kind: str, cursor: str | None, limit: int, validate: Callable[[], None]) -> dict:
     validate()
     if kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 50:
         raise ClientPlatformError("invalid_integration_query")
     rows, errors = facts.inventory(validate)
     from row_bot.integrations import builtin
     rows = rows + [row for row in builtin.rows(validate) if row["lifecycle"] != "available"]  # Set up: one of your apps.
+    # A change left unfinished on an app that is gone stays one of your apps until it is finished or stopped.
+    rows += [row for row, _ in plans.left_behind(plans.Context(owner_id, owner_id, validate), lambda i: _exists(i, validate))]
     rows = [entry(row) for row in sorted(rows, key=lambda item: (item["name"].casefold(), item["id"]))
             if (row["kind"] in _KINDS[kind] or any(c["kind"] in _KINDS[kind] for c in row["children"]))
             and catalog.matches(query, row["name"], row["description"], (row["app"] or {}).get("name", ""))]
@@ -260,7 +267,7 @@ def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str 
     """Installed items, or the local catalogs (``everything``: placeholder and duplicate records too). Neither
     contacts a source."""
     if scope == "installed":
-        return _installed(query=query, kind=kind, cursor=cursor, limit=limit, validate=validate)
+        return _installed(owner_id=owner_id, query=query, kind=kind, cursor=cursor, limit=limit, validate=validate)
     if scope != "catalog":
         raise ClientPlatformError("invalid_integration_query")
     page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, include_incompatible=everything,
@@ -473,7 +480,18 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
     """One entry with its unfinished plan, or the plan for its next action (or a requested
     intent). The second value is the plan still to consent to; reading never sends a command."""
     validate()
-    row, reference = _resolve(owner_id, item_id, revision, validate)
+    try:
+        row, reference = _resolve(owner_id, item_id, revision, validate)
+    except ClientPlatformError as error:
+        # Gone, but with a change of this owner's left unfinished on it: the page shows that change.
+        left = next((found for found in plans.left_behind(context or plans.Context(owner_id, owner_id, validate),
+                                                          lambda i: i != item_id) if found[0]["id"] == item_id), None)
+        if error.code != "not_found" or left is None:
+            raise
+        about = {"license": "", "source_url": "", "pin": "", "identifier": item_id, "destination": "", "runs_locally": False,
+                 "saved_key": False, "signs_in": False, "signed_in": False, "requirements": [], "access": None, "package": "",
+                 "files": [], "profiles": [], "ways": [], "actions": [], "settings": [], "views": None}
+        return {"entry": entry(left[0]), "plan": left[1], "about": about}, None
     current = plans.open_plan(context or plans.Context(owner_id, owner_id, validate), row["id"])
     if current is not None:
         return {"entry": entry(row), "plan": current, "about": _about(row, validate, current, reference.get("cfg"))}, None
@@ -487,8 +505,8 @@ def settle_item(ctx: plans.Context, *, item_id: str) -> dict:
     """The Retry on an unfinished change: check it again explicitly, then read the item."""
     ctx.validate()
     row = facts.read(item_id, ctx.validate)
-    if row is None:
-        raise ClientPlatformError("not_found")
+    if row is None:  # Gone: reading a change left unfinished on it settles what it can (not_found otherwise).
+        return read_item(owner_id=ctx.owner_id, item_id=item_id, validate=ctx.validate, context=ctx)[0]
     if row["kind"] == "plugin" and not ctx.local_owner:
         raise ClientPlatformError("owner_local_only")  # Package recovery stays with Row-Bot on this computer.
     facts.settle(row, ctx.owner_id, ctx.mcp_owner_id, ctx.validate)

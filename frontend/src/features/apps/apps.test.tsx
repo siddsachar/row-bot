@@ -497,6 +497,42 @@ it('says when connecting also lets chats use the app (B308)', async () => {
   ).toBeVisible();
 });
 
+it('stopping a setup stays on its page, even when what it saved is gone', async () => {
+  const paused = plan({
+    plan_id: 'b1b1b1b1-0000-4000-8000-000000000002',
+    state: 'paused',
+    pause: 'resume',
+    current_step: 'test',
+    steps: [
+      step('consent', 'done'),
+      step('test', 'running'),
+      step('access', 'pending'),
+      step('enable', 'pending'),
+    ],
+    next_action: { kind: 'continue_setup', label: 'Continue setup' },
+  });
+  const controller = {
+    integrationDetail: vi.fn(async () => detail({ plan: paused })),
+    reviewInstallPlan: vi.fn(async () => paused),
+    cancelInstallPlan: vi.fn(async () => ({
+      ...paused,
+      state: 'cancelled' as const,
+      pause: null,
+      installed_id: 'mcp:removed-meanwhile',
+      message: 'Stopped.',
+    })),
+  };
+  show('/settings/apps/item?id=mcp%3Acurated%3Anotion', controller);
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+  await waitFor(() => expect(controller.cancelInstallPlan).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(controller.integrationDetail).toHaveBeenCalledTimes(2),
+  );
+  expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
+    '/settings/apps/item?id=mcp%3Acurated%3Anotion',
+  );
+});
+
 it('connects after one consent, follows the plan, and lets the access sheet choose', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const running = plan({

@@ -285,10 +285,11 @@ function Detail({
   const name = entry ? entry.app?.name || entry.name : '';
   const control = usePlan({ itemId, revision, name }, (plan) => {
     // Set up from a catalog entry: follow it to the installed item; removed: back to the library.
+    // Stopped, it stays: this page shows what was saved, if anything (it may be gone since).
     if (plan.state === 'completed' && plan.intent === 'remove')
       navigate(back, { replace: true });
     else if (
-      ['completed', 'cancelled'].includes(plan.state) &&
+      plan.state === 'completed' &&
       plan.installed_id &&
       plan.installed_id !== itemId
     )
