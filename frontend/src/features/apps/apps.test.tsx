@@ -304,6 +304,29 @@ it('puts your apps first, attention first, and only searches online when asked',
   );
 });
 
+it('a result opened while the search is settling stays open', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const integrationItems = vi.fn(async () => page([entry()]));
+  show('/settings/apps', { integrationItems });
+  const search = await screen.findByRole('searchbox', { name: 'Search apps' });
+  fireEvent.change(search, { target: { value: 'notes' } });
+  // A click on a result already shown moves the browser on before this list has gone.
+  const before = window.location.href;
+  window.history.pushState(null, '', '/app-v2/settings/apps/item?id=mcp%3Ax');
+  try {
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
+      /^\/settings\/apps$/,
+    );
+    expect(integrationItems).not.toHaveBeenCalledWith(
+      expect.objectContaining({ query: 'notes' }),
+      expect.anything(),
+    );
+  } finally {
+    window.history.replaceState(null, '', before);
+  }
+});
+
 it('offers a way on when nothing matches', async () => {
   show('/settings/apps?q=zzz', {
     integrationItems: vi.fn(async () => page([])),

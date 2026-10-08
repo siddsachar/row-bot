@@ -66,8 +66,11 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const headingId = useId();
   const [one, many, yours] = NOUN[kind];
   useEffect(() => {
+    const at = window.location.href;
     const timer = setTimeout(() => {
-      if (draft.trim() === query) return;
+      // A result opened meanwhile has moved the page on before this page is gone: writing the
+      // search now would replace that page with this list again.
+      if (draft.trim() === query || window.location.href !== at) return;
       const next = new URLSearchParams(params);
       if (draft.trim()) next.set('q', draft.trim());
       else next.delete('q');

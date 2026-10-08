@@ -275,7 +275,7 @@ def create_code_folder(name: str = "") -> str:
     return _created("code", result, title, continues)
 
 
-def suggest_apps(need: str) -> str:
+def suggest_apps(need: str, changes: bool = False) -> str:
     """Suggest apps from Row-Bot's local catalogs that could do the work; a card offers to connect them."""
     from row_bot.integrations.scope import out_of_turn, suggestions
     try:
@@ -286,8 +286,8 @@ def suggest_apps(need: str) -> str:
         logger.warning("App suggestions are unavailable", exc_info=True)
         found, reasons = [], {}
     # One already added and ready is never offered as a lookalike to connect: say why it isn't doing this. Only
-    # one that just looks things up gets a card, which allows changes.
-    allow = [app for app in found if reasons.get(app["item_id"]) == "changes_off"]
+    # one that just looks things up gets a card, which allows changes, and only when the work changes something.
+    allow = [app for app in found if changes and reasons.get(app["item_id"]) == "changes_off"]
     added = [app for app in found if app.get("ready") and app not in allow]
     found = [app for app in found if not app.get("ready")]
     why = " ".join(app["name"] + {
@@ -518,6 +518,8 @@ class _CodeFolderInput(BaseModel):
 class _AppsInput(BaseModel):
     need: str = Field(max_length=200, description="What the person wants done or the service they named, e.g. "
                                                   "'read my calendar' or 'Notion'.")
+    changes: bool = Field(default=False, description="True when the work creates, edits, sends or deletes something "
+                                                     "in the app; false when it only reads.")
 
 
 class _UseFolderInput(BaseModel):

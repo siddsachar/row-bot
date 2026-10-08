@@ -90,9 +90,12 @@ def test_an_app_that_only_looks_things_up_is_offered_to_allow_changes_never_as_a
     added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
     monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: [])
     monkeypatch.setattr("row_bot.tools.conversation_setup_tool._conversation_id", lambda: "chat")
-    answer = json.loads(suggest_apps("Notion zzqx pages"))
+    answer = json.loads(suggest_apps("Notion zzqx pages", changes=True))
     assert answer["kind"] == "connect_apps" and answer["apps"] == [added["id"]], answer
     assert "only looks things up" in answer["next"]
+    # Reading needs no more access: no card asks for it.
+    answer = json.loads(suggest_apps("Notion zzqx pages"))
+    assert answer["kind"] == "apps_added" and "apps" not in answer and "already added and on" in answer["next"]
 
 
 def test_nothing_suitable_says_so_without_pointing_anywhere_else(local):

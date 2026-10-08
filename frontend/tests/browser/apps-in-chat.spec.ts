@@ -78,6 +78,9 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   await granola.getByRole('button', { name: 'Connect', exact: true }).click();
   const consent = page.getByRole('dialog', { name: 'Connect Granola' });
   await expect(consent).toContainText('What you ask goes to mcp.granola.ai.');
+  await consent
+    .getByRole('radio', { name: /^Look things up and make changes/ })
+    .check();
   await approveSignIn(context, () =>
     consent.getByRole('button', { name: 'Connect', exact: true }).click(),
   );

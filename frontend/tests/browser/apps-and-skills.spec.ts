@@ -122,6 +122,10 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
   await expect(
     consent.getByText('You sign in to Linear in your browser.'),
   ).toBeVisible();
+  // Looking things up is the default: changes are a choice.
+  await expect(
+    consent.getByRole('radio', { name: /^Look things up Reads/ }),
+  ).toBeChecked();
   await checkLayout(page, info, 'apps-consent');
   await approveSignIn(context, () =>
     steps.click(consent.getByRole('button', { name: 'Connect', exact: true })),
@@ -134,9 +138,7 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
   await expect(
     access.locator('summary', { hasText: 'Always asks first' }),
   ).toBeVisible();
-  await expect(
-    access.getByRole('radio', { name: /Ask before changes/ }),
-  ).toBeChecked();
+  await expect(access.getByRole('radio', { name: /Read only/ })).toBeChecked();
   await checkLayout(page, info, 'apps-access');
   await steps.click(access.getByRole('button', { name: 'Allow', exact: true }));
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();
@@ -147,9 +149,7 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
   await expect(
     page.getByRole('button', { name: 'Try it', exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByText(/3 of 3 actions on · Ask before changes/),
-  ).toBeVisible();
+  await expect(page.getByText(/1 of 3 actions on · Read only/)).toBeVisible();
   await checkLayout(page, info, 'apps-detail-ready');
 
   await page.getByRole('button', { name: 'More for Linear' }).click();
