@@ -118,6 +118,24 @@ def until_waiting(plan_id):
     raise AssertionError("no authorization page")
 
 
+def test_adding_an_app_while_another_waits_for_its_sign_in_says_why_it_cannot_yet(hosted):
+    """Live: Stripe waited for a sign-in in the browser, and adding Atlassian failed with "This step could
+    not finish". Nothing is saved while another change is unfinished; the person is told which."""
+    hosted(dcr=True)
+    _, plan = api.read_item(owner_id="owner", item_id=item_id())
+    waiting = str(uuid4())
+    api.start_plan(context(), plan_id=waiting, item_id=item_id(), digest=plan["digest"])
+    until_waiting(waiting)
+    other = "mcp:curated:linear-mcp"
+    _, second = api.read_item(owner_id="owner", item_id=other)
+    try:
+        failed = api.start_plan(context(), plan_id=str(uuid4()), item_id=other, digest=second["digest"])
+        assert failed["state"] == "failed" and "Another app is still being set up or signed in to" in failed["message"]
+        assert "Linear" not in json.dumps(config.read_saved_configuration().document["servers"])  # Nothing saved.
+    finally:
+        plans.cancel(context(), waiting)  # The first sign-in stops; its browser wait ends with it.
+
+
 @pytest.mark.parametrize(("mode", "client"), [("cimd", auth.CLIENT_METADATA_URL), ("dcr", "registered-client")])
 def test_a_401_at_test_turns_sign_in_on_and_cimd_is_preferred_over_registration(hosted, mode, client):
     server = hosted(cimd=mode == "cimd", dcr=True)

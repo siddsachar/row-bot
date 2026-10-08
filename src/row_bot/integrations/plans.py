@@ -56,6 +56,8 @@ _MESSAGES = {
     "revision_conflict": "The settings changed while setting up. Start again.",
     "mcp_connection_failed": "The connection test failed. Check the details and try again.",
     "change_unconfirmed": "Your last change didn't finish. Retry to check it again.",
+    "mcp_configuration_recovery_required": "Another app is still being set up or signed in to. Finish or stop that, "
+                                           "then try again.",
     "skill_preview_expired": "The skill check expired. Start again.",
     "package_preview_expired": "The package check expired. Start again.",
     "owner_local_only": "Adding packages works only in Row-Bot on this computer.",
@@ -672,6 +674,9 @@ def _run(ctx: Context, record: dict) -> dict:
             _save(record)
         else:
             message = getattr(error, "message", "") or _MESSAGES.get(code, "This step could not finish. Retry, or open its settings.")
+            if code != "plan_cancelled":  # The code only (never a value): what support needs when the message is general.
+                logger.warning("A %s step stopped: %s", step["type"] if step else "plan", str(code)[:80],
+                               exc_info=not isinstance(error, PlanError))
             if step is not None:
                 step.update(state="failed", message=message[:512])
                 if getattr(error, "log", None):
