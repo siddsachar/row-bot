@@ -44,7 +44,8 @@ def app(monkeypatch, tmp_path):
     session = FakeSession()
     server = runtime.McpServerRuntime("Counter", {"transport": "stdio"})
     server.session = session
-    tools = [{"name": "counter", "description": "Show a counter.", "inputSchema": {"type": "object"},
+    tools = [{"name": "counter", "description": "Show a counter.",
+              "inputSchema": {"type": "object", "properties": {"start": {"type": "integer"}}},
               "_meta": {"ui": {"resourceUri": "ui://counter/view.html"}}},
              {"name": "update_counter", "description": "Change the counter by an amount.", "inputSchema": {"type": "object"},
               "_meta": {"ui": {"resourceUri": "ui://counter/view.html", "visibility": ["app"]}}},
@@ -115,6 +116,18 @@ def test_a_view_is_read_from_its_own_app_and_served_once_under_a_strict_policy(a
     with pytest.raises(views.ViewError, match="not_found"):
         views.frame(shown["render_id"])  # Once: a view navigating, or anyone else, gets nothing.
     assert shown["domains"] == ["https://api.counter-app.com", "https://cdn.counter-app.com"]
+
+
+def test_a_view_is_told_its_tool_as_mcp_defines_one(app):
+    """Found live (GitHub's get_me view): the MCP Apps SDK checks the tool it is told about at start, and without
+    an inputSchema it never finished starting ("This view didn't start")."""
+    import json
+
+    from row_bot.api.v1 import schemas as dto
+    shown = views.render("chat-1", "call-1")
+    sent = dto.AppViewRender.model_validate_json(json.dumps(shown)).model_dump(mode="json")  # As the route sends it.
+    assert sent["tool"] == {"name": "counter", "title": "Counter", "description": "Show a counter.",
+                            "inputSchema": {"type": "object", "properties": {"start": {"type": "integer"}}}}
 
 
 def test_views_show_only_where_the_person_lets_them(app, monkeypatch):

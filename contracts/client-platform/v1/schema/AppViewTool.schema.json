@@ -1,6 +1,18 @@
 {
   "additionalProperties": false,
+  "description": "The step's tool as MCP defines one: a view's SDK checks it (an inputSchema is required) before it starts.",
   "properties": {
+    "description": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Description",
+      "type": "string"
+    },
+    "inputSchema": {
+      "additionalProperties": true,
+      "title": "Inputschema",
+      "type": "object"
+    },
     "name": {
       "maxLength": 256,
       "title": "Name",

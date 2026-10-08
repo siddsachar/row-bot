@@ -6594,8 +6594,11 @@ class AppViewRenderRequest(WireModel):
 
 
 class AppViewTool(WireModel):
+    """The step's tool as MCP defines one: a view's SDK checks it (an inputSchema is required) before it starts."""
     name: str = Field(max_length=256)
     title: str = Field(max_length=128)
+    description: str = Field(default="", max_length=4096)
+    inputSchema: dict[str, Any] = Field(default_factory=lambda: {"type": "object"})
 
 
 class AppViewRender(WireModel):

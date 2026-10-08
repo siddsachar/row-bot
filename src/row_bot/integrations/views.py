@@ -294,7 +294,10 @@ def render(conversation_id: str, call_id: str) -> dict:
     app = scope.app_for_tool(str(call.get("name") or "")) or {"item_id": item["id"], "name": item["name"],
                                                                "icon": item["icon"], "tool": ""}
     return {"render_id": render_id, "frame_url": f"/app-views/{render_id}", "app": app,
-            "tool": {"name": info.name, "title": runtime.tool_title(str(call.get("name") or "")) or info.name},
+            # The tool as MCP defines one (a view's SDK refuses to start without its inputSchema).
+            "tool": {"name": info.name, "title": runtime.tool_title(str(call.get("name") or "")) or info.name,
+                     "description": (info.description or "")[:4096],
+                     "inputSchema": info.input_schema if info.input_schema.get("type") == "object" else {"type": "object"}},
             "input": call.get("args") or {}, "result": _result(text), "prefers_border": meta.get("prefersBorder") is not False,
             "domains": sorted({origin for origins in declared_domains(meta.get("csp")).values() for origin in origins})}
 
