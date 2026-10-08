@@ -15,6 +15,7 @@ import {
   approvalQuestion,
   keyArgument,
   plainApprovalReason,
+  readableValue,
 } from './tool-activity';
 
 type Hint_ = {
@@ -47,16 +48,13 @@ function plainScope(scope: string | null | undefined): string {
   return together ? `These ${together[1]} actions, together.` : scope;
 }
 
-/** `{"file_path":"notes.txt"}` reads "File path: notes.txt". */
+/** `{"file_path":"notes.txt"}` reads "File path: notes.txt"; a list or mapping reads in words. */
 function plainArguments(summary: string): string[] {
   try {
     const value: unknown = JSON.parse(summary);
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const lines = Object.entries(value).map(
-        ([key, item]) =>
-          `${humanizeToken(key)}: ${
-            typeof item === 'string' ? item : JSON.stringify(item)
-          }`,
+        ([key, item]) => `${humanizeToken(key)}: ${readableValue(item)}`,
       );
       if (lines.length) return lines;
     }

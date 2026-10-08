@@ -658,6 +658,24 @@ def test_an_approval_names_what_was_given_not_every_unset_option(runtime, monkey
     assert "None" not in asked[0]["description"]
 
 
+def test_an_approval_reads_structured_arguments_in_words(runtime, monkeypatch):
+    """Found live: a shop's save approval showed ``orders=[{'sku': ...}]``. Lists and mappings read in words,
+    every value kept; plain values keep their quoted form."""
+    asked = []
+
+    def save_orders(orders: list[dict], note: str, rush: bool = False) -> str:
+        return "saved"
+
+    tool = StructuredTool.from_function(func=save_orders, name="mcp_shop_save_orders", description="Save orders")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    tool.invoke({"orders": [{"sku": "A1", "qty": 2, "ship_to": {"city": "Leeds"}}, {"sku": "B2", "qty": 1}],
+                 "note": "first batch", "rush": True})
+    assert asked[0]["description"] == ("mcp_shop_save_orders: orders='sku A1, qty 2, ship to (city Leeds); "
+                                       "sku B2, qty 1', note='first batch', rush=True")
+
+
 def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypatch):
     """Allow all lets routine actions run; an app tool that is destructive or of unknown effect still asks,
     and says so, so an unattended run waits for the person instead of approving it."""

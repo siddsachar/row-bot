@@ -542,7 +542,33 @@ export function approvalAction(name: string, app?: ToolApp): string {
 const ARGUMENT =
   /(\w+)=('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^,'"]*)(?:, (?=\w+=)|$)/y;
 
+/** A tool argument in words: `[{"sku": "A1", "qty": 2}]` reads "sku A1, qty 2"; every value is kept. */
+export function readableValue(value: unknown, nested = false): string {
+  if (Array.isArray(value)) {
+    const structured = value.some((item) => item && typeof item === 'object');
+    const text = value
+      .map((item) => readableValue(item))
+      .join(structured ? '; ' : ', ');
+    return nested && structured ? `(${text})` : text;
+  }
+  if (value && typeof value === 'object') {
+    const text = Object.entries(value)
+      .filter(([, item]) => item !== null && item !== undefined)
+      .map(
+        ([key, item]) =>
+          `${key.replace(/_/g, ' ')} ${readableValue(item, true)}`,
+      )
+      .join(', ');
+    return nested ? `(${text})` : text;
+  }
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  return String(value ?? '');
+}
+
 function unquote(value: string): string {
+  // Python's True and False, as the agent writes a yes/no option.
+  if (value === 'True' || value === 'False')
+    return value === 'True' ? 'yes' : 'no';
   const quoted = /^(['"])([\s\S]*)\1$/.exec(value);
   if (!quoted) return value;
   return quoted[2].replace(/\\(.)/g, (_match, character: string) =>

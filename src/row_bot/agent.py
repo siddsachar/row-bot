@@ -3637,6 +3637,28 @@ _DESTRUCTIVE_LABELS: dict[str, str] = {
 }
 
 
+def _readable(value, nested: bool = False) -> str:
+    """A structured argument in words for the approval line: ``[{"sku": "A1", "qty": 2}]`` reads
+    "sku A1, qty 2". Every key and value is kept; only the code punctuation goes."""
+    if isinstance(value, dict):
+        text = ", ".join(f"{str(key).replace('_', ' ')} {_readable(item, True)}"
+                         for key, item in value.items() if item is not None)
+        return f"({text})" if nested else text
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+        structured = any(isinstance(item, (dict, list, tuple, set)) for item in items)
+        text = ("; " if structured else ", ").join(_readable(item) for item in items)
+        return f"({text})" if nested and structured else text
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
+def _argument(value) -> str:
+    """One argument as the approval line writes it: ``'text'`` (quoted) or ``3``; a list or mapping in words."""
+    return repr(_readable(value)) if isinstance(value, (dict, list, tuple, set)) else repr(value)
+
+
 def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict) -> str:
     """Build a human-friendly description for the interrupt dialog."""
     if tool_name == "task_delete":
@@ -3690,11 +3712,11 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
             return None, APPROVAL_NOT_NEEDED_AUTO
         # What the person reads names what was given: an option left unset (None) is not part of the action.
         given = {key: value for key, value in kwargs.items() if value is not None}
-        args_str = ", ".join(f"{key}={value!r}" for key, value in given.items())
+        args_str = ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
         if args:
-            args_str = repr(args[0]) if len(args) == 1 else repr(args)
+            args_str = _argument(args[0]) if len(args) == 1 else _argument(args)
             if given:
-                args_str += ", " + ", ".join(f"{key}={value!r}" for key, value in given.items())
+                args_str += ", " + ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
         description = _enrich_description(tool.name, label, args_str, kwargs)
         try:
             from row_bot.tools.discovery import is_external_discovery_invocation

@@ -107,6 +107,24 @@ it('explains the action in plain words, without request ids or unrated risk', as
   expect(screen.queryByText(/No server expiry/)).toBeNull();
 });
 
+it('lists structured arguments in words, never as code', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    safe_argument_summary:
+      '{"orders":[{"sku":"A1","qty":2,"ship_to":{"city":"Leeds"}},{"sku":"B2","qty":1}],"rush":true}',
+  });
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  expect(
+    screen.getByText(
+      'Orders: sku A1, qty 2, ship to (city Leeds); sku B2, qty 1',
+    ),
+  ).toBeVisible();
+  expect(screen.getByText('Rush: yes')).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/[{[]"/);
+});
+
 it('says since when the approval waits (B255)', async () => {
   approval.mockResolvedValue({
     ...view,

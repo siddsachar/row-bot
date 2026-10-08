@@ -161,6 +161,12 @@ describe('tool activity', () => {
         "Move / rename file: source='a.txt', destination=\"it's b.txt\"",
       ),
     ).toBe("Move / rename file: source a.txt · destination it's b.txt");
+    // A list the agent wrote in words, and a yes/no option.
+    expect(
+      plainApprovalReason(
+        "Save orders: orders='sku A1, qty 2; sku B2, qty 1', rush=True",
+      ),
+    ).toBe('Save orders: orders sku A1, qty 2; sku B2, qty 1 · rush yes');
     expect(plainApprovalReason('Delete task: 🗓️ Weekly brief')).toBe(
       'Delete task: 🗓️ Weekly brief',
     );
