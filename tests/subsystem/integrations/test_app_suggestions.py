@@ -56,6 +56,27 @@ def test_an_app_added_but_turned_off_is_offered_as_itself_never_added_again(loca
     assert answer["apps"] == [added["id"]]  # Its card turns it on; no catalog lookalikes beside it.
 
 
+def test_an_app_added_and_ready_is_never_offered_as_a_lookalike_and_the_answer_says_why(local, monkeypatch):
+    """Found live: Stripe switched off in a chat brought three community "Stripe" apps to connect."""
+    config.CONFIG_PATH.write_text(json.dumps({"version": 1, "enabled": True, "servers": {"Notion MCP": {
+        "transport": "streamable_http", "url": "https://mcp.notion.com/mcp", "enabled": True,
+        "source": {"marketplace": "curated", "id": "makenotion-notion-mcp-server"}}}}))
+    config._config_cache = None
+    monkeypatch.setattr(facts, "mcp_blockers", lambda *a, **k: [])  # Signed in, tools accepted, connected.
+    facts.invalidate()
+    added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
+    assert (added["lifecycle"], added["readiness"]) == ("installed", "ready")
+    off: list[str] = []
+    monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: list(off))
+    monkeypatch.setattr("row_bot.tools.conversation_setup_tool._conversation_id", lambda: "chat")
+    answer = json.loads(suggest_apps("Notion zzqx pages"))
+    assert answer["kind"] == "apps_added" and "apps" not in answer  # No card: nothing to connect.
+    assert "already added and on" in answer["next"]
+    off.append(added["id"])
+    answer = json.loads(suggest_apps("Notion zzqx pages"))
+    assert answer["kind"] == "apps_added" and "switched off in this chat" in answer["next"] and "+ › Apps" in answer["next"]
+
+
 def test_nothing_suitable_says_so_without_pointing_anywhere_else(local):
     answer = json.loads(suggest_apps("zzqx frobnicate"))
     assert answer["kind"] == "no_apps" and "Don't suggest websites" in answer["next"]

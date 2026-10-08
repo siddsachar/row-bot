@@ -278,11 +278,24 @@ def create_code_folder(name: str = "") -> str:
 def suggest_apps(need: str) -> str:
     """Suggest apps from Row-Bot's local catalogs that could do the work; a card offers to connect them."""
     from row_bot.integrations.scope import suggestions
+    from row_bot.threads import get_thread_apps_off
     try:
         found = suggestions(need)
+        conversation_id = _conversation_id() if any(app.get("ready") for app in found) else ""
+        off = set(get_thread_apps_off(conversation_id)) if conversation_id else set()
     except Exception:
         logger.warning("App suggestions are unavailable", exc_info=True)
-        found = []
+        found, off = [], set()
+    # One already added and ready is never offered as a lookalike to connect: say why it isn't in this turn.
+    added = [app for app in found if app.get("ready")]
+    found = [app for app in found if not app.get("ready")]
+    why = " ".join(f"{app['name']} is already added but switched off in this chat; the person can switch it on in "
+                   "+ › Apps." if app["item_id"] in off else f"{app['name']} is already added and on; if its tools "
+                   "aren't in this turn, the message @mentions other apps." for app in added)
+    if not found and added:
+        return _json({"ok": True, "kind": "apps_added", "display_summary": "Already added: "
+                      + ", ".join(app["name"] for app in added), "next": why + " Say so in one sentence. Don't "
+                      "suggest other apps, websites or commands."})
     if not found:
         return _json({"ok": True, "kind": "no_apps", "display_summary": "No app found",
                       "next": "No app in Row-Bot's catalog does this. Say so briefly. Don't suggest websites, "
@@ -296,7 +309,7 @@ def suggest_apps(need: str) -> str:
         "display_summary": "Suggested " + ", ".join(names),
         "next": "The person sees a card to connect " + ", ".join(names) + ". Nothing is installed or connected "
                 "unless they choose to, and they see what each app can do first. Say in one sentence what you "
-                "will do once it is connected, then stop; they press Continue when it's ready.",
+                "will do once it is connected, then stop; they press Continue when it's ready." + (" " + why if why else ""),
     })
 
 

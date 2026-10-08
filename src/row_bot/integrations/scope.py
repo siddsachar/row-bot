@@ -194,10 +194,10 @@ MAX_SUGGESTIONS = 3
 
 def suggestions(need: str) -> list[dict]:
     """Apps that could do what a chat needs, from what is set up here and the local catalogs only (no
-    network). One the person added but hasn't finished or turned on answers alone: its card turns it on,
-    where adding it again would be refused. Otherwise vendors and featured apps, then the community. A need
-    that names an app ("Sentry organizations") finds it though its listing never says the other words.
-    Only ids come back; nothing is installed."""
+    network). One the person added answers alone: unfinished or off, its card turns it on, where adding it
+    again would be refused; ready, it comes back marked ``ready`` (it is only out of this turn). Otherwise
+    vendors and featured apps, then the community. A need that names an app ("Sentry organizations") finds
+    it though its listing never says the other words. Only ids come back; nothing is installed."""
     from row_bot.application.client_integrations import read_items
     from row_bot.integrations import apps
     need = " ".join(str(need or "").split())[:200]
@@ -211,10 +211,10 @@ def suggestions(need: str) -> list[dict]:
             for row in read_items(owner_id="chat-suggestions", query=query, kind="app", scope=where, limit=24)["items"]:
                 app = (row.get("app") or {}).get("id") or row["id"]
                 ready = where == "installed" and row["lifecycle"] == "installed" and row["readiness"] == "ready"
-                card = None if app in seen or ready or row["compatibility"] == "unsupported" else app_card(row["id"])
+                card = None if app in seen or row["compatibility"] == "unsupported" else app_card(row["id"])
                 seen.add(app)  # An app already in use is never offered again from the catalog.
                 if card is not None:
-                    found.append(card)
+                    found.append({**card, "ready": True} if ready else card)
                 if len(found) == MAX_SUGGESTIONS:
                     return found
         if found:  # The person already chose these: no lookalikes from the catalog beside them.
