@@ -341,3 +341,34 @@ it('remembers the chat Settings was opened from, for Close settings', async () =
   );
   expect(settingsReturnPath()).toBe('/conversations/conversation-a');
 });
+
+it('stays on the chat while a sign-in is replaced after a restart', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  // A restart drops the session: the chat closes for a moment, then the app is ready again.
+  const update = (patch: object) =>
+    (controller as unknown as { update(patch: object): void }).update(patch);
+  await act(async () =>
+    update({ selectedConversationId: null, status: 'unauthorized' }),
+  );
+  await act(async () => update({ status: 'ready' }));
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/conversations/conversation-a',
+  );
+  expect(screen.queryByText('That conversation was deleted.')).toBeNull();
+});

@@ -114,9 +114,11 @@ export function bindActiveConversationSession(
     }
 
     if (observedInstance === instanceId) {
-      // Nothing is open any more (the open conversation was deleted, here or in another window): nothing to
-      // reopen next time, rather than asking for it on every load.
-      remove(storage);
+      // The open conversation was deleted (here or in another window): nothing to reopen next time, rather
+      // than asking for it on every load. A sign-in replaced after a restart keeps it.
+      const stored = read(storage);
+      if (stored && state.deletedConversationId === stored.conversation_id)
+        remove(storage);
       return;
     }
     observedInstance = instanceId;

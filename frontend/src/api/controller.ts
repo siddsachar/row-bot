@@ -1129,6 +1129,7 @@ export class ClientController {
       conversations,
       typedConversations,
       selectedConversationId: null,
+      deletedConversationId: id,
       conversation: null,
       projection: null,
       workspace: null,
@@ -1152,6 +1153,7 @@ export class ClientController {
         this.transcriptCursor = undefined;
         this.update({
           selectedConversationId: id,
+          deletedConversationId: null,
           conversation: null,
           projection: null,
           earlier: [],
@@ -1172,6 +1174,7 @@ export class ClientController {
     this.transcriptRequest = false;
     this.update({
       selectedConversationId: id,
+      deletedConversationId: null,
       conversation: null,
       projection: null,
       workspace: null,

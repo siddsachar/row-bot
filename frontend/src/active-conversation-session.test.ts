@@ -93,8 +93,16 @@ describe('active conversation session', () => {
     client.publish(ready('instance-a'));
     expect(client.selectConversation).toHaveBeenCalledWith('conversation_1');
 
-    // Opening it found it deleted: the controller closes it.
+    // Closed for a moment while a sign-in is replaced: still the one to reopen.
     client.publish({ selectedConversationId: null });
+    expect(sessionStorage.getItem(activeConversationSessionKey)).toBe(
+      record('instance-a', 'conversation_1'),
+    );
+    // Opening it found it deleted: the controller closes it and says so.
+    client.publish({
+      selectedConversationId: null,
+      deletedConversationId: 'conversation_1',
+    });
 
     expect(sessionStorage.getItem(activeConversationSessionKey)).toBeNull();
   });

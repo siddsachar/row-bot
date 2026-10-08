@@ -81,6 +81,8 @@ export type ClientState = {
   loadingConversations: boolean;
   conversationListError: ClientError | null;
   selectedConversationId: string | null;
+  /** The open conversation the server reported deleted (here or in another window), until another opens. */
+  deletedConversationId?: string | null;
   conversation: Wire.ConversationView | null;
   projection: Wire.Snapshot | null;
   workspace: Wire.ConversationWorkspace | null;

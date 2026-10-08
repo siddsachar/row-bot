@@ -542,29 +542,16 @@ export default function Workspace() {
       void controller.selectConversation(decodeURIComponent(routeConversation));
   }, [controller, routeConversation]);
   // The open conversation was deleted in another window (or found deleted): go Home and say so, rather than
-  // leave an empty chat with no composer on its address.
-  const shownConversation = useRef<string | null>(null);
+  // leave an empty chat with no composer on its address. Only the server saying so counts: a sign-in
+  // replaced after a restart also closes the chat for a moment, and reopens it.
+  const deletedConversation = useClientSelector(
+    (value) => value.deletedConversationId ?? null,
+  );
   useEffect(() => {
-    if (state.selectedConversationId) {
-      shownConversation.current = state.selectedConversationId;
-      return;
-    }
-    if (
-      conversationId &&
-      shownConversation.current === conversationId &&
-      state.status === 'ready'
-    ) {
-      shownConversation.current = null;
-      navigate('/', { replace: true });
-      overlay.notify('That conversation was deleted.');
-    }
-  }, [
-    state.selectedConversationId,
-    state.status,
-    conversationId,
-    navigate,
-    overlay,
-  ]);
+    if (!conversationId || deletedConversation !== conversationId) return;
+    navigate('/', { replace: true });
+    overlay.notify('That conversation was deleted.');
+  }, [deletedConversation, conversationId, navigate, overlay]);
   const reconcileResources = useEffectEvent(() => {
     const workspace = state.workspace;
     if (
