@@ -478,7 +478,6 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'skill-library',
     label: 'Find or add skills',
     keywords: 'your skills library hub browse discover public clawhub install',
-    href: '/settings/skills',
   },
   {
     leaf: 'skills',

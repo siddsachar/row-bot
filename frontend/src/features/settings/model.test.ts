@@ -151,9 +151,9 @@ describe('settings navigation metadata', () => {
     expect(searchSettingsRows('runtimes').map(settingsRowHref)).toEqual([
       '/settings/apps?view=advanced#runtimes',
     ]);
-    // The skills library has no rows to jump to: its results open the page.
+    // The skills library lands on its installed list.
     expect(searchSettingsRows('find skills').map(settingsRowHref)).toEqual([
-      '/settings/skills',
+      '/settings/skills#skill-library',
     ]);
     expect(searchSettingsRows('logging').map(settingsRowHref)).toEqual([
       '/settings/system#logging.level',
