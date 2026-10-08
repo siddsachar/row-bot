@@ -277,39 +277,44 @@ def create_code_folder(name: str = "") -> str:
 
 def suggest_apps(need: str) -> str:
     """Suggest apps from Row-Bot's local catalogs that could do the work; a card offers to connect them."""
-    from row_bot.integrations.scope import suggestions
-    from row_bot.threads import get_thread_apps_off
+    from row_bot.integrations.scope import out_of_turn, suggestions
     try:
         found = suggestions(need)
         conversation_id = _conversation_id() if any(app.get("ready") for app in found) else ""
-        off = set(get_thread_apps_off(conversation_id)) if conversation_id else set()
+        reasons = {app["item_id"]: out_of_turn(app["item_id"], conversation_id) for app in found if app.get("ready")}
     except Exception:
         logger.warning("App suggestions are unavailable", exc_info=True)
-        found, off = [], set()
-    # One already added and ready is never offered as a lookalike to connect: say why it isn't in this turn.
-    added = [app for app in found if app.get("ready")]
+        found, reasons = [], {}
+    # One already added and ready is never offered as a lookalike to connect: say why it isn't doing this. Only
+    # one that just looks things up gets a card, which allows changes.
+    allow = [app for app in found if reasons.get(app["item_id"]) == "changes_off"]
+    added = [app for app in found if app.get("ready") and app not in allow]
     found = [app for app in found if not app.get("ready")]
-    why = " ".join(f"{app['name']} is already added but switched off in this chat; the person can switch it on in "
-                   "+ › Apps." if app["item_id"] in off else f"{app['name']} is already added and on; if its tools "
-                   "aren't in this turn, the message @mentions other apps." for app in added)
-    if not found and added:
+    why = " ".join(app["name"] + {
+        "off": " is already added but switched off in this chat; the person can switch it on in + › Apps.",
+        "left_out": " is already added and on, but this message @mentions other apps, so it isn't in this turn.",
+    }.get(reasons[app["item_id"]], " is already added and on in this turn: use its tools.") for app in added)
+    if not found and not allow and added:
         return _json({"ok": True, "kind": "apps_added", "display_summary": "Already added: "
                       + ", ".join(app["name"] for app in added), "next": why + " Say so in one sentence. Don't "
                       "suggest other apps, websites or commands."})
-    if not found:
+    if not found and not allow:
         return _json({"ok": True, "kind": "no_apps", "display_summary": "No app found",
                       "next": "No app in Row-Bot's catalog does this. Say so briefly. Don't suggest websites, "
                               "downloads or commands to install anything."})
-    names = [app["name"] for app in found]
+    names = [app["name"] for app in [*allow, *found]]
+    offer = [f"{app['name']} only looks things up: its card offers to allow changes, which still ask first." for app in allow]
+    if found:
+        offer.append("The person sees a card to connect " + ", ".join(app["name"] for app in found) + ". Nothing is "
+                     "installed or connected unless they choose to, and they see what each app can do first.")
     return _json({
         "ok": True,
         "kind": "connect_apps",
-        "apps": [app["item_id"] for app in found],
+        "apps": [app["item_id"] for app in [*allow, *found]],
         "names": names,
         "display_summary": "Suggested " + ", ".join(names),
-        "next": "The person sees a card to connect " + ", ".join(names) + ". Nothing is installed or connected "
-                "unless they choose to, and they see what each app can do first. Say in one sentence what you "
-                "will do once it is connected, then stop; they press Continue when it's ready." + (" " + why if why else ""),
+        "next": " ".join(offer) + " Say in one sentence what you will do once it's ready, then stop; they press "
+                "Continue when it's ready." + (" " + why if why else ""),
     })
 
 

@@ -108,10 +108,10 @@ def signed_in(plan_id):
     raise AssertionError("sign-in did not finish")
 
 
-def until_waiting(plan_id):
+def until_waiting(plan_id, kind="sign_in"):
     for _ in range(200):
         plan = plans.read_plan(context(), plan_id)
-        step = next(s for s in plan["steps"] if s["type"] == "sign_in")
+        step = next(s for s in plan["steps"] if s["type"] == kind)
         if step["sign_in"]["authorization_url"]:
             return plan
         time.sleep(0.02)
@@ -253,6 +253,61 @@ def test_a_reviewed_recipe_asks_only_for_its_own_scopes(hosted):
     api.start_plan(context(), plan_id=plan_id, item_id=item_id(), digest=plan["digest"])
     assert approve(until_waiting(plan_id))["scope"] == ["repo read:user"]
     assert signed_in(plan_id)["pause"] == "resume"
+
+
+def test_looking_things_up_asks_only_for_reads_and_allowing_changes_signs_in_once_more(hosted):
+    """Live: Atlassian listed some 40 scopes and Row-Bot asked for every one, writes and deletes too, though
+    the person only wanted to look things up. Now that choice, made before signing in, asks for the reads;
+    changes stay off until they're allowed from its Access, which asks the service once more."""
+    hosted(dcr=True, scopes=["read:jira", "write:jira", "search:jira", "delete:jira", "offline_access"])
+    _, plan = api.read_item(owner_id="owner", item_id=item_id())
+    plan_id = str(uuid4())
+    api.start_plan(context(), plan_id=plan_id, item_id=item_id(), digest=plan["digest"], preset="read_only")
+    assert approve(until_waiting(plan_id))["scope"] == ["read:jira search:jira offline_access"]
+    assert signed_in(plan_id)["pause"] == "resume"
+    paused = plans.resume(context(), plan_id)
+    access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
+    assert paused["pause"] == "access" and access["limited"] and "asked for read access only" in access["note"]
+    refused = plans.resume(context(tools_digest=access["tools_digest"]), plan_id, preset="ask")
+    assert refused["pause"] == "access"  # Its sign-in can't make changes: it waits for Read only.
+    done = plans.resume(context(tools_digest=access["tools_digest"]), plan_id, preset="read_only")
+    assert done["state"] == "completed", done
+    assert config.read_saved_configuration().document["servers"]["Notes"]["auth"]["read_only"] is True
+
+    detail, change = api.read_item(owner_id="owner", item_id=item_id(), intent="access")
+    assert detail["about"]["access"]["limited"]
+    changing = str(uuid4())
+    started = api.start_plan(context(tools_digest=detail["about"]["access"]["tools_digest"]), plan_id=changing,
+                             item_id=item_id(), intent="access", digest=change["digest"], preset="ask")
+    try:
+        assert started["pause"] == "sign_in" and started["current_step"] == "allow_changes"
+        step = next(s for s in until_waiting(changing, "allow_changes")["steps"] if s["type"] == "allow_changes")
+        query = parse_qs(urlsplit(step["sign_in"]["authorization_url"]).query)
+        assert query["scope"] == ["read:jira write:jira search:jira delete:jira offline_access"]  # Everything it lists.
+        client_mcp_auth.accept_callback(state=query["state"][0], code="synthetic-code")
+        assert signed_in(changing)["pause"] == "resume"
+        allowed = plans.resume(context(), changing)  # Checked again with the new sign-in, then reconnected.
+        assert allowed["state"] == "completed", (allowed["pause"], allowed["message"], [(s["id"], s["state"], s["message"]) for s in allowed["steps"]])
+    finally:
+        plans.cancel(context(), changing)  # A sign-in left waiting would hold the test process for its 5 minutes.
+    saved = config.read_saved_configuration().document["servers"]["Notes"]
+    assert "read_only" not in saved["auth"] and api.read_item(owner_id="owner", item_id=item_id())[0]["about"]["access"]["preset"] == "ask"
+
+
+def test_a_choice_to_make_changes_asks_for_everything_and_a_read_only_setting_follows_the_choice(hosted):
+    hosted(dcr=True, scopes=["read:jira", "write:jira"])
+    _, plan = api.read_item(owner_id="owner", item_id=item_id())
+    plan_id = str(uuid4())
+    api.start_plan(context(), plan_id=plan_id, item_id=item_id(), digest=plan["digest"], preset="ask")
+    assert approve(until_waiting(plan_id))["scope"] == ["read:jira write:jira"]
+    plans.cancel(context(), plan_id)
+    _, supabase = api.read_item(owner_id="owner", item_id="mcp:curated:supabase-mcp")  # Its own Read only setting.
+    assert next(f for s in supabase["steps"] if s["type"] == "inputs" for f in s["inputs"] if f["key"] == "read_only")["default"] == "true"
+    paused = api.start_plan(context(), plan_id=str(uuid4()), item_id="mcp:curated:supabase-mcp",
+                            digest=supabase["digest"], preset="ask")
+    fields = next(s for s in paused["steps"] if s["type"] == "inputs")["inputs"]
+    assert paused["pause"] == "inputs" and next(f for f in fields if f["key"] == "read_only")["default"] == "false"
+    plans.cancel(context(), paused["plan_id"])
 
 
 def test_a_refresh_that_fails_asks_to_sign_in_again(hosted):

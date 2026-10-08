@@ -73,6 +73,13 @@ function SuggestedApp({
   const status = entry ? statusOf(entry) : null;
   const ready = entry?.lifecycle === 'installed' && entry.readiness === 'ready';
   const action = entry?.next_action;
+  // Ready but it only looks things up: the card allows changes (a sign-in made for reads signs in once more).
+  const access = ready ? detail?.about.access : null;
+  const readsOnly =
+    access &&
+    (access.limited ||
+      (access.preset === 'read_only' &&
+        access.tools.some((tool) => tool.effect !== 'read_only')));
   const label = `${name}${status ? `, ${status[1]}` : ''}`;
   return (
     <li className="chat-connect-app" aria-label={label}>
@@ -91,7 +98,21 @@ function SuggestedApp({
           <Link className="button ghost" to={idPath('app', itemId)}>
             Details
           </Link>
-          {ready ? (
+          {readsOnly ? (
+            <Button
+              variant="primary"
+              disabled={control.busy || Boolean(control.plan)}
+              onClick={() =>
+                void control.apply('access', {
+                  preset: 'ask',
+                  tools_digest: access.tools_digest,
+                  overrides: {},
+                })
+              }
+            >
+              Allow changes
+            </Button>
+          ) : ready ? (
             <Button variant="primary" onClick={() => onContinue()}>
               Continue
             </Button>

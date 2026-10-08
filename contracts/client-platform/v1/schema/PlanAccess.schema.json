@@ -66,6 +66,11 @@
   },
   "additionalProperties": false,
   "properties": {
+    "limited": {
+      "default": false,
+      "title": "Limited",
+      "type": "boolean"
+    },
     "note": {
       "default": "",
       "maxLength": 256,

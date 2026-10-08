@@ -98,6 +98,8 @@ export default function AccessSheet({
     }
   }, [open, access]);
   const tools = access?.tools ?? [];
+  // Signed in to look things up only: changes are allowed later, from its Access, with one more sign-in.
+  const readsOnly = Boolean(access?.limited) && !change;
   const title = change
     ? `Change what ${name} can do`
     : `Here's what ${name} can do`;
@@ -124,6 +126,7 @@ export default function AccessSheet({
                 name="access-preset"
                 value={id}
                 checked={preset === id}
+                disabled={readsOnly && id !== 'read_only'}
                 onChange={() => {
                   // Picking a preset sets every tool from it; Customise can then adjust single tools.
                   setPreset(id);
@@ -167,9 +170,19 @@ export default function AccessSheet({
                   >
                     <option value="">As chosen above</option>
                     {!tool.always_asks && (
-                      <option value="use">Use without asking</option>
+                      <option
+                        value="use"
+                        disabled={readsOnly && tool.effect !== 'read_only'}
+                      >
+                        Use without asking
+                      </option>
                     )}
-                    <option value="ask">Ask first</option>
+                    <option
+                      value="ask"
+                      disabled={readsOnly && tool.effect !== 'read_only'}
+                    >
+                      Ask first
+                    </option>
                     <option value="off">Off</option>
                   </Select>
                 </li>

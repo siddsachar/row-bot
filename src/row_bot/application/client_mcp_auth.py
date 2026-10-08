@@ -41,6 +41,7 @@ class Flow:
     code: str = ""
     callback_used: bool = False
     document: bool = False  # Name Row-Bot by its client ID metadata document (the plan's choice).
+    read_only: bool = False  # Ask only for the reads of what the server lists ("Look things up").
     ref: str = field(default_factory=lambda: uuid4().hex)
 
     def active_authority(self) -> None:
@@ -168,7 +169,7 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
         return flow.code, flow.oauth_state
     provider = auth.oauth_provider(url, flow.callback_uri, storage, redirect=redirect, callback=callback,
                                    client_metadata_url=auth.CLIENT_METADATA_URL if not client and flow.document else None,
-                                   scope=str((flow.cfg.get("source") or {}).get("oauth_scope") or ""))
+                                   scope=str((flow.cfg.get("source") or {}).get("oauth_scope") or ""), read_only=flow.read_only)
     import httpx
     async with httpx.AsyncClient(auth=provider, timeout=30, follow_redirects=False, trust_env=False, transport=auth.PublicTransport()) as client_http:
         # This explicit unauthenticated request drives only authorization. Tool
@@ -179,8 +180,11 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
     if not storage.data.get("tokens"):
         raise auth.McpAuthError("mcp_auth_not_completed")
     auth.write_credentials(flow.ref, storage.data)
+    # What the server granted when it says so, otherwise what was asked: either can be reads only.
+    granted = str(storage.data["tokens"].get("scope") or getattr(storage, "asked", ""))
+    reads = auth.limited(getattr(storage, "listed", ""), granted)
     _publish(flow, {"mode": "oauth", "credential_ref": flow.ref, "binding": storage.binding,
-        "callback_uri": flow.callback_uri, "label": label, "operation_id": flow.command_id})
+        "callback_uri": flow.callback_uri, "label": label, "operation_id": flow.command_id, **({"read_only": True} if reads else {})})
 
 
 def _finish_oauth(flow: Flow, label: str, client: dict | None):
@@ -210,14 +214,14 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
 def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuration_revision: str,
         action: str, mode: str = "oauth", label: str = "", bindings: list | None = None,
         values: dict | None = None, client: dict | None = None, redirect_uri: str = "", metadata_document: bool = False,
-        validate: Callable[[], None] = lambda: None, validate_review: Callable[[dict], None] = lambda review: None,
-        target: dict | None = None) -> dict:
+        read_only: bool = False, validate: Callable[[], None] = lambda: None,
+        validate_review: Callable[[dict], None] = lambda review: None, target: dict | None = None) -> dict:
     validate()
     target = targets.normalize(target)
     intent = {"server_id": server_id, "configuration_revision": configuration_revision, "action": action,
         "mode": mode, "label": label, "bindings": bindings or [], "target": target}
     wire = {"command_id": command_id, "type": "mcp.auth." + action, **intent,
-        "input_digest": admissions.keyed_digest([values, client, redirect_uri, metadata_document])}
+        "input_digest": admissions.keyed_digest([values, client, redirect_uri, metadata_document, *([True] if read_only else [])])}
     existing = admissions.read_command_metadata(owner_id, command_id)
     if existing:
         try:
@@ -234,7 +238,7 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
     config.require_configuration_write_available(target=target)
     saved, name, cfg = _server(server_id, target)
     flow = Flow(owner_id, command_id, server_id, name, target, configuration_revision, cfg, redirect_uri, validate,
-                document=metadata_document)
+                document=metadata_document, read_only=read_only)
     admissions.claim_command(owner_id, command_id, wire, targets.admission_target(target), exclusive_target=True,
         initial_result={"command_id": command_id, "server_id": server_id, "state": "starting",
             "_mcp_auth": {"target": flow.target, "server_id": server_id, "credential_ref": flow.ref}})

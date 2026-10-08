@@ -57,6 +57,8 @@ export function usePlan(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Asked before signing in: look things up only (the default), or make changes too.
+  const [readOnly, setReadOnly] = useState(true);
   const signingIn = useRef(false);
   const failures = useRef(0);
   const [missed, setMissed] = useState(0);
@@ -84,7 +86,10 @@ export function usePlan(
       });
       if (action) setLabel(action);
       if (value.plan_id) setPlan(value);
-      else setConsent(value);
+      else {
+        setReadOnly(true);
+        setConsent(value);
+      }
     });
   const confirm = () =>
     run(async () => {
@@ -97,6 +102,9 @@ export function usePlan(
         digest: consent.digest,
         consent_token: consent.consent_token ?? '',
         cleanup: consent.consent.cleanup,
+        ...(asksAccess(consent)
+          ? { preset: readOnly ? 'read_only' : 'ask' }
+          : {}),
       });
       setConsent(null);
       setPlan(started);
@@ -192,6 +200,8 @@ export function usePlan(
     resume,
     cancel,
     notice,
+    readOnly,
+    setReadOnly,
     dismissConsent: () => setConsent(null),
     clear: () => setPlan(null),
   };
@@ -578,8 +588,22 @@ export function hostOf(place: string) {
   }
 }
 
+/** Setting up an app that signs in: what it may do is asked first, so its sign-in asks for only that. */
+function asksAccess(plan: InstallPlan) {
+  return (
+    ['connect', 'turn_on', 'fix'].includes(plan.intent) &&
+    plan.steps.some(
+      (step) =>
+        step.type === 'sign_in' && ['pending', 'skipped'].includes(step.state),
+    ) &&
+    plan.steps.some(
+      (step) => step.type === 'access' && step.state === 'pending',
+    )
+  );
+}
+
 function facts(plan: InstallPlan, name: string) {
-  const types = new Map(plan.steps.map((step) => [step.type, step.state]));
+  const types = new Map(plan.steps.map((step) => [step.id, step.state]));
   const consent = plan.consent;
   const lines: string[] = [];
   if (plan.intent === 'turn_off')
@@ -608,7 +632,7 @@ function facts(plan: InstallPlan, name: string) {
           ? 'You paste a key. It is kept in your system keychain.'
           : 'You add a few settings. Any key is kept in your system keychain.',
       );
-    if (types.get('access') === 'pending')
+    if (types.get('access') === 'pending' && !asksAccess(plan))
       lines.push('Next, you choose what it can do. Changes ask first.');
     if (plan.kind === 'skill' && plan.intent === 'add')
       lines.push(
@@ -664,6 +688,43 @@ export function ConsentSheet({
                 <li key={line}>{line}</li>
               ))}
             </ul>
+          )}
+          {consent.supported && asksAccess(consent) && (
+            <fieldset className="access-presets">
+              <legend>What can {name} do?</legend>
+              {(
+                [
+                  [
+                    true,
+                    'Look things up',
+                    `Reads and searches. Where ${name} offers it, Row-Bot asks it for read access only.`,
+                  ],
+                  [
+                    false,
+                    'Look things up and make changes',
+                    'Changes always ask you first.',
+                  ],
+                ] as const
+              ).map(([value, label, description]) => (
+                <label
+                  key={label}
+                  className="access-preset"
+                  data-selected={control.readOnly === value}
+                >
+                  <input
+                    type="radio"
+                    name="consent-access"
+                    checked={control.readOnly === value}
+                    disabled={busy}
+                    onChange={() => control.setReadOnly(value)}
+                  />
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
           )}
           {remove && cleanupOffered && (
             <Field label="Also delete saved keys and data" layout="row">

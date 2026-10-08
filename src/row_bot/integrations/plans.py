@@ -175,6 +175,10 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
         steps = [s for s in steps if s["type"] in {"consent", "test", "access", "enable"}]
         if unfinished:
             steps[2].update(state="unsupported", message=f"Finish setting up {name} first.")
+        elif setup["auth_mode"] == "oauth" and (cfg.get("auth") or {}).get("read_only"):
+            # Skips itself unless the choice allows changes that its sign-in, made to look things up, can't make.
+            steps.insert(1, _step("allow_changes", "pending", f"Allow {name} to make changes",
+                                  sign_in={"method": method, "authorization_url": None}))
     # Turning a connection on also turns on MCP when it is off, which can wake other connections.
     standalone = row.get("target") in (None, {"kind": "standalone"})
     consent = {"destinations": [setup["destination"]] if hosted else [], "runs_locally": not hosted,
@@ -461,6 +465,10 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
               "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {},
               # Agreed to turn on "Use apps in chats": only while its settings stay as they were (B308).
               "_chats": _chats_revision() if plan["consent"].get("turns_on_chats") else None}
+    if plan["intent"] != "settings" and preset:  # A Read only setting the app declares (Supabase's) follows the choice.
+        for field_ in (f for s in record["steps"] if s["type"] == "inputs" for f in s.get("inputs") or []):
+            if field_["key"] == "read_only" and field_["format"] == "boolean":
+                field_["default"] = "true" if preset == "read_only" else "false"
     if record["server_id"] and plan["intent"] not in _DONE:
         record["_recipe"] = _recipe(record)
     command = {"command_id": plan_id, "type": "integrations.plan", "item_id": row["id"], "intent": plan["intent"], "digest": digest}
@@ -509,10 +517,10 @@ def _stale(record: dict) -> bool:
 
 
 def _stop(ctx: Context, record: dict, state: str, message: str) -> None:
-    if record.get("_auth"):
+    for key in [key for key in record if key.startswith("_auth") and record[key]]:
         from row_bot.application.client_mcp_auth import cancel_auth
         try:
-            cancel_auth(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
+            cancel_auth(owner_id=ctx.owner_id, command_id=record[key], validate=ctx.validate)
         except Exception:
             pass  # A finished or expired sign-in has nothing left to cancel.
     record.update(state=state, pause=None, message=message)
@@ -709,7 +717,9 @@ def _unsettled(ctx: Context, record: dict, step: dict) -> bool:
             metadata = admissions.read_command_metadata(owner, command["command_id"])
             if metadata is not None and metadata["status"] not in {"completed", "rejected"}:
                 return True
-    metadata = admissions.read_command_metadata(ctx.owner_id, record["_auth"]) if step["id"] == "sign_in" and record.get("_auth") else None
+    key = _auth_key(step)
+    metadata = (admissions.read_command_metadata(ctx.owner_id, record[key])
+                if step["type"] in {"sign_in", "allow_changes"} and record.get(key) else None)
     return metadata is not None and metadata["status"] not in {"completed", "rejected"}
 
 
@@ -739,13 +749,14 @@ def _observe_commands(ctx: Context, record: dict, step: dict) -> str:
 def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application.client_mcp_auth import auth_status
     from row_bot.runtime import admissions
-    if not record.get("_auth"):
+    key = _auth_key(step)
+    if not record.get(key):
         return _observe_commands(ctx, record, step)
-    metadata = admissions.read_command_metadata(ctx.owner_id, record["_auth"])
+    metadata = admissions.read_command_metadata(ctx.owner_id, record[key])
     if metadata is None or metadata["status"] == "rejected":
         step["message"] = "Sign-in didn't start. Try again."
         return "failed"
-    result = auth_status(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
+    result = auth_status(owner_id=ctx.owner_id, command_id=record[key], validate=ctx.validate)
     step["sign_in"]["authorization_url"] = result.get("authorization_url")
     if result["state"] == "signed_in":
         return "resume"
@@ -779,7 +790,7 @@ def _observe_runtime(ctx: Context, record: dict, step: dict) -> str:
     return "resume" if receipt["status"] in {"completed", "rejected"} or receipt.get("installation", {}).get("quiesced") else ""
 
 
-_OBSERVERS = {"sign_in": _observe_sign_in, "runtime": _observe_runtime}
+_OBSERVERS = {"sign_in": _observe_sign_in, "allow_changes": _observe_sign_in, "runtime": _observe_runtime}
 
 
 # --- Owner commands ----------------------------------------------------------
@@ -1034,13 +1045,36 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
     return "done"
 
 
+def _auth_key(step: dict) -> str:
+    """Each sign-in step's own command: signing in, and allowing changes later."""
+    return "_auth" if step["type"] == "sign_in" else "_auth_" + step["id"]
+
+
+def _limited(record: dict) -> bool:
+    """Whether its sign-in was made to look things up only."""
+    return (_saved(record["target"], record["server_id"])[1].get("auth") or {}).get("read_only") is True
+
+
+def _wants_changes(record: dict) -> bool:
+    catalog = (_saved(record["target"], record["server_id"])[1].get("tools") or {}).get("catalog") or {}
+    return record["preset"] != "read_only" or any(
+        state != "off" and (catalog.get(name) or {}).get("effect") != "read_only"
+        for name, state in (record.get("overrides") or {}).items())
+
+
 def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application.client_mcp_auth import execute_auth, review_auth
-    if record.get("_auth"):
+    key = _auth_key(step)
+    if record.get(key):
         seen = _observe_sign_in(ctx, record, step)
         if seen == "failed":
             raise PlanError("sign_in_failed", step["message"] or "Sign-in didn't finish. Try again.")
+        if seen == "resume" and step["type"] == "allow_changes":
+            # Signed in to make changes: check the connection with it, then what it can do now.
+            next(s for s in record["steps"] if s["type"] == "test")["state"] = "pending"
         return "done" if seen == "resume" else "sign_in"
+    if step["type"] == "allow_changes" and not _wants_changes(record):
+        return "skipped"
     if not ctx.redirect_uri:
         raise PlanError("mcp_auth_callback_unavailable", "Signing in needs Row-Bot open on this computer.")
     client = _sign_in_client(ctx, record, step)
@@ -1049,12 +1083,14 @@ def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
     revision = _revision(ctx, record)
     review = review_auth(server_id=record["server_id"], configuration_revision=revision, action="start", mode="oauth",
                          label=record["name"], validate=ctx.validate, target=record["target"])
-    record["_auth"] = str(uuid4())
+    # Reads only when the person chose to look things up before signing in, or its last sign-in did.
+    read_only = step["type"] == "sign_in" and (record["preset"] == "read_only" or _limited(record))
+    record[key] = str(uuid4())
     _save(record)
-    result = execute_auth(owner_id=ctx.owner_id, command_id=record["_auth"], server_id=record["server_id"],
+    result = execute_auth(owner_id=ctx.owner_id, command_id=record[key], server_id=record["server_id"],
         configuration_revision=revision, action="start", mode="oauth", label=record["name"], redirect_uri=ctx.redirect_uri,
-        client=client, metadata_document=step["sign_in"].get("method") == "oauth_cimd", validate=ctx.validate,
-        validate_review=_bound(review), target=record["target"])
+        client=client, metadata_document=step["sign_in"].get("method") == "oauth_cimd", read_only=read_only,
+        validate=ctx.validate, validate_review=_bound(review), target=record["target"])
     step["sign_in"]["authorization_url"] = result.get("authorization_url")
     return "sign_in"
 
@@ -1186,8 +1222,13 @@ def _address(cfg: dict) -> str:
     return inputs.resolve(cfg, {}, partial=True)["url"] if cfg.get("inputs") else cfg.get("url", "")
 
 
+def _stepped_up(record: dict) -> bool:
+    """Whether this plan signed in again to make changes."""
+    return any(s["type"] == "allow_changes" and s["state"] == "done" for s in record["steps"])
+
+
 def _mcp_test(ctx: Context, record: dict, step: dict) -> str:
-    if record["intent"] == "settings" and _disconnect(ctx, record, "test:disconnect") == "running":
+    if (record["intent"] == "settings" or _stepped_up(record)) and _disconnect(ctx, record, "test:disconnect") == "running":
         return "running"  # The live session still uses the old settings; it ends before the new ones are checked.
     sign_in = next((s for s in record["steps"] if s["type"] == "sign_in"), None)
     if sign_in is not None and sign_in["state"] == "skipped" and "_signs_in" not in record:
@@ -1267,9 +1308,12 @@ def _recipe(record: dict) -> str:
     return _digest({key: cfg.get(key) or default for key, default in defaults.items()})
 
 
-def _note(target: dict | None, server_id: str) -> str:
+def _note(target: dict | None, server_id: str, name: str) -> str:
     from row_bot.mcp_client.conflicts import overlap_note
-    return overlap_note(*_saved(target, server_id))
+    saved = _saved(target, server_id)
+    reads = ((saved[1].get("auth") or {}).get("read_only") is True
+             and f"{name} was asked for read access only. Allowing changes asks {name} for your OK once more.")
+    return " ".join(note for note in (reads, overlap_note(*saved)) if note)[:256]
 
 
 def _tools(ctx: Context | None, record: dict) -> list[dict]:
@@ -1305,7 +1349,8 @@ def current_access(row: dict) -> dict | None:
     tools = _tools(None, record)
     return {"preset": presets.current(saved) if saved.get("catalog") else presets.DEFAULT, "tools_digest": _digest(tools),
             "tools": [_tool_view(t, presets.actual(saved, t["name"])) for t in tools[:256]],
-            "note": _note(record["target"], record["server_id"])}
+            "note": _note(record["target"], record["server_id"], (row.get("app") or {}).get("name") or row["name"]),
+            "limited": _limited(record)}
 
 
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
@@ -1326,9 +1371,16 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
         if tool["name"] in kept:
             return presets.actual(saved, tool["name"])
         return presets.tool_state(record["preset"], tool)
+    limited = _limited(record)
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]],
-                      "note": _note(record["target"], record["server_id"])}
-    if ctx.tools_digest == digest or (record["intent"] == "settings" and all(unchanged(t) for t in tools)):
+                      "note": _note(record["target"], record["server_id"], record["name"]), "limited": limited}
+    # Checked again (new settings, or a sign-in that allows changes): tools exactly as accepted need no new review.
+    if ctx.tools_digest == digest or (
+            record["intent"] in {"settings", "access"} and record.get("_test") and all(unchanged(t) for t in tools)):
+        if limited and record["intent"] != "access" and _wants_changes(record):
+            # Its sign-in can't make changes: allowing them is its own sign-in, from its Access later.
+            step["message"] = f"{record['name']} was asked for read access only. Choose Read only for now."[:512]
+            return "access"
         step["message"] = ""
         return "done"
     step["message"] = "The tools changed. Review them again." if ctx.tools_digest else "Review what this app can do, then allow it."
@@ -1396,7 +1448,10 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
     elif record["intent"] == "access":
         _policy(ctx, record, "enable:preset", {"operation": "preset", "server_id": record["server_id"], "preset": record["preset"],
                                                **({"overrides": chosen} if chosen else {})})
-        return "done"
+        # Signed in again to make changes: it reconnects with that sign-in below, or when an app that's off is turned on.
+        if not _stepped_up(record) or (record["target"] is None and not _mcp_on()) or read_mcp_policy(
+                server_id=record["server_id"], validate=ctx.validate, target=record["target"]).server_enabled is not True:
+            return "done"
     state = read_mcp_policy(server_id=record["server_id"], validate=ctx.validate, target=record["target"])
     if state.server_enabled is not True:
         _policy(ctx, record, "enable:server", {"operation": "server_enabled", "server_id": record["server_id"], "enabled": True})
@@ -1678,7 +1733,8 @@ def _enable(ctx: Context, record: dict, step: dict) -> str:
 
 _HANDLERS: dict[tuple[str, str], Callable[[Context, dict, dict], str]] = {
     ("mcp", "consent"): _mcp_consent, ("mcp", "inputs"): _mcp_inputs, ("mcp", "runtime"): _mcp_runtime,
-    ("mcp", "sign_in"): _mcp_sign_in, ("mcp", "test"): _mcp_test, ("mcp", "access"): _mcp_access, ("mcp", "enable"): _mcp_enable,
+    ("mcp", "sign_in"): _mcp_sign_in, ("mcp", "allow_changes"): _mcp_sign_in, ("mcp", "test"): _mcp_test,
+    ("mcp", "access"): _mcp_access, ("mcp", "enable"): _mcp_enable,
     ("mcp", "local_app_check"): _local_app, ("plugin", "local_app_check"): _local_app,
     ("skill", "consent"): _done, ("skill", "test"): _skill_test, ("skill", "enable"): _enable,
     ("plugin", "consent"): _done, ("plugin", "test"): _package_test, ("plugin", "enable"): _enable,

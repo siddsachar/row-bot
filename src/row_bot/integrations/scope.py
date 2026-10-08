@@ -222,6 +222,25 @@ def suggestions(need: str) -> list[dict]:
     return found
 
 
+def out_of_turn(item_id: str, conversation_id: str) -> str:
+    """Why an app already added and ready doesn't do what a chat needs: ``off`` (switched off in this chat),
+    ``left_out`` (the message mentions other apps), ``changes_off`` (it only looks things up), or ""."""
+    from row_bot.agent import current_app_scope
+    from row_bot.integrations import plans
+    from row_bot.threads import get_thread_apps_off
+    if conversation_id and item_id in set(get_thread_apps_off(conversation_id)):
+        return "off"
+    server = next((item["server"] for item in _mcp_items() if item["id"] == item_id), "")
+    if server and server in set((current_app_scope() or {}).get("exclude_servers") or []):
+        return "left_out"
+    row = facts.read(item_id)
+    access = plans.current_access(row) if row else None
+    if access and (access["limited"] or access["preset"] == "read_only"
+                   and any(tool["effect"] != "read_only" for tool in access["tools"])):
+        return "changes_off"
+    return ""
+
+
 def app_card(item_id: str) -> dict | None:
     """One suggested app as a chat card shows it, re-read by id from installed items or the local
     catalogs; an id nothing local knows (or a skill) is dropped. Its name and logo come from here,

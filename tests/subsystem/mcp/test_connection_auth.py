@@ -250,3 +250,20 @@ def test_callback_can_be_used_only_once(isolated):
     with pytest.raises(auth.McpAuthError, match="callback_invalid"):
         owner.accept_callback(state=flow.oauth_state, code="second")
     assert flow.code == "first" and not isolated.values
+
+
+@pytest.mark.parametrize(("listed", "reads"), [
+    # Atlassian: reads and searches, plus the account's own; writes, deletes and admin left out.
+    ("read:me read:jira write:jira search:jira delete:jira manage:jira offline_access email",
+     "read:me read:jira search:jira offline_access email"),
+    ("Mail.Read Mail.ReadWrite User.Read offline_access", "Mail.Read User.Read offline_access"),  # Microsoft
+    ("https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send openid",
+     "https://www.googleapis.com/auth/gmail.readonly openid"),  # Google
+    ("read write", "read"),
+    ("read:all search:all", ""),  # Nothing to leave out: asked for as it is.
+    ("openid email write:all", ""),  # Nothing but the account left: asked for as it is.
+    ("mcp", ""),  # A scope Row-Bot can't place counts as a change.
+])
+def test_looking_things_up_asks_for_the_reads_of_what_a_server_lists(listed, reads):
+    assert auth.read_scope(listed) == reads
+    assert auth.limited(listed, reads) is bool(reads)  # A sign-in granted only those can't make changes.

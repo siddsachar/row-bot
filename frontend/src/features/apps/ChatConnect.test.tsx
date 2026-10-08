@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+﻿import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
@@ -180,4 +180,124 @@ it('offers Continue once the app is ready, and the request goes on in this chat'
   const card = await screen.findByRole('listitem', { name: 'Notion, Ready' });
   fireEvent.click(within(card).getByRole('button', { name: 'Continue' }));
   expect(onContinue).toHaveBeenCalledExactlyOnceWith(); // Never the app's name: it can come from a listing.
+});
+
+const signsIn: InstallPlan = {
+  ...review,
+  steps: [
+    ...review.steps,
+    {
+      id: 'sign_in',
+      type: 'sign_in',
+      state: 'pending',
+      title: 'Sign in to Notion',
+      message: '',
+    },
+    {
+      id: 'access',
+      type: 'access',
+      state: 'pending',
+      title: 'Choose what Notion can do',
+      message: '',
+    },
+  ],
+};
+
+it('asks what an app that signs in may do before its sign-in, looking things up unless changes are chosen', async () => {
+  const { controller } = show({
+    integrationDetail: vi.fn(async () => detail(entry())),
+    reviewInstallPlan: vi.fn(async () => signsIn),
+    startInstallPlan: vi.fn(() => new Promise(() => {})),
+  });
+  const card = await screen.findByRole('listitem', { name: 'Notion' });
+  await act(async () =>
+    fireEvent.click(within(card).getByRole('button', { name: 'Connect' })),
+  );
+  const sheet = await screen.findByRole('dialog', { name: 'Connect Notion' });
+  const choice = within(sheet).getByRole('group', {
+    name: 'What can Notion do?',
+  });
+  expect(
+    within(choice).getByRole('radio', { name: /^Look things up(?! and)/ }),
+  ).toBeChecked();
+  fireEvent.click(
+    within(choice).getByRole('radio', {
+      name: /Look things up and make changes/,
+    }),
+  );
+  await act(async () =>
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Connect' })),
+  );
+  expect(controller.startInstallPlan).toHaveBeenCalledWith(
+    expect.objectContaining({ preset: 'ask' }),
+  );
+});
+
+it('sends Look things up when the person keeps the first choice', async () => {
+  const { controller } = show({
+    integrationDetail: vi.fn(async () => detail(entry())),
+    reviewInstallPlan: vi.fn(async () => signsIn),
+    startInstallPlan: vi.fn(() => new Promise(() => {})),
+  });
+  const card = await screen.findByRole('listitem', { name: 'Notion' });
+  await act(async () =>
+    fireEvent.click(within(card).getByRole('button', { name: 'Connect' })),
+  );
+  const sheet = await screen.findByRole('dialog', { name: 'Connect Notion' });
+  await act(async () =>
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Connect' })),
+  );
+  expect(controller.startInstallPlan).toHaveBeenCalledWith(
+    expect.objectContaining({ preset: 'read_only' }),
+  );
+});
+
+it('offers to allow changes for a ready app that only looks things up', async () => {
+  const ready = entry({
+    id: 'mcp:abc',
+    installed: true,
+    lifecycle: 'installed',
+    readiness: 'ready',
+    next_action: { kind: 'try', label: 'Try it' },
+  });
+  const value = detail(ready);
+  value.about.access = {
+    preset: 'read_only',
+    tools_digest: digest,
+    limited: true,
+    tools: [
+      {
+        name: 'update_page',
+        title: 'Update page',
+        description: '',
+        effect: 'mutation',
+        state: 'off',
+        always_asks: false,
+        view: false,
+        view_only: false,
+      },
+    ],
+  };
+  const { controller, onContinue } = show({
+    integrationDetail: vi.fn(async () => value),
+    reviewInstallPlan: vi.fn(async () => ({ ...review, intent: 'access' })),
+    startInstallPlan: vi.fn(() => new Promise(() => {})),
+  });
+  const card = await screen.findByRole('listitem', { name: 'Notion, Ready' });
+  expect(within(card).queryByRole('button', { name: 'Continue' })).toBeNull();
+  await act(async () =>
+    fireEvent.click(
+      within(card).getByRole('button', { name: 'Allow changes' }),
+    ),
+  );
+  expect(controller.reviewInstallPlan).toHaveBeenCalledWith(
+    expect.objectContaining({
+      item_id: 'mcp:curated:notion',
+      intent: 'access',
+    }),
+  );
+  expect(controller.startInstallPlan).toHaveBeenCalledWith(
+    expect.objectContaining({ preset: 'ask', tools_digest: digest }),
+  );
+  expect(onContinue).not.toHaveBeenCalled();
 });

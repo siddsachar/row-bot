@@ -121,8 +121,9 @@ def binding(name: str, cfg: dict) -> str:
 def validate_metadata(raw: dict | None) -> dict:
     if raw is None:
         return {}
-    allowed = {"mode", "credential_ref", "binding", "label", "bindings", "callback_uri", "operation_id"}
-    if type(raw) is not dict or set(raw) - allowed or raw.get("mode") not in {"none", "oauth", "api_key"}:
+    allowed = {"mode", "credential_ref", "binding", "label", "bindings", "callback_uri", "operation_id", "read_only"}
+    if (type(raw) is not dict or set(raw) - allowed or raw.get("mode") not in {"none", "oauth", "api_key"}
+            or raw.get("read_only", True) is not True):
         raise McpAuthError("invalid_mcp_auth")
     for key in ("credential_ref", "operation_id"):
         if raw.get(key) and (type(raw[key]) is not str or not _REF.fullmatch(raw[key].replace("-", ""))):
@@ -254,6 +255,30 @@ def _session_end(method: str, address: str, endpoint: str) -> bool:
     return method == "DELETE" and urlsplit(address)[:3] == urlsplit(endpoint)[:3]
 
 
+_READS = {"read", "readonly", "search", "view", "list", "get", "history"}
+_ACCOUNT = {"openid", "profile", "email", "offline_access"}
+
+
+def _reads(name: str) -> bool:
+    words = re.split(r"[:./_-]", name.lower())
+    return name.lower() in _ACCOUNT or bool({words[0], words[-1]} & _READS)
+
+
+def read_scope(scope: str) -> str:
+    """The reads in a scope list ("read:jira", "search:confluence", "Mail.Read", "gmail.readonly", plus the
+    account's own), or "" when it doesn't split: nothing to leave out, or nothing but the account left. A
+    scope Row-Bot can't place counts as a change, so looking things up never asks for it."""
+    names = scope.split()
+    reads = [name for name in names if _reads(name)]
+    useful = any(name.lower() not in _ACCOUNT for name in reads)
+    return " ".join(reads) if useful and len(reads) < len(names) else ""
+
+
+def limited(listed: str, granted: str) -> bool:
+    """Whether a sign-in can only look things up although the server lists changes too."""
+    return bool(read_scope(listed)) and bool(granted.split()) and all(_reads(name) for name in granted.split())
+
+
 class TokenStorage:
     """SDK TokenStorage, staging sign-in separately from a working account."""
     def __init__(self, ref: str, expected_binding: str, *, validate=lambda: None, staged: bool = False, data: dict | None = None):
@@ -309,21 +334,26 @@ class _SafeSdkLog(logging.Filter):
 
 
 def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redirect=None, callback=None,
-                   client_metadata_url: str | None = None, scope: str = ""):
+                   client_metadata_url: str | None = None, scope: str = "", read_only: bool = False):
     """``scope``: what a reviewed recipe asks for instead of everything the server lists (GitHub lists
-    write and admin scopes a read-mostly connection never needs)."""
+    write and admin scopes a read-mostly connection never needs). ``read_only``: otherwise only the reads
+    of what it lists. A sign-in notes on ``storage`` what was listed and asked, to tell if it was limited."""
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata
     public_endpoint(url)
     if scope and redirect is not None:
         if not re.fullmatch(r"[\x21\x23-\x5B\x5D-\x7E]+( [\x21\x23-\x5B\x5D-\x7E]+)*", scope) or len(scope) > 512:
             raise McpAuthError("mcp_auth_scope_invalid")
+    if redirect is not None:
         ask = redirect
 
         async def redirect(address: str) -> None:
             parts = urlsplit(address)
-            query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "scope"]
-            await ask(urlunsplit(parts._replace(query=urlencode([*query, ("scope", scope)]))))
+            query = parse_qsl(parts.query, keep_blank_values=True)
+            storage.listed = next((value for key, value in query if key == "scope"), "")
+            storage.asked = scope or (read_only and read_scope(storage.listed)) or storage.listed
+            query = [(k, v) for k, v in query if k != "scope"] + ([("scope", storage.asked)] if storage.asked else [])
+            await ask(urlunsplit(parts._replace(query=urlencode(query))))
     sdk_logger = logging.getLogger("mcp.client.auth.oauth2")
     if not any(isinstance(value, _SafeSdkLog) for value in sdk_logger.filters):
         sdk_logger.addFilter(_SafeSdkLog())

@@ -77,6 +77,24 @@ def test_an_app_added_and_ready_is_never_offered_as_a_lookalike_and_the_answer_s
     assert answer["kind"] == "apps_added" and "switched off in this chat" in answer["next"] and "+ › Apps" in answer["next"]
 
 
+def test_an_app_that_only_looks_things_up_is_offered_to_allow_changes_never_as_a_lookalike(local, monkeypatch):
+    """Asked to change something an added app only reads: its own card allows changes (asking first)."""
+    config.CONFIG_PATH.write_text(json.dumps({"version": 1, "enabled": True, "servers": {"Notion MCP": {
+        "transport": "streamable_http", "url": "https://mcp.notion.com/mcp", "enabled": True,
+        "source": {"marketplace": "curated", "id": "makenotion-notion-mcp-server"},
+        "tools": {"catalog": {"search": {"effect": "read_only"}, "update_page": {"effect": "mutation"}},
+                  "accepted_names": ["search", "update_page"], "enabled": {"search": True, "update_page": False}}}}}))
+    config._config_cache = None
+    monkeypatch.setattr(facts, "mcp_blockers", lambda *a, **k: [])  # Signed in, tools accepted, connected.
+    facts.invalidate()
+    added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
+    monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: [])
+    monkeypatch.setattr("row_bot.tools.conversation_setup_tool._conversation_id", lambda: "chat")
+    answer = json.loads(suggest_apps("Notion zzqx pages"))
+    assert answer["kind"] == "connect_apps" and answer["apps"] == [added["id"]], answer
+    assert "only looks things up" in answer["next"]
+
+
 def test_nothing_suitable_says_so_without_pointing_anywhere_else(local):
     answer = json.loads(suggest_apps("zzqx frobnicate"))
     assert answer["kind"] == "no_apps" and "Don't suggest websites" in answer["next"]

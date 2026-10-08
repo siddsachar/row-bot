@@ -3,6 +3,11 @@
     "PlanAccess": {
       "additionalProperties": false,
       "properties": {
+        "limited": {
+          "default": false,
+          "title": "Limited",
+          "type": "boolean"
+        },
         "note": {
           "default": "",
           "maxLength": 256,
@@ -472,6 +477,7 @@
         "runtime",
         "local_app_check",
         "sign_in",
+        "allow_changes",
         "test",
         "access",
         "enable"

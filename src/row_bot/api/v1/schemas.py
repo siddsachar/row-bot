@@ -7936,11 +7936,13 @@ class PlanAccess(WireModel):
     tools_digest: str = Field(max_length=64)
     # One line when Row-Bot has its own tools for the same job; presets apply as for any app.
     note: str = Field(default="", max_length=256)
+    # Its sign-in was made to look things up only: allowing changes signs in once more (from its Access).
+    limited: bool = False
 
 
 class PlanStep(WireModel):
     id: str = Field(pattern=r"^[a-z_]{1,32}[0-9]{0,2}$")
-    type: Literal["consent", "inputs", "runtime", "local_app_check", "sign_in", "test", "access", "enable"]
+    type: Literal["consent", "inputs", "runtime", "local_app_check", "sign_in", "allow_changes", "test", "access", "enable"]
     state: Literal["pending", "running", "waiting", "done", "skipped", "failed", "unsupported"]
     title: str = Field(max_length=256)
     message: str = Field(max_length=512)

@@ -615,9 +615,11 @@ function Detail({
             {(about.signs_in ||
               (about.saved_key && !settings.some((s) => s.secret))) && (
               <Fact label={about.signs_in ? 'Sign-in' : 'Key'}>
-                {about.signed_in
-                  ? 'Saved in your system keychain'
-                  : 'Not added yet'}
+                {!about.signed_in
+                  ? 'Not added yet'
+                  : about.access?.limited
+                    ? 'Saved in your system keychain. Read access only.'
+                    : 'Saved in your system keychain'}
               </Fact>
             )}
             {settings.map((input) => (

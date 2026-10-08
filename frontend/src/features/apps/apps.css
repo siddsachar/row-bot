@@ -303,6 +303,11 @@
   padding: 0;
   border: 0;
 }
+.access-presets legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-weight: 600;
+}
 .access-preset {
   display: flex;
   align-items: flex-start;
