@@ -1245,8 +1245,9 @@ def _setup_guidance(tool_names: list[str]) -> str:
             )
         parts.append(
             "APPS: if the work needs an app, account or channel you have no tool for (email, a calendar, "
-            "Notion, a messaging channel), call suggest_apps so the person gets a card to connect it, "
-            "then stop. Only the person connects apps; never suggest installing anything another way."
+            "Notion, a messaging channel), or a change in an app that only looks things up, call suggest_apps "
+            "so the person gets a card to connect it or allow changes, then stop. Only the person connects "
+            "apps; never suggest installing anything another way."
         )
     return (" " + " ".join(parts)) if parts else ""
 

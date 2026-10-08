@@ -605,9 +605,10 @@ class ConversationSetupTool(BaseTool):
                 name="suggest_apps",
                 description=(
                     "When the work needs an app or service you have no tool for (email, a calendar, "
-                    "Notion, Linear, a messaging channel), look it up in Row-Bot's own catalog and show "
-                    "the person a card to connect it. It never installs or connects anything; the person "
-                    "decides. Use it instead of sending them to Settings or to a website."
+                    "Notion, Linear, a messaging channel), or a change in an app you have that only looks "
+                    "things up, look it up in Row-Bot's own catalog and show the person a card to connect it "
+                    "or allow changes. It never installs or connects anything; the person decides. Use it "
+                    "instead of sending them to Settings or to a website."
                 ),
                 args_schema=_AppsInput,
             ),
