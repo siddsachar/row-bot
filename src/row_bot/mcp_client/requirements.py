@@ -131,7 +131,14 @@ class _Directory:
     def rename(self, source, destination, target=None):
         from row_bot.developer.edits import _rename_edit_no_replace
         target = target or self
-        _rename_edit_no_replace(self.leaf(source), target.leaf(destination), src_dir_fd=self.fd, dst_dir_fd=target.fd)
+        for attempt in range(5):  # Windows refuses a move briefly while a scanner holds a just-written file.
+            try:
+                _rename_edit_no_replace(self.leaf(source), target.leaf(destination), src_dir_fd=self.fd, dst_dir_fd=target.fd)
+                return
+            except OSError as exc:  # A refused move moved nothing, so trying it again is the same move.
+                if getattr(exc, "winerror", None) not in {5, 32} or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
 
 @contextlib.contextmanager

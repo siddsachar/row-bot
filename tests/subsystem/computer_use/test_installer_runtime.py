@@ -50,6 +50,34 @@ def test_pinned_installer_verifies_hash_layout_and_writes_manifest_atomically(tm
     assert not list((runtimes / "cua-driver").glob("manifest.json.*.tmp"))
 
 
+def test_pinned_installer_still_installs_when_windows_briefly_refuses_a_move(tmp_path, monkeypatch) -> None:
+    """Seen on Windows: a folder move failed with "Access is denied" while a scanner held a just-written file."""
+    from row_bot.developer import edits
+
+    archive = tmp_path / "source.zip"
+    sha = _zip(archive, {"bundle/cua-driver.exe": b"reviewed-binary", "bundle/LICENSE": b"MIT"})
+    runtimes = tmp_path / "runtimes"
+    monkeypatch.setattr(requirements, "RUNTIMES_DIR", runtimes)
+    monkeypatch.setattr(requirements, "_download", lambda _url, destination, _progress=None: shutil.copyfile(archive, destination))
+    rename, refused = edits._rename_edit_no_replace, []
+
+    def busy_once(*args, **kwargs):
+        if not refused:
+            refused.append(args)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5  # How Windows reports it, on every platform this test runs on.
+            raise error
+        return rename(*args, **kwargs)
+    monkeypatch.setattr(edits, "_rename_edit_no_replace", busy_once)
+    result = requirements.install_pinned_archive_runtime(
+        "cua-driver", version="0.7.1", url="https://example.invalid/pinned.zip", sha256=sha,
+        asset_name="pinned.zip", executable_candidates=("cua-driver.exe",),
+    )
+    manifest = json.loads((runtimes / "cua-driver" / "manifest.json").read_text(encoding="utf-8"))
+    assert result.ok is True and refused
+    assert Path(manifest["executable_path"]).read_bytes() == b"reviewed-binary"
+
+
 def test_pinned_installer_preserves_a_reviewed_macos_app_bundle(tmp_path, monkeypatch) -> None:
     archive = tmp_path / "cua-driver.tar.gz"
     sha = _tar_gz(
