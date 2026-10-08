@@ -332,11 +332,13 @@ export default function DocumentRemoval({
           className="surface stack"
         >
           <p>
-            {result.status === 'complete'
-              ? 'Removal complete.'
-              : result.status === 'pending'
-                ? 'Waiting for the document worker to stop. Refresh status before continuing cleanup.'
-                : 'Removal is incomplete. Completed stages are saved.'}
+            {result.status === 'complete' && !result.removed
+              ? 'Nothing to remove: it never reached search. If adding it failed, select it under Being added, then Clear selected finished.'
+              : result.status === 'complete'
+                ? 'Removal complete.'
+                : result.status === 'pending'
+                  ? 'Waiting for the document worker to stop. Refresh status before continuing cleanup.'
+                  : 'Removal is incomplete. Completed stages are saved.'}
           </p>
           <p>
             Derived knowledge removed:{' '}

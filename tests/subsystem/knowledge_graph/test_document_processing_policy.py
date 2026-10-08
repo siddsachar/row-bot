@@ -1180,3 +1180,39 @@ def test_worker_policy_digest_captures_capability_revision(processing,monkeypatc
     capability["context_window"] = 16384
     assert captured.chat.capabilities["context_window"] == 8192
     assert policy.capture().digest != captured.digest
+
+
+def test_processing_says_up_front_when_the_search_model_is_not_downloaded(processing, monkeypatch):
+    """Found live: without the local search model every document failed at "parse" with no reason."""
+    from row_bot import embedding_providers as embeddings
+    from row_bot.application.document_job_commands import _snapshot
+    api, _service, policy, batch, _context, cfg, _state = processing
+    cfg.update(provider="local", local_model=next(iter(embeddings.LOCAL_MODELS)))
+    revision = api.common._digest(_snapshot([batch]))
+    monkeypatch.setattr(embeddings, "_cached_snapshot", lambda model: None)
+    with pytest.raises(Exception) as refused:
+        policy.review(batch, revision)
+    assert getattr(refused.value, "code", "") == "document_processing_search_model_missing"
+    monkeypatch.setattr(embeddings, "_cached_snapshot", lambda model: object())  # Downloaded: reviewed as before.
+    assert policy.review(batch, revision)["embedding"]["provider"] == "local"
+
+
+def test_a_batch_whose_last_document_fails_finishes_with_errors_and_can_be_cleared(processing, monkeypatch):
+    """Found live: one failed document left its batch paused for good, so it could never be cleared."""
+    from row_bot import document_jobs
+    api, service, policy, batch, *_ = processing
+    monkeypatch.setattr(document_jobs, "_notify_batch_complete", lambda *a: None)
+    admit(processing)
+    supervisor = document_jobs.DocumentSupervisor(service)
+
+    def fail(job):
+        raise RuntimeError("synthetic parse failure")
+
+    monkeypatch.setattr(supervisor, "_process_job", fail)
+    # One pass of the worker loop: it stops when it would wait for more work.
+    supervisor._wake = SimpleNamespace(wait=lambda timeout: supervisor._stop.set(), clear=lambda: None,
+                                       set=lambda: None)
+    supervisor._run()
+    assert [job.status for job in service.list_jobs(batch)] == ["failed"]
+    assert service.get_batch(batch).status == "completed_with_errors"
+    assert service.clear_finished() == 1

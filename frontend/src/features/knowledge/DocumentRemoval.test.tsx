@@ -72,6 +72,27 @@ function setup(api = transport()) {
   return { api, session };
 }
 describe('reviewed document removal', () => {
+  it('says when there was nothing to remove, rather than that removal completed', async () => {
+    const api = transport();
+    const nothing = (id: string) => {
+      const value = receipt(id);
+      return {
+        ...value,
+        removal: { ...value.removal, removed: false },
+      } as DocumentRemovalReceipt;
+    };
+    api.execute = vi.fn(async (command) => nothing(command.command_id));
+    const { session } = setup(api);
+    render(<DocumentRemoval session={session} label="the selected document" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove document' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Confirm document removal' }),
+    );
+    expect(
+      await screen.findByText(/Nothing to remove: it never reached search/),
+    ).toBeVisible();
+    expect(screen.queryByText('Removal complete.')).toBeNull();
+  });
   it('mounts passively and dispatches only after explicit review and confirmation', async () => {
     const { api, session } = setup();
     render(<DocumentRemoval session={session} label="the selected document" />);

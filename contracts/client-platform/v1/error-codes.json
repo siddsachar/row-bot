@@ -144,6 +144,7 @@
     "document_processing_policy_unavailable": 409,
     "document_processing_proof_unavailable": 409,
     "document_processing_reasoning_unavailable": 409,
+    "document_processing_search_model_missing": 409,
     "document_processing_unavailable": 409,
     "document_processing_uncertain": 409,
     "document_processing_worker_unavailable": 409,

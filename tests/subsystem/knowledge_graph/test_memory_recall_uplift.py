@@ -245,8 +245,9 @@ def test_memory_policy_publishes_clear_fallback_warning_with_next_action(tmp_pat
 
     assert decision.trace["semantic_status"] == "fallback"
     assert decision.trace["semantic_fallback_code"] == "local_model_missing"
-    assert notices[0]["title"] == "Memory recall fallback"
+    assert notices[0]["title"] == "Memory search is limited"
     assert "continued" in notices[0]["message"]
+    assert not {"lexical", "semantic", "fallback"} & set(" ".join(notifications[0][0]).lower().split())
     assert notices[0]["action"] == "Open Settings › Documents › Advanced, then under Search model files choose Download."
     assert notifications[0][1]["toast_type"] == "warning"
     assert notifications[0][1]["sound"] == "none"

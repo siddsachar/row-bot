@@ -2491,7 +2491,11 @@ class DocumentSupervisor:
                             str(exc),
                             stage=current.stage,
                         )
-                    if job.batch_id.startswith("client_"):
+                    # A failure pauses the rest of the batch for the person to decide; with nothing left to run,
+                    # the batch finishes "with errors" instead (paused, it could never be cleared).
+                    if job.batch_id.startswith("client_") and any(
+                            other.status not in TERMINAL_JOB_STATUSES
+                            for other in self.service.list_jobs(job.batch_id)):
                         self.service.pause_batch(job.batch_id)
                 finally:
                     self.service.heartbeat(self.owner)

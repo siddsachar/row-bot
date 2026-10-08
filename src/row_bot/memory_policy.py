@@ -115,12 +115,9 @@ def _publish_fallback_notice(
     code, detail = _fallback_cause(str(code or "semantic_unavailable"), str(detail or ""))
     notice = {
         "code": code,
-        "title": "Memory recall fallback",
-        "message": (
-            "Semantic memory recall was unavailable, so Row-Bot continued with "
-            "local lexical and graph recall."
-        ),
-        "detail": detail or "Semantic memory recall is unavailable.",
+        "title": "Memory search is limited",
+        "message": "Row-Bot matched your memories by their words, not their meaning, and continued.",
+        "detail": detail or "Searching memories by meaning isn't available right now.",
         "action": _fallback_next_action(code),
         "thread_id": str(thread_id or ""),
         "generation_id": str(generation_id or ""),
@@ -143,7 +140,7 @@ def _publish_fallback_notice(
 
         notify(
             notice["title"],
-            f"{notice['message']} Reason: {notice['detail']} Next: {notice['action']}",
+            f"{notice['message']} {notice['detail']} To fix it: {notice['action']}",
             sound="none",
             toast_type="warning",
             source="memory",

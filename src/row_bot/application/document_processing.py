@@ -114,6 +114,12 @@ class DocumentProcessingPolicy:
         if common._digest(snapshot) != revision or not batch_id.startswith("client_"):
             raise common._error("document_queue_changed")
         captured = self.capture()
+        # Searchable documents need the search model on this computer: say so before processing starts,
+        # rather than every document failing at "parse" with no reason.
+        embedding_owner = sys.modules.get("row_bot.embedding_providers")
+        if (captured.embedding.provider == "local" and embedding_owner is not None
+                and embedding_owner._cached_snapshot(str(captured.embedding.config.get("local_model") or "")) is None):
+            raise common._error("document_processing_search_model_missing")
         resolved = captured.chat.resolved
         return {"schema_version":1,"action":"document.batch.process","batch_id":batch_id,
             "revision":revision,"policy_digest":captured.digest,"provider_work":True,"conversation_id":self.conversation_id,

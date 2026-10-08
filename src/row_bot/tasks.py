@@ -2914,7 +2914,7 @@ def _update_run_progress(run_id: str, steps_done: int) -> None:
     _mirror_workflow_agent_run_progress(run_id, steps_done)
 
 
-_MEMORY_FALLBACK_STATUS_PREFIX = "Memory recall fallback"
+_MEMORY_FALLBACK_STATUS_PREFIX = "Memory search is limited"
 
 
 def _merge_memory_fallback_status(existing: str, status_message: str) -> str:
@@ -2948,9 +2948,8 @@ def _record_run_recall_notices(run_id: str, generation_id: str) -> None:
     lines = list(existing.splitlines()) if existing else []
     for notice in notices:
         line = (
-            f"{_MEMORY_FALLBACK_STATUS_PREFIX} ({notice.get('code') or 'unavailable'}): "
-            f"{notice.get('message') or ''} Reason: {notice.get('detail') or ''} "
-            f"Next: {notice.get('action') or ''}"
+            f"{_MEMORY_FALLBACK_STATUS_PREFIX}: {notice.get('message') or ''} {notice.get('detail') or ''} "
+            f"To fix it: {notice.get('action') or ''}"
         ).strip()
         if line not in lines:
             lines.append(line)

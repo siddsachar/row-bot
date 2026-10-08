@@ -2437,8 +2437,13 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   document_processing_denied: [
-    "Document processing isn't allowed on this device.",
+    "This chat can't process documents: its Approvals are set to Block, or its agent profile leaves documents out. Open a new chat, then try again.",
     'none',
+  ],
+  document_processing_search_model_missing: [
+    'Documents need the search model on this computer first. In Documents › Advanced, under Search model files, choose Download.',
+    'none',
+    open('documents', 'Documents'),
   ],
   document_processing_model_unavailable: [
     'Document processing needs a model. Choose one.',

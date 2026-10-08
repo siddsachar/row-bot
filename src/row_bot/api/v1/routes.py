@@ -835,6 +835,7 @@ _STATUS.update(
             "document_processing_policy_changed",
             "document_processing_policy_unavailable",
             "document_processing_model_unavailable",
+            "document_processing_search_model_missing",
             "document_processing_reasoning_unavailable",
             "document_processing_worker_unavailable",
         ),

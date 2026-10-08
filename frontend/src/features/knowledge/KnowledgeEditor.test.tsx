@@ -80,6 +80,20 @@ describe('retained knowledge editor', () => {
     expect(session.getSnapshot().draft.subject).toBe('Changed subject');
     expect(screen.getByText(/catch up in a moment/)).toBeInTheDocument();
   });
+  it('saves a second change after the first, at the revision the first one made', async () => {
+    const { session, transport } = setup();
+    await session.load();
+    session.setField('subject', 'First change');
+    await session.save('knowledge.edit');
+    session.setField('subject', 'Second change');
+    await session.save('knowledge.edit');
+    // Found live: the second save sent the old revision and was refused as changed elsewhere.
+    expect(vi.mocked(transport.review).mock.calls[1][1]).toMatchObject({
+      revision: 'revision-two',
+    });
+    expect(transport.execute).toHaveBeenCalledTimes(2);
+    expect(session.getSnapshot().dirty).toBe(false);
+  });
   it('retains original command and draft across lost acknowledgement and remount', async () => {
     const { session, transport } = setup();
     await session.load();
