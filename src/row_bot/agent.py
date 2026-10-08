@@ -625,7 +625,7 @@ from row_bot.tools import registry as tool_registry  # noqa: E402
 # ═════════════════════════════════════════════════════════════════════════════
 # ReAct Agent — LLM decides which tools to call
 # ═════════════════════════════════════════════════════════════════════════════
-from datetime import datetime as _datetime  # noqa: E402
+from datetime import datetime as _datetime, timezone as _timezone  # noqa: E402
 
 
 def create_react_agent(*args, **kwargs):
@@ -1861,11 +1861,14 @@ def _collect_agent_complete_input(state: dict) -> dict:
     _stable_injection_sections = []
     _ephemeral_injection_sections = []
 
-    # Date/time — always present
-    now = _datetime.now()
+    # Date/time — always present, with its UTC offset and the time in UTC: a model that needs UTC (a date
+    # search) never reaches for a tool, which in a workflow would wait for an approval.
+    now = _datetime.now().astimezone()
+    utc = now.astimezone(_timezone.utc)
     _section = ephemeral_section(
         "turn.date_time",
-        f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}.",
+        f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}, "
+        f"UTC{now.isoformat(timespec='minutes')[-6:]} ({utc.strftime('%Y-%m-%d %H:%M')} UTC).",
         source="agent",
     )
     if _section is not None:
