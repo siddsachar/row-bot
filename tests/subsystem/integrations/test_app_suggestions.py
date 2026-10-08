@@ -53,8 +53,7 @@ def test_an_app_added_but_turned_off_is_offered_as_itself_never_added_again(loca
     added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
     assert added["lifecycle"] != "installed" or added["readiness"] != "ready"
     answer = json.loads(suggest_apps("Notion zzqx pages"))
-    assert answer["apps"][0] == added["id"]  # Its card turns it on.
-    assert "mcp:curated:makenotion-notion-mcp-server" not in answer["apps"]  # Adding it again would be refused.
+    assert answer["apps"] == [added["id"]]  # Its card turns it on; no catalog lookalikes beside it.
 
 
 def test_nothing_suitable_says_so_without_pointing_anywhere_else(local):

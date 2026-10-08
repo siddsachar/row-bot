@@ -194,8 +194,8 @@ MAX_SUGGESTIONS = 3
 
 def suggestions(need: str) -> list[dict]:
     """Apps that could do what a chat needs, from what is set up here and the local catalogs only (no
-    network). One the person added but hasn't finished or turned on comes first: its card turns it on,
-    where adding it again would be refused. Then vendors and featured apps, then the community. A need
+    network). One the person added but hasn't finished or turned on answers alone: its card turns it on,
+    where adding it again would be refused. Otherwise vendors and featured apps, then the community. A need
     that names an app ("Sentry organizations") finds it though its listing never says the other words.
     Only ids come back; nothing is installed."""
     from row_bot.application.client_integrations import read_items
@@ -217,6 +217,8 @@ def suggestions(need: str) -> list[dict]:
                     found.append(card)
                 if len(found) == MAX_SUGGESTIONS:
                     return found
+        if found:  # The person already chose these: no lookalikes from the catalog beside them.
+            return found
     return found
 
 
