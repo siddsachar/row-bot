@@ -11,7 +11,7 @@ Row-Bot can keep a large extension library enabled without sending every externa
 
 Core Row-Bot tools that are permitted by the active Agent Profile remain available normally. Enabled external tools from MCP servers, plugins, Custom Tools, and channels are kept in a searchable catalog.
 
-In **Auto-select external tools** mode, Row-Bot:
+In **Only the ones a request needs** mode, Row-Bot:
 
 1. Searches the enabled external-tool catalog when the request needs an integration.
 2. Selects the matching tool without changing its underlying identity or provider contract.
@@ -34,10 +34,10 @@ Use **Row-Bot Status** inside a child run when you need to distinguish globally 
 
 ## Auto And Compatibility Modes
 
-Open **Settings → Tools → Capability loading**:
+Open **Settings → Tools → How tools are offered**:
 
-- **Auto-select external tools (recommended)** keeps the prompt compact and discovers enabled external integrations as needed.
-- **Load all external tools** is the eager compatibility mode. It sends every enabled external tool schema that survives the same provider and policy filters, which can use substantially more model context.
+- **Only the ones a request needs (recommended)** keeps the prompt compact and discovers enabled external integrations as needed.
+- **All of them, every time** is the eager compatibility mode. It sends every enabled external tool schema that survives the same provider and policy filters, which can use substantially more model context.
 
 Changing this setting does not alter tool enablement, credentials, approvals, or saved Agent Profiles.
 

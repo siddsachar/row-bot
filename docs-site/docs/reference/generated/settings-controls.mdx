@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: d51b105ec6e0c49d -->
+<!-- inventory-hash: f2a6006bbe25e101 -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -18,11 +18,11 @@ Group: General. Open in Row-Bot: `/app-v2/settings/preferences`. Guide: [/docs/s
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Assistant name |  | `/app-v2/settings/preferences#identity.name` | `frontend/src/features/settings/model.ts#identity.name` |
+| Assistant name | identity call itself | `/app-v2/settings/preferences#identity.name` | `frontend/src/features/settings/model.ts#identity.name` |
 | Personality | behaviour tone | `/app-v2/settings/preferences#identity.personality` | `frontend/src/features/settings/model.ts#identity.personality` |
-| Self-improvement | skills learn | `/app-v2/settings/preferences#identity.self_improvement_enabled` | `frontend/src/features/settings/model.ts#identity.self_improvement_enabled` |
-| Window mode | native browser launch | `/app-v2/settings/preferences#window_mode` | `frontend/src/features/settings/model.ts#window_mode` |
-| Dream Cycle | overnight background consolidation | `/app-v2/settings/preferences#dream-cycle` | `frontend/src/features/settings/model.ts#dream-cycle` |
+| Learn new skills | self-improvement improve | `/app-v2/settings/preferences#identity.self_improvement_enabled` | `frontend/src/features/settings/model.ts#identity.self_improvement_enabled` |
+| Open Row-Bot in | window mode app native browser launch | `/app-v2/settings/preferences#window_mode` | `frontend/src/features/settings/model.ts#window_mode` |
+| Dream Cycle | overnight tidy-up background consolidation hours | `/app-v2/settings/preferences#dream-cycle` | `frontend/src/features/settings/model.ts#dream-cycle` |
 
 ## Appearance Controls
 
@@ -30,8 +30,8 @@ Group: General. Open in Row-Bot: `/app-v2/settings/appearance`. Guide: [/docs/se
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Theme | dark light system mode | `/app-v2/settings/appearance#theme` | `frontend/src/features/settings/model.ts#theme` |
-| Accent colour | color blue teal violet amber | `/app-v2/settings/appearance#accent` | `frontend/src/features/settings/model.ts#accent` |
+| Light or dark | theme appearance dark light system mode | `/app-v2/settings/appearance#theme` | `frontend/src/features/settings/model.ts#theme` |
+| Colour theme | accent color blue teal violet amber | `/app-v2/settings/appearance#accent` | `frontend/src/features/settings/model.ts#accent` |
 | Density | compact comfortable | `/app-v2/settings/appearance#density` | `frontend/src/features/settings/model.ts#density` |
 | Reduce transparency | blur glass | `/app-v2/settings/appearance#transparency` | `frontend/src/features/settings/model.ts#transparency` |
 | Reset layout | panel sizes | `/app-v2/settings/appearance#layout` | `frontend/src/features/settings/model.ts#layout` |
@@ -55,7 +55,10 @@ Security: Credentials are stored through the configured secret store; values are
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Custom endpoints | base url openai compatible | `/app-v2/settings/providers#custom-endpoints` | `frontend/src/features/settings/model.ts#custom-endpoints` |
+| On this device | ollama local models computer | `/app-v2/settings/providers#providers-local` | `frontend/src/features/settings/model.ts#providers-local` |
+| Subscriptions | claude chatgpt codex grok xai sign in plan account | `/app-v2/settings/providers#providers-subscription` | `frontend/src/features/settings/model.ts#providers-subscription` |
+| API providers | api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek | `/app-v2/settings/providers#providers-api` | `frontend/src/features/settings/model.ts#providers-api` |
+| Custom endpoints | base url openai compatible self-hosted | `/app-v2/settings/providers#custom-endpoints` | `frontend/src/features/settings/model.ts#custom-endpoints` |
 
 ## Models Controls
 
@@ -63,9 +66,12 @@ Group: Models. Open in Row-Bot: `/app-v2/settings/models`. Guide: [/docs/setting
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Default model | brain chat | `/app-v2/settings/models#default-model` | `frontend/src/features/settings/model.ts#default-model` |
-| Vision model |  | `/app-v2/settings/models#vision-model` | `frontend/src/features/settings/model.ts#vision-model` |
-| Image model | generation | `/app-v2/settings/models#image-model` | `frontend/src/features/settings/model.ts#image-model` |
+| Brain model | default model chat main | `/app-v2/settings/models#default-model` | `frontend/src/features/settings/model.ts#default-model` |
+| Vision model | camera images screenshots see look | `/app-v2/settings/models#vision-model` | `frontend/src/features/settings/model.ts#vision-model` |
+| Image model | generation pictures | `/app-v2/settings/models#image-model` | `frontend/src/features/settings/model.ts#image-model` |
+| Video model | clips animate generation | `/app-v2/settings/models#video-model` | `frontend/src/features/settings/model.ts#video-model` |
+| Reading limit | context window tokens advanced | `/app-v2/settings/models#reading-limit` | `frontend/src/features/settings/model.ts#reading-limit` |
+| Limits for long work | steps per run iterations helpers helper levels agents time limit goal turns | `/app-v2/settings/models#long-work` | `frontend/src/features/settings/model.ts#long-work` |
 | Model catalog | pin models | `/app-v2/settings/models#model-catalog` | `frontend/src/features/settings/model.ts#model-catalog` |
 
 ## Voice Controls
@@ -76,10 +82,11 @@ Dependencies: Voice extras, provider credentials, and OS audio permissions may b
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Talk | realtime | `/app-v2/settings/voice#talk` | `frontend/src/features/settings/model.ts#talk` |
+| Talk | realtime microphone listen | `/app-v2/settings/voice#talk` | `frontend/src/features/settings/model.ts#talk` |
+| Live captions | subtitles talk | `/app-v2/settings/voice#runtime.captions_enabled` | `frontend/src/features/settings/model.ts#runtime.captions_enabled` |
 | Dictation |  | `/app-v2/settings/voice#dictation` | `frontend/src/features/settings/model.ts#dictation` |
-| Whisper model size |  | `/app-v2/settings/voice#local.whisper_model` | `frontend/src/features/settings/model.ts#local.whisper_model` |
-| Read aloud | text to speech tts kokoro | `/app-v2/settings/voice#read-aloud` | `frontend/src/features/settings/model.ts#read-aloud` |
+| Speech model | whisper model size transcription | `/app-v2/settings/voice#local.whisper_model` | `frontend/src/features/settings/model.ts#local.whisper_model` |
+| Read aloud | text to speech tts kokoro voice | `/app-v2/settings/voice#read-aloud` | `frontend/src/features/settings/model.ts#read-aloud` |
 
 ## Memory Controls
 
@@ -87,8 +94,8 @@ Group: Knowledge. Open in Row-Bot: `/app-v2/settings/knowledge`. Guide: [/docs/s
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Memory graph | entities relations | `/app-v2/settings/knowledge#memory-graph` | `frontend/src/features/settings/model.ts#memory-graph` |
-| Wiki vault | obsidian markdown | `/app-v2/settings/knowledge#wiki-vault` | `frontend/src/features/settings/model.ts#wiki-vault` |
+| Graph health | memory graph entities relations | `/app-v2/settings/knowledge#memory-graph` | `frontend/src/features/settings/model.ts#memory-graph` |
+| Wiki vault | obsidian markdown vault path folder | `/app-v2/settings/knowledge#wiki-vault` | `frontend/src/features/settings/model.ts#wiki-vault` |
 
 ## Documents Controls
 
@@ -96,7 +103,7 @@ Group: Knowledge. Open in Row-Bot: `/app-v2/settings/documents`. Guide: [/docs/s
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Embedding engine | vectors model | `/app-v2/settings/documents#embedding` | `frontend/src/features/settings/model.ts#embedding` |
+| Search model | embedding engine vectors | `/app-v2/settings/documents#embedding` | `frontend/src/features/settings/model.ts#embedding` |
 | Upload documents | add files drop | `/app-v2/settings/documents#document-upload` | `frontend/src/features/settings/model.ts#document-upload` |
 
 ## Tracker Controls
@@ -113,9 +120,11 @@ Group: Capabilities. Open in Row-Bot: `/app-v2/settings/tools`. Guide: [/docs/se
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Capability loading | external tools | `/app-v2/settings/tools#capability-loading` | `frontend/src/features/settings/model.ts#capability-loading` |
-| Retrieval compression |  | `/app-v2/settings/tools#retrieval-compression` | `frontend/src/features/settings/model.ts#retrieval-compression` |
+| How tools are offered | capability loading external tools apps plugins | `/app-v2/settings/tools#capability-loading` | `frontend/src/features/settings/model.ts#capability-loading` |
+| Trim search results | retrieval compression | `/app-v2/settings/tools#retrieval-compression` | `frontend/src/features/settings/model.ts#retrieval-compression` |
 | Search and knowledge tools | web search tavily arxiv duckduckgo wolfram | `/app-v2/settings/tools#search-tools` | `frontend/src/features/settings/model.ts#search-tools` |
+| Tavily API key | web search credential | `/app-v2/settings/tools#web_search.credential` | `frontend/src/features/settings/model.ts#web_search.credential` |
+| Wolfram Alpha App ID | api key credential | `/app-v2/settings/tools#wolfram_alpha.credential` | `frontend/src/features/settings/model.ts#wolfram_alpha.credential` |
 | Built-in tools | utilities calculator weather charts url reader | `/app-v2/settings/tools#built-in-tools` | `frontend/src/features/settings/model.ts#built-in-tools` |
 | Custom tools | own tools scripts repository folder commands builder | `/app-v2/settings/tools#custom-tools` | `frontend/src/features/settings/model.ts#custom-tools` |
 
@@ -127,8 +136,8 @@ Security: Adding a skill turns it on; scripts inside a skill never run when it i
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Your skills |  | `/app-v2/settings/skills#skill-library` | `frontend/src/features/settings/model.ts#skill-library` |
-| Find skills | hub browse discover public | `/app-v2/settings/skills#public-skills` | `frontend/src/features/settings/model.ts#public-skills` |
+| Find or add skills | your skills library hub browse discover public clawhub install | `/app-v2/settings/skills#skill-library` | `frontend/src/features/settings/model.ts#skill-library` |
+| Create a skill | new write make own | `/app-v2/settings/skills/new` | `frontend/src/features/settings/model.ts#new-skill` |
 
 ## Apps Controls
 
@@ -140,8 +149,9 @@ Security: Nothing is fetched or run until you agree; deleting, sending, paying, 
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
+| Apps in chats | views use apps conversation | `/app-v2/settings/apps#chats` | `frontend/src/features/settings/model.ts#chats` |
 | App catalogs | update registry hermes mcp | `/app-v2/settings/apps#catalogs` | `frontend/src/features/settings/model.ts#catalogs` |
-| Runtimes (Node.js, uv) | node python uv mcp | `/app-v2/settings/apps#chats` | `frontend/src/features/settings/model.ts#chats` |
+| Runtimes (Node.js, uv) | node python uv mcp | `/app-v2/settings/apps#runtimes` | `frontend/src/features/settings/model.ts#runtimes` |
 | GitHub account |  | `/app-v2/settings/apps/github` | `frontend/src/features/settings/model.ts#github` |
 | Google account | gmail calendar | `/app-v2/settings/apps/google` | `frontend/src/features/settings/model.ts#google` |
 | X account | twitter | `/app-v2/settings/apps/x` | `frontend/src/features/settings/model.ts#x` |
@@ -160,10 +170,11 @@ Security: Filesystem, shell, browser, and Computer Use controls can widen local 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
 | Workspace folder |  | `/app-v2/settings/system#workspace-folder` | `frontend/src/features/settings/model.ts#workspace-folder` |
-| Shell access | terminal commands | `/app-v2/settings/system#shell.enabled` | `frontend/src/features/settings/model.ts#shell.enabled` |
-| Browser and Computer Use |  | `/app-v2/settings/system#browser-computer-use` | `frontend/src/features/settings/model.ts#browser-computer-use` |
-| File operations |  | `/app-v2/settings/system#file-operations` | `frontend/src/features/settings/model.ts#file-operations` |
-| Log level | logging logs diagnostics debug | `/app-v2/settings/system#logging.level` | `frontend/src/features/settings/model.ts#logging.level` |
+| Run commands | shell access terminal | `/app-v2/settings/system#shell.enabled` | `frontend/src/features/settings/model.ts#shell.enabled` |
+| Work with files | file operations read write delete | `/app-v2/settings/system#file-operations` | `frontend/src/features/settings/model.ts#file-operations` |
+| Browser and computer use | websites apps cua | `/app-v2/settings/system#browser-computer-use` | `frontend/src/features/settings/model.ts#browser-computer-use` |
+| Log detail | log level logging logs diagnostics debug | `/app-v2/settings/system#logging.level` | `frontend/src/features/settings/model.ts#logging.level` |
+| Blocked commands | shell patterns deny never run | `/app-v2/settings/system#shell.blocked_patterns` | `frontend/src/features/settings/model.ts#shell.blocked_patterns` |
 
 ## Devices & remote access Controls
 
@@ -175,7 +186,7 @@ Security: Invitations grant full owner access; network access and public links w
 | --- | --- | --- | --- |
 | Connect a phone or computer | phone pair qr code invitation tablet laptop | `/app-v2/settings/access#connect` | `frontend/src/features/settings/model.ts#connect` |
 | Your devices | sessions signed in sign out phones computers | `/app-v2/settings/access#devices` | `frontend/src/features/settings/model.ts#devices` |
-| Network access | listen wifi lan allowed addresses origins | `/app-v2/settings/access#remote-access` | `frontend/src/features/settings/model.ts#remote-access` |
+| Network access | listen wifi lan allowed addresses origins | `/app-v2/settings/access#network` | `frontend/src/features/settings/model.ts#network` |
 | Public link | ngrok tunnel internet | `/app-v2/settings/access#tunnel` | `frontend/src/features/settings/model.ts#tunnel` |
 
 ## Updates Controls

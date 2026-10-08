@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.1">
 <title data-rh="true">Settings: Tools | Row-Bot</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" name="twitter:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" property="og:url" content="https://row-bot.ai/docs/settings/tools/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Settings: Tools | Row-Bot"><meta data-rh="true" name="description" content="Configure progressive external-tool loading, retrieval compression, search and knowledge tools, built-in tools, and custom tools."><meta data-rh="true" property="og:description" content="Configure progressive external-tool loading, retrieval compression, search and knowledge tools, built-in tools, and custom tools."><link data-rh="true" rel="icon" href="/favicon.ico"><link data-rh="true" rel="canonical" href="https://row-bot.ai/docs/settings/tools/"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/settings/tools/" hreflang="en"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/settings/tools/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Settings: Tools","item":"https://row-bot.ai/docs/settings/tools"}]}</script><link rel="stylesheet" href="/assets/css/styles.e50d20ac.css">
-<script src="/assets/js/runtime~main.a6f2366a.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.9781a010.js" defer="defer"></script>
 <script src="/assets/js/main.44729db0.js" defer="defer"></script>
 </head>
 <body>
@@ -18,13 +18,13 @@
 <p>Open <strong>Settings</strong>, then choose <strong>Tools</strong> in the <strong>Capabilities</strong> group, or search for it with <strong>Find a setting</strong>.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="capability-loading">Capability Loading<a href="#capability-loading" class="hash-link" aria-label="Direct link to Capability Loading" title="Direct link to Capability Loading" translate="no">​</a></h2>
 <ul>
-<li class=""><strong>Auto-select external tools (recommended)</strong> lets Row-Bot search enabled MCP, plugin, Custom Tool, and channel capabilities when a request needs them. Core tools remain available under the active profile.</li>
-<li class=""><strong>Load all external tools</strong> is the eager compatibility mode. It sends every enabled external schema allowed by the current provider and policy, which can consume more context.</li>
+<li class=""><strong>Only the ones a request needs (recommended)</strong> lets Row-Bot search enabled MCP, plugin, Custom Tool, and channel capabilities when a request needs them. Core tools remain available under the active profile.</li>
+<li class=""><strong>All of them, every time</strong> is the eager compatibility mode. It sends every enabled external schema allowed by the current provider and policy, which can consume more context.</li>
 </ul>
 <p>Both modes preserve tool enablement, provider compatibility, Agent Profile restrictions, workspace policy, approval gates, prompt-injection handling, and execution budgets.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="other-controls">Other Controls<a href="#other-controls" class="hash-link" aria-label="Direct link to Other Controls" title="Direct link to Other Controls" translate="no">​</a></h2>
 <ul>
-<li class=""><strong>Retrieval compression</strong> controls how search results are filtered before they reach the model.</li>
+<li class=""><strong>Trim search results</strong> keeps only the parts of search results that matter before the model reads them.</li>
 <li class=""><strong>Search &amp; Knowledge Tools</strong> enables or disables configured research and reference tools such as arXiv, DuckDuckGo, web search, Wikipedia, Wolfram Alpha, and YouTube. Provider-specific setup fields store the credentials required by optional search services.</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="built-in-tools">Built-In Tools<a href="#built-in-tools" class="hash-link" aria-label="Direct link to Built-In Tools" title="Direct link to Built-In Tools" translate="no">​</a></h2>
@@ -33,7 +33,7 @@
 <p><strong>Custom tools</strong> turns a folder&#x27;s scripts into tools Row-Bot can run. <strong>Add from a folder</strong> (in the desktop app) inspects the folder and drafts the tool; this sends short excerpts of the folder to your chosen model, which may cost money with a paid provider. You can also ask Row-Bot in a chat to make a tool from a repository, or use the Custom Tool Builder in a code folder&#x27;s Developer panel. Review a custom tool&#x27;s commands before turning it on.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="recommended-workflow">Recommended Workflow<a href="#recommended-workflow" class="hash-link" aria-label="Direct link to Recommended Workflow" title="Direct link to Recommended Workflow" translate="no">​</a></h2>
 <ol>
-<li class="">Keep <strong>Auto-select external tools</strong> enabled for normal use.</li>
+<li class="">Keep <strong>Only the ones a request needs</strong> for normal use.</li>
 <li class="">Enable only the search and integration tools you intend Row-Bot to use.</li>
 <li class="">Confirm external services are healthy before relying on them.</li>
 <li class="">Use eager mode temporarily only when testing compatibility with an older model or integration.</li>

@@ -218,8 +218,8 @@ def test_progressive_tools_and_skills_are_documented_at_public_entry_points() ->
     ).read_text(encoding="utf-8")
 
     for phrase in (
-        "Auto-select external tools",
-        "Load all external tools",
+        "Only the ones a request needs",
+        "All of them, every time",
         "MCP servers, plugins, Custom Tools, and channels",
         "Up to five automatically selected skills",
         "cannot grant a tool that its profile denies",
@@ -230,7 +230,7 @@ def test_progressive_tools_and_skills_are_documented_at_public_entry_points() ->
     assert "parent task or child Agent" in skills
     assert "/docs/guides/progressive-tools-and-skills" in docs_index
     assert "Progressive external tools" in marketing
-    assert "| Capability loading | external tools | `/app-v2/settings/tools#capability-loading` |" in generated_controls
+    assert "| How tools are offered | capability loading external tools apps plugins | `/app-v2/settings/tools#capability-loading` |" in generated_controls
 
 
 def test_reasoning_controls_are_documented_at_public_entry_points() -> None:

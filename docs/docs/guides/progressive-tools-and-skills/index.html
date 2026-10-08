@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.1">
 <title data-rh="true">Progressive Tools And Skills | Row-Bot</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" name="twitter:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" property="og:url" content="https://row-bot.ai/docs/guides/progressive-tools-and-skills/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Progressive Tools And Skills | Row-Bot"><meta data-rh="true" name="description" content="Understand how Row-Bot discovers external tools and task-specific skills without loading every capability into every prompt."><meta data-rh="true" property="og:description" content="Understand how Row-Bot discovers external tools and task-specific skills without loading every capability into every prompt."><link data-rh="true" rel="icon" href="/favicon.ico"><link data-rh="true" rel="canonical" href="https://row-bot.ai/docs/guides/progressive-tools-and-skills/"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/guides/progressive-tools-and-skills/" hreflang="en"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/guides/progressive-tools-and-skills/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Progressive Tools And Skills","item":"https://row-bot.ai/docs/guides/progressive-tools-and-skills"}]}</script><link rel="stylesheet" href="/assets/css/styles.e50d20ac.css">
-<script src="/assets/js/runtime~main.a6f2366a.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.9781a010.js" defer="defer"></script>
 <script src="/assets/js/main.44729db0.js" defer="defer"></script>
 </head>
 <body>
@@ -15,7 +15,7 @@
 <p>Row-Bot can keep a large extension library enabled without sending every external tool schema and every skill instruction to the model on each turn. By default, it progressively discovers the capabilities that match the current request.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="how-tool-discovery-works">How Tool Discovery Works<a href="#how-tool-discovery-works" class="hash-link" aria-label="Direct link to How Tool Discovery Works" title="Direct link to How Tool Discovery Works" translate="no">​</a></h2>
 <p>Core Row-Bot tools that are permitted by the active Agent Profile remain available normally. Enabled external tools from MCP servers, plugins, Custom Tools, and channels are kept in a searchable catalog.</p>
-<p>In <strong>Auto-select external tools</strong> mode, Row-Bot:</p>
+<p>In <strong>Only the ones a request needs</strong> mode, Row-Bot:</p>
 <ol>
 <li class="">Searches the enabled external-tool catalog when the request needs an integration.</li>
 <li class="">Selects the matching tool without changing its underlying identity or provider contract.</li>
@@ -30,10 +30,10 @@
 <p>Each child Agent receives its own profile, tool allow-list, approval mode, workspace policy, execution budget, and skill activation state. A child can use the skill discovery bridges when its runtime permits them, but loading a skill cannot grant a tool that its profile denies. Child skill choices also do not leak into the parent or a sibling child.</p>
 <p>Use <strong>Row-Bot Status</strong> inside a child run when you need to distinguish globally configured tools from the tool groups actually bound to that child.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="auto-and-compatibility-modes">Auto And Compatibility Modes<a href="#auto-and-compatibility-modes" class="hash-link" aria-label="Direct link to Auto And Compatibility Modes" title="Direct link to Auto And Compatibility Modes" translate="no">​</a></h2>
-<p>Open <strong>Settings → Tools → Capability loading</strong>:</p>
+<p>Open <strong>Settings → Tools → How tools are offered</strong>:</p>
 <ul>
-<li class=""><strong>Auto-select external tools (recommended)</strong> keeps the prompt compact and discovers enabled external integrations as needed.</li>
-<li class=""><strong>Load all external tools</strong> is the eager compatibility mode. It sends every enabled external tool schema that survives the same provider and policy filters, which can use substantially more model context.</li>
+<li class=""><strong>Only the ones a request needs (recommended)</strong> keeps the prompt compact and discovers enabled external integrations as needed.</li>
+<li class=""><strong>All of them, every time</strong> is the eager compatibility mode. It sends every enabled external tool schema that survives the same provider and policy filters, which can use substantially more model context.</li>
 </ul>
 <p>Changing this setting does not alter tool enablement, credentials, approvals, or saved Agent Profiles.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="what-you-see-in-chat">What You See In Chat<a href="#what-you-see-in-chat" class="hash-link" aria-label="Direct link to What You See In Chat" title="Direct link to What You See In Chat" translate="no">​</a></h2>
