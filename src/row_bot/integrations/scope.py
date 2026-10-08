@@ -104,6 +104,13 @@ def chat_apps(conversation_id: str) -> list[dict]:
     return sorted(found, key=lambda app: (not app["switchable"], app["name"].casefold(), app["item_id"]))[:64]
 
 
+def servers_off(conversation_id: str) -> set[str]:
+    """The servers of the apps switched off in this chat (a mention never turns one back on)."""
+    from row_bot.threads import get_thread_apps_off
+    off = set(get_thread_apps_off(conversation_id)) if conversation_id else set()
+    return {item["server"] for item in _mcp_items() if item["id"] in off} if off else set()
+
+
 def _mentioned(text: str, names: dict[str, tuple[str, ...]], sigil: str) -> list[str]:
     """Which ids ``names`` (shown name -> ids) the text mentions as ``@name`` or ``/name``. The longest
     name wins where several start alike: "@Tavily (Web search)" is never also "@Tavily"."""

@@ -642,6 +642,22 @@ def test_a_gated_structured_result_stays_data(runtime, monkeypatch):
     assert tool.invoke({"path": "notes.txt"}) == '{"status": "success", "path": "notes.txt"}'
 
 
+def test_an_approval_names_what_was_given_not_every_unset_option(runtime, monkeypatch):
+    """An app tool with many optional fields (Linear's save_issue has twenty) shows the ones the call sets."""
+    asked = []
+
+    def save_issue(title: str, team: str, description: str | None = None, cycle: str | None = None) -> str:
+        return "saved"
+
+    tool = StructuredTool.from_function(func=save_issue, name="mcp_tracker_save_issue", description="Save an issue")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    tool.invoke({"title": "Approval check", "team": "RBTest", "description": None, "cycle": None})
+    assert "title='Approval check'" in asked[0]["description"] and "team='RBTest'" in asked[0]["description"]
+    assert "None" not in asked[0]["description"]
+
+
 def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypatch):
     """Allow all lets routine actions run; an app tool that is destructive or of unknown effect still asks,
     and says so, so an unattended run waits for the person instead of approving it."""

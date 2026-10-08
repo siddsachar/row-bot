@@ -3684,11 +3684,13 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                     "and move on."), ""
         if decision == "allow":
             return None, APPROVAL_NOT_NEEDED_AUTO
-        args_str = ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+        # What the person reads names what was given: an option left unset (None) is not part of the action.
+        given = {key: value for key, value in kwargs.items() if value is not None}
+        args_str = ", ".join(f"{key}={value!r}" for key, value in given.items())
         if args:
             args_str = repr(args[0]) if len(args) == 1 else repr(args)
-            if kwargs:
-                args_str += ", " + ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+            if given:
+                args_str += ", " + ", ".join(f"{key}={value!r}" for key, value in given.items())
         description = _enrich_description(tool.name, label, args_str, kwargs)
         try:
             from row_bot.tools.discovery import is_external_discovery_invocation

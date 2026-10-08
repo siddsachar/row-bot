@@ -770,15 +770,20 @@ def _query_mcp() -> str:
         ]
         servers = summary.get("servers", {})
         if servers:
-            from row_bot.agent import current_app_scope
+            from row_bot.agent import current_app_scope, get_current_thread_id
+            from row_bot.integrations.scope import servers_off
             left_out = set((current_app_scope() or {}).get("exclude_servers") or [])
+            off = servers_off(get_current_thread_id()) & left_out
             lines.append("- Server details:")
             for name, status in sorted(servers.items()):
                 detail = f"  - {name}: {status.get('status', 'unknown')} ({status.get('transport', 'stdio')})"
                 if status.get("last_error"):
                     detail += f" — last error: {status['last_error']}"
-                if name in left_out:  # Its tools aren't in this turn: say why, not that it's broken.
-                    detail += " — not in this turn: switched off in this chat, or the message @mentions other apps"
+                # Its tools aren't in this turn: say why, not that it's broken.
+                if name in off:
+                    detail += " — switched off in this chat; an @mention won't use it until it's switched on in + › Apps"
+                elif name in left_out:
+                    detail += " — not in this turn: the message @mentions other apps"
                 lines.append(detail)
         return "\n".join(lines)
     except Exception as exc:
