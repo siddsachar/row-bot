@@ -356,9 +356,14 @@ def reconcile_command(owner_id: str, command_id: str, kind: str, validate: Calla
         from row_bot.application.capability_runtime_controls import reconcile_mcp_runtime_operation
         return reconcile_mcp_runtime_operation(owner_id=owner_id, command_id=command_id, validate=validate)
     if str(metadata.get("type", "")).startswith("mcp.auth."):
-        from row_bot.application.client_mcp_auth import _settle_recovered, auth_status
+        from row_bot.application.client_mcp_auth import _settle_recovered, auth_status, cancel_auth
         result = auth_status(owner_id=owner_id, command_id=command_id, validate=validate)
-        _settle_recovered(owner_id, command_id, result)
+        if explicit and result["state"] == "expired":
+            # A sign-in a restart interrupted (or one left past its time) can never finish: Retry ends it,
+            # as its own message asks. Nothing was saved and nothing is sent again.
+            result = cancel_auth(owner_id=owner_id, command_id=command_id, validate=validate)
+        else:
+            _settle_recovered(owner_id, command_id, result)
         return {"command_id": command_id, "settled": result["state"] in {"signed_in", "disconnected", "cancelled"},
                 "message": result["message"]}
     if str(metadata.get("type", "")).startswith("integrations.plan"):

@@ -136,6 +136,28 @@ def test_adding_an_app_while_another_waits_for_its_sign_in_says_why_it_cannot_ye
         plans.cancel(context(), waiting)  # The first sign-in stops; its browser wait ends with it.
 
 
+def test_retry_ends_a_sign_in_a_restart_interrupted_so_other_apps_can_be_added(hosted):
+    """Live: Row-Bot restarted while Stripe waited for its browser sign-in. The sign-in could never finish,
+    Retry left it unfinished, and every other app's setup was refused until it was cancelled."""
+    hosted(dcr=True)
+    _, plan = api.read_item(owner_id="owner", item_id=item_id())
+    waiting = str(uuid4())
+    api.start_plan(context(), plan_id=waiting, item_id=item_id(), digest=plan["digest"])
+    until_waiting(waiting)
+    with client_mcp_auth._LOCK:
+        flows = dict(client_mcp_auth._FLOWS)
+        client_mcp_auth._FLOWS.clear()  # A restart: the browser step's flow is gone with the old process.
+    try:
+        assert config.configuration_recovery_required()  # Its admission is still unfinished.
+        api.settle_item(context(), item_id=item_id())  # The person presses Retry.
+        assert not config.configuration_recovery_required()
+        assert not config.read_saved_configuration().document["servers"]["Notes"].get("auth")  # Nothing saved.
+    finally:
+        for flow in flows.values():  # The old process's browser wait ends with it.
+            flow.state = "cancelled"
+            flow.event.set()
+
+
 @pytest.mark.parametrize(("mode", "client"), [("cimd", auth.CLIENT_METADATA_URL), ("dcr", "registered-client")])
 def test_a_401_at_test_turns_sign_in_on_and_cimd_is_preferred_over_registration(hosted, mode, client):
     server = hosted(cimd=mode == "cimd", dcr=True)
