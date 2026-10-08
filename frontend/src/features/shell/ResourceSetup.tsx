@@ -865,15 +865,24 @@ export default function ResourceSetup({
             {!confirmed
               ? 'Checking saved setup outcome…'
               : receipt.status === 'completed'
-                ? 'Resource ready'
+                ? receipt.resource_kind === 'artifact'
+                  ? 'Design ready'
+                  : receipt.resource_kind === 'workspace'
+                    ? 'Code folder ready'
+                    : 'Ready'
                 : 'Setup partially completed'}
           </p>
-          <ul>
-            {receipt.confirmed_stages?.map((stage) => (
-              <li key={stage}>{stage}</li>
-            ))}
-          </ul>
-          <small>Resource {receipt.resource_id}</small>
+          {/* The saved stages and id help finish a partial setup; a ready one needs neither. */}
+          {receipt.status !== 'completed' && (
+            <>
+              <ul>
+                {receipt.confirmed_stages?.map((stage) => (
+                  <li key={stage}>{stage}</li>
+                ))}
+              </ul>
+              <small>Resource {receipt.resource_id}</small>
+            </>
+          )}
           {receipt.status === 'partial' &&
             receipt.folder_reselection_required && (
               <div className="stack">
@@ -1020,7 +1029,7 @@ export default function ResourceSetup({
                   generationReceipt.status,
                 ))) && (
               <Button disabled={busy} onClick={reset}>
-                Start another resource
+                Create another
               </Button>
             )}
         </section>

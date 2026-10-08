@@ -1486,7 +1486,8 @@ export default function OverviewHome({
               memoryFailed
                 ? 'Memory could not be read'
                 : week.saved
-                  ? `+${week.saved.toLocaleString()} this week`
+                  ? // Saves include updates to memories already there, so not "+12" beside "5 memories".
+                    `${plural(week.saved, 'update')} this week`
                   : 'Nothing new this week'
             }
             lineTone={week.saved ? 'success' : undefined}

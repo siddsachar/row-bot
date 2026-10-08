@@ -1070,7 +1070,7 @@ it('says when no workflow is scheduled and when workflows could not be read', as
   ).toBeVisible();
 });
 
-it('shows how many memories there are and how many are new this week', async () => {
+it('shows how many memories there are and how many were saved this week', async () => {
   const loadMemory = memory(660);
   show({
     loadMemory,
@@ -1104,7 +1104,7 @@ it('shows how many memories there are and how many are new this week', async () 
   const memoryCard = await screen.findByRole('button', {
     name: /^Memory: 660 memories/,
   });
-  expect(memoryCard).toHaveTextContent('+12 this week');
+  expect(memoryCard).toHaveTextContent('12 updates this week'); // Saves include updates: never "+12" beside a smaller total.
   fireEvent.click(memoryCard);
   expect(handlers.onOpenTab).toHaveBeenCalledWith('knowledge');
   expect(loadMemory).toHaveBeenCalledOnce();

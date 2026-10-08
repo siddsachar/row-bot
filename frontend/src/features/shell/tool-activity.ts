@@ -55,6 +55,19 @@ const verb = (done: string, running: string, icon: LucideIcon): Verb => ({
 // Exact tool names first; prefix and pattern rules below cover families.
 const EXACT: Record<string, Verb> = {
   read_url: verb('Read page', 'Reading page', Globe),
+  // Each says what it does, so an approval does too ("Delete tracker entries?", not "Update notes?").
+  tracker_log: verb('Logged to a tracker', 'Logging to a tracker', ChartColumn),
+  tracker_query: verb('Read a tracker', 'Reading a tracker', ChartColumn),
+  tracker_delete: verb(
+    'Deleted tracker entries',
+    'Deleting tracker entries',
+    ChartColumn,
+  ),
+  task_create: verb('Created a workflow', 'Creating a workflow', Zap),
+  task_update: verb('Changed a workflow', 'Changing a workflow', Zap),
+  task_delete: verb('Deleted a workflow', 'Deleting a workflow', Zap),
+  task_run_now: verb('Ran a workflow', 'Running a workflow', Zap),
+  task_list: verb('Listed workflows', 'Listing workflows', Zap),
   browser_navigate: verb('Opened page', 'Opening page', Globe),
   browser_click: verb('Clicked in the browser', 'Clicking', MousePointerClick),
   browser_type: verb('Typed in the browser', 'Typing', MousePointerClick),

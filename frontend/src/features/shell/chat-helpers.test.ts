@@ -148,6 +148,8 @@ describe('tool activity', () => {
     expect(
       approvalQuestion('mcp_x', { ...app, name: 'Counter', tool: 'Counter' }),
     ).toBe('Allow Counter to use “Counter”?');
+    expect(approvalQuestion('tracker_delete')).toBe('Delete tracker entries?');
+    expect(approvalQuestion('task_delete')).toBe('Delete a workflow?');
     expect(approvalAction('workspace_file_delete')).toBe('Delete a file');
     expect(approvalAction('fixture_action')).toBe('Fixture action');
   });

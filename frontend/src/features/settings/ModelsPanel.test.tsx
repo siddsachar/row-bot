@@ -223,6 +223,16 @@ async function notice(text: string | RegExp) {
   return within(notices.parentElement!).findByText(text);
 }
 
+it('says the Brain picker lists pinned models and where to pin more', async () => {
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Brain model' }));
+  expect(
+    await screen.findByText(
+      'Pinned models are listed here. Pin more in the Catalog below.',
+    ),
+  ).toBeVisible();
+});
+
 it('renders actual defaults and limits while leaving catalog rows unloaded', async () => {
   const { controller } = show();
   expect(

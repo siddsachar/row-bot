@@ -73,3 +73,13 @@ it('does not regress the saved document search contract', async () => {
     expect.any(AbortSignal),
   );
 });
+
+it('says there is nothing yet, not that a search missed, before anything is added', async () => {
+  render(
+    <DocumentsCatalog
+      load={async () => ({ ...documents(), total: 0, items: [] })}
+    />,
+  );
+  expect(await screen.findByText('No documents yet')).toBeVisible();
+  expect(screen.queryByText(/Try another search/)).toBeNull();
+});

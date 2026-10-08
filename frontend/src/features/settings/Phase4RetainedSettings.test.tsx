@@ -432,7 +432,10 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(
     screen.getAllByRole('option', { name: 'Whisper · on this computer' }),
   ).toHaveLength(2);
-  expect(screen.getByText('Talk and dictation on this computer')).toBeVisible();
+  // The speech model isn't downloaded here: the header says what to do, not that it's ready.
+  expect(
+    screen.getByText('Download the speech model to talk on this computer'),
+  ).toBeVisible();
   expect(screen.getByLabelText('Speech model')).toHaveValue('base');
   expect(screen.queryByLabelText('Realtime voice')).toBeNull();
   expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
@@ -1506,7 +1509,8 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   renderSetting('utilities');
   expect(screen.getByLabelText('Enable Calculator')).toBeChecked();
   expect(screen.getByText('Evaluate calculations locally.')).toBeVisible();
-  expect(screen.getByText(/of 2 on\./)).toBeVisible();
+  // The count is of the tools listed: one without a switch isn't listed or counted.
+  expect(screen.getByText(/1 of 1 on\./)).toBeVisible();
   expect(screen.queryByText('Timer')).not.toBeInTheDocument();
 });
 
@@ -1593,6 +1597,26 @@ it('updates the Accounts header after Check without reloading the page (B263)', 
   expect(await screen.findByText('1 connected')).toBeVisible();
   expect(within(googleRow).getByText('Connected')).toBeVisible();
   expect(refreshSnapshot).toHaveBeenCalledTimes(1);
+});
+
+it('says to download the search model rather than show documents as searchable', () => {
+  mutation.page = 'documents';
+  render(
+    <DocumentEmbeddingSnapshot
+      snapshot={{
+        ...snapshot.documents,
+        indexed_documents: 0,
+        local_runtime: { state: 'missing', detail: 'Not downloaded.' },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(
+    screen.getByText(
+      'Download the search model to search documents (Advanced › Search model files)',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText('0 searchable')).toBeNull();
 });
 
 it('renders editable document, tool, and preference owners', async () => {
@@ -1853,6 +1877,7 @@ it('installs the chosen Whisper size from Voice settings (B140)', () => {
     </MemoryRouter>,
   );
   expect(screen.getByText('Whisper Base (~74 MB) installed')).toBeVisible();
+  expect(screen.getByText('Talk and dictation on this computer')).toBeVisible();
   expect(screen.queryByRole('button', { name: /Install Whisper/ })).toBeNull();
 });
 

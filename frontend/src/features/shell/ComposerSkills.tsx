@@ -49,7 +49,8 @@ export function ComposerSkillChips({
           <Button
             variant="ghost"
             disabled={disabled}
-            title={skill.reason}
+            // What the skill does: the match reason ("matched heading terms …") is Row-Bot's own bookkeeping.
+            title={skill.description || 'Suggested for this message'}
             onClick={() => void action('activate', skill.skill_id)}
           >
             {skill.icon} Use {skill.display_name}

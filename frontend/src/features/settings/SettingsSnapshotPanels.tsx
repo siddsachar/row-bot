@@ -1761,20 +1761,25 @@ export function VoiceSnapshotPanel({
     snapshot.whisper_options,
     snapshot.local.whisper_model,
   );
+  // Listening on this computer needs the speech model: until it is downloaded, the header says so.
+  const missingSpeech =
+    (!realtime || localDictation) && !snapshot.local.whisper_installed;
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
-        tone="success"
+        tone={missingSpeech ? 'warning' : 'success'}
         more={[
           realtime && localDictation ? 'dictation on this computer' : '',
           readAloudOn ? 'read aloud on' : 'read aloud off',
         ]}
       >
-        {realtime
-          ? 'Realtime Talk online'
-          : localDictation
-            ? 'Talk and dictation on this computer'
-            : 'Talk on this computer'}
+        {missingSpeech
+          ? 'Download the speech model to talk on this computer'
+          : realtime
+            ? 'Realtime Talk online'
+            : localDictation
+              ? 'Talk and dictation on this computer'
+              : 'Talk on this computer'}
       </SettingsStatus>
       <SettingsGroup
         title="Talk"
@@ -4223,7 +4228,7 @@ export function UtilitiesSnapshotPanel({
   return (
     <Section
       title="Built-in tools"
-      description={`Small tools for everyday tasks · ${utilities.filter((item) => item.enabled).length} of ${availableUtilities.length} on.`}
+      description={`Small tools for everyday tasks · ${utilities.filter((item) => item.enabled).length} of ${utilities.length} on.`}
       icon={Wrench}
       anchor="built-in-tools"
     >
@@ -4363,10 +4368,16 @@ export function DocumentEmbeddingSnapshot({
     detail: 'Saved memory index state is unavailable.',
   };
   const local = provider === 'local';
+  // Searching needs the search model on this computer: until it is downloaded the header says so.
+  const modelMissing = localRuntime.state === 'missing';
   return (
     <>
       <SettingsStatus
-        tone={vectors.state === 'current' ? 'success' : 'warning'}
+        tone={
+          vectors.state === 'current' && !(local && modelMissing)
+            ? 'success'
+            : 'warning'
+        }
         more={[
           vectors.state === 'current'
             ? ''
@@ -4374,9 +4385,11 @@ export function DocumentEmbeddingSnapshot({
           local ? 'search runs on this computer' : 'search runs in the cloud',
         ]}
       >
-        {snapshot.indexed_documents == null
-          ? 'Indexed count unavailable'
-          : `${snapshot.indexed_documents.toLocaleString()} searchable`}
+        {local && modelMissing
+          ? 'Download the search model to search documents (Advanced › Search model files)'
+          : snapshot.indexed_documents == null
+            ? 'Indexed count unavailable'
+            : `${snapshot.indexed_documents.toLocaleString()} searchable`}
       </SettingsStatus>
       <SettingsGroup title="Search" anchor="embedding">
         <SegmentedSetting

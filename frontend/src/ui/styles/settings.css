@@ -3788,6 +3788,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: none;
@@ -3796,13 +3797,18 @@
   font-size: var(--text-12);
   line-height: var(--leading-12);
 }
-.settings-page-content .settings-preferences-preview > span {
-  display: inline;
+/* Up to two lines, then an ellipsis: one long line ran off a phone screen with the counter. */
+.settings-page-content
+  .settings-preferences-preview
+  > span:not(.settings-preferences-count) {
+  display: -webkit-box;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   color: inherit;
   font-size: inherit;
   font-weight: inherit;

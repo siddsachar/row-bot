@@ -81,7 +81,9 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
     await screenshot(page, info, `workflow-editor-${appearance}`);
     await accessibility(page, info, `workflow-editor-${appearance}`);
   }
-  await editor.getByRole('button', { name: 'Save task', exact: true }).click();
+  await editor
+    .getByRole('button', { name: 'Save workflow', exact: true })
+    .click();
   await expect(
     page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();
@@ -129,7 +131,9 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
   await expect(
     edit.getByRole('textbox', { name: 'Description', exact: true }),
   ).toHaveValue('Edited in the unified client');
-  await edit.getByRole('button', { name: 'Save task', exact: true }).click();
+  await edit
+    .getByRole('button', { name: 'Save workflow', exact: true })
+    .click();
   await expect(
     page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();
@@ -587,7 +591,7 @@ test('workflow rows and the new-workflow editor fit, retain drafts, and restore 
   await expect(
     editor.getByRole('textbox', { name: 'Name', exact: true }),
   ).toHaveValue(`Slice 5 workflow ${info.project.name}`);
-  await editor.getByRole('button', { name: 'Save task' }).click();
+  await editor.getByRole('button', { name: 'Save workflow' }).click();
   await expect(view).toHaveCount(0);
   await expect(create).toBeFocused();
   await page

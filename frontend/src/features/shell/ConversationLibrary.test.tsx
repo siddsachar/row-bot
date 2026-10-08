@@ -271,7 +271,8 @@ it('searches titles and messages from the one field and groups hits by conversat
   const field = screen.getByRole('searchbox', {
     name: 'Search titles and messages',
   });
-  await user.type(field, 'needle{Enter}');
+  // Typing searches after a short pause, without Enter.
+  await user.type(field, 'needle');
   const results = await screen.findByRole('list', {
     name: 'Conversation search results',
   });

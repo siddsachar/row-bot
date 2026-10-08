@@ -67,7 +67,7 @@ it('keeps an admitting result reconcilable and never offers a duplicate create',
     screen.queryByRole('button', { name: 'Create Deck' }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByRole('button', { name: 'Start another resource' }),
+    screen.queryByRole('button', { name: 'Create another' }),
   ).not.toBeInTheDocument();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
@@ -420,7 +420,21 @@ it('continues an unregistered folder using renewed authority without an undefine
   expect(mock.controller.intent.mock.calls[0][2]).not.toHaveProperty(
     'expected_resource_revision',
   );
-  expect(screen.getByText('Resource ready')).toBeVisible();
+  expect(
+    screen.getByText(/^(Design ready|Code folder ready|Ready)$/),
+  ).toBeVisible();
+});
+
+it('says a created design is ready without listing internal stages', async () => {
+  const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a');
+  setupSessions.reserve(key, 'done-command');
+  mock.controller.receipt.mockResolvedValue(result('done-command'));
+  await act(async () => {
+    view();
+  });
+  expect(await screen.findByText('Design ready')).toBeVisible();
+  expect(screen.queryByText('associated')).toBeNull();
+  expect(screen.queryByText(/Resource deck-a/)).toBeNull();
 });
 
 it('retains loaded defaults when the selected design mode is selected again', async () => {
@@ -727,10 +741,12 @@ it('reopens a lost setup response through its saved receipt without recreating t
     id,
     expect.any(AbortSignal),
   );
-  expect(screen.getByText('Resource ready')).toBeInTheDocument();
+  expect(
+    screen.getByText(/^(Design ready|Code folder ready|Ready)$/),
+  ).toBeInTheDocument();
   expect(mock.controller.intent).toHaveBeenCalledTimes(1);
   expect(
-    screen.getByRole('button', { name: 'Start another resource' }),
+    screen.getByRole('button', { name: 'Create another' }),
   ).toBeInTheDocument();
 });
 
@@ -1137,7 +1153,9 @@ it('recovers a lost separate-history response on remount without creating anothe
     id,
     expect.any(AbortSignal),
   );
-  expect(screen.getByText('Resource ready')).toBeVisible();
+  expect(
+    screen.getByText(/^(Design ready|Code folder ready|Ready)$/),
+  ).toBeVisible();
   expect(mock.controller.intent).toHaveBeenCalledTimes(1);
   expect(mock.navigate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open conversation' }));

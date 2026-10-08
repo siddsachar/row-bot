@@ -565,7 +565,7 @@ export default function TaskEditor({
             ? 'Saving…'
             : meta.uncertain
               ? 'Retry original save'
-              : 'Save task'}
+              : 'Save workflow'}
         </Button>
       </footer>
     </form>

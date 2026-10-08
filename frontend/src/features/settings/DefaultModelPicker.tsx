@@ -42,6 +42,7 @@ export default function DefaultModelPicker({
   disabled,
   onChoose,
   onRefresh,
+  note,
 }: {
   id?: string;
   'aria-describedby'?: string;
@@ -56,6 +57,8 @@ export default function DefaultModelPicker({
   onChoose: (ref: string) => void;
   /** Refresh the saved catalog, offered while a model has no saved details. */
   onRefresh?: () => void;
+  /** One line under the list: where more choices come from. */
+  note?: string;
 }) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -139,8 +142,9 @@ export default function DefaultModelPicker({
               if (model.model_ref !== current) onChoose(model.model_ref);
             }}
           />
-          {(needsRefresh || needsSetup) && (
+          {(needsRefresh || needsSetup || note) && (
             <div className="model-picker-footer">
+              {note && <p className="settings-help">{note}</p>}
               {needsRefresh && (
                 <Button
                   className="small"

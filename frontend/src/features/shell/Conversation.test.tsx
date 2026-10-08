@@ -1501,7 +1501,7 @@ it('shows a failed compact approval save in the conversation without changing it
     }),
   );
   await act(async () =>
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Block' })),
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Block/ })),
   );
   expect(mock.intent.mock.calls[0][2].approval_mode).toBe('block');
   expect(screen.getByRole('alert')).toHaveTextContent(/review|changed|retry/i);

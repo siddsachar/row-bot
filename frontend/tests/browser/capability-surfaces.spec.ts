@@ -131,7 +131,7 @@ async function createResource(
       .click();
   }
   await expect(
-    dialog.getByText('Resource ready', { exact: true }),
+    dialog.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   return (
@@ -636,7 +636,7 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     .getByRole('button', { name: 'Create Deck', exact: true })
     .click();
   await expect(
-    dialog.getByText('Resource ready', { exact: true }),
+    dialog.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
 

@@ -300,7 +300,8 @@ export default function Advanced() {
         <div className="app-section">
           <p className="settings-help">
             Row-Bot searches copies kept on this computer. Updating fetches the
-            latest copy; only Search online catalogs sends what you type.
+            latest copy; what you type leaves this computer only when you choose
+            Search online catalogs in an Apps search.
           </p>
           <ul className="catalog-list">
             {sources.map((source) => (

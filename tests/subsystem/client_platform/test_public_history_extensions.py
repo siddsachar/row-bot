@@ -335,3 +335,17 @@ def test_scoped_search_rejects_closed_conversation_before_checkpoint_read(servic
     monkeypatch.setattr(checkpoint_reader, "open_checkpoint", forbidden_read)
     with pytest.raises(ClientPlatformError, match="conversation_deleting"):
         search(service, "needle", conversation_id=conversation)
+
+
+def test_a_search_excerpt_reads_as_plain_text(service):
+    """Found live: results showed literal \n, \u003c and **markdown** from the stored text."""
+    from langchain_core.messages import HumanMessage
+    from row_bot import threads
+    from row_bot.application.conversation_search import search
+
+    conversation = threads.create_thread("Plain excerpts", seed_default_skills=False)
+    assert threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="marked", content="**Pipeline** check:\nuse <b>tags</b> and `code`"),
+    ])
+    hit = next(item for item in search(service, "pipeline")["items"] if item["message_id"] == "marked")
+    assert hit["excerpt"] == "Pipeline check: use <b>tags</b> and code"

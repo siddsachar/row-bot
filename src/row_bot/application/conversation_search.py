@@ -145,6 +145,15 @@ def _find_public_text(reader: Any, record: dict, needle: str) -> str | None:
     return None
 
 
+def _plain(text: str) -> str:
+    """An excerpt as a person reads it: the scanned text is JSON-escaped, so its escapes (a newline, an
+    escaped angle bracket) become what they stand for, and markdown marks (**, `, #) go."""
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
+    text = re.sub(r"\\[nrt]", " ", text).replace('\\"', '"').replace("\\\\", "\\")
+    text = re.sub(r"\*\*|__|`+|^#+ |(?<=\s)#+ ", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _excerpt(text: str, at: int, length: int) -> str:
     """The match with some words either side, cut between words, with an
     ellipsis where text was left out ("…hardened container modules…")."""
@@ -157,7 +166,7 @@ def _excerpt(text: str, at: int, length: int) -> str:
         spaces = list(re.finditer(r"\s", text[at + length:end]))
         if spaces:
             end = at + length + spaces[-1].start()
-    return ("…" if start > 0 else "") + text[start:end].strip()[:398] + ("…" if end < len(text) else "")
+    return ("…" if start > 0 else "") + _plain(text[start:end])[:398] + ("…" if end < len(text) else "")
 
 
 def history_window(service: Any, conversation_id: str, *, message_id: str | None = None,

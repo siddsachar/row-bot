@@ -315,6 +315,14 @@ export default function ConversationLibrary({
     }
   }
 
+  // Results follow typing after a short pause; Enter searches at once.
+  useEffect(() => {
+    const text = query.trim();
+    if (!text || text === searchedFor) return;
+    const timer = setTimeout(() => void runSearch(), 350);
+    return () => clearTimeout(timer);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function clearSearch() {
     setSearchedFor('');
     setSearchError('');

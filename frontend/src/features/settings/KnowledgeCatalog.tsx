@@ -266,11 +266,17 @@ export function SavedCatalog<P extends SavedPage>({
               this view. Reload {noun} to return to the start.
             </p>
           )}
-          {!page.items.length && (
-            <EmptyState title={`No matching ${noun}`}>
-              Try another search or filter.
-            </EmptyState>
-          )}
+          {!page.items.length &&
+            (applied.query || applied.selected ? (
+              <EmptyState title={`No matching ${noun}`}>
+                Try another search or filter.
+              </EmptyState>
+            ) : (
+              // Nothing saved yet: not a search that missed.
+              <EmptyState title={`No ${noun} yet`}>
+                What you add shows here.
+              </EmptyState>
+            ))}
           {displayedPage && renderItems(displayedPage)}
           {(page.next_cursor || bufferedItems) && (
             <Button
