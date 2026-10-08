@@ -372,3 +372,33 @@ it('stays on the chat while a sign-in is replaced after a restart', async () => 
   );
   expect(screen.queryByText('That conversation was deleted.')).toBeNull();
 });
+
+it('says whether the sidebar is open, and leaves out the conversation skip link in Settings', async () => {
+  vi.stubGlobal('innerWidth', 1440);
+  vi.stubGlobal('innerHeight', 900);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <GoToSettings />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getAllByRole('button', { name: 'Toggle navigation' })[0],
+  ).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByText('Skip to conversation')).toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(screen.getByText('Route elsewhere'));
+  });
+  expect(screen.queryByText('Skip to conversation')).toBeNull();
+});

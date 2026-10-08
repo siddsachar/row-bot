@@ -1234,6 +1234,8 @@ it('sends the files again with Send again, not their names as text (B136)', asyn
     expect.objectContaining({
       text: 'Summarise this file',
       attachment_refs: ['conversation-a:attachment-one'],
+      // Run again in place: the server sets the last turn aside, never a second copy of the message.
+      retry: true,
     }),
     '1',
     expect.any(String),
@@ -1300,6 +1302,94 @@ it('creates a conversation and submits a Home example through one user action', 
     write_targets: [],
   });
   expect(mock.drafts.get('first-chat')?.text).toBe('');
+});
+
+it('opens the chat New chat made and nobody used instead of making another', async () => {
+  idleConversation();
+  mock.state.selectedConversationId = null;
+  mock.state.conversation = null;
+  const listed = (id: string, title: string, updated_at = '2026-10-08') =>
+    ({
+      id,
+      title,
+      revision: '0',
+      pinned: false,
+      updated_at,
+    }) as ConversationRow;
+  let made = 0;
+  mock.intent.mockImplementation(
+    async (_target, _type, _payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: `made-${++made}`,
+      status: 'completed',
+    }),
+  );
+  const newChat = () =>
+    act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'New chat' })),
+    );
+  await act(async () => conversation());
+  await newChat();
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-1');
+  // An empty chat from before (it may hold a draft saved elsewhere) is left alone.
+  mock.state.conversations = [
+    listed('used', 'Trip plans'),
+    listed('made-1', 'New conversation', '2026-10-01'),
+    listed('from-before', 'New conversation', '2026-10-07'),
+  ];
+
+  await newChat();
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.selectConversation).toHaveBeenLastCalledWith('made-1');
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-1');
+
+  // A draft, or a first message, makes it used: New chat makes another.
+  mock.drafts.set('made-1', { text: 'Half a thought', attachments: [] });
+  await newChat();
+  expect(mock.intent).toHaveBeenCalledTimes(2);
+  expect(mock.intent.mock.calls[1][1]).toBe('conversation.create');
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-2');
+  mock.state.conversations = [
+    listed('made-1', 'Half a thought'),
+    listed('made-2', 'New conversation'),
+  ];
+  mock.state.selectedConversationId = 'made-2';
+  mock.state.projection = {
+    rows: [row('made-2-first', 'user', 'Hello')],
+  } as unknown as Snapshot;
+  await newChat();
+  expect(mock.intent).toHaveBeenCalledTimes(3);
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-3');
+});
+
+it('opens Find with Ctrl or Cmd+F, so the words meant for it never reach the composer', async () => {
+  idleConversation();
+  mock.drafts.set('conversation-a', { text: '', attachments: [] });
+  await act(async () => conversation());
+  const composer = screen.getByRole('textbox', { name: 'Message' });
+  composer.focus();
+  expect(fireEvent.keyDown(composer, { key: 'f', ctrlKey: true })).toBe(false);
+  expect(mock.open).toHaveBeenCalledWith(
+    expect.objectContaining({ title: 'Find in conversation' }),
+  );
+  expect(fireEvent.keyDown(document.body, { key: 'F', metaKey: true })).toBe(
+    false,
+  );
+  expect(mock.open).toHaveBeenCalledTimes(2);
+
+  // Another text field (a panel's editor) or a dialog keeps its own Ctrl+F.
+  const editor = document.createElement('textarea');
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  dialog.tabIndex = -1;
+  document.body.append(editor, dialog);
+  expect(fireEvent.keyDown(editor, { key: 'f', ctrlKey: true })).toBe(true);
+  expect(fireEvent.keyDown(dialog, { key: 'f', ctrlKey: true })).toBe(true);
+  editor.remove();
+  dialog.remove();
+  expect(mock.open).toHaveBeenCalledTimes(2);
+  expect(composer).toHaveValue('');
+  expect(mock.intent).not.toHaveBeenCalled();
 });
 
 it('starts a chat with a draft that waits in the composer and is never sent', async () => {

@@ -210,8 +210,8 @@ function useProfiles(
 
 /**
  * Favourite agents (B268): the pinned profiles, in pin order. Until one is
- * pinned, the library's first five stand in (the Default profile is plain
- * New chat, so it never stands in).
+ * pinned, the library's everyday agents stand in, else its first five (the
+ * Default profile is plain New chat, so it never stands in).
  */
 function favouriteProfiles(
   profiles: readonly ProfileSummary[],
@@ -221,11 +221,12 @@ function favouriteProfiles(
   const chosen = pinned.flatMap(
     (id) => enabled.find((profile) => profile.id === id) ?? [],
   );
-  return chosen.length
-    ? chosen
-    : enabled
-        .filter((profile) => profile.id !== DEFAULT_PROFILE_ID)
-        .slice(0, FAVOURITE_COUNT);
+  if (chosen.length) return chosen;
+  const others = enabled.filter((profile) => profile.id !== DEFAULT_PROFILE_ID);
+  const everyday = others.filter(
+    (profile) => profile.source === 'builtin' && profile.group === 'Everyday',
+  );
+  return (everyday.length ? everyday : others).slice(0, FAVOURITE_COUNT);
 }
 
 function allAgentsLabel(profiles: readonly ProfileSummary[] | null): string {
@@ -1028,18 +1029,29 @@ export default function Navigation({
                     role="group"
                     aria-label="Favourite agents"
                   >
+                    {/* Each face carries its name; the tooltip says what a
+                        click does and holds a name cut short. */}
                     {favourites.slice(0, FAVOURITE_COUNT).map((profile) => (
-                      <IconButton
+                      <Hint
                         key={profile.id}
                         label={`New chat with ${profile.display_name}`}
-                        disabled={profileChatDisabled}
-                        onClick={() => startProfileChat(profile)}
                       >
-                        <AgentAvatar
-                          seed={agentSeed(profile.id, profile.id)}
-                          size={22}
-                        />
-                      </IconButton>
+                        <Button
+                          variant="ghost"
+                          className="nav-agent-favourite"
+                          aria-label={`New chat with ${profile.display_name}`}
+                          disabled={profileChatDisabled}
+                          onClick={() => startProfileChat(profile)}
+                        >
+                          <AgentAvatar
+                            seed={agentSeed(profile.id, profile.id)}
+                            size={22}
+                          />
+                          <span className="nav-agent-name">
+                            {profile.display_name}
+                          </span>
+                        </Button>
+                      </Hint>
                     ))}
                   </div>
                 )}

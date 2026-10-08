@@ -1226,6 +1226,7 @@ export default function Conversation({
     targets: WriteTarget[] = [],
     capturedDraft?: ReturnType<typeof controller.getDraft>,
     selectedVersion = controller.getSelectionVersion(),
+    retry = false,
   ) {
     if (
       !id ||
@@ -1310,6 +1311,8 @@ export default function Conversation({
               ),
               model_selection: sendControls!.model_selection,
               write_targets: targets,
+              // Retry runs the last message again in place, never a second copy of it.
+              ...(retry ? { retry: true } : {}),
             },
             sendRevision,
             claim.commandId,
@@ -1373,6 +1376,7 @@ export default function Conversation({
     example?: string,
     keepTargets = false,
     attachments: typeof draft.attachments = [],
+    retry = false,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
     if (
@@ -1442,7 +1446,7 @@ export default function Conversation({
       }));
     const text = outgoing.text;
     const selectedVersion = controller.getSelectionVersion();
-    void dispatch(text, targets, outgoing, selectedVersion);
+    void dispatch(text, targets, outgoing, selectedVersion, retry);
   }
   const sendFirstPrompt = useEffectEvent(() => send());
   useEffect(() => {
@@ -1965,6 +1969,38 @@ export default function Conversation({
       content: <SearchConversations conversationId={id} />,
     });
   }
+  // Ctrl/Cmd+F opens Find, so the words meant for it never reach the
+  // composer. Another text field (a panel's editor, a terminal), a dialog or
+  // a menu with focus keeps the keys.
+  const findFromShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.altKey ||
+      event.shiftKey ||
+      !(event.ctrlKey || event.metaKey) ||
+      event.key.toLowerCase() !== 'f' ||
+      !id
+    )
+      return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      target &&
+      target !== composerRef.current &&
+      target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="alertdialog"], [role="menu"]',
+      )
+    )
+      return;
+    event.preventDefault();
+    findConversation();
+  });
+  useEffect(() => {
+    if (!id) return;
+    const keydown = (event: KeyboardEvent) => findFromShortcut(event);
+    document.addEventListener('keydown', keydown);
+    return () => document.removeEventListener('keydown', keydown);
+  }, [id]);
   // Easy to regret, so the notice offers Undo (decision 19).
   function unbindResource(resource: ResourceView) {
     if (!id || !state.conversation) return;
@@ -2254,8 +2290,8 @@ export default function Conversation({
     continueWith: () =>
       send("It's connected now. Please continue with my request."),
   };
-  // Retry and Send again resend the last message as it was: its words and
-  // its files, never the files' names as text (B136). A follow-up note is
+  // Retry and Send again resend the last message as it was (its words and
+  // its files, never the files' names as text, B136), marked a retry so the server runs it again in place. A follow-up note is
   // the server continuing, not something the person sent.
   const lastUser = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index -= 1)
@@ -2505,7 +2541,7 @@ export default function Conversation({
   const retryAction = useRef<() => void>(() => undefined);
   useLayoutEffect(() => {
     retryAction.current = () => {
-      if (lastUserText) send(lastUserText, true, lastUser.attachments);
+      if (lastUserText) send(lastUserText, true, lastUser.attachments, true);
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);

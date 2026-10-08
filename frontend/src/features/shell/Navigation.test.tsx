@@ -193,7 +193,7 @@ it('opens the grouped profile panel with counts and starts the selected profile 
     name: /^All agents \(1\).*1 built-in.*0 custom/,
   });
   fireEvent.click(entry);
-  const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
+  const dialog = await screen.findByRole('dialog', { name: 'Agents' });
   expect(within(dialog).getByText('Everyday')).toBeInTheDocument();
   fireEvent.click(
     within(dialog).getByRole('button', { name: 'View General Assistant' }),
@@ -205,7 +205,7 @@ it('opens the grouped profile panel with counts and starts the selected profile 
     }),
   );
   await waitFor(() => expect(onStartProfileChat).toHaveBeenCalledWith(profile));
-  expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull();
+  expect(screen.queryByRole('dialog', { name: 'Agents' })).toBeNull();
   owner.dispose();
 });
 
@@ -257,7 +257,10 @@ const AGENTS = [
 ];
 
 /** The expanded sidebar with the agent library's profiles loaded. */
-async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
+async function setupAgents(
+  prepare?: (transport: FixtureTransport) => void,
+  items: ProfileSummary[] = AGENTS,
+) {
   const transport = new FixtureTransport({ conversationCount: 2 });
   prepare?.(transport);
   const controller = new ClientController(transport, () => 1);
@@ -267,13 +270,13 @@ async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
     schema_version: 1,
     scope: 'global',
     revision: 'a'.repeat(64),
-    items: AGENTS,
-    total: AGENTS.length,
+    items,
+    total: items.length,
     next_cursor: null,
   });
   controller.profile = vi.fn().mockImplementation(async (id: string) => ({
     schema_version: 1,
-    profile: AGENTS.find((item) => item.id === id),
+    profile: items.find((item) => item.id === id),
   }));
   const owner = createAuthenticatedEditorOwner(
     controller,
@@ -302,7 +305,9 @@ async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
     </MemoryRouter>,
   );
   const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
-  await within(nav).findByRole('button', { name: /^All agents \(8\)/ });
+  await within(nav).findByRole('button', {
+    name: new RegExp(`^All agents \\(${items.length}\\)`),
+  });
   return { controller, transport, nav, view, onNewChat, onStartProfileChat };
 }
 
@@ -357,7 +362,7 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
     await screen.findByRole('menuitem', { name: 'All agents…' }),
   );
   expect(
-    await screen.findByRole('dialog', { name: 'Agent profiles' }),
+    await screen.findByRole('dialog', { name: 'Agents' }),
   ).toBeInTheDocument();
 });
 
@@ -411,15 +416,54 @@ it('starts a chat with a favourite agent in one click and opens the library from
     }),
   );
   expect(
-    await screen.findByRole('dialog', { name: 'Agent profiles' }),
+    await screen.findByRole('dialog', { name: 'Agents' }),
   ).toBeInTheDocument();
+});
+
+it('stands in the everyday agents, each with its name and a face of its own, until one is pinned', async () => {
+  const group = (id: string, name: string, ui: string) =>
+    agentProfile(id, name, { group: ui });
+  // The library lists A–Z: work and developer agents come first.
+  const { nav } = await setupAgents(undefined, [
+    group('builtin:automate', 'Automate', 'Work'),
+    group('builtin:code_review', 'Code Review', 'Developer'),
+    group('builtin:data', 'Data', 'Work'),
+    group('builtin:row_bot_default', 'Default', 'Everyday'),
+    group('builtin:design', 'Design', 'Creative'),
+    group('builtin:develop', 'Develop', 'Developer'),
+    group('builtin:ideas', 'Ideas', 'Everyday'),
+    group('builtin:plan', 'Plan', 'Everyday'),
+    group('builtin:research', 'Research', 'Everyday'),
+    group('builtin:write', 'Write', 'Everyday'),
+  ]);
+  const favourites = within(nav).getByRole('group', {
+    name: 'Favourite agents',
+  });
+  const buttons = within(favourites).getAllByRole('button');
+  expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+    'New chat with Ideas',
+    'New chat with Plan',
+    'New chat with Research',
+    'New chat with Write',
+  ]);
+  // The name shows under each face, not only on hover.
+  expect(buttons.map((button) => button.textContent)).toEqual([
+    'Ideas',
+    'Plan',
+    'Research',
+    'Write',
+  ]);
+  const faces = buttons.map((button) =>
+    button.querySelector('.agent-avatar')!.getAttribute('data-avatar'),
+  );
+  expect(new Set(faces).size).toBe(faces.length);
 });
 
 it('shows pinned profiles as the favourites once one is pinned in the library (B268)', async () => {
   const user = userEvent.setup();
   const { nav } = await setupAgents();
   await user.click(within(nav).getByRole('button', { name: /^All agents/ }));
-  const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
+  const dialog = await screen.findByRole('dialog', { name: 'Agents' });
   const pin = await within(dialog).findByRole('button', {
     name: 'Pin Analyst to the sidebar',
   });
@@ -436,7 +480,7 @@ it('shows pinned profiles as the favourites once one is pinned in the library (B
   );
   await user.keyboard('{Escape}');
   await waitFor(() =>
-    expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull(),
+    expect(screen.queryByRole('dialog', { name: 'Agents' })).toBeNull(),
   );
   const favourites = within(nav).getByRole('group', {
     name: 'Favourite agents',

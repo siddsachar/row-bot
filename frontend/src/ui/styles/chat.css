@@ -3019,8 +3019,11 @@ button.attachment-tile-face:hover {
   flex: none;
   color: var(--text-muted);
 }
-.menu .menu-item[role='menuitemradio'] > span:last-child {
-  margin-inline-start: auto;
+/* A choice's name fills its row, so every name starts at the left whether
+   or not it carries the check. */
+.menu .menu-item[role='menuitemradio'] > .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .menu-item-meta {
   margin-inline-start: auto;

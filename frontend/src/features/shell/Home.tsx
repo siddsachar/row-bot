@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AttentionProblem, PanelDescriptor } from '../../api/types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -32,6 +32,7 @@ import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { idPath } from '../apps/parts';
+import { neverUsed } from './new-chat';
 
 const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
 /** Snapshots read in the last few seconds are reused when switching tabs. */
@@ -76,6 +77,11 @@ export default function Home({
   const state = useClientState();
   const { controller, knowledgeOwner, platform, taskEditSessions } =
     useRuntime();
+  // A chat started and never used has nothing to continue.
+  const usedConversations = useMemo(
+    () => state.conversations.filter((row) => !neverUsed(row)),
+    [state.conversations],
+  );
   const overlay = useOverlay();
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
@@ -561,7 +567,7 @@ export default function Home({
             ),
             content: (
               <OverviewHome
-                conversations={state.conversations}
+                conversations={usedConversations}
                 setup={setup}
                 monitor={monitor}
                 loadTasks={identity ? loadTasks : undefined}

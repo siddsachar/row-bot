@@ -60,15 +60,36 @@ function currentToken(text: string, cursor: number) {
   return token.startsWith('/') ? { start, end, query: token.slice(1) } : null;
 }
 
-function matches(spec: SlashCommandSpec, query: string) {
+/** Whether a word of the text starts with the needle ("the" is not "he"). */
+function wordStarts(text: string, needle: string) {
+  return text
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .some((word) => word.startsWith(needle));
+}
+
+/**
+ * How well a command matches what follows "/", lower first: its own name,
+ * then its label, then a word of its category or description; null when it
+ * does not match. So "/he" leads with /help, not every "the".
+ */
+function rank(spec: SlashCommandSpec, query: string): number | null {
   const needle = query.toLocaleLowerCase();
-  return [
-    spec.token.slice(1),
-    ...spec.aliases.map((alias) => alias.slice(1)),
-    spec.label,
-    spec.category,
-    spec.description,
-  ].some((value) => value.toLocaleLowerCase().includes(needle));
+  if (!needle) return 0;
+  const names = [spec.token, ...spec.aliases].map((name) =>
+    name.slice(1).toLocaleLowerCase(),
+  );
+  const label = spec.label.toLocaleLowerCase();
+  if (names[0] === needle) return 0;
+  if (names.includes(needle)) return 1;
+  if (names.some((name) => name.startsWith(needle))) return 2;
+  if (label.startsWith(needle)) return 3;
+  if (wordStarts(label, needle)) return 4;
+  if (names.some((name) => name.includes(needle)) || label.includes(needle))
+    return 5;
+  if (wordStarts(spec.category, needle)) return 6;
+  if (wordStarts(spec.description, needle)) return 7;
+  return null;
 }
 
 const SlashPalette = forwardRef<
@@ -97,9 +118,14 @@ const SlashPalette = forwardRef<
     if (query === undefined) return [];
     const order: string[] = [];
     const byCategory = new Map<string, SlashCommandSpec[]>();
-    for (const command of commands
-      .filter((command) => matches(command, query))
-      .slice(0, 12)) {
+    const ranked = commands
+      .map((command, index) => ({ command, index, rank: rank(command, query) }))
+      .filter((item) => item.rank !== null)
+      .sort(
+        (left, right) => left.rank! - right.rank! || left.index - right.index,
+      )
+      .slice(0, 12);
+    for (const { command } of ranked) {
       const category = command.category || 'Commands';
       if (!byCategory.has(category)) {
         byCategory.set(category, []);

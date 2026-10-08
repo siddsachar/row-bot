@@ -172,7 +172,30 @@ export function agentSeed(profileId: string | null | undefined, runId: string) {
   return profileId || runId;
 }
 
+/**
+ * The built-in agents people pick from each have a face of their own, so a
+ * few side by side (the sidebar's favourites) never look alike; the everyday
+ * four also differ in tint. Any other agent takes a face from its seed.
+ */
+const BUILTIN_AVATARS = new Map([
+  ['builtin:plan', 'bolt'],
+  ['builtin:research', 'hoot'],
+  ['builtin:write', 'inky'],
+  ['builtin:ideas', 'twinkle'],
+  ['builtin:knowledge', 'sprout'],
+  ['builtin:data', 'puff'],
+  ['builtin:automate', 'fennec'],
+  ['builtin:review', 'whisk'],
+  ['builtin:design', 'chirp'],
+  ['builtin:develop', 'bruin'],
+  ['builtin:code_review', 'luna'],
+  ['builtin:ui_check', 'boo'],
+]);
+
 function avatarFor(seed: string) {
+  const fixed = BUILTIN_AVATARS.get(seed);
+  const builtin = fixed && AVATARS.find((avatar) => avatar.id === fixed);
+  if (builtin) return builtin;
   let hash = 0;
   for (const character of seed)
     hash = (hash * 31 + character.charCodeAt(0)) >>> 0;

@@ -155,7 +155,7 @@ function options() {
 }
 
 async function openProfiles() {
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Agent Profiles' }), {
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Agents' }), {
     button: 0,
   });
   await screen.findByText('General Assistant');
@@ -186,7 +186,7 @@ it('does not restart a settled read when parent callback identities change', asy
       loadProfiles={(query, signal) => props.loadProfiles(query, signal)}
     />,
   );
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Agent Profiles' }), {
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Agents' }), {
     button: 0,
   });
 
@@ -420,6 +420,51 @@ it('manages grouped profiles without a conversation and starts a selected profil
   expect(
     screen.getByRole('group', { name: 'Create profile' }),
   ).toBeInTheDocument();
+});
+
+it('opens a profile’s details under its own row, naming its tools and skills, with Start chat', async () => {
+  const props = options();
+  const busy = {
+    ...builtinProfile,
+    allow_tools: Array.from({ length: 25 }, (_, index) => `tool_${index + 1}`),
+    skills: ['brain_dump', 'task_automation'],
+  };
+  props.loadProfiles.mockResolvedValue({
+    ...profilePage,
+    items: [busy, userProfile],
+  });
+  props.loadProfile.mockResolvedValue({ schema_version: 1, profile: busy });
+  const onStartProfileChat = vi.fn();
+  render(
+    <GoalProfileSettings
+      {...props}
+      conversationId={undefined}
+      profilesOnly
+      onStartProfileChat={onStartProfileChat}
+    />,
+  );
+  const view = await screen.findByRole('button', {
+    name: 'View General Assistant',
+  });
+  // Every row icon names itself in a tooltip.
+  act(() => view.focus());
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    'View General Assistant',
+  );
+  fireEvent.click(view);
+  const details = await screen.findByRole('region', {
+    name: 'Profile details',
+  });
+  // Beside the row it belongs to, not after the whole list.
+  expect(view.closest('li')).toContainElement(details);
+  expect(details).toHaveTextContent(
+    'Tools' +
+      Array.from({ length: 20 }, (_, index) => `Tool ${index + 1}`).join(', ') +
+      ' and 5 more',
+  );
+  expect(details).toHaveTextContent('SkillsBrain dump, Task automation');
+  fireEvent.click(within(details).getByRole('button', { name: 'Start chat' }));
+  expect(onStartProfileChat).toHaveBeenCalledWith(busy);
 });
 
 it('lays the profile library directly on its dialog, with an icon Refresh that reloads it', async () => {

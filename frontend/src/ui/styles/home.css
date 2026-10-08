@@ -429,6 +429,13 @@
   background: var(--accent-solid);
   color: var(--accent-on-solid);
 }
+/* Disabled reads as the chat composer's Send does: a quiet filled button
+   with a muted arrow, never a white arrow on nothing. */
+.overview-ask .overview-ask-send.button.primary:disabled {
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  opacity: 1;
+}
 .overview-quick {
   display: flex;
   flex-wrap: wrap;

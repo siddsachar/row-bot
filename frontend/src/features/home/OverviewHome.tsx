@@ -70,6 +70,7 @@ import {
 } from '../shell/DelegatedActivity';
 import { ApprovalDecision, WaitingSince } from '../shell/InPlaceApproval';
 import { usePendingApprovals } from '../shell/pending-approvals';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 import FixAction, { RunAgain } from './FixAction';
 import { typeToken } from './knowledge-palette';
 import {
@@ -452,7 +453,8 @@ function Stat({
   lineTone?: 'success';
   picture?: ReactNode;
   note?: string;
-  onOpen?: () => void;
+  /** Opens the card's place; given the card, for focus to come back to. */
+  onOpen?: (opener: HTMLButtonElement) => void;
 }) {
   const body = (
     <>
@@ -486,7 +488,7 @@ function Stat({
           aria-label={[`${label}: ${value}`, line, note]
             .filter(Boolean)
             .join('. ')}
-          onClick={onOpen}
+          onClick={(event) => onOpen(event.currentTarget)}
         >
           {body}
         </button>
@@ -1125,6 +1127,8 @@ export default function OverviewHome({
       within(row.updated_at, today, now),
   );
   const agentTarget = view.running[0] ?? finishedToday[0];
+  // With no agent to show, the card opens the Agents library instead.
+  const openAgents = useWorkspaceActions()?.openAgentProfiles;
   const next = view.scheduled.find(
     (task) => parseTimestamp(task.next_run)! > now,
   );
@@ -1423,7 +1427,11 @@ export default function OverviewHome({
                 pulse={!reduced}
               />
             }
-            onOpen={agentTarget && (() => onOpenConversation(agentTarget.id))}
+            onOpen={
+              agentTarget
+                ? () => onOpenConversation(agentTarget.id)
+                : openAgents
+            }
           />
           <Stat
             label="Workflows"

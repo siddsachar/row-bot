@@ -53,7 +53,7 @@ it('opens the reviewed profile library rather than a text summary (B10)', () => 
   expect(open).toHaveBeenCalledTimes(1);
   const task = open.mock.calls[0][0];
   expect(task).toMatchObject({
-    title: 'Agent profiles',
+    title: 'Agents',
     className: 'profile-library-dialog',
     returnFocusTo: opener,
   });

@@ -512,7 +512,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
               </div>
             )}
           </SettingsGroup>
-          <SettingsGroup title="Personality">
+          <SettingsGroup title="Behaviour">
             <SettingsItem
               label="Personality"
               help="How Buddy’s little status bubbles sound."

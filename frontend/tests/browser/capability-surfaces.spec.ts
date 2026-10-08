@@ -235,13 +235,13 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
     .fill('Agent profiles');
   await page.keyboard.press('Enter');
   const owner = page
-    .getByRole('dialog', { name: 'Agent profiles', exact: true })
-    .getByRole('region', { name: 'Goals and Agent Profiles', exact: true });
+    .getByRole('dialog', { name: 'Agents', exact: true })
+    .getByRole('region', { name: 'Goals and agents', exact: true });
   const profiles = owner.getByRole('region', {
-    name: 'Agent Profiles',
+    name: 'Agents',
     exact: true,
   });
-  await expect(profiles.getByText(/reusable profiles/)).toBeVisible();
+  await expect(profiles.getByText(/^\d+ agents?\.$/)).toBeVisible();
   await profiles
     .getByRole('button', { name: 'Create profile', exact: true })
     .click();
@@ -881,7 +881,7 @@ test('profile library manages profiles and starts a selected chat', async ({
   });
   await expect(entry).toBeVisible();
   await entry.click();
-  const dialog = page.getByRole('dialog', { name: 'Agent profiles' });
+  const dialog = page.getByRole('dialog', { name: 'Agents', exact: true });
   await expect(
     dialog.locator('summary').filter({ hasText: 'Everyday' }),
   ).toBeVisible();
@@ -922,6 +922,14 @@ test('profile library manages profiles and starts a selected chat', async ({
     dialog.getByRole('region', { name: 'Profile details' }),
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Close details' }).click();
+  // Focus returns to View, which shows its label; Escape dismisses the label
+  // first, then the dialog.
+  await expect(
+    dialog.getByRole('button', { name: 'View General Assistant' }),
+  ).toBeFocused();
+  await expect(page.getByRole('tooltip')).toHaveText('View General Assistant');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   if (page.viewportSize()!.width < 1024) {

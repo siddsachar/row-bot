@@ -488,6 +488,19 @@ export function formatElapsed(ms: number): string {
   return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+/**
+ * How long a step ran, as this client watched it, or null when that is not
+ * known. Under a tenth of a second the client only saw the step as it
+ * finished (its start and end arrived together), so "0.0s" would be wrong.
+ */
+export function stepElapsed(
+  span: { start: number; end?: number } | undefined,
+): number | null {
+  if (span?.end === undefined) return null;
+  const ms = span.end - span.start;
+  return ms >= 100 ? ms : null;
+}
+
 // Stems whose present participle dropped a silent "e" ("Saving" → "Save").
 const SILENT_E = new Set([
   'analyz',

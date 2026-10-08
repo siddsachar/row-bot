@@ -4,6 +4,7 @@ import { clientError } from '../../api/errors';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { commandReceipts, ReceiptStorageError } from './command-receipts';
+import { unusedChat } from './new-chat';
 
 /** Mount once in the persistent shell. Every New chat entry shares this owner. */
 export default function useNewChat() {
@@ -35,6 +36,8 @@ export default function useNewChat() {
   } | null>(null);
   const operation = useRef(false);
   const alive = useRef(true);
+  // The chats New chat made here; one never used opens again (one server).
+  const started = useRef(new Set<string>());
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -47,6 +50,7 @@ export default function useNewChat() {
     setError('');
     setFocusConversationId(null);
     setFirstPrompt(null);
+    started.current = new Set();
     if (!key) return;
     try {
       setPending(commandReceipts.read(key)?.commandId ?? null);
@@ -88,8 +92,47 @@ export default function useNewChat() {
       controller.getSnapshot().handshake?.instance_id === instance &&
       controller.getSnapshot().handshake?.client_session_id === session;
     let reserved: string | null = null;
+    const opened = (conversationId: string) => {
+      setFocusConversationId(conversationId);
+      if (firstMessage.trim() && !send) {
+        controller.setDraft(conversationId, {
+          text: firstMessage,
+          attachments: [],
+        });
+      } else if (firstMessage.trim()) {
+        controller.setDraft(conversationId, {
+          text: firstMessage.trim(),
+          attachments: [],
+        });
+        setFirstPrompt({ conversationId, text: firstMessage.trim() });
+      }
+      if (controller.getSnapshot().selectedConversationId !== conversationId)
+        void controller.selectConversation(conversationId);
+      navigate(`/conversations/${conversationId}`);
+      setError('');
+    };
     try {
       const saved = commandReceipts.read(key);
+      // A chat New chat made here and nobody used opens again instead of
+      // another empty one; the open chat's messages count before its name
+      // changes in the list.
+      const snapshot = controller.getSnapshot();
+      const shown = snapshot.projection?.rows.length
+        ? snapshot.selectedConversationId
+        : null;
+      const unused =
+        saved || profile
+          ? null
+          : unusedChat(
+              snapshot.conversations.filter(
+                (row) => started.current.has(row.id) && row.id !== shown,
+              ),
+              (id) => controller.getDraft(id),
+            );
+      if (unused) {
+        opened(unused);
+        return;
+      }
       const identity = saved?.commandId ?? crypto.randomUUID();
       if (!saved)
         commandReceipts.reserve(key, { commandId: identity, steeringId: null });
@@ -118,29 +161,8 @@ export default function useNewChat() {
         commandReceipts.clear(key, identity);
         setPending(null);
         setMissing(null);
-        setFocusConversationId(result.conversation_id);
-        if (firstMessage.trim() && !send) {
-          controller.setDraft(result.conversation_id, {
-            text: firstMessage,
-            attachments: [],
-          });
-        } else if (firstMessage.trim()) {
-          controller.setDraft(result.conversation_id, {
-            text: firstMessage.trim(),
-            attachments: [],
-          });
-          setFirstPrompt({
-            conversationId: result.conversation_id,
-            text: firstMessage.trim(),
-          });
-        }
-        if (
-          controller.getSnapshot().selectedConversationId !==
-          result.conversation_id
-        )
-          void controller.selectConversation(result.conversation_id);
-        navigate(`/conversations/${result.conversation_id}`);
-        setError('');
+        if (!profile) started.current.add(result.conversation_id);
+        opened(result.conversation_id);
       } else if (current()) {
         if (result.status === 'rejected')
           setMissing({ key, commandId: identity });

@@ -338,9 +338,38 @@
 .nav-agents-body[hidden] {
   display: none;
 }
+/* Favourites fill their own row, each face with its name under it; All
+   agents follows on the next line. */
 .nav-agent-favourites {
   display: flex;
+  flex: 1 1 100%;
   gap: 2px;
+  min-width: 0;
+}
+.navigation .button.nav-agent-favourite {
+  flex: 1 1 0;
+  max-width: 25%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 4px 2px 3px;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: var(--weight-medium);
+}
+.navigation .button.nav-agent-favourite:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+.nav-agent-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .navigation .button.nav-all-agents {
   gap: 4px;

@@ -311,7 +311,7 @@ it('keeps approval, runtime and profile distinct in their compact menus', async 
   );
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('block');
   const more = await menu('Add files and more');
-  const profiles = await submenu(more, /^Agent profile/);
+  const profiles = await submenu(more, /^Agent/);
   expect(
     profiles.getByRole('menuitemradio', { name: 'Writer' }),
   ).toHaveAttribute('aria-checked', 'true');

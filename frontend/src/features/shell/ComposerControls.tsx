@@ -447,7 +447,7 @@ export default function ComposerControls({
             <Dropdown.Sub>
               <Dropdown.SubTrigger className="menu-item" disabled={blocked}>
                 <Bot size={16} aria-hidden />
-                <span className="menu-item-label">Agent profile</span>
+                <span className="menu-item-label">Agent</span>
                 <span className="menu-item-meta">{profile}</span>
                 <ChevronRight size={14} aria-hidden />
               </Dropdown.SubTrigger>

@@ -20,14 +20,17 @@ export function Ring({
   return (
     <svg className="context-ring-svg" viewBox="0 0 20 20" aria-hidden>
       <circle className="context-ring-track" cx="10" cy="10" r={RADIUS} />
-      <circle
-        className="context-ring-fill"
-        cx="10"
-        cy="10"
-        r={RADIUS}
-        strokeDasharray={`${(percent / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
-        transform="rotate(-90 10 10)"
-      />
+      {/* Nothing used draws no arc: a lone round cap reads as a spinner. */}
+      {percent > 0 && (
+        <circle
+          className="context-ring-fill"
+          cx="10"
+          cy="10"
+          r={RADIUS}
+          strokeDasharray={`${(percent / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+          transform="rotate(-90 10 10)"
+        />
+      )}
       {threshold > 0 && (
         <line
           className="context-ring-threshold"
@@ -77,27 +80,16 @@ export function describeContextUsage(usage?: ContextUsageView | null): {
 
 /**
  * Context usage as a small ring beside the send button. The tooltip reads
- * "43% · compacts at 80%"; the full measurement opens on click.
+ * "43% · compacts at 80%"; the full measurement opens on click. Before the
+ * first response there is nothing to show, and an empty ring there looked
+ * like a loading spinner, so it appears with the first measurement.
  */
 export default function ContextUsage({
   usage,
 }: {
   usage?: ContextUsageView | null;
 }) {
-  if (!usage || usage.state === 'unknown')
-    return (
-      <Hint label="Context will appear after the next response">
-        <span
-          className="context-meter context-ring is-unavailable"
-          role="status"
-          aria-label="Context not measured; usage will appear after a response"
-          tabIndex={0}
-        >
-          <Ring percent={0} threshold={0} />
-          <span className="visually-hidden">Context ready</span>
-        </span>
-      </Hint>
-    );
+  if (!usage || usage.state === 'unknown') return null;
   const used = usage.estimated_input_tokens ?? 0;
   const usable = usage.usable_input_tokens ?? 0;
   const percent = usable > 0 ? Math.min(100, (used / usable) * 100) : 0;

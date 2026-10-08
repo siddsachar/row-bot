@@ -28,6 +28,7 @@ import {
   orderedSteps,
   skipReason,
   splitApproval,
+  stepElapsed,
   stepIcon,
   stepVerb,
   summarizeActivity,
@@ -82,8 +83,7 @@ function finishedMoments(step: TranscriptTraceItem, now: number) {
   return end !== undefined && now - end < FRESH_FINISH_MS;
 }
 function stepDuration(step: TranscriptTraceItem) {
-  const value = timing.get(step.call_id);
-  return value?.end === undefined ? null : value.end - value.start;
+  return stepElapsed(timing.get(step.call_id));
 }
 /** "Waited 19.8s for approval · ran 0.2s", when this client saw the wait. */
 function approvalTiming(step: TranscriptTraceItem) {

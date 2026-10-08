@@ -15,6 +15,7 @@ import type {
   TaskSummaryPage,
 } from '../../api/types';
 import OverviewHome, { type OverviewHomeProps } from './OverviewHome';
+import { WorkspaceActionsContext } from '../shell/workspace-actions';
 import { clockTime, scheduleWords } from './home-format';
 
 const runtime = vi.hoisted(() => ({
@@ -1011,6 +1012,31 @@ it('rests the Agents card when nothing works and counts agents that finished tod
   expect(agents).toHaveTextContent('1 agent finished today');
   fireEvent.click(agents);
   expect(handlers.onOpenConversation).toHaveBeenCalledWith('child-a');
+});
+
+it('opens the Agents library from the Agents card when no agent is at work', () => {
+  const openAgentProfiles = vi.fn();
+  render(
+    <MemoryRouter>
+      <WorkspaceActionsContext.Provider
+        value={{ resetLayout: vi.fn(), openAgentProfiles }}
+      >
+        <OverviewHome
+          conversations={[]}
+          setup={null}
+          monitor={null}
+          now={now}
+          {...handlers}
+        />
+      </WorkspaceActionsContext.Provider>
+    </MemoryRouter>,
+  );
+  const agents = card(/^Agents/);
+  expect(agents).toHaveTextContent('No agents at work');
+  fireEvent.click(agents);
+  // Focus comes back to the card when the library closes.
+  expect(openAgentProfiles).toHaveBeenCalledWith(agents);
+  expect(handlers.onOpenConversation).not.toHaveBeenCalled();
 });
 
 it('counts down to the next workflow run and draws today’s runs in the Workflows card', async () => {

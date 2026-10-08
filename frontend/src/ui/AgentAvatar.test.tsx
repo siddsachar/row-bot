@@ -24,6 +24,36 @@ it('draws one agent the same way every time, at any size (B240)', () => {
   expect(looks.size).toBeGreaterThan(6);
 });
 
+it('gives each built-in agent a face of its own, so favourites never look alike', () => {
+  const builtins = [
+    'plan',
+    'research',
+    'write',
+    'ideas',
+    'knowledge',
+    'data',
+    'automate',
+    'review',
+    'design',
+    'develop',
+    'code_review',
+    'ui_check',
+  ].map((slug) => avatar(`builtin:${slug}`));
+  expect(
+    new Set(builtins.map((face) => face.getAttribute('data-avatar'))).size,
+  ).toBe(builtins.length);
+  // The everyday four differ in tint as well as shape.
+  expect(
+    new Set(
+      builtins
+        .slice(0, 4)
+        .map((face) =>
+          (face as HTMLElement).style.getPropertyValue('--agent-tint'),
+        ),
+    ).size,
+  ).toBe(4);
+});
+
 it('takes the icon from the agent’s profile when it has one, else its run', () => {
   expect(agentSeed('profile-7', 'run-1')).toBe('profile-7');
   expect(agentSeed('profile-7', 'run-2')).toBe('profile-7');

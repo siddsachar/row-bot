@@ -4568,6 +4568,30 @@ details[open] > summary > .settings-disclosure-chevron {
   min-height: 24px;
   padding: 3px;
 }
+/* A profile's details or its form open under its row, across the row. */
+.profile-library-row > .profile-library-details,
+.profile-library-row > .settings-profile-editor {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.profile-library-details h3 {
+  margin: 0;
+}
+.profile-library-details p {
+  margin: 0;
+}
+.profile-library-uses {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+}
+.profile-library-uses dt {
+  color: var(--text-muted);
+}
+.profile-library-uses dd {
+  margin: 0;
+}
 .profile-off {
   margin-inline-start: 4px;
   color: var(--warning);

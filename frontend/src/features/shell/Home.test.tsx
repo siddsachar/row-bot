@@ -271,6 +271,26 @@ it('keeps the old welcome, examples, and connection chrome out of Overview while
   );
 });
 
+it('never offers to continue a chat that was started and left empty', async () => {
+  mock.state.conversations = [
+    { id: 'chat-a', title: 'Design review', revision: 'r', pinned: false },
+    {
+      id: 'chat-empty',
+      title: 'New conversation',
+      revision: '0',
+      pinned: false,
+    },
+  ];
+  show();
+  expect(
+    screen.getByRole('button', { name: 'Continue “Design review”' }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/New conversation/)).toBeNull();
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
+  );
+});
+
 it('uses the explicit one-shot workflow deep-link intent without persistent last-tab state', () => {
   const { unmount } = show('/?tab=workflows');
   expect(screen.getByRole('tab', { name: 'Workflows' })).toHaveAttribute(

@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 
-type WorkspaceActions = {
+export type WorkspaceActions = {
   resetLayout: () => void;
   /** Start a new chat that uses this agent profile. */
   startProfileChat?: (profile: ProfileSummary) => void;
