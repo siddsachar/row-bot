@@ -66,6 +66,8 @@ BATCH_STATUSES = {
     "cancelled",
 }
 TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled", "skipped_duplicate"}
+# Finished without ever completing: these never reach search on their own.
+UNFINISHED_TERMINAL_JOB_STATUSES = {"failed", "cancelled", "skipped_duplicate"}
 ACTIVE_JOB_STATUSES = {"indexing", "extracting"}
 
 _JOB_TRANSITIONS = {
@@ -1021,6 +1023,37 @@ class DocumentJobService:
                 (document_id,),
             )
         return bool(cur.rowcount)
+
+    def forget_unfinished_job(self, job_id: str, *, validate: Callable[[], None] | None = None) -> bool:
+        """Retire one finished queue row of a document that never reached search.
+
+        Only a failed, cancelled or skipped job without a searchable record goes.
+        Like a reviewed Clear finished, this retires queue rows only: staged and
+        work bytes stay, and start-up recovery moves the then-orphaned folders
+        to ``recovery_orphans``. A batch left without documents goes with it.
+        """
+        with self._write_lock, contextlib.closing(self._connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if validate is not None:
+                validate()
+            row = conn.execute("SELECT id, batch_id, status FROM document_jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                return False
+            if row["status"] not in UNFINISHED_TERMINAL_JOB_STATUSES:
+                raise DocumentJobError("Only a finished document that never reached search can leave the list")
+            if conn.execute("SELECT 1 FROM document_records WHERE document_id=?", (job_id,)).fetchone():
+                raise DocumentJobError("A searchable document needs its full removal")
+            conn.execute("DELETE FROM document_jobs WHERE id=?", (job_id,))
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM document_jobs WHERE batch_id=?", (row["batch_id"],),
+            ).fetchone()[0]
+            if not remaining:
+                # A batch still staging may be about to receive its next upload.
+                conn.execute("DELETE FROM document_batches WHERE id=? AND status!='staging'", (row["batch_id"],))
+            if validate is not None:
+                validate()
+            conn.commit()
+        return True
 
     def get_removal(self, removal_id: str) -> dict | None:
         """Read one durable removal intent/result from the existing jobs owner."""

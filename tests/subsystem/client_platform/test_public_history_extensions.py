@@ -337,6 +337,26 @@ def test_scoped_search_rejects_closed_conversation_before_checkpoint_read(servic
         search(service, "needle", conversation_id=conversation)
 
 
+def test_search_leaves_out_tool_results(service):
+    """Found live: Find matched a hidden tool result and showed its raw JSON."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from row_bot import threads
+    from row_bot.application.conversation_search import search
+
+    conversation = threads.create_thread("Tool results", seed_default_skills=False)
+    assert threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="ask", content="What is 6 times 7?"),
+        AIMessage(id="call", content="", tool_calls=[
+            {"id": "call-1", "name": "calculator", "args": {"expression": "6*7"}}]),
+        ToolMessage(id="result", tool_call_id="call-1", name="calculator",
+                    content='{"ok": true, "result": 42, "expression": "6*7"}'),
+        AIMessage(id="answer", content="6 times 7 is 42."),
+    ])
+    hits = search(service, "42", conversation_id=conversation)["items"]
+    assert [hit["message_id"] for hit in hits] == ["answer"]
+    assert search(service, "expression", conversation_id=conversation)["items"] == []
+
+
 def test_a_search_excerpt_reads_as_plain_text(service):
     """Found live: results showed literal \n, \u003c and **markdown** from the stored text."""
     from langchain_core.messages import HumanMessage

@@ -2925,7 +2925,7 @@ def create_router(
         elif body.command_id == "profiles":
             from row_bot.agent_commands import format_agent_profiles
 
-            title, text = "Agent Profiles", format_agent_profiles()
+            title, text = "Agents", format_agent_profiles()
         elif body.command_id == "agents":
             from row_bot.agent_commands import format_agents_status
 
@@ -6416,21 +6416,31 @@ def create_router(
         )
 
     def processing_policy(owner: str, conversation: str) -> Any:
-        from row_bot.application.document_processing import DocumentProcessingPolicy
+        from row_bot.application.document_processing import (
+            SETTINGS_PROCESSING_SCOPE,
+            DocumentProcessingPolicy,
+        )
         from row_bot.application.profile_controls import freeze_profile
         from row_bot.application.reasoning_controls import freeze_reasoning
         from row_bot.runtime import admissions
         from row_bot.approval_policy import normalize_approval_mode
 
+        # Settings › Documents processes without a conversation: the default
+        # approvals (Ask: the reviewed confirmation is the approval), no agent
+        # profile, and the documents model or the default model.
+        settings_scope = conversation == SETTINGS_PROCESSING_SCOPE
+
         def validate() -> None:
             security.validate_worker(owner)
+            if settings_scope:
+                return
             service._metadata(conversation)
             if admissions.deletion_state(conversation) != "active":
                 raise ProtocolError("conversation_deleting", 409)
 
         def context() -> dict:
             validate()
-            row = service._metadata(conversation)
+            row = {} if settings_scope else service._metadata(conversation)
             from row_bot.application.settings_snapshot import (
                 read_document_processing_model,
             )
@@ -6453,7 +6463,7 @@ def create_router(
                 "policy_revision": security.policy_revision,
             }
             freeze_profile(value)
-            freeze_reasoning(value, conversation)
+            freeze_reasoning(value, "" if settings_scope else conversation)
             return value
 
         def action(kind: str) -> None:

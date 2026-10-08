@@ -65,18 +65,18 @@ BUILTIN_COMMANDS: tuple[SlashCommandSpec, ...] = (
         "Chat", "prefix", "reasoning",
     ),
     SlashCommandSpec(
-        "profiles", "/profiles", ("/agent-profiles",), "Agent Profiles",
-        "List Agent Profiles available for this chat.", "badge",
+        "profiles", "/profiles", ("/agent-profiles",), "Agents",
+        "List the agents this chat can use.", "badge",
         "Agents", "optional", "profiles",
     ),
     SlashCommandSpec(
-        "profile", "/profile", ("/agent-profile",), "Agent Profile",
-        "Show or set the Agent Profile for this chat.", "person_pin",
+        "profile", "/profile", ("/agent-profile",), "Agent",
+        "Show or set the agent for this chat.", "person_pin",
         "Agents", "prefix", "profile",
     ),
     SlashCommandSpec(
-        "agents", "/agents", (), "Agents",
-        "Show Agent Runs for this chat.", "hub",
+        "agents", "/agents", (), "Agent runs",
+        "Show the agent runs in this chat.", "hub",
         "Agents", "optional", "agents",
     ),
     SlashCommandSpec(

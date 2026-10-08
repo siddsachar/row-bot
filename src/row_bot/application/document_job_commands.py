@@ -42,6 +42,8 @@ class QueueItem:
     extraction_total: int | None
     error_code: str | None
     revision: str
+    # A batch reads as its first document's name and how many it holds.
+    document_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,8 @@ def _raw(row):
 def _item(row):
     from row_bot.document_jobs import JOB_STATUSES, JOB_STAGES, BATCH_STATUSES, is_safe_document_name
     value = _raw(row)
+    # Display-only batch columns stay out of the reviewed revision.
+    display_name, count = value.pop("display_name", None), value.pop("display_count", None)
     job = "batch_id" in value
     if value["status"] not in (JOB_STATUSES if job else BATCH_STATUSES):
         raise ValueError("Unknown document state")
@@ -85,6 +89,13 @@ def _item(row):
         raise ValueError("Invalid document name")
     if job and not is_safe_document_name(name):
         raise ValueError("Document name is not a canonical safe basename")
+    if not job:
+        if type(count) is not int or not 0 <= count <= 2**53-1:
+            count = None
+        if isinstance(display_name, str) and len(display_name) <= 256 and is_safe_document_name(display_name):
+            name = display_name
+    else:
+        count = None
     for key in ("pause_requested","cancel_requested"):
         flag = value.get(key,0)
         if type(flag) is not int or flag not in {0,1}:
@@ -95,7 +106,7 @@ def _item(row):
     return QueueItem(value["id"], common._id(value["batch_id"]) if job else None, name,
         value["status"],value.get("stage"),bool(value.get("pause_requested")),bool(value["cancel_requested"]),
         number("attempt"),number("index_progress_current"),number("index_progress_total"),
-        number("extraction_progress_current"),number("extraction_progress_total"),code,common._digest(value))
+        number("extraction_progress_current"),number("extraction_progress_total"),code,common._digest(value),count)
 
 
 def read_document_queue(*, kind: str = "batches", batch_id: str | None = None,
@@ -119,10 +130,19 @@ def read_document_queue(*, kind: str = "batches", batch_id: str | None = None,
             offset, expected = value["offset"],value["revision"]
         except (ValueError,TypeError,AttributeError,RecursionError):
             raise common._error("invalid_document_queue") from None
-    table = "document_batches" if kind == "batches" else "document_jobs"
-    where = ("id=?" if kind == "batches" else "batch_id=?") if batch_id else "1"
-    page = knowledge_views._read(_path(),{table:"id status cancel_requested"},
-        f"SELECT *,1 matched FROM {table} WHERE {where} ORDER BY created_at,id",(batch_id,) if batch_id else (),
+    if kind == "batches":
+        where = "b.id=?" if batch_id else "1"
+        required = {"document_batches":"id status cancel_requested","document_jobs":"id batch_id original_name sequence"}
+        sql = f"""SELECT b.*,
+            (SELECT j.original_name FROM document_jobs j WHERE j.batch_id=b.id
+             ORDER BY j.sequence,j.created_at,j.id LIMIT 1) display_name,
+            (SELECT count(*) FROM document_jobs j WHERE j.batch_id=b.id) display_count,
+            1 matched FROM document_batches b WHERE {where} ORDER BY b.created_at,b.id"""
+    else:
+        where = "batch_id=?" if batch_id else "1"
+        required = {"document_jobs":"id status cancel_requested"}
+        sql = f"SELECT *,1 matched FROM document_jobs WHERE {where} ORDER BY created_at,id"
+    page = knowledge_views._read(_path(),required,sql,(batch_id,) if batch_id else (),
         _item,QueuePage,key,offset,expected,limit)
     validate()
     return page

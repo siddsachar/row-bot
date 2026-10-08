@@ -39,7 +39,7 @@ _UTILITY_PRESENTATION = {
     "calculator": ("Calculator", "Evaluate calculations locally."),
     "weather": ("Weather", "Look up weather when explicitly requested."),
     "chart": ("Charts", "Create charts from supplied data."),
-    "system_info": ("System Info", "Read bounded host information."),
+    "system_info": ("System Info", "Reports this computer's system, memory, disk, network and battery."),
     "conversation_search": ("Conversation Search", "Search saved conversations."),
     "custom_tool_builder": ("Custom Tool Builder", "Build reviewed local tools."),
     # Without it a conversation's code folder can be read but never changed,
@@ -1042,7 +1042,7 @@ def _document_vector_status(root: Path, config: Mapping[str, Any]) -> dict[str, 
     if not corpus_exists and not legacy_exists:
         return {
             "state": "current",
-            "detail": "No saved document vectors conflict with the selected embedding setting.",
+            "detail": "Nothing is indexed with another search model.",
         }
     active = _active_embedding_metadata(config)
     stale = False
@@ -1099,16 +1099,16 @@ def _document_vector_status(root: Path, config: Mapping[str, Any]) -> dict[str, 
     if stale:
         return {
             "state": "stale",
-            "detail": "Document vectors were built with a different embedding setting.",
+            "detail": "Built with a different search model. Rebuild to search with the current one.",
         }
     if partial:
         return {
             "state": "partial",
-            "detail": "Saved document vector metadata needs repair or a rebuild.",
+            "detail": "Some documents were not fully indexed. Rebuild to repair it.",
         }
     return {
         "state": "current",
-        "detail": "Saved document vectors match the selected embedding setting.",
+        "detail": "Up to date with the current search model.",
     }
 
 

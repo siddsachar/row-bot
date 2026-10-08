@@ -112,6 +112,10 @@ def search(service: Any, query: str, *, conversation_id: str | None = None,
                         continuation = _cursor([signature, identity, index, reader.revision, 1])
                         break
                     scanned += 1
+                    if record["role"] == "tool":
+                        # A tool's raw result (often JSON) is folded inside its step, never a
+                        # message the person wrote or read, so it is not a search hit.
+                        continue
                     hit = _find_public_text(reader, record, needle)
                     if hit is not None:
                         public = reader.public_row(record, maximum=1024)

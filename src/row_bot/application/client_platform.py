@@ -1074,6 +1074,8 @@ class ClientPlatformService:
             self.projection.publish(target, "resource.changed", {"revision": str(resources.revision)})
             return {"conversation_id": target, "revision": str(resources.revision), "status": "completed"}
         if kind in {"conversation.submit", "conversation.resume"}:
+            if kind == "conversation.submit" and payload.get("retry"):
+                self._set_last_turn_aside(target, str(payload.get("text") or ""))
             if kind == "conversation.resume":
                 from row_bot.tasks import _get_conn
                 with _get_conn() as conn:
@@ -1117,6 +1119,20 @@ class ClientPlatformService:
                 "retained_developer_work": bool(result.retained_worktree_path or result.retained_sandbox),
             }
         raise ClientPlatformError("invalid_command")
+
+    def _set_last_turn_aside(self, conversation_id: str, text: str) -> None:
+        """Retry in place: the last turn (the person's message and what followed it) is set aside, so sending
+        the same message again runs it again instead of adding a second copy. Only while nothing runs or waits
+        on an approval; otherwise, or when the last message is something else, it is sent as a new message."""
+        from row_bot import threads
+        from row_bot.tasks import _get_conn
+        if self.registry.active(conversation_id):
+            return
+        with _get_conn() as conn:
+            waiting = conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND status='pending'",
+                                   (conversation_id,)).fetchone()
+        if not waiting and threads.drop_last_turn(conversation_id, text):
+            self._refresh_checkpoint(conversation_id)
 
     def stop_conversation(self, conversation_id: str, generation_id: str = "") -> dict:
         """Stop a conversation's turn, and the computer use it holds.

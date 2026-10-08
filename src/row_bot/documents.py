@@ -20,7 +20,13 @@ from typing import Any
 from langchain_core.documents import Document
 
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.document_jobs import EMBEDDING_BATCH_SIZE, TERMINAL_JOB_STATUSES, DocumentJob, DocumentJobService
+from row_bot.document_jobs import (
+    EMBEDDING_BATCH_SIZE,
+    TERMINAL_JOB_STATUSES,
+    UNFINISHED_TERMINAL_JOB_STATUSES,
+    DocumentJob,
+    DocumentJobService,
+)
 from row_bot.embedding_config import (
     active_embedding_metadata,
     describe_active_embedding,
@@ -636,14 +642,18 @@ def remove_document_details(document_id: str, *, removal_id: str | None = None,
     Returned retained-copy paths are private local evidence. API adapters must
     project safe labels, not expose these paths to another client. This function
     relies on the calling surface's existing deletion authorization.
+    A document that never reached search (it failed, was cancelled or was a
+    duplicate) has nothing else to remove: its finished queue row leaves the list.
     """
     return _remove_document_details(document_id, removal_id=removal_id, retire_raw=True,
-                                     validate=validate, validate_snapshot=validate_snapshot)
+                                     validate=validate, validate_snapshot=validate_snapshot,
+                                     forget_unfinished=True)
 
 
 def _remove_document_details(document_id: str, *, removal_id: str | None, retire_raw: bool,
                              validate: Callable[[], None] | None = None,
-                             validate_snapshot: Callable[[str, dict], None] | None = None) -> dict:
+                             validate_snapshot: Callable[[str, dict], None] | None = None,
+                             forget_unfinished: bool = False) -> dict:
     global _vector_store
     from row_bot import knowledge_graph as kg
     from row_bot.document_index import remove_document_shard
@@ -732,6 +742,12 @@ def _remove_document_details(document_id: str, *, removal_id: str | None, retire
                     ):
                         raise ValueError("Document source identity changed since removal was requested")
             if not snapshot["known"]:
+                if forget_unfinished and job is not None and job.status in UNFINISHED_TERMINAL_JOB_STATUSES:
+                    stage = "queue"
+                    checked()
+                    if service.forget_unfinished_job(document_id, **checks):
+                        result["stages"]["queue"] = "complete"
+                        result["removed"] = True
                 result["status"] = "complete"
                 service.save_removal_result(result["removal_id"], result)
                 return result

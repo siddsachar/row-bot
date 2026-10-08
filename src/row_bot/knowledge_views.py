@@ -52,6 +52,9 @@ class DocumentSummary:
     updated_at: str
     truncated: bool
     searchability: Literal["unknown"] = "unknown"
+    # Why the saved job stopped (failed, cancelled): a code, never its message,
+    # which can hold local paths. The client turns it into words.
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -335,6 +338,11 @@ def _document(row):
     name = (
         _text(row["name"]).replace("\\", "/").rsplit("/", 1)[-1] or "Untitled document"
     )
+    code = row["error_code"] if status in {"failed", "cancelled"} else None
+    if code is not None and (
+        not isinstance(code, str) or not re.fullmatch(r"[a-z0-9_]{1,64}", code)
+    ):
+        code = None if code == "" else "document_failed"
     return DocumentSummary(
         _identity(row["id"]),
         name,
@@ -352,6 +360,7 @@ def _document(row):
         ),
         _text(row["updated_at"]),
         bool(row["truncated"]),
+        error_code=code,
     )
 
 
@@ -1211,7 +1220,7 @@ def list_saved_documents(
             SELECT j.id, j.original_name name, j.status, j.stage,
                 j.index_progress_current index_current, j.index_progress_total index_total,
                 j.extraction_progress_current extraction_current,
-                j.extraction_progress_total extraction_total, j.updated_at,
+                j.extraction_progress_total extraction_total, j.updated_at, j.error_code,
                 1 has_job, (r.document_id IS NOT NULL) has_record, 0 removed,
                 (r.document_id IS NOT NULL AND j.completed_at!='' AND r.completed_at!=''
                  AND j.completed_at=r.completed_at AND j.staged_path=r.staged_path
@@ -1220,14 +1229,14 @@ def list_saved_documents(
             FROM document_jobs j LEFT JOIN document_records r ON r.document_id=j.id
             UNION ALL
             SELECT r.document_id, r.original_name, 'unknown', 'unknown',
-                NULL,NULL,NULL,NULL,r.completed_at,0,1,0,0,0,r.document_id
+                NULL,NULL,NULL,NULL,r.completed_at,NULL,0,1,0,0,0,r.document_id
             FROM document_records r LEFT JOIN document_jobs j ON j.id=r.document_id
             WHERE j.id IS NULL
         ), catalog AS (
             SELECT * FROM saved
             UNION ALL
             SELECT legacy.id, legacy.name, 'unknown', 'unknown',
-                NULL,NULL,NULL,NULL,'',0,0,0,0,1,legacy.catalog_order
+                NULL,NULL,NULL,NULL,'',NULL,0,0,0,0,1,legacy.catalog_order
             FROM legacy
             WHERE NOT EXISTS (
                 SELECT 1 FROM document_records r WHERE r.original_name=legacy.name
@@ -1235,7 +1244,8 @@ def list_saved_documents(
         )
         SELECT substr(id,1,129) id, substr(name,-256) name, substr(status,1,64) status,
             substr(stage,1,64) stage, index_current,index_total,extraction_current,extraction_total,
-            substr(updated_at,1,64) updated_at,has_job,has_record,consistent,removed,
+            substr(updated_at,1,64) updated_at,substr(error_code,1,129) error_code,
+            has_job,has_record,consistent,removed,
             length(name)>256 truncated,
             ((? IS NULL OR (CASE WHEN status IN
               ('staging','queued','indexing','searchable','extracting','completed','failed','cancelled','skipped_duplicate')
@@ -1244,7 +1254,7 @@ def list_saved_documents(
         FROM catalog ORDER BY legacy_order, catalog_order
     """
     required = {
-        "document_jobs": "id original_name status stage index_progress_current index_progress_total extraction_progress_current extraction_progress_total updated_at completed_at staged_path content_sha256 size_bytes",
+        "document_jobs": "id original_name status stage index_progress_current index_progress_total extraction_progress_current extraction_progress_total updated_at completed_at staged_path content_sha256 size_bytes error_code",
         "document_records": "document_id original_name completed_at staged_path content_sha256 size_bytes",
     }
 

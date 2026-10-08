@@ -2086,6 +2086,68 @@ def remove_latest_checkpoint_ai_message(thread_id: str, expected_text: str) -> b
         return False
 
 
+def _message_text(message) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        content = "\n".join(
+            str(item.get("text") or "") if isinstance(item, dict) else str(item)
+            for item in content
+            if not isinstance(item, dict) or item.get("type", "text") == "text"
+        )
+    return str(content or "").strip()
+
+
+def drop_last_turn(thread_id: str, expected_text: str) -> bool:
+    """Retry in place: remove the latest turn (the person's last message and everything after it) when that
+    message is ``expected_text``, so sending it again runs it again instead of adding a second copy. False, and
+    nothing changes, when the person's last message is something else."""
+    expected = str(expected_text or "").strip()
+    if not thread_id or not expected:
+        return False
+    with checkpoint_mutation(thread_id):
+        try:
+            from langgraph.checkpoint.base import empty_checkpoint
+
+            config = {"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}}
+            checkpoint_tuple = checkpointer.get_tuple(config)
+            parent_config = getattr(checkpoint_tuple, "config", None) if checkpoint_tuple else None
+            checkpoint = getattr(checkpoint_tuple, "checkpoint", None) if checkpoint_tuple else None
+            checkpoint, _changed = _normalize_checkpoint_versions(checkpoint)
+            channel_values = dict(checkpoint.get("channel_values", {})) if isinstance(checkpoint, dict) else {}
+            existing = channel_values.get("messages", [])
+            if not isinstance(existing, list):
+                return False
+            human = next((index for index in range(len(existing) - 1, -1, -1)
+                          if str(getattr(existing[index], "type", "") or "") == "human"), -1)
+            if human < 0 or _message_text(existing[human]) != expected:
+                return False
+            removed_count = len(existing) - human
+            channel_values["messages"] = existing[:human]
+
+            next_checkpoint = empty_checkpoint()
+            next_checkpoint["channel_values"] = channel_values
+            channel_versions = dict(checkpoint.get("channel_versions", {}))
+            next_version = checkpointer.get_next_version(channel_versions.get("messages"), None)
+            channel_versions["messages"] = next_version
+            next_checkpoint["channel_versions"] = channel_versions
+            next_checkpoint["versions_seen"] = dict(checkpoint.get("versions_seen", {}))
+            next_checkpoint["pending_sends"] = []
+            put_config = parent_config or config
+            put_config.setdefault("configurable", {})
+            put_config["configurable"].setdefault("thread_id", str(thread_id))
+            put_config["configurable"].setdefault("checkpoint_ns", "")
+            checkpointer.put(
+                put_config,
+                next_checkpoint,
+                {"source": "retry", "step": _version_to_int(next_version), "writes": {"messages": -removed_count}},
+                {"messages": next_version},
+            )
+            return True
+        except Exception:
+            logger.warning("Could not set the last turn aside to retry it in thread %s", thread_id, exc_info=True)
+            return False
+
+
 def pick_or_create_thread() -> dict:
     """Interactive menu to resume an existing thread or start a new one."""
     threads = _list_threads()

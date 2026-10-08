@@ -319,3 +319,22 @@ def test_strict_bulk_retry_rejects_missing_saved_client_review(client, stack, mo
         "source_command_id": value["command_id"], "review_id": "synthetic-retry-review"}}
     with pytest.raises(ValueError, match="document_review_unavailable"):
         execute(client, retry)
+
+
+def test_reviewed_removal_of_a_never_searchable_document_leaves_the_list(client, stack):
+    from tests.subsystem.knowledge_graph.test_document_removal import never_searchable
+    adapter, context = client
+    _, job, _, _ = never_searchable(stack)
+    review = adapter.read_document_removal_review(job.id, validate=context["validate"])
+    assert review["source_count"] == 0
+    value = reviewed(client, job.id)
+    stale = {**value, "command_id": str(uuid4()), "payload": {**value["payload"], "source_revision": "stale"}}
+    with pytest.raises(ValueError, match="document_review_changed"):
+        execute(client, stale)
+    assert stack["service"].get_job(job.id).status == "failed"
+    result = execute(client, value)
+    assert result["status"] == "completed" and result["removal"]["removed"]
+    assert {"stage": "queue", "status": "complete"} in result["removal"]["stages"]
+    with pytest.raises(KeyError):
+        stack["service"].get_job(job.id)
+    assert adapter.read_document_command(**context, command_id=value["command_id"]) == result

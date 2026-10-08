@@ -1355,6 +1355,10 @@ def p4_document_processing(x_fixture_token: str = Header(default="")) -> dict:
     def forbid(*args, **kwargs):
         raise AssertionError('Uncaptured provider construction is forbidden')
     runtime.create_chat_model = forbid
+    # Settings › Documents processes without a conversation, reading with the
+    # model picked for documents (as a person would pick it there).
+    (predecessor.DATA / 'document_processing.json').write_text(
+        json.dumps({'model': 'model:openai:gpt-4o'}), encoding='utf-8')
     identifier = threads.create_thread('Synthetic processing conversation', model_override='model:openai:gpt-4o',
         approval_mode='approve', seed_default_skills=False)
     threads.append_checkpoint_messages(identifier, [HumanMessage(content='Synthetic document processing conversation')])

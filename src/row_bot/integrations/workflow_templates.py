@@ -1,16 +1,29 @@
-"""Workflow templates that use apps: a starting point, created switched off.
+"""Workflow templates: a starting point, created switched off.
 
-Each creates a scheduled workflow (it checks on its schedule; nothing outside can start it) whose
-step uses only its app, as an @mention would, under the workflow's profile and the Ask approval
-mode: reading runs, anything that changes asks, and approval-locked tools ask even under Allow all.
-No template sets a webhook or changes how Row-Bot can be reached. A template whose app is not
-connected yet says so, and its page offers Connect.
+Each creates a scheduled workflow (it checks on its schedule; nothing outside can start it) under
+the workflow's profile and the Ask approval mode: reading runs, anything that changes asks, and
+approval-locked tools ask even under Allow all. A template that uses apps limits its step to them, as
+an @mention would; a template without apps uses Row-Bot's own tools (web search, your past chats), so
+it works with nothing connected. No template sets a webhook or changes how Row-Bot can be reached.
+A template whose app is not connected yet says so, and its page offers Connect.
 """
 from __future__ import annotations
 
 from row_bot.integrations import apps
 
 TEMPLATES = (
+    {"id": "web_daily_brief", "name": "Daily brief from the web", "icon": "📰", "apps": (),
+     "description": "Every morning, the main news on the topics you choose, with sources.",
+     "schedule": "daily:08:00", "schedule_label": "Every day at 08:00",
+     "prompt": "Search the web for the most important news from the last day on these topics: technology, science "
+               "and world news. (Edit this list to choose your topics.) For each topic, give three or four short "
+               "points, each with its source. Only read: don't sign up, buy, post or send anything."},
+    {"id": "weekly_chat_summary", "name": "Weekly summary of my chats", "icon": "💬", "apps": (),
+     "description": "Every Friday, what you worked on with Row-Bot this week and what is still open.",
+     "schedule": "weekly:fri:17:00", "schedule_label": "Every Friday at 17:00",
+     "prompt": "Search my conversations with Row-Bot from the last 7 days. Summarize what I worked on, the decisions "
+               "made and anything still open or that I said I would do, naming the conversation for each. Only read: "
+               "don't change, send or delete anything."},
     {"id": "github_pr_digest", "name": "GitHub pull-request digest", "icon": "🔀", "apps": ("github",),
      "description": "Every morning, the pull requests waiting for you and what each needs.",
      "schedule": "daily:09:00", "schedule_label": "Every day at 09:00",
@@ -67,7 +80,10 @@ def use(template_id: str) -> dict:
     taken = {str(task.get("name") or "") for task in tasks.list_tasks()}
     name = next(candidate for candidate in (template["name"], *(f"{template['name']} ({n})" for n in range(2, 100)))
                 if candidate not in taken)
-    steps = [{"id": "read", "type": "prompt", "prompt": template["prompt"], "apps": item_ids, "on_error": "stop"},
+    read = {"id": "read", "type": "prompt", "prompt": template["prompt"], "on_error": "stop"}
+    if item_ids:  # Without apps the step uses Row-Bot's own tools, as any workflow step may.
+        read["apps"] = item_ids
+    steps = [read,
              {"id": "tell", "type": "notify", "channel": "desktop",
               "message": f"{name} is ready. Open the workflow's latest run to read it."}]
     task_id = tasks.create_task(name=name, description=template["description"], icon=template["icon"],

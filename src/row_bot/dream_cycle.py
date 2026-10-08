@@ -1379,9 +1379,13 @@ def run_dream_cycle(on_status=None) -> dict:
 
     # Check minimum entity count
     entity_count = kg.count_entities()
-    if entity_count < cfg.get("min_entities", 20):
-        _status(f"Skipped — only {entity_count} entities (min: {cfg.get('min_entities', 20)})")
-        summary["summary"] = f"Skipped — {entity_count} entities below minimum"
+    min_entities = cfg.get("min_entities", 20)
+    if entity_count < min_entities:
+        _status(f"Skipped — only {entity_count} entities (min: {min_entities})")
+        # Shown on Settings › Preferences: plain words, not "entities".
+        summary["summary"] = (
+            f"Skipped — waits for {min_entities} saved memories; there are {entity_count} so far"
+        )
         summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
         _append_journal(summary)
         return summary

@@ -2,14 +2,14 @@
   "$defs": {
     "WorkflowTemplate": {
       "additionalProperties": false,
-      "description": "A workflow that uses apps, created switched off and scheduled; never a webhook.",
+      "description": "A workflow, created switched off and scheduled; never a webhook. Its apps, if it uses any.",
       "properties": {
         "apps": {
           "items": {
             "$ref": "#/$defs/WorkflowTemplateApp"
           },
           "maxItems": 4,
-          "minItems": 1,
+          "minItems": 0,
           "title": "Apps",
           "type": "array"
         },

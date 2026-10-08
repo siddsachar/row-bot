@@ -338,6 +338,10 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
     elif key == ("tracker", "delete_all"):
         if value is not True:
             raise SettingsCommandError("invalid_settings_command")
+    elif key == ("tracker", "delete_tracker"):
+        # One saved tracker, by its id, with all of its entries.
+        if type(value) is not str or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
+            raise SettingsCommandError("invalid_settings_command")
     else:
         raise SettingsCommandError("settings_action_unavailable")
     return page, field, deepcopy(value), False
@@ -405,6 +409,15 @@ def review_settings_update(
     elif (page, field) == ("tracker", "delete_all"):
         summary = (
             "Delete all tracker data, including every tracker and entry. "
+            "This cannot be undone."
+        )
+    elif (page, field) == ("tracker", "delete_tracker"):
+        tracker = _saved_tracker(current, intent["value"])
+        entries = tracker["entry_count"]
+        name = tracker["name"] if len(tracker["name"]) <= 120 else tracker["name"][:119] + "\u2026"
+        summary = (
+            f"Delete the tracker \u201c{name}\u201d and its "
+            f"{entries} {'entry' if entries == 1 else 'entries'}. "
             "This cannot be undone."
         )
     elif (page, field) == ("system", "workspace.folder_grant"):
@@ -626,6 +639,54 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
     registry = sys.modules.get("row_bot.tools.registry")
     if registry is not None:
         registry.reload_saved_config()
+
+
+def _saved_tracker(snapshot: dict[str, Any], tracker_id: str) -> dict[str, Any]:
+    """The one saved tracker a reviewed deletion names, from the snapshot."""
+
+    for item in snapshot["tracker"]["items"]:
+        if item["tracker_id"] == tracker_id:
+            return item
+    raise SettingsCommandError("settings_changed", snapshot["revision"])
+
+
+def _delete_tracker(
+    root: Path, settings_revision: str, tracker_id: str, *, validate: Callable[[], None]
+) -> None:
+    """Atomically delete one reviewed tracker and its entries."""
+
+    path = root / "tracker" / "tracker.db"
+    if not path.is_file():
+        raise SettingsCommandError("settings_changed")
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(str(path), timeout=5)
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        validate()
+        current = read_settings_snapshot(validate=validate)
+        if current["revision"] != settings_revision:
+            raise SettingsCommandError("settings_changed", current["revision"])
+        _saved_tracker(current, tracker_id)
+        connection.execute("DELETE FROM entries WHERE tracker_id = ?", (tracker_id,))
+        deleted = connection.execute(
+            "DELETE FROM trackers WHERE id = ?", (tracker_id,)
+        ).rowcount
+        if deleted != 1:
+            raise SettingsCommandError("settings_changed", current["revision"])
+        validate()
+        connection.commit()
+    except SettingsCommandError:
+        if connection is not None:
+            connection.rollback()
+        raise
+    except sqlite3.Error:
+        if connection is not None:
+            connection.rollback()
+        raise SettingsCommandError("settings_save_unconfirmed") from None
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _clear_tracker_data(
@@ -858,6 +919,8 @@ def _apply(
     action_result = None
     if (page, field) == ("tracker", "delete_all"):
         _clear_tracker_data(root, intent["settings_revision"], validate=validate)
+    elif (page, field) == ("tracker", "delete_tracker"):
+        _delete_tracker(root, intent["settings_revision"], value, validate=validate)
     elif (page, field) == ("system", "computer_use.disclosure_acknowledged"):
         from row_bot.computer_use.readiness import (
             acknowledge_disclosure,

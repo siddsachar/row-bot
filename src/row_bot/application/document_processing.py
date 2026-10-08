@@ -21,6 +21,10 @@ from typing import Any
 from row_bot.application import knowledge_commands as common
 from row_bot.runtime import admissions
 
+# The processing scope Settings › Documents uses instead of a conversation.
+# Conversation ids are generated hex, so this name never belongs to one.
+SETTINGS_PROCESSING_SCOPE = "settings_documents"
+
 
 @dataclass(frozen=True, repr=False)
 class _Capture:

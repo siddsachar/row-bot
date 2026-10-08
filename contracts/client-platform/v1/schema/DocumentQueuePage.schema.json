@@ -32,6 +32,20 @@
           "title": "Cancel Requested",
           "type": "boolean"
         },
+        "document_count": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document Count"
+        },
         "error_code": {
           "anyOf": [
             {

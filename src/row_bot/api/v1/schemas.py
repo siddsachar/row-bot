@@ -116,6 +116,8 @@ class SubmitPayload(WireModel):
     attachment_refs: list[Reference] = Field(default_factory=list, max_length=32)
     model_selection: ModelSelection
     write_targets: list[WriteTarget] | None = Field(default=None, max_length=2)
+    # Retry: the last turn is set aside first when it is this same message, so it runs again in place.
+    retry: bool = False
 
 
 class RenamePayload(WireModel):
@@ -498,6 +500,7 @@ class DocumentSummary(WireModel):
     updated_at: str = Field(max_length=64)
     truncated: bool
     searchability: Literal["unknown"]
+    error_code: str | None = Field(default=None, max_length=64, pattern=r"^[a-z0-9_]+$")
 
 
 class EntitySummaryPage(WireModel):
@@ -2714,6 +2717,7 @@ class DocumentQueueItem(WireModel):
     extraction_total: int | None = Field(ge=0, le=2**53 - 1)
     error_code: str | None = Field(max_length=128)
     revision: KnowledgeRevision
+    document_count: int | None = Field(default=None, ge=0, le=2**53 - 1)
 
 
 class DocumentQueuePage(WireModel):
@@ -7703,13 +7707,13 @@ class WorkflowTemplateApp(WireModel):
 
 
 class WorkflowTemplate(WireModel):
-    """A workflow that uses apps, created switched off and scheduled; never a webhook."""
+    """A workflow, created switched off and scheduled; never a webhook. Its apps, if it uses any."""
     id: str = Field(pattern=r"^[a-z0-9_]{1,64}$")
     name: str = Field(max_length=160)
     description: str = Field(max_length=512)
     icon: str = Field(max_length=16)
     schedule_label: str = Field(max_length=80)
-    apps: list[WorkflowTemplateApp] = Field(min_length=1, max_length=4)
+    apps: list[WorkflowTemplateApp] = Field(min_length=0, max_length=4)
 
 
 class WorkflowTemplateList(WireModel):

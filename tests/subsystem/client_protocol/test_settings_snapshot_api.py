@@ -1526,3 +1526,66 @@ def test_the_x_callback_shown_in_settings_is_the_one_x_calls():
     from row_bot.tools import x_tool
 
     assert settings_snapshot.X_OAUTH_CALLBACK_URL == x_tool._OAUTH_REDIRECT_URI
+
+
+def test_one_tracker_is_deleted_with_its_entries_after_its_own_review(api):
+    client, headers, data, _ = api
+    path = _seed_tracker(data)
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "tracker",
+        "field": "delete_tracker",
+        "value": "water",
+    }
+    before = _tree(data)
+    review = _review(client, headers, request)
+    assert review["value_summary"] == (
+        "Delete the tracker “Water” and its 1 entry. This cannot be undone."
+    )
+    assert _tree(data) == before
+    command_id = str(uuid4())
+
+    response = _execute(client, headers, request, review, command_id)
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert [item["tracker_id"] for item in result["snapshot"]["tracker"]["items"]] == ["sleep"]
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT id FROM trackers").fetchall() == [("sleep",)]
+    assert connection.execute("SELECT id FROM entries").fetchall() == [("entry-2",)]
+    connection.close()
+    assert _execute(client, headers, request, review, command_id).json() == result
+
+
+def test_one_tracker_deletion_refuses_unknown_or_changed_trackers(api):
+    client, headers, data, _ = api
+    path = _seed_tracker(data)
+    snapshot = client.get(BASE, headers=headers).json()
+    unknown = client.post(BASE + "/review", headers=headers, json={
+        "settings_revision": snapshot["revision"], "page": "tracker",
+        "field": "delete_tracker", "value": "missing"})
+    assert unknown.status_code == 409 and unknown.json()["code"] == "settings_changed"
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "tracker",
+        "field": "delete_tracker",
+        "value": "water",
+    }
+    review = _review(client, headers, request)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?)",
+        ("entry-concurrent", "water", "2026-01-04T09:00:00", "1", None, "2026-01-04"),
+    )
+    connection.commit()
+    connection.close()
+
+    response = _execute(client, headers, request, review)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "settings_changed"
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT COUNT(*) FROM trackers").fetchone()[0] == 2
+    assert connection.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 3
+    connection.close()

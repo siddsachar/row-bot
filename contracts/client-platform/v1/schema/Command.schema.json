@@ -8718,6 +8718,11 @@
         "model_selection": {
           "$ref": "#/$defs/ModelSelection"
         },
+        "retry": {
+          "default": false,
+          "title": "Retry",
+          "type": "boolean"
+        },
         "submission_id": {
           "format": "uuid",
           "title": "Submission Id",
