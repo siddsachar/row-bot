@@ -497,7 +497,7 @@ it('says when connecting also lets chats use the app (B308)', async () => {
   ).toBeVisible();
 });
 
-it('stopping a setup stays on its page, even when what it saved is gone', async () => {
+it('a stopped setup stays on its page when what it saved is gone', async () => {
   const paused = plan({
     plan_id: 'b1b1b1b1-0000-4000-8000-000000000002',
     state: 'paused',
@@ -512,7 +512,10 @@ it('stopping a setup stays on its page, even when what it saved is gone', async 
     next_action: { kind: 'continue_setup', label: 'Continue setup' },
   });
   const controller = {
-    integrationDetail: vi.fn(async () => detail({ plan: paused })),
+    integrationDetail: vi.fn(async ({ item_id }: { item_id: string }) => {
+      if (item_id === 'mcp:removed-meanwhile') throw { code: 'not_found' };
+      return detail({ plan: paused });
+    }),
     reviewInstallPlan: vi.fn(async () => paused),
     cancelInstallPlan: vi.fn(async () => ({
       ...paused,
@@ -525,12 +528,20 @@ it('stopping a setup stays on its page, even when what it saved is gone', async 
   show('/settings/apps/item?id=mcp%3Acurated%3Anotion', controller);
   fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
   await waitFor(() => expect(controller.cancelInstallPlan).toHaveBeenCalled());
+  // It looks for what the setup saved, finds it gone, and shows this page again.
   await waitFor(() =>
-    expect(controller.integrationDetail).toHaveBeenCalledTimes(2),
+    expect(
+      controller.integrationDetail.mock.calls.map(([query]) => query.item_id),
+    ).toEqual([
+      'mcp:curated:notion',
+      'mcp:removed-meanwhile',
+      'mcp:curated:notion',
+    ]),
   );
   expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
     '/settings/apps/item?id=mcp%3Acurated%3Anotion',
   );
+  expect(screen.queryByText("Couldn't open this")).toBeNull();
 });
 
 it('connects after one consent, follows the plan, and lets the access sheet choose', async () => {

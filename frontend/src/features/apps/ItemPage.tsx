@@ -285,17 +285,18 @@ function Detail({
   const name = entry ? entry.app?.name || entry.name : '';
   const control = usePlan({ itemId, revision, name }, (plan) => {
     // Set up from a catalog entry: follow it to the installed item; removed: back to the library.
-    // Stopped, it stays: this page shows what was saved, if anything (it may be gone since).
+    // Stopped, it follows only to what it saved that still opens (a Remove may have deleted it since).
+    const installed = plan.installed_id;
+    const follow = () =>
+      navigate(idPath(kind, installed ?? ''), { replace: true });
     if (plan.state === 'completed' && plan.intent === 'remove')
       navigate(back, { replace: true });
-    else if (
-      plan.state === 'completed' &&
-      plan.installed_id &&
-      plan.installed_id !== itemId
-    )
-      navigate(idPath(kind, plan.installed_id), {
-        replace: true,
-      });
+    else if (plan.state === 'completed' && installed && installed !== itemId)
+      follow();
+    else if (plan.state === 'cancelled' && installed && installed !== itemId)
+      controller
+        .integrationDetail({ item_id: installed, revision: '' })
+        .then(follow, () => void load());
     else void load();
   });
   const openPlan = detail?.plan?.plan_id ? detail.plan : null;
