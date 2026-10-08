@@ -213,6 +213,14 @@ export function Publisher({ entry }: { entry: IntegrationEntry }) {
   );
 }
 
+/**
+ * Whether an entry goes by its app (name, summary, examples). A skill or a built-in way is one thing that works
+ * with an app (the "Fix failing CI" skill, the GitHub account), so it goes by its own name and job.
+ */
+export function asApp(entry: IntegrationEntry) {
+  return entry.kind !== 'skill' && entry.kind !== 'builtin';
+}
+
 /** A featured app, or one whose publisher is verified; the rest is "More from the community". */
 export function fromApp(entry: IntegrationEntry) {
   return Boolean(entry.verified || entry.app?.featured_rank);
@@ -246,16 +254,15 @@ export function ItemCard({
 }) {
   const status = statusOf(entry);
   const method = methods[entry.method ?? ''];
-  // A built-in way is one way to its app (the GitHub account, not GitHub): its own name and job.
-  const builtIn = entry.kind === 'builtin';
+  const ownName = !asApp(entry);
   return (
     <li>
       <Link className="app-card" to={itemHref(entry, revision)}>
         <AppIcon icon={entry.icon} />
         <span className="app-card-text">
-          <strong>{(!builtIn && entry.app?.name) || entry.name}</strong>
+          <strong>{(!ownName && entry.app?.name) || entry.name}</strong>
           <span className="app-card-job">
-            {(!builtIn && app?.summary) ||
+            {(!ownName && app?.summary) ||
               entry.description ||
               'No description.'}
           </span>

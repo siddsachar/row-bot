@@ -246,7 +246,7 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await page.getByRole('menuitem', { name: /^Approvals/ }).focus();
   await page.keyboard.press('ArrowRight');
   await expect(
-    page.getByRole('menuitemradio', { name: 'Ask', exact: true }),
+    page.getByRole('menuitemradio', { name: /^Ask/ }),
   ).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');

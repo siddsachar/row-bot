@@ -1396,6 +1396,47 @@ it('starts the fix at once when opened from Needs you, and only once', async () 
   );
 });
 
+it('lists two skills for one app by their own names, never twice as the app', async () => {
+  const github = {
+    id: 'github',
+    name: 'GitHub',
+    publisher: 'GitHub',
+    category: 'developer' as const,
+    icon: 'si:github',
+    verified: true,
+    featured_rank: 1,
+  };
+  const skill = (id: string, name: string, description: string) =>
+    entry({
+      id: `skill:${id}`,
+      kind: 'skill',
+      name,
+      description,
+      app: github,
+      method: '',
+      publisher: 'OpenAI',
+      next_action: { kind: 'add', label: 'Add' },
+    });
+  show('/settings/skills', {
+    integrationItems: vi.fn(async (options: { scope?: string }) =>
+      page(
+        options.scope === 'installed'
+          ? []
+          : [
+              skill('fix-ci', 'Fix failing CI', 'Reads failing checks.'),
+              skill('pr-writer', 'PR writer', 'Writes the description.'),
+            ],
+      ),
+    ),
+  });
+  expect(
+    await screen.findByRole('link', { name: /^Fix failing CI/ }),
+  ).toBeVisible();
+  expect(screen.getByRole('link', { name: /^PR writer/ })).toBeVisible();
+  expect(screen.getByText('Reads failing checks.')).toBeVisible();
+  expect(screen.queryByRole('link', { name: /^GitHub/ })).toBeNull();
+});
+
 it('names a built-in way as itself, not as the app it is one way to', async () => {
   const account = entry({
     id: 'builtin:account:github',

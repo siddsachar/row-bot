@@ -298,12 +298,16 @@ it('removes old Thinking content immediately after a model switch without sendin
 it('keeps approval, runtime and profile distinct in their compact menus', async () => {
   render(<ComposerControls onError={vi.fn()} />);
   const approvals = await menu('Approvals');
-  expect(approvals.getByRole('menuitem', { name: 'Ask' })).toHaveAttribute(
+  // Each choice says what it does.
+  expect(approvals.getByRole('menuitem', { name: /^Ask/ })).toHaveAttribute(
     'aria-current',
     'true',
   );
+  expect(
+    approvals.getByText('Asks before anything that makes changes'),
+  ).toBeVisible();
   await act(async () =>
-    fireEvent.click(approvals.getByRole('menuitem', { name: 'Block' })),
+    fireEvent.click(approvals.getByRole('menuitem', { name: /^Block/ })),
   );
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('block');
   const more = await menu('Add files and more');
@@ -427,12 +431,11 @@ it('folds the model, approvals and context usage into + on a one-line composer',
     'Exact effort model',
   );
   const approvals = await submenu(more, /^Approvals/);
-  expect(approvals.getByRole('menuitemradio', { name: 'Ask' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
+  expect(
+    approvals.getByRole('menuitemradio', { name: /^Ask/ }),
+  ).toHaveAttribute('aria-checked', 'true');
   await act(async () =>
-    fireEvent.click(approvals.getByRole('menuitemradio', { name: 'Auto' })),
+    fireEvent.click(approvals.getByRole('menuitemradio', { name: /^Auto/ })),
   );
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe(
     'allow_all',

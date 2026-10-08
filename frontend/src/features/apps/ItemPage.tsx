@@ -41,6 +41,7 @@ import {
 import {
   AppIcon,
   appCatalog,
+  asApp,
   idPath,
   ItemCard,
   Publisher,
@@ -282,10 +283,7 @@ function Detail({
     heading.current?.focus({ preventScroll: true });
   }, [Boolean(detail)]); // eslint-disable-line react-hooks/exhaustive-deps
   const entry = detail?.entry;
-  // A built-in way is one way to its app (the GitHub account, not GitHub): it goes by its own name.
-  const name = entry
-    ? (entry.kind !== 'builtin' && entry.app?.name) || entry.name
-    : '';
+  const name = entry ? (asApp(entry) && entry.app?.name) || entry.name : '';
   const control = usePlan({ itemId, revision, name }, (plan) => {
     // Set up from a catalog entry: follow it to the installed item; removed: back to the library.
     // Stopped, it follows only to what it saved that still opens (a Remove may have deleted it since).
@@ -473,7 +471,7 @@ function Detail({
       <PlanProgress control={control} name={name} />
       <SettingsGroup title="Overview">
         <div className="app-section">
-          <p>{(!builtIn && app?.summary) || entry.description}</p>
+          <p>{(asApp(entry) && app?.summary) || entry.description}</p>
           {entry.kind === 'skill' ? (
             <p>
               Use it in chat with <code>{slashOf(entry.name)}</code>

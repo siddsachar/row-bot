@@ -266,6 +266,8 @@ export function Hint({
 }
 export type MenuAction = {
   label: string;
+  /** One short line under the label: what choosing it does. */
+  description?: string;
   onSelect: (opener: HTMLButtonElement | null) => void;
   disabled?: boolean;
   /** Destructive actions render last, in red, after a separator. */
@@ -391,7 +393,10 @@ export function Menu({
                     {action.icon}
                   </span>
                 )}
-                <span className="menu-item-label">{action.label}</span>
+                <span className="menu-item-label">
+                  {action.label}
+                  {action.description && <small>{action.description}</small>}
+                </span>
                 {action.shortcut && (
                   // Announced through aria-keyshortcuts; the keycaps stay
                   // out of the item's accessible name.

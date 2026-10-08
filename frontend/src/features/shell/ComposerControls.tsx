@@ -41,6 +41,12 @@ import { AppIcon } from '../apps/parts';
 import { currentProfileChoice, profileChoices } from './agent-profiles';
 
 const APPROVAL_LABELS = { approve: 'Ask', block: 'Block', allow_all: 'Auto' };
+/** What each approval mode does, in the menus that choose it. */
+const APPROVAL_DESCRIPTIONS = {
+  approve: 'Asks before anything that makes changes',
+  allow_all: 'Routine actions run; risky ones still ask',
+  block: 'Nothing that makes changes runs',
+};
 const APPROVAL_ICONS = {
   approve: ShieldQuestion,
   block: ShieldBan,
@@ -314,6 +320,7 @@ export default function ComposerControls({
                             >
                               <span className="menu-item-label">
                                 {APPROVAL_LABELS[value]}
+                                <small>{APPROVAL_DESCRIPTIONS[value]}</small>
                               </span>
                               <Dropdown.ItemIndicator>
                                 <Check size={16} aria-hidden />
@@ -564,6 +571,7 @@ export default function ComposerControls({
           actions={(['approve', 'allow_all', 'block'] as const).map(
             (value) => ({
               label: APPROVAL_LABELS[value],
+              description: APPROVAL_DESCRIPTIONS[value],
               selected: mode === value,
               onSelect: () => void save({ approval_mode: value }),
             }),

@@ -2569,9 +2569,10 @@ export default function Conversation({
   // "@" mentions: a keyboard path to agent profile, write target and files.
   const selectedTargets = id ? (targetSelection[id] ?? defaultTargetIds) : [];
   const mentionItems: MentionItem[] = [
-    // An app mention stays in the message and focuses that turn on the app.
+    // An app mention stays in the message and focuses that turn on the app. A built-in way without chat
+    // tools (the GitHub account, a channel) has nothing to focus on, so it isn't offered.
     ...(composerSnapshot?.apps ?? [])
-      .filter((app) => app.on && app.available)
+      .filter((app) => app.on && app.available && app.switchable !== false)
       .map((app) => ({
         id: `app:${app.item_id}`,
         group: 'Apps',
