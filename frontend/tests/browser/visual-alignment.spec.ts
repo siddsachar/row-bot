@@ -67,7 +67,7 @@ async function addDeck(page: Page, name: string): Promise<void> {
   await openAddResource(page);
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   const another = setup.getByRole('button', {
-    name: 'Start another resource',
+    name: 'Create another',
     exact: true,
   });
   if (await another.isVisible()) await another.click();

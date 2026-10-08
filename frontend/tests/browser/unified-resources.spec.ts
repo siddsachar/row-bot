@@ -362,7 +362,7 @@ test('two Decks require an explicit captured write target independent of panel f
     });
     if (index)
       await setup
-        .getByRole('button', { name: 'Start another resource', exact: true })
+        .getByRole('button', { name: 'Create another', exact: true })
         .click();
     await setup
       .getByRole('textbox', { name: 'Name (optional)', exact: true })
@@ -788,7 +788,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
     await openAddResource(page);
     dialog = page.getByRole('dialog', { name: 'Add resource', exact: true });
     await dialog
-      .getByRole('button', { name: 'Start another resource', exact: true })
+      .getByRole('button', { name: 'Create another', exact: true })
       .click();
     await dialog
       .getByRole('radio', { name: 'Code folder', exact: true })

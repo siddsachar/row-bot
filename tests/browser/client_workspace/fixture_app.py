@@ -704,8 +704,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
             caches.pending_video = {"path": save_generated_output(
                 thread_id, video_data, prefix="synthetic-browser", extension="mp4")}
         media = capture_generated_media(thread_id, caches)
+        # Saved on the tool message as the real tool wrapper saves it, so a transcript re-read keeps the image.
         append_checkpoint_messages(thread_id, [ToolMessage(id=tool_message, tool_call_id=tool_id,
-                                                          content="Synthetic image created.")])
+                                                          content="Synthetic image created.",
+                                                          additional_kwargs={"platform_media": media} if media else {})])
         yield "tool_done", {
             "tool_call_id": tool_id,
             "message_id": tool_message,

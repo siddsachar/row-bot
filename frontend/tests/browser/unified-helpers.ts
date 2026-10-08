@@ -497,7 +497,7 @@ export async function addReviewResourcePair(
     });
     if (kind === 'workspace') {
       await setup
-        .getByRole('button', { name: 'Start another resource', exact: true })
+        .getByRole('button', { name: 'Create another', exact: true })
         .click();
       await setup
         .getByRole('radio', { name: 'Code folder', exact: true })
@@ -530,6 +530,12 @@ export async function addReviewResourcePair(
       await page
         .getByRole('button', { name: 'Back to conversation', exact: true })
         .click();
+    // A new Deck opens in the side panel in place of Context: wait for it, so
+    // the next Add resource is chosen from what stays on screen.
+    else if (kind === 'artifact')
+      await expect(
+        page.getByRole('region', { name: 'Design preview', exact: true }),
+      ).toBeVisible();
   }
 }
 

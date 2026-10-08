@@ -39,7 +39,7 @@ test('browser resource setup uses server IDs and never sends client paths', asyn
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   const restart = setup.getByRole('button', {
-    name: 'Start another resource',
+    name: 'Create another',
     exact: true,
   });
   const resourceType = setup.getByRole('radiogroup', {
