@@ -310,6 +310,25 @@ def test_a_choice_to_make_changes_asks_for_everything_and_a_read_only_setting_fo
     plans.cancel(context(), paused["plan_id"])
 
 
+def test_setting_up_again_from_the_catalog_carries_on_with_the_app_it_already_added(hosted):
+    """Live: Atlassian's sign-in expired after its connection was saved; Try again planned from the catalog
+    entry again and stopped with "This step could not finish" (the name was taken by the first attempt)."""
+    hosted(dcr=True)
+    item = "mcp:curated:supabase-mcp"
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    first = api.start_plan(context(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"], preset="read_only")
+    assert first["pause"] == "inputs" and first["installed_id"]  # Saved when agreed to, then stopped.
+    plans.cancel(context(), first["plan_id"])
+    detail, again = api.read_item(owner_id="owner", item_id=item)
+    assert detail["entry"]["id"] == first["installed_id"] and again["intent"] != "connect"
+    second = api.start_plan(context(), plan_id=str(uuid4()), item_id=item, digest=again["digest"], preset="read_only")
+    try:
+        assert second["pause"] == "inputs", second["message"]
+        assert sorted(config.read_saved_configuration().document["servers"]) == ["Notes", "Supabase MCP"]  # Added once.
+    finally:
+        plans.cancel(context(), second["plan_id"])
+
+
 def test_a_refresh_that_fails_asks_to_sign_in_again(hosted):
     from row_bot.mcp_client import runtime
     document = json.loads(config.CONFIG_PATH.read_text())

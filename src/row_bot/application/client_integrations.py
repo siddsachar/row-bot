@@ -372,12 +372,28 @@ def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], 
         return row, {"cfg": plans._saved(row["target"], row["owner_ref"])[1]} if row["kind"] == "mcp" else {}
     saved = _SEARCHES.get((owner_id, revision)) if revision else None
     found = next((r for r in saved[1]["items"] if r["id"] == item_id), None) if saved else None
-    if found is not None and item_id in saved[2]:
-        return copy.deepcopy(found), saved[2][item_id]
-    local = catalog.catalog_entry(item_id)
-    if local is None:
+    listed = ((copy.deepcopy(found), saved[2][item_id]) if found is not None and item_id in saved[2]
+              else catalog.catalog_entry(item_id))
+    if listed is None:
         raise ClientPlatformError("not_found")
-    return local
+    added = _already_added(listed[0])
+    # Already added from this entry (a setup that stopped part way, or its catalog card): carry on with that
+    # one; adding it again would collide with it.
+    return (added, {"cfg": plans._saved(added["target"], added["owner_ref"])[1]}) if added else listed
+
+
+def _already_added(row: dict) -> dict | None:
+    """The connection saved from this catalog entry (any version of a Registry entry), if there is one."""
+    if row["kind"] != "mcp" or row["lifecycle"] != "available":
+        return None
+    source, _, entry_id = row["id"].removeprefix("mcp:").partition(":")
+    name = entry_id.rpartition("@")[0] if source == "official" else ""
+    for item in facts.inventory()[0]:
+        if item["kind"] == "mcp" and item["lifecycle"] != "available" and item["target"] in (None, {"kind": "standalone"}):
+            saved = plans._saved(item["target"], item["owner_ref"])[1].get("source") or {}
+            if saved.get("marketplace") == source and (saved.get("id") == entry_id or name and saved.get("registry_name") == name):
+                return item
+    return None
 
 
 def _ways(row: dict) -> list[dict]:
@@ -458,7 +474,7 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
     intent). The second value is the plan still to consent to; reading never sends a command."""
     validate()
     row, reference = _resolve(owner_id, item_id, revision, validate)
-    current = plans.open_plan(context or plans.Context(owner_id, owner_id, validate), item_id)
+    current = plans.open_plan(context or plans.Context(owner_id, owner_id, validate), row["id"])
     if current is not None:
         return {"entry": entry(row), "plan": current, "about": _about(row, validate, current, reference.get("cfg"))}, None
     plan = plans.compute(row, reference, intent=intent, cleanup=cleanup)
