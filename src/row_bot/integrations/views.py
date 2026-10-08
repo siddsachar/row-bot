@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import re
 import secrets
 import threading
@@ -22,6 +23,8 @@ import time
 from typing import Any
 
 from row_bot.integrations.safe import TtlCache
+
+logger = logging.getLogger(__name__)
 
 RENDER_SECONDS = 600
 CALLS_PER_MINUTE = 20
@@ -194,7 +197,10 @@ def _step(conversation_id: str, call_id: str) -> tuple[dict, str | None]:
                 part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text")
     if call is None:
         raise ViewError("not_found")
-    return {"id": call["id"], "name": call["name"], "args": call.get("args") or {}}, result
+    name, args = call["name"], call.get("args") or {}
+    if name == "tool_invoke" and isinstance(args, dict):  # Called through tool discovery: the tool it named.
+        name, args = str(args.get("name") or ""), args.get("arguments") or {}
+    return {"id": call["id"], "name": name, "args": args if isinstance(args, dict) else {}}, result
 
 
 def _result(text: str | None) -> dict | None:
@@ -279,6 +285,7 @@ def render(conversation_id: str, call_id: str) -> dict:
     except ViewError:
         raise
     except (ValueError, RuntimeError, TimeoutError) as error:
+        logger.warning("A view from %s didn't load: %s %s", info.server_name, type(error).__name__, str(error)[:80])
         raise ViewError("view_unavailable", "The app didn't send its view. Try again later.") from error
     render_id = secrets.token_hex(16)
     meta = view["meta"]

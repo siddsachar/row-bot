@@ -448,6 +448,29 @@ def test_a_view_gets_the_call_and_result_the_chat_kept(reload_for_data_dir, tmp_
         views._step(thread, "call-2")
 
 
+def test_a_view_opens_for_a_call_made_through_tool_discovery(reload_for_data_dir, tmp_path):
+    """Found live (WebView2 check): an app called through tool_invoke showed "Part of Row-Bot isn't
+    responding" where its view belonged: the step was looked up as tool_invoke, which has no view."""
+    from langchain_core.messages import AIMessage, ToolMessage
+    threads, = reload_for_data_dir(tmp_path / "data", "row_bot.threads")
+    thread = threads.create_thread("Counter", thread_id="chat-invoked")
+    threads.append_checkpoint_messages(thread, [
+        AIMessage(content="", tool_calls=[{"id": "call-1", "name": "tool_invoke",
+                                            "args": {"name": "mcp_counter_counter", "arguments": {"start": 3}}}]),
+        ToolMessage(tool_call_id="call-1", name="tool_invoke", content="3")])
+    call, _ = views._step(thread, "call-1")
+    assert call["name"] == "mcp_counter_counter" and call["args"] == {"start": 3}
+
+
+def test_why_a_view_cannot_show_reaches_the_client_as_itself():
+    """Every view error read "Part of Row-Bot isn't responding": its code wasn't one the API knew."""
+    from row_bot.api.v1.routes import problem
+    from row_bot.api.v1.security import ProtocolError
+    for code, status in (("view_unavailable", 409), ("views_off", 403), ("view_rate_limited", 429)):
+        body = json.loads(problem(ProtocolError(code, status)).body)
+        assert (body["code"], body["status"]) == (code, status)
+
+
 def test_the_frame_route_serves_a_view_once_with_its_own_policy(app):
     from fastapi.testclient import TestClient
     from row_bot.app import _app_view_handler

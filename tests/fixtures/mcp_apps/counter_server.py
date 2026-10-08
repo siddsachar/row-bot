@@ -98,21 +98,21 @@ def view() -> str:
 
 
 @server.tool(meta={"ui": {"resourceUri": VIEW_URI}})
-def counter(start: int = 0) -> dict:
+def counter(start: int = 0) -> dict[str, int]:
     """Show the counter, starting from a number."""
     _count["value"] = start
     return {"count": _count["value"]}
 
 
 @server.tool(meta={"ui": {"resourceUri": VIEW_URI, "visibility": ["app"]}})
-def increment(by: int = 1) -> dict:
+def increment(by: int = 1) -> dict[str, int]:
     """Add to the counter (its view's button)."""
     _count["value"] += by
     return {"count": _count["value"]}
 
 
 @server.tool(meta={"ui": {"visibility": ["model"]}})
-def reset() -> dict:
+def reset() -> dict[str, int]:
     """Set the counter back to zero."""
     _count["value"] = 0
     return {"count": 0}

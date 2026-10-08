@@ -1020,6 +1020,9 @@ _STATUS.update(dict.fromkeys(('integration_link_unsupported', 'invalid_upload', 
                               'bundle_signature_invalid', 'bundle_unsupported'), 422))
 _STATUS['upload_too_large'] = 413
 _STATUS['app_not_connected'] = 409  # A workflow template whose app is not connected yet.
+# App views in chat: each reaches the client as itself (unlisted, every one read "Part of Row-Bot isn't responding").
+_STATUS.update({"views_off": 403, "view_tool_refused": 403, "view_tool_denied": 403, "view_rate_limited": 429,
+                "view_busy": 409, "view_unavailable": 409, "view_tool_failed": 502})
 
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).
@@ -4458,9 +4461,7 @@ def create_router(
         return await respond(request, dto.IconBatch, await call(read_icons, list(wanted)))
 
     def view_problem(error: Exception) -> ProtocolError:
-        status = {"not_found": 404, "views_off": 403, "view_tool_refused": 403, "view_tool_denied": 403,
-                  "view_rate_limited": 429, "view_busy": 409, "invalid_command": 422,
-                  "view_tool_failed": 502}.get(str(error), 409)
+        status = {"not_found": 404, "invalid_command": 422}.get(str(error)) or _STATUS.get(str(error), 409)
         return ProtocolError(str(error), status)
 
     @router.post("/conversations/{conversation_id}/views")
