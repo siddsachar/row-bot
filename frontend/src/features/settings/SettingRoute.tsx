@@ -39,7 +39,6 @@ import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
 import CapabilitySettings from './CapabilitySettings';
-import McpFacadeControls from './McpFacadeControls';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
@@ -119,7 +118,6 @@ export default function SettingRoute() {
     providerConfigurationOwner,
     defaultModelOwner,
     capabilitySettingsOwner,
-    mcpChatOwner,
     subscriptionAccountsOwner,
     subscriptionOptionsOwner,
     documentRemovalsOwner,
@@ -604,20 +602,6 @@ export default function SettingRoute() {
             kind={leaf.id === 'apps' ? 'app' : 'skill'}
             item={item}
             editor={editor}
-            chat={
-              mcpChatOwner?.get() && (
-                <McpFacadeControls
-                  session={mcpChatOwner.get()!}
-                  load={(signal) => controller.mcpChat(signal)}
-                  review={(payload, signal) =>
-                    controller.reviewMcpChat(payload, signal)
-                  }
-                  execute={(command, review) =>
-                    controller.executeMcpChat(command, review)
-                  }
-                />
-              )
-            }
           />
         ) : leaf.id === 'tools' ? (
           <>

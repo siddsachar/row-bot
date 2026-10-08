@@ -643,9 +643,8 @@ function facts(plan: InstallPlan, name: string) {
       lines.push(
         'Adds the skill and turns it on. Scripts in it never run when you add it.',
       );
-    if (consent.turns_on_mcp) lines.push('This also turns on apps in Row-Bot.');
-    if (consent.turns_on_chats)
-      lines.push('This also turns on Use apps in chats, so chats can use it.');
+    if (consent.turns_on_mcp || consent.turns_on_chats)
+      lines.push('This also turns on Use apps, so chats can use it.');
   }
   return lines;
 }

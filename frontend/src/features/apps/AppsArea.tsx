@@ -14,19 +14,17 @@ export default function AppsArea({
   kind,
   item,
   editor,
-  chat,
 }: {
   kind: 'app' | 'skill';
   item: string;
   editor: (kind: 'app' | 'skill', id: string) => ReactNode;
-  chat: ReactNode;
 }) {
   const [search] = useSearchParams();
   // Item ids travel as `item?id=`; app ids, skill names, `new` and `custom` as the path.
   const id = item === 'item' ? (search.get('id') ?? '') : item;
   if (!id)
     return kind === 'app' && search.get('view') === 'advanced' ? (
-      <Advanced chat={chat} />
+      <Advanced />
     ) : (
       <Library kind={kind} />
     );

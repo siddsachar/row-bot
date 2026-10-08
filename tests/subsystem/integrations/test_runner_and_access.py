@@ -241,7 +241,7 @@ def test_a_chats_switch_turned_off_after_agreeing_stays_off_and_is_named(item, o
     switch(False)  # The person turns it off meanwhile (on, then off again): connecting never overrides that.
     access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
     done = plans.resume(ctx(tools_digest=access["tools_digest"]), plan_id)
-    assert done["state"] == "completed" and "turn on Use apps in chats" in done["message"]
+    assert done["state"] == "completed" and "turn on Use apps in Apps" in done["message"]
     assert registry.is_enabled("mcp") is False
 
 

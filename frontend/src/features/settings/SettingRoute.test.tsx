@@ -13,7 +13,6 @@ import { RuntimeContext } from '../../runtime';
 import { WorkspaceActionsContext } from '../shell/workspace-actions';
 import SettingRoute from './SettingRoute';
 import { createCapabilitySettingsSession } from './CapabilitySettings';
-import { createMcpFacadeSession } from './McpFacadeControls';
 
 function Where() {
   const location = useLocation();
@@ -166,6 +165,19 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
     })),
     catalogSchedule: vi.fn(async () => ({ enabled: false, interval_days: 7 })),
     appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
+    mcpPolicy: vi.fn(async () => ({
+      schema_version: 1,
+      revision,
+      server_id: null,
+      availability: 'available',
+      global_enabled: true,
+      server_enabled: null,
+      resources_enabled: null,
+      prompts_enabled: null,
+      items: [],
+      total: 0,
+      next_cursor: null,
+    })),
     mcpChat: vi.fn(async () => ({
       schema_version: 1,
       resource_revision: revision,
@@ -175,9 +187,7 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
       registered: true,
     })),
   });
-  renderAt('/settings/apps?view=advanced', controller, {
-    mcpChatOwner: owner(createMcpFacadeSession()),
-  });
+  renderAt('/settings/apps?view=advanced', controller);
   const catalogs = await screen.findByRole('region', { name: 'Catalogs' });
   expect(await within(catalogs).findByText('Synthetic Registry')).toBeVisible();
   expect(
@@ -196,11 +206,11 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
   expect(
     chats.compareDocumentPosition(catalogs) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+  // One switch for apps: no second one for chats.
   expect(
-    await within(chats).findByRole('switch', {
-      name: 'Use apps in chats',
-    }),
+    await within(chats).findByRole('switch', { name: 'Use apps' }),
   ).toBeChecked();
+  expect(within(chats).queryByRole('switch', { name: /in chats/ })).toBeNull();
   expect(
     await within(chats).findByRole('switch', {
       name: 'Show app views in chat',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useRuntime } from '../../runtime';
@@ -7,6 +7,7 @@ import type {
   AppViewSettings,
   CatalogSchedule,
   IntegrationSourceView,
+  McpChatState,
   McpPolicyPage,
 } from '../../api/types';
 import { relativeTime } from '../../ui/format';
@@ -36,20 +37,33 @@ function standing(source: IntegrationSourceView) {
   return `Updated ${relativeTime(update.updated_at)}${entries}`;
 }
 
-/** "Use apps": one switch that stops every app at once, through the same reviewed policy command as each app's. */
+/**
+ * "Use apps": the one switch for apps. On, apps run and chats and workflows can use their tools; off stops
+ * every app at once. Each half goes through its own reviewed command, as before: the apps' policy and the
+ * agent's app tools.
+ */
 function UseApps() {
   const { controller } = useRuntime();
   const [page, setPage] = useState<McpPolicyPage | null>(null);
+  const [chats, setChats] = useState<McpChatState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const read = useCallback(
     (signal?: AbortSignal) =>
       // A runtime without MCP settings shows the switch as unknown.
-      Promise.resolve()
-        .then(() =>
-          controller.mcpPolicy({ server_id: null, query: '' }, signal),
-        )
-        .then(setPage),
+      Promise.all([
+        Promise.resolve()
+          .then(() =>
+            controller.mcpPolicy({ server_id: null, query: '' }, signal),
+          )
+          .then(setPage),
+        Promise.resolve()
+          .then(() => controller.mcpChat(signal))
+          .then(
+            (state) => setChats(state ?? null),
+            () => setChats(null),
+          ),
+      ]),
     [controller],
   );
   useEffect(() => {
@@ -57,22 +71,40 @@ function UseApps() {
     read(abort.signal).catch(() => undefined);
     return () => abort.abort();
   }, [read]);
+  // Chats and workflows reach apps through the agent's app tools; one that can't report itself counts as on.
+  const toolsOn = chats?.registered ? chats.saved_enabled === true : true;
   const change = async (enabled: boolean) => {
     if (!page?.revision) return;
     setBusy(true);
     setError('');
     try {
-      const command = {
-        command_id: crypto.randomUUID(),
-        type: 'mcp.configuration.control' as const,
-        payload: {
-          configuration_revision: page.revision,
-          intent: { operation: 'global_enabled', enabled },
-        },
-      };
-      const review = await controller.reviewMcpPolicy(command.payload);
-      const result = await controller.executeMcpConfiguration(command, review);
-      if (result.status !== 'completed') throw Error();
+      if (page.global_enabled !== enabled) {
+        const command = {
+          command_id: crypto.randomUUID(),
+          type: 'mcp.configuration.control' as const,
+          payload: {
+            configuration_revision: page.revision,
+            intent: { operation: 'global_enabled', enabled },
+          },
+        };
+        const review = await controller.reviewMcpPolicy(command.payload);
+        const result = await controller.executeMcpConfiguration(
+          command,
+          review,
+        );
+        if (result.status !== 'completed') throw Error();
+      }
+      // Turning apps on also lets chats use them; turning them off stops every app, so that half stays as it is.
+      if (enabled && !toolsOn && chats?.resource_revision) {
+        const command = {
+          command_id: crypto.randomUUID(),
+          type: 'mcp.facade.control' as const,
+          payload: { resource_revision: chats.resource_revision, enabled },
+        };
+        const review = await controller.reviewMcpChat(command.payload);
+        const result = await controller.executeMcpChat(command, review);
+        if (result.status !== 'completed') throw Error();
+      }
     } catch (cause) {
       setError(
         clientError(cause).message || "Couldn't change this. Try again.",
@@ -86,12 +118,12 @@ function UseApps() {
     <div className="app-section">
       <Field
         label="Use apps"
-        hint="Off stops every app at once, in chats and everywhere else. Each keeps its settings."
+        hint="Chats and workflows can use your connected apps; changes ask first. Off stops every app at once, and each keeps its settings."
         layout="row"
       >
         <Toggle
           label="Use apps"
-          checked={page?.global_enabled === true}
+          checked={page?.global_enabled === true && toolsOn}
           disabled={busy || !page?.revision || page.global_enabled === null}
           onChange={(event) => void change(event.target.checked)}
         />
@@ -199,7 +231,7 @@ function AppViews() {
 }
 
 /** Apps › Advanced: app-wide switches first, then catalogs and their schedule, runtimes and a custom connection. */
-export default function Advanced({ chat }: { chat: ReactNode }) {
+export default function Advanced() {
   const { controller } = useRuntime();
   const [sources, setSources] = useState<IntegrationSourceView[]>([]);
   const [schedule, setSchedule] = useState<CatalogSchedule | null>(null);
@@ -262,7 +294,6 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
       </Link>
       <SettingsGroup title="Apps in chats" anchor="chats">
         <UseApps />
-        {chat}
         <AppViews />
       </SettingsGroup>
       <SettingsGroup title="Catalogs" anchor="catalogs">

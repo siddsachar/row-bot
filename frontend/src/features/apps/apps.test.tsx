@@ -222,7 +222,6 @@ function Area() {
       kind={leaf === 'skills' ? 'skill' : 'app'}
       item={rest.join('/')}
       editor={(kind, id) => <p>Editor for {id}</p>}
-      chat={null}
     />
   );
 }
@@ -506,17 +505,25 @@ it('says when connecting also lets chats use the app (B308)', async () => {
   const controller = {
     integrationDetail: vi.fn(async () => detail()),
     reviewInstallPlan: vi.fn(async () =>
-      plan({ consent: { ...plan().consent, turns_on_chats: true } }),
+      plan({
+        consent: {
+          ...plan().consent,
+          turns_on_mcp: true,
+          turns_on_chats: true,
+        },
+      }),
     ),
   };
   show('/settings/apps/item?id=mcp%3Acurated%3Anotion', controller);
   fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
   const consent = await screen.findByRole('dialog', { name: 'Connect Notion' });
+  // Apps and their use in chats are one switch, so one line.
   expect(
     within(consent).getByText(
-      'This also turns on Use apps in chats, so chats can use it.',
+      'This also turns on Use apps, so chats can use it.',
     ),
   ).toBeVisible();
+  expect(within(consent).getAllByText(/This also turns on/)).toHaveLength(1);
 });
 
 it('a stopped setup stays on its page when what it saved is gone', async () => {
@@ -1138,6 +1145,72 @@ it('stops every app at once from Advanced with the reviewed policy command', asy
     { nonce: 'n' },
   );
   await waitFor(() => expect(use).not.toBeChecked());
+});
+
+it('is one Use apps switch: on turns on the apps and their use in chats, off only stops the apps', async () => {
+  const page = {
+    schema_version: 1,
+    revision: revision,
+    server_id: null,
+    availability: 'available',
+    global_enabled: true,
+    server_enabled: null,
+    resources_enabled: null,
+    prompts_enabled: null,
+    items: [],
+    total: 0,
+    next_cursor: null,
+  };
+  const chats = {
+    schema_version: 1,
+    resource_revision: 'c'.repeat(64),
+    availability: 'available',
+    saved_enabled: false,
+    effective_enabled: false,
+    registered: true,
+  };
+  const controller = {
+    integrationSources: vi.fn(async () => ({ schema_version: 1, items: [] })),
+    catalogSchedule: vi.fn(async () => null),
+    appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
+    mcpPolicy: vi.fn(async () => page),
+    mcpChat: vi
+      .fn()
+      .mockResolvedValueOnce(chats)
+      .mockResolvedValue({ ...chats, saved_enabled: true }),
+    reviewMcpPolicy: vi.fn(async () => ({ nonce: 'n' })),
+    executeMcpConfiguration: vi.fn(async () => ({ status: 'completed' })),
+    reviewMcpChat: vi.fn(async () => ({ nonce: 'c' })),
+    executeMcpChat: vi.fn(async () => ({ status: 'completed' })),
+  };
+  show('/settings/apps?view=advanced', controller);
+  // Apps run, but chats can't use them: that is off, as one switch says.
+  const use = await screen.findByRole('switch', { name: 'Use apps' });
+  await waitFor(() => expect(controller.mcpChat).toHaveBeenCalled());
+  expect(use).not.toBeChecked();
+  expect(screen.queryByRole('switch', { name: /in chats/ })).toBeNull();
+  fireEvent.click(use);
+  await waitFor(() =>
+    expect(controller.reviewMcpChat).toHaveBeenCalledWith({
+      resource_revision: 'c'.repeat(64),
+      enabled: true,
+    }),
+  );
+  expect(controller.executeMcpChat).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'mcp.facade.control' }),
+    { nonce: 'c' },
+  );
+  expect(controller.reviewMcpPolicy).not.toHaveBeenCalled(); // Apps were already on.
+  await waitFor(() => expect(use).toBeChecked());
+  // Off stops every app; what chats may use stays as it is for the next time.
+  fireEvent.click(use);
+  await waitFor(() =>
+    expect(controller.reviewMcpPolicy).toHaveBeenCalledWith({
+      configuration_revision: revision,
+      intent: { operation: 'global_enabled', enabled: false },
+    }),
+  );
+  expect(controller.reviewMcpChat).toHaveBeenCalledOnce();
 });
 
 it('a required choice with nothing chosen says so instead of showing an option it would not send', async () => {

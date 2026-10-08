@@ -67,7 +67,7 @@ _MESSAGES = {
 }
 # A Python server built for an older MCP SDK fails at import with one of these (F22).
 _OLD_SDK = re.compile(r"\b(ImportError|ModuleNotFoundError|AttributeError)\b")
-_CHATS_OFF = "Connected. To use it in chats, turn on Use apps in chats in Apps › Advanced."
+_CHATS_OFF = "Connected. To use it in chats, turn on Use apps in Apps › Advanced."
 
 
 class PlanError(ValueError):
@@ -463,7 +463,7 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
               "overrides": _overrides(overrides), "reference": {k: v for k, v in reference.items() if k != "cfg"},
               "target": None if target in (None, {"kind": "standalone"}) else target,
               "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {},
-              # Agreed to turn on "Use apps in chats": only while its settings stay as they were (B308).
+              # Agreed to let chats use apps (half of "Use apps"): only while its settings stay as they were (B308).
               "_chats": _chats_revision() if plan["consent"].get("turns_on_chats") else None}
     if plan["intent"] != "settings" and preset:  # A Read only setting the app declares (Supabase's) follows the choice.
         for field_ in (f for s in record["steps"] if s["type"] == "inputs" for f in s.get("inputs") or []):
@@ -1316,7 +1316,7 @@ def _connection_failed(record: dict) -> PlanError:
 
 
 def _chats_on() -> bool:
-    """Whether chats are offered connected apps' tools ("Use apps in chats")."""
+    """Whether chats are offered connected apps' tools (half of the "Use apps" switch)."""
     from row_bot.application.native_mcp_controls import read_native_mcp_state
     return read_native_mcp_state().saved_enabled is True
 
@@ -1327,7 +1327,7 @@ def _chats_revision() -> str | None:
 
 
 def _chats(ctx: Context, record: dict) -> None:
-    """Turn on "Use apps in chats", as the consent said: the same reviewed command as its switch."""
+    """Let chats use apps, as the consent said: the same reviewed command "Use apps" sends."""
     from row_bot.application import native_mcp_controls as native
 
     def build():
