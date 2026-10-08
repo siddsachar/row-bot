@@ -14,6 +14,7 @@ import pathlib
 import re
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -157,7 +158,16 @@ def _save_store(store: dict) -> None:
         )
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(store, fh, indent=2, ensure_ascii=False, sort_keys=True)
-        os.replace(tmp_name, STATE_PATH)
+        # Antivirus can hold a just-written file for a moment (WinError 5 or 32): try again briefly rather
+        # than drop the save, which would lose a skill just loaded.
+        for attempt in range(5):
+            try:
+                os.replace(tmp_name, STATE_PATH)
+                break
+            except OSError as exc:
+                if getattr(exc, "winerror", None) not in (5, 32) or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
         tmp_name = ""
     except Exception:
         logger.debug("Failed to save Smart Skills activation state", exc_info=True)

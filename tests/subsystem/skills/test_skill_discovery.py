@@ -137,6 +137,30 @@ def test_skill_load_acknowledges_once_and_enforces_five_item_lru(tmp_path, monke
     ]
 
 
+def test_a_skill_load_is_kept_when_windows_briefly_holds_the_state_file(tmp_path, monkeypatch) -> None:
+    """Antivirus can hold a just-written file for a moment (WinError 5): the load still lands."""
+    from row_bot import skills_activation
+
+    monkeypatch.setattr(skills_activation, "STATE_PATH", tmp_path / "activation.json")
+    monkeypatch.setattr(skills_activation, "DATA_DIR", tmp_path)
+    real_replace, refused = skills_activation.os.replace, []
+
+    def replace_once_refused(source, target):
+        if not refused:
+            refused.append(target)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5
+            raise error
+        real_replace(source, target)
+
+    monkeypatch.setattr(skills_activation.os, "replace", replace_once_refused)
+    _search, load = build_skill_discovery_tools([_record("skill_0")], thread_id="thread", context_tokens=32_768)
+
+    assert _payload(load.invoke({"name": "skill_0"}))["kind"] == "skill_loaded"
+    assert refused and skills_activation.get_auto_loaded_skill_ids("thread") == ["skill_0"]
+    assert [path.name for path in tmp_path.iterdir()] == ["activation.json"]  # No temp file left behind.
+
+
 def test_cached_skill_load_uses_runtime_task_and_keeps_lru_state_isolated(tmp_path, monkeypatch) -> None:
     from row_bot import skills_activation
 
