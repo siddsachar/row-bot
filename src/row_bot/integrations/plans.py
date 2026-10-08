@@ -58,6 +58,7 @@ _MESSAGES = {
     "change_unconfirmed": "Your last change didn't finish. Retry to check it again.",
     "mcp_configuration_recovery_required": "Another app is still being set up or signed in to. Finish or stop that, "
                                            "then try again.",
+    "service_timeout": "A service this step checks didn't answer in time. Try again in a moment.",
     "skill_preview_expired": "The skill check expired. Start again.",
     "package_preview_expired": "The package check expired. Start again.",
     "owner_local_only": "Adding packages works only in Row-Bot on this computer.",
@@ -666,7 +667,9 @@ def _run(ctx: Context, record: dict) -> dict:
                       message=record.get("_done_message") or _DONE.get(record["intent"], "Ready to use."))
         _save(record, terminal=True)
     except Exception as error:
-        code = getattr(error, "code", str(error))
+        # A read that timed out (the MCP Registry, a vendor's metadata) says so instead of "could not finish".
+        timed_out = isinstance(error, TimeoutError) or type(error).__name__.endswith("Timeout")
+        code = "service_timeout" if timed_out else getattr(error, "code", str(error))
         step = next((s for s in record["steps"] if s["id"] == record.get("current_step")), None)
         if step is not None and code != "plan_cancelled" and _unsettled(ctx, record, step):
             # An owner command may have taken effect: reads reconcile it; it is never re-sent blindly.

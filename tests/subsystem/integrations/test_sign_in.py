@@ -136,6 +136,21 @@ def test_adding_an_app_while_another_waits_for_its_sign_in_says_why_it_cannot_ye
         plans.cancel(context(), waiting)  # The first sign-in stops; its browser wait ends with it.
 
 
+def test_a_check_that_times_out_says_so(hosted, monkeypatch):
+    """Live: the MCP Registry didn't answer while Atlassian's entry was checked before saving (it fails
+    closed), and the setup said only "This step could not finish"."""
+    hosted(dcr=True)
+    from row_bot.application import capability_configuration_controls as configuration
+
+    def unanswered(**_):
+        raise httpx.ReadTimeout("The read operation timed out")
+    monkeypatch.setattr(configuration, "execute_mcp_configuration_command", unanswered)
+    other = "mcp:curated:linear-mcp"
+    _, plan = api.read_item(owner_id="owner", item_id=other)
+    failed = api.start_plan(context(), plan_id=str(uuid4()), item_id=other, digest=plan["digest"])
+    assert failed["state"] == "failed" and "didn't answer in time" in failed["message"]
+
+
 def test_retry_ends_a_sign_in_a_restart_interrupted_so_other_apps_can_be_added(hosted):
     """Live: Row-Bot restarted while Stripe waited for its browser sign-in. The sign-in could never finish,
     Retry left it unfinished, and every other app's setup was refused until it was cancelled."""
