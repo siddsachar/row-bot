@@ -126,7 +126,7 @@ def test_material_declarations_invalidate_pinned_review(envelope, monkeypatch, c
         envelope["server"]["packages"] = [{"registryType": "npm", "identifier": "fixture-notes", "version": "1.2.3", "transport": {"type": "stdio"}}]
     entry = marketplace.registry_entries({"servers": [envelope]})[0]
     cfg = marketplace.entry_to_server_config(entry)
-    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a: envelope)
+    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: envelope)
     registry_snapshot.revalidate_entry(entry)
     registry_snapshot.revalidate_configuration(cfg)
     server = envelope["server"]
@@ -155,7 +155,7 @@ def test_secret_header_is_never_copied_and_changed_value_invalidates(envelope, m
     assert "synthetic-secret-alpha" not in json.dumps(asdict(entry))
     assert entry.install["headers"] == {"Authorization": "{authorization}"}  # The person supplies their own.
     assert entry.install["inputs"][0]["secret"] and not entry.install["inputs"][0]["default"]
-    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a: envelope)
+    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: envelope)
     headers[0]["value"] = "synthetic-secret-beta"
     with pytest.raises(ValueError, match="changed"):
         registry_snapshot.revalidate_entry(entry)
@@ -165,7 +165,7 @@ def test_secret_header_is_never_copied_and_changed_value_invalidates(envelope, m
 def test_legacy_snapshot_without_declaration_binding_cannot_authorize_import(envelope, monkeypatch):
     entry = marketplace.registry_entries({"servers": [envelope]})[0]
     entry.metadata.pop("setup_digest", None)
-    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a: envelope)
+    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: envelope)
     with pytest.raises(ValueError, match="changed"):
         registry_snapshot.revalidate_entry(entry)
 

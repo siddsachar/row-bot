@@ -209,7 +209,8 @@ def revalidate_entry(entry: MarketplaceEntry) -> MarketplaceEntry:
     name, version = metadata.get("canonical_name"), metadata.get("version")
     if not name or not version:
         raise ValueError("registry_identity_missing")
-    data = _fetch_json(SOURCE + "/" + quote(name, safe="") + "/versions/" + quote(version, safe=""))
+    # One request the person is already waiting on (not a search as they type): a slow Registry still answers.
+    data = _fetch_json(SOURCE + "/" + quote(name, safe="") + "/versions/" + quote(version, safe=""), timeout=15)
     current = registry_entries({"servers": [data]})
     if not current or current[0].id != entry.id or (current[0].metadata or {}).get("status") != "active":
         raise ValueError("registry_entry_removed")

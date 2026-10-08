@@ -125,7 +125,7 @@ def test_unreviewable_server_stays_listed_without_a_recipe(metadata):
 def test_registry_recipe_revalidated_at_publication(local, metadata, monkeypatch):
     entry = marketplace.registry_entries(metadata)[0]
     cfg = marketplace.entry_to_server_config(entry)
-    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a: metadata["servers"][0])
+    monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: metadata["servers"][0])
     snapshot.revalidate_configuration(cfg)
     metadata["servers"][0]["_meta"]["io.modelcontextprotocol.registry/official"]["status"] = "deleted"
     with pytest.raises(ValueError, match="removed"):
