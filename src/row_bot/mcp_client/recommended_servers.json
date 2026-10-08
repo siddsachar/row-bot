@@ -237,9 +237,42 @@
     "recommended": true,
     "capabilities": ["database", "backend", "auth", "storage"],
     "overlaps_native": [],
-    "last_reviewed": "2026-04-27",
-    "notes": ["Use least-privilege project credentials and review write/delete tools."],
-    "install": {"transport": "streamable_http", "url": "https://mcp.supabase.com/mcp"}
+    "last_reviewed": "2026-10-08",
+    "notes": ["Scoped to one project, read only by default (supabase.com/docs/guides/getting-started/mcp)."],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.supabase.com/mcp?project_ref={project_ref}&read_only={read_only}",
+      "inputs": [
+        {
+          "key": "project_ref",
+          "label": "Project ID",
+          "description": "The one project Row-Bot may use: your project's Settings › General › Project ID.",
+          "secret": false,
+          "required": true,
+          "target": "url_variable",
+          "name": "project_ref",
+          "default": "",
+          "choices": [],
+          "help_url": "https://supabase.com/dashboard/projects",
+          "format": "string",
+          "flag": ""
+        },
+        {
+          "key": "read_only",
+          "label": "Read only",
+          "description": "Queries run as a read-only database user and tools that change the project are off. Choose No to also allow changes; Row-Bot still asks before each one.",
+          "secret": false,
+          "required": true,
+          "target": "url_variable",
+          "name": "read_only",
+          "default": "true",
+          "choices": ["true", "false"],
+          "help_url": "",
+          "format": "boolean",
+          "flag": ""
+        }
+      ]
+    }
   },
   {
     "id": "makenotion-notion-mcp-server",

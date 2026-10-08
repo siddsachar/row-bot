@@ -77,6 +77,51 @@ def test_real_sdk_pkce_completion_and_refresh_keep_connection_binding(isolated):
     asyncio.run(run())
 
 
+def test_a_registration_that_issues_a_secret_without_its_method_sends_it_as_the_server_lists(isolated):
+    """Supabase registers every client with a secret, omits how to send it, and refuses a code exchange
+    without it ("Required parameter: client_secret")."""
+    issued = []
+    captured = {}
+
+    def respond(request):
+        url = str(request.url)
+        if url == "https://mcp.example.test/mcp":
+            return httpx.Response(200 if request.headers.get("authorization") == "Bearer fixture-access" else 401,
+                headers={"WWW-Authenticate": 'Bearer resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource"'}, json={})
+        if "oauth-protected-resource" in url:
+            return httpx.Response(200, json={"resource": "https://mcp.example.test/mcp", "authorization_servers": ["https://auth.example.test"]})
+        if ".well-known" in url:
+            return httpx.Response(200, json={"issuer": "https://auth.example.test", "authorization_endpoint": "https://auth.example.test/authorize",
+                "token_endpoint": "https://auth.example.test/token", "registration_endpoint": "https://auth.example.test/register",
+                "response_types_supported": ["code"], "code_challenge_methods_supported": ["S256"],
+                "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"]})
+        if url.endswith("/register"):
+            return httpx.Response(201, json={"client_id": "fixture-client", "client_secret": "fixture-secret",
+                                             "redirect_uris": ["http://127.0.0.1:4321/callback"]})
+        if url.endswith("/token"):
+            body = parse_qs(request.content.decode())
+            issued.append(body)
+            if body.get("client_secret") != ["fixture-secret"]:
+                return httpx.Response(422, json={"message": "Required parameter: client_secret"})
+            return httpx.Response(200, json={"access_token": "fixture-access", "token_type": "Bearer", "expires_in": 300})
+        raise AssertionError(url)
+
+    async def run():
+        async def redirect(url):
+            captured.update(parse_qs(urlsplit(url).query))
+
+        async def callback():
+            return "fixture-code", captured["state"][0]
+        cfg = config.read_saved_configuration().document["servers"]["Work"]
+        storage = auth.TokenStorage(uuid4().hex, auth.binding("Work", cfg), staged=True)
+        provider = auth.oauth_provider(cfg["url"], "http://127.0.0.1:4321/callback", storage, redirect=redirect, callback=callback)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond), auth=provider) as client:
+            assert (await client.post(cfg["url"])).status_code == 200
+        assert issued[0]["client_secret"] == ["fixture-secret"]
+        assert storage.data["client"]["token_endpoint_auth_method"] == "client_secret_post"  # Kept for refreshes.
+    asyncio.run(run())
+
+
 def test_api_key_save_replay_disconnect_and_two_accounts_are_isolated(isolated):
     bindings = [{"kind": "header", "name": "Authorization", "key": "token", "prefix": "Bearer "}]
     def save(name, value):

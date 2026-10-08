@@ -289,6 +289,11 @@ class TokenStorage:
 
     async def set_client_info(self, info):
         self.validate()
+        if info.client_secret and info.token_endpoint_auth_method in (None, "none"):
+            # Issued a secret without saying how to send it (Supabase): the way its metadata lists, else
+            # RFC 8414's default. Set in place: the library keeps this same object for the code exchange.
+            listed = (self.data.get("metadata") or {}).get("token_endpoint_auth_methods_supported") or []
+            info.token_endpoint_auth_method = "client_secret_post" if "client_secret_post" in listed else "client_secret_basic"
         self.data["client"] = info.model_dump(mode="json")
         if not self.staged:
             from row_bot.mcp_client.config import configuration_transaction
