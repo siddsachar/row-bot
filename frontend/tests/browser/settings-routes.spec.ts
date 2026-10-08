@@ -221,9 +221,13 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await google.focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`${settingsPath('apps/google')}$`));
-  // The app page has its own "Settings" group, so look for the app itself.
+  // The app page has its own "Settings" group, so look for the way itself.
   await expect(
-    page.getByRole('heading', { name: 'Google', exact: true, level: 3 }),
+    page.getByRole('heading', {
+      name: 'Google account',
+      exact: true,
+      level: 3,
+    }),
   ).toBeVisible();
   await search.fill('dream');
   await navigation

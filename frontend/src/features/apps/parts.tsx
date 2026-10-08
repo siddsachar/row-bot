@@ -246,14 +246,18 @@ export function ItemCard({
 }) {
   const status = statusOf(entry);
   const method = methods[entry.method ?? ''];
+  // A built-in way is one way to its app (the GitHub account, not GitHub): its own name and job.
+  const builtIn = entry.kind === 'builtin';
   return (
     <li>
       <Link className="app-card" to={itemHref(entry, revision)}>
         <AppIcon icon={entry.icon} />
         <span className="app-card-text">
-          <strong>{entry.app?.name || entry.name}</strong>
+          <strong>{(!builtIn && entry.app?.name) || entry.name}</strong>
           <span className="app-card-job">
-            {app?.summary || entry.description || 'No description.'}
+            {(!builtIn && app?.summary) ||
+              entry.description ||
+              'No description.'}
           </span>
           <span className="app-card-meta">
             <Publisher entry={entry} />

@@ -68,6 +68,7 @@ export default function AccessSheet({
   name,
   access,
   change,
+  chosen = false,
   busy,
   onAllow,
   onCancel,
@@ -76,6 +77,8 @@ export default function AccessSheet({
   name: string;
   access: PlanAccess | null;
   change: boolean;
+  /** Chosen when connecting (look things up, or make changes too): shown, not asked again. */
+  chosen?: boolean;
   busy: boolean;
   onAllow: (choice: PlanContinueRequest) => void;
   onCancel: () => void;
@@ -100,6 +103,9 @@ export default function AccessSheet({
   const tools = access?.tools ?? [];
   // Signed in to look things up only: changes are allowed later, from its Access, with one more sign-in.
   const readsOnly = Boolean(access?.limited) && !change;
+  // Presets differ only in how changes are made: none to make, none allowed, or already chosen: nothing to ask.
+  const changes = tools.some((tool) => tool.effect !== 'read_only');
+  const choosing = changes && !readsOnly && !(chosen && !change);
   const title = change
     ? `Change what ${name} can do`
     : `Here's what ${name} can do`;
@@ -107,40 +113,50 @@ export default function AccessSheet({
     <ModalTask
       open={open}
       title={title}
-      description="Choose how much it can do on its own. You can change this later."
+      description={
+        choosing
+          ? 'Choose how much it can do on its own. You can change this later.'
+          : !changes
+            ? 'It only looks things up: it cannot change anything.'
+            : readsOnly || access?.preset === 'read_only'
+              ? 'It looks things up only, as you chose. Its Access can allow changes later.'
+              : 'It asks you before every change, as you chose. You can change this later.'
+      }
       onOpenChange={(value) => {
         if (!value) onCancel();
       }}
     >
       <div className="stack">
-        <fieldset className="access-presets">
-          <legend className="visually-hidden">Access</legend>
-          {PRESETS.map(([id, label, description]) => (
-            <label
-              key={id}
-              className="access-preset"
-              data-selected={preset === id}
-            >
-              <input
-                type="radio"
-                name="access-preset"
-                value={id}
-                checked={preset === id}
-                disabled={readsOnly && id !== 'read_only'}
-                onChange={() => {
-                  // Picking a preset sets every tool from it; Customise can then adjust single tools.
-                  setPreset(id);
-                  setOverrides({});
-                }}
-                data-initial-focus={preset === id ? true : undefined}
-              />
-              <span>
-                <strong>{label}</strong>
-                <small>{description}</small>
-              </span>
-            </label>
-          ))}
-        </fieldset>
+        {choosing && (
+          <fieldset className="access-presets">
+            <legend className="visually-hidden">Access</legend>
+            {PRESETS.map(([id, label, description]) => (
+              <label
+                key={id}
+                className="access-preset"
+                data-selected={preset === id}
+              >
+                <input
+                  type="radio"
+                  name="access-preset"
+                  value={id}
+                  checked={preset === id}
+                  disabled={readsOnly && id !== 'read_only'}
+                  onChange={() => {
+                    // Picking a preset sets every tool from it; Customise can then adjust single tools.
+                    setPreset(id);
+                    setOverrides({});
+                  }}
+                  data-initial-focus={preset === id ? true : undefined}
+                />
+                <span>
+                  <strong>{label}</strong>
+                  <small>{description}</small>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
         {access?.note && <p className="settings-help">{access.note}</p>}
         {tools.length ? (
           <ToolGroups tools={tools} />

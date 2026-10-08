@@ -138,7 +138,11 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
   await expect(
     access.locator('summary', { hasText: 'Always asks first' }),
   ).toBeVisible();
-  await expect(access.getByRole('radio', { name: /Read only/ })).toBeChecked();
+  // Asked once, in the consent: the sheet shows that choice rather than asking again.
+  await expect(access.getByRole('radio')).toHaveCount(0);
+  await expect(
+    access.getByText(/looks things up only, as you chose/),
+  ).toBeVisible();
   await checkLayout(page, info, 'apps-access');
   await steps.click(access.getByRole('button', { name: 'Allow', exact: true }));
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();

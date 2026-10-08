@@ -172,9 +172,10 @@ test('accounts, channels and key tools are apps, set up in their own scoped sett
 }, testInfo) => {
   await blockFixtureServiceWorkers(context);
   for (const [app, heading, editor] of [
-    ['google', 'Google', 'How to set up Google'],
-    ['telegram', 'Telegram', 'Telegram'],
-    ['tavily', 'Tavily', 'Web Search'],
+    // A built-in way goes by its own name: one way to its app, not the app itself.
+    ['google', 'Google account', 'How to set up Google'],
+    ['telegram', 'Telegram channel', 'Telegram'],
+    ['tavily', 'Web search', 'Web Search'],
   ] as const) {
     await page.goto(`/app-v2/settings/apps/${app}`);
     await expect(

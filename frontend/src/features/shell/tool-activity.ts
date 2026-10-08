@@ -507,9 +507,25 @@ export function imperative(participle: string): string {
   return [stem, ...rest].join(' ');
 }
 
+// How app tools' titles usually begin ("Get commit"). A title that begins otherwise is named, never read as a verb.
+const TOOL_VERBS = new Set(
+  (
+    'add append approve archive assign book cancel change check close comment copy create decrement delete ' +
+    'download draft duplicate edit export fetch find generate get import increment insert invite list lock ' +
+    'mark merge move open pay post publish query read refund reject remove rename reopen reply request reset ' +
+    'resolve restore retrieve run save schedule search send set share start stop submit summarize sync tag ' +
+    'transfer unlock update upload upsert write'
+  ).split(' '),
+);
+
 /** "Send an email?" for a canonical tool name awaiting approval; "Allow Granola to delete page?" for an app's. */
 export function approvalQuestion(name: string, app?: ToolApp): string {
-  if (app?.tool) return `Allow ${app.name} to ${midSentence(app.tool)}?`;
+  if (app?.tool) {
+    const phrase = midSentence(app.tool);
+    return TOOL_VERBS.has(phrase.split(' ')[0].toLowerCase())
+      ? `Allow ${app.name} to ${phrase}?`
+      : `Allow ${app.name} to use “${app.tool}”?`;
+  }
   if (!describe(name))
     return `Allow ${humanizeToken(bareName(name)) || 'this action'}?`;
   return `${imperative(stepVerb(name, 'pending'))}?`;

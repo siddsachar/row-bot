@@ -913,7 +913,7 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
     return response.json();
   };
   await page.goto('/app-v2/settings/apps?view=advanced');
-  // Runtimes are one status row under Apps › Advanced › Apps in chats.
+  // Runtimes are one status row under Apps › Advanced › On this computer.
   const runtime = page.getByRole('group', {
     name: 'Node.js runtime',
     exact: true,

@@ -140,6 +140,28 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
           message: '',
           catalog: null,
         },
+        {
+          id: 'coming',
+          kinds: ['mcp'],
+          label: 'Coming Catalog',
+          access: 'snapshot',
+          eligibility: 'contract_unresolved',
+          network: 'explicit',
+          enabled: false,
+          message: '',
+          catalog: null,
+        },
+        {
+          id: 'examples',
+          kinds: ['plugin'],
+          label: 'Examples',
+          access: 'snapshot',
+          eligibility: 'explicit_only',
+          network: 'none',
+          enabled: true,
+          message: '',
+          catalog: null,
+        },
       ],
     })),
     catalogSchedule: vi.fn(async () => ({ enabled: false, interval_days: 7 })),
@@ -161,12 +183,19 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
   expect(
     within(catalogs).getByText('Apps · Searched when you ask'),
   ).toBeVisible();
+  // Only catalogs that are searched for you: none not usable yet, no developer examples.
+  expect(within(catalogs).queryByText('Coming Catalog')).toBeNull();
+  expect(within(catalogs).queryByText('Examples')).toBeNull();
   expect(
     await within(catalogs).findByRole('switch', {
       name: 'Update catalogs automatically',
     }),
   ).not.toBeChecked();
   const chats = screen.getByRole('region', { name: 'Apps in chats' });
+  // The switches people change come first.
+  expect(
+    chats.compareDocumentPosition(catalogs) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
   expect(
     await within(chats).findByRole('switch', {
       name: 'Use apps in chats',

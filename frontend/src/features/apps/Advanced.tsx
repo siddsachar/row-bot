@@ -20,8 +20,6 @@ function standing(source: IntegrationSourceView) {
     return source.opt_in.on
       ? 'On · a separate service with its own account'
       : 'Off · a separate service with its own account';
-  if (!['eligible', 'explicit_only'].includes(source.eligibility))
-    return 'Not available yet';
   const update = source.catalog;
   if (!update)
     return source.network === 'none'
@@ -88,7 +86,7 @@ function UseApps() {
     <div className="app-section">
       <Field
         label="Use apps"
-        hint="Turn off to stop every app at once. Each keeps its settings."
+        hint="Off stops every app at once, in chats and everywhere else. Each keeps its settings."
         layout="row"
       >
         <Toggle
@@ -200,7 +198,7 @@ function AppViews() {
   );
 }
 
-/** Apps › Advanced: catalogs and their optional schedule, plus app-wide controls. */
+/** Apps › Advanced: app-wide switches first, then catalogs and their schedule, runtimes and a custom connection. */
 export default function Advanced({ chat }: { chat: ReactNode }) {
   const { controller } = useRuntime();
   const [sources, setSources] = useState<IntegrationSourceView[]>([]);
@@ -212,7 +210,12 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     controller.integrationSources(abort.signal).then(
       (list) => {
-        setSources(list.items);
+        // Only catalogs searched for you, or one you turn on: those not usable yet and developer examples are left out.
+        setSources(
+          list.items.filter(
+            (source) => source.opt_in || source.eligibility === 'eligible',
+          ),
+        );
         // An update runs in the background; look again until it settles.
         if (list.items.some((source) => source.catalog?.state === 'updating'))
           timer = setTimeout(() => setReload((n) => n + 1), 1500);
@@ -257,6 +260,11 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
       <Link className="settings-link app-back" to="/settings/apps">
         <ArrowLeft size={14} aria-hidden /> Apps
       </Link>
+      <SettingsGroup title="Apps in chats" anchor="chats">
+        <UseApps />
+        {chat}
+        <AppViews />
+      </SettingsGroup>
       <SettingsGroup title="Catalogs" anchor="catalogs">
         <div className="app-section">
           <p className="settings-help">
@@ -334,10 +342,7 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
           {error && <StatusLine tone="danger">{error}</StatusLine>}
         </div>
       </SettingsGroup>
-      <SettingsGroup title="Apps in chats" anchor="chats">
-        <UseApps />
-        <AppViews />
-        {chat}
+      <SettingsGroup title="On this computer" anchor="runtimes">
         <RuntimeInstallations />
       </SettingsGroup>
       <SettingsGroup title="Your own connection" anchor="custom">

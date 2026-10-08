@@ -282,7 +282,10 @@ function Detail({
     heading.current?.focus({ preventScroll: true });
   }, [Boolean(detail)]); // eslint-disable-line react-hooks/exhaustive-deps
   const entry = detail?.entry;
-  const name = entry ? entry.app?.name || entry.name : '';
+  // A built-in way is one way to its app (the GitHub account, not GitHub): it goes by its own name.
+  const name = entry
+    ? (entry.kind !== 'builtin' && entry.app?.name) || entry.name
+    : '';
   const control = usePlan({ itemId, revision, name }, (plan) => {
     // Set up from a catalog entry: follow it to the installed item; removed: back to the library.
     // Stopped, it follows only to what it saved that still opens (a Remove may have deleted it since).
@@ -470,13 +473,14 @@ function Detail({
       <PlanProgress control={control} name={name} />
       <SettingsGroup title="Overview">
         <div className="app-section">
-          <p>{app?.summary || entry.description}</p>
+          <p>{(!builtIn && app?.summary) || entry.description}</p>
           {entry.kind === 'skill' ? (
             <p>
               Use it in chat with <code>{slashOf(entry.name)}</code>
               {entry.installed ? '' : ' once added'}.
             </p>
-          ) : app?.example_prompts.length ? (
+          ) : app?.example_prompts.length &&
+            (!builtIn || action.kind === 'try') ? (
             <ul className="app-prompts" aria-label="Things to ask">
               {app.example_prompts.slice(0, 3).map((prompt) => (
                 <li key={prompt}>“{prompt}”</li>
@@ -487,7 +491,7 @@ function Detail({
             {entry.kind === 'skill'
               ? 'Instructions stay on this computer.'
               : builtIn
-                ? `Part of Row-Bot: it works through your own ${name} sign-in or key.`
+                ? `Part of Row-Bot: it works through your own ${entry.app?.name || name} sign-in or key.`
                 : about.destination
                   ? `What you ask goes to ${hostOf(about.destination)}.`
                   : about.runs_locally
@@ -576,18 +580,16 @@ function Detail({
           </div>
         </SettingsGroup>
       )}
-      {builtIn && (
+      {builtIn && entry.installed && (
         <SettingsGroup title="Settings">
           <StatusLine
             action={
               <Link className="settings-link" to={ownSettings}>
-                {entry.installed ? 'Open' : 'Set up'}
+                Open
               </Link>
             }
           >
-            {entry.installed
-              ? `Change how ${name} works in its own settings.`
-              : `Set up ${name} in its own settings, then use it in any chat.`}
+            {`Change how ${name} works in its own settings.`}
           </StatusLine>
         </SettingsGroup>
       )}

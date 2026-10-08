@@ -59,6 +59,8 @@ export function usePlan(
   const [notice, setNotice] = useState('');
   // Asked before signing in: look things up only (the default), or make changes too.
   const [readOnly, setReadOnly] = useState(true);
+  // Whether that was asked: the access step then shows what was chosen rather than asking again.
+  const [chose, setChose] = useState(false);
   const signingIn = useRef(false);
   const failures = useRef(0);
   const [missed, setMissed] = useState(0);
@@ -106,6 +108,7 @@ export function usePlan(
           ? { preset: readOnly ? 'read_only' : 'ask' }
           : {}),
       });
+      setChose(asksAccess(consent));
       setConsent(null);
       setPlan(started);
     });
@@ -202,6 +205,7 @@ export function usePlan(
     notice,
     readOnly,
     setReadOnly,
+    chose,
     dismissConsent: () => setConsent(null),
     clear: () => setPlan(null),
   };
@@ -565,6 +569,7 @@ export function PlanProgress({
         name={name}
         access={step?.access ?? null}
         change={plan.intent === 'access'}
+        chosen={control.chose}
         busy={busy}
         onCancel={() => void control.cancel()}
         onAllow={(choice) => void control.resume(choice)}

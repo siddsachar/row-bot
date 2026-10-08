@@ -418,6 +418,28 @@ it('puts vendor apps first, the community after, and shows hidden results on req
   );
 });
 
+it('gives a search found only in the community one heading, not an empty one above it', async () => {
+  show('/settings/apps?q=zzzz', {
+    integrationItems: vi.fn(async (options: { scope?: string }) =>
+      page(
+        options.scope === 'installed'
+          ? []
+          : [
+              entry({
+                id: 'mcp:official:io.github.fan/zzzz@1.0.0',
+                name: 'zzzz tools',
+                publisher: 'fan on GitHub',
+              }),
+            ],
+      ),
+    ),
+  });
+  expect(
+    await screen.findByRole('heading', { name: 'From the community' }),
+  ).toBeVisible();
+  expect(screen.queryByRole('heading', { name: /^Results for/ })).toBeNull();
+});
+
 it("lists an app's other ways to connect, recommended first", async () => {
   const value = detail();
   value.about.ways = [
@@ -544,7 +566,7 @@ it('a stopped setup stays on its page when what it saved is gone', async () => {
   expect(screen.queryByText("Couldn't open this")).toBeNull();
 });
 
-it('connects after one consent, follows the plan, and lets the access sheet choose', async () => {
+it('connects after one consent, follows the plan, and shows the access chosen there rather than asking again', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const running = plan({
     plan_id: 'b1b1b1b1-0000-4000-8000-000000000001',
@@ -597,6 +619,11 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
     within(consent).getByText('You sign in to Notion in your browser.'),
   ).toBeVisible();
   expect(controller.startInstallPlan).not.toHaveBeenCalled(); // Nothing starts before consent.
+  fireEvent.click(
+    within(consent).getByRole('radio', {
+      name: /^Look things up and make changes/,
+    }),
+  );
   fireEvent.click(within(consent).getByRole('button', { name: 'Connect' }));
   await waitFor(() =>
     expect(controller.startInstallPlan).toHaveBeenCalledWith(
@@ -605,6 +632,7 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
         digest,
         consent_token: 'token',
         intent: 'connect',
+        preset: 'ask',
       }),
     ),
   );
@@ -617,7 +645,11 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
   const sheet = await screen.findByRole('dialog', {
     name: "Here's what Notion can do",
   });
-  fireEvent.click(within(sheet).getByRole('radio', { name: /Full access/ }));
+  // Asked once, in the consent: the sheet shows the tools and that choice, with single tools to adjust.
+  expect(within(sheet).queryByRole('radio')).toBeNull();
+  expect(
+    within(sheet).getByText(/asks you before every change, as you chose/),
+  ).toBeVisible();
   fireEvent.click(within(sheet).getByText('Customise'));
   const locked = within(sheet).getByRole('combobox', {
     name: 'What Delete page may do',
@@ -634,7 +666,7 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
     expect(controller.continueInstallPlan).toHaveBeenCalledWith(
       running.plan_id,
       {
-        preset: 'full',
+        preset: 'ask',
         overrides: { update_page: 'use' },
         tools_digest: access.tools_digest,
       },
@@ -1289,6 +1321,49 @@ it('starts the fix at once when opened from Needs you, and only once', async () 
   await waitFor(() =>
     expect(screen.getByLabelText('Location')).not.toHaveTextContent('fix=1'),
   );
+});
+
+it('names a built-in way as itself, not as the app it is one way to', async () => {
+  const account = entry({
+    id: 'builtin:account:github',
+    kind: 'builtin',
+    name: 'GitHub account',
+    description: 'Lets Row-Bot work with GitHub for skills and Developer.',
+    app: {
+      id: 'github',
+      name: 'GitHub',
+      publisher: 'GitHub',
+      category: 'developer',
+      icon: 'si:github',
+      verified: true,
+      featured_rank: 1,
+    },
+    source: 'builtin',
+    method: 'built_in',
+    publisher: 'Row-Bot',
+    installed: true,
+    enabled: true,
+    lifecycle: 'installed',
+    readiness: 'ready',
+    next_action: { kind: 'none', label: '' },
+  });
+  show('/settings/apps/item?id=builtin%3Aaccount%3Agithub', {
+    integrationDetail: vi.fn(async () =>
+      detail({ entry: account, plan: null }),
+    ),
+  });
+  expect(
+    await screen.findByRole('heading', { name: 'GitHub account' }),
+  ).toBeVisible();
+  expect(
+    screen.getByText('Lets Row-Bot work with GitHub for skills and Developer.'),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Part of Row-Bot: it works through your own GitHub sign-in or key.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Try it' })).toBeNull();
 });
 
 it('sets up a built-in way in its own settings, scoped to it, with no plan of its own', async () => {

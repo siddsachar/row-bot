@@ -190,6 +190,9 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const community =
     kind === 'app' ? rest.filter((entry) => !fromApp(entry)) : [];
   const leading = rest.filter((entry) => !community.includes(entry));
+  // Found only in the community: one heading for them, not an empty one above.
+  const onlyCommunity =
+    Boolean(page) && !leading.length && community.length > 0;
   const mine = (installed ?? []).filter(
     (entry) =>
       !query ||
@@ -280,30 +283,34 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           <Cards items={featured} revision={page?.revision} />
         </section>
       )}
-      <section aria-labelledby={`${headingId}-all`} aria-busy={!page}>
-        <h3 id={`${headingId}-all`}>
-          {query
-            ? `Results for “${query}”${online ? ' · includes online catalogs' : ''}`
-            : `All ${many}`}
-        </h3>
-        {!page && !error && <Skeleton label={`Loading ${many}`} />}
-        {page && !rest.length && !featured.length && (
-          <EmptyState
-            title={
-              query ? `No ${many} match “${query}”` : `No ${many} here yet`
-            }
-            action={actions}
-          >
+      {!onlyCommunity && (
+        <section aria-labelledby={`${headingId}-all`} aria-busy={!page}>
+          <h3 id={`${headingId}-all`}>
             {query
-              ? `Try another word, search online catalogs, or add ${one} from a link.`
-              : `Add ${one} from a link or a file.`}
-          </EmptyState>
-        )}
-        <Cards items={leading} revision={page?.revision} />
-      </section>
+              ? `Results for “${query}”${online ? ' · includes online catalogs' : ''}`
+              : `All ${many}`}
+          </h3>
+          {!page && !error && <Skeleton label={`Loading ${many}`} />}
+          {page && !rest.length && !featured.length && (
+            <EmptyState
+              title={
+                query ? `No ${many} match “${query}”` : `No ${many} here yet`
+              }
+              action={actions}
+            >
+              {query
+                ? `Try another word, search online catalogs, or add ${one} from a link.`
+                : `Add ${one} from a link or a file.`}
+            </EmptyState>
+          )}
+          <Cards items={leading} revision={page?.revision} />
+        </section>
+      )}
       {community.length > 0 && (
         <section aria-labelledby={`${headingId}-community`}>
-          <h3 id={`${headingId}-community`}>More from the community</h3>
+          <h3 id={`${headingId}-community`}>
+            {onlyCommunity ? 'From the community' : 'More from the community'}
+          </h3>
           <Cards items={community} revision={page?.revision} />
         </section>
       )}
