@@ -1202,6 +1202,8 @@ def test_a_batch_whose_last_document_fails_finishes_with_errors_and_can_be_clear
     from row_bot import document_jobs
     api, service, policy, batch, *_ = processing
     monkeypatch.setattr(document_jobs, "_notify_batch_complete", lambda *a: None)
+    # No saved knowledge to project here, whatever another test on the worker left pending.
+    monkeypatch.setattr(document_jobs, "_finalize_shared_knowledge_indexes", lambda **kwargs: True)
     admit(processing)
     supervisor = document_jobs.DocumentSupervisor(service)
 
