@@ -155,7 +155,8 @@
     "recommended": true,
     "capabilities": ["documentation", "code_docs", "libraries"],
     "overlaps_native": ["web_search"],
-    "last_reviewed": "2026-04-27",
+    "last_reviewed": "2026-10-07",
+    "metadata": {"evidence": "Live validated with Row-Bot on Windows 2026-10-07: hosted without a key, one read, off and on, off for a chat, turn off, remove.", "tested_with_row_bot": true},
     "notes": ["Useful when current package documentation matters more than general web search."],
     "install": {"transport": "streamable_http", "url": "https://mcp.context7.com/mcp"}
   },
@@ -216,7 +217,8 @@
     "recommended": true,
     "capabilities": ["errors", "monitoring", "debugging"],
     "overlaps_native": [],
-    "last_reviewed": "2026-04-27",
+    "last_reviewed": "2026-10-08",
+    "metadata": {"evidence": "Live validated with Row-Bot on Windows 2026-10-08: CIMD sign-in, one approved read, refresh after expiry, off for a chat, turn off, remove with its keychain entries.", "tested_with_row_bot": true},
     "notes": ["Useful for production debugging. Review any issue mutation tools before enabling."],
     "install": {"transport": "streamable_http", "url": "https://mcp.sentry.dev/mcp"}
   },
@@ -238,6 +240,7 @@
     "capabilities": ["database", "backend", "auth", "storage"],
     "overlaps_native": [],
     "last_reviewed": "2026-10-08",
+    "metadata": {"evidence": "Live validated with Row-Bot on Windows 2026-10-08: sign-in by registration, one project read only (an approved write was refused by Supabase), refresh after expiry, off for a chat, turn off, remove with its keychain entries.", "tested_with_row_bot": true},
     "notes": ["Scoped to one project, read only by default (supabase.com/docs/guides/getting-started/mcp)."],
     "install": {
       "transport": "streamable_http",
@@ -395,7 +398,8 @@
     "recommended": true,
     "capabilities": ["payments", "customers", "finance"],
     "overlaps_native": [],
-    "last_reviewed": "2026-04-27",
+    "last_reviewed": "2026-10-08",
+    "metadata": {"evidence": "Live validated with Row-Bot on Windows 2026-10-08: sign-in by registration to a sandbox with read permission, one read, refresh after expiry, off for a chat, turn off, remove with its keychain entries.", "tested_with_row_bot": true},
     "notes": ["Payment tools are high impact. Keep destructive/write tools approval-gated."],
     "install": {"transport": "streamable_http", "url": "https://mcp.stripe.com"}
   },
@@ -530,10 +534,10 @@
       "search"
     ],
     "overlaps_native": [],
-    "last_reviewed": "2026-10-03",
+    "last_reviewed": "2026-10-08",
     "notes": [
       "Requires a Linear account and browser authorization. Review tools and workspace access before enabling.",
-      "Requests and selected workspace data go to Linear under its service terms. Live account validation is pending."
+      "Requests and selected workspace data go to Linear under its service terms."
     ],
     "install": {
       "transport": "streamable_http",
@@ -544,7 +548,8 @@
       "auth_mode": "oauth",
       "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
       "license": "Hosted service terms apply",
-      "evidence": "Official setup documentation reviewed; deterministic SDK OAuth coverage. Disposable live account and platform callbacks pending."
+      "evidence": "Live validated with Row-Bot on Windows 2026-10-08: CIMD sign-in, one approved read, refresh after expiry, off for a chat, turn off, remove with its keychain entries.",
+      "tested_with_row_bot": true
     }
   },
   {
