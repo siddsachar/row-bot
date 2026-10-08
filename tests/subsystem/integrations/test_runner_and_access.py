@@ -90,6 +90,29 @@ def test_classification_separates_routine_changes_from_high_impact_ones(name, an
     assert safety.is_destructive_tool(name, "", tool) is high_impact
 
 
+@pytest.mark.parametrize(("name", "description", "annotations", "effect", "high_impact"), [
+    # Found live: GitHub's "Get commit" asked every time. A read of a commit, a run or an order is a read.
+    ("get_commit", "Get details for a commit from a GitHub repository", None, "read_only", False),
+    ("list_commits", "Get list of commits of a branch in a GitHub repository", None, "read_only", False),
+    ("get_workflow_run", "Get details of a specific workflow run", None, "read_only", False),
+    ("get_order", "Get an order by its id", None, "read_only", False),
+    # Still asks: another verb joined on, a server saying it is destructive, a change in its description,
+    # a high-impact word that is not what a read returns, or the word as the name's verb.
+    ("get_and_push", "", None, "mutation", True),
+    ("get_commit", "", {"destructiveHint": True}, "mutation", True),
+    ("get_commit", "Get a commit and push it to main", None, "unknown", False),
+    ("list_workflow_runs", "List workflow runs and cancel stale ones", None, "unknown", False),
+    ("read_delete_log", "", None, "mutation", True),
+    ("commit_changes", "", None, "mutation", True),
+    ("run_query", "", None, "mutation", True),
+])
+def test_a_read_of_a_commit_run_or_order_is_a_read_and_changes_still_ask(name, description, annotations, effect,
+                                                                         high_impact):
+    tool = {"annotations": annotations} if annotations else None
+    assert safety.classify_tool_effect(name, description, tool) == effect
+    assert safety.is_destructive_tool(name, description, tool) is high_impact
+
+
 def test_a_file_write_is_high_impact_in_a_repository_and_routine_on_this_computer():
     assert safety.is_destructive_tool("create_or_update_file", "Create or update a single file in a GitHub repository")
     assert not safety.is_destructive_tool("edit_file", "Make line-based edits to a text file in an allowed folder")

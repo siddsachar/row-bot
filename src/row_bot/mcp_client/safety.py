@@ -53,6 +53,11 @@ def _any_form(*patterns: re.Pattern, extra: tuple[str, ...] = ()) -> re.Pattern:
 
 
 _SAYS_HIGH_IMPACT = _any_form(_DESTRUCTIVE_RE)
+_DESTRUCTIVE_WORDS = set(re.search(r"\(\^\|_\)\(([a-z|]+)\)\(_\|\$\)", _DESTRUCTIVE_RE.pattern).group(1).split("|"))
+# High-impact words that are also what a read returns: get_commit reads a commit, get_workflow_run a run,
+# get_order an order. Only as the name's verb ("commit_changes", "run_query") are they changes.
+_READ_OBJECTS = {"commit", "run", "order", "post", "comment", "share", "invite", "book", "charge", "payment", "reply",
+                 "command", "merge", "push", "deploy", "upload", "permission", "permissions"}
 _SAYS_A_CHANGE = _any_form(_ROUTINE_RE, extra=("replace", "clear"))
 HINTS = ("readOnlyHint", "destructiveHint")  # The annotations Row-Bot weighs; a saved catalog keeps them (B307).
 
@@ -120,6 +125,18 @@ def saved_hints(value: Any) -> dict[str, bool] | None:
     return value if valid else None
 
 
+def _read_objects(name: str) -> set[str] | None:
+    """What a plain read names as its object ("get_commit": {"commit"}, "list_commits": {"commit"}), or None when the
+    name is not a plain read: no read verb first, a second verb joined on ("get_and_push"), or a high-impact word
+    that is not something a read returns ("read_delete_log")."""
+    words = name.split("_")
+    if not _READ_RE.match(name) or {"and", "then", "or"} & set(words):
+        return None
+    if any(word in _DESTRUCTIVE_WORDS and word not in _READ_OBJECTS for word in words[1:]):
+        return None
+    return {base for word in words[1:] for base in (word, word[:-1], word[:-2]) if base in _READ_OBJECTS}
+
+
 def _classify(tool_name: str, description: str, tool: Any) -> str:
     """``high_impact``, ``mutation``, ``read_only``, ``interaction`` or ``unknown``.
 
@@ -129,7 +146,8 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
     except that a read whose description says it changes something asks first."""
     name = sanitize_name_component(tool_name)
     words = sanitize_name_component(description or "")
-    if (_annotation_value(tool, "destructiveHint") is True or _DESTRUCTIVE_RE.search(name)
+    objects = _read_objects(name)
+    if (_annotation_value(tool, "destructiveHint") is True or (_DESTRUCTIVE_RE.search(name) and objects is None)
             or _sensitive_change(name, description)):
         return "high_impact"
     if name in _BROWSER_READS:
@@ -147,6 +165,9 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
     if read_only is not False and _READ_RE.match(name):
         # Any other change or high-impact word in its description and it asks first (never runs on its own).
         said = _RUNS_A_READ.sub("_", words)
+        if objects:  # What it reads ("Get details for a commit") is what it returns, not something it does.
+            forms = sorted({form for base in objects for form in (base, base + "s", base + "es")})
+            said = re.sub(r"(^|_)(" + "|".join(forms) + r")(?=_|$)", "_", said)
         return "unknown" if _SAYS_HIGH_IMPACT.search(said) or _SAYS_A_CHANGE.search(said) else "read_only"
     return "high_impact" if _SAYS_HIGH_IMPACT.search(words) else "unknown"
 
