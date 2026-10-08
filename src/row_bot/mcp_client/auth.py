@@ -495,10 +495,13 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
         endpoint_origin = origin(effective["url"])
 
         async def request_guard(request):
+            ending = _session_end(request.method, str(request.url), effective["url"])
+            if ending:  # A courtesy: a server that never answers it can't hold a stopping connection for minutes.
+                request.extensions["timeout"] = httpx.Timeout(3).as_dict()
             try:
                 validate()
             except asyncio.CancelledError:
-                if not _session_end(request.method, str(request.url), effective["url"]):
+                if not ending:
                     raise
             if options.get("auth"):
                 public_endpoint(str(request.url))

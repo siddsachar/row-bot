@@ -150,3 +150,48 @@ def test_a_stdio_server_that_fails_to_start_leaves_its_last_lines() -> None:
         assert len(lines) == 40 and lines[-1] == "AttributeError: 'Server' object has no attribute 'list_resources'"
     finally:
         runtime.shutdown()
+
+
+@pytest.mark.slow
+def test_a_server_that_never_answers_the_end_of_its_session_still_lets_go() -> None:
+    import socket
+    import threading
+    import time
+
+    import anyio
+    import uvicorn
+    from mcp.server.fastmcp import FastMCP
+
+    from row_bot.mcp_client import runtime
+
+    server = FastMCP("silent-at-close")
+
+    @server.tool()
+    async def ping() -> str:
+        return "pong"
+
+    app = server.streamable_http_app()
+
+    async def silent_delete(scope, receive, send):  # Answers everything but the session's DELETE.
+        if scope["type"] == "http" and scope["method"] == "DELETE":
+            await anyio.sleep_forever()
+        await app(scope, receive, send)
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    web = uvicorn.Server(uvicorn.Config(silent_delete, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=web.run, daemon=True)
+    thread.start()
+    try:
+        while not web.started:
+            time.sleep(0.05)
+        started = time.monotonic()
+        result = runtime.probe_server("silent", {"transport": "streamable_http", "url": f"http://127.0.0.1:{port}/mcp",
+                                                 "connect_timeout": 10})
+        assert result["ok"] is True and [tool["name"] for tool in result["tools"]] == ["ping"]
+        assert time.monotonic() - started < 10  # Not the library's five-minute wait.
+    finally:
+        web.should_exit = True
+        thread.join(10)
+        runtime.shutdown()
