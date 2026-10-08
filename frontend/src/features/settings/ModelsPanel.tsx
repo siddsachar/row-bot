@@ -818,6 +818,7 @@ export default function ModelsPanel({
                 : 'Reading limit'
             }
             sub
+            anchor="reading-limit"
             bind={false}
             help={
               contextKind === 'local'
@@ -885,6 +886,7 @@ export default function ModelsPanel({
       </SettingsGroup>
       <SettingsAdvanced
         summary="Limits for long work"
+        anchor="long-work"
         meta={
           agents
             ? `${agents.max_iterations} steps per run · ${agents.max_concurrent_children} helper agents at a time`

@@ -28,7 +28,7 @@ test('browser resource setup uses server IDs and never sends client paths', asyn
     .fill(deckName);
   await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(
@@ -71,7 +71,7 @@ test('browser resource setup uses server IDs and never sends client paths', asyn
     })
     .click();
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(

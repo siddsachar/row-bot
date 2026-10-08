@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createDocumentJobsSession,
   DocumentJobs,
+  QUEUE_POLL_MS,
   type DocumentJobsTransport,
   type DocumentQueueItem,
   type DocumentQueuePage,
@@ -97,9 +98,8 @@ describe('document queue retained controls', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
     });
     expect(transport.execute).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Saved queue outcome: paused',
-    );
+    // The outcome reads in words, not as a saved code.
+    expect(screen.getByRole('status')).toHaveTextContent(/^Paused\.$/);
   });
 
   it('retains unknown original review and uses only receipt recovery after remount', async () => {
@@ -265,7 +265,7 @@ describe('document queue retained controls', () => {
     await session.confirm();
     render(<DocumentJobs session={session} />);
     expect(screen.getByRole('status')).toHaveTextContent(
-      'cancellation_requested. indexing',
+      'Cancelling. Row-Bot stops after the step it is on.',
     );
   });
 
@@ -349,4 +349,78 @@ it('resumes every paused batch from one "Resume all", each through its own revie
     expect.objectContaining({ target_id: 'two' }),
   );
   expect(transport.execute).toHaveBeenCalledTimes(2);
+});
+
+it('names each upload by its files and says why a document failed, in words', async () => {
+  const { session, transport } = fixture();
+  vi.mocked(transport.batches).mockResolvedValue(
+    page([
+      {
+        ...batch,
+        id: 'client_35720253abc',
+        name: 'Quarterly report.pdf',
+        document_count: 3,
+        status: 'completed_with_errors',
+      },
+    ]),
+  );
+  vi.mocked(transport.jobs).mockResolvedValue(
+    page([
+      {
+        ...job,
+        batch_id: 'client_35720253abc',
+        name: 'Quarterly report.pdf',
+        status: 'failed',
+        error_code: 'parse_failed',
+      },
+    ]),
+  );
+  await session.load();
+  render(<DocumentJobs session={session} onProcess={vi.fn()} />);
+  expect(screen.getByText('Quarterly report.pdf and 2 more')).toBeVisible();
+  expect(screen.queryByText(/client_|35720253/)).not.toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show files in Quarterly report.pdf and 2 more',
+      }),
+    );
+  });
+  expect(screen.getByText('Failed')).toBeVisible();
+  expect(screen.getByText(/couldn't read this file/)).toBeVisible();
+  expect(screen.queryByText('parse_failed')).not.toBeInTheDocument();
+  expect(
+    screen.getByLabelText('Select Quarterly report.pdf and 2 more'),
+  ).toBeVisible();
+});
+
+it('reads the queue again by itself while documents are being added, and stops when they finish', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, transport } = fixture();
+    vi.mocked(transport.batches)
+      .mockResolvedValueOnce(page([{ ...batch, status: 'queued' }]))
+      .mockResolvedValueOnce(page([{ ...batch, status: 'running' }]))
+      .mockResolvedValue(page([{ ...batch, status: 'completed' }]));
+    await act(() => session.load());
+    render(<DocumentJobs session={session} />);
+    expect(screen.getByText('Queued')).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(QUEUE_POLL_MS));
+    expect(screen.getByText('Processing')).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(QUEUE_POLL_MS));
+    expect(screen.getByText('Completed')).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(QUEUE_POLL_MS * 3));
+    expect(transport.batches).toHaveBeenCalledTimes(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('never reads over a choice in progress', async () => {
+  const { session, transport } = fixture();
+  await session.load();
+  await session.review('document.batch.cancel', 'batch');
+  await session.poll();
+  expect(transport.batches).toHaveBeenCalledTimes(1);
+  expect(session.getSnapshot().review?.action).toBe('document.batch.cancel');
 });

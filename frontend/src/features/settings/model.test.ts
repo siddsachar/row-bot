@@ -149,15 +149,48 @@ describe('settings navigation metadata', () => {
     expect(searchSettingsRows('')).toEqual([]);
     // A page name narrows a row search but never lists a whole page.
     expect(searchSettingsRows('runtimes').map(settingsRowHref)).toEqual([
-      '/settings/apps?view=advanced#chats',
+      '/settings/apps?view=advanced#runtimes',
     ]);
+    // The skills library has no rows to jump to: its results open the page.
     expect(searchSettingsRows('find skills').map(settingsRowHref)).toEqual([
-      '/settings/skills#public-skills',
+      '/settings/skills',
     ]);
     expect(searchSettingsRows('logging').map(settingsRowHref)).toEqual([
       '/settings/system#logging.level',
     ]);
     for (const row of settingsRows)
       expect(resolveSetting(row.leaf)?.id).toBe(row.leaf);
+  });
+
+  it('finds settings by the words people use, not only their names', () => {
+    const found = (query: string) =>
+      searchSettingsRows(query).map((row) => row.label);
+    expect(found('camera')).toEqual(['Vision model']);
+    expect(found('claude')).toEqual(['Subscriptions', 'API providers']);
+    expect(found('steps')).toEqual(['Limits for long work']);
+    expect(found('reading limit')).toEqual(['Reading limit']);
+    expect(found('blocked')).toEqual(['Blocked commands']);
+    expect(found('api key')).toEqual([
+      'API providers',
+      'Tavily API key',
+      'Wolfram Alpha App ID',
+    ]);
+    for (const query of ['camera', 'claude', 'steps', 'blocked'])
+      expect(searchSettings(query)).not.toEqual([]);
+  });
+
+  it('names rows as their pages do and keeps the old names findable', () => {
+    for (const [old, label] of [
+      ['accent', 'Colour theme'],
+      ['embedding', 'Search model'],
+      ['whisper', 'Speech model'],
+      ['log level', 'Log detail'],
+      ['shell', 'Run commands'],
+      ['memory graph', 'Graph health'],
+    ])
+      expect(
+        searchSettingsRows(old).map((row) => row.label),
+        old,
+      ).toContain(label);
   });
 });

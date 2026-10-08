@@ -523,7 +523,7 @@ export async function addReviewResourcePair(
         .click();
     }
     await expect(
-      setup.getByText('Resource ready', { exact: true }),
+      setup.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     await page.keyboard.press('Escape');
     if (page.viewportSize()!.width < 1024)

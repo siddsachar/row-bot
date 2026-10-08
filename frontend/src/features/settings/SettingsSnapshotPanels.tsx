@@ -36,6 +36,7 @@ import {
   SquareTerminal,
   Square,
   Play,
+  Trash2,
   Unlink,
   Volume2,
   Wrench,
@@ -353,7 +354,8 @@ const utilityPresentation: Record<
   chart: { label: 'Charts', description: 'Create charts from supplied data.' },
   system_info: {
     label: 'System Info',
-    description: 'Read bounded host information.',
+    description:
+      'Reports this computer’s system, memory, disk, network and battery.',
   },
   conversation_search: {
     label: 'Conversation Search',
@@ -1640,8 +1642,9 @@ function whisperOptionLabel(label: string) {
   return match ? `${match[1]} · ${match[2]}` : label;
 }
 
-const SPEECH_MODEL_HINT =
-  'local-whisper, or local-funasr-sensevoice once SenseVoice is installed.';
+/** The engines that listen on this computer, by their saved ids. */
+const WHISPER_ENGINE = 'local-whisper';
+const SENSEVOICE_ENGINE = 'local-funasr-sensevoice';
 
 type VoiceTestPlayback = {
   abort: AbortController;
@@ -1761,6 +1764,12 @@ export function VoiceSnapshotPanel({
     snapshot.whisper_options,
     snapshot.local.whisper_model,
   );
+  const speechEngines = [
+    { value: WHISPER_ENGINE, label: 'Whisper' },
+    ...(snapshot.local.sensevoice_path_configured
+      ? [{ value: SENSEVOICE_ENGINE, label: 'SenseVoice' }]
+      : []),
+  ];
   // Listening on this computer needs the speech model: until it is downloaded, the header says so.
   const missingSpeech =
     (!realtime || localDictation) && !snapshot.local.whisper_installed;
@@ -1975,28 +1984,48 @@ export function VoiceSnapshotPanel({
             />
           </SettingsGroup>
         )}
-        <SettingsGroup title="Speech models">
-          <TextSetting
-            mutation={mutation}
-            field="runtime.talk_model"
-            label="Talk model"
-            hint={realtime ? undefined : SPEECH_MODEL_HINT}
-            value={snapshot.runtime.talk_model}
-          />
-          <TextSetting
-            mutation={mutation}
-            field="runtime.dictation_model"
-            label="Dictation model"
-            hint={SPEECH_MODEL_HINT}
-            value={snapshot.runtime.dictation_model}
-          />
-          <TextSetting
-            mutation={mutation}
-            field="runtime.speech_output_model"
-            label="Read-aloud model"
-            value={snapshot.runtime.speech_output_model}
-          />
-        </SettingsGroup>
+        {/* Realtime Talk's own model: the saved talk model names it while
+            Realtime Talk is on (anything else uses the default). */}
+        {realtime && (
+          <SettingsGroup title="Realtime">
+            <TextSetting
+              mutation={mutation}
+              field="runtime.talk_model"
+              label="Realtime model"
+              hint="Leave as gpt-realtime-2 unless you need another gpt-realtime model."
+              value={
+                snapshot.runtime.talk_model.startsWith('gpt-realtime')
+                  ? snapshot.runtime.talk_model
+                  : 'gpt-realtime-2'
+              }
+            />
+          </SettingsGroup>
+        )}
+        {/* Whisper or SenseVoice, for listening on this computer: a choice
+            only once SenseVoice is installed. Read aloud always uses
+            Kokoro, so it has no choice here. */}
+        {speechEngines.length > 1 && (!realtime || localDictation) && (
+          <SettingsGroup title="Speech engine">
+            {!realtime && (
+              <SelectSetting
+                mutation={mutation}
+                field="runtime.talk_model"
+                label="Talk listens with"
+                value={snapshot.runtime.talk_model}
+                options={speechEngines}
+              />
+            )}
+            {localDictation && (
+              <SelectSetting
+                mutation={mutation}
+                field="runtime.dictation_model"
+                label="Dictation listens with"
+                value={snapshot.runtime.dictation_model}
+                options={speechEngines}
+              />
+            )}
+          </SettingsGroup>
+        )}
         <SettingsGroup
           title="Voice models"
           meta={
@@ -2465,7 +2494,7 @@ export function SystemSnapshotPanel({
                 mutation={mutation}
                 field="logging.open"
                 label="Open log folder"
-                description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
+                description="Opens the folder on this computer where Row-Bot keeps its logs."
                 presentation="icon"
                 icon={<FolderOpen size={16} aria-hidden />}
               />
@@ -2479,8 +2508,8 @@ export function SystemSnapshotPanel({
             <TextSetting
               mutation={mutation}
               field="shell.blocked_patterns"
-              label="Additional blocked patterns (comma-separated)"
-              hint="Commands matching these are never run."
+              label="Blocked commands"
+              hint="Commands that contain any of these never run. Separate them with commas."
               value={snapshot.shell.blocked_patterns}
             />
           )}
@@ -3023,7 +3052,7 @@ function WorkspaceFolderSetting({
       mutation={mutation}
       field="workspace.folder_grant"
       label="Workspace folder"
-      hint="Row-Bot’s file tools only work inside this folder. The full local path is never sent to the renderer."
+      hint="Row-Bot’s file tools only work inside this folder. Settings shows its name, never its full path."
       value=""
       savedMessage={() => 'Workspace folder changed'}
       row={{
@@ -3153,40 +3182,18 @@ export function TrackerSnapshotPanel({
         {snapshot.items.length ? (
           <ul className="settings-row-list" aria-label="Saved trackers">
             {snapshot.items.map((tracker) => (
-              <li key={tracker.tracker_id}>
-                <span className="settings-row-list-icon" aria-hidden>
-                  {tracker.icon || <Activity size={15} aria-hidden />}
-                </span>
-                <div className="settings-row-list-text">
-                  <strong>{tracker.name}</strong>
-                  <small>
-                    {trackerKinds[tracker.kind] ?? humanizeToken(tracker.kind)}
-                    {tracker.unit ? ` · ${tracker.unit}` : ''}
-                    {tracker.last_event_at ? (
-                      <>
-                        {' · Last '}
-                        <time
-                          dateTime={tracker.last_event_at}
-                          title={absoluteTime(tracker.last_event_at)}
-                        >
-                          {relativeTime(tracker.last_event_at)}
-                        </time>
-                      </>
-                    ) : (
-                      ' · No entries yet'
-                    )}
-                  </small>
-                </div>
-                <span className="settings-row-list-meta">
-                  {tracker.entry_count === 1
-                    ? '1 entry'
-                    : `${tracker.entry_count} entries`}
-                </span>
-              </li>
+              <TrackerRow
+                key={tracker.tracker_id}
+                tracker={tracker}
+                mutation={mutation}
+              />
             ))}
           </ul>
         ) : (
-          <p className="muted">No trackers yet.</p>
+          <p className="muted">
+            No trackers yet. Ask Row-Bot in a chat to track something, like
+            “Track my water, 8 glasses a day” or “Log my sleep every morning”.
+          </p>
         )}
       </Section>
       {showDanger && snapshot.items.length > 0 && (
@@ -3214,7 +3221,17 @@ export function TrackerDangerAction({
   );
 }
 
-function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
+type SavedTracker = SettingsSnapshot['tracker']['items'][number];
+
+/**
+ * A reviewed tracker deletion: every tracker, or one with its entries.
+ * Review first, confirm second; an unconfirmed outcome is only re-read.
+ */
+function useTrackerDeletion(
+  mutation: SettingsMutationIO,
+  tracker?: Pick<SavedTracker, 'tracker_id' | 'name'>,
+) {
+  const notify = useNotify();
   const [review, setReview] = useState<SettingsMutationReview | null>(null);
   const [request, setRequest] = useState<SettingsMutationRequest | null>(null);
   const [pendingCommand, setPendingCommand] = useState('');
@@ -3222,6 +3239,9 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const abort = useRef<AbortController | null>(null);
+  // One tracker's row goes once it is deleted: say so where it stays seen.
+  const deleted = (message: string) =>
+    tracker ? notify(`${tracker.name} deleted.`) : setNotice(message);
 
   useEffect(() => {
     if (review && review.settings_revision !== mutation.revision) {
@@ -3234,12 +3254,19 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
 
   async function reviewDeletion() {
     if (busy || pendingCommand) return;
-    const next: SettingsMutationRequest = {
-      settings_revision: mutation.revision,
-      page: 'tracker',
-      field: 'delete_all',
-      value: true,
-    };
+    const next: SettingsMutationRequest = tracker
+      ? {
+          settings_revision: mutation.revision,
+          page: 'tracker',
+          field: 'delete_tracker',
+          value: tracker.tracker_id,
+        }
+      : {
+          settings_revision: mutation.revision,
+          page: 'tracker',
+          field: 'delete_all',
+          value: true,
+        };
     abort.current?.abort();
     abort.current = new AbortController();
     setBusy('review');
@@ -3263,7 +3290,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
     }
   }
 
-  async function deleteAll() {
+  async function confirmDeletion() {
     if (!review || !request || busy) return;
     const commandId = crypto.randomUUID();
     const approvedReview = review;
@@ -3283,7 +3310,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
       if (receipt.status === 'completed' && receipt.snapshot) {
         setPendingCommand('');
         mutation.onSnapshot(receipt.snapshot);
-        setNotice('All tracker data deleted.');
+        deleted('All tracker data deleted.');
       } else if (receipt.status === 'partial') {
         setNotice(
           "Row-Bot couldn't confirm the deletion. Check again before retrying.",
@@ -3300,6 +3327,12 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
     } finally {
       setBusy('');
     }
+  }
+
+  function cancelDeletion() {
+    setReview(null);
+    setRequest(null);
+    setNotice('Deletion cancelled. No tracker data was changed.');
   }
 
   async function checkReceipt() {
@@ -3320,7 +3353,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
       setPendingCommand('');
       if (receipt.status === 'completed' && receipt.snapshot) {
         mutation.onSnapshot(receipt.snapshot);
-        setNotice('All tracker data deletion confirmed.');
+        deleted('All tracker data deletion confirmed.');
       } else {
         setError('The original reviewed deletion was rejected.');
       }
@@ -3330,6 +3363,124 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
       setBusy('');
     }
   }
+
+  return {
+    review,
+    pendingCommand,
+    busy,
+    error,
+    notice,
+    reviewDeletion,
+    confirmDeletion,
+    cancelDeletion,
+    checkReceipt,
+  };
+}
+
+/** One saved tracker: what it counts, its last entry and its own Delete. */
+function TrackerRow({
+  tracker,
+  mutation,
+}: {
+  tracker: SavedTracker;
+  mutation: SettingsMutationIO;
+}) {
+  const deletion = useTrackerDeletion(mutation, tracker);
+  const { review, pendingCommand, busy, error, notice } = deletion;
+  return (
+    <li>
+      <span className="settings-row-list-icon" aria-hidden>
+        {tracker.icon || <Activity size={15} aria-hidden />}
+      </span>
+      <div className="settings-row-list-text">
+        <strong>{tracker.name}</strong>
+        <small>
+          {trackerKinds[tracker.kind] ?? humanizeToken(tracker.kind)}
+          {tracker.unit ? ` · ${tracker.unit}` : ''}
+          {tracker.last_event_at ? (
+            <>
+              {' · Last '}
+              <time
+                dateTime={tracker.last_event_at}
+                title={absoluteTime(tracker.last_event_at)}
+              >
+                {relativeTime(tracker.last_event_at)}
+              </time>
+            </>
+          ) : (
+            ' · No entries yet'
+          )}
+        </small>
+      </div>
+      <span className="settings-row-list-meta settings-tracker-meta">
+        {tracker.entry_count === 1
+          ? '1 entry'
+          : `${tracker.entry_count} entries`}
+        <IconButton
+          size="sm"
+          label={`Delete ${tracker.name}`}
+          disabled={!!busy || !!review || !!pendingCommand}
+          onClick={() => void deletion.reviewDeletion()}
+        >
+          <Trash2 size={15} aria-hidden />
+        </IconButton>
+      </span>
+      {(review || pendingCommand || error || notice) && (
+        <div
+          className="settings-row-list-confirm"
+          role="group"
+          aria-label={`Delete ${tracker.name}`}
+          aria-busy={!!busy}
+        >
+          {review && (
+            <>
+              <p role="status">{review.value_summary}</p>
+              <div className="settings-control-actions">
+                <Button
+                  variant="danger"
+                  disabled={!!busy}
+                  onClick={() => void deletion.confirmDeletion()}
+                >
+                  Delete tracker
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={!!busy}
+                  onClick={deletion.cancelDeletion}
+                >
+                  Keep it
+                </Button>
+              </div>
+            </>
+          )}
+          {pendingCommand && (
+            <Button
+              disabled={!!busy}
+              onClick={() => void deletion.checkReceipt()}
+            >
+              {busy === 'delete' ? 'Checking…' : 'Check again'}
+            </Button>
+          )}
+          {error && <p role="alert">{error}</p>}
+          {notice && !review && <p role="status">{notice}</p>}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
+  const {
+    review,
+    pendingCommand,
+    busy,
+    error,
+    notice,
+    reviewDeletion,
+    confirmDeletion: deleteAll,
+    cancelDeletion,
+    checkReceipt,
+  } = useTrackerDeletion(mutation);
 
   return (
     <div className="settings-saved-control" aria-busy={!!busy}>
@@ -3355,15 +3506,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
             >
               Confirm Delete All Tracker Data
             </Button>
-            <Button
-              variant="ghost"
-              disabled={!!busy}
-              onClick={() => {
-                setReview(null);
-                setRequest(null);
-                setNotice('Deletion cancelled. No tracker data was changed.');
-              }}
-            >
+            <Button variant="ghost" disabled={!!busy} onClick={cancelDeletion}>
               Cancel
             </Button>
           </div>
@@ -4284,7 +4427,7 @@ export function DocumentModelSetting({
       mutation={mutation}
       field="processing_model"
       label="Read documents with"
-      hint="Saves what each document says to your knowledge. The conversation’s model is used when none is picked."
+      hint="Saves what each document says to your knowledge. Your default model is used when none is picked."
       value={current}
       savedMessage={(next) =>
         next
@@ -4292,10 +4435,10 @@ export function DocumentModelSetting({
               models.find((model) => model.model_ref === next)?.label ??
               String(next)
             }`
-          : 'Documents are read with the conversation’s model'
+          : 'Documents are read with your default model'
       }
       options={[
-        { value: '', label: "Conversation's model" },
+        { value: '', label: 'Default model' },
         ...models
           .filter((model) => model.available || model.model_ref === current)
           .map((model) => ({
@@ -4467,29 +4610,29 @@ export function DocumentEmbeddingSnapshot({
           <NumberSetting
             mutation={mutation}
             field="embedding.dimension"
-            label="Dimension override"
-            hint="Leave it on Automatic unless a model needs a fixed size."
+            label="Index size"
+            hint="Leave it on Automatic unless the search model needs a fixed number of dimensions."
             value={embedding.dimension}
             min={1}
             max={65536}
             optional
           />
           <SettingsItem
-            label="Document vectors"
+            label="Document index"
             help={vectors.detail}
             bind={false}
             status={
               <StatusLine tone={healthTone(vectors.state)}>
-                Document vectors: {vectors.state}
+                Document index: {vectors.state}
               </StatusLine>
             }
             control={
               <ReviewedSettingsAction
                 mutation={mutation}
                 field="vectors.rebuild"
-                label="rebuild document vectors"
+                label="Rebuild document index"
                 text="Rebuild"
-                description="Recreate document search vectors from the documents already added."
+                description="Indexes the documents already added again, with the current search model."
                 presentation="button"
               />
             }
@@ -4680,12 +4823,12 @@ export function ToolConfigurationSnapshot({
                 <summary>Credentials &amp; setup</summary>
                 {tool.setupUrl && (
                   <p className="settings-help">
-                    Create the provider credential at{' '}
+                    Get a key at{' '}
                     <a href={tool.setupUrl} target="_blank" rel="noreferrer">
                       {new URL(tool.setupUrl).hostname}
                     </a>
-                    , then save it below. Credentials remain write-only and
-                    masked.
+                    , then add it below. A saved key is never shown in full
+                    again.
                   </p>
                 )}
                 {tool.credentials.map((credential) =>
@@ -4759,49 +4902,49 @@ export function ToolConfigurationSnapshot({
         </SummaryChip>
       </SettingsSummary>
       <Section
-        title="Capability loading"
-        description="Choose how enabled external capabilities are exposed to the model."
+        title="How tools are offered"
+        description="How tools from your apps and plugins reach the model."
         icon={SlidersHorizontal}
         anchor="capability-loading"
       >
         <RadioSetting
           mutation={mutation}
           field="external_loading_mode"
-          label="External tool loading"
+          label="Tools from apps and plugins"
           value={snapshot.external_loading_mode}
           options={[
             {
               value: 'auto',
-              label: 'Auto-select external tools (recommended)',
+              label: 'Only the ones a request needs (recommended)',
             },
-            { value: 'eager', label: 'Load all external tools' },
+            { value: 'eager', label: 'All of them, every time' },
           ]}
         />
         <p className="settings-help">
-          Core tools stay available. Enabled external tools are selected when
-          needed unless compatibility mode loads them all.
+          Built-in tools are always offered. Offering every tool at once can
+          slow replies when many apps are connected.
         </p>
       </Section>
       <Section
-        title="Retrieval compression"
-        description="Controls how search results are filtered before reaching the model."
+        title="Trim search results"
+        description="Keep only the parts of search results that matter before the model reads them."
         icon={Search}
         anchor="retrieval-compression"
       >
         <SelectSetting
           mutation={mutation}
           field="compression_mode"
-          label="Compression mode"
+          label="Trimming"
           value={snapshot.compression_mode}
           options={[
             { value: 'off', label: 'Off (default)' },
-            { value: 'deep', label: 'Deep' },
+            { value: 'deep', label: 'On: slower, uses extra model calls' },
           ]}
         />
       </Section>
       <Section
         title="Search & Knowledge Tools"
-        description="Research tools the assistant can use, with masked credentials."
+        description="Research tools the assistant can use. Some need a key."
         icon={BookOpen}
         anchor="search-tools"
       >
@@ -4920,20 +5063,24 @@ export function PreferencesSnapshotPanel({
         )}
         <Section
           title="Import from another assistant"
-          description="Scan and select data from Hermes Agent or OpenClaw. Nothing is written until you confirm."
+          description="Bring your data over from another assistant. Nothing is written until you confirm."
           icon={Import}
           anchor="migration"
         >
-          <div className="settings-inline-row">
-            <div>
-              <strong>Works with</strong>
-              <p>
-                {snapshot.migration.available
-                  ? snapshot.migration.sources.join(' and ')
-                  : 'Migration is unavailable on this installation.'}
-              </p>
+          {/* The import form names the apps it reads from; this line is
+              for when there is no form. */}
+          {(!showUpdateControls || !snapshot.migration.available) && (
+            <div className="settings-inline-row">
+              <div>
+                <strong>Works with</strong>
+                <p>
+                  {snapshot.migration.available
+                    ? snapshot.migration.sources.join(' and ')
+                    : 'Migration is unavailable on this installation.'}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
           {showUpdateControls && <ConnectedMigrationControls />}
         </Section>
       </div>

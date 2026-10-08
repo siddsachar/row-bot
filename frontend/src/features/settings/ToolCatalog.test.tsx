@@ -53,7 +53,7 @@ function pending<T>() {
 }
 
 async function openCatalog() {
-  const summary = await screen.findByText('Cached tool catalogue');
+  const summary = await screen.findByText('All tools');
   const disclosure = summary.closest('details')!;
   if (!disclosure.open) fireEvent.click(summary);
 }
@@ -131,9 +131,7 @@ it('distinguishes cached zero counts from unavailable sources and unknown runtim
   expect(screen.getByText('Cached · 0 recorded entries')).toBeVisible();
   expect(screen.getAllByText('Unavailable · Count unknown')).toHaveLength(2);
   expect(
-    screen.getByText(
-      /Runtime readiness and account access have not been checked/,
-    ),
+    screen.getByText(/Opening this list doesn’t check that each one works/),
   ).toBeVisible();
   fireEvent.click(screen.getByText('First tool · Core'));
   expect(screen.getAllByText('Unknown')).toHaveLength(5);
@@ -171,7 +169,8 @@ it('keeps declarations separate from access and renders labels as text', async (
   expect(row.getAllByText('No')).toHaveLength(2);
   expect(row.getByText('Unknown')).toBeVisible();
   expect(row.getByText('Plugin ID')).toBeVisible();
-  expect(screen.getByText('same · Core')).toBeVisible();
+  // A bare id reads as a name.
+  expect(screen.getByText('Same · Core')).toBeVisible();
   expect(
     screen.queryByText(/ready to run|credentials verified|safe to execute/i),
   ).not.toBeInTheDocument();
@@ -187,7 +186,7 @@ it('uses compact friendly-label rows and keeps stable IDs behind disclosure', as
   const { container } = render(
     <ToolCatalog load={async () => page([entry])} />,
   );
-  expect(await screen.findByText('Cached tool catalogue')).toBeVisible();
+  expect(await screen.findByText('All tools')).toBeVisible();
   expect(screen.getByText('Web Search · Core')).not.toBeVisible();
   await openCatalog();
   const heading = await screen.findByText('Web Search · Core');
@@ -419,4 +418,24 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
   expect(await screen.findByText('Recovered · Core')).toBeVisible();
   expect(screen.getByText('Confirmed · Core')).toBeVisible();
   expect(load.mock.calls[2].slice(0, 3)).toEqual([undefined, '', 'next']);
+});
+
+it('names bare tool ids as people read them, with no filler line under each', async () => {
+  render(
+    <ToolCatalog
+      load={async () =>
+        page([
+          tool('browser'),
+          tool('arxiv'),
+          tool('youtube'),
+          tool('mcp', 'mcp'),
+        ])
+      }
+    />,
+  );
+  await openCatalog();
+  for (const name of ['Browser · Core', 'arXiv · Core', 'YouTube · Core'])
+    expect(await screen.findByText(name)).toBeVisible();
+  expect(screen.getByText('MCP · MCP')).toBeVisible();
+  expect(screen.queryByText('Saved catalog entry')).toBeNull();
 });

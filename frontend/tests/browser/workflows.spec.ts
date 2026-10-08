@@ -226,7 +226,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     exact: true,
   });
   await editor
-    .getByRole('textbox', { name: 'Concurrency group', exact: true })
+    .getByRole('textbox', { name: 'Queue name', exact: true })
     .fill('synthetic-browser-group');
   await editor
     .getByRole('combobox', { name: 'Trigger', exact: true })
@@ -238,7 +238,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     page.getByRole('tab', { name: 'Workflows', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(
-    editor.getByRole('textbox', { name: 'Concurrency group', exact: true }),
+    editor.getByRole('textbox', { name: 'Queue name', exact: true }),
   ).toHaveValue('synthetic-browser-group');
   await expect(
     editor.getByRole('combobox', { name: 'Trigger', exact: true }),
@@ -267,7 +267,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     'Workflow settings',
   );
   await expect(
-    editor.getByRole('textbox', { name: 'Concurrency group', exact: true }),
+    editor.getByRole('textbox', { name: 'Queue name', exact: true }),
   ).toHaveValue('synthetic-browser-group');
   await expect(
     editor.getByRole('combobox', { name: 'Trigger', exact: true }),
@@ -481,10 +481,7 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
       .getByRole('navigation', { name: 'Settings sections' })
       .getByRole('link', { name: 'Tools', exact: true })
       .click();
-  await page
-    .locator('summary')
-    .filter({ hasText: 'Cached tool catalogue' })
-    .click();
+  await page.locator('summary').filter({ hasText: 'All tools' }).click();
   await page
     .getByRole('combobox', { name: 'Tool source' })
     .selectOption('core');
@@ -634,6 +631,12 @@ async function appTemplatesJourney(page: Page, info: TestInfo) {
   await page.goto('/app-v2/?tab=workflows');
   const templates = page.getByRole('region', { name: 'Start from a template' });
   await expect(templates.getByText('GitHub pull-request digest')).toBeVisible();
+  // A template without apps works with nothing connected.
+  await expect(
+    templates.getByRole('button', {
+      name: 'Use template: Daily brief from the web',
+    }),
+  ).toBeVisible();
   // Linear isn't connected: its template offers Connect instead, never a workflow that can't work.
   const linear = templates
     .getByRole('listitem')

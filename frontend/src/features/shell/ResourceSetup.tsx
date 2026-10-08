@@ -1154,6 +1154,22 @@ export default function ResourceSetup({
                   ))}
                 </Select>
               </Field>
+              {currentOptions && (
+                // Templates are a first choice, not an advanced one.
+                <Field label="Template">
+                  <Select
+                    disabled={busy}
+                    value={template}
+                    onChange={(e) => setTemplate(e.target.value)}
+                  >
+                    {currentOptions.templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label="Name (optional)">
                 <Input
                   disabled={busy}
@@ -1187,19 +1203,6 @@ export default function ResourceSetup({
               {currentOptions ? (
                 <Disclosure className="setup-options" summary="Advanced">
                   <div className="setup-grid">
-                    <Field label="Template">
-                      <Select
-                        disabled={busy}
-                        value={template}
-                        onChange={(e) => setTemplate(e.target.value)}
-                      >
-                        {currentOptions.templates.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
                     <Field label="Canvas">
                       <Select
                         disabled={busy}

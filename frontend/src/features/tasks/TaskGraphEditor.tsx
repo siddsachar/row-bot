@@ -120,9 +120,9 @@ function initialFields(kind: string): TaskGraphFields {
   }
 }
 
-/** Saved step ids read as words; new steps have no name until saved. */
-function displayId(id: string) {
-  return id.startsWith('draft_') ? 'new step' : id;
+/** Steps read by position and kind, never by their saved ids; a step not saved yet says so. */
+function draftMark(id: string) {
+  return id.startsWith('draft_') ? ' · new step' : '';
 }
 
 /** A one-line hint of what a step does, beside its row. */
@@ -410,7 +410,7 @@ export default function TaskGraphEditor({
           .filter((item) => item.id !== selected)
           .map((item): [string, string] => [
             item.id,
-            `Step ${steps.indexOf(item) + 1} · ${kinds[item.type as keyof typeof kinds] ?? item.type}${item.id.startsWith('draft_') ? '' : ` · ${item.id}`}`,
+            `Step ${steps.indexOf(item) + 1} · ${kinds[item.type as keyof typeof kinds] ?? item.type}`,
           ]),
       ],
       fallback,
@@ -546,8 +546,8 @@ export default function TaskGraphEditor({
                     onClick={() => setSelected(item.id)}
                     disabled={saving}
                   >
-                    {position + 1}. {kindLabel(item.type)} ·{' '}
-                    {displayId(item.id)}
+                    {position + 1}. {kindLabel(item.type)}
+                    {draftMark(item.id)}
                   </button>
                   <span className="task-graph-step-summary">
                     {stepSummary(item)}

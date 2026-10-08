@@ -296,7 +296,7 @@ export default function MemorySettings({
         >
           <DangerAction
             title="Delete all knowledge"
-            description="Permanently removes the current saved graph after an exact revision review. Row-Bot-managed Wiki files and local indexes are cleaned up; files outside Row-Bot's managed Wiki scope are preserved."
+            description="Permanently deletes every saved memory. You see exactly what will go before you confirm. Wiki files Row-Bot wrote and its search indexes go too; your other files in the vault are kept."
           >
             <Button
               variant="danger"

@@ -10,9 +10,9 @@ import { Button } from '../../ui/primitives';
 import { AppIcon } from '../apps/parts';
 
 /**
- * "Start from a template": workflows that use apps. Each is created switched off and scheduled
- * (never a webhook), its step limited to its app; a template whose app isn't connected offers
- * Connect instead.
+ * "Start from a template": each is created switched off and scheduled (never a webhook). A
+ * template that uses apps limits its step to them, and offers Connect while one isn't
+ * connected; one without apps works with nothing connected.
  */
 export default function AppTemplates({
   load,
@@ -60,9 +60,13 @@ export default function AppTemplates({
           return (
             <li key={template.id} className="workflow-template">
               <div className="workflow-template-head">
-                {template.apps.map((app) => (
-                  <AppIcon key={app.app_id} icon={app.icon} size={20} />
-                ))}
+                {template.apps.length ? (
+                  template.apps.map((app) => (
+                    <AppIcon key={app.app_id} icon={app.icon} size={20} />
+                  ))
+                ) : (
+                  <span aria-hidden>{template.icon}</span>
+                )}
                 <strong>{template.name}</strong>
               </div>
               <p>{template.description}</p>

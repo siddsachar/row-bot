@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { CircleX, Eye, Files, RefreshCw } from 'lucide-react';
 import { Button, IconButton } from '../../ui/primitives';
+import { batchTitle, documentFailure, jobStatus } from './document-words';
 
 export type DocumentQueueItem = {
   id: string;
@@ -17,15 +18,11 @@ export type DocumentQueueItem = {
   extraction_total: number | null;
   error_code: string | null;
   revision: string;
+  /** A batch's document count; its name is its first document's. */
+  document_count?: number | null;
 };
-// Batches have no name or time: an upload reads "Upload · 8ecb2a25" and the
-// full id stays in each action's accessible name.
-function batchTitle(item: DocumentQueueItem) {
-  if (item.name) return item.name;
-  return item.id.startsWith('client_')
-    ? `Upload · ${item.id.slice(7, 15)}`
-    : `Batch · ${item.id.slice(0, 8)}`;
-}
+/** How often the queue reads itself again while documents are being added. */
+export const QUEUE_POLL_MS = 3000;
 const BATCH_STATUS: Record<string, string> = {
   staging: 'Upload not finished',
   queued: 'Queued',
@@ -114,6 +111,28 @@ const outcomes: Record<DocumentJobAction, DocumentControlReceipt['outcome']> = {
   'document.job.retry': 'retried',
   'document.jobs.clear_finished': 'cleared',
 };
+
+/** A confirmed action's outcome, in words. */
+function outcomeWords(receipt: DocumentControlReceipt) {
+  switch (receipt.outcome) {
+    case 'paused':
+      return 'Paused.';
+    case 'resumed':
+      return 'Resumed.';
+    case 'cancellation_requested':
+      return receipt.saved_status === 'cancelled'
+        ? 'Cancelled.'
+        : 'Cancelling. Row-Bot stops after the step it is on.';
+    case 'retried':
+      return 'Trying again.';
+    case 'cleared':
+      return receipt.count === 1
+        ? 'Cleared 1 finished upload from the list.'
+        : `Cleared ${receipt.count ?? 0} finished uploads from the list.`;
+    default:
+      return 'Done.';
+  }
+}
 
 const ACTION_QUESTIONS: Record<DocumentJobAction, string> = {
   'document.batch.pause': 'Pause this batch?',
@@ -239,6 +258,30 @@ export function createDocumentJobsSession(
       };
     },
     isPending: () => state.pending || state.busy,
+    /**
+     * Read the queue again while documents are being added, so its states
+     * move on by themselves. Never while you are choosing or confirming.
+     */
+    async poll() {
+      const idle = () =>
+        !operation &&
+        !state.pending &&
+        !state.review &&
+        !state.revoked &&
+        state.selected.length === 0;
+      if (!state.batches || !idle()) return;
+      const ticket = epoch;
+      const batches = page(await read(() => transport.batches()));
+      const batchId =
+        state.batchId && batches.items.some((item) => item.id === state.batchId)
+          ? state.batchId
+          : null;
+      const jobs = batchId
+        ? page(await read(() => transport.jobs(batchId)))
+        : null;
+      if (ticket !== epoch || !idle()) return;
+      emit({ batches, batchId, jobs });
+    },
     load: () =>
       run(async () => {
         const batches = page(await read(() => transport.batches()));
@@ -435,6 +478,23 @@ export function DocumentJobs({
     for (const item of paused)
       await session.start('document.batch.resume', item.id);
   };
+  // Documents waiting or being read: check on them until they finish.
+  const active =
+    !state.revoked &&
+    items.some(
+      (item) =>
+        item.status === 'queued' ||
+        item.status === 'running' ||
+        (item.cancel_requested && !terminal.has(item.status)),
+    );
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(
+      () => void session.poll().catch(() => undefined),
+      QUEUE_POLL_MS,
+    );
+    return () => clearInterval(timer);
+  }, [active, session]);
   return (
     <section aria-label="Document ingestion queue" className="document-queue">
       <div className="settings-divided document-queue-head">
@@ -494,7 +554,7 @@ export function DocumentJobs({
                   variant="ghost"
                   className="settings-link"
                   disabled={disabled}
-                  aria-label={`Process ${item.id}`}
+                  aria-label={`Process ${batchTitle(item)}`}
                   onClick={() => onProcess(item)}
                 >
                   Process
@@ -521,7 +581,7 @@ export function DocumentJobs({
             )}
             <IconButton
               size="sm"
-              label={`Inspect batch ${item.id}`}
+              label={`Show files in ${batchTitle(item)}`}
               disabled={disabled}
               onClick={() => invoke(() => session.openBatch(item.id))}
             >
@@ -531,7 +591,7 @@ export function DocumentJobs({
               <label className="document-batch-select">
                 <input
                   type="checkbox"
-                  aria-label={`Select finished batch ${item.id}`}
+                  aria-label={`Select ${batchTitle(item)}`}
                   checked={state.selected.includes(item.id)}
                   disabled={disabled}
                   onChange={(event) =>
@@ -581,34 +641,36 @@ export function DocumentJobs({
       {state.jobs && (
         <div className="settings-divided document-jobs">
           <p className="document-queue-note">
-            {state.jobs.total ?? 'Unknown'} saved jobs in this batch
+            {state.jobs.total === 1
+              ? '1 file in this upload'
+              : `${state.jobs.total ?? 'Some'} files in this upload`}
           </p>
           {state.jobs.items.map((item) => (
             <div key={item.id} className="document-job-row">
               <div className="document-batch-summary">
                 <strong>{item.name}</strong>
                 <small>
-                  {item.status} · {item.stage}
+                  {jobStatus(item.status)}
                   {item.index_total !== null && item.index_total > 0 && (
                     <>
-                      {' · '}Index {item.index_current ?? 0}/{item.index_total}
+                      {' · '}Read {item.index_current ?? 0} of{' '}
+                      {item.index_total}
                     </>
                   )}
                   {item.extraction_total !== null &&
                     item.extraction_total > 0 && (
                       <>
-                        {' · '}Knowledge {item.extraction_current ?? 0}/
+                        {' · '}Knowledge {item.extraction_current ?? 0} of{' '}
                         {item.extraction_total}
                       </>
                     )}
                 </small>
-                {item.cancel_requested && (
-                  <small>
-                    Cancellation requested. Active work must acknowledge the
-                    request.
-                  </small>
+                {item.cancel_requested && !terminal.has(item.status) && (
+                  <small>Cancelling after the step it is on.</small>
                 )}
-                {item.error_code && <small>{item.error_code}</small>}
+                {documentFailure(item.status, item.error_code) && (
+                  <small>{documentFailure(item.status, item.error_code)}</small>
+                )}
               </div>
               {item.status === 'failed' ? (
                 <Button
@@ -697,7 +759,7 @@ export function DocumentJobs({
       {state.receipt && (
         <p role="status" className="settings-divided document-queue-note">
           {state.receipt.status === 'completed'
-            ? `Saved queue outcome: ${state.receipt.outcome}. ${state.receipt.saved_status ?? ''}`
+            ? outcomeWords(state.receipt)
             : state.receipt.status === 'partial'
               ? 'The original outcome is uncertain. Do not repeat the action.'
               : 'The queue action was rejected.'}

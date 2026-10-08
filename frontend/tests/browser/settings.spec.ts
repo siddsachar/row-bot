@@ -488,9 +488,11 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
     headingName: 'Memory',
   });
   const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
-  await expect(wiki.getByText(/Select an authorized vault/)).toBeVisible();
+  await expect(
+    wiki.getByText(/Choose the vault folder with Browse first/),
+  ).toBeVisible();
   await wiki.getByRole('button', { name: 'Browse', exact: true }).click();
-  await expect(wiki.getByText(/Authorized folder selected/)).toBeVisible();
+  await expect(wiki.getByText(/Folder chosen/)).toBeVisible();
   const enabled = wiki.getByRole('switch', { name: 'Enable Wiki Vault' });
   if (!(await enabled.isChecked())) await enabled.check();
   // "Use selected vault" is reviewed by the server and applied in one step.
@@ -597,17 +599,23 @@ test('Document processing reviews the selected conversation and runs the admitte
   const uploadResponse = await uploaded;
   expect(uploadResponse.ok()).toBe(true);
   const { batch_id } = await uploadResponse.json();
+  const fileName = `Reviewed ${info.project.name}.txt`;
   await page
-    .getByRole('button', { name: `Process ${batch_id}`, exact: true })
+    .getByRole('button', { name: `Process ${fileName}`, exact: true })
     .click();
   const processing = page.getByRole('region', {
     name: 'Document processing',
     exact: true,
   });
-  // Lines read in words; the exact ids stay in their titles.
+  // Lines read in words (the batch by its file); the exact id stays in its
+  // title.
   await expect(processing.locator(`p[title="${batch_id}"]`)).toHaveText(
-    /^Batch: Upload · /,
+    `Documents: ${fileName}`,
   );
+  // Where the content goes shows before anything starts.
+  await expect(
+    processing.getByText(/sends the content of these documents to the cloud/),
+  ).toBeVisible();
   // Selecting a batch never starts provider work on its own.
   expect(
     await (
@@ -616,9 +624,8 @@ test('Document processing reviews the selected conversation and runs the admitte
   ).toEqual({ embeddings: 0, source_embeddings: 0, chats: 0, starts: 0 });
   await openHomeThroughNavigation(page);
   await openDocumentsFromHome(page);
-  await expect(processing.locator(`p[title="${conversation_id}"]`)).toHaveText(
-    /^Conversation: /,
-  );
+  // Settings processes on its own: the chat opened last plays no part.
+  await expect(processing.getByText(/^Conversation:/)).toHaveCount(0);
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -634,7 +641,7 @@ test('Document processing reviews the selected conversation and runs the admitte
       response
         .url()
         .endsWith(
-          `/conversations/${conversation_id}/documents/processing/commands`,
+          '/conversations/settings_documents/documents/processing/commands',
         ) && response.request().method() === 'POST',
   );
   await processing
@@ -706,7 +713,7 @@ test('Document processing reviews the selected conversation and runs the admitte
       .locator('.document-batch-row')
       .filter({
         has: page.getByRole('button', {
-          name: `Inspect batch ${batch_id}`,
+          name: `Show files in ${fileName}`,
           exact: true,
         }),
       })
@@ -791,9 +798,10 @@ test('Document upload retains selected files and stages exact streamed bytes pau
       status: 'queued',
     })),
   );
+  // The new upload reads as its files, never as its id.
   await expect(
     page.getByRole('button', {
-      name: `Inspect batch ${receipt.batch_id}`,
+      name: `Show files in ${files[0].name} and 1 more`,
       exact: true,
     }),
   ).toBeVisible();
@@ -810,7 +818,8 @@ test('Document queue reviews pause resume cancellation and clearing while preser
     headers,
   });
   expect(response.ok()).toBe(true);
-  const { batch_id } = await response.json();
+  // The fixture's batch holds one file, so the row reads as its name.
+  expect(await response.json()).toHaveProperty('batch_id');
   const saved = async () => {
     const response = await page.request.get('/__p4_fixture/document-queue', {
       headers,
@@ -827,7 +836,7 @@ test('Document queue reviews pause resume cancellation and clearing while preser
     .locator('div')
     .filter({
       has: page.getByRole('button', {
-        name: `Inspect batch ${batch_id}`,
+        name: 'Show files in Synthetic queue.txt',
         exact: true,
       }),
     })
@@ -835,13 +844,13 @@ test('Document queue reviews pause resume cancellation and clearing while preser
   const status = queue.getByRole('status');
   // Pause and resume are reviewed by the server and applied in one step.
   await batch.getByRole('button', { name: 'Pause', exact: true }).click();
-  await expect(status).toContainText('Saved queue outcome: paused');
+  await expect(status).toHaveText('Paused.');
   expect((await saved()).paused).toBe(true);
   await queue
     .getByRole('button', { name: 'Refresh queue', exact: true })
     .click();
   await batch.getByRole('button', { name: 'Resume', exact: true }).click();
-  await expect(status).toContainText('Saved queue outcome: resumed');
+  await expect(status).toHaveText('Resumed.');
   expect((await saved()).paused).toBe(false);
   await queue
     .getByRole('button', { name: 'Refresh queue', exact: true })
@@ -869,23 +878,19 @@ test('Document queue reviews pause resume cancellation and clearing while preser
   await confirmation
     .getByRole('button', { name: 'Confirm cancellation', exact: true })
     .click();
-  await expect(status).toContainText(
-    'Saved queue outcome: cancellation_requested',
-  );
+  await expect(status).toHaveText('Cancelled.');
   expect((await saved()).status).toBe('cancelled');
   await queue
     .getByRole('button', { name: 'Refresh queue', exact: true })
     .click();
-  await queue
-    .getByLabel(`Select finished batch ${batch_id}`, { exact: true })
-    .check();
+  await queue.getByLabel('Select Synthetic queue.txt', { exact: true }).check();
   await queue
     .getByRole('button', { name: 'Clear selected finished', exact: true })
     .click();
   await confirmation
     .getByRole('button', { name: 'Confirm clear selected', exact: true })
     .click();
-  await expect(status).toContainText('Saved queue outcome: cleared');
+  await expect(status).toHaveText('Cleared 1 finished upload from the list.');
   expect(await saved()).toEqual({
     status: null,
     paused: null,
@@ -1978,7 +1983,7 @@ test('Document removal retains its review and original partial cleanup until exp
   row = await findDocumentRow(page, target);
   await row.locator('summary').click();
   await expect(
-    row.getByText('Removed from search; ingestion history retained', {
+    row.getByText('Removed from search. Its history is kept.', {
       exact: true,
     }),
   ).toBeVisible();

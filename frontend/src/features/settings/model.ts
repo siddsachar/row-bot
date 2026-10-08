@@ -62,16 +62,20 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   preferences: 'identity name personality launch window dream cycle',
   appearance: 'theme dark light accent colour color density transparency',
   buddy: 'companion avatar pack motion desktop',
-  providers: 'api key credentials ollama openai anthropic cloud connect',
-  models: 'default model thinking reasoning catalog pin vision image',
-  voice: 'dictation talk speech microphone tts read aloud',
+  providers:
+    'api key credentials ollama openai anthropic claude chatgpt codex grok xai gemini subscription sign in cloud connect',
+  models:
+    'default model brain thinking reasoning catalog pin vision camera image video reading limit context steps helpers',
+  voice: 'dictation talk speech microphone tts read aloud whisper',
   knowledge: 'knowledge memories wiki graph vault',
-  documents: 'files upload pdf library embedding index',
+  documents: 'files upload pdf library embedding index search model',
   tracker: 'habits tracking health',
-  tools: 'utilities built-in search web research compression custom tools',
+  tools:
+    'utilities built-in search web research compression custom tools api key tavily wolfram',
   skills: 'skill library slash commands instructions clawhub create import',
   apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes accounts github google gmail calendar x twitter oauth channels telegram discord slack sms whatsapp messaging',
-  system: 'shell browser computer use workspace folder logging files',
+  system:
+    'shell commands browser computer use workspace folder logging logs files blocked',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',
@@ -225,7 +229,8 @@ export function searchSettings(query: string) {
 /**
  * Rows that search can jump to. `anchor` matches a `data-setting-anchor` on
  * the page; the shell opens any collapsed section around it, scrolls to it and
- * highlights it.
+ * highlights it. `label` uses the page's own words; older or technical names
+ * stay findable as `keywords`.
  */
 export type SettingsRow = {
   leaf: SettingsLeafId;
@@ -237,7 +242,12 @@ export type SettingsRow = {
 };
 
 export const settingsRows: SettingsRow[] = [
-  { leaf: 'preferences', anchor: 'identity.name', label: 'Assistant name' },
+  {
+    leaf: 'preferences',
+    anchor: 'identity.name',
+    label: 'Assistant name',
+    keywords: 'identity call itself',
+  },
   {
     leaf: 'preferences',
     anchor: 'identity.personality',
@@ -247,32 +257,32 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'preferences',
     anchor: 'identity.self_improvement_enabled',
-    label: 'Self-improvement',
-    keywords: 'skills learn',
+    label: 'Learn new skills',
+    keywords: 'self-improvement improve',
   },
   {
     leaf: 'preferences',
     anchor: 'window_mode',
-    label: 'Window mode',
-    keywords: 'native browser launch',
+    label: 'Open Row-Bot in',
+    keywords: 'window mode app native browser launch',
   },
   {
     leaf: 'preferences',
     anchor: 'dream-cycle',
     label: 'Dream Cycle',
-    keywords: 'overnight background consolidation',
+    keywords: 'overnight tidy-up background consolidation hours',
   },
   {
     leaf: 'appearance',
     anchor: 'theme',
-    label: 'Theme',
-    keywords: 'dark light system mode',
+    label: 'Light or dark',
+    keywords: 'theme appearance dark light system mode',
   },
   {
     leaf: 'appearance',
     anchor: 'accent',
-    label: 'Accent colour',
-    keywords: 'color blue teal violet amber',
+    label: 'Colour theme',
+    keywords: 'accent color blue teal violet amber',
   },
   {
     leaf: 'appearance',
@@ -301,22 +311,65 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'providers',
+    anchor: 'providers-local',
+    label: 'On this device',
+    keywords: 'ollama local models computer',
+  },
+  {
+    leaf: 'providers',
+    anchor: 'providers-subscription',
+    label: 'Subscriptions',
+    keywords: 'claude chatgpt codex grok xai sign in plan account',
+  },
+  {
+    leaf: 'providers',
+    anchor: 'providers-api',
+    label: 'API providers',
+    keywords:
+      'api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek',
+  },
+  {
+    leaf: 'providers',
     anchor: 'custom-endpoints',
     label: 'Custom endpoints',
-    keywords: 'base url openai compatible',
+    keywords: 'base url openai compatible self-hosted',
   },
   {
     leaf: 'models',
     anchor: 'default-model',
-    label: 'Default model',
-    keywords: 'brain chat',
+    label: 'Brain model',
+    keywords: 'default model chat main',
   },
-  { leaf: 'models', anchor: 'vision-model', label: 'Vision model' },
+  {
+    leaf: 'models',
+    anchor: 'vision-model',
+    label: 'Vision model',
+    keywords: 'camera images screenshots see look',
+  },
   {
     leaf: 'models',
     anchor: 'image-model',
     label: 'Image model',
-    keywords: 'generation',
+    keywords: 'generation pictures',
+  },
+  {
+    leaf: 'models',
+    anchor: 'video-model',
+    label: 'Video model',
+    keywords: 'clips animate generation',
+  },
+  {
+    leaf: 'models',
+    anchor: 'reading-limit',
+    label: 'Reading limit',
+    keywords: 'context window tokens advanced',
+  },
+  {
+    leaf: 'models',
+    anchor: 'long-work',
+    label: 'Limits for long work',
+    keywords:
+      'steps per run iterations helpers helper levels agents time limit goal turns',
   },
   {
     leaf: 'models',
@@ -324,36 +377,48 @@ export const settingsRows: SettingsRow[] = [
     label: 'Model catalog',
     keywords: 'pin models',
   },
-  { leaf: 'voice', anchor: 'talk', label: 'Talk', keywords: 'realtime' },
+  {
+    leaf: 'voice',
+    anchor: 'talk',
+    label: 'Talk',
+    keywords: 'realtime microphone listen',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'runtime.captions_enabled',
+    label: 'Live captions',
+    keywords: 'subtitles talk',
+  },
   { leaf: 'voice', anchor: 'dictation', label: 'Dictation' },
   {
     leaf: 'voice',
     anchor: 'local.whisper_model',
-    label: 'Whisper model size',
+    label: 'Speech model',
+    keywords: 'whisper model size transcription',
   },
   {
     leaf: 'voice',
     anchor: 'read-aloud',
     label: 'Read aloud',
-    keywords: 'text to speech tts kokoro',
+    keywords: 'text to speech tts kokoro voice',
   },
   {
     leaf: 'knowledge',
     anchor: 'memory-graph',
-    label: 'Memory graph',
-    keywords: 'entities relations',
+    label: 'Graph health',
+    keywords: 'memory graph entities relations',
   },
   {
     leaf: 'knowledge',
     anchor: 'wiki-vault',
     label: 'Wiki vault',
-    keywords: 'obsidian markdown',
+    keywords: 'obsidian markdown vault path folder',
   },
   {
     leaf: 'documents',
     anchor: 'embedding',
-    label: 'Embedding engine',
-    keywords: 'vectors model',
+    label: 'Search model',
+    keywords: 'embedding engine vectors',
   },
   {
     leaf: 'documents',
@@ -369,19 +434,32 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'tools',
     anchor: 'capability-loading',
-    label: 'Capability loading',
-    keywords: 'external tools',
+    label: 'How tools are offered',
+    keywords: 'capability loading external tools apps plugins',
   },
   {
     leaf: 'tools',
     anchor: 'retrieval-compression',
-    label: 'Retrieval compression',
+    label: 'Trim search results',
+    keywords: 'retrieval compression',
   },
   {
     leaf: 'tools',
     anchor: 'search-tools',
     label: 'Search and knowledge tools',
     keywords: 'web search tavily arxiv duckduckgo wolfram',
+  },
+  {
+    leaf: 'tools',
+    anchor: 'web_search.credential',
+    label: 'Tavily API key',
+    keywords: 'web search credential',
+  },
+  {
+    leaf: 'tools',
+    anchor: 'wolfram_alpha.credential',
+    label: 'Wolfram Alpha App ID',
+    keywords: 'api key credential',
   },
   {
     leaf: 'tools',
@@ -395,12 +473,25 @@ export const settingsRows: SettingsRow[] = [
     label: 'Custom tools',
     keywords: 'own tools scripts repository folder commands builder',
   },
-  { leaf: 'skills', anchor: 'skill-library', label: 'Your skills' },
   {
     leaf: 'skills',
-    anchor: 'public-skills',
-    label: 'Find skills',
-    keywords: 'hub browse discover public',
+    anchor: 'skill-library',
+    label: 'Find or add skills',
+    keywords: 'your skills library hub browse discover public clawhub install',
+    href: '/settings/skills',
+  },
+  {
+    leaf: 'skills',
+    anchor: 'new-skill',
+    label: 'Create a skill',
+    keywords: 'new write make own',
+    href: '/settings/skills/new',
+  },
+  {
+    leaf: 'apps',
+    anchor: 'chats',
+    label: 'Apps in chats',
+    keywords: 'views use apps conversation',
   },
   {
     leaf: 'apps',
@@ -410,7 +501,7 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'apps',
-    anchor: 'chats',
+    anchor: 'runtimes',
     label: 'Runtimes (Node.js, uv)',
     keywords: 'node python uv mcp',
   },
@@ -477,20 +568,32 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'system',
     anchor: 'shell.enabled',
-    label: 'Shell access',
-    keywords: 'terminal commands',
+    label: 'Run commands',
+    keywords: 'shell access terminal',
+  },
+  {
+    leaf: 'system',
+    anchor: 'file-operations',
+    label: 'Work with files',
+    keywords: 'file operations read write delete',
   },
   {
     leaf: 'system',
     anchor: 'browser-computer-use',
-    label: 'Browser and Computer Use',
+    label: 'Browser and computer use',
+    keywords: 'websites apps cua',
   },
-  { leaf: 'system', anchor: 'file-operations', label: 'File operations' },
   {
     leaf: 'system',
     anchor: 'logging.level',
-    label: 'Log level',
-    keywords: 'logging logs diagnostics debug',
+    label: 'Log detail',
+    keywords: 'log level logging logs diagnostics debug',
+  },
+  {
+    leaf: 'system',
+    anchor: 'shell.blocked_patterns',
+    label: 'Blocked commands',
+    keywords: 'shell patterns deny never run',
   },
   {
     leaf: 'access',
@@ -506,7 +609,7 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'access',
-    anchor: 'remote-access',
+    anchor: 'network',
     label: 'Network access',
     keywords: 'listen wifi lan allowed addresses origins',
   },

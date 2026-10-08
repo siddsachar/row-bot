@@ -33,7 +33,7 @@ test('Providers show live NiceGUI connection cards and row actions', async ({
   ).toBeVisible();
   await expect(
     row.getByRole('button', {
-      name: 'Refresh OpenAI API provider status and catalog',
+      name: 'Refresh OpenAI API model list',
     }),
   ).toBeVisible();
   await expect(page.getByText(/connection readiness not checked/i)).toHaveCount(
@@ -64,7 +64,7 @@ test('Provider row refresh requests its own catalog and reports the outcome', as
   );
   await row
     .getByRole('button', {
-      name: 'Refresh Ollama Local provider status and catalog',
+      name: 'Refresh Ollama Local model list',
     })
     .click();
   await expect(page.locator('.settings-provider-notice')).toContainText(
@@ -111,7 +111,7 @@ test('Provider API key can be replaced through the compact row dialog', async ({
   await expect(dialog).toHaveCount(0);
   await expect(
     row.getByRole('button', {
-      name: 'Refresh OpenAI API provider status and catalog',
+      name: 'Refresh OpenAI API model list',
     }),
   ).toBeVisible();
 });
@@ -205,9 +205,7 @@ test('xAI OAuth client options save and reset from the provider row', async ({
     .first();
   // Rarer account actions sit in the row's ⋯ menu.
   await row.getByRole('button', { name: 'More actions for xAI Grok' }).click();
-  await page
-    .getByRole('menuitem', { name: 'Configure xAI OAuth client ID' })
-    .click();
+  await page.getByRole('menuitem', { name: 'Set up xAI sign-in' }).click();
   const dialog = page.getByRole('dialog', { name: 'Account options' });
   const override = dialog.getByLabel('OAuth client ID override');
   await override.fill('synthetic-browser-client');

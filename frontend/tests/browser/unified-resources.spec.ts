@@ -378,7 +378,7 @@ test('two Decks require an explicit captured write target independent of panel f
       )
       .toBe(index + 1);
     await expect(
-      setup.getByText('Resource ready', { exact: true }),
+      setup.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     await page.keyboard.press('Escape');
     await leavePanels(page);
@@ -530,7 +530,7 @@ test('Context creates and reuses a Deck in ordinary conversations', async ({
     .getByRole('button', { name: 'Create Deck', exact: true })
     .click();
   await expect(
-    dialog.getByText('Resource ready', { exact: true }),
+    dialog.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/conversations/${original}$`));
   await page.keyboard.press('Escape');
@@ -555,7 +555,7 @@ test('Context creates and reuses a Deck in ordinary conversations', async ({
       .getByRole('button', { name: 'Add to this conversation', exact: true })
       .click();
     await expect(
-      dialog.getByText('Resource ready', { exact: true }),
+      dialog.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/conversations/${fresh}$`));
     await page.keyboard.press('Escape');
@@ -775,7 +775,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
       )
       .toBe(1);
     await expect(
-      dialog.getByText('Resource ready', { exact: true }),
+      dialog.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     await page.keyboard.press('Escape');
     if (page.viewportSize()!.width < 1024)
@@ -813,7 +813,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
       )
       .toBe(2);
     await expect(
-      dialog.getByText('Resource ready', { exact: true }),
+      dialog.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     await page.keyboard.press('Escape');
     if (page.viewportSize()!.width < 1024)

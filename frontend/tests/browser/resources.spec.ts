@@ -90,7 +90,7 @@ test('Phase 4 reviewed sharing submits once to an isolated fake channel and pres
     .selectOption('deck');
   await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   const preview = page.getByRole('region', {
@@ -235,7 +235,7 @@ for (const [mode, label] of [
       .getByRole('button', { name: `Create ${label}`, exact: true })
       .click();
     await expect(
-      setup.getByText('Resource ready', { exact: true }),
+      setup.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     const state = await conversationState(page, conversation);
     expect(state.conversation.resource_bindings).toHaveLength(1);
@@ -612,7 +612,7 @@ test('Design inline edits in a row keep the selection, and colour, font and logo
     .selectOption('deck');
   await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   const region = page.getByRole('region', {
@@ -741,7 +741,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     .getByRole('button', { name: 'Create empty workspace', exact: true })
     .click();
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   const bindings = (await conversationState(page, conversation)).conversation
@@ -963,7 +963,7 @@ test('Phase 4 one-shot empty workspace save failure requires renewed parent and 
     .getByRole('button', { name: 'Continue setup', exact: true })
     .click();
   await expect(
-    dialog.getByText('Resource ready', { exact: true }),
+    dialog.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   const completed = await resourceState(page, resource);
   expect(completed).toMatchObject({
@@ -1051,7 +1051,7 @@ test('Phase 4 double-submit and hidden response recover the original durable rec
       .getByRole('button', { name: 'Add resource', exact: true })
       .click();
     await expect(
-      dialog.getByText('Resource ready', { exact: true }),
+      dialog.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     const confirmed = await conversationState(page, conversation);
     expect(confirmed.conversation.resource_bindings).toHaveLength(1);

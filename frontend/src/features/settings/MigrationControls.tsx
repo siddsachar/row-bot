@@ -295,7 +295,9 @@ export function MigrationControls({
         Scan without changes, then select what to import. Source files stay in
         place.
       </p>
-      <div className="field-row">
+      {/* One field per line: folder paths are long, and three side by side
+          cut their placeholders off. */}
+      <div className="stack migration-fields">
         <label>
           Source app
           <Select
@@ -329,7 +331,11 @@ export function MigrationControls({
           />
         </label>
         {canBrowse && owner.pick && !usual?.found && (
-          <Button disabled={busy || !!pending} onClick={() => void browse()}>
+          <Button
+            className="migration-browse"
+            disabled={busy || !!pending}
+            onClick={() => void browse()}
+          >
             <FolderOpen size={16} aria-hidden /> Browse…
           </Button>
         )}

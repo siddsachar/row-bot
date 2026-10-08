@@ -111,32 +111,40 @@ export default function AppearanceSettings({
         className="appearance-preview"
         aria-label={`Preview: ${appearanceLabels[preference.appearance]} appearance, ${accentLabels[preference.accent]} accent, ${preference.density} density`}
       >
-        {preference.appearance === 'system' ? (
-          <div className="appearance-preview-pair">
-            <MiniApp
-              mode="light"
-              accent={preference.accent}
-              density={preference.density}
-              opaque={opaque}
-            />
-            <MiniApp
-              mode="dark"
-              accent={preference.accent}
-              density={preference.density}
-              opaque={opaque}
-            />
-          </div>
-        ) : (
-          <MiniApp
-            mode={preference.appearance}
-            accent={preference.accent}
-            density={preference.density}
-            opaque={opaque}
-          />
-        )}
+        {/* Each look is also a choice: choosing one keeps it, instead of
+            following the device. */}
+        <div className="appearance-preview-pair">
+          {(['light', 'dark'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className="appearance-choice"
+              aria-label={
+                preference.appearance === 'system' && resolved === mode
+                  ? `${appearanceLabels[mode]}, in use now`
+                  : appearanceLabels[mode]
+              }
+              aria-pressed={preference.appearance === mode}
+              onClick={() => update({ appearance: mode })}
+            >
+              <MiniApp
+                mode={mode}
+                accent={preference.accent}
+                density={preference.density}
+                opaque={opaque}
+              />
+              <span className="appearance-choice-label">
+                {appearanceLabels[mode]}
+                {preference.appearance === 'system' && resolved === mode && (
+                  <small aria-hidden> · in use now</small>
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
         <figcaption>
           {preference.appearance === 'system'
-            ? 'Follows your device: light by day, dark when your system switches.'
+            ? 'System follows your device: whichever look it uses. Choose one to keep it.'
             : 'Changes apply immediately on this device.'}
         </figcaption>
       </figure>

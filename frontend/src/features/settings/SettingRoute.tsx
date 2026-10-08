@@ -44,7 +44,11 @@ import SubscriptionOptions from './SubscriptionOptions';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
-import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
+import {
+  DocumentProcessingPanel,
+  SETTINGS_PROCESSING_SCOPE,
+} from '../knowledge/DocumentProcessingPanel';
+import { batchTitle } from '../knowledge/document-words';
 import ChannelSettings from './ChannelSettings';
 import { SETTINGS_CHANGED } from '../shell/palette-switches';
 import PluginSettings from './PluginSettings';
@@ -697,19 +701,16 @@ export default function SettingRoute() {
                   onProcess={
                     documentProcessingOwner?.get()
                       ? (batch) => {
-                          if (!state.selectedConversationId) {
-                            setProcessingSelectionError(
-                              'Open or create a conversation first, then return here to review its document processing policy.',
-                            );
-                            return;
-                          }
+                          // Settings processes on its own, never through
+                          // whichever chat was open last.
                           try {
                             documentProcessingOwner
                               .get()!
                               .select(
-                                state.selectedConversationId,
+                                SETTINGS_PROCESSING_SCOPE,
                                 batch.id,
                                 batch.revision,
+                                batchTitle(batch),
                               );
                             setProcessingSelectionError('');
                           } catch {
@@ -748,8 +749,8 @@ export default function SettingRoute() {
               <DocumentsCatalog
                 key={session}
                 load={controller.savedDocuments}
-                onRemove={(id, label) => {
-                  documentRemovalsOwner?.get()?.select(id, label);
+                onRemove={(id, label, options) => {
+                  documentRemovalsOwner?.get()?.select(id, label, options);
                   // The removal review lives in the Danger zone: show it.
                   setDocumentDangerOpen(true);
                   requestAnimationFrame(() =>
@@ -776,8 +777,8 @@ export default function SettingRoute() {
               >
                 <div className="settings-document-danger">
                   <p className="settings-help">
-                    Remove indexed source material through reviewed,
-                    receipt-backed commands.
+                    Choose a document to remove. You confirm each removal before
+                    it happens.
                   </p>
                   <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
                 </div>

@@ -448,6 +448,16 @@ it('retains loaded defaults when the selected design mode is selected again', as
   expect(mock.controller.deckSetup).toHaveBeenCalledTimes(1);
 });
 
+it('offers the design templates up front, not under Advanced', async () => {
+  await act(async () => view());
+  expect(screen.getByLabelText('Template')).toBeVisible();
+  expect(
+    screen.getByRole('option', { name: 'Blank Deck' }),
+  ).toBeInTheDocument();
+  // The canvas stays an advanced choice.
+  expect(screen.getByLabelText('Canvas')).not.toBeVisible();
+});
+
 it('opens the exact Home resource through canonical setup after refreshing its library identity', async () => {
   const saved: ResourceChoice = {
     resource_id: 'home-deck',

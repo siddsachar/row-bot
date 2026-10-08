@@ -1,7 +1,15 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { humanizeToken } from '../../ui/format';
 import type { ClientController } from '../../api/controller';
+import { clientError } from '../../api/errors';
 import { Button, ErrorState } from '../../ui/primitives';
+
+/**
+ * The processing scope Settings › Documents uses instead of a conversation:
+ * the documents model (or the default model) and Ask approvals, so it never
+ * depends on which chat was open last. The server owns the same name.
+ */
+export const SETTINGS_PROCESSING_SCOPE = 'settings_documents';
 
 export type DocumentProcessingReview = {
   schema_version: 1;
@@ -55,6 +63,8 @@ type Selection = {
   conversationId: string;
   batchId: string;
   batchRevision: string;
+  /** The batch in words (its files), when the caller knows them. */
+  label?: string;
 };
 type State = {
   selection: Selection | null;
@@ -76,6 +86,19 @@ const empty = (): State => ({
   revoked: false,
   error: '',
 });
+
+/** Why the check before processing failed, in words. */
+function reviewFailure(error: unknown) {
+  // The server's refusals carry a code with their own words; a changed or
+  // foreign review is this client's own check.
+  const code =
+    error && typeof error === 'object'
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return typeof code === 'string' && code
+    ? clientError(error).message
+    : "Row-Bot couldn't check how these documents would be processed. Try again.";
+}
 
 /** One exact current attempt, retained by the authenticated editor owner. */
 export function createDocumentProcessingSession(
@@ -117,7 +140,11 @@ export function createDocumentProcessingSession(
   const unsubscribe = controller.subscribe(() => {
     if (identity() !== authentication) purge();
   });
-  async function run(operation: () => Promise<void>, recovery = false) {
+  async function run(
+    operation: () => Promise<void>,
+    recovery = false,
+    describe?: (error: unknown) => string,
+  ) {
     guard();
     if (state.busy || (state.pending && !recovery))
       throw new Error('document_processing_pending');
@@ -128,6 +155,7 @@ export function createDocumentProcessingSession(
       if (!disposed)
         emit({
           error:
+            describe?.(error) ??
             "Row-Bot couldn't confirm processing started. Check again before starting another batch.",
         });
       throw error;
@@ -161,7 +189,12 @@ export function createDocumentProcessingSession(
     },
     hasRetained: () =>
       !disposed && (!!state.selection || state.busy || state.pending),
-    select(conversationId: string, batchId: string, batchRevision: string) {
+    select(
+      conversationId: string,
+      batchId: string,
+      batchRevision: string,
+      label?: string,
+    ) {
       guard();
       if (state.busy || state.pending)
         throw new Error('document_processing_pending');
@@ -176,36 +209,40 @@ export function createDocumentProcessingSession(
       notifiedCommand = null;
       state = {
         ...empty(),
-        selection: { conversationId, batchId, batchRevision },
+        selection: { conversationId, batchId, batchRevision, label },
       };
       listeners.forEach((listener) => listener());
     },
     review: () =>
-      run(async () => {
-        const selected = state.selection;
-        if (!selected) throw new Error('invalid_document_processing');
-        if (state.original)
-          throw new Error('document_processing_original_retained');
-        const value = await controller.reviewDocumentProcessing(
-          selected.conversationId,
-          selected.batchId,
-          selected.batchRevision,
-        );
-        guard();
-        if (
-          value.schema_version !== 1 ||
-          value.action !== 'document.batch.process' ||
-          value.conversation_id !== selected.conversationId ||
-          value.batch_id !== selected.batchId ||
-          !value.revision ||
-          !value.review_id ||
-          !value.policy_digest ||
-          value.provider_work !== true ||
-          value.knowledge_projection_scope !== 'saved_knowledge'
-        )
-          throw new Error('document_processing_review_mismatch');
-        emit({ review: structuredClone(value), receipt: null });
-      }),
+      run(
+        async () => {
+          const selected = state.selection;
+          if (!selected) throw new Error('invalid_document_processing');
+          if (state.original)
+            throw new Error('document_processing_original_retained');
+          const value = await controller.reviewDocumentProcessing(
+            selected.conversationId,
+            selected.batchId,
+            selected.batchRevision,
+          );
+          guard();
+          if (
+            value.schema_version !== 1 ||
+            value.action !== 'document.batch.process' ||
+            value.conversation_id !== selected.conversationId ||
+            value.batch_id !== selected.batchId ||
+            !value.revision ||
+            !value.review_id ||
+            !value.policy_digest ||
+            value.provider_work !== true ||
+            value.knowledge_projection_scope !== 'saved_knowledge'
+          )
+            throw new Error('document_processing_review_mismatch');
+          emit({ review: structuredClone(value), receipt: null });
+        },
+        false,
+        reviewFailure,
+      ),
     confirm: () =>
       run(async () => {
         if (!state.review || !state.selection || state.original)
@@ -274,9 +311,6 @@ const LOCATION: Record<string, string> = {
 function modelName(ref: string) {
   return ref.replace(/^model:[^:]+:/, '');
 }
-function batchName(id: string) {
-  return id.startsWith('client_') ? `Upload · ${id.slice(7, 15)}` : id;
-}
 
 export function DocumentProcessingPanel({
   owner,
@@ -296,6 +330,19 @@ export function DocumentProcessingPanel({
   const invoke = (operation: () => Promise<unknown>) => {
     void operation().catch(() => undefined);
   };
+  // Check the batch as soon as it is chosen, so the models and where they run
+  // show before anything starts. A review starts no provider work.
+  const unchecked =
+    !!state.selection &&
+    !state.review &&
+    !state.original &&
+    !state.busy &&
+    !state.pending &&
+    !state.error &&
+    !state.revoked;
+  useEffect(() => {
+    if (unchecked) void owner.review().catch(() => undefined);
+  }, [owner, unchecked]);
   if (state.revoked)
     return (
       <p role="status" className="settings-divided document-queue-note">
@@ -304,36 +351,32 @@ export function DocumentProcessingPanel({
     );
   // Shown once a batch's Process is chosen (B258: no idle hint).
   if (!state.selection) return null;
+  const settings = state.selection.conversationId === SETTINGS_PROCESSING_SCOPE;
   return (
     <section
       aria-label="Document processing"
       className="settings-divided document-processing"
     >
       <h3>Process saved documents</h3>
-      <p title={state.selection.conversationId}>
-        Conversation:{' '}
-        {conversationTitle?.(state.selection.conversationId) ||
-          'Selected conversation'}
-      </p>
+      {!settings && (
+        <p title={state.selection.conversationId}>
+          Conversation:{' '}
+          {conversationTitle?.(state.selection.conversationId) ||
+            'Selected conversation'}
+        </p>
+      )}
       <p title={state.selection.batchId}>
-        Batch: {batchName(state.selection.batchId)}
+        Documents: {state.selection.label || 'Upload'}
       </p>
       <p>
-        Processing follows this conversation's approvals and profile, and reads
-        documents with the model chosen above.
+        {settings
+          ? 'Row-Bot reads these documents with the model chosen above. Starting is your approval.'
+          : "Processing follows this conversation's approvals and profile, and reads documents with the model chosen above."}
       </p>
       {state.error && (
         <ErrorState title="Processing needs attention">
           {state.error}
         </ErrorState>
-      )}
-      {!state.original && (
-        <Button
-          disabled={state.busy}
-          onClick={() => invoke(() => owner.start())}
-        >
-          Start processing
-        </Button>
       )}
       {state.review && (
         <div>
@@ -349,11 +392,22 @@ export function DocumentProcessingPanel({
               state.review.embedding.execution_location}
           </p>
           <p>
-            Processing reads the saved document sources and may send their
-            content to the reviewed providers. Results update saved knowledge
-            and its projections.
+            {state.review.chat.execution_location === 'local' &&
+            state.review.embedding.execution_location === 'local'
+              ? 'Everything runs on this device. Results update your saved knowledge.'
+              : 'Processing sends the content of these documents to the cloud models above. Results update your saved knowledge.'}
           </p>
         </div>
+      )}
+      {!state.original && (state.review || state.error) && (
+        <Button
+          disabled={state.busy}
+          onClick={() =>
+            invoke(() => (state.review ? owner.confirm() : owner.review()))
+          }
+        >
+          {state.review ? 'Start processing' : 'Check again'}
+        </Button>
       )}
       {state.original && (
         <>

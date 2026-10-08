@@ -122,3 +122,37 @@ it('limits a step to the apps chosen, and to none means every app', async () => 
   fireEvent.click(github);
   expect(onChange).toHaveBeenLastCalledWith(null); // None chosen: every app the workflow may use.
 });
+
+it('offers a template without apps as ready to use, with nothing to connect', async () => {
+  const controller = {
+    workflowTemplates: vi.fn(async () => ({
+      schema_version: 1 as const,
+      items: [
+        {
+          ...template('web_daily_brief', 'Daily brief from the web', 'x', true),
+          icon: '📰',
+          apps: [],
+        },
+      ],
+    })),
+    createFromWorkflowTemplate: vi.fn(async () => ({
+      task_id: 'task-2',
+      name: 'Daily brief from the web',
+    })),
+  };
+  show(
+    <AppTemplates
+      load={controller.workflowTemplates}
+      create={controller.createFromWorkflowTemplate}
+      onCreated={vi.fn()}
+    />,
+    controller,
+  );
+  expect(
+    await screen.findByRole('button', {
+      name: 'Use template: Daily brief from the web',
+    }),
+  ).toBeVisible();
+  expect(screen.getByText('📰')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /^Connect / })).toBeNull();
+});

@@ -582,74 +582,158 @@ export function useTabForAnchor<T extends string>(
 }
 
 const HIT_MS = 2400;
+/** How long a jump keeps its row in view while the page around it loads. */
+const SETTLE_MS = 2500;
+/** How long a jump waits for its row to appear (a slow phone link). */
+const WAIT_MS = 20000;
+
+/** Whether the top of `target` shows inside the scrolling `root`. */
+function inView(target: HTMLElement, root: HTMLElement) {
+  const box = root.getBoundingClientRect();
+  const rect = target.getBoundingClientRect();
+  const top = Math.max(box.top, 0);
+  const bottom = Math.min(box.bottom, window.innerHeight || box.bottom);
+  return rect.top >= top - 1 && rect.top <= bottom - 48;
+}
 
 /**
  * Jump to `#anchor` once it renders: switch to its tab, open collapsed
- * ancestors, scroll it into view and highlight it briefly. Pages load
- * asynchronously, so this watches the content until the anchor is visible
- * (or gives up after a few seconds).
+ * ancestors, scroll it into view, highlight it briefly and move focus to it
+ * when focus would otherwise be lost. Pages load asynchronously, so this
+ * watches the content until the anchor appears, then keeps it in view while
+ * late content above it settles (a phone keyboard closing, a list loading),
+ * until the person scrolls themselves. Opening the same result again jumps
+ * again.
  */
 export function useSettingsAnchor(root: HTMLElement | null) {
   const location = useLocation();
   useEffect(() => {
-    const anchor = decodeURIComponent(location.hash.slice(1));
+    let anchor = '';
+    try {
+      anchor = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      return;
+    }
     if (!root || !anchor) return;
-    let done = false;
+    let stopped = false;
+    let target: HTMLElement | null = null;
+    let settleUntil = 0;
+    let frame = 0;
     let clearHit: ReturnType<typeof setTimeout> | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const observer = new MutationObserver(() => reveal());
+    const resizes =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => reveal());
+    const stop = () => {
+      stopped = true;
+      observer.disconnect();
+      resizes?.disconnect();
+      window.removeEventListener('resize', reveal);
+      for (const type of USER_SCROLL)
+        window.removeEventListener(type, release, true);
+    };
+    // The person takes over: stop holding the row in place.
+    const release = () => {
+      if (target) stop();
+    };
+    function hold() {
+      if (frame || !target || !root) return;
+      if (performance.now() > settleUntil) return stop();
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (stopped || !target || !root) return;
+        if (!target.isConnected) {
+          // The page re-rendered the row: find it again.
+          target = null;
+          return reveal();
+        }
+        if (!inView(target, root))
+          target.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+      });
+    }
     function reveal() {
-      if (done || !root) return;
-      const target = [
+      if (stopped || !root) return;
+      if (target) return hold();
+      const found = [
         ...root.querySelectorAll<HTMLElement>('[data-setting-anchor]'),
       ].find((element) => element.dataset.settingAnchor === anchor);
-      if (!target) return;
+      if (!found) return;
       for (
-        let parent = target.parentElement;
+        let parent = found.parentElement;
         parent && parent !== root;
         parent = parent.parentElement
       )
         if (parent instanceof HTMLDetailsElement) parent.open = true;
-      const details = target.querySelector(':scope > .disclosure');
+      const details = found.querySelector(':scope > .disclosure');
       if (details instanceof HTMLDetailsElement) details.open = true;
       // A connection's own panel is the anchor: it opens its connect sheet.
-      if (target instanceof HTMLDetailsElement) target.open = true;
-      if (target.closest('[hidden]')) {
+      if (found instanceof HTMLDetailsElement) found.open = true;
+      if (found.closest('[hidden]')) {
         // Its tab is switching in; look again once it shows.
         clearTimeout(retry);
         retry = setTimeout(reveal, 60);
         return;
       }
-      done = true;
-      observer.disconnect();
+      const hit = found;
+      target = hit;
+      settleUntil = performance.now() + SETTLE_MS;
       const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
       requestAnimationFrame(() => {
-        target.scrollIntoView?.({
+        if (stopped) return;
+        hit.scrollIntoView?.({
           block: 'center',
           behavior: reduce ? 'auto' : 'smooth',
         });
-        target.dataset.searchHit = 'true';
+        hit.dataset.searchHit = 'true';
         clearHit = setTimeout(() => {
-          delete target.dataset.searchHit;
+          delete hit.dataset.searchHit;
         }, HIT_MS);
+        // Focus follows the jump when it would otherwise be lost (the
+        // result link closed) or still sits in search or on the title.
+        const active = document.activeElement;
+        if (
+          !active ||
+          active === document.body ||
+          active.closest('.settings-navigation-search, .settings-pane-title')
+        ) {
+          if (!hit.hasAttribute('tabindex')) hit.tabIndex = -1;
+          hit.focus({ preventScroll: true });
+        }
+        settleUntil = performance.now() + SETTLE_MS;
       });
     }
     window.dispatchEvent(new CustomEvent(ANCHOR_EVENT, { detail: anchor }));
-    observer.observe(root, { childList: true, subtree: true });
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['hidden', 'open'],
+    });
+    // Its own size (a phone keyboard) and its content's (late lists, images).
+    for (const element of [root, ...root.children]) resizes?.observe(element);
+    window.addEventListener('resize', reveal);
+    // Anywhere: PageDown with focus outside the page still moves it.
+    for (const type of USER_SCROLL)
+      window.addEventListener(type, release, { capture: true, passive: true });
     reveal();
     const giveUp = setTimeout(() => {
-      done = true;
-      observer.disconnect();
-    }, 6000);
+      if (!target) stop();
+    }, WAIT_MS);
     return () => {
-      done = true;
-      observer.disconnect();
+      stop();
+      cancelAnimationFrame(frame);
       clearTimeout(giveUp);
       clearTimeout(retry);
       if (clearHit) clearTimeout(clearHit);
     };
-  }, [location.hash, location.pathname, root]);
+    // `key` changes when the same result is opened again.
+  }, [location.hash, location.pathname, location.key, root]);
 }
+
+/** Input that means the person is moving the page (or acting) themselves. */
+const USER_SCROLL = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
 
 /**
  * Page tabs (Installed | Discover). Every panel stays mounted so searches,

@@ -326,7 +326,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
   // Agent profiles are the sidebar's Agents dialog: old links open it (B260).
   for (const old of ['profiles', 'agent-profiles']) {
     await navigateInApp(page, settingsPath(old));
-    const agents = page.getByRole('dialog', { name: 'Agent profiles' });
+    const agents = page.getByRole('dialog', { name: 'Agents', exact: true });
     await expect(agents).toBeVisible();
     await expect
       .poll(() => new URL(page.url()).pathname)

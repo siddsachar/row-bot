@@ -60,3 +60,32 @@ it('applies appearance choices immediately and previews them', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Reset layout' }));
   expect(reset).toHaveBeenCalledOnce();
 });
+
+it('chooses a look from its preview card, and says plainly what System does', async () => {
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <OverlayProvider>
+          <AppearanceSettings onReset={vi.fn()} />
+        </OverlayProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
+  );
+  const appearance = screen.getByRole('combobox', { name: /^Appearance/ });
+  fireEvent.change(appearance, { target: { value: 'system' } });
+  // System isn't "light by day": it follows whatever the device uses.
+  expect(screen.queryByText(/by day/)).toBeNull();
+  // The look the device uses now is marked, but neither is chosen.
+  expect(
+    await screen.findByRole('button', { name: 'Light, in use now' }),
+  ).toHaveAttribute('aria-pressed', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  expect(appearance).toHaveValue('dark');
+  expect(screen.getByRole('button', { name: 'Dark' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Light' }));
+  expect(appearance).toHaveValue('light');
+});

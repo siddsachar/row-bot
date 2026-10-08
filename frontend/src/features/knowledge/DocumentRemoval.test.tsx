@@ -93,6 +93,47 @@ describe('reviewed document removal', () => {
     ).toBeVisible();
     expect(screen.queryByText('Removal complete.')).toBeNull();
   });
+  it('removes a document that never reached search from the list, still reviewed and confirmed', async () => {
+    const api = transport();
+    api.review = vi.fn(async (document_id) => ({
+      review_id: 'review-one',
+      document_id,
+      source_revision: 'source-one',
+      source_count: 0,
+      retains_copies: true as const,
+    }));
+    api.execute = vi.fn(async (command) => {
+      const value = receipt(command.command_id);
+      return {
+        ...value,
+        removal: {
+          ...value.removal!,
+          derived_entities_removed: 0,
+          retained_copy_count: 0,
+          stages: [
+            { stage: 'worker', status: 'complete' },
+            { stage: 'queue', status: 'complete' },
+          ],
+        },
+      } as DocumentRemovalReceipt;
+    });
+    const { session } = setup(api);
+    render(<DocumentRemoval session={session} label="broken.pdf" listOnly />);
+    expect(screen.getByText(/It never reached search/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove document' }));
+    expect(
+      await screen.findByText('broken.pdf leaves your documents list.'),
+    ).toBeVisible();
+    expect(api.execute).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Confirm document removal' }),
+    );
+    expect(
+      await screen.findByText(/^Removed from your documents\./),
+    ).toBeVisible();
+    expect(screen.queryByText(/Nothing to remove/)).toBeNull();
+    expect(screen.getByText(/Documents list: complete/)).toBeVisible();
+  });
   it('mounts passively and dispatches only after explicit review and confirmation', async () => {
     const { api, session } = setup();
     render(<DocumentRemoval session={session} label="the selected document" />);

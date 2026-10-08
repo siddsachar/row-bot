@@ -261,27 +261,42 @@ const stages: Record<string, string> = {
   record: 'Document record',
   legacy_index: 'Legacy search index',
   bulk_removal: 'Captured documents',
+  queue: 'Documents list',
 };
 export default function DocumentRemoval({
   session,
   label,
+  listOnly = false,
 }: {
   session: DocumentRemovalSession;
   label: string;
+  /** It never reached search (it failed or was cancelled): only unlist it. */
+  listOnly?: boolean;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   if (state.revoked) return null;
   const result = state.receipt?.removal;
+  // The server took a never-searchable document off the list.
+  const unlisted =
+    result?.status === 'complete' &&
+    result.stages.some((stage) => stage.stage === 'queue');
   return (
     <section
       aria-label="Document removal"
       aria-busy={state.busy}
       className="stack"
     >
-      <p>
-        Remove {label} from search and delete its extracted knowledge. Recovery
-        copies and externally edited files are retained.
-      </p>
+      {listOnly ? (
+        <p>
+          Remove {label} from your documents. It never reached search, so
+          nothing else changes.
+        </p>
+      ) : (
+        <p>
+          Remove {label} from search and delete its extracted knowledge.
+          Recovery copies and externally edited files are retained.
+        </p>
+      )}
       {!state.review &&
         !state.pending &&
         (!result || result.status === 'complete') && (
@@ -302,12 +317,16 @@ export default function DocumentRemoval({
           <p>
             {state.review.source_command_id
               ? 'Continue only the unfinished stages of the original removal.'
-              : `${state.review.source_count.toLocaleString()} saved source(s) are included in this request.`}
+              : listOnly && state.review.source_count === 0
+                ? `${label} leaves your documents list.`
+                : `${state.review.source_count.toLocaleString()} saved source(s) are included in this request.`}
           </p>
-          <p>
-            Your retained copies remain available for recovery. This action does
-            not delete unrelated sources added later.
-          </p>
+          {!(listOnly && state.review.source_count === 0) && (
+            <p>
+              Your retained copies remain available for recovery. This action
+              does not delete unrelated sources added later.
+            </p>
+          )}
           <Button
             disabled={state.busy}
             onClick={() => void session.confirm().catch(() => {})}
@@ -332,13 +351,15 @@ export default function DocumentRemoval({
           className="surface stack"
         >
           <p>
-            {result.status === 'complete' && !result.removed
-              ? 'Nothing to remove: it never reached search. If adding it failed, select it under Being added, then Clear selected finished.'
-              : result.status === 'complete'
-                ? 'Removal complete.'
-                : result.status === 'pending'
-                  ? 'Waiting for the document worker to stop. Refresh status before continuing cleanup.'
-                  : 'Removal is incomplete. Completed stages are saved.'}
+            {unlisted
+              ? 'Removed from your documents. It never reached search, so nothing else changed.'
+              : result.status === 'complete' && !result.removed
+                ? 'Nothing to remove: it never reached search. If adding it failed, select it under Being added, then Clear selected finished.'
+                : result.status === 'complete'
+                  ? 'Removal complete.'
+                  : result.status === 'pending'
+                    ? 'Waiting for the document worker to stop. Refresh status before continuing cleanup.'
+                    : 'Removal is incomplete. Completed stages are saved.'}
           </p>
           <p>
             Derived knowledge removed:{' '}

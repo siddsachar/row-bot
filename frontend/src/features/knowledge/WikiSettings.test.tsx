@@ -103,7 +103,7 @@ it('loads status and articles passively, then opens without importing', async ()
 it('selects an authorized vault explicitly before exposing article controls', async () => {
   const { io, session } = setup(false);
   render(<WikiSettings session={session} />);
-  await screen.findByText(/Select an authorized vault/);
+  await screen.findByText(/Choose the vault folder with Browse first/);
   expect(io.articles).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
   await screen.findByText('Reviewed article');
@@ -117,7 +117,7 @@ it('says why Browse opened no folder instead of failing silently (B280)', async 
     clientError({ code: 'folder_picker_requires_desktop' }),
   );
   render(<WikiSettings session={session} />);
-  await screen.findByText(/Select an authorized vault/);
+  await screen.findByText(/Choose the vault folder with Browse first/);
   fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Choose the folder in the Row-Bot desktop app.',
@@ -139,7 +139,7 @@ it('shows an editable display path but requires Browse authority before Apply', 
   await screen.findByText('Reviewed article');
   const path = screen.getByRole('textbox', { name: 'Vault path' });
   fireEvent.change(path, { target: { value: 'C:/Untrusted/Typed' } });
-  expect(screen.getByText(/Browse to authorize this folder/)).toBeVisible();
+  expect(screen.getByText(/Choose this folder with Browse/)).toBeVisible();
   expect(
     screen.getByRole('button', { name: 'Use selected vault' }),
   ).toBeDisabled();
@@ -317,9 +317,10 @@ it('shows the saved wiki vault and counts without authorizing or mutating it', a
   expect(screen.getByText('C:\\Synthetic\\wiki-vault')).toBeVisible();
   expect(screen.getByText('601')).toBeVisible();
   expect(screen.getByText('14')).toBeVisible();
+  // No Browse here (no desktop picker): say where the folder can be chosen.
   expect(
     await screen.findByText(
-      'Sync status: Select an authorized vault to read or change its files.',
+      'Sync status: Checking the vault needs the Row-Bot desktop app, where you choose its folder.',
     ),
   ).toBeVisible();
   expect(io.status).toHaveBeenCalledTimes(1);
@@ -375,4 +376,15 @@ it('reports the one-time vault tidy until it is dismissed', async () => {
   );
   await screen.findByText('Reviewed article');
   expect(screen.queryByText(/Tidied 660 articles/)).toBeNull();
+});
+
+it('shows when Check vault sync last read the vault, even when nothing changed', async () => {
+  const { io, session } = setup(false);
+  render(<WikiSettings session={session} />);
+  await screen.findByText(/Choose the vault folder with Browse first/);
+  expect(screen.queryByText(/^Checked at/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Check vault sync' }));
+  expect(await screen.findByText(/^Checked at/)).toBeVisible();
+  expect(io.status).toHaveBeenCalledTimes(2);
+  expect(io.review).not.toHaveBeenCalled();
 });
