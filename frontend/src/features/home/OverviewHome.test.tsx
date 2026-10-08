@@ -1399,7 +1399,7 @@ it('lists what Row-Bot learned this week as chips and the top insight as a card'
     }),
   });
   const learned = screen.getByRole('region', { name: 'Learned this week' });
-  expect(learned).toHaveTextContent('12 new memories from 2 conversations');
+  expect(learned).toHaveTextContent('12 memory updates from 2 conversations');
   const chips = within(learned).getByRole('list', {
     name: 'Memories added to this week',
   });

@@ -624,6 +624,8 @@
 .overview-setup-first {
   grid-template-columns: minmax(0, 1fr) auto;
 }
+/* A narrow card: the title wraps rather than cutting to "Finish set…". */
+.overview-setup .overview-need-title,
 .overview-setup .overview-need-meta {
   white-space: normal;
 }

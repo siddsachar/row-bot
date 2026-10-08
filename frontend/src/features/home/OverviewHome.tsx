@@ -1702,7 +1702,8 @@ export default function OverviewHome({
               <>
                 {week.saved > 0 && (
                   <p className="overview-learned-line">
-                    {plural(week.saved, 'new memory', 'new memories')} from{' '}
+                    {/* Saves include updates to memories already there, not only new ones. */}
+                    {plural(week.saved, 'memory update')} from{' '}
                     {plural(week.threads, 'conversation')}
                   </p>
                 )}
