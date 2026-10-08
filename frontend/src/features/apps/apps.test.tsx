@@ -1147,6 +1147,50 @@ it('stops every app at once from Advanced with the reviewed policy command', asy
   await waitFor(() => expect(use).not.toBeChecked());
 });
 
+it('lists catalogs with something to do, and the rest in one line', async () => {
+  const source = (
+    id: string,
+    label: string,
+    network: string,
+    catalog: unknown,
+  ) => ({
+    id,
+    kinds: ['mcp'],
+    label,
+    access: 'snapshot',
+    eligibility: 'eligible',
+    network,
+    enabled: true,
+    message: '',
+    catalog,
+  });
+  show('/settings/apps?view=advanced', {
+    integrationSources: vi.fn(async () => ({
+      schema_version: 1,
+      items: [
+        source('registry', 'Official MCP Registry', 'explicit', {
+          state: 'never',
+          updated_at: null,
+          entries: null,
+        }),
+        source('builtin', 'Built in', 'none', null),
+        source('examples-free', 'Vendor recommendations', 'none', null),
+      ],
+    })),
+    catalogSchedule: vi.fn(async () => null),
+    appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
+  });
+  expect(
+    await screen.findByRole('button', { name: 'Update Official MCP Registry' }),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Also included with Row-Bot: Built in, Vendor recommendations.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText('Built in', { selector: 'strong' })).toBeNull();
+});
+
 it('is one Use apps switch: on turns on the apps and their use in chats, off only stops the apps', async () => {
   const page = {
     schema_version: 1,

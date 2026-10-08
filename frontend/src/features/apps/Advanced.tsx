@@ -271,6 +271,13 @@ export default function Advanced() {
       source.catalog &&
       source.eligibility === 'eligible',
   );
+  // A row each for catalogs that can be updated, turned on or have something to say; the rest is one line.
+  const quiet = (source: IntegrationSourceView) =>
+    !updatable.includes(source) &&
+    !source.opt_in &&
+    standing(source) === 'Included with Row-Bot';
+  const listed = sources.filter((source) => !quiet(source));
+  const included = sources.filter(quiet);
   const update = async (ids: string[]) => {
     setError('');
     try {
@@ -304,7 +311,7 @@ export default function Advanced() {
             Search online catalogs in an Apps search.
           </p>
           <ul className="catalog-list">
-            {sources.map((source) => (
+            {listed.map((source) => (
               <li key={source.id}>
                 <span>
                   <strong>{source.label}</strong>
@@ -333,6 +340,13 @@ export default function Advanced() {
               </li>
             ))}
           </ul>
+          {included.length > 0 && (
+            // Catalogs with nothing to do here are one line, not a row each.
+            <p className="settings-help">
+              Also included with Row-Bot:{' '}
+              {included.map((source) => source.label).join(', ')}.
+            </p>
+          )}
           <div className="button-row">
             <Button
               disabled={updating || !updatable.length}

@@ -1243,6 +1243,19 @@ def _setup_guidance(tool_names: list[str]) -> str:
                 "sees a 'Turn on …' card in the chat and decides. Never tell them to open Settings for this. "
                 "If they choose Not now, it stays off: don't ask again unless they ask."
             )
+        try:
+            from row_bot.integrations.scope import chat_apps
+            thread = _current_thread_id_var.get("")
+            switched_off = [app["name"] for app in chat_apps(thread) if not app["on"]][:8] if thread else []
+        except Exception:
+            switched_off = []
+        if switched_off:
+            # Found live: GitHub switched off in a chat, and the answer came from a web search without a word.
+            parts.append(
+                "APPS SWITCHED OFF IN THIS CHAT: " + ", ".join(switched_off) + ". If the request is for one of "
+                "them, say it is off in this chat and that the person can switch it on in + › Apps; don't do the "
+                "work another way (such as a web search) instead."
+            )
         parts.append(
             "APPS: if the work needs an app, account or channel you have no tool for (email, a calendar, "
             "Notion, a messaging channel), or a change in an app that only looks things up, call suggest_apps "

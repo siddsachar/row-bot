@@ -137,3 +137,22 @@ def test_a_built_in_way_is_suggested_like_any_app_and_sets_up_in_its_own_setting
     assert card is not None and card["name"] == "Google"
     assert json.loads(suggest_apps("Telegram"))["apps"][0] == "builtin:channel:telegram"
     assert plans.compute(api._resolve("owner", "builtin:account:google", "", lambda: None)[0], {}) is None  # No plan.
+
+
+def test_a_turn_names_the_apps_switched_off_in_its_chat(local, monkeypatch):
+    """Found live: GitHub switched off in a chat, and the answer came from a web search without saying so."""
+    from row_bot import agent
+    config.CONFIG_PATH.write_text(json.dumps({"version": 1, "enabled": True, "servers": {"Notion MCP": {
+        "transport": "streamable_http", "url": "https://mcp.notion.com/mcp", "enabled": True,
+        "source": {"marketplace": "curated", "id": "makenotion-notion-mcp-server"}}}}))
+    config._config_cache = None
+    monkeypatch.setattr(facts, "mcp_blockers", lambda *a, **k: [])
+    facts.invalidate()
+    added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
+    monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: [added["id"]])
+    token = agent._current_thread_id_var.set("chat")
+    try:
+        guidance = agent._setup_guidance(["row_bot_status"])
+    finally:
+        agent._current_thread_id_var.reset(token)
+    assert "APPS SWITCHED OFF IN THIS CHAT: Notion" in guidance and "+ › Apps" in guidance
