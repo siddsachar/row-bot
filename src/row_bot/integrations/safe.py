@@ -239,7 +239,16 @@ def write_atomic(path: Path, data: bytes | str, *, cancelled: Callable[[], bool]
             os.fsync(stream.fileno())
         if cancelled():
             raise ValueError("integration_search_cancelled")
-        os.replace(temporary, path)
+        # Antivirus can hold a just-written file for a moment (WinError 5 or 32): try again briefly rather
+        # than lose the write (a plugin's saved state, a catalog).
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                break
+            except OSError as exc:
+                if getattr(exc, "winerror", None) not in (5, 32) or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
     finally:
         try:
             temporary.unlink(missing_ok=True)

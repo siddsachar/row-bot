@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import ApprovalCard from './ApprovalCard';
@@ -227,9 +228,12 @@ it('offers approving the rest of the reply only for a repeatable action (F21)', 
     action_label: 'developer_commit_changes',
     repeatable: true,
   });
-  render(<ApprovalCard id="approval-b" />);
+  // Within the second card: the first may read its approval again meanwhile and offer it too.
+  const second = render(<ApprovalCard id="approval-b" />);
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Approve the rest' }),
+    await within(second.container).findByRole('button', {
+      name: 'Approve the rest',
+    }),
   );
   await waitFor(() =>
     expect(intent).toHaveBeenCalledWith(

@@ -150,9 +150,9 @@ it('connects only through the app’s own consent sheet, as the catalog names it
   });
   const card = await screen.findByRole('listitem', { name: 'Notion' });
   expect(within(card).getByText('by Notion')).toBeVisible();
-  await act(async () =>
-    fireEvent.click(within(card).getByRole('button', { name: 'Connect' })),
-  );
+  // The card shows before its app's details load; Connect comes with them.
+  const connect = await within(card).findByRole('button', { name: 'Connect' });
+  await act(async () => fireEvent.click(connect));
   const sheet = await screen.findByRole('dialog', { name: 'Connect Notion' });
   expect(sheet).toHaveTextContent('What you ask goes to mcp.notion.com.');
   expect(controller.startInstallPlan).not.toHaveBeenCalled(); // Nothing starts before consent.
@@ -215,9 +215,9 @@ it('asks what an app that signs in may do before its sign-in, looking things up 
     startInstallPlan: vi.fn(() => new Promise(() => {})),
   });
   const card = await screen.findByRole('listitem', { name: 'Notion' });
-  await act(async () =>
-    fireEvent.click(within(card).getByRole('button', { name: 'Connect' })),
-  );
+  // The card shows before its app's details load; Connect comes with them.
+  const connect = await within(card).findByRole('button', { name: 'Connect' });
+  await act(async () => fireEvent.click(connect));
   const sheet = await screen.findByRole('dialog', { name: 'Connect Notion' });
   const choice = within(sheet).getByRole('group', {
     name: 'What can Notion do?',
@@ -245,9 +245,9 @@ it('sends Look things up when the person keeps the first choice', async () => {
     startInstallPlan: vi.fn(() => new Promise(() => {})),
   });
   const card = await screen.findByRole('listitem', { name: 'Notion' });
-  await act(async () =>
-    fireEvent.click(within(card).getByRole('button', { name: 'Connect' })),
-  );
+  // The card shows before its app's details load; Connect comes with them.
+  const connect = await within(card).findByRole('button', { name: 'Connect' });
+  await act(async () => fireEvent.click(connect));
   const sheet = await screen.findByRole('dialog', { name: 'Connect Notion' });
   await act(async () =>
     fireEvent.click(within(sheet).getByRole('button', { name: 'Connect' })),

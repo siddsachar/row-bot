@@ -217,6 +217,24 @@ def test_write_atomic_publishes_whole_files_and_cleans_only_its_own_temporary(tm
     assert (tmp_path / "nested" / "value.json").read_bytes() == b"{}"
 
 
+def test_write_atomic_keeps_a_write_that_windows_briefly_holds(tmp_path, monkeypatch):
+    """Antivirus can hold a just-written file for a moment (WinError 5): the write lands, not lost."""
+    target, real, refused = tmp_path / "state.json", safe.os.replace, []
+
+    def replace_once_refused(source, destination):
+        if not refused:
+            refused.append(destination)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5
+            raise error
+        real(source, destination)
+
+    monkeypatch.setattr(safe.os, "replace", replace_once_refused)
+    safe.write_atomic(target, "saved")
+    assert refused and target.read_text() == "saved"
+    assert [path.name for path in tmp_path.iterdir()] == ["state.json"]
+
+
 def test_write_atomic_never_publishes_through_a_link(tmp_path):
     outside = tmp_path / "outside.json"
     outside.write_text("private")
