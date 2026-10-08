@@ -6669,6 +6669,12 @@ def _stream_graph(agent, input_data, config: dict,
                 for m in ndata.get("messages", []):
                     if getattr(m, "type", "") == "ai" and getattr(m, "id", None) and _platform_segment_id:
                         _platform_outputs.append((m, _platform_segment_id))
+                        # This segment has its output: the next model call opens another, even when a resume
+                        # re-ran a failed call without the model hook that marks a call as started.
+                        from row_bot.runtime.executions import current_execution
+                        execution = current_execution()
+                        if execution is not None:
+                            execution.invocation_started = True
                     # Tool call initiated by the agent
                     tc_list = getattr(m, "tool_calls", [])
                     if tc_list:
