@@ -111,6 +111,39 @@ def test_uncertain_new_launch_is_not_repeated_by_a_new_command(owner, monkeypatc
     assert calls == []
 
 
+def test_a_launch_refused_before_it_started_is_final_and_blocks_nothing(owner, monkeypatch):
+    """Live: Stripe's earlier connection still held its name after a tool call hung, so a reconnect was
+    refused before it started; it stayed "unconfirmed" and the app said "Finishing your last change…"
+    even after a restart. Nothing was scheduled, so nothing can have connected."""
+    runtime, calls = owner
+    original = runtime.launch_server_owned
+    monkeypatch.setattr(runtime, "launch_server_owned", lambda *a, **k: (_ for _ in ()).throw(ValueError("mcp_runtime_busy")))
+    refused = execute(request("connect"))
+    assert refused["status"] == "completed" and refused["mcp_runtime"]["state"] == "failed"
+    monkeypatch.setattr(runtime, "launch_server_owned", original)
+    assert execute(request("connect"))["mcp_runtime"]["state"] == "connected"  # Nothing left waiting on it.
+    assert calls == ["connect", "list_tools"]
+
+
+def test_a_launch_its_process_never_checkpointed_settles_once_that_process_has_ended(owner, monkeypatch):
+    runtime, calls = owner
+
+    class Crash(BaseException):
+        pass
+
+    def crash(*_a, **_k):
+        raise Crash()  # Row-Bot stops after admitting the command, before any launch checkpoint.
+    monkeypatch.setattr(runtime, "launch_server_owned", crash)
+    command = request("connect")
+    with pytest.raises(Crash):
+        execute(command)
+    monkeypatch.setattr(controls, "_ended", lambda recorded: False)
+    assert execute(command)["status"] == "partial"  # Its process may still be launching: never guessed.
+    monkeypatch.setattr(controls, "_ended", lambda recorded: type(recorded) is dict)
+    settled = execute(command)
+    assert settled["status"] == "completed" and settled["mcp_runtime"]["state"] == "failed" and calls == []
+
+
 def test_stop_uses_owned_identity_even_after_saved_config_is_corrupt(owner):
     _, calls = owner
     connected = execute(request("connect"))

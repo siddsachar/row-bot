@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 import json
+import logging
 import os
 import sys
 from uuid import UUID
@@ -16,6 +17,8 @@ from uuid import UUID
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.mcp_client import config, targets
 from row_bot.runtime import admissions
+
+logger = logging.getLogger(__name__)
 
 
 class CapabilityRuntimeError(ValueError):
@@ -166,7 +169,7 @@ def review_mcp_runtime_command(resource_revision: str, server_id: str, operation
 
 
 def public_receipt(value: dict) -> dict:
-    return {key: item for key, item in value.items() if key != "_mcp_runtime"}
+    return {key: item for key, item in value.items() if not key.startswith("_")}  # Private proof stays private.
 
 
 def _persist_progress(owner_id: str, key: str, incoming: dict) -> dict:
@@ -286,6 +289,9 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
         private = retained.get("_mcp_runtime")
         identity = private.get("runtime_id") if type(private) is dict else None
         if type(identity) is not str:
+            if _ended(retained.get("_mcp_admitted")):
+                # Its process ended before any launch checkpoint: nothing was scheduled, nothing connected.
+                return outcome("failed", None, True, terminal=True, code="mcp_connection_failed")
             return outcome("unknown", None, None, terminal=False, code="mcp_runtime_unconfirmed")
         try:
             _identity(identity, uuid=True)
@@ -330,6 +336,8 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
     if replay is not None:
         validate()
         return public_receipt(replay)
+    progress["_mcp_admitted"] = _process()  # Who claimed it: a restart before any checkpoint then settles it.
+    progress = _persist_progress(owner_id, key, progress)
     try:
         reviewed, name, server = _review(revision, server_id, operation, expected_id, validate, mcp_target)
         validate_review(reviewed)
@@ -380,8 +388,13 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
     try:
         launched = runtime.launch_server_owned(name, server, before_start=checkpoint, validate=authority,
             temporary=operation == "test", before_release=lambda owned: _record_completion(server_id, owned))
-    except Exception:
+    except Exception as error:
         identity = progress.get("_mcp_runtime", {}).get("runtime_id")
+        if identity is None:
+            # Refused before its checkpoint (another connection still holds the name, or authority changed):
+            # nothing was scheduled, so nothing can have connected. Final, so no later change waits on it.
+            logger.warning("An MCP %s was refused before it started (%s)", operation, str(error)[:80])
+            return outcome("failed", None, True, terminal=True, code="mcp_connection_failed")
         return outcome("unknown", identity, None, terminal=False, code="mcp_runtime_unconfirmed")
     launched._ready.wait(observe_seconds)
     if operation == "connect" and launched._connected_admitted and not launched._stop_requested.is_set():

@@ -815,7 +815,9 @@ class ClientPlatformService:
             if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
                 return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
         from row_bot.application.workspace_setup import reconcile_setup_receipt
-        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_clone_workspace", "draft_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
+        # Every owner's private proof ("_..."), not a list each new owner must remember to join.
+        return {key: value for key, value in reconcile_setup_receipt(result).items()
+                if not key.startswith("_") and key != "draft_workspace"}
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
                 validate: Callable[[], None] | None = None, authorized_folder: Any = None,
