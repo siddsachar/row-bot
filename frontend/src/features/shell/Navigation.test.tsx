@@ -1104,3 +1104,62 @@ it('keeps Home, New chat, commands and Settings reachable on the collapsed rail 
     screen.getByRole('status', { name: 'Current route' }),
   ).toHaveTextContent('/');
 });
+
+it('pins a conversation in one tap, without opening its actions dialog', async () => {
+  const { controller, transport } = await setup(3);
+  const reviewed: unknown[] = [];
+  controller.conversationActions = vi.fn(async (id: string) => ({
+    schema_version: 1 as const,
+    conversation_id: id,
+    revision: '4',
+    checkpoint_revision: 'checkpoint-7',
+    title: 'Sample conversation 2',
+    pinned: false,
+    capabilities: {
+      rename: { available: true, code: null },
+      pin: { available: true, code: null },
+      archive: { available: false, code: 'conversation_archive_unavailable' },
+      export: { available: true, code: null },
+    },
+  }));
+  controller.reviewConversationAction = vi.fn(
+    async (id, action, revision, fields) => {
+      reviewed.push(fields);
+      return {
+        schema_version: 1 as const,
+        conversation_id: id,
+        action,
+        revision,
+        checkpoint_revision: 'checkpoint-7',
+        fields,
+        action_digest: 'a'.repeat(64),
+        summary: 'Pin',
+        disclosures: [],
+      };
+    },
+  ) as unknown as typeof controller.reviewConversationAction;
+  controller.executeConversationAction = vi.fn(async (_id, command) => {
+    transport.conversations[1].pinned = true;
+    return {
+      command_id: command.command_id,
+      status: 'completed',
+      action: command.type,
+      conversation: {
+        conversation_id: 'conversation-2',
+        revision: '5',
+        title: 'Sample conversation 2',
+        pinned: true,
+      },
+    };
+  }) as unknown as typeof controller.executeConversationAction;
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Pin Sample conversation 2' }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Unpin Sample conversation 2' }),
+    ).toHaveAttribute('aria-pressed', 'true'),
+  );
+  expect(reviewed).toEqual([{ pinned: true }]);
+  expect(screen.queryByRole('dialog')).toBeNull();
+});

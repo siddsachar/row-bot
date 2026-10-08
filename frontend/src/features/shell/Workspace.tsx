@@ -117,6 +117,7 @@ import { openAgentProfiles } from './agent-profiles';
 import { useBackgroundNotices } from './background-notices';
 import { useApprovalNotices } from './InPlaceApproval';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
+import { rememberOutsideSettings } from '../settings/return-path';
 
 const subscriptions = new PanelSubscriptions();
 
@@ -328,6 +329,11 @@ export default function Workspace() {
   const homeOpen = location.pathname === '/';
   const routeOpen = !homeOpen && !routeConversation;
   const settingsOpen = location.pathname.startsWith('/settings');
+  // Close settings goes back to where the person was (a chat, Workflows), not always Home.
+  useEffect(() => {
+    if (!settingsOpen)
+      rememberOutsideSettings(location.pathname + location.search);
+  }, [settingsOpen, location.pathname, location.search]);
   const [layout, setLayout] = useWorkspaceLayout(
     state.handshake?.instance_id,
     conversationId ?? 'home',
@@ -535,6 +541,30 @@ export default function Workspace() {
     )
       void controller.selectConversation(decodeURIComponent(routeConversation));
   }, [controller, routeConversation]);
+  // The open conversation was deleted in another window (or found deleted): go Home and say so, rather than
+  // leave an empty chat with no composer on its address.
+  const shownConversation = useRef<string | null>(null);
+  useEffect(() => {
+    if (state.selectedConversationId) {
+      shownConversation.current = state.selectedConversationId;
+      return;
+    }
+    if (
+      conversationId &&
+      shownConversation.current === conversationId &&
+      state.status === 'ready'
+    ) {
+      shownConversation.current = null;
+      navigate('/', { replace: true });
+      overlay.notify('That conversation was deleted.');
+    }
+  }, [
+    state.selectedConversationId,
+    state.status,
+    conversationId,
+    navigate,
+    overlay,
+  ]);
   const reconcileResources = useEffectEvent(() => {
     const workspace = state.workspace;
     if (

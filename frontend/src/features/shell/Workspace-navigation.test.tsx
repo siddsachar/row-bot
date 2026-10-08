@@ -15,6 +15,7 @@ import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
 import Workspace from './Workspace';
+import { settingsReturnPath } from '../settings/return-path';
 
 // JSDOM has no measured panes. Keep the production shell, navigation, router,
 // composer and controller mounted while replacing only resize geometry.
@@ -280,4 +281,63 @@ it('returns focus to the phone header menu after Workspace commands opened from 
   );
   // The menu item that opened it is gone; its trigger takes focus back.
   await waitFor(() => expect(menu).toHaveFocus());
+});
+
+it('goes Home and says so when the open conversation is deleted in another window', async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
+  // Another window deleted it: the controller closes it.
+  await act(async () => controller.forgetConversation('conversation-a'));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/),
+  );
+  expect(
+    await screen.findByText('That conversation was deleted.'),
+  ).toBeVisible();
+});
+
+it('remembers the chat Settings was opened from, for Close settings', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <GoToSettings />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByText('Route elsewhere'));
+  });
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/settings/buddy',
+  );
+  expect(settingsReturnPath()).toBe('/conversations/conversation-a');
 });

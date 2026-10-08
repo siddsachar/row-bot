@@ -113,7 +113,12 @@ export function bindActiveConversationSession(
       return;
     }
 
-    if (observedInstance === instanceId) return;
+    if (observedInstance === instanceId) {
+      // Nothing is open any more (the open conversation was deleted, here or in another window): nothing to
+      // reopen next time, rather than asking for it on every load.
+      remove(storage);
+      return;
+    }
     observedInstance = instanceId;
     const stored = read(storage);
     if (!stored) return;

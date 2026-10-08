@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { Field, Input, Kbd } from '../../ui/primitives';
+import { settingsReturnPath } from './return-path';
 import {
   agentProfileLibrary,
   searchFindsAgentProfiles,
@@ -160,7 +161,11 @@ export default function SettingsShell({
           {compactControls?.navigation}
           <h1>Settings</h1>
           {compactControls?.commands}
-          <Link className="icon-button" to="/" aria-label="Close settings">
+          <Link
+            className="icon-button"
+            to={settingsReturnPath()}
+            aria-label="Close settings"
+          >
             <X size={18} aria-hidden />
           </Link>
         </header>

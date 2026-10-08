@@ -194,7 +194,6 @@ export type ConversationActionsProps = ConversationActionsApi & {
    * calls `closeActions`, so this dialog closes with it.
    */
   onDelete?: (closeActions: () => void) => void;
-  initialPin?: boolean;
   /** Start this export as soon as the dialog opens (true means Markdown). */
   initialExport?: boolean | ExportFormat;
 };
@@ -375,7 +374,6 @@ export default function ConversationActions({
   save,
   onChanged,
   onDelete,
-  initialPin,
   initialExport,
 }: ConversationActionsProps) {
   const { notify, close } = useOverlay();
@@ -383,7 +381,10 @@ export default function ConversationActions({
   const wrongOwner = state.conversationId !== conversationId;
   const locked =
     wrongOwner || !state.active || Boolean(state.busy || state.pending);
-  const initialPinRequested = useRef(false);
+  const initialExportRequested = useRef(false);
+  // Opened to rename: the name is ready to type over, not the dialog's Close.
+  const nameInput = useRef<HTMLInputElement>(null);
+  const nameFocused = useRef(false);
   const mounted = useRef(false);
   const [closeRequested, setCloseRequested] = useState(false);
   // The switch shows where it was moved while that pin is reviewed and
@@ -609,37 +610,27 @@ export default function ConversationActions({
       );
   };
 
-  const requestInitialPin = useEffectEvent((pinned: boolean) => {
-    void requestReview('conversation.pin', { pinned });
-  });
-  useEffect(() => {
-    if (
-      initialPin === undefined ||
-      initialPinRequested.current ||
-      !state.snapshot ||
-      locked ||
-      !state.snapshot.capabilities.pin.available ||
-      state.snapshot.pinned === initialPin
-    )
-      return;
-    initialPinRequested.current = true;
-    requestInitialPin(initialPin);
-  }, [initialPin, locked, state.snapshot]);
   const exportAs = (format: ExportFormat) =>
     requestReview('conversation.export', format === 'pdf' ? { format } : {});
+  useEffect(() => {
+    if (nameFocused.current || initialExport || !state.snapshot) return;
+    nameFocused.current = true;
+    nameInput.current?.focus();
+    nameInput.current?.select();
+  }, [initialExport, state.snapshot]);
   const requestInitialExport = useEffectEvent(() => {
     void exportAs(initialExport === 'pdf' ? 'pdf' : 'markdown');
   });
   useEffect(() => {
     if (
       !initialExport ||
-      initialPinRequested.current ||
+      initialExportRequested.current ||
       !state.snapshot ||
       locked ||
       !state.snapshot.capabilities.export.available
     )
       return;
-    initialPinRequested.current = true;
+    initialExportRequested.current = true;
     requestInitialExport();
   }, [initialExport, locked, state.snapshot]);
 
@@ -684,6 +675,7 @@ export default function ConversationActions({
               </label>
               <div className="conversation-actions-name-row">
                 <Input
+                  ref={nameInput}
                   id={`${id}-name`}
                   value={state.title}
                   maxLength={120}

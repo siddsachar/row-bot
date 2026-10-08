@@ -1740,6 +1740,16 @@ export class ClientController {
             this.forgetConversation(id);
             return;
           }
+          // Its subscription is gone (deleted in another window, or the server let it go): subscribe
+          // again at once, which says which, instead of asking a dead one until "Disconnected".
+          if (subscription && safe.code === 'not_found') {
+            if (++resetsWithoutProgress > 3)
+              throw new Error('protocol_incompatible', { cause: error });
+            if (this.activeSubscription === subscription.subscription_id)
+              this.activeSubscription = null;
+            subscription = null;
+            continue;
+          }
           failures += 1;
           streamFailures += 1;
           if (failures > DELAYS.length) {

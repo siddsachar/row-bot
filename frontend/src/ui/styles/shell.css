@@ -2477,7 +2477,7 @@ button.agent-row-main:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 4px 6px;
+  margin: 6px 4px 2px;
   padding: 6px 10px;
   border-radius: var(--radius-control);
   background: var(--status-warning-background);

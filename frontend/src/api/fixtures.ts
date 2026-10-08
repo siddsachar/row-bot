@@ -423,6 +423,16 @@ export class FixtureTransport implements ClientTransport {
     this.scenario = 'disconnected';
     [...this.wakes.values()].forEach((wake) => wake());
   }
+  /** Deletes a conversation as another window would: it and its subscriptions go, and open streams end. */
+  deleteElsewhere(id: string): string[] {
+    this.snapshots.delete(id);
+    const ended = [...this.subscriptions]
+      .filter(([, conversation]) => conversation === id)
+      .map(([subscription]) => subscription);
+    ended.forEach((subscription) => this.subscriptions.delete(subscription));
+    ended.forEach((subscription) => this.wakes.get(subscription)?.());
+    return ended;
+  }
   async poll(
     subscription: string,
     cursor: string,

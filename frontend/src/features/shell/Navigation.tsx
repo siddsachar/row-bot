@@ -50,6 +50,7 @@ import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import type { ConversationView } from '../../api/types';
 import ConversationActions, {
   conversationActionsDialog,
+  runConversationAction,
 } from '../settings/ConversationActions';
 import { deleteOneConversation } from './ConversationLibrary';
 import type {
@@ -478,7 +479,6 @@ export default function Navigation({
   }, [activeRowKey, controller, state.status]);
   function openActions(
     conversation: ConversationView,
-    initialPin?: boolean,
     initialExport: false | 'markdown' | 'pdf' = false,
   ) {
     const session = conversationActionsOwner?.get()?.get(conversation.id);
@@ -499,7 +499,6 @@ export default function Navigation({
           review={controller.reviewConversationAction}
           execute={controller.executeConversationAction}
           save={platform.save}
-          initialPin={initialPin}
           initialExport={initialExport}
           onChanged={() => {
             void controller.loadMoreConversations(true);
@@ -524,6 +523,29 @@ export default function Navigation({
         />,
       ),
     );
+  }
+  /** Pin and Unpin are one tap: the reviewed command without the dialog, and the open chat stays as it is. */
+  async function togglePin(conversation: ConversationView) {
+    const pinned = !conversation.pinned;
+    const outcome = await runConversationAction(
+      {
+        load: controller.conversationActions,
+        review: controller.reviewConversationAction,
+        execute: controller.executeConversationAction,
+      },
+      conversation.id,
+      'conversation.pin',
+      { pinned },
+      new AbortController().signal,
+    );
+    if (outcome.status === 'completed')
+      void controller.loadMoreConversations(true);
+    else
+      overlay.notify(
+        outcome.status === 'uncertain'
+          ? "Row-Bot couldn't confirm that. Check the list before trying again."
+          : `Couldn't ${pinned ? 'pin' : 'unpin'} it. Try again.`,
+      );
   }
   const now = new Date();
   function conversationRow(conversation: ConversationView, heading?: string) {
@@ -607,7 +629,7 @@ export default function Navigation({
               className={`nav-pin ${conversation.pinned ? 'is-pinned' : ''}`}
               aria-label={`${conversation.pinned ? 'Unpin' : 'Pin'} ${title}`}
               aria-pressed={conversation.pinned}
-              onClick={() => openActions(conversation, !conversation.pinned)}
+              onClick={() => void togglePin(conversation)}
             >
               <Pin
                 size={14}
@@ -625,7 +647,7 @@ export default function Navigation({
               {
                 label: conversation.pinned ? 'Unpin' : 'Pin',
                 icon: <Pin size={16} />,
-                onSelect: () => openActions(conversation, !conversation.pinned),
+                onSelect: () => void togglePin(conversation),
               },
               {
                 label: 'Rename',
@@ -635,13 +657,12 @@ export default function Navigation({
               {
                 label: 'Export as Markdown',
                 icon: <Upload size={16} />,
-                onSelect: () =>
-                  openActions(conversation, undefined, 'markdown'),
+                onSelect: () => openActions(conversation, 'markdown'),
               },
               {
                 label: 'Export as PDF',
                 icon: <FileText size={16} />,
-                onSelect: () => openActions(conversation, undefined, 'pdf'),
+                onSelect: () => openActions(conversation, 'pdf'),
               },
               {
                 label: 'Delete…',
@@ -801,6 +822,13 @@ export default function Navigation({
           </Menu>
         )}
       </div>
+      {/* What needs the person (an approval, a problem, an update) sits up here: in the footer it grew the
+          sticky footer over the last rows of the list. */}
+      <AttentionIndicator
+        load={controller.attention}
+        loadApprovals={controller.pendingApprovals}
+        onNavigate={openRoute}
+      />
       <div className="nav-section-header">
         <Button
           id={sectionHeadingId}
@@ -1035,11 +1063,6 @@ export default function Navigation({
         </section>
       )}
       <footer className="nav-footer" aria-label="Workspace destinations">
-        <AttentionIndicator
-          load={controller.attention}
-          loadApprovals={controller.pendingApprovals}
-          onNavigate={openRoute}
-        />
         {showBuddy && <BuddySurface />}
         {/* Settings is its own row under Buddy's large avatar (B225). */}
         <Link

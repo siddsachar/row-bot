@@ -13,6 +13,7 @@ import { RuntimeContext } from '../../runtime';
 import { WorkspaceActionsContext } from '../shell/workspace-actions';
 import SettingRoute from './SettingRoute';
 import { createCapabilitySettingsSession } from './CapabilitySettings';
+import { rememberOutsideSettings } from './return-path';
 
 function Where() {
   const location = useLocation();
@@ -107,6 +108,18 @@ function renderAt(
 }
 
 const owner = <T,>(value: T) => ({ get: () => value });
+
+it('Close settings goes back to where the person was, not always Home', async () => {
+  rememberOutsideSettings('/conversations/conversation-a');
+  try {
+    renderAt('/settings/apps', appsController());
+    expect(
+      await screen.findByRole('link', { name: 'Close settings' }),
+    ).toHaveAttribute('href', '/conversations/conversation-a');
+  } finally {
+    rememberOutsideSettings('/');
+  }
+});
 
 it.each(['/settings/mcp', '/settings/plugins'])(
   'the old %s link lands on the Apps library',
