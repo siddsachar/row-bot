@@ -105,17 +105,17 @@ def _pitch_deck() -> Template:
         icon="📊",
         pages=[
             {"title": "Title Slide", "notes": "Introduce company and tagline.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:80px;">
-  <div style="width:120px;height:120px;border-radius:24px;background:var(--primary);margin-bottom:40px;display:flex;align-items:center;justify-content:center;">
+<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;height:100%;padding:80px;">
+  <div style="width:120px;height:120px;border-radius:24px;background:var(--primary);margin-bottom:24px;display:flex;align-items:center;justify-content:center;">
     <span style="font-size:3rem;color:#fff;">✦</span>
   </div>
-  <h1 style="font-size:4.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Your Company Name</h1>
+  <h1 style="font-size:4.5rem;font-weight:800;text-align:center;">Your Company Name</h1>
   <p style="font-size:1.8rem;opacity:0.7;text-align:center;max-width:800px;">A one-line description of what you do and why it matters</p>
-  <div style="margin-top:60px;padding:12px 32px;border:2px solid var(--accent);border-radius:8px;font-size:1.2rem;color:var(--accent);">investor@company.com</div>
+  <div style="margin-top:44px;padding:12px 32px;border:2px solid var(--accent);border-radius:8px;font-size:1.2rem;color:var(--accent);">investor@company.com</div>
 </div></body></html>"""},
             {"title": "Problem", "notes": "Define the problem you solve.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:3rem;font-weight:700;color:var(--accent);margin-bottom:48px;">The Problem</h2>
+  <h1 style="font-size:3rem;font-weight:700;color:var(--accent);margin-bottom:48px;">The Problem</h1>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;flex:1;align-items:start;">
     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:40px;">
       <div style="font-size:2.5rem;margin-bottom:16px;">😤</div>
@@ -136,7 +136,7 @@ def _pitch_deck() -> Template:
 </div></body></html>"""},
             {"title": "Solution", "notes": "Show your solution.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:3rem;font-weight:700;color:var(--primary);margin-bottom:48px;">Our Solution</h2>
+  <h1 style="font-size:3rem;font-weight:700;color:var(--primary);margin-bottom:48px;">Our Solution</h1>
   <div style="display:flex;gap:60px;flex:1;align-items:center;">
     <div style="flex:1;">
       <h3 style="font-size:2rem;margin-bottom:24px;">How It Works</h3>
@@ -152,9 +152,9 @@ def _pitch_deck() -> Template:
   </div>
 </div></body></html>"""},
             {"title": "Traction", "notes": "Show your progress and metrics.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:3rem;font-weight:700;color:var(--accent);margin-bottom:48px;">Traction</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:32px;margin-bottom:48px;">
+<div style="display:flex;flex-direction:column;gap:48px;padding:80px 100px;height:100%;">
+  <h1 style="font-size:3rem;font-weight:700;color:var(--accent);">Traction</h1>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:32px;">
     <div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;">
       <div style="font-size:3rem;font-weight:800;color:var(--primary);">10K+</div>
       <div style="font-size:1rem;opacity:0.6;margin-top:8px;">Active Users</div>
@@ -177,10 +177,10 @@ def _pitch_deck() -> Template:
   </div>
 </div></body></html>"""},
             {"title": "Call to Action", "notes": "Next steps and contact info.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:80px;">
-  <h2 style="font-size:3.5rem;font-weight:800;text-align:center;margin-bottom:24px;">Let's Build the Future Together</h2>
-  <p style="font-size:1.5rem;opacity:0.6;text-align:center;max-width:700px;margin-bottom:60px;">We're raising a $5M Series A to scale our platform globally.</p>
-  <div style="display:flex;gap:24px;margin-bottom:60px;">
+<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:24px;height:100%;padding:80px;">
+  <h1 style="font-size:3.5rem;font-weight:800;text-align:center;">Let's Build the Future Together</h1>
+  <p style="font-size:1.5rem;opacity:0.6;text-align:center;max-width:700px;margin-bottom:36px;">We're raising a $5M Series A to scale our platform globally.</p>
+  <div style="display:flex;gap:24px;margin-bottom:36px;">
     <div style="padding:16px 40px;background:var(--primary);border-radius:12px;font-size:1.3rem;font-weight:600;">Schedule a Call</div>
     <div style="padding:16px 40px;border:2px solid var(--accent);border-radius:12px;font-size:1.3rem;color:var(--accent);">Download Deck</div>
   </div>
@@ -340,7 +340,7 @@ def _product_launch() -> Template:
 </div></body></html>"""},
             {"title": "Features", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">What's New</h2>
+  <h1 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">What's New</h1>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;flex:1;">
     <div style="padding:36px;background:rgba(255,255,255,0.05);border-radius:16px;"><div style="font-size:2rem;margin-bottom:12px;">⚡</div><h3 style="font-size:1.4rem;margin-bottom:12px;">Lightning Fast</h3><p style="opacity:0.6;line-height:1.6;">3x performance improvement with our new engine.</p></div>
     <div style="padding:36px;background:rgba(255,255,255,0.05);border-radius:16px;"><div style="font-size:2rem;margin-bottom:12px;">🤖</div><h3 style="font-size:1.4rem;margin-bottom:12px;">AI-Powered</h3><p style="opacity:0.6;line-height:1.6;">Built-in AI assistant for smarter workflows.</p></div>
@@ -350,7 +350,7 @@ def _product_launch() -> Template:
 </div></body></html>"""},
             {"title": "Pricing", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;align-items:center;padding:80px 100px;height:100%;">
-  <h2 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">Simple Pricing</h2>
+  <h1 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">Simple Pricing</h1>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px;width:100%;max-width:1200px;">
     <div style="padding:40px;background:rgba(255,255,255,0.05);border-radius:16px;text-align:center;">
       <h3 style="font-size:1.2rem;opacity:0.6;margin-bottom:16px;">STARTER</h3>
@@ -374,7 +374,7 @@ def _product_launch() -> Template:
 </div></body></html>"""},
             {"title": "Get Started", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;background:linear-gradient(135deg,var(--bg) 0%,rgba(37,99,235,0.15) 100%);">
-  <h2 style="font-size:3.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Start Building Today</h2>
+  <h1 style="font-size:3.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Start Building Today</h1>
   <p style="font-size:1.3rem;opacity:0.6;margin-bottom:48px;">Free 14-day trial • No credit card required</p>
   <div style="padding:16px 48px;background:var(--primary);border-radius:12px;font-size:1.4rem;font-weight:600;">Get Started Free →</div>
 </div></body></html>"""},

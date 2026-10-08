@@ -152,6 +152,13 @@ def _resolve_color(raw: str | None, variables: dict[str, str]) -> tuple[float, f
         parts = [part.strip() for part in rgb_match.group(1).split(",")]
         if len(parts) >= 3:
             try:
+                # A see-through color shows what is behind it: it is no
+                # background of its own, so callers look past it.
+                if len(parts) >= 4:
+                    alpha = parts[3]
+                    opacity = float(alpha[:-1]) / 100 if alpha.endswith("%") else float(alpha)
+                    if opacity < 1:
+                        return None
                 return tuple(max(0.0, min(255.0, float(parts[i]))) / 255 for i in range(3))
             except ValueError:
                 return None
@@ -164,6 +171,37 @@ def _relative_luminance(rgb: tuple[float, float, float]) -> float:
 
     r, g, b = (_channel(channel) for channel in rgb)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _font_px(value: str | None) -> float | None:
+    """An inline font size in pixels (px, rem or em), when it is one."""
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(px|rem|em)\s*", value or "")
+    if not match:
+        return None
+    size = float(match.group(1))
+    return size if match.group(2) == "px" else size * 16
+
+
+def _contrast_minimum(tag: Tag) -> float:
+    """WCAG AA: 3:1 for large text (24px, or 18.66px bold), else 4.5:1.
+
+    Size and weight are inherited, so the nearest element that sets each wins.
+    """
+    size: float | None = None
+    weight: str | None = None
+    current: Tag | None = tag
+    while isinstance(current, Tag) and (size is None or weight is None):
+        style = _parse_style(current.get("style", ""))
+        if size is None:
+            # Browsers draw h1 and h2 at 32px and 24px by default.
+            size = _font_px(style.get("font-size")) or {"h1": 32.0, "h2": 24.0}.get(current.name)
+        if weight is None:
+            weight = style.get("font-weight") or (
+                "bold" if current.name in {"h1", "h2", "h3", "h4", "h5", "h6", "strong", "b"} else None)
+        current = current.parent
+    bold = weight == "bold" or (weight or "").isdigit() and int(weight or 0) >= 700
+    large = size is not None and (size >= 24 or bold and size >= 18.66)
+    return 3.0 if large else 4.5
 
 
 def _contrast_ratio(foreground: tuple[float, float, float], background: tuple[float, float, float]) -> float:
@@ -222,6 +260,9 @@ def _add_finding(findings: list[dict], category: str, severity: str, message: st
 def _add_hierarchy_findings(root: Tag | BeautifulSoup, findings: list[dict]) -> None:
     headings = root.find_all(["h1", "h2", "h3"])
     if not headings:
+        # A blank starter page has nothing to organize yet.
+        if _word_count(root) < 12:
+            return
         _add_finding(
             findings,
             "hierarchy",
@@ -322,7 +363,7 @@ def _add_contrast_findings(root: Tag | BeautifulSoup, variables: dict[str, str],
         if foreground is None or background is None:
             continue
         ratio = _contrast_ratio(foreground, background)
-        if ratio < 4.5:
+        if ratio < _contrast_minimum(tag):
             severity = "high" if ratio < 3 else "medium"
             _add_finding(
                 findings,
