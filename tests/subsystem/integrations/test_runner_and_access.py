@@ -270,6 +270,33 @@ def test_a_server_that_fails_to_start_shows_what_it_wrote(item, owner, monkeypat
     assert wrote[-1] not in json.dumps(plans._load("owner", plan_id)[0])  # and never kept in the plan's record.
 
 
+def test_a_refused_key_fails_the_check_and_lets_the_app_go(item, owner, monkeypatch):
+    """Found live (GitHub): a key the service refused left the check, and then Remove, finishing for good."""
+    import asyncio
+    import contextlib
+
+    import httpx
+
+    async def refused(server):
+        # As the MCP SDK does it: the refused request cancels this task, and its HTTP error comes as it closes.
+        request = httpx.Request("POST", "https://synthetic.example.test/mcp")
+        error = httpx.HTTPStatusError("Client error '401 Unauthorized'", request=request,
+                                      response=httpx.Response(401, request=request))
+
+        async def raise_at_close():
+            raise ExceptionGroup("unhandled errors in a TaskGroup", [error])
+        server.exit_stack = contextlib.AsyncExitStack()
+        server.exit_stack.push_async_callback(raise_at_close)
+        raise asyncio.CancelledError
+    monkeypatch.setattr(mcp_runtime.McpServerRuntime, "_connect", refused)
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    failed = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"])
+    assert failed["state"] == "failed" and "didn't accept the key" in failed["message"], failed
+    _, remove = api.read_item(owner_id="owner", item_id=item, intent="remove")
+    removed = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, intent="remove", digest=remove["digest"])
+    assert removed["state"] == "completed" and "Synthetic" not in config.read_saved_configuration().document["servers"]
+
+
 def test_a_tool_list_row_bot_cannot_keep_says_so_instead_of_claiming_a_change(item, owner):
     owner.tools[:] = [{"name": f"get_{n}", "description": "d" * 16000, "inputSchema": {}} for n in range(10)]
     _, plan = api.read_item(owner_id="owner", item_id=item)

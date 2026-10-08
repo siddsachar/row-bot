@@ -152,6 +152,38 @@ def test_a_stdio_server_that_fails_to_start_leaves_its_last_lines() -> None:
         runtime.shutdown()
 
 
+def test_a_server_that_refuses_the_key_says_so_and_lets_go() -> None:
+    """Found live (GitHub): the SDK raises a refused key's HTTP error as the connection closes. That is how it
+    ended, not a connection still open: the check says why, and nothing is left to refuse the next try."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from row_bot.mcp_client import runtime
+
+    class Refuses(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("content-length") or 0))
+            self.send_response(401)
+            self.send_header("content-length", "0")
+            self.end_headers()
+
+        do_GET = do_DELETE = do_POST
+
+        def log_message(self, *args):
+            pass
+
+    web = ThreadingHTTPServer(("127.0.0.1", 0), Refuses)
+    threading.Thread(target=web.serve_forever, daemon=True).start()
+    cfg = {"transport": "streamable_http", "url": f"http://127.0.0.1:{web.server_address[1]}/mcp", "connect_timeout": 10}
+    try:
+        for _ in range(2):
+            result = runtime.probe_server("refuses", cfg)
+            assert result["ok"] is False and "401 Unauthorized" in result["error"], result
+    finally:
+        web.shutdown()
+        runtime.shutdown()
+
+
 @pytest.mark.slow
 def test_a_server_that_never_answers_the_end_of_its_session_still_lets_go() -> None:
     import socket

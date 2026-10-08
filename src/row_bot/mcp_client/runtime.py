@@ -646,6 +646,7 @@ class McpServerRuntime:
         self._release_inflight = False
         self._release_epoch = 0
         self._child_pid: int | None = None  # The local program this connection started, if any.
+        self._exit_error: Exception | None = None  # How the connection ended, when it ended with an error.
 
     def _confirm_release(self) -> bool:
         """Persist exact completion before forgetting a client-owned transport."""
@@ -1015,9 +1016,19 @@ class McpServerRuntime:
         if self.exit_stack:
             try:
                 await self.exit_stack.aclose()
-            except (asyncio.CancelledError, Exception):
-                # AsyncExitStack may already have popped a failing callback.
-                # Calling it again cannot prove that transport was cleaned up.
+            except Exception as exc:
+                # A task group raises its tasks' errors only once every task has finished, so without a
+                # program of its own this is how the connection ended, and it is closed (the SDK raises a
+                # refused key's HTTP error this way). Any other error, or a program, stays unconfirmed.
+                if not isinstance(exc, ExceptionGroup) or self._child_pid is not None:
+                    self._cleanup_failed = True
+                    self._status(status="cleanup_incomplete", last_error="MCP transport cleanup is unconfirmed")
+                    return
+                self._exit_error = exc
+                if not self._stop_requested.is_set():  # Stopped on request, it is stopped, not failed.
+                    self._status(status="failed", last_error=redact(_failure(exc), self._redact))
+            except asyncio.CancelledError:
+                # Interrupted: the transport may still be open. Calling it again cannot prove it closed.
                 self._cleanup_failed = True
                 self._status(status="cleanup_incomplete", last_error="MCP transport cleanup is unconfirmed")
                 return
@@ -1318,7 +1329,7 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
         runtime._start_task = asyncio.current_task()
         runtime._started.set()
         _servers[name] = runtime
-    outcome = None
+    outcome, cancelled = None, False
     try:
         runtime._forget_stderr()
         async with asyncio.timeout(float(server_cfg.get("connect_timeout", 30))):
@@ -1335,11 +1346,17 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
             "tool_count": len(normalized),
             "destructive_tool_count": sum(1 for info in normalized.values() if info.destructive),
         }
+    except asyncio.CancelledError:
+        if runtime._stop_requested.is_set():
+            raise
+        cancelled = True  # The SDK cancels this task when its connection fails; closing says how.
     except Exception as exc:
         outcome = {"ok": False, "error": redact(str(exc), getattr(runtime, "_redact", ())), "tools": []}
         await runtime._keep_stderr()
     finally:
         await runtime.close()
+        if outcome is None and runtime._exit_error is not None:
+            outcome = {"ok": False, "error": redact(_failure(runtime._exit_error), runtime._redact), "tools": []}
         runtime._probe_result = outcome
         released = runtime._confirm_release()
         with _runtime_lock:
@@ -1349,6 +1366,8 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
         runtime._ready.set()
     if not runtime.cleanup_complete:
         return {"ok": False, "error": "MCP transport cleanup is unconfirmed", "tools": []}
+    if cancelled and outcome is None:
+        raise asyncio.CancelledError
     return outcome
 
 

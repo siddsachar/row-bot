@@ -1274,6 +1274,11 @@ def _connection_failed(record: dict) -> PlanError:
         return PlanError("mcp_connection_failed", "It didn't start: it looks like a Python server made for an older "
                          "version of the mcp package. Pin its mcp dependency to an earlier version, or ask its maker "
                          "for an update.", log)
+    name = _saved(record["target"], record["server_id"])[0]
+    if runtime is not None and name and runtime.get_passive_server_statuses((name,)).get(name, {}).get("sign_in_failed"):
+        way = "sign-in" if any(s["type"] == "sign_in" for s in record["steps"]) else "key"
+        return PlanError("mcp_connection_failed", f"{record['name']} didn't accept the {way}. Check it and what it may "
+                         "reach, then remove the app and connect it again.")
     return PlanError("mcp_connection_failed", "It didn't start. What it wrote last is below." if log else "", log)
 
 
