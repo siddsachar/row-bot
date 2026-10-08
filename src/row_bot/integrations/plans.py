@@ -1005,6 +1005,13 @@ def _connection(ctx: Context, record: dict, name: str, operation: str, live: Any
 
 
 def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
+    outcome = _save_inputs(ctx, record, step)
+    if outcome == "done":
+        step["message"] = ""  # Saved: what it asked for ("Add … to continue.") is past.
+    return outcome
+
+
+def _save_inputs(ctx: Context, record: dict, step: dict) -> str:
     """Save what the person entered: plain settings in the connection's configuration, keys in the
     keychain. Each is one owner command recorded before it is sent; running the step again never
     re-sends a key, it reads how the first attempt ended."""
@@ -1366,7 +1373,9 @@ def _tools(ctx: Context | None, record: dict) -> list[dict]:
 
 
 def _tool_view(tool: dict, state: str) -> dict:
-    return {"name": tool["name"][:256], "title": tool["name"].replace("_", " ").replace("-", " ").strip().capitalize()[:128],
+    # In words as chats name it ("createJiraIssue" -> "Create jira issue"), never squashed into one word.
+    words = " ".join(re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", tool["name"]).replace("_", " ").replace("-", " ").split())
+    return {"name": tool["name"][:256], "title": (words[:1].upper() + words[1:].lower())[:128],
             "description": sources.plain_text(tool.get("description", ""), 512), "effect": tool["effect"], "state": state,
             "always_asks": presets.locked(tool), "view": bool(tool.get("view")), "view_only": tool.get("view_only") is True}
 

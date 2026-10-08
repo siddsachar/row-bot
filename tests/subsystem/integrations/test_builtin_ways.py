@@ -65,6 +65,12 @@ def test_accounts_channels_and_key_tools_appear_as_apps_with_their_owners_status
     assert rows["builtin:channel:whatsapp"]["lifecycle"] == "available"  # Not yours until it is linked.
     assert rows["builtin:tool:web_search"]["app"]["id"] == "tavily"
     assert rows["builtin:tool:wolfram_alpha"]["lifecycle"] == "available"  # No key yet.
+    # Only a way that brings chat tools offers "Try it": the GitHub account serves skills, a channel its own app.
+    owners["github"] = "connected"
+    github = builtin.read("builtin:account:github")
+    assert (github["readiness"], github["next_action"]["kind"]) == ("ready", "none")
+    assert rows["builtin:channel:telegram"]["next_action"]["kind"] == "none"
+    assert google["next_action"] == {"kind": "try", "label": "Try it"}
     owners["google"] = "expired"
     assert builtin.read("builtin:account:google")["next_action"] == {"kind": "sign_in", "label": "Sign in again"}
     owners["enabled"].discard("gmail"), owners["enabled"].discard("calendar")

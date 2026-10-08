@@ -113,6 +113,8 @@ def test_a_key_goes_only_to_the_keychain_and_a_setting_to_the_configuration(decl
     assert refused["pause"] == "inputs" and "isn't a value" in next(s for s in refused["steps"] if s["type"] == "inputs")["message"]
     done = plans.resume(context(inputs={"notes_token": SECRET, "space": "work"}), plan_id)
     assert done["pause"] == "access", done
+    # Saved: its step no longer says what was missing (it read "Add … to continue." under a done step).
+    assert next(s for s in done["steps"] if s["type"] == "inputs")["message"] == ""
     saved = config.read_saved_configuration().document["servers"]["Synthetic"]
     assert saved["input_values"] == {"space": "work"} and saved["env"]["NOTES_TOKEN"] == "{notes_token}"
     # The key is in the keychain only: never in the configuration, the plan record or any answer.

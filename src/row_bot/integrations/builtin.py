@@ -25,8 +25,9 @@ MAX_AGE = 60.0  # A snapshot older than this is still served, and refreshed in t
 # Account id -> (name, the chat tools it powers).
 ACCOUNTS = {"github": ("GitHub account", ()), "google": ("Google account", ("gmail", "calendar")),
             "x": ("X account", ("x",))}
-# Key-based tools: tool id -> (name, keychain key names).
-TOOLS = {"web_search": ("Web search", ("TAVILY_API_KEY",)), "wolfram_alpha": ("Wolfram Alpha", ("WOLFRAM_ALPHA_APPID",))}
+# Key-based tools: tool id -> (name, keychain key names, what it does).
+TOOLS = {"web_search": ("Web search", ("TAVILY_API_KEY",), "Search the web with your own Tavily key."),
+         "wolfram_alpha": ("Wolfram Alpha", ("WOLFRAM_ALPHA_APPID",), "Maths, science and data answers with your own Wolfram Alpha key.")}
 _ACCOUNT_STATES = {"connected": None, "saved_unchecked": None, "configured_unchecked": None, "anonymous": None,
                    "rate_limited": None, "secondary_limited": None, "offline": None, "not_authenticated": "sign_in_required",
                    "partial": "sign_in_required", "invalid": "expired", "expired": "expired", "invalid_token": "expired",
@@ -42,7 +43,10 @@ def _row(ref: str, name: str, *, app_ref: str, lifecycle: str, blockers: list[di
                       enabled=lifecycle == "installed", lifecycle=lifecycle, blockers=list(blockers),
                       canonical_identity="builtin:" + ref, compatibility="supported", evidence_stage="inspected")
     row["tools"] = list(tools)  # The chat tools this way brings, for app identity and chat switches.
-    return facts.finish(row)
+    facts.finish(row)
+    if not tools and row["next_action"]["kind"] == "try":
+        row["next_action"] = {"kind": "none", "label": ""}  # Nothing to try in chat: it serves skills or a channel.
+    return row
 
 
 def _tool_on(tool: str) -> bool:
@@ -126,7 +130,7 @@ def _channels() -> list[dict]:
 def _tools(only: str = "") -> list[dict]:
     from row_bot.api_keys import key_status
     found = []
-    for tool, (name, keys) in TOOLS.items():
+    for tool, (name, keys, description) in TOOLS.items():
         if only and tool != only:
             continue
         try:
@@ -135,7 +139,7 @@ def _tools(only: str = "") -> list[dict]:
             saved = False
         lifecycle = "available" if not saved else "installed" if _tool_on(tool) else "off"
         found.append(_row("tool:" + tool, name, app_ref="tool:" + tool, lifecycle=lifecycle, tools=(tool,),
-                          description="A Row-Bot tool that uses your own key, kept in your system keychain."))
+                          description=description))
     return found
 
 
@@ -203,8 +207,8 @@ def _unread() -> list[dict]:
     """The accounts and key tools as ways, before their owners have been read (channels need the registry)."""
     return [*(_row("account:" + account, name, app_ref="account:" + account, lifecycle="available", tools=tools)
               for account, (name, tools) in ACCOUNTS.items()),
-            *(_row("tool:" + tool, name, app_ref="tool:" + tool, lifecycle="available", tools=(tool,))
-              for tool, (name, _) in TOOLS.items())]
+            *(_row("tool:" + tool, name, app_ref="tool:" + tool, lifecycle="available", tools=(tool,), description=description)
+              for tool, (name, _, description) in TOOLS.items())]
 
 
 def read(item_id: str, validate: Callable[[], None] = lambda: None) -> dict | None:

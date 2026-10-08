@@ -304,8 +304,10 @@ def suggest_apps(need: str, changes: bool = False) -> str:
                               "downloads or commands to install anything."})
     names = [app["name"] for app in [*allow, *found]]
     offer = [f"{app['name']} only looks things up: its card offers to allow changes, which still ask first." for app in allow]
-    if found:
-        offer.append("The person sees a card to connect " + ", ".join(app["name"] for app in found) + ". Nothing is "
+    offer += [f"{app['name']} is already added: its card offers {app['action']}." for app in found if app.get("action")]
+    new = [app["name"] for app in found if not app.get("action")]
+    if new:
+        offer.append("The person sees a card to connect " + ", ".join(new) + ". Nothing is "
                      "installed or connected unless they choose to, and they see what each app can do first.")
     return _json({
         "ok": True,

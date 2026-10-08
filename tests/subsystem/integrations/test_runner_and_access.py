@@ -130,6 +130,12 @@ def test_each_preset_is_what_the_invocation_gate_enforces(item, owner, preset, e
     assert presets.current(saved()["tools"]) == preset
 
 
+def test_tools_to_allow_are_named_in_words_whatever_their_case(item, owner):
+    owner.tools.append({"name": "createJiraIssue", "description": "", "inputSchema": {}})
+    titles = {tool["name"]: tool["title"] for tool in connect(item, "ask")["tools"]}
+    assert (titles["createJiraIssue"], titles["update_record"]) == ("Create jira issue", "Update record")
+
+
 def test_customised_tools_apply_and_a_locked_tool_never_runs_without_asking(item, owner):
     connect(item, "ask", overrides={"update_record": "use", "get_record": "off"})
     assert gate(owner.tools) == {"get_record": "off", "update_record": "use", "delete_record": "ask", "unrecognized": "ask"}

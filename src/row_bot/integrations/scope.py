@@ -214,7 +214,9 @@ def suggestions(need: str) -> list[dict]:
                 card = None if app in seen or row["compatibility"] == "unsupported" else app_card(row["id"])
                 seen.add(app)  # An app already in use is never offered again from the catalog.
                 if card is not None:
-                    found.append({**card, "ready": True} if ready else card)
+                    # Added but off or unfinished: its card offers what it needs ("Turn on"), never to connect again.
+                    found.append({**card, "ready": True} if ready else {**card, "action": row["next_action"]["label"]}
+                                 if where == "installed" else card)
                 if len(found) == MAX_SUGGESTIONS:
                     return found
         if found:  # The person already chose these: no lookalikes from the catalog beside them.

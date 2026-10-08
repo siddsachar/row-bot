@@ -54,6 +54,9 @@ def test_an_app_added_but_turned_off_is_offered_as_itself_never_added_again(loca
     assert added["lifecycle"] != "installed" or added["readiness"] != "ready"
     answer = json.loads(suggest_apps("Notion zzqx pages"))
     assert answer["apps"] == [added["id"]]  # Its card turns it on; no catalog lookalikes beside it.
+    # The answer says what its card offers: never to connect what is already added.
+    assert f"already added: its card offers {added['next_action']['label']}" in answer["next"]
+    assert "card to connect" not in answer["next"]
 
 
 def test_an_app_added_and_ready_is_never_offered_as_a_lookalike_and_the_answer_says_why(local, monkeypatch):
