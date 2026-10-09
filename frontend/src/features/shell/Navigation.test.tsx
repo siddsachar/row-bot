@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
@@ -86,6 +87,7 @@ async function setup(
   count = 55,
   route = '/',
   prepare?: (transport: FixtureTransport) => void,
+  onPanel?: ComponentProps<typeof Navigation>['onPanel'],
 ) {
   const onOpenConversation = vi.fn();
   const onNewChat = vi.fn();
@@ -105,6 +107,7 @@ async function setup(
           <Navigation
             onOpenConversation={onOpenConversation}
             onNewChat={onNewChat}
+            onPanel={onPanel}
           />
         </OverlayProvider>
       </RuntimeContext.Provider>
@@ -311,6 +314,15 @@ async function setupAgents(
   return { controller, transport, nav, view, onNewChat, onStartProfileChat };
 }
 
+/** A menu's item names, without the description line under each. */
+function menuNames(menu: HTMLElement) {
+  return within(menu)
+    .getAllByRole('menuitem')
+    .map(
+      (item) => item.querySelector('.menu-item-label')?.firstChild?.textContent,
+    );
+}
+
 function avatarOf(seed: string) {
   const { container, unmount } = render(<AgentAvatar seed={seed} />);
   const id = container
@@ -340,11 +352,7 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
   });
   // Until a profile is pinned, the library's first five stand in; the
   // Default profile is plain New chat and a disabled one can't start.
-  expect(
-    within(menu)
-      .getAllByRole('menuitem')
-      .map((item) => item.textContent),
-  ).toEqual([
+  expect(menuNames(menu)).toEqual([
     'Planner',
     'Researcher',
     'Writer',
@@ -352,7 +360,20 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
     'Knowledge',
     'All agents…',
   ]);
-  await user.click(within(menu).getByRole('menuitem', { name: 'Researcher' }));
+  // Each agent says what it is for, on one muted line under its name.
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.querySelector('small')?.textContent ?? null),
+  ).toEqual([
+    'Planner profile.',
+    'Researcher profile.',
+    'Writer profile.',
+    'Ideas profile.',
+    'Knowledge profile.',
+    null,
+  ]);
+  await user.click(within(menu).getByRole('menuitem', { name: /^Researcher/ }));
   expect(onStartProfileChat).toHaveBeenCalledWith(AGENTS[2]);
   expect(onNewChat).toHaveBeenCalledTimes(1);
   await user.click(
@@ -494,11 +515,7 @@ it('shows pinned profiles as the favourites once one is pinned in the library (B
     within(nav).getByRole('button', { name: 'New chat with an agent…' }),
   );
   const menu = await screen.findByRole('menu');
-  expect(
-    within(menu)
-      .getAllByRole('menuitem')
-      .map((item) => item.textContent),
-  ).toEqual(['Analyst', 'Writer', 'All agents…']);
+  expect(menuNames(menu)).toEqual(['Analyst', 'Writer', 'All agents…']);
 });
 
 it('keeps the Agents section collapsed across a reload and lists no agent runs (B268)', async () => {
@@ -1206,4 +1223,118 @@ it('pins a conversation in one tap, without opening its actions dialog', async (
   );
   expect(reviewed).toEqual([{ pinned: true }]);
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+/** The floating notice that says `text` (not its screen-reader echo). */
+async function noticeWith(text: string) {
+  const matches = await screen.findAllByText(text);
+  const toast = matches
+    .map((match) => match.closest<HTMLElement>('.toast'))
+    .find(Boolean);
+  return within(toast!);
+}
+
+async function confirmDelete(
+  user: ReturnType<typeof userEvent.setup>,
+  title: string,
+) {
+  await user.click(
+    screen.getByRole('button', { name: `Actions for ${title}` }),
+  );
+  await user.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+  const confirmation = await screen.findByRole('alertdialog', {
+    name: `Delete '${title}'?`,
+  });
+  await user.click(
+    within(confirmation).getByRole('button', { name: 'Delete conversation' }),
+  );
+}
+
+it('deletes one conversation after confirmation with Undo, and sends the delete only when its notice ends', async () => {
+  const user = userEvent.setup();
+  const { transport } = await setup(3);
+  const command = vi.spyOn(transport, 'command');
+  const listed = () => transport.conversations.map((row) => row.id);
+  await confirmDelete(user, 'Sample conversation 2');
+  // It leaves the list at once; nothing is deleted while Undo is offered.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('button', { name: 'Sample conversation 2' }),
+    ).toBeNull(),
+  );
+  const offered = await noticeWith("Deleted 'Sample conversation 2'.");
+  expect(command).not.toHaveBeenCalled();
+  // Radix toasts handle pointer capture, which jsdom lacks: plain clicks.
+  fireEvent.click(offered.getByRole('button', { name: 'Undo' }));
+  expect(
+    await screen.findByRole('button', { name: 'Sample conversation 2' }),
+  ).toBeVisible();
+  expect(command).not.toHaveBeenCalled();
+  expect(listed()).toContain('conversation-2');
+
+  // Deleted again, and its notice dismissed: now it goes for good.
+  await confirmDelete(user, 'Sample conversation 2');
+  const ended = await noticeWith("Deleted 'Sample conversation 2'.");
+  fireEvent.click(ended.getByRole('button', { name: 'Dismiss notification' }));
+  await waitFor(() => expect(listed()).not.toContain('conversation-2'));
+  expect(command).toHaveBeenCalledTimes(1);
+  expect(command).toHaveBeenCalledWith(
+    'conversation-2',
+    expect.objectContaining({ type: 'conversation.delete' }),
+    expect.any(String),
+    expect.anything(),
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Sample conversation 2' }),
+  ).toBeNull();
+  expect(listed()).toEqual(['conversation-a', 'conversation-3']);
+});
+
+it('leaves never-used chats out of the list, except the open one, and counts without them', async () => {
+  const { controller } = await setup(
+    13,
+    '/conversations/conversation-3',
+    (transport) =>
+      transport.conversations.forEach((row, index) => {
+        row.pinned = false;
+        // Chats 2, 3 and 4 were started and never used.
+        if (index >= 1 && index <= 3)
+          Object.assign(row, { title: 'New conversation', category: 'chat' });
+      }),
+  );
+  await act(async () => controller.selectConversation('conversation-3'));
+  const open = screen.getByRole('button', { name: 'New conversation' });
+  expect(open).toHaveAttribute('aria-current', 'page');
+  // Eleven listed (the open never-used chat with ten used ones): the
+  // preview shows ten and Show all offers the rest.
+  expect(
+    screen.getAllByRole('button', { name: 'New conversation' }),
+  ).toHaveLength(1);
+  expect(rows()).toHaveLength(10);
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toContain(
+    'New conversation',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+  expect(rows()).toHaveLength(11);
+});
+
+it('offers New design where the Designs filter has none, opening the New design flow', async () => {
+  await setup(2, '/', undefined, vi.fn());
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Designs' })),
+  );
+  expect(await screen.findByText('No designs yet.')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'New design' }));
+  expect(
+    await screen.findByRole('dialog', { name: 'New design' }),
+  ).toHaveAccessibleDescription('Row-Bot opens it in a new chat.');
+  // Other filters keep their plain empty line.
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Workflows' })),
+  );
+  expect(
+    await screen.findByText('No workflow conversations yet.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'New design' })).toBeNull();
 });

@@ -311,6 +311,37 @@ export default function ContextGoal({
     limitHours === null ||
     (Number.isInteger(limitHours) && limitHours >= 1 && limitHours <= 168);
   const reason = current?.last_reason || current?.last_progress || '';
+  // Opening the form moves focus into it; Cancel brings it back to Set a goal.
+  const objectiveField = useRef<HTMLTextAreaElement>(null);
+  const setGoalButton = useRef<HTMLButtonElement>(null);
+  const backToSetGoal = useRef(false);
+  useEffect(() => {
+    if (compose) objectiveField.current?.focus();
+    else if (backToSetGoal.current) setGoalButton.current?.focus();
+    backToSetGoal.current = false;
+  }, [compose]);
+  const setGoal = (
+    <Button
+      ref={setGoalButton}
+      variant="ghost"
+      className="context-goal-set"
+      disabled={!ready}
+      title="Give this conversation an objective to work toward"
+      onClick={onCompose}
+    >
+      <Target size={14} aria-hidden /> Set a goal
+    </Button>
+  );
+  // No goal, none before it and nothing to report: no Goal section, only a
+  // small Set a goal (a whole row saying "No goal" was noise on every chat).
+  if (!started && !compose && !earlier.length && !message)
+    return (
+      <div className="context-goal-slot">
+        <div className="context-rail-section context-goal-compact">
+          {setGoal}
+        </div>
+      </div>
+    );
   return (
     <div className="context-goal-slot">
       <Disclosure
@@ -401,6 +432,7 @@ export default function ContextGoal({
             <label className="context-goal-field">
               <span>What should this conversation achieve?</span>
               <textarea
+                ref={objectiveField}
                 className="input"
                 rows={2}
                 maxLength={4096}
@@ -442,6 +474,7 @@ export default function ContextGoal({
                   setObjective('');
                   setTypedTurns(null);
                   setHours('');
+                  backToSetGoal.current = true;
                   onComposeDone();
                 }}
               >
@@ -469,18 +502,7 @@ export default function ContextGoal({
           </form>
         )}
         {!started && !compose && (
-          // Always shown (B223): the one place to set a goal from.
-          <div className="context-goal-empty">
-            <span>No goal</span>
-            <Button
-              className="context-goal-set"
-              disabled={!ready}
-              title="Give this conversation an objective to work toward"
-              onClick={onCompose}
-            >
-              <Target size={14} aria-hidden /> Set a goal
-            </Button>
-          </div>
+          <div className="context-goal-empty">{setGoal}</div>
         )}
         {earlier.length > 0 && (
           <details className="context-goal-history">

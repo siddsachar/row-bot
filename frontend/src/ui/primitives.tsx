@@ -320,6 +320,8 @@ export function Menu({
 }) {
   const opener = useRef<HTMLButtonElement>(null);
   const afterClose = useRef<(() => void) | null>(null);
+  // A row's one-line description describes it; it is not part of its name.
+  const descriptions = useId();
   const trigger = (
     <Dropdown.Trigger asChild>
       <Button
@@ -378,6 +380,9 @@ export function Menu({
                 className={`menu-item ${action.icon || action.shortcut ? 'menu-item-rich' : ''} ${action.danger ? 'danger-text' : ''}`}
                 disabled={action.disabled}
                 aria-current={action.selected ? true : undefined}
+                aria-describedby={
+                  action.description ? `${descriptions}-${index}` : undefined
+                }
                 aria-keyshortcuts={
                   action.shortcut ? ariaKeyShortcut(action.shortcut) : undefined
                 }
@@ -395,7 +400,11 @@ export function Menu({
                 )}
                 <span className="menu-item-label">
                   {action.label}
-                  {action.description && <small>{action.description}</small>}
+                  {action.description && (
+                    <small id={`${descriptions}-${index}`} aria-hidden>
+                      {action.description}
+                    </small>
+                  )}
                 </span>
                 {action.shortcut && (
                   // Announced through aria-keyshortcuts; the keycaps stay

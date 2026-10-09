@@ -215,6 +215,12 @@ test('the desktop reconnecting pill never covers a floating notice (B231)', asyn
   const above = (await pill.boundingBox())!;
   const below = (await notice.boundingBox())!;
   expect(above.y + above.height).toBeLessThanOrEqual(below.y);
+  // Notices sit at the bottom centre, never over the page's header.
+  const viewport = page.viewportSize()!;
+  expect(below.y + below.height).toBeGreaterThan(viewport.height * 0.75);
+  expect(
+    Math.abs(below.x + below.width / 2 - viewport.width / 2),
+  ).toBeLessThanOrEqual(12);
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'desktop-reconnecting-above-notice');
   await writeEvidence(testInfo, 'desktop-reconnecting-above-notice', {

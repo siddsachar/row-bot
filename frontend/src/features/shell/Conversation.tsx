@@ -26,6 +26,7 @@ import type {
 } from '../../api/types';
 import { clientError, rejectedBeforeRunning } from '../../api/errors';
 import { unbindWithUndo } from './resource-unbind';
+import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
@@ -585,6 +586,37 @@ export default function Conversation({
     );
     observer.observe(composer);
     return () => observer.disconnect();
+  }, [id]);
+  // Notices float above the composer (styles.css): publish how far its top
+  // edge is from the bottom of the window. Hidden (Home, a route), it is 0.
+  useLayoutEffect(() => {
+    const composer = toolbarRef.current?.closest('.composer');
+    if (!composer) return;
+    const root = document.documentElement;
+    const publish = () => {
+      const shown = composer.getClientRects().length > 0;
+      const clearance = shown
+        ? window.innerHeight - composer.getBoundingClientRect().top
+        : 0;
+      root.style.setProperty(
+        '--composer-clearance',
+        `${Math.max(0, Math.round(clearance))}px`,
+      );
+    };
+    publish();
+    // Its own size, and the column's (a bottom panel or the keyboard moves it).
+    const observer =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver(publish)
+        : undefined;
+    observer?.observe(composer);
+    if (composer.parentElement) observer?.observe(composer.parentElement);
+    window.addEventListener('resize', publish);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', publish);
+      root.style.removeProperty('--composer-clearance');
+    };
   }, [id]);
   // The field grows from one line; an empty draft always rests at one line
   // (a wrapped placeholder must not size it), and width changes re-measure.
@@ -2010,10 +2042,12 @@ export default function Conversation({
   }
   // From the actions dialog (B237) the confirmation opens over it, its
   // confirm closes both, and the dialog passes the revision it last saw (a
-  // rename or pin there moves it on).
+  // rename or pin there moves it on). Confirmed, the chat closes at once and
+  // the notice offers Undo until the delete is sent.
   function deleteConversation(closeActions?: () => void, revision?: string) {
     if (!id || !state.conversation) return;
     const expected = revision ?? state.conversation.revision;
+    const title = state.conversation.title;
     overlay.open({
       kind: 'alert',
       title: 'Delete conversation?',
@@ -2023,16 +2057,12 @@ export default function Conversation({
       onConfirm: () => {
         closeActions?.();
         overlay.close();
-        void controller
-          .intent(id, 'conversation.delete', {}, expected)
-          .then((receipt) => {
-            if (receipt.status === 'DeleteCompleted') navigate('/');
-            else
-              setError(
-                'Deletion is waiting for running work to stop. Review and try again.',
-              );
-          })
-          .catch((e) => setError(clientError(e).message));
+        navigate('/');
+        deleteWithUndo(controller, overlay.notify, {
+          id,
+          title,
+          revision: expected,
+        });
       },
     });
   }
@@ -3045,6 +3075,9 @@ export default function Conversation({
                   onChoose={editMessage}
                   recent={state.conversations}
                   onOpen={(target) => navigate(`/conversations/${target}`)}
+                  design={resources.some(
+                    (item) => item.binding.kind === 'artifact',
+                  )}
                 />
               )}
               {pendingShown && (

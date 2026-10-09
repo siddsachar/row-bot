@@ -168,8 +168,8 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
     await expect(context).toBeVisible();
   };
   await revealContext();
-  // The Goal section always shows; without a goal it offers Set a goal (B223).
-  await expect(context.getByText('No goal', { exact: true })).toBeVisible();
+  // Without a goal no Goal row shows, only a small Set a goal (B223).
+  await expect(context.getByText('No goal', { exact: true })).toHaveCount(0);
   await context
     .getByRole('button', { name: 'Set a goal', exact: true })
     .click();
@@ -321,7 +321,7 @@ test('retained settings expose real capability state without leaving the unified
     path: '/app-v2/settings/tracker',
   });
   await expect(
-    page.getByRole('heading', { name: 'Tracker Tool', exact: true }),
+    page.getByRole('heading', { name: 'Tracking', exact: true }),
   ).toBeVisible();
 
   // Utilities became Tools' built-in tools.

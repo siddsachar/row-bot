@@ -223,6 +223,13 @@
     min-width: 44px;
   }
 }
+/* New chat ▾ (a portalled menu): an agent's description is one muted line,
+   cut short, so the menu stays compact. */
+.menu-item-rich:has(.agent-avatar) > .menu-item-label small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 .navigation .nav-row {
   display: flex;
@@ -2349,21 +2356,22 @@ button.agent-row-main:focus-visible {
   gap: 6px;
   min-width: 0;
 }
-/* No goal: one line and a small Set a goal (B223). */
-.context-goal-empty {
+/* No goal: no Goal section, only a small Set a goal on one line (inside the
+   section when earlier goals show). It never runs under the card's actions. */
+.context-goal-empty,
+.context-goal-compact {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   min-height: 28px;
-  color: var(--text-secondary);
-  font-size: var(--text-13);
-  line-height: var(--leading-13);
+}
+.context-rail-body > [data-first] > .context-goal-slot > .context-goal-compact {
+  margin-inline-end: calc(2 * var(--control-size) + 4px);
 }
 .button.context-goal-set {
   gap: 6px;
   min-height: 28px;
-  padding: 3px 10px;
+  padding: 3px 8px;
+  color: var(--text-secondary);
   font-size: var(--text-12);
   line-height: var(--leading-12);
 }

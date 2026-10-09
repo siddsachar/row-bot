@@ -406,9 +406,16 @@ export default function Workspace() {
       resources: readonly ResourceView[],
     ) => showPanel(panel, undefined, resources, { wide: true }),
   );
-  // A panel asked for another resource's panel (a design it duplicated).
+  // A panel asked for another resource's panel (a design it duplicated), or
+  // to close its own (a design it deleted).
   const openRequestedPanel = useEffectEvent((request: ResourcePanelRequest) => {
     if (request.conversationId !== conversationId) return;
+    if (request.close) {
+      setLayout((previous) =>
+        closeResourcePanels(previous, request.resourceRef),
+      );
+      return;
+    }
     void controller
       .workspaceFor(request.conversationId)
       .then((fresh) => {
@@ -1653,6 +1660,9 @@ export default function Workspace() {
       onNewChat={() => void creation.newChat()}
       onStartProfileChat={(profile) => void creation.newChat('', profile)}
       creatingChat={creation.creatingChat}
+      onPanel={(panel, options) =>
+        showPanel(panel, undefined, undefined, options)
+      }
       onOpenConversation={() =>
         update((previous) =>
           previous.widthClass !== 'desktop' && previous.activePanelId !== null

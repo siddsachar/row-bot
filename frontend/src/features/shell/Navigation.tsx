@@ -47,12 +47,14 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
-import type { ConversationView } from '../../api/types';
+import type { ConversationView, PanelDescriptor } from '../../api/types';
 import ConversationActions, {
   conversationActionsDialog,
   runConversationAction,
 } from '../settings/ConversationActions';
-import { deleteOneConversation } from './ConversationLibrary';
+import { deleteWithUndo, useDeletingConversations } from './delete-with-undo';
+import { neverUsed } from './new-chat';
+import ResourceSetup from './ResourceSetup';
 import type {
   GoalProfileSettingsSession,
   ProfileSummary,
@@ -291,6 +293,7 @@ export default function Navigation({
   onOpenConversation,
   onNewChat,
   onStartProfileChat,
+  onPanel,
   creatingChat = false,
   showBuddy = true,
   headerActions,
@@ -298,6 +301,8 @@ export default function Navigation({
   onOpenConversation?: () => void;
   onNewChat?: () => void;
   onStartProfileChat?: (profile: ProfileSummary) => void;
+  /** Show a resource's panel: the Designs filter's New design opens there. */
+  onPanel?: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   creatingChat?: boolean;
   showBuddy?: boolean;
   /** Desktop header icon actions after Home (commands, collapse). */
@@ -397,7 +402,16 @@ export default function Navigation({
     (state.conversation?.id === state.selectedConversationId
       ? state.conversation
       : null);
-  const topLevel = listing.rows.filter((row) => !row.parent_conversation_id);
+  const deleting = useDeletingConversations();
+  // A chat started and never used has nothing to go back to, as on Home;
+  // the open one stays, so a fresh New chat shows as selected. One deleted
+  // with Undo on offer is gone already.
+  const topLevel = listing.rows.filter(
+    (row) =>
+      !row.parent_conversation_id &&
+      !deleting.has(row.id) &&
+      (row.id === state.selectedConversationId || !neverUsed(row)),
+  );
   const allPinned = topLevel.filter((row) => row.pinned);
   const allRecent = topLevel.filter((row) => !row.pinned);
   const previewPinned = allPinned.slice(
@@ -422,6 +436,7 @@ export default function Navigation({
   const rows =
     activeTopLevel &&
     matchesType(activeTopLevel, type) &&
+    !deleting.has(activeTopLevel.id) &&
     !visible.some(({ id }) => id === activeTopLevel.id)
       ? withRetainedRow(visible, activeTopLevel)
       : visible;
@@ -524,6 +539,23 @@ export default function Navigation({
         />,
       ),
     );
+  }
+  /** Home's New design: a deck, document or page, set up in a new chat. */
+  function openNewDesign() {
+    if (!onPanel) return;
+    // Focus returns to this button, or from the compact drawer (which this
+    // replaces) to the drawer's opener.
+    overlay.open({
+      title: 'New design',
+      description: 'Row-Bot opens it in a new chat.',
+      content: (
+        <ResourceSetup
+          conversationId={null}
+          onPanel={onPanel}
+          initialEntry={{ kind: 'artifact', mode: 'create' }}
+        />
+      ),
+    });
   }
   /** Pin and Unpin are one tap: the reviewed command without the dialog, and the open chat stays as it is. */
   async function togglePin(conversation: ConversationView) {
@@ -710,7 +742,8 @@ export default function Navigation({
     });
   }
   // One conversation is one confirmation; bulk deletion lives in the Library.
-  // From the actions dialog, confirming closes the dialog too (B237).
+  // From the actions dialog, confirming closes the dialog too (B237). The
+  // confirmed conversation goes at once, with Undo while its notice shows.
   function openDelete(
     conversation: ConversationView,
     opener?: HTMLElement | null,
@@ -726,18 +759,9 @@ export default function Navigation({
       returnFocusTo: opener,
       onConfirm: () => {
         closeActions?.();
-        void deleteOneConversation(controller, conversation).then((outcome) => {
-          if (outcome.status === 'deleted') {
-            if (state.selectedConversationId === conversation.id) navigate('/');
-            controller.forgetConversation(conversation.id);
-            overlay.notify(
-              outcome.notice
-                ? `Deleted '${title}'. ${outcome.notice}`
-                : `Deleted '${title}'.`,
-            );
-          } else overlay.notify(outcome.message);
-          void controller.loadMoreConversations(true);
-        });
+        if (controller.getSnapshot().selectedConversationId === conversation.id)
+          navigate('/');
+        deleteWithUndo(controller, overlay.notify, conversation);
       },
     });
   }
@@ -800,8 +824,11 @@ export default function Navigation({
             variant="ghost"
             className="nav-new-chat-more"
             actions={[
+              // Each agent says what it is for in one short line, so the
+              // Design agent (visual ideas) is not taken for New design.
               ...favourites.map((profile) => ({
                 label: profile.display_name,
+                description: profile.description || undefined,
                 icon: (
                   <AgentAvatar
                     seed={agentSeed(profile.id, profile.id)}
@@ -903,7 +930,19 @@ export default function Navigation({
             (listing.loading || (listing.hasMore && !listing.error)) ? (
               <Skeleton label="Loading conversations" />
             ) : rows.length === 0 ? (
-              <p className="muted nav-empty">{EMPTY_LABELS[type]}</p>
+              <>
+                <p className="muted nav-empty">{EMPTY_LABELS[type]}</p>
+                {type === 'designer' && onPanel && (
+                  <Button
+                    variant="ghost"
+                    className="nav-more nav-new-design"
+                    onClick={openNewDesign}
+                  >
+                    <Palette size={14} aria-hidden />
+                    New design
+                  </Button>
+                )}
+              </>
             ) : (
               <>
                 {pinnedRows.length > 0 && (

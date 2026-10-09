@@ -288,14 +288,15 @@ test('the context rail hides empty sections and keeps Connected quiet (B7)', asy
     0,
   );
   await expect(rail.locator('summary', { hasText: 'Agents' })).toBeHidden();
-  // No Utilities (B223): Find and the terminal live in the header; the Goal
-  // section always shows.
+  // No Utilities (B223): Find and the terminal live in the header. Without a
+  // goal there is no Goal row, only a small Set a goal.
   await expect(rail.locator('summary', { hasText: 'Utilities' })).toHaveCount(
     0,
   );
-  const goal = rail.locator('summary', { hasText: 'Goal' });
-  await expect(goal).toBeVisible();
-  await expect(goal.locator('.disclosure-chevron')).toBeVisible();
+  await expect(rail.locator('summary', { hasText: 'Goal' })).toHaveCount(0);
+  await expect(
+    rail.getByRole('button', { name: 'Set a goal', exact: true }),
+  ).toBeVisible();
   const status = page.locator('.connection-status.connected');
   await expect(status).toHaveText('Connected');
   expect(

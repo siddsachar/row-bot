@@ -29,7 +29,17 @@ type Overlay = {
 type Task = Overlay & { opener: HTMLElement | null };
 export type NoticeTone = 'warning' | 'danger';
 /** One action on a notice, e.g. Undo after an easy-to-regret removal. */
-export type NoticeAction = { label: string; onAction: () => void };
+export type NoticeAction = {
+  label: string;
+  onAction: () => void;
+  /**
+   * Runs once when the notice ends without its action: it timed out, was
+   * dismissed or was pushed out by newer notices. Work that waits for the
+   * Undo window (a delete) runs here; such a notice is never merged with
+   * another.
+   */
+  onEnd?: () => void;
+};
 type Notice = {
   id: number;
   message: string;
@@ -108,7 +118,7 @@ const OverlayContext = createContext<{
   dismiss: (key: string) => void;
   /**
    * A short notice that goes away by itself (5 s; warnings and errors 8 s
-   * and announced; with an action such as Undo 12 s, run at most once).
+   * and announced; with an action such as Undo 6 s, run at most once).
    * Hovering or focusing one holds it.
    */
   notify: (message: string, tone?: NoticeTone, action?: NoticeAction) => void;
@@ -119,6 +129,8 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const [task, setTask] = useState<Task | null>(null);
   const [confirmation, setConfirmation] = useState<Task | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
+  // The notices as last set, so an ending runs its callback exactly once.
+  const live = useRef<Notice[]>([]);
   const nextNotice = useRef(1);
   const returningTo = useRef<HTMLElement | null>(null);
   const resumeFocus = useRef<HTMLElement | null>(null);
@@ -180,15 +192,34 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       resumeFocus.current = null;
     }
   }, [confirmation]);
-  const notify = (message: string, tone?: NoticeTone, action?: NoticeAction) =>
-    setNotices((previous) =>
-      previous.some((notice) => notice.message === message)
-        ? previous
-        : [
-            ...previous,
-            { id: nextNotice.current++, message, tone, action },
-          ].slice(-3),
-    );
+  const showNotices = (next: Notice[]) => {
+    live.current = next;
+    setNotices(next);
+  };
+  const notify = (
+    message: string,
+    tone?: NoticeTone,
+    action?: NoticeAction,
+  ) => {
+    const previous = live.current;
+    if (!action?.onEnd && previous.some((notice) => notice.message === message))
+      return;
+    const next = [
+      ...previous,
+      { id: nextNotice.current++, message, tone, action },
+    ];
+    showNotices(next.slice(-3));
+    // Pushed out by newer notices: those have ended.
+    next.slice(0, -3).forEach((notice) => notice.action?.onEnd?.());
+  };
+  /** A notice goes: its action was chosen, or it ended without it. */
+  const finish = (id: number, chosen: boolean) => {
+    const notice = live.current.find((item) => item.id === id);
+    if (!notice) return;
+    showNotices(live.current.filter((item) => item.id !== id));
+    if (chosen) notice.action?.onAction();
+    else notice.action?.onEnd?.();
+  };
   return (
     <OverlayContext.Provider
       value={{
@@ -298,8 +329,9 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
-          {/* Floats over the page below the top bar, never over the
-              composer, and takes no room in the layout. */}
+          {/* Floats at the bottom centre, above the composer and the app
+              notice, never over a page header, and takes no room in the
+              layout (styles.css). */}
           <div
             className="notification-layer"
             hidden={Boolean(current) || notices.length === 0}
@@ -323,10 +355,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                       : NOTICE_MS
                 }
                 onOpenChange={(value) => {
-                  if (!value)
-                    setNotices((values) =>
-                      values.filter((item) => item.id !== notice.id),
-                    );
+                  if (!value) finish(notice.id, false);
                 }}
               >
                 <Toast.Description className="toast-message">
@@ -337,13 +366,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     <Button
                       variant="ghost"
                       className="small"
-                      onClick={() => {
-                        const run = notice.action!.onAction;
-                        setNotices((values) =>
-                          values.filter((item) => item.id !== notice.id),
-                        );
-                        run();
-                      }}
+                      onClick={() => finish(notice.id, true)}
                     >
                       {notice.action.label}
                     </Button>

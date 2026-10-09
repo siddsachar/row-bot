@@ -121,7 +121,7 @@ export type SingleDeleteOutcome =
  */
 export async function deleteOneConversation(
   controller: Pick<ClientController, 'getSnapshot' | 'command'>,
-  row: ConversationView,
+  row: Pick<ConversationView, 'id' | 'revision'>,
 ): Promise<SingleDeleteOutcome> {
   const session = controller.getSnapshot().handshake?.client_session_id;
   if (!session)

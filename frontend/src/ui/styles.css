@@ -1335,18 +1335,28 @@ small {
   min-height: 0;
   min-width: 0;
 }
-/* Notices float just below the top bar: they take no room in the layout and
-   never cover the composer at the bottom. Clicks pass through around them. */
+/* Notices float at the bottom centre: they take no room in the layout, never
+   cover a page header, and sit above the composer (the conversation
+   publishes how far its top edge is from the bottom of the window), the
+   on-screen keyboard and the app notice. Clicks pass through around them. */
 .notification-layer {
+  --notice-floor: calc(
+    max(12px, env(safe-area-inset-bottom)) + var(--virtual-keyboard-inset, 0px)
+  );
   position: fixed;
   z-index: 66;
-  top: calc(56px + env(safe-area-inset-top));
+  bottom: max(var(--notice-floor), calc(var(--composer-clearance, 0px) + 8px));
   inset-inline: 0;
   width: min(420px, calc(100vw - 32px));
-  max-height: calc(100dvh - 72px);
   margin-inline: auto;
   overflow: visible;
   pointer-events: none;
+}
+body:has(.pwa-status:not([hidden])) .notification-layer {
+  --notice-floor: calc(
+    max(12px, env(safe-area-inset-bottom)) +
+      var(--virtual-keyboard-inset, 0px) + var(--pwa-status-height, 0px) + 8px
+  );
 }
 .notification-layer[hidden] {
   display: none;
@@ -1414,10 +1424,11 @@ body:has(.pwa-status:not([hidden])) .composer {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-modal);
 }
+/* Up from the bottom edge, where notices sit. */
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(6px);
   }
 }
 @media (prefers-reduced-motion: reduce) {

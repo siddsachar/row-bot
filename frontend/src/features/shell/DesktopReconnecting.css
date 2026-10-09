@@ -1,5 +1,5 @@
 /* A quiet pill under the top bar while desktop features reconnect (B231).
-   One line high, so floating notices can start just below it. */
+   One line high; floating notices sit at the bottom, well clear of it. */
 .desktop-reconnecting {
   position: fixed;
   z-index: 67;
@@ -29,9 +29,4 @@
   padding: 0;
   border: 0;
   box-shadow: none;
-}
-/* While it shows, floating notices start below it, never under it. */
-body:has(.desktop-reconnecting:not(:empty)) .notification-layer {
-  top: calc(56px + 32px + 8px + env(safe-area-inset-top));
-  max-height: calc(100dvh - 112px);
 }
