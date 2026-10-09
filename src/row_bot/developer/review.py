@@ -359,8 +359,11 @@ def list_directory_page(workspace_path: str, directory: str = "", *,
     with os.scandir(folder) as entries:
         for entry in entries:
             info = entry.stat(follow_symlinks=False)
-            digest ^= int.from_bytes(hashlib.sha256(
-                (entry.name + "\0" + _file_revision(info)).encode()).digest(), "big")
+            # This level's listing: a subfolder by name and kind only. Its own times follow what is inside it,
+            # which is its own listing, and Windows reports them to this folder late (a page would then refuse
+            # the next one with nothing changed here).
+            mark = "directory" if stat.S_ISDIR(info.st_mode) else _file_revision(info)
+            digest ^= int.from_bytes(hashlib.sha256((entry.name + "\0" + mark).encode()).digest(), "big")
             if entry.name == ".git" or _is_link(info):
                 continue
             if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
