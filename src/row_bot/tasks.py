@@ -337,7 +337,7 @@ def _raw_conn() -> sqlite3.Connection:
         if not db_path.is_file():
             raise FileNotFoundError(db_path)
         conn = sqlite3.connect(
-            f"file:{db_path.as_posix()}?mode=ro",
+            f"{db_path.resolve().as_uri()}?mode=ro",
             uri=True,
             check_same_thread=False,
         )

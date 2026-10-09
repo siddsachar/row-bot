@@ -141,3 +141,30 @@ it('never merges notices with work waiting on them, and ends one pushed out by n
   expect(second.onEnd).not.toHaveBeenCalled();
   expect(screen.getAllByText("Deleted 'New chat'.")).toHaveLength(1);
 });
+
+it('keeps a notice with work waiting on it while plain notices come and go', () => {
+  const deleted = action();
+  function Plain() {
+    const { notify } = useOverlay();
+    return (
+      <button onClick={() => notify(`Saved ${Math.random()}`)}>
+        Raise plain
+      </button>
+    );
+  }
+  render(
+    <OverlayProvider>
+      <Notices actions={{ "Deleted 'Plans'.": () => deleted }} />
+      <Plain />
+    </OverlayProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: "Raise Deleted 'Plans'." }),
+  );
+  for (let count = 0; count < 4; count += 1)
+    fireEvent.click(screen.getByRole('button', { name: 'Raise plain' }));
+  // Four plain notices later, the delete still offers Undo; nothing was sent.
+  expect(screen.getByText("Deleted 'Plans'.")).toBeInTheDocument();
+  expect(deleted.onEnd).not.toHaveBeenCalled();
+  expect(screen.getAllByText(/^Saved /)).toHaveLength(2);
+});

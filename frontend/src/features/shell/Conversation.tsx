@@ -190,6 +190,20 @@ function TranscriptContexts({
   );
 }
 
+// Each mounted composer's distance from its top edge to the bottom of the
+// window. Notices clear the highest one; none mounted, the variable goes.
+const composerClearances = new Map<object, number>();
+function publishComposerClearance() {
+  const root = document.documentElement;
+  if (composerClearances.size === 0)
+    root.style.removeProperty('--composer-clearance');
+  else
+    root.style.setProperty(
+      '--composer-clearance',
+      `${Math.max(...composerClearances.values())}px`,
+    );
+}
+
 export default function Conversation({
   onPanel,
   completedDesignId,
@@ -592,16 +606,14 @@ export default function Conversation({
   useLayoutEffect(() => {
     const composer = toolbarRef.current?.closest('.composer');
     if (!composer) return;
-    const root = document.documentElement;
+    const own = {};
     const publish = () => {
       const shown = composer.getClientRects().length > 0;
       const clearance = shown
         ? window.innerHeight - composer.getBoundingClientRect().top
         : 0;
-      root.style.setProperty(
-        '--composer-clearance',
-        `${Math.max(0, Math.round(clearance))}px`,
-      );
+      composerClearances.set(own, Math.max(0, Math.round(clearance)));
+      publishComposerClearance();
     };
     publish();
     // Its own size, and the column's (a bottom panel or the keyboard moves it).
@@ -615,7 +627,8 @@ export default function Conversation({
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', publish);
-      root.style.removeProperty('--composer-clearance');
+      composerClearances.delete(own);
+      publishComposerClearance();
     };
   }, [id]);
   // The field grows from one line; an empty draft always rests at one line

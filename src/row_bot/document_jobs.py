@@ -326,7 +326,7 @@ class DocumentJobService:
 
     def _connect(self) -> sqlite3.Connection:
         target = (
-            f"file:{self.db_path.resolve().as_posix()}?mode=ro"
+            f"{self.db_path.resolve().as_uri()}?mode=ro"
             if self.read_only
             else str(self.db_path)
         )

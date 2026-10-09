@@ -1637,6 +1637,16 @@ def test_one_tracker_opens_to_its_newest_entries_bounded_and_read_only(api):
     assert _tree(data) == before
 
 
+def test_tracker_entries_read_from_a_data_folder_whose_name_has_url_characters(tmp_path, monkeypatch):
+    """A profile folder such as "A#1" or "50%" is a path, not a URL: the read-only open escapes it."""
+    from row_bot.application.settings_snapshot import read_tracker_entries
+
+    data = tmp_path / "Sam #1 50%"
+    _seed_tracker(data)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    assert [item["at"] for item in read_tracker_entries("water")["items"]] == ["2026-01-02T09:00:00"]
+
+
 def test_tracker_entries_refuse_unknown_trackers_without_reading_others(api):
     client, headers, data, _ = api
     missing_store = client.get(TRACKER_ENTRIES.format("water"), headers=headers)

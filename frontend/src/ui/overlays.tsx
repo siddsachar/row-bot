@@ -208,9 +208,15 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       ...previous,
       { id: nextNotice.current++, message, tone, action },
     ];
-    showNotices(next.slice(-3));
-    // Pushed out by newer notices: those have ended.
-    next.slice(0, -3).forEach((notice) => notice.action?.onEnd?.());
+    // At most three show. The oldest plain notices go first, so one still
+    // holding work for its Undo (a delete) keeps its full time; only past
+    // three of those does the oldest end, and its work is sent.
+    const pushedOut = [
+      ...next.filter((notice) => !notice.action?.onEnd),
+      ...next.filter((notice) => notice.action?.onEnd),
+    ].slice(0, Math.max(0, next.length - 3));
+    showNotices(next.filter((notice) => !pushedOut.includes(notice)));
+    pushedOut.forEach((notice) => notice.action?.onEnd?.());
   };
   /** A notice goes: its action was chosen, or it ended without it. */
   const finish = (id: number, chosen: boolean) => {

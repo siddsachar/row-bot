@@ -506,6 +506,8 @@ def _spacing_needs(tag: Tag, styles: _Styles) -> tuple[bool, bool]:
         _spaces(value) for key, value in style.items() if key.startswith("padding"))
     filled = any(key in {"background", "background-color"} and value.strip().lower() not in {"none", "transparent"}
                  for key, value in style.items())
+    # Only a layout set on the element itself: a page's own shells (a phone
+    # screen's bars, spaced by their own padding) would read as cramped.
     layout = _parse_style(tag.get("style", "")).get("display", "")
     return (layout in {"flex", "grid"} and not spaced,
             tag.name in {"section", "article"} and not has_padding and (filled or not spaced))

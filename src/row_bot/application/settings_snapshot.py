@@ -603,7 +603,7 @@ def _mobile_access(root: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"availability": "missing", "active_devices": 0, "active_sessions": 0}
     try:
-        uri = f"file:{path.as_posix()}?mode=ro"
+        uri = f"{path.resolve().as_uri()}?mode=ro"
         connection = sqlite3.connect(uri, uri=True, timeout=1)
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -661,7 +661,7 @@ def _tracker(
         return result
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -722,7 +722,7 @@ def read_tracker_entries(
     rows: list[Any] = []
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -800,7 +800,7 @@ def _knowledge(
         return result
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -1246,7 +1246,7 @@ def _memory_index_status(path: Path) -> dict[str, str]:
         }
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")

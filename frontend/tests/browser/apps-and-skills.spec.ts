@@ -112,7 +112,9 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
   const steps = budget(page);
   await find(page, 'linear');
   await steps.click(page.getByRole('link', { name: /^Linear/ }));
-  await expect(page.getByRole('heading', { name: 'Linear' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Linear', exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText(/What you ask goes to mcp\.linear\.app/),
   ).toBeVisible();
@@ -482,7 +484,9 @@ test('GitHub is one card, and its token goes only to the keychain', async ({
   await expect(card).toBeVisible();
   await views(page, info, 'p4-search-github', true);
   await card.click();
-  await expect(page.getByRole('heading', { name: 'GitHub' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'GitHub', exact: true }),
+  ).toBeVisible();
   const ways = page.getByRole('region', { name: 'Ways to connect' });
   await expect(ways.getByText('GitHub with your own OAuth app')).toBeVisible();
   await expect(

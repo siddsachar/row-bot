@@ -722,7 +722,14 @@ it('publishes how far the composer reaches up from the bottom, so notices float 
     window.dispatchEvent(new Event('resize'));
   });
   expect(clearance()).toBe(`${window.innerHeight - 480}px`);
+  // Another composer on screen keeps it when this one goes.
+  let other!: ReturnType<typeof conversation>;
+  await act(async () => {
+    other = conversation();
+  });
   view.unmount();
+  expect(clearance()).toBe(`${window.innerHeight - 480}px`);
+  other.unmount();
   expect(clearance()).toBe('');
 });
 
