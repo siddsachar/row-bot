@@ -145,6 +145,7 @@ def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repositor
         objective="Clean branch",
         seed_mode="last_commit",
     )
+    assert allocated["status"] == "active", allocated.get("error")  # A failed one has no folder: never write beside the checkout.
     worktree_path = Path(allocated["worktree_path"])
     branch_name = allocated["branch_name"]
 
@@ -215,6 +216,7 @@ def test_thread_deletion_preserves_dirty_worktree_and_exposes_recovery_workspace
         objective="Dirty branch",
         seed_mode="last_commit",
     )
+    assert allocated["status"] == "active", allocated.get("error")  # A failed one has no folder: never write beside the checkout.
     worktree_path = Path(allocated["worktree_path"])
     (worktree_path / "recovery.txt").write_text("unimported work\n", encoding="utf-8")
 
@@ -246,9 +248,10 @@ def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_change
         "thread",
         thread_id,
         parent.id,
-        objective="Sandbox branch",
+        objective="Sandbox",  # Short: Git refuses a worktree whose path passes Windows' limit.
         seed_mode="last_commit",
     )
+    assert allocated["status"] == "active", allocated.get("error")  # A failed one has no folder: never write beside the checkout.
     worktree_path = Path(allocated["worktree_path"])
     pending = sandbox_runtime.SandboxPendingChange(
         id="pending-recovery",
@@ -333,6 +336,7 @@ def test_child_worktree_derives_from_dirty_parent_worktree(tmp_path, monkeypatch
         objective="Child sees parent state",
         parent_thread_id="parent-thread",
     )
+    assert child["status"] == "active", child.get("error")  # A failed one has no folder: never write beside the checkout.
     child_path = Path(child["worktree_path"])
 
     assert child["status"] == "active"
@@ -380,3 +384,22 @@ def test_git_summary_distinguishes_nested_folder_from_repo_root(tmp_path, monkey
     assert plain_summary["repo_root"] == ""
     assert plain_summary["branch"] == ""
     assert plain_summary["error"] == ""
+
+
+@pytest.mark.slow
+def test_a_worktree_git_refuses_records_gits_reason(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
+    repo = _create_repo(tmp_path)
+    parent = storage.add_or_update_local_workspace(str(repo))
+    thread_id = threads.create_thread("Refused worktree", thread_type="code",
+                                      developer_workspace_id=parent.id, project_workspace_id=parent.id)
+
+    def refuse(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(128, ["git", "worktree", "add"], stderr="fatal: '$GIT_DIR' too big\n")
+
+    monkeypatch.setattr(worktrees, "create_worktree", refuse)
+    allocated = worktrees.allocate_worktree("thread", thread_id, parent.id, objective="Refused",
+                                            seed_mode="last_commit")
+
+    assert allocated["status"] == "failed"
+    assert allocated["error"] == "fatal: '$GIT_DIR' too big"  # Git's reason, not only the command it ran.

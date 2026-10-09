@@ -466,7 +466,8 @@ def allocate_worktree(
         try:
             worktree_path = create_worktree(str(source_path), str(base_parent), branch)
         except (FileExistsError, subprocess.CalledProcessError) as exc:
-            last_error = str(exc)
+            # Git's own reason ("already exists", "could not lock config"), not just the command it ran.
+            last_error = str(getattr(exc, "stderr", "") or "").strip()[-500:] or str(exc)
             continue
         except Exception as exc:
             last_error = str(exc)
