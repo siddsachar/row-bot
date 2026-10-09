@@ -22,6 +22,18 @@ test('offline and reconnect keep the compact draft without replaying a command',
   await composer.fill('Draft retained through deterministic network handoff');
   const initialEventRequests = eventRequests;
 
+  // A read or save the page happens to start during the outage (the draft,
+  // the queue, Buddy's picture) fails as any request would offline.
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature: 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED',
+      count: 6,
+      upTo: true,
+      owner: 'Compact offline and reconnect',
+      fixture: 'context.setOffline(true) for the outage window',
+    }),
+  });
   await context.setOffline(true);
   try {
     await expect(page.getByTestId('pwa-status')).toHaveAttribute(

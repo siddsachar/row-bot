@@ -26,20 +26,15 @@ const NOUN = {
   skill: ['a skill', 'skills', 'Your skills'],
 } as const;
 
-/** What each page is for, in one line, and where the other one is. */
+/**
+ * What each page is for, in one line, and where the other one is. Plain text:
+ * both pages sit side by side in Settings, and a link inside a sentence is too
+ * small a target on a phone.
+ */
 const ABOUT = {
-  app: [
-    'Apps let Row-Bot use a service for you, like GitHub or Gmail. To teach it how to do a task, add a ',
-    'skill',
-    '/settings/skills',
-    '.',
-  ],
-  skill: [
-    'Skills teach Row-Bot how to do a task. Some work with an app, like GitHub, which you connect in ',
-    'Apps',
-    '/settings/apps',
-    '.',
-  ],
+  app: 'Apps let Row-Bot use a service for you, like GitHub or Gmail. To teach it how to do a task, add a skill in Skills.',
+  skill:
+    'Skills teach Row-Bot how to do a task. Some work with an app, like GitHub, which you connect in Apps.',
 } as const;
 
 /** One card per app: the ways you set up for one app (an account and a key, say) share its card. */
@@ -230,7 +225,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   // Everything found is already among yours: no "nothing matches" below it.
   const onlyYours =
     Boolean(page) && !rest.length && !featured.length && mine.length > 0;
-  const [about, other, otherHref, end] = ABOUT[kind];
+  const about = ABOUT[kind];
   const actions = (
     <div className="button-row">
       {query && (
@@ -243,11 +238,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   );
   return (
     <div className="apps-library stack">
-      <p className="settings-help">
-        {about}
-        <Link to={otherHref}>{other}</Link>
-        {end}
-      </p>
+      <p className="settings-help">{about}</p>
       <div className="apps-toolbar">
         <label className="apps-search">
           <Search size={16} aria-hidden />

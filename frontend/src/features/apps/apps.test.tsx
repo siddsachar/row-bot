@@ -1698,12 +1698,8 @@ it('explains Skills against Apps in one line, and a skill card names the app it 
     }),
   ).toBeVisible();
   expect(
-    screen.getByText(/Skills teach Row-Bot how to do a task/),
+    screen.getByText(/Skills teach Row-Bot how to do a task.*connect in Apps/),
   ).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Apps' })).toHaveAttribute(
-    'href',
-    '/settings/apps',
-  );
 });
 
 it('says on a skill whether the app it works with is connected, and opens that app', async () => {

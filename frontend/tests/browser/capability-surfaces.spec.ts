@@ -464,6 +464,10 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
 }, info) => {
   test.setTimeout(240_000);
   page.setDefaultTimeout(10_000);
+  // A repository action reviews, runs and re-reads with Git (about 1.5 s a
+  // read on Windows), then the panel reads it again: its outcome can take
+  // more than 10 s to show.
+  const gitStep = { timeout: 30_000 };
   const conversation = await newConversation(page);
   await composer(page).fill('Retained Developer repository draft');
   const name = `phase4-repository-${conversation}`;
@@ -519,7 +523,10 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   await repository
     .getByRole('button', { name: 'Create branch', exact: true })
     .click();
-  await expect(repository.getByRole('status')).toHaveText('Branch created.');
+  await expect(repository.getByRole('status')).toHaveText(
+    'Branch created.',
+    gitStep,
+  );
   await expect(branchMenu).toContainText(branch);
 
   await openAdvanced(repository);
@@ -531,7 +538,7 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   await repository
     .getByRole('button', { name: 'Create managed worktree', exact: true })
     .click();
-  await expect(repository.getByText(/active · preserve/)).toBeVisible();
+  await expect(repository.getByText(/active · preserve/)).toBeVisible(gitStep);
   await visualCheck(page, info, 'developer-worktree-created');
   await repository
     .getByLabel('Preservation reason', { exact: true })
@@ -542,7 +549,9 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
       exact: true,
     })
     .click();
-  await expect(repository.getByText(/preserved · preserve/)).toBeVisible();
+  await expect(repository.getByText(/preserved · preserve/)).toBeVisible(
+    gitStep,
+  );
   await repository
     .getByRole('combobox', { name: 'Execution mode', exact: true })
     .selectOption('docker');
@@ -557,13 +566,13 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     .click();
   await expect(
     repository.getByRole('combobox', { name: 'Execution mode' }),
-  ).toHaveValue('docker');
+  ).toHaveValue('docker', gitStep);
   await expect(
     repository.getByRole('button', {
       name: 'Rebuild sandbox',
       exact: true,
     }),
-  ).toBeEnabled();
+  ).toBeEnabled(gitStep);
 
   await page.reload();
   const reopened = await openGit();
