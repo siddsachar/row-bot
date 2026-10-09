@@ -73,7 +73,7 @@ _PLACES: dict[str, tuple[str, str]] = {
     "documents": ("/settings/documents#embedding", "Documents"),
     "search": ("/settings/tools#search-tools", "Search tools"),
     "skills": ("/settings/skills", "Skills"),
-    "tracker": ("/settings/tracker#tracker.enabled", "Habit tracker"),
+    "tracker": ("/settings/tracker#tracker.enabled", "Tracking"),
     "buddy": ("/settings/buddy", "Buddy"),
     "mcp": ("/settings/apps", "Apps"),
     "plugins": ("/settings/apps", "Apps"),

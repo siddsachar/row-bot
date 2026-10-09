@@ -429,7 +429,8 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'tracker',
     anchor: 'tracker.enabled',
-    label: 'Habit tracker',
+    label: 'Track in chat',
+    keywords: 'habit tracker habits tracking',
   },
   {
     leaf: 'tools',

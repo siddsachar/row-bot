@@ -16,3 +16,18 @@ export const EXAMPLE_LABELS = [
   'Research a topic',
   'Prepare for today',
 ] as const;
+
+/** Suggestions for a new conversation working on a design. */
+export const DESIGN_PROMPTS = [
+  'Tighten the copy on every page: shorter headlines and one idea per page',
+  'Try a different layout for this design, keeping its content',
+  'Check the design review and fix what it finds',
+  'Make the colours, fonts and spacing consistent on every page',
+] as const;
+
+export const DESIGN_LABELS = [
+  'Tighten the copy',
+  'Try another layout',
+  'Check the review',
+  'Polish the look',
+] as const;

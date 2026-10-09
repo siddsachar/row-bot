@@ -4733,6 +4733,9 @@ export class ClientController {
     });
   settingsSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.settingsSnapshot?.(signal));
+  /** One tracker's newest entries (Settings › Tracker), read-only. */
+  trackerEntries = (trackerId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.trackerEntries?.(trackerId, signal));
   reviewSettingsMutation = (
     body: import('./types').SettingsMutationRequest,
     signal?: AbortSignal,

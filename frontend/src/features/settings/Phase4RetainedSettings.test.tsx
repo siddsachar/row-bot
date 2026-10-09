@@ -1341,9 +1341,7 @@ it('reviews and cancels tracker deletion without executing it', async () => {
   expect(danger).not.toHaveAttribute('open');
   fireEvent.click(screen.getByText('Danger zone'));
 
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete all trackers' }));
   expect(await screen.findByText('saved locally')).toBeVisible();
   expect(mutation.review).toHaveBeenCalledWith(
     {
@@ -1360,7 +1358,7 @@ it('reviews and cancels tracker deletion without executing it', async () => {
   expect(screen.getByText(/Deletion cancelled/)).toBeVisible();
   expect(mutation.execute).not.toHaveBeenCalled();
   expect(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
+    screen.getByRole('button', { name: 'Delete all trackers' }),
   ).toBeEnabled();
 });
 
@@ -1370,9 +1368,7 @@ it('retires a tracker deletion review when the Settings revision changes', async
     <TrackerSnapshotPanel snapshot={snapshot.tracker} mutation={mutation} />,
   );
   fireEvent.click(screen.getByText('Danger zone'));
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete all trackers' }));
   expect(await screen.findByText('saved locally')).toBeVisible();
 
   mutation = { ...mutation, revision: 'settings-newer' };
@@ -1385,7 +1381,7 @@ it('retires a tracker deletion review when the Settings revision changes', async
   ).toBeVisible();
   expect(
     screen.queryByRole('button', {
-      name: 'Confirm Delete All Tracker Data',
+      name: 'Confirm permanent deletion',
     }),
   ).toBeNull();
   expect(mutation.execute).not.toHaveBeenCalled();
@@ -1406,12 +1402,10 @@ it('checks the original tracker deletion receipt without replaying it', async ()
     }),
   );
   renderSetting('tracker');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete all trackers' }));
   await screen.findByText('saved locally');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm Delete All Tracker Data' }),
+    screen.getByRole('button', { name: 'Confirm permanent deletion' }),
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
 
@@ -1485,7 +1479,7 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   access.unmount();
 
   const tracker = renderSetting('tracker');
-  expect(screen.getByLabelText('Enable Habit Tracker')).toBeChecked();
+  expect(screen.getByLabelText('Track in chat')).toBeChecked();
   expect(screen.getByText(/Water/)).toBeVisible();
   // Last entries read as relative time with the full date on hover.
   expect(
@@ -1701,8 +1695,11 @@ it('renders editable document, tool, and preference owners', async () => {
       name: 'Only the ones a request needs (recommended)',
     }),
   ).toBeChecked();
-  expect(screen.getByLabelText('Enable Web Search')).toBeChecked();
-  expect(screen.getByText(/Search the live web with Tavily\./)).toBeVisible();
+  // Named for what it is, as Apps › Tavily names the same switch.
+  expect(screen.getByLabelText('Enable Tavily web search')).toBeChecked();
+  expect(
+    screen.getByText(/Search the live web with your own Tavily key\./),
+  ).toBeVisible();
   expect(screen.getByLabelText('Search research tools')).toBeVisible();
   expect(screen.queryByLabelText('Search API key')).not.toBeInTheDocument();
   fireEvent.click(screen.getByText('Credentials & setup'));
@@ -1828,7 +1825,7 @@ it('uses NiceGUI friendly research-tool labels and owner order', () => {
   ).toEqual([
     'arXiv',
     'DuckDuckGo',
-    'Web Search',
+    'Tavily web search',
     'Wikipedia',
     'Wolfram Alpha',
     'YouTube',

@@ -6103,6 +6103,18 @@ def create_router(
             result["system"]["computer_use"]["local_owner_control_available"] = False
         return await respond(request, dto.SettingsSnapshot, result)
 
+    @router.get("/settings/tracker/{tracker_id}/entries")
+    async def tracker_entries(tracker_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.settings_snapshot import read_tracker_entries
+
+        result = await call(
+            read_tracker_entries,
+            tracker_id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.TrackerEntryPage, result)
+
     @router.post("/settings/snapshot/review")
     async def settings_snapshot_review(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")

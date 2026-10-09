@@ -971,6 +971,10 @@ class ClientPlatformService:
         if kind == "resource.rename":
             from row_bot.application.conversation_resource_commands import rename
             return rename(self, target, str(payload["binding_id"]), str(payload["name"]))
+        if kind == "resource.delete":
+            from row_bot.application.conversation_resource_commands import delete_design
+            return delete_design(self, target, str(payload["binding_id"]),
+                                 expected_resource_revision=str(payload["expected_resource_revision"]))
         if kind in {"agent.stop", "agent.message", "agent.start", "agent.resume", "agent.dismiss"}:
             from row_bot.application import delegated_activity
             if kind == "agent.stop":

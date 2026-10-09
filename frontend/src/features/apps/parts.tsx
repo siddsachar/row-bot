@@ -125,6 +125,41 @@ export function appCatalog(controller: Controller) {
   return apps;
 }
 
+/** Everything of one kind you have set up, every page of it: local data only. */
+export async function yourItems(
+  controller: Controller,
+  kind: 'app' | 'skill',
+  signal?: AbortSignal,
+) {
+  const items: IntegrationEntry[] = [];
+  let cursor: string | undefined;
+  do {
+    const value = await controller.integrationItems(
+      { scope: 'installed', kind, cursor },
+      signal,
+    );
+    items.push(...value.items);
+    cursor = value.next_cursor ?? undefined;
+  } while (cursor && !signal?.aborted);
+  return items;
+}
+
+/** Your apps, for a page that says whether an app is connected; null until read (or when not wanted). */
+export function useYourApps(wanted = true) {
+  const { controller } = useRuntime();
+  const [items, setItems] = useState<IntegrationEntry[] | null>(null);
+  useEffect(() => {
+    if (!wanted) return;
+    const abort = new AbortController();
+    yourItems(controller, 'app', abort.signal).then(
+      (found) => !abort.signal.aborted && setItems(found),
+      () => !abort.signal.aborted && setItems([]),
+    );
+    return () => abort.abort();
+  }, [controller, wanted]);
+  return items;
+}
+
 export function useAppCatalog() {
   const { controller } = useRuntime();
   const [value, setValue] = useState<Map<string, AppView>>(new Map());
@@ -214,11 +249,21 @@ export function Publisher({ entry }: { entry: IntegrationEntry }) {
 }
 
 /**
- * Whether an entry goes by its app (name, summary, examples). A skill or a built-in way is one thing that works
- * with an app (the "Fix failing CI" skill, the GitHub account), so it goes by its own name and job.
+ * Whether an entry's page goes by its app (name, summary, examples). A skill or a built-in way is one thing that
+ * works with an app (the "Fix failing CI" skill, the GitHub account), so its page goes by its own name and job.
  */
 export function asApp(entry: IntegrationEntry) {
   return entry.kind !== 'skill' && entry.kind !== 'builtin';
+}
+
+/**
+ * The way to connect an app's card stands for, as a chip: a built-in way by its own name ("GitHub account"),
+ * the others by how they connect ("API key"). Nothing for a skill, or for a card already named by the way.
+ */
+export function wayLabel(entry: IntegrationEntry) {
+  if (entry.kind === 'skill') return '';
+  if (entry.kind === 'builtin') return entry.app ? entry.name : '';
+  return methods[entry.method ?? ''] ?? '';
 }
 
 /** A featured app, or one whose publisher is verified; the rest is "More from the community". */
@@ -243,32 +288,47 @@ export function itemHref(entry: IntegrationEntry, revision = '') {
   );
 }
 
+/**
+ * One card. In Apps a card is one app: it goes by the app, and its chips say which ways to connect it
+ * stands for (`ways`: every way of that app you set up, the first opening). A skill goes by its own name
+ * and says which app it works with.
+ */
 export function ItemCard({
   entry,
   revision = '',
   app,
+  ways = [entry],
 }: {
   entry: IntegrationEntry;
   revision?: string;
   app?: AppView;
+  ways?: IntegrationEntry[];
 }) {
   const status = statusOf(entry);
-  const method = methods[entry.method ?? ''];
-  const ownName = !asApp(entry);
+  const skill = entry.kind === 'skill';
+  const name = (!skill && entry.app?.name) || entry.name;
+  const chips = [...new Set(ways.map(wayLabel))].filter(
+    (label) => label && label !== name,
+  );
   return (
     <li>
       <Link className="app-card" to={itemHref(entry, revision)}>
         <AppIcon icon={entry.icon} />
         <span className="app-card-text">
-          <strong>{(!ownName && entry.app?.name) || entry.name}</strong>
+          <strong>{name}</strong>
           <span className="app-card-job">
-            {(!ownName && app?.summary) ||
-              entry.description ||
-              'No description.'}
+            {(!skill && app?.summary) || entry.description || 'No description.'}
           </span>
           <span className="app-card-meta">
-            <Publisher entry={entry} />
-            {method && <span className="app-chip">{method}</span>}
+            {ways.length === 1 && <Publisher entry={entry} />}
+            {chips.map((label) => (
+              <span key={label} className="app-chip">
+                {label}
+              </span>
+            ))}
+            {skill && entry.app && (
+              <span className="app-chip">Works with {entry.app.name}</span>
+            )}
             {entry.kind === 'plugin' &&
               entry.compatibility === 'not_inspected' &&
               !entry.installed && (

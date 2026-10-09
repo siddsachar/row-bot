@@ -1791,6 +1791,9 @@ export class HttpTransport implements ClientTransport {
   settingsSnapshot(signal?: AbortSignal) {
     return wire.getSettingsSnapshot(this.base, this.session(), signal);
   }
+  trackerEntries(trackerId: string, signal?: AbortSignal) {
+    return wire.getTrackerEntries(this.base, this.session(), trackerId, signal);
+  }
   reviewSettingsMutation(
     body: wire.SettingsMutationRequest,
     signal?: AbortSignal,

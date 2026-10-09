@@ -229,6 +229,7 @@ def _static(validate: Callable[[], None]) -> tuple[list[dict], list[dict]]:
     """Owner facts that change only when owners publish; reused between reads."""
     from row_bot import skills
     from row_bot.application import plugin_commands
+    from row_bot.integrations.sources import skill_app
     from row_bot.mcp_client import config
     from row_bot.skills_hub.provenance import load_records
     rows, errors = [], []
@@ -242,10 +243,12 @@ def _static(validate: Callable[[], None]) -> tuple[list[dict], list[dict]]:
             record = records.get(skill.name)
             blocked = str((record.metadata if record else {}).get("source_blocked") or "")[:512]
             available = snapshot["enabled"].get(skill.name, False)
+            # Added from a featured skill made for an app: it says which app it works with, as its card did.
+            app = skill_app([record.install_ref, str(record.metadata.get("hub_entry_ref") or "")]) if record else None
             rows.append(entry("skill", skill.name, skill.display_name, description=skill.description[:2048],
                 source=record.source if record else skill.source, version=str(getattr(skill, "version", "") or "")[:128],
                 revision=item.get("revision", ""), enabled=available, lifecycle="installed" if available else "off",
-                blockers=[blocker("source_blocked", blocked)] if blocked else []))
+                blockers=[blocker("source_blocked", blocked)] if blocked else [], app=app))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         errors.append({"source": "skills", "status": "error", "message": "The skill inventory is unavailable; other integrations remain available.", "fetched_at": None})
     try:

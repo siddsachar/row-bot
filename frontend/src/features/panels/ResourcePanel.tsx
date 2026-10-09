@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { Disclosure, EmptyState, Skeleton } from '../../ui/primitives';
+import { useNotify } from '../../ui/overlays';
 import WorkspaceProcesses from './WorkspaceProcesses';
 import WorkspaceImports from './WorkspaceImports';
 import WorkspaceUndo from './WorkspaceUndo';
@@ -427,6 +428,7 @@ function ResourcePanel({
 }) {
   const { controller, workspaceEditSessions, artifactDesignSessions } =
     useRuntime();
+  const notify = useNotify();
   const workspace = useClientSelector((state) => state.workspace);
   const selected = useClientSelector((state) => state.selectedConversationId);
   const loading = useClientSelector((state) => state.loadingConversation);
@@ -558,12 +560,40 @@ function ResourcePanel({
       resourceRef: `${conversation}:${result.binding_id}`,
     });
   };
+  // Deleted as shown here (its revision), from every conversation; its
+  // panels then close.
+  const shownRevision = resource.resource_revision;
+  const shownTitle = resource.title;
+  const deleteDesign = async () => {
+    const fresh = await controller.workspaceFor(conversation);
+    const result = await controller.intent(
+      conversation,
+      'resource.delete',
+      { binding_id: binding, expected_resource_revision: shownRevision },
+      fresh.revision,
+    );
+    // It left its conversations but some files stayed: this panel goes
+    // with it, so the notice says how to finish.
+    if (result.status === 'partial' && result.code === 'design_files_remain')
+      notify(
+        `${shownTitle} left its conversations, but some of its files couldn't be deleted. To finish, open it from Add resource › Open saved and choose Delete design again.`,
+        'warning',
+      );
+    else if (result.status !== 'completed')
+      throw { code: result.code ?? 'resource_state_invalid' };
+    requestResourcePanel({
+      conversationId: conversation,
+      resourceRef: reference,
+      close: true,
+    });
+  };
   return (
     <Preview
       title={resource.title}
       drafting={draftingOf(drafting)}
       onAsk={askDesign}
       duplicate={duplicateDesign}
+      deleteDesign={deleteDesign}
       resourceId={resource.binding.resource_id}
       resourceRevision={resource.resource_revision}
       visible={visible}

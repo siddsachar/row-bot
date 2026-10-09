@@ -187,16 +187,19 @@ it('uses compact friendly-label rows and keeps stable IDs behind disclosure', as
     <ToolCatalog load={async () => page([entry])} />,
   );
   expect(await screen.findByText('All tools')).toBeVisible();
-  expect(screen.getByText('Web Search · Core')).not.toBeVisible();
+  // Row-Bot's own tool goes by the name the Tools page and Apps › Tavily give it.
+  expect(screen.getByText('Tavily web search · Core')).not.toBeVisible();
   await openCatalog();
-  const heading = await screen.findByText('Web Search · Core');
+  const heading = await screen.findByText('Tavily web search · Core');
   const row = heading.closest('li')!;
   expect(row.closest('ul')).toHaveClass(
     'settings-catalog-list',
     'settings-tool-catalog-list',
   );
   expect(row).not.toHaveClass('surface');
-  const savedState = within(row).getByLabelText('Web Search saved state');
+  const savedState = within(row).getByLabelText(
+    'Tavily web search saved state',
+  );
   expect(within(savedState).getByText('Enabled')).toBeVisible();
   expect(within(savedState).getByText('Configured')).toBeVisible();
   expect(within(row).getByText('web_search')).not.toBeVisible();

@@ -10,6 +10,7 @@ import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
 import type {
+  AppRef,
   IntegrationDetail,
   IntegrationEntry,
   IntegrationWay,
@@ -26,6 +27,7 @@ import {
   StatusDot,
   Toggle,
   type MenuAction,
+  type Tone,
 } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import { SettingsGroup, StatusLine } from '../settings/anatomy';
@@ -42,11 +44,14 @@ import {
   AppIcon,
   appCatalog,
   asApp,
+  attentionOrder,
   idPath,
   ItemCard,
   Publisher,
   statusOf,
   useAppCatalog,
+  useYourApps,
+  yourItems,
 } from './parts';
 
 const WAYS: Record<string, string> = {
@@ -142,6 +147,73 @@ function useItemId(kind: 'app' | 'skill', param: string) {
     };
   }, [controller, kind, param]);
   return { found, missing };
+}
+
+/** What a skill's page says about the app it works with (`ways`: yours for that app, null until read). */
+function appLine(
+  app: string,
+  ways: IntegrationEntry[] | null,
+): [Tone | undefined, string] {
+  if (ways === null) return [undefined, `Works with ${app}.`];
+  if (
+    ways.some(
+      (way) => way.lifecycle === 'installed' && way.readiness === 'ready',
+    )
+  )
+    return ['success', `Works with ${app}, which is connected.`];
+  const first = [...ways].sort(
+    (a, b) => attentionOrder(a) - attentionOrder(b),
+  )[0];
+  const status = first ? statusOf(first) : null;
+  return status
+    ? [status[0], `Works with ${app}, which isn't ready (${status[1]}).`]
+    : [undefined, `Works with ${app}, which isn't connected yet.`];
+}
+
+/** The skills made for an app: yours first (with their status), then the catalog's; local data only. */
+function useAppSkills(app: AppRef | null) {
+  const { controller } = useRuntime();
+  const [found, setFound] = useState<{
+    items: IntegrationEntry[];
+    revision: string;
+  }>({ items: [], revision: '' });
+  const id = app?.id ?? '';
+  const name = app?.name ?? '';
+  useEffect(() => {
+    if (!id) return;
+    const abort = new AbortController();
+    const ours = (entry: IntegrationEntry) =>
+      entry.kind === 'skill' && entry.app?.id === id;
+    const read = async () => {
+      // A skill made for an app is found by the app's name.
+      const listed = controller.integrationItems(
+        { scope: 'catalog', kind: 'skill', query: name },
+        abort.signal,
+      );
+      return Promise.all([
+        yourItems(controller, 'skill', abort.signal),
+        listed,
+      ]);
+    };
+    read().then(
+      ([installed, listed]) => {
+        if (abort.signal.aborted) return;
+        const mine = installed
+          .flatMap((item) => [item, ...item.children])
+          .filter(ours);
+        const more = listed.items.filter(
+          (entry) => ours(entry) && !entry.installed,
+        );
+        setFound({
+          items: [...mine, ...more].slice(0, 8),
+          revision: listed.revision,
+        });
+      },
+      () => undefined, // Only a list beside the page: the page itself stays as it is.
+    );
+    return () => abort.abort();
+  }, [controller, id, name]);
+  return found;
 }
 
 /** An app that shows views in chat: they show unless switched off here (or for every app in Advanced). */
@@ -284,6 +356,11 @@ function Detail({
   }, [Boolean(detail)]); // eslint-disable-line react-hooks/exhaustive-deps
   const entry = detail?.entry;
   const name = entry ? (asApp(entry) && entry.app?.name) || entry.name : '';
+  // One app, its ways and its skills: which of them are yours, and the skills made for it.
+  const yours = useYourApps(Boolean(entry?.app));
+  const appSkills = useAppSkills(
+    entry && entry.kind !== 'skill' ? entry.app : null,
+  );
   const control = usePlan({ itemId, revision, name }, (plan) => {
     // Set up from a catalog entry: follow it to the installed item; removed: back to the library.
     // Stopped, it follows only to what it saved that still opens (a Remove may have deleted it since).
@@ -408,6 +485,20 @@ function Detail({
   const files = about.files;
   const scripts = files.filter((file) => file.executable).length;
   const settings = about.settings ?? [];
+  // A skill made for an app says which, whether it is connected here, and opens it.
+  const worksWith = entry.kind === 'skill' ? entry.app : null;
+  const appWays =
+    worksWith && yours
+      ? yours.filter(
+          (item) =>
+            item.app?.id === worksWith.id && item.lifecycle !== 'data_retained',
+        )
+      : null;
+  const appState = worksWith ? appLine(worksWith.name, appWays) : null;
+  // A package's own skills are under Included already.
+  const skillsFor = appSkills.items.filter(
+    (skill) => skill.parent_id !== entry.id,
+  );
   return (
     <article className="app-detail stack" aria-labelledby="app-detail-title">
       <Link className="settings-link app-back" to={back}>
@@ -485,6 +576,21 @@ function Detail({
               ))}
             </ul>
           ) : null}
+          {worksWith && appState && (
+            <StatusLine
+              tone={appState[0]}
+              action={
+                <Link
+                  className="settings-link"
+                  to={`/settings/apps/${worksWith.id}`}
+                >
+                  {appWays?.length === 0 ? 'Connect' : 'Open'} {worksWith.name}
+                </Link>
+              }
+            >
+              {appState[1]}
+            </StatusLine>
+          )}
           <StatusLine>
             {entry.kind === 'skill'
               ? 'Instructions stay on this computer.'
@@ -646,19 +752,44 @@ function Detail({
       {(about.ways ?? []).length > 1 && (
         <SettingsGroup title="Ways to connect">
           <ul className="app-ways">
-            {(about.ways ?? []).map((way) => (
-              <li key={way.id}>
-                {way.id === entry.id ? (
-                  <span className="app-way" aria-current="true">
-                    <WayText way={way} />
-                    <span className="app-chip">This one</span>
-                  </span>
-                ) : (
-                  <Link className="app-way" to={idPath('app', way.id)}>
-                    <WayText way={way} />
-                  </Link>
-                )}
-              </li>
+            {(about.ways ?? []).map((way) => {
+              // Another way you set up opens as yours (the server lists it by its id), with its
+              // status; this one's status is in the heading above.
+              const mine = yours?.find((item) => item.id === way.id);
+              const state = mine ? statusOf(mine) : null;
+              return (
+                <li key={way.id}>
+                  {way.id === entry.id ? (
+                    <span className="app-way" aria-current="true">
+                      <WayText way={way} />
+                      <span className="app-chip">This one</span>
+                    </span>
+                  ) : (
+                    <Link className="app-way" to={idPath('app', way.id)}>
+                      <WayText way={way} />
+                      {state && (
+                        <StatusDot tone={state[0]} label={state[1]} showLabel />
+                      )}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </SettingsGroup>
+      )}
+      {skillsFor.length > 0 && entry.app && (
+        <SettingsGroup
+          title={`Skills for ${entry.app.name}`}
+          note={`Skills teach Row-Bot how to do a task with ${entry.app.name}.`}
+        >
+          <ul className="app-grid">
+            {skillsFor.map((skill) => (
+              <ItemCard
+                key={skill.id}
+                entry={skill}
+                revision={appSkills.revision}
+              />
             ))}
           </ul>
         </SettingsGroup>

@@ -25,8 +25,10 @@ MAX_AGE = 60.0  # A snapshot older than this is still served, and refreshed in t
 # Account id -> (name, the chat tools it powers).
 ACCOUNTS = {"github": ("GitHub account", ()), "google": ("Google account", ("gmail", "calendar")),
             "x": ("X account", ("x",))}
-# Key-based tools: tool id -> (name, keychain key names, what it does).
-TOOLS = {"web_search": ("Web search", ("TAVILY_API_KEY",), "Search the web with your own Tavily key."),
+# Key-based tools: tool id -> (name, keychain key names, what it does). Named as in Settings › Tools, where the
+# same switch and key are: "Tavily web search" is Row-Bot's own search with a Tavily key, not Tavily's server.
+TOOLS = {"web_search": ("Tavily web search", ("TAVILY_API_KEY",),
+                        "Row-Bot's own web search, with your Tavily key. The same switch as in Settings › Tools."),
          "wolfram_alpha": ("Wolfram Alpha", ("WOLFRAM_ALPHA_APPID",), "Maths, science and data answers with your own Wolfram Alpha key.")}
 _ACCOUNT_STATES = {"connected": None, "saved_unchecked": None, "configured_unchecked": None, "anonymous": None,
                    "rate_limited": None, "secondary_limited": None, "offline": None, "not_authenticated": "sign_in_required",

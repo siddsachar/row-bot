@@ -831,6 +831,21 @@ class TrackerSettingsSnapshot(WireModel):
     total_entries: int = Field(ge=0)
 
 
+class TrackerEntry(WireModel):
+    at: str = Field(max_length=80)
+    value: str = Field(max_length=256)
+    note: str | None = Field(max_length=1024)
+
+
+class TrackerEntryPage(WireModel):
+    """One tracker's newest entries, newest first; `total` counts them all."""
+
+    schema_version: Literal[1]
+    tracker_id: str = Field(min_length=1, max_length=128)
+    total: int = Field(ge=0)
+    items: list[TrackerEntry] = Field(max_length=50)
+
+
 class KnowledgeTypeCount(WireModel):
     kind: str = Field(max_length=64)
     count: int = Field(ge=0)
@@ -4481,6 +4496,17 @@ class ResourceForgetPayload(WireModel):
     restore: bool = False
 
 
+class ResourceDeletePayload(WireModel):
+    """Delete a bound design for good, as the person confirmed it.
+
+    It leaves every conversation using it, then its pages, versions and files
+    go; conversations keep their messages.
+    """
+
+    binding_id: OpaqueId
+    expected_resource_revision: str = Field(min_length=1, max_length=128)
+
+
 class AgentStopPayload(WireModel):
     run_id: OpaqueId
 
@@ -5698,6 +5724,7 @@ class Command(WireModel):
         "resource.discard",
         "resource.rename",
         "resource.forget",
+        "resource.delete",
         "agent.stop",
         "agent.message",
         "agent.start",
@@ -5878,6 +5905,7 @@ COMMAND_PAYLOADS = {
     "resource.discard": ResourceDiscardPayload,
     "resource.rename": ResourceRenamePayload,
     "resource.forget": ResourceForgetPayload,
+    "resource.delete": ResourceDeletePayload,
     "agent.stop": AgentStopPayload,
     "agent.message": AgentMessagePayload,
     "agent.start": AgentStartPayload,
@@ -7019,6 +7047,8 @@ class ActionReadiness(WireModel):
 class ProfileChoice(WireModel):
     id: OpaqueId
     label: str = Field(max_length=256)
+    # The agent's one-line description, shown under its name in the + menu.
+    description: str = Field(default="", max_length=512)
 
 
 class ContextUsageView(ContextUpdated):
@@ -7222,6 +7252,8 @@ class FolderGrantView(WireModel):
 class DeckTemplateChoice(WireModel):
     id: OpaqueId
     label: str = Field(max_length=256)
+    # A template's own canvas, which New design switches to when it is picked.
+    canvas: str = Field(default="", max_length=32)
 
 
 class DeckSetupOptions(WireModel):

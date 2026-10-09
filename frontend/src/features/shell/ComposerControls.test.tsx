@@ -313,7 +313,7 @@ it('keeps approval, runtime and profile distinct in their compact menus', async 
   const more = await menu('Add files and more');
   const profiles = await submenu(more, /^Agent/);
   expect(
-    profiles.getByRole('menuitemradio', { name: 'Writer' }),
+    profiles.getByRole('menuitemradio', { name: /^Writer/ }),
   ).toHaveAttribute('aria-checked', 'true');
   await act(async () =>
     fireEvent.keyDown(screen.getAllByRole('menu').at(-1)!, {
@@ -332,6 +332,47 @@ it('keeps approval, runtime and profile distinct in their compact menus', async 
     'chat_only',
   );
   expect(mock.controller.intent.mock.calls[1][2].profile_id).toBe('writer');
+});
+
+it('says in one line under each agent what it is for', async () => {
+  mock.state.workspace = {
+    ...mock.state.workspace!,
+    profiles: [
+      {
+        id: 'builtin:row_bot_default',
+        label: 'Default',
+        description:
+          'Normal Row-Bot behavior for ordinary chats and channel conversations.',
+      },
+      {
+        id: 'writer',
+        label: 'Writer',
+        description:
+          'Draft, revise, summarize, polish, and turn notes into follow-ups.',
+      },
+      { id: 'custom', label: 'My helper', description: '' },
+    ],
+  };
+  render(<ComposerControls onError={vi.fn()} />);
+  const more = await menu('Add files and more');
+  const agents = await submenu(more, /^Agent/);
+  const writer = agents.getByRole('menuitemradio', { name: /^Writer/ });
+  expect(writer).toHaveAttribute('aria-checked', 'true');
+  const line = within(writer).getByText(
+    'Draft, revise, summarize, polish, and turn notes into follow-ups.',
+  );
+  expect(line.tagName).toBe('SMALL');
+  // Cut short on one line; the whole line shows on hover.
+  expect(line).toHaveStyle({ whiteSpace: 'nowrap', textOverflow: 'ellipsis' });
+  expect(line).toHaveAttribute('title', line.textContent);
+  expect(
+    within(agents.getByRole('menuitemradio', { name: /^Default/ })).getByText(
+      'Normal Row-Bot behavior for ordinary chats and channel conversations.',
+    ),
+  ).toBeVisible();
+  // No description, no empty line.
+  const custom = agents.getByRole('menuitemradio', { name: 'My helper' });
+  expect(custom.querySelector('small')).toBeNull();
 });
 
 it('blocks running and disconnected controls without removing their current values', () => {

@@ -49,6 +49,8 @@ class ArtifactSetup:
 class SetupChoice:
     id: str
     label: str
+    # A template's own canvas (e.g. a desktop dashboard), when the mode offers it.
+    canvas: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,11 +123,12 @@ def artifact_setup_options(mode: str = "deck") -> ArtifactSetupOptions:
     """Return the existing mode's local defaults without downloads or inference."""
     if not isinstance(mode, str) or mode not in DESIGNER_MODES:
         raise ArtifactError("artifact_type_unavailable")
+    canvases = tuple(SetupChoice(key, label) for key, label in canvas_choices_for_mode(mode))
+    offered = {choice.id for choice in canvases}
     return ArtifactSetupOptions(
-        mode, tuple(SetupChoice(t.id, t.name) for t in get_templates()
-                    if t.mode == mode and not t.hidden_from_gallery),
-        tuple(SetupChoice(key, label) for key, label in canvas_choices_for_mode(mode)),
-        f"blank_{mode}", default_aspect_for_mode(mode), "Untitled Design", "Default brand",
+        mode, tuple(SetupChoice(t.id, t.name, t.aspect_ratio if t.aspect_ratio in offered else "")
+                    for t in get_templates() if t.mode == mode and not t.hidden_from_gallery),
+        canvases, f"blank_{mode}", default_aspect_for_mode(mode), "Untitled Design", "Default brand",
     )
 
 
@@ -201,9 +204,11 @@ def create_artifact(project_id: str, setup: ArtifactSetup) -> DesignerProject:
            (setup.template_id, setup.aspect_ratio, setup.name, setup.brief)):
         raise ArtifactError("invalid_setup")
     template_id = setup.template_id or options.default_template
-    aspect_ratio = setup.aspect_ratio or options.default_canvas
-    if template_id not in {choice.id for choice in options.templates}:
+    template = next((choice for choice in options.templates if choice.id == template_id), None)
+    if template is None:
         raise ArtifactError("invalid_template")
+    # Without a chosen canvas a template keeps its own (a desktop dashboard).
+    aspect_ratio = setup.aspect_ratio or template.canvas or options.default_canvas
     if aspect_ratio not in {choice.id for choice in options.canvases}:
         raise ArtifactError("invalid_canvas")
     if len(setup.name) > 200 or len(setup.brief) > 20000:

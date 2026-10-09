@@ -32,10 +32,21 @@ def _findings(html: str, brand=None):
     return lint_page(html, brand=brand or BrandConfig(), page_index=0)
 
 
-def test_the_pitch_deck_template_passes_its_own_review(isolated):
-    project = client_service.create_artifact("pitch", client_service.ArtifactSetup("deck", "pitch_deck"))
-    review = client.read_review(project.id, scope="project", limit=50)
-    assert [(item.category, item.message) for item in review.findings] == []
+def test_every_template_offered_in_new_design_passes_its_own_review(isolated):
+    """Each mode's templates, on each canvas New design offers for them."""
+    failures = {}
+    for mode in DESIGNER_MODES:
+        options = client_service.artifact_setup_options(mode)
+        assert options.templates, mode
+        for choice in options.templates:
+            for canvas in options.canvases:
+                project = client_service.create_artifact(
+                    f"{mode}-{choice.id}-{canvas.id}".replace(":", "x"),
+                    client_service.ArtifactSetup(mode, choice.id, canvas.id))
+                review = client.read_review(project.id, scope="project", limit=50)
+                if review.findings:
+                    failures[(choice.id, canvas.id)] = [(item.category, item.message) for item in review.findings]
+    assert failures == {}
 
 
 def test_no_template_review_names_an_internal_tool_or_its_own_font_variables(isolated):
@@ -87,3 +98,47 @@ def test_a_blank_starter_page_is_not_told_it_lacks_headings():
     html = _ROOT + '<body><p style="opacity:0.3">Blank slide — describe what to build</p></body>'
     assert not [item for item in critique_page_html(html, 1920, 1080)["findings"]
                 if item["category"] == "hierarchy"]
+
+
+def _categories(html: str, width: int = 1920, height: int = 1080) -> list[str]:
+    return [item["category"] for item in critique_page_html(html, width, height)["findings"]]
+
+
+_LONG = "A long paragraph of body copy that easily runs past eighty characters on one line."
+
+
+def test_spacing_and_line_height_set_in_the_pages_own_styles_count():
+    styled = ("<style>* { margin:0; padding:0; } section { padding: 48px 0; } "
+              "body { line-height: 1.5; } .copy p { max-width: 60ch; }</style>"
+              f"<body><section><h1>Features</h1><div class='copy'><p>{_LONG}</p></div><p>Tail</p></section></body>")
+    assert _categories(styled) == []
+    # A reset to zero is no spacing; the same page without its rules is flagged.
+    bare = ("<style>* { margin:0; padding:0; }</style>"
+            f"<body><section><h1>Features</h1><div class='copy'><p>{_LONG}</p></div><p>Tail</p></section></body>")
+    assert sorted(_categories(bare)) == ["readability", "spacing"]
+
+
+def test_a_margin_between_each_pair_of_blocks_spaces_a_flex_column():
+    column = ('<body><div style="display:flex;flex-direction:column;">'
+              '<h1 style="margin-bottom:16px;">Title</h1><p style="margin-bottom:24px;">Lead</p>'
+              '<p>Last</p></div></body>')
+    assert "spacing" not in _categories(column)
+    touching = column.replace('style="margin-bottom:24px;"', "")
+    assert "spacing" in _categories(touching), "two blocks still touch"
+
+
+def test_a_phone_width_page_keeps_lines_short_without_a_max_width():
+    page = f'<body><h1>Detail</h1><p style="line-height:1.6;">{_LONG}</p></body>'
+    assert "readability" not in _categories(page, 390, 844)
+    assert "readability" in _categories(page, 1440, 900)
+
+
+def test_empty_bars_are_not_sections_and_a_tall_page_has_room_for_more():
+    bars = "".join('<div style="height:6px;background:#334155;border-radius:3px;"></div>' for _ in range(8))
+    assert "overflow" not in _categories(f"<body><h1>Sources</h1>{bars}</body>")
+    cards = "".join(f'<div class="card"><p>Card {index}</p></div>' for index in range(8))
+    assert "overflow" in _categories(f"<body><h1>Cards</h1>{cards}</body>")
+    sections = "".join(f'<section style="padding:24px;"><h2>Part {index}</h2></section>' for index in range(6))
+    page = f"<body><h1>Landing</h1>{sections}</body>"
+    assert "overflow" in _categories(page, 1920, 1080)
+    assert "overflow" not in _categories(page, 1440, 3200)

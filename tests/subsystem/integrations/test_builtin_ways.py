@@ -99,6 +99,25 @@ def test_an_app_shows_every_way_to_connect_in_its_own_order(owners, tmp_path, mo
     assert google["about"]["ways"][0]["id"] == "builtin:account:google" and google["about"]["ways"][0]["recommended"]
 
 
+def test_a_way_already_set_up_is_listed_on_its_apps_page_as_yours_once(owners, tmp_path, monkeypatch):
+    """One app with its ways: the one you added opens as what you added (its page says so), never twice."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "mcp_servers.json")
+    monkeypatch.setattr(config, "_config_cache", None)
+    config.CONFIG_PATH.write_text(json.dumps({"version": 1, "enabled": True, "servers": {"Notion MCP": {
+        "transport": "streamable_http", "url": "https://mcp.notion.com/mcp", "enabled": True,
+        "source": {"marketplace": "curated", "id": "makenotion-notion-mcp-server"}}}}))
+    facts.invalidate()
+    try:
+        added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
+        detail, _ = api.read_item(owner_id="owner", item_id="mcp:curated:makenotion-notion-mcp-server")
+        ids = [way["id"] for way in detail["about"]["ways"]]
+        assert detail["entry"]["id"] == added["id"] and ids[0] == added["id"]
+        assert "mcp:curated:makenotion-notion-mcp-server" not in ids and len(ids) == len(set(ids))
+    finally:
+        facts.invalidate()
+
+
 @pytest.fixture
 def keychain():
     keyring = MemoryKeyring()
@@ -272,6 +291,10 @@ def test_an_apps_card_opens_its_recommended_way_built_in_first_when_recommended(
     page = api.read_items(owner_id="owner", scope="catalog", kind="app", query="tavily", limit=50)
     tavily = next(item for item in page["items"] if (item["app"] or {}).get("id") == "tavily")
     assert (tavily["id"], tavily["method"]) == ("builtin:tool:web_search", "built_in")
+    # Named for what it is, as Settings › Tools names the same switch, and still found by the job.
+    assert tavily["name"] == "Tavily web search"
+    page = api.read_items(owner_id="owner", scope="catalog", kind="app", query="web search", limit=50)
+    assert "builtin:tool:web_search" in [item["id"] for item in page["items"]]
     detail, _ = api.read_item(owner_id="owner", item_id=tavily["id"])
     assert detail["about"]["ways"][0]["id"] == "builtin:tool:web_search" and detail["about"]["ways"][0]["recommended"]
     page = api.read_items(owner_id="owner", scope="catalog", kind="app", query="github", limit=50)

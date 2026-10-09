@@ -3,6 +3,12 @@
     "DeckTemplateChoice": {
       "additionalProperties": false,
       "properties": {
+        "canvas": {
+          "default": "",
+          "maxLength": 32,
+          "title": "Canvas",
+          "type": "string"
+        },
         "id": {
           "maxLength": 128,
           "minLength": 1,

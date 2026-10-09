@@ -542,13 +542,27 @@ def featured_skills() -> dict[str, dict]:
     return found
 
 
+def featured_install_ref(skill: dict) -> str:
+    """Where a featured skill is added from: its pinned folder, as the skill hub records it."""
+    owner, repo = skill["repo"].split("/")[1:]
+    return f"github:{owner}/{repo}/{skill['path']}?ref={skill['commit']}"
+
+
+def skill_app(install_refs: list[str]) -> dict | None:
+    """The app an added skill works with: the one its featured entry names, found by where it was added
+    from. Presentation only; a skill never gains an app's access by it."""
+    wanted = {ref for ref in install_refs if ref}
+    skill = next((skill for skill in featured_skills().values() if featured_install_ref(skill) in wanted), None)
+    app = apps.catalog()[0].get(skill.get("app", "")) if skill else None
+    return app.ref() if app else None
+
+
 class FeaturedSkills(Source):
     id, kind, label = "featured_skills", "skill", "Featured skills"
     message = "Skills from official and maintainer repositories, added from their source when you choose."
 
     def row(self, skill: dict, installed: set[str]) -> tuple[dict, dict]:
-        owner, repo = skill["repo"].split("/")[1:]
-        install_ref = f"github:{owner}/{repo}/{skill['path']}?ref={skill['commit']}"
+        install_ref = featured_install_ref(skill)
         origin = f"https://{skill['repo']}/{skill['path']}"
         app = apps.catalog()[0].get(skill.get("app", ""))
         row = _available("skill", "featured:" + skill["id"], skill["name"], app=app, source=self.id, installed=install_ref in installed,
@@ -562,8 +576,12 @@ class FeaturedSkills(Source):
         installed = {ref for record in load_records().values()
                      for ref in (record.install_ref, str(record.metadata.get("hub_entry_ref") or ""))}
         found = Found()
+        known = apps.catalog()[0]
         for skill in sorted(featured_skills().values(), key=lambda skill: skill.get("featured_rank", 1_000)):
-            if matches(search.query, skill["name"], skill["summary"], skill["publisher"], *skill["synonyms"], *skill["jobs"]):
+            app = known.get(skill.get("app", ""))
+            # A skill made for an app is found by the app's name too ("GitHub" finds "PR writer").
+            if matches(search.query, skill["name"], skill["summary"], skill["publisher"], *skill["synonyms"], *skill["jobs"],
+                       app.name if app else ""):
                 found.add(*self.row(skill, installed))
         found.statuses.append(self.status(status="cached"))
         return found

@@ -520,37 +520,7 @@ def delete_project(project_id: str) -> bool:
                 )}
                 linked_thread_ids.difference_update(additive)
 
-    deleted = False
-    try:
-        from row_bot.designer.publish import delete_published_project
-
-        deleted = delete_published_project(clean_project_id) or deleted
-    except Exception:
-        logger.exception("Failed to remove published design %s", clean_project_id)
-        raise
-    try:
-        from row_bot.designer.history import delete_history
-
-        history_path = pathlib.Path(DESIGNER_DIR) / "history" / clean_project_id
-        history_existed = history_path.exists()
-        delete_history(clean_project_id)
-        deleted = history_existed or deleted
-    except Exception:
-        logger.exception("Failed to remove design history %s", clean_project_id)
-        raise
-    try:
-        from row_bot.designer.session import clear_project_session
-
-        clear_project_session(clean_project_id)
-    except Exception:
-        logger.debug("Failed to clear Designer session for %s", clean_project_id, exc_info=True)
-    if path.exists():
-        path.unlink()
-        deleted = True
-    if delete_project_references(clean_project_id):
-        deleted = True
-    if delete_project_assets(clean_project_id):
-        deleted = True
+    deleted = delete_project_files(clean_project_id)
 
     if linked_thread_ids:
         try:
@@ -568,6 +538,55 @@ def delete_project(project_id: str) -> bool:
                 "Failed to cascade thread deletion for project %s",
                 clean_project_id,
             )
+    return deleted
+
+
+def delete_project_files(project_id: str) -> bool:
+    """Delete a design and the files it owns, and never a conversation.
+
+    Its pages, saved versions, references, assets, local published copy and
+    cached editing session go. Unlike ``delete_project`` no linked
+    conversation is touched: callers unbind the design first. The design's
+    own record goes last, so after a failure part-way it is still listed in
+    Open saved and deleting it again finishes the job.
+    """
+
+    from row_bot.thread_cleanup import resolve_managed_path
+
+    clean_project_id = str(project_id or "").strip()
+    path = resolve_managed_path(PROJECTS_DIR, f"{clean_project_id}.json")
+    deleted = False
+    with _project_save_lock(clean_project_id):
+        try:
+            from row_bot.designer.publish import delete_published_project
+
+            deleted = delete_published_project(clean_project_id) or deleted
+        except Exception:
+            logger.exception("Failed to remove published design %s", clean_project_id)
+            raise
+        try:
+            from row_bot.designer.history import delete_history
+
+            history_path = pathlib.Path(DESIGNER_DIR) / "history" / clean_project_id
+            history_existed = history_path.exists()
+            delete_history(clean_project_id)
+            deleted = history_existed or deleted
+        except Exception:
+            logger.exception("Failed to remove design history %s", clean_project_id)
+            raise
+        try:
+            from row_bot.designer.session import clear_project_session
+
+            clear_project_session(clean_project_id)
+        except Exception:
+            logger.debug("Failed to clear Designer session for %s", clean_project_id, exc_info=True)
+        if delete_project_references(clean_project_id):
+            deleted = True
+        if delete_project_assets(clean_project_id):
+            deleted = True
+        if path.exists():
+            path.unlink()
+            deleted = True
     return deleted
 
 

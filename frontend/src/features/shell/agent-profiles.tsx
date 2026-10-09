@@ -8,7 +8,7 @@ import GoalProfileSettings, {
 /** The built-in profile a conversation uses when it names none. */
 export const DEFAULT_PROFILE_ID = 'builtin:row_bot_default';
 
-type ProfileChoice = { id: string; label: string };
+type ProfileChoice = { id: string; label: string; description?: string };
 
 /**
  * Profiles to offer in a chat. Naming no profile means the built-in Default,

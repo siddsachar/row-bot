@@ -8,6 +8,7 @@ import {
   Calculator,
   CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Cloud,
   Download,
   CloudSun,
@@ -33,6 +34,7 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  SquarePen,
   SquareTerminal,
   Square,
   Play,
@@ -44,6 +46,7 @@ import {
 import {
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
@@ -70,7 +73,9 @@ import type {
   SettingsMutationRequest,
   SettingsMutationReview,
   SettingsSnapshot,
+  TrackerEntryPage,
 } from '../../api/types';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 import {
   Button,
   Disclosure,
@@ -3127,11 +3132,16 @@ const trackerKinds: Record<string, string> = {
   boolean: 'Yes or no',
   duration: 'Duration',
   count: 'Count',
+  counter: 'Count',
   numeric: 'Number',
   number: 'Number',
   scale: 'Scale',
+  categorical: 'Category',
   text: 'Note',
 };
+
+/** Trackers are made in chat: this waits in a new chat's composer, unsent. */
+const START_TRACKING_DRAFT = 'Start tracking ';
 
 export function TrackerSnapshotPanel({
   snapshot,
@@ -3142,6 +3152,9 @@ export function TrackerSnapshotPanel({
   mutation: SettingsMutationIO;
   showDanger?: boolean;
 }) {
+  const newChat = useWorkspaceActions()?.newChat;
+  const tracking = snapshot.tool_available && snapshot.enabled === true;
+  const empty = snapshot.items.length === 0;
   return (
     <div className="stack settings-snapshot-page">
       <SettingsSummary>
@@ -3157,8 +3170,8 @@ export function TrackerSnapshotPanel({
         </SummaryChip>
       </SettingsSummary>
       <Section
-        title="Tracker Tool"
-        description="Lets the assistant log and review habits, symptoms and health events."
+        title="Tracking"
+        description="Row-Bot logs habits, symptoms and health events when you tell it in a chat, and answers questions about them."
         icon={ListChecks}
         anchor="tracker.enabled"
       >
@@ -3166,20 +3179,27 @@ export function TrackerSnapshotPanel({
           <SwitchSetting
             mutation={mutation}
             field="enabled"
-            label="Enable Habit Tracker"
+            label="Track in chat"
             value={snapshot.enabled}
+            savedMessage={(next) =>
+              `Tracking in chat ${next ? 'turned on' : 'turned off'}`
+            }
           />
         ) : (
-          <StateChip warning>Tracker tool not found</StateChip>
+          <StateChip warning>Tracking isn’t available</StateChip>
         )}
       </Section>
       <Section
         title="Trackers"
-        description="Stored on this device."
+        description={
+          empty
+            ? 'Kept on this device.'
+            : 'Kept on this device. Open one to see its latest entries.'
+        }
         icon={CalendarClock}
         anchor="trackers"
       >
-        {snapshot.items.length ? (
+        {!empty && (
           <ul className="settings-row-list" aria-label="Saved trackers">
             {snapshot.items.map((tracker) => (
               <TrackerRow
@@ -3189,12 +3209,23 @@ export function TrackerSnapshotPanel({
               />
             ))}
           </ul>
-        ) : (
-          <p className="muted">
-            No trackers yet. Ask Row-Bot in a chat to track something, like
-            “Track my water, 8 glasses a day” or “Log my sleep every morning”.
-          </p>
         )}
+        <div className="settings-tracker-add">
+          <p className="muted">
+            {empty ? 'No trackers yet. ' : ''}
+            {tracking
+              ? `To ${empty ? 'start one' : 'add a tracker or log an entry'}, ask Row-Bot in a chat, like “Track my water, 8 glasses a day” or “Log my sleep every morning”.`
+              : snapshot.tool_available
+                ? 'Turn on “Track in chat” above, then ask Row-Bot in a chat to add a tracker, like “Track my water, 8 glasses a day”.'
+                : 'Trackers are added by asking Row-Bot in a chat.'}
+          </p>
+          {tracking && newChat && (
+            <Button onClick={() => newChat(START_TRACKING_DRAFT)}>
+              <SquarePen size={15} aria-hidden />
+              Start a tracker in chat
+            </Button>
+          )}
+        </div>
       </Section>
       {showDanger && snapshot.items.length > 0 && (
         <SettingsDangerZone>
@@ -3213,8 +3244,8 @@ export function TrackerDangerAction({
 }) {
   return (
     <DangerAction
-      title="Delete all tracker data"
-      description="Removes every habit and health tracker and all their entries. This cannot be undone."
+      title="Delete all trackers"
+      description="Removes every tracker and all their entries. This cannot be undone."
     >
       <TrackerDeleteAll mutation={mutation} />
     </DangerAction>
@@ -3387,13 +3418,28 @@ function TrackerRow({
 }) {
   const deletion = useTrackerDeletion(mutation, tracker);
   const { review, pendingCommand, busy, error, notice } = deletion;
+  const [open, setOpen] = useState(false);
+  const entriesId = useId();
   return (
     <li>
       <span className="settings-row-list-icon" aria-hidden>
         {tracker.icon || <Activity size={15} aria-hidden />}
       </span>
-      <div className="settings-row-list-text">
-        <strong>{tracker.name}</strong>
+      <button
+        type="button"
+        className="settings-row-list-text settings-tracker-open"
+        aria-expanded={open}
+        aria-controls={open ? entriesId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <strong>
+          {tracker.name}
+          <ChevronRight
+            className="settings-tracker-chevron"
+            size={14}
+            aria-hidden
+          />
+        </strong>
         <small>
           {trackerKinds[tracker.kind] ?? humanizeToken(tracker.kind)}
           {tracker.unit ? ` · ${tracker.unit}` : ''}
@@ -3411,7 +3457,7 @@ function TrackerRow({
             ' · No entries yet'
           )}
         </small>
-      </div>
+      </button>
       <span className="settings-row-list-meta settings-tracker-meta">
         {tracker.entry_count === 1
           ? '1 entry'
@@ -3465,7 +3511,116 @@ function TrackerRow({
           {notice && !review && <p role="status">{notice}</p>}
         </div>
       )}
+      {open && <TrackerEntries id={entriesId} tracker={tracker} />}
     </li>
+  );
+}
+
+/** A saved value in plain words: Yes or No, Started or Ended, “8 glasses”. */
+function trackerEntryValue(value: string, unit: string | null) {
+  const text = value.trim();
+  const word = text.toLowerCase();
+  if (word === 'true' || word === 'yes') return 'Yes';
+  if (word === 'false' || word === 'no') return 'No';
+  if (word === 'started' || word === 'ended') return humanizeToken(word);
+  if (!unit || !/^-?\d+(?:\.\d+)?$/.test(text)) return text;
+  const range = /^\d+\s*[-–]\s*(\d+)$/.exec(unit.trim());
+  return range ? `${text} / ${range[1]}` : `${text} ${unit}`;
+}
+
+/** A date-only entry is that local day, not midnight UTC. */
+function trackerEntryTime(at: string) {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(at);
+  if (!day) return absoluteTime(at) || at;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
+    new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])),
+  );
+}
+
+/**
+ * One tracker's latest entries, newest first and read-only: read again when
+ * the saved tracker changes. Entries are added or changed by asking in chat.
+ */
+function TrackerEntries({
+  id,
+  tracker,
+}: {
+  id: string;
+  tracker: SavedTracker;
+}) {
+  const controller = useContext(RuntimeContext)?.controller;
+  const [page, setPage] = useState<TrackerEntryPage | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const abort = new AbortController();
+    const read = controller
+      ? controller.trackerEntries(tracker.tracker_id, abort.signal)
+      : Promise.reject({ code: 'capability_unavailable' });
+    read.then(
+      (value) => {
+        if (abort.signal.aborted) return;
+        setPage(value);
+        setError('');
+      },
+      (cause) => {
+        if (!abort.signal.aborted) setError(clientError(cause).message);
+      },
+    );
+    return () => abort.abort();
+  }, [
+    controller,
+    tracker.tracker_id,
+    tracker.entry_count,
+    tracker.last_event_at,
+    attempt,
+  ]);
+  const shown = page?.items.length ?? 0;
+  return (
+    <div
+      id={id}
+      className="settings-tracker-entries"
+      role="region"
+      aria-label={`${tracker.name} entries`}
+      aria-busy={!page && !error}
+    >
+      {error ? (
+        <>
+          <p role="alert">{error}</p>
+          <Button
+            onClick={() => {
+              setError('');
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Try again
+          </Button>
+        </>
+      ) : !page ? (
+        <p className="muted">Loading entries…</p>
+      ) : !shown ? (
+        <p className="muted">No entries yet.</p>
+      ) : (
+        <>
+          <p className="muted">
+            {page.total > shown
+              ? `Latest ${shown} of ${page.total.toLocaleString()} entries`
+              : page.total === 1
+                ? '1 entry'
+                : `${page.total} entries`}
+          </p>
+          <ol className="settings-tracker-entry-list">
+            {page.items.map((entry, index) => (
+              <li key={index}>
+                <time dateTime={entry.at}>{trackerEntryTime(entry.at)}</time>
+                <span>{trackerEntryValue(entry.value, tracker.unit)}</span>
+                {entry.note && <small>{entry.note}</small>}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -3490,9 +3645,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
           disabled={!!busy}
           onClick={() => void reviewDeletion()}
         >
-          {busy === 'review'
-            ? 'Reviewing deletion…'
-            : 'Delete All Tracker Data'}
+          {busy === 'review' ? 'Reviewing deletion…' : 'Delete all trackers'}
         </Button>
       )}
       {review && (
@@ -3504,7 +3657,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
               disabled={!!busy}
               onClick={() => void deleteAll()}
             >
-              Confirm Delete All Tracker Data
+              Confirm permanent deletion
             </Button>
             <Button variant="ghost" disabled={!!busy} onClick={cancelDeletion}>
               Cancel
@@ -4730,10 +4883,11 @@ export function ToolConfigurationSnapshot({
       order: 1,
       description: 'Search the current web without an API key.',
     },
+    // Row-Bot's own search with a Tavily key: the same switch as Apps › Tavily, named the same there.
     web_search: {
-      label: 'Web Search',
+      label: 'Tavily web search',
       order: 2,
-      description: 'Search the live web with Tavily.',
+      description: 'Search the live web with your own Tavily key.',
       setupUrl: 'https://app.tavily.com/',
     },
     wikipedia: {

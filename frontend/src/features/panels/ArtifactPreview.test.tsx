@@ -1620,6 +1620,114 @@ it('duplicates the design from the menu and says where the copy is', async () =>
   ).toBeInTheDocument();
 });
 
+it('deletes the design only after a confirmation that says what goes and what stays', async () => {
+  const user = userEvent.setup();
+  const deleteDesign = vi.fn(async () => {});
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="QA test deck"
+      visible
+      load={vi.fn(async () => snapshot())}
+      deleteDesign={deleteDesign}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete design…' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Delete design?' });
+  expect(dialog).toHaveAccessibleDescription(
+    '“QA test deck” will be deleted for good.',
+  );
+  expect(dialog).toHaveTextContent(
+    'Its pages, saved versions and files are deleted. Conversations that used it keep their messages; it leaves their Working on.',
+  );
+  // Cancel is the safe default and deletes nothing.
+  expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(deleteDesign).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog')).toBeNull();
+
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete design…' }));
+  await user.click(
+    within(
+      await screen.findByRole('dialog', { name: 'Delete design?' }),
+    ).getByRole('button', { name: 'Delete design' }),
+  );
+  expect(deleteDesign).toHaveBeenCalledOnce();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('keeps the confirmation open and says why a delete was refused', async () => {
+  const user = userEvent.setup();
+  const deleteDesign = vi.fn(async () => {
+    throw { code: 'generation_active' };
+  });
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="QA test deck"
+      visible
+      load={vi.fn(async () => snapshot())}
+      deleteDesign={deleteDesign}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete design…' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Delete design?' });
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Delete design' }),
+  );
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+    'A conversation using this design is still working. Stop it, then try again. Nothing was deleted.',
+  );
+  expect(screen.getByRole('dialog', { name: 'Delete design?' })).toBe(dialog);
+});
+
+it('still offers Delete design when the preview cannot load', async () => {
+  const user = userEvent.setup();
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Broken deck"
+      visible
+      load={vi.fn(async () => {
+        throw { code: 'resource_state_invalid' };
+      })}
+      deleteDesign={vi.fn(async () => {})}
+    />,
+  );
+  await screen.findByText(
+    'The design is bound, but its preview could not load.',
+  );
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  expect(
+    screen.getByRole('menuitem', { name: 'Delete design…' }),
+  ).toBeEnabled();
+});
+
+it('offers no delete where the design cannot be deleted', async () => {
+  const user = userEvent.setup();
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="QA test deck"
+      visible
+      load={vi.fn(async () => snapshot())}
+      duplicate={vi.fn(async () => {})}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  expect(screen.queryByRole('menuitem', { name: /Delete/ })).toBeNull();
+});
+
 it('says what a drafting turn is doing and refreshes the page per saved step', async () => {
   const load = vi.fn(async () => snapshot());
   const base = {

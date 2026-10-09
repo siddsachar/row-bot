@@ -866,6 +866,82 @@
   align-items: center;
   gap: 6px;
 }
+/* A tracker's name opens its latest entries below the row. */
+.settings-tracker-open {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.settings-tracker-open:hover strong {
+  text-decoration: underline;
+}
+.settings-tracker-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.settings-tracker-chevron {
+  margin-inline-start: 4px;
+  color: var(--text-muted);
+  vertical-align: -2px;
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.settings-tracker-open[aria-expanded='true'] .settings-tracker-chevron {
+  transform: rotate(90deg);
+}
+.settings-row-list > li > .settings-tracker-entries {
+  grid-column: 1 / -1;
+}
+.settings-tracker-entries {
+  display: grid;
+  gap: 6px;
+  padding-inline-start: 40px;
+}
+.settings-tracker-entries p {
+  margin: 0;
+  font-size: var(--type-size-metadata);
+}
+.settings-tracker-entry-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--type-size-metadata);
+}
+.settings-tracker-entry-list > li {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) minmax(0, 1fr);
+  gap: 2px 12px;
+}
+.settings-tracker-entry-list time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.settings-tracker-entry-list small {
+  grid-column: 2;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.settings-tracker-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.settings-tracker-add > p {
+  flex: 1 1 18rem;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .settings-tracker-entries {
+    padding-inline-start: 0;
+  }
+}
 .settings-row-list-icon {
   display: grid;
   place-items: center;

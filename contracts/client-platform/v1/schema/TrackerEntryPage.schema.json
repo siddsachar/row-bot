@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "TrackerEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maxLength": 80,
+          "title": "At",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Note"
+        },
+        "value": {
+          "maxLength": 256,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "value",
+        "note"
+      ],
+      "title": "TrackerEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One tracker's newest entries, newest first; `total` counts them all.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/TrackerEntry"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    },
+    "tracker_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Tracker Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tracker_id",
+    "total",
+    "items"
+  ],
+  "title": "TrackerEntryPage",
+  "type": "object"
+}

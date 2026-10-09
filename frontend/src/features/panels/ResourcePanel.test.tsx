@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type {
   ArtifactPreview,
@@ -7,12 +8,19 @@ import type {
 } from '../../api/types';
 import ResourcePanel from './ResourcePanel';
 import { createPanelLayout } from './model';
+import { onResourcePanelRequest } from './panel-requests';
+import { OverlayProvider } from '../../ui/overlays';
 import { reconcilePanelPresentation } from './presentation';
 
 const store = vi.hoisted(() => ({
   state: {} as ClientState,
   listeners: new Set<() => void>(),
-  controller: { artifactPreview: vi.fn(), getSnapshot: vi.fn() },
+  controller: {
+    artifactPreview: vi.fn(),
+    getSnapshot: vi.fn(),
+    workspaceFor: vi.fn(),
+    intent: vi.fn(),
+  },
 }));
 vi.mock('../../runtime', async () => {
   const { useSyncExternalStore } = await import('react');
@@ -168,4 +176,86 @@ it('removes cached content if the refreshed preview rejects access', async () =>
   expect(screen.getByRole('alert')).toHaveTextContent(
     'Access to this design changed',
   );
+});
+
+it('deletes the design as shown, then asks the workspace to close its panels', async () => {
+  const user = userEvent.setup();
+  await open();
+  store.controller.workspaceFor.mockResolvedValue({
+    ...store.state.workspace,
+    revision: '7',
+  });
+  store.controller.intent.mockResolvedValue({
+    command_id: 'delete',
+    status: 'completed',
+  });
+  const requests = vi.fn();
+  const stop = onResourcePanelRequest(requests);
+  await screen.findByTitle('Page preview: First');
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete design…' }));
+  await user.click(
+    within(
+      await screen.findByRole('dialog', { name: 'Delete design?' }),
+    ).getByRole('button', { name: 'Delete design' }),
+  );
+  expect(store.controller.intent).toHaveBeenCalledWith(
+    'chat',
+    'resource.delete',
+    { binding_id: 'binding', expected_resource_revision: '1' },
+    '7',
+  );
+  expect(requests).toHaveBeenCalledWith({
+    conversationId: 'chat',
+    resourceRef: 'chat:binding',
+    close: true,
+  });
+  stop();
+});
+
+it('says how to finish when the design left its conversations but files stayed', async () => {
+  const user = userEvent.setup();
+  const panel = reconcilePanelPresentation(createPanelLayout(), {
+    conversationId: 'chat',
+    activeConversationId: 'chat',
+    resources: [resource()],
+    source: 'restore',
+  }).layout.panels[0];
+  await act(async () =>
+    render(
+      <OverlayProvider>
+        <ResourcePanel panel={panel} visible />
+      </OverlayProvider>,
+    ),
+  );
+  store.controller.workspaceFor.mockResolvedValue({
+    ...store.state.workspace,
+    revision: '7',
+  });
+  store.controller.intent.mockResolvedValue({
+    command_id: 'delete',
+    status: 'partial',
+    code: 'design_files_remain',
+  });
+  const requests = vi.fn();
+  const stop = onResourcePanelRequest(requests);
+  await screen.findByTitle('Page preview: First');
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete design…' }));
+  await user.click(
+    within(
+      await screen.findByRole('dialog', { name: 'Delete design?' }),
+    ).getByRole('button', { name: 'Delete design' }),
+  );
+  expect(
+    await screen.findByText(
+      "Saved design left its conversations, but some of its files couldn't be deleted. To finish, open it from Add resource › Open saved and choose Delete design again.",
+    ),
+  ).toBeInTheDocument();
+  expect(requests).toHaveBeenCalledWith({
+    conversationId: 'chat',
+    resourceRef: 'chat:binding',
+    close: true,
+  });
+  stop();
 });

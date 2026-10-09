@@ -1249,6 +1249,12 @@
     "ProfileChoice": {
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
         "id": {
           "maxLength": 128,
           "minLength": 1,

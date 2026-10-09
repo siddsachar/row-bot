@@ -32,11 +32,14 @@ const friendlyToolLabels: Record<string, string> = {
   row_bot_status: 'Row-Bot Status',
   row_bot_updater: 'Row-Bot Updater',
   url_reader: 'URL Reader',
-  web_search: 'Web Search',
+  web_search: 'Tavily web search',
   wolfram_alpha: 'Wolfram Alpha',
 };
 
-function friendlyToolLabel(id: string, label: string) {
+function friendlyToolLabel(id: string, label: string, source?: Source) {
+  // Row-Bot's own tools go by the names the Tools page gives them ("Tavily web search").
+  if (source === 'core' && friendlyToolLabels[id])
+    return friendlyToolLabels[id];
   const value = label.trim() || id;
   const normalized = value.toLowerCase();
   if (friendlyToolLabels[normalized]) return friendlyToolLabels[normalized];
@@ -278,8 +281,8 @@ export default function ToolCatalog({
                     <summary>
                       <span className="settings-catalog-row-main">
                         <strong>
-                          {friendlyToolLabel(tool.id, tool.label)} ·{' '}
-                          {sourceLabels[tool.source]}
+                          {friendlyToolLabel(tool.id, tool.label, tool.source)}{' '}
+                          · {sourceLabels[tool.source]}
                         </strong>
                         {(tool.parent_id ||
                           tool.plugin_id ||
@@ -295,7 +298,7 @@ export default function ToolCatalog({
                       </span>
                       <span
                         className="settings-summary-strip settings-catalog-row-state"
-                        aria-label={`${friendlyToolLabel(tool.id, tool.label)} saved state`}
+                        aria-label={`${friendlyToolLabel(tool.id, tool.label, tool.source)} saved state`}
                       >
                         <span className="status-chip">
                           {tool.enabled == null

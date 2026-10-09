@@ -18,6 +18,7 @@ import {
   fromApp,
   ItemCard,
   useAppCatalog,
+  yourItems,
 } from './parts';
 
 const NOUN = {
@@ -25,20 +26,47 @@ const NOUN = {
   skill: ['a skill', 'skills', 'Your skills'],
 } as const;
 
+/** What each page is for, in one line, and where the other one is. */
+const ABOUT = {
+  app: [
+    'Apps let Row-Bot use a service for you, like GitHub or Gmail. To teach it how to do a task, add a ',
+    'skill',
+    '/settings/skills',
+    '.',
+  ],
+  skill: [
+    'Skills teach Row-Bot how to do a task. Some work with an app, like GitHub, which you connect in ',
+    'Apps',
+    '/settings/apps',
+    '.',
+  ],
+} as const;
+
+/** One card per app: the ways you set up for one app (an account and a key, say) share its card. */
+function byApp(items: IntegrationEntry[]) {
+  const groups = new Map<string, IntegrationEntry[]>();
+  for (const entry of items) {
+    const key = entry.app ? `app:${entry.app.id}` : entry.id;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  return [...groups.values()];
+}
+
 function Cards({
-  items,
+  groups,
   revision,
 }: {
-  items: IntegrationEntry[];
+  groups: IntegrationEntry[][];
   revision?: string;
 }) {
   const catalog = useAppCatalog();
   return (
     <ul className="app-grid">
-      {items.map((entry) => (
+      {groups.map(([entry, ...others]) => (
         <ItemCard
           key={entry.id}
           entry={entry}
+          ways={[entry, ...others]}
           revision={revision}
           app={entry.app ? catalog.get(entry.app.id) : undefined}
         />
@@ -46,6 +74,8 @@ function Cards({
     </ul>
   );
 }
+
+const single = (items: IntegrationEntry[]) => items.map((entry) => [entry]);
 
 /** Apps home and the Skills library: yours first, then featured, then everything, all searched locally. */
 export default function Library({ kind }: { kind: 'app' | 'skill' }) {
@@ -80,21 +110,8 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   }, [draft, query, params, setParams]);
   useEffect(() => {
     const abort = new AbortController();
-    const all = async () => {
-      // Every installed item, page by page, so attention items are never cut off.
-      const items: IntegrationEntry[] = [];
-      let cursor: string | undefined;
-      do {
-        const value = await controller.integrationItems(
-          { scope: 'installed', kind, cursor },
-          abort.signal,
-        );
-        items.push(...value.items);
-        cursor = value.next_cursor ?? undefined;
-      } while (cursor && !abort.signal.aborted);
-      return items;
-    };
-    all().then(
+    // Every installed item, page by page, so attention items are never cut off.
+    yourItems(controller, kind, abort.signal).then(
       (items) => {
         // Items included in a package appear under it; skills from packages appear here too.
         const own = items.flatMap((item) =>
@@ -176,8 +193,25 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
       setBusy(false);
     }
   };
+  const lowered = query.toLowerCase();
+  // Yours, one card per app in Apps: found by any of its ways' names or the app's.
+  const mine = (kind === 'app' ? byApp : single)(installed ?? []).filter(
+    (group) =>
+      !query ||
+      group.some((entry) =>
+        `${entry.name} ${entry.app?.name ?? ''}`
+          .toLowerCase()
+          .includes(lowered),
+      ),
+  );
+  // An app already among yours is not listed again below: its page has its other ways to connect.
+  const have = new Set(
+    kind === 'app' ? mine.flat().map((entry) => entry.app?.id) : [],
+  );
   const shown = (page?.items ?? []).filter(
-    (entry) => !category || entry.app?.category === category,
+    (entry) =>
+      (!category || entry.app?.category === category) &&
+      !(entry.app && have.has(entry.app.id)),
   );
   const isFeatured = (entry: IntegrationEntry) =>
     kind === 'skill'
@@ -193,13 +227,10 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   // Found only in the community: one heading for them, not an empty one above.
   const onlyCommunity =
     Boolean(page) && !leading.length && community.length > 0;
-  const mine = (installed ?? []).filter(
-    (entry) =>
-      !query ||
-      `${entry.name} ${entry.app?.name ?? ''}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
+  // Everything found is already among yours: no "nothing matches" below it.
+  const onlyYours =
+    Boolean(page) && !rest.length && !featured.length && mine.length > 0;
+  const [about, other, otherHref, end] = ABOUT[kind];
   const actions = (
     <div className="button-row">
       {query && (
@@ -212,6 +243,11 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   );
   return (
     <div className="apps-library stack">
+      <p className="settings-help">
+        {about}
+        <Link to={otherHref}>{other}</Link>
+        {end}
+      </p>
       <div className="apps-toolbar">
         <label className="apps-search">
           <Search size={16} aria-hidden />
@@ -255,7 +291,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
       {mine.length > 0 && (
         <section aria-labelledby={`${headingId}-yours`}>
           <h3 id={`${headingId}-yours`}>{yours}</h3>
-          <Cards items={mine} />
+          <Cards groups={mine} />
         </section>
       )}
       {kind === 'app' && !query && (
@@ -280,10 +316,10 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
       {featured.length > 0 && (
         <section aria-labelledby={`${headingId}-featured`}>
           <h3 id={`${headingId}-featured`}>Featured</h3>
-          <Cards items={featured} revision={page?.revision} />
+          <Cards groups={single(featured)} revision={page?.revision} />
         </section>
       )}
-      {!onlyCommunity && (
+      {!onlyCommunity && !onlyYours && (
         <section aria-labelledby={`${headingId}-all`} aria-busy={!page}>
           <h3 id={`${headingId}-all`}>
             {query
@@ -303,7 +339,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
                 : `Add ${one} from a link or a file.`}
             </EmptyState>
           )}
-          <Cards items={leading} revision={page?.revision} />
+          <Cards groups={single(leading)} revision={page?.revision} />
         </section>
       )}
       {community.length > 0 && (
@@ -311,7 +347,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           <h3 id={`${headingId}-community`}>
             {onlyCommunity ? 'From the community' : 'More from the community'}
           </h3>
-          <Cards items={community} revision={page?.revision} />
+          <Cards groups={single(community)} revision={page?.revision} />
         </section>
       )}
       {(page?.next_cursor || (Boolean(page?.hidden) && !everything)) && (

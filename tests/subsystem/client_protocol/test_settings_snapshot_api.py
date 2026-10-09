@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from row_bot.api.v1.routes import create_client_platform_app
-from row_bot.api.v1.schemas import SettingsSnapshot
+from row_bot.api.v1.schemas import SettingsSnapshot, TrackerEntryPage
 from row_bot.api.v1.security import ClientSecurity
 from tests.subsystem.client_protocol.test_protocol_application import _isolated_service
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
@@ -1589,3 +1589,66 @@ def test_one_tracker_deletion_refuses_unknown_or_changed_trackers(api):
     assert connection.execute("SELECT COUNT(*) FROM trackers").fetchone()[0] == 2
     assert connection.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 3
     connection.close()
+
+
+TRACKER_ENTRIES = "/api/v1/settings/tracker/{}/entries"
+
+
+def test_one_tracker_opens_to_its_newest_entries_bounded_and_read_only(api):
+    client, headers, data, _ = api
+    path = _seed_tracker(data)
+    connection = sqlite3.connect(path)
+    connection.executemany(
+        "INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (f"more-{day}", "water", f"2026-03-{day:02d}T08:00:00", str(day),
+             "after the run" if day == 28 else None, "2026-03-01")
+            for day in range(1, 29)
+        ]
+        + [
+            (f"older-{hour}", "water", f"2026-01-01T{hour:02d}:00:00", "2", "x" * 5000,
+             "2026-01-01")
+            for hour in range(24)
+        ],
+    )
+    connection.commit()
+    connection.close()
+    before = _tree(data)
+
+    response = client.get(TRACKER_ENTRIES.format("water"), headers=headers)
+
+    assert response.status_code == 200, response.text
+    page = TrackerEntryPage.model_validate(response.json())
+    assert page.tracker_id == "water"
+    assert page.total == 53
+    assert len(page.items) == 50
+    assert [item.at for item in page.items[:3]] == [
+        "2026-03-28T08:00:00", "2026-03-27T08:00:00", "2026-03-26T08:00:00"
+    ]
+    assert page.items[0].value == "28" and page.items[0].note == "after the run"
+    assert page.items[1].note is None
+    # Newest first, so the oldest of the 53 are the ones left out.
+    assert page.items[28].at == "2026-01-02T09:00:00"
+    assert page.items[-1].at == "2026-01-01T03:00:00"
+    assert all(len(item.note or "") <= 1024 for item in page.items)
+    # Only this tracker's entries, and nothing that names a local path.
+    assert "2026-01-03T09:00:00" not in response.text
+    assert "tracker.db" not in response.text and str(data) not in response.text
+    assert _tree(data) == before
+
+
+def test_tracker_entries_refuse_unknown_trackers_without_reading_others(api):
+    client, headers, data, _ = api
+    missing_store = client.get(TRACKER_ENTRIES.format("water"), headers=headers)
+    assert missing_store.status_code == 404
+    assert missing_store.json()["code"] == "not_found"
+    assert not (data / "tracker").exists()
+
+    _seed_tracker(data)
+    for tracker_id in ("missing", "water' OR '1'='1", "w" * 129):
+        response = client.get(TRACKER_ENTRIES.format(tracker_id), headers=headers)
+        assert response.status_code == 404, tracker_id
+        assert response.json()["code"] == "not_found"
+    known = client.get(TRACKER_ENTRIES.format("water"), headers=headers).json()
+    assert [item["at"] for item in known["items"]] == ["2026-01-02T09:00:00"]
+    assert client.get(TRACKER_ENTRIES.format("water")).status_code == 401

@@ -1577,3 +1577,235 @@ it('sets up a built-in way in its own settings, scoped to it, with no plan of it
   ).toBeVisible();
   expect(controller.reviewInstallPlan).not.toHaveBeenCalled();
 });
+
+const githubApp = {
+  id: 'github',
+  name: 'GitHub',
+  publisher: 'GitHub',
+  category: 'developer' as const,
+  icon: 'si:github',
+  verified: true,
+  featured_rank: 1,
+};
+const githubAccount = entry({
+  id: 'builtin:account:github',
+  kind: 'builtin',
+  name: 'GitHub account',
+  app: githubApp,
+  source: 'builtin',
+  method: 'built_in',
+  publisher: 'Row-Bot',
+  installed: true,
+  enabled: true,
+  lifecycle: 'installed',
+  readiness: 'ready',
+  next_action: { kind: 'none', label: '' },
+});
+const githubKey = entry({
+  id: 'mcp:github',
+  name: 'github',
+  app: githubApp,
+  method: 'api_key',
+  installed: true,
+  enabled: true,
+  lifecycle: 'installed',
+  readiness: 'needs_key',
+  next_action: { kind: 'add_key', label: 'Add key' },
+});
+const fixCi = entry({
+  id: 'skill:featured:openai-gh-fix-ci',
+  kind: 'skill',
+  name: 'Fix failing CI',
+  description: 'Reads failing checks.',
+  app: githubApp,
+  method: '',
+  publisher: 'OpenAI',
+  next_action: { kind: 'add', label: 'Add' },
+});
+
+it('shows an app set up two ways as one card, and never lists it again below', async () => {
+  show('/settings/apps', {
+    integrationItems: vi.fn(async ({ scope }: { scope: string }) =>
+      scope === 'installed'
+        ? page([githubAccount, githubKey])
+        : page([
+            entry({
+              id: 'mcp:curated:github-hosted',
+              name: 'GitHub MCP',
+              app: githubApp,
+              method: 'api_key',
+              verified: true,
+            }),
+            entry(),
+          ]),
+    ),
+  });
+  expect(
+    await screen.findByText(/Apps let Row-Bot use a service for you/),
+  ).toBeVisible();
+  const yours = await screen.findByRole('region', { name: 'Your apps' });
+  const cards = within(yours).getAllByRole('link');
+  // One GitHub, saying both ways; the way that needs you opens.
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toHaveAccessibleName(
+    /^GitHub.*API key.*GitHub account.*Key needed/,
+  );
+  expect(cards[0]).toHaveAttribute(
+    'href',
+    expect.stringContaining('id=mcp%3Agithub'),
+  );
+  await screen.findByRole('link', { name: /^Notion/ });
+  expect(screen.getAllByRole('link', { name: /^GitHub/ })).toHaveLength(1);
+});
+
+it('finds an app you have by name once, without saying nothing matches', async () => {
+  show('/settings/apps?q=github', {
+    integrationItems: vi.fn(async ({ scope }: { scope: string }) =>
+      page(
+        scope === 'installed'
+          ? [githubAccount]
+          : [
+              entry({
+                id: 'mcp:curated:github-hosted',
+                name: 'GitHub MCP',
+                app: githubApp,
+                method: 'api_key',
+                verified: true,
+              }),
+            ],
+      ),
+    ),
+  });
+  const yours = await screen.findByRole('region', { name: 'Your apps' });
+  expect(
+    within(yours).getByRole('link', { name: /^GitHub.*GitHub account/ }),
+  ).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getAllByRole('link', { name: /^GitHub/ })).toHaveLength(1),
+  );
+  expect(screen.queryByText(/No apps match/)).toBeNull();
+});
+
+it('explains Skills against Apps in one line, and a skill card names the app it works with', async () => {
+  show('/settings/skills', {
+    integrationItems: vi.fn(async ({ scope }: { scope: string }) =>
+      page(scope === 'installed' ? [] : [fixCi]),
+    ),
+  });
+  expect(
+    await screen.findByRole('link', {
+      name: /^Fix failing CI.*Works with GitHub/,
+    }),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/Skills teach Row-Bot how to do a task/),
+  ).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Apps' })).toHaveAttribute(
+    'href',
+    '/settings/apps',
+  );
+});
+
+it('says on a skill whether the app it works with is connected, and opens that app', async () => {
+  const items = vi.fn(
+    async ({ scope, kind }: { scope: string; kind: string }) =>
+      page(scope === 'installed' && kind === 'app' ? [githubAccount] : []),
+  );
+  show('/settings/skills/item?id=skill%3Afeatured%3Aopenai-gh-fix-ci', {
+    integrationDetail: vi.fn(async () =>
+      detail({
+        entry: fixCi,
+        plan: null,
+        about: { ...detail().about, destination: '' },
+      }),
+    ),
+    integrationItems: items,
+  });
+  expect(
+    await screen.findByText('Works with GitHub, which is connected.'),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('link', { name: 'Open GitHub' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Location')).toHaveTextContent(
+      /^\/settings\/apps\/github$/,
+    ),
+  );
+});
+
+it('says when the app a skill works with is not connected yet', async () => {
+  show('/settings/skills/item?id=skill%3Afeatured%3Aopenai-gh-fix-ci', {
+    integrationDetail: vi.fn(async () => detail({ entry: fixCi, plan: null })),
+    integrationItems: vi.fn(async () => page([])),
+  });
+  expect(
+    await screen.findByText("Works with GitHub, which isn't connected yet."),
+  ).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute(
+    'href',
+    '/settings/apps/github',
+  );
+});
+
+it("lists on an app's page the skills made for it, and which of its ways are yours", async () => {
+  const value = detail({
+    entry: githubAccount,
+    plan: null,
+    about: {
+      ...detail().about,
+      ways: [
+        {
+          id: 'mcp:github',
+          name: 'GitHub MCP',
+          method: 'api_key',
+          verified: true,
+          publisher: 'GitHub',
+          supported: true,
+          recommended: true,
+        },
+        {
+          id: 'builtin:account:github',
+          name: 'GitHub account',
+          method: 'built_in',
+          verified: false,
+          publisher: 'Row-Bot',
+          supported: true,
+        },
+      ],
+    },
+  });
+  show('/settings/apps/item?id=builtin%3Aaccount%3Agithub', {
+    integrationDetail: vi.fn(async () => value),
+    integrationItems: vi.fn(
+      async ({ scope, kind }: { scope: string; kind: string }) =>
+        scope === 'installed'
+          ? page(kind === 'app' ? [githubAccount, githubKey] : [])
+          : page([
+              fixCi,
+              entry({
+                id: 'skill:featured:notes',
+                kind: 'skill',
+                name: 'Meeting minutes',
+                method: '',
+              }),
+            ]),
+    ),
+  });
+  const skills = (
+    await screen.findByRole('heading', { name: 'Skills for GitHub' })
+  ).closest('section') as HTMLElement;
+  expect(
+    within(skills).getByRole('link', { name: /^Fix failing CI/ }),
+  ).toHaveAttribute('href', expect.stringContaining('/settings/skills/item'));
+  expect(within(skills).queryByRole('link', { name: /^Meeting/ })).toBeNull();
+  const ways = screen
+    .getByRole('heading', { name: 'Ways to connect' })
+    .closest('section') as HTMLElement;
+  await waitFor(() =>
+    expect(
+      within(ways).getByRole('link', { name: /GitHub MCP.*Key needed/ }),
+    ).toBeVisible(),
+  );
+  // This way's own status is the heading's, said once.
+  expect(within(ways).queryAllByText('Ready')).toHaveLength(0);
+  expect(within(ways).getByText('This one')).toBeVisible();
+});

@@ -417,7 +417,7 @@ def test_the_apps_api_serves_a_5_0_0_folder(service, v5):  # noqa: F811
         assert response.status_code == 200, response.text
         items = {row["name"]: row for row in response.json()["items"]}
         assert {"Fixture Notes", "Fixture Docs", "Playwright MCP", "Old Tool", "Fixture Notes Pack", "Google account",
-                "X account", "GitHub account", "Telegram channel", "Web search"} <= set(items)
+                "X account", "GitHub account", "Telegram channel", "Tavily web search"} <= set(items)
         for name in ("Fixture Notes Pack", "Fixture Notes", "Google account"):
             detail = client.get("/api/v1/integrations/detail", params={"item_id": items[name]["id"]}, headers=headers)
             assert detail.status_code == 200, detail.text

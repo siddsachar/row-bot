@@ -214,7 +214,6 @@ export default function ResourceSetup({
   const setKind = (kind: SetupDraft['kind']) => update({ kind });
   const setMode = (mode: SetupDraft['mode']) => update({ mode });
   const setSelected = (selected: ResourceChoice | null) => update({ selected });
-  const setTemplate = (template: string) => update({ template });
   const setCanvas = (canvas: string) => update({ canvas });
   const setName = (name: string) => update({ name });
   const setBrief = (brief: string) => update({ brief });
@@ -1160,7 +1159,17 @@ export default function ResourceSetup({
                   <Select
                     disabled={busy}
                     value={template}
-                    onChange={(e) => setTemplate(e.target.value)}
+                    onChange={(e) => {
+                      // A template brings its own canvas (a desktop
+                      // dashboard, a square post); Advanced can change it.
+                      const own = currentOptions.templates.find(
+                        (item) => item.id === e.target.value,
+                      )?.canvas;
+                      update({
+                        template: e.target.value,
+                        ...(own ? { canvas: own } : {}),
+                      });
+                    }}
                   >
                     {currentOptions.templates.map((t) => (
                       <option key={t.id} value={t.id}>

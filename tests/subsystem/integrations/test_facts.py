@@ -95,6 +95,28 @@ def test_more_than_a_thousand_skills_are_listed(isolated, monkeypatch):
     assert page["total"] == 1500 and not page["sources"]
 
 
+def test_an_added_skill_says_which_app_it_works_with_as_its_catalog_card_did(isolated, monkeypatch):
+    from row_bot import skills
+    from row_bot.integrations import sources
+    from row_bot.skills_hub import provenance
+    from row_bot.skills_hub.models import SkillInstallRecord
+    items = {name: {"revision": "r", "skill": SimpleNamespace(name=name, display_name=title, description="", source="hub",
+                                                               version="")}
+             for name, title in (("gh-fix-ci", "Fix failing CI"), ("notes", "Notes"))}
+    monkeypatch.setattr(skills, "read_client_skills", lambda: {"items": items, "enabled": {"gh-fix-ci": True, "notes": True},
+                                                               "pinned": [], "revision": "r"})
+    monkeypatch.setattr(skills, "is_tool_guide", lambda skill: False)
+    added_from = sources.featured_install_ref(sources.featured_skills()["openai-gh-fix-ci"])
+    provenance.save_records({"gh-fix-ci": SkillInstallRecord(
+        local_name="gh-fix-ci", source="github", source_id="openai/skills", install_ref=added_from, installed_at="",
+        updated_at="", content_hash="", enabled=True, file_count=1, scan_summary={})})
+    found = {row["name"]: row for row in api.read_items(owner_id="owner", kind="skill", query="github")["items"]}
+    assert set(found) == {"Fix failing CI"}  # Found by its app's name; a skill with no app is not.
+    assert found["Fix failing CI"]["app"]["id"] == "github" and not found["Fix failing CI"]["verified"]
+    notes = api.read_items(owner_id="owner", kind="skill", query="notes")["items"]
+    assert [row["app"] for row in notes] == [None]
+
+
 def test_unfinished_change_is_reconciled_on_read_without_repeating_it(service, isolated, monkeypatch):
     from row_bot.runtime import admissions
     from tests.subsystem.client_protocol.test_mcp_configuration_api import client_for, review, send

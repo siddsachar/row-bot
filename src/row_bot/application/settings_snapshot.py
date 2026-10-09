@@ -47,7 +47,7 @@ _UTILITY_PRESENTATION = {
     "developer": ("Developer", "Read, change and run code in a conversation's code folder."),
 }
 _SEARCH_TOOL_PRESENTATION = {
-    "web_search": "Web Search",
+    "web_search": "Tavily web search",
     "duckduckgo": "DuckDuckGo",
     "wolfram_alpha": "Wolfram Alpha",
     "arxiv": "arXiv",
@@ -701,6 +701,74 @@ def _tracker(
         ],
     )
     return result
+
+
+_TRACKER_ENTRY_LIMIT = 50
+
+
+def read_tracker_entries(
+    tracker_id: str, *, validate: Callable[[], None] = lambda: None
+) -> dict[str, Any]:
+    """One saved tracker's newest entries: read-only, bounded, no paths."""
+
+    if not isinstance(tracker_id, str) or not 1 <= len(tracker_id) <= 128:
+        raise ValueError("not_found")
+    validate()
+    path = get_row_bot_data_dir(create=False).absolute() / "tracker" / "tracker.db"
+    if not path.is_file():
+        raise ValueError("not_found")
+    found = False
+    total = 0
+    rows: list[Any] = []
+    try:
+        connection = sqlite3.connect(
+            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+        )
+        try:
+            connection.execute("PRAGMA query_only = ON")
+            found = (
+                connection.execute(
+                    "SELECT 1 FROM trackers WHERE id = ?", (tracker_id,)
+                ).fetchone()
+                is not None
+            )
+            if found:
+                total = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM entries WHERE tracker_id = ?",
+                        (tracker_id,),
+                    ).fetchone()[0]
+                )
+                rows = connection.execute(
+                    """
+                    SELECT timestamp, value, notes
+                      FROM entries
+                     WHERE tracker_id = ?
+                  ORDER BY timestamp DESC, rowid DESC
+                     LIMIT ?
+                    """,
+                    (tracker_id, _TRACKER_ENTRY_LIMIT),
+                ).fetchall()
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        raise ValueError("settings_unavailable") from None
+    if not found:
+        raise ValueError("not_found")
+    validate()
+    return {
+        "schema_version": 1,
+        "tracker_id": tracker_id,
+        "total": max(0, total),
+        "items": [
+            {
+                "at": _text(row[0], 80),
+                "value": _text(row[1], 256),
+                "note": _text(row[2], 1024) or None,
+            }
+            for row in rows
+        ],
+    }
 
 
 def _knowledge(
@@ -1633,4 +1701,4 @@ def read_settings_snapshot(
     }
 
 
-__all__ = ["SETTING_DEFAULTS", "read_settings_snapshot"]
+__all__ = ["SETTING_DEFAULTS", "read_settings_snapshot", "read_tracker_entries"]

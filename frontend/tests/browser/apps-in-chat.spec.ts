@@ -175,7 +175,7 @@ test('accounts, channels and key tools are apps, set up in their own scoped sett
     // A built-in way goes by its own name: one way to its app, not the app itself.
     ['google', 'Google account', 'How to set up Google'],
     ['telegram', 'Telegram channel', 'Telegram'],
-    ['tavily', 'Web search', 'Web Search'],
+    ['tavily', 'Tavily web search', 'Tavily web search'],
   ] as const) {
     await page.goto(`/app-v2/settings/apps/${app}`);
     await expect(
@@ -186,7 +186,7 @@ test('accounts, channels and key tools are apps, set up in their own scoped sett
       // Tavily's hosted server is a way too; the page leads with the recommended one, its built-in
       // web search tool, and links to the others.
       await expect(ways.getByRole('listitem').first()).toContainText(
-        /Web search.*Built in.*Recommended.*This one/,
+        /Tavily web search.*Built in.*Recommended.*This one/,
       );
       await expect(
         ways.getByRole('link', { name: /Tavily MCP Hosted/ }),

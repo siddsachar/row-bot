@@ -389,13 +389,14 @@ def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], 
     return (added, {"cfg": plans._saved(added["target"], added["owner_ref"])[1]}) if added else listed
 
 
-def _already_added(row: dict) -> dict | None:
-    """The connection saved from this catalog entry (any version of a Registry entry), if there is one."""
+def _already_added(row: dict, installed: list[dict] | None = None) -> dict | None:
+    """The connection saved from this catalog entry (any version of a Registry entry), if there is one.
+    ``installed``: what is set up here, when the caller has already read it."""
     if row["kind"] != "mcp" or row["lifecycle"] != "available":
         return None
     source, _, entry_id = row["id"].removeprefix("mcp:").partition(":")
     name = entry_id.rpartition("@")[0] if source == "official" else ""
-    for item in facts.inventory()[0]:
+    for item in facts.inventory()[0] if installed is None else installed:
         if item["kind"] == "mcp" and item["lifecycle"] != "available" and item["target"] in (None, {"kind": "standalone"}):
             saved = plans._saved(item["target"], item["owner_ref"])[1].get("source") or {}
             if saved.get("marketplace") == source and (saved.get("id") == entry_id or name and saved.get("registry_name") == name):
@@ -403,9 +404,20 @@ def _already_added(row: dict) -> dict | None:
     return None
 
 
+def _yours(row: dict, installed: list[dict]) -> str:
+    """The item a catalog way was already set up as here (a connection saved from it, or the package
+    added from its pin), so the way opens that one; otherwise its own id."""
+    added = _already_added(row, installed)
+    if added is None and row["kind"] == "plugin" and row["canonical_identity"]:
+        added = next((item for item in installed if item["kind"] == "plugin"
+                      and item["canonical_identity"] == row["canonical_identity"]), None)
+    return added["id"] if added is not None else row["id"]
+
+
 def _ways(row: dict) -> list[dict]:
     """Every way to connect this item's app, from local catalogs only: vendor-published first, then
-    the ones Row-Bot can set up completely, hosted before local."""
+    the ones Row-Bot can set up completely, hosted before local. A way already set up here is listed as
+    the item it was set up as (a built-in way is the same item either way)."""
     from row_bot.integrations import apps, index
     from row_bot.mcp_client.marketplace import CURATED_STARTER_CATALOG
     app = apps.catalog()[0].get((row["app"] or {}).get("id", ""))
@@ -424,14 +436,16 @@ def _ways(row: dict) -> list[dict]:
                  if apps.match(["hermes:" + e["id"].removeprefix("hermes:"), *apps.repository_refs(e["url"])]) is app]
     except (OSError, ValueError, KeyError):
         pass
+    installed = [item for item in facts.inventory()[0] if item["lifecycle"] != "available"]
     found, seen = [], set()
     for row in sorted((facts.finish(r) for r in rows), key=lambda r: catalog.way_order(r, app)):
         way = entry(row)
         identity = row["canonical_identity"] or way["id"]
-        if identity in seen:
+        opens = _yours(row, installed)
+        if identity in seen or opens in seen:
             continue
-        seen.add(identity)
-        found.append({"id": way["id"], "name": way["name"], "method": way["method"], "verified": way["verified"],
+        seen.update((identity, opens))
+        found.append({"id": opens, "name": way["name"], "method": way["method"], "verified": way["verified"],
                       "publisher": way["publisher"], "supported": way["compatibility"] != "unsupported"})
     for index_, way in enumerate(found[:24]):
         way["recommended"] = index_ == 0 and way["supported"]

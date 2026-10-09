@@ -124,6 +124,16 @@ def test_featured_skills_open_discover_and_are_added_from_their_pinned_source_af
                for s in sources.featured_skills().values())
 
 
+def test_a_skill_made_for_an_app_is_found_by_the_apps_name_and_never_reads_as_the_apps_own(skills):
+    skills(Fake("clawhub", []))
+    found = {row["name"]: row for row in search("GitHub", "featured_skills")}
+    # "PR writer" never says GitHub itself; the app it is made for does.
+    assert {"PR writer", "Fix failing CI", "Address PR comments"} <= set(found)
+    assert {found[name]["app"]["id"] for name in ("PR writer", "Fix failing CI")} == {"github"}
+    assert not any(row["verified"] or row["app"]["verified"] for row in found.values() if row["app"])
+    assert "Supabase" not in found
+
+
 def test_a_skill_consent_names_the_skill_not_its_app():
     row, reference = sources.catalog_entry("skill:featured:anthropic-skill-creator")
     row["app"] = {"id": "github", "name": "GitHub"}

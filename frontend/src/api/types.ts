@@ -1319,6 +1319,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ToolCatalogPage>;
   settingsSnapshot?(signal?: AbortSignal): Promise<Wire.SettingsSnapshot>;
+  trackerEntries?(
+    trackerId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.TrackerEntryPage>;
   reviewSettingsMutation?(
     body: Wire.SettingsMutationRequest,
     signal?: AbortSignal,

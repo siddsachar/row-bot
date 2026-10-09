@@ -467,7 +467,22 @@ export default function ComposerControls({
                         value={item.id}
                         className="menu-item"
                       >
-                        <span className="menu-item-label">{item.label}</span>
+                        <span className="menu-item-label">
+                          {item.label}
+                          {item.description && (
+                            // One muted line, cut short within the menu's width.
+                            <small
+                              title={item.description}
+                              style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {item.description}
+                            </small>
+                          )}
+                        </span>
                         <Dropdown.ItemIndicator>
                           <Check size={16} aria-hidden />
                         </Dropdown.ItemIndicator>

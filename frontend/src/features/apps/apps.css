@@ -404,6 +404,9 @@ a.app-way:hover {
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }
+.app-way > .status-indicator {
+  flex: none;
+}
 .plan-review-items {
   display: grid;
   gap: var(--space-1);

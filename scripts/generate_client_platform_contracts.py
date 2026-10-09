@@ -43,7 +43,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
-    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
+    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
     "ProviderCredentialState", "ProviderSettingsReviewRequest", "ProviderSettingsReview", "ProviderSettingsReceipt",
@@ -396,6 +396,7 @@ OPERATIONS = (
     ("post", "/settings/snapshot/review", "SettingsMutationRequest", "SettingsMutationReview"),
     ("get", "/settings/snapshot/commands/{command_id}", None, "SettingsMutationReceipt"),
     ("post", "/settings/snapshot/commands", "SettingsMutationCommand", "SettingsMutationReceipt"),
+    ("get", "/settings/tracker/{tracker_id}/entries", None, "TrackerEntryPage"),
     ("get", "/settings/models", None, "CachedModelPage"),
     ("get", "/settings/models/state", None, "ModelsSettingsState"),
     ("post", "/settings/models/surface", "ModelSurfaceMutation", "ModelsSettingsState"),
@@ -770,6 +771,8 @@ export const getSettingsMutationReceipt = (base: string, proof: SessionProof, co
   jsonRequest(base, `/settings/snapshot/commands/${id(command)}`, 'SettingsMutationReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendSettingsMutation = (base: string, proof: SessionProof, command: SettingsMutationCommand, signal?: AbortSignal): Promise<SettingsMutationReceipt> =>
   jsonRequest(base, '/settings/snapshot/commands', 'SettingsMutationReceipt', proof, 'POST', command, command.command_id, signal);
+export const getTrackerEntries = (base: string, proof: SessionProof, tracker: string, signal?: AbortSignal): Promise<TrackerEntryPage> =>
+  jsonRequest(base, `/settings/tracker/${id(tracker)}/entries`, 'TrackerEntryPage', proof, 'GET', undefined, undefined, signal);
 export const getSavedTasks = (base: string, proof: SessionProof, search = '', enabled?: boolean, cursor?: string, signal?: AbortSignal): Promise<TaskSummaryPage> =>
   jsonRequest(base, '/tasks' + query({query:search, enabled: enabled === undefined ? undefined : String(enabled), cursor}), 'TaskSummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getTaskDeliveryDefaults = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<TaskDeliverySnapshot> =>

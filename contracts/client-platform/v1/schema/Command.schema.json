@@ -7549,6 +7549,68 @@
       "title": "ResourceContinueCommand",
       "type": "object"
     },
+    "ResourceDeleteCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResourceDeletePayload"
+        },
+        "type": {
+          "const": "resource.delete",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceDeleteCommand",
+      "type": "object"
+    },
+    "ResourceDeletePayload": {
+      "additionalProperties": false,
+      "description": "Delete a bound design for good, as the person confirmed it.\n\nIt leaves every conversation using it, then its pages, versions and files\ngo; conversations keep their messages.",
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "expected_resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Expected Resource Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "expected_resource_revision"
+      ],
+      "title": "ResourceDeletePayload",
+      "type": "object"
+    },
     "ResourceDiscardCommand": {
       "additionalProperties": false,
       "properties": {
@@ -11278,6 +11340,7 @@
       "provider.subscription.start": "#/$defs/ProviderSubscriptionStartCommand",
       "provider.subscription.submit": "#/$defs/ProviderSubscriptionSubmitCommand",
       "resource.continue": "#/$defs/ResourceContinueCommand",
+      "resource.delete": "#/$defs/ResourceDeleteCommand",
       "resource.discard": "#/$defs/ResourceDiscardCommand",
       "resource.forget": "#/$defs/ResourceForgetCommand",
       "resource.rename": "#/$defs/ResourceRenameCommand",
@@ -11384,6 +11447,9 @@
     },
     {
       "$ref": "#/$defs/ResourceForgetCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceDeleteCommand"
     },
     {
       "$ref": "#/$defs/AgentStopCommand"
