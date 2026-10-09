@@ -57,7 +57,16 @@ _DESTRUCTIVE_WORDS = set(re.search(r"\(\^\|_\)\(([a-z|]+)\)\(_\|\$\)", _DESTRUCT
 # High-impact words that are also what a read returns: get_commit reads a commit, get_workflow_run a run,
 # get_order an order. Only as the name's verb ("commit_changes", "run_query") are they changes.
 _READ_OBJECTS = {"commit", "run", "order", "post", "comment", "share", "invite", "book", "charge", "payment", "reply",
-                 "command", "merge", "push", "deploy", "upload", "permission", "permissions"}
+                 "command", "merge", "push", "deploy", "upload", "permission"}
+# Straight after the read verb, a singular object is a noun only last or before one of these ("get_commit_status");
+# otherwise it may be a second verb ("search_book_flight"). After another word it is part of a noun ("workflow run").
+_NOUN_AFTER = {"id", "ids", "detail", "details", "status", "statuses", "log", "logs", "info", "history", "items",
+               "files", "metadata", "summary", "count", "artifacts", "usage", "jobs", "comments", "reviews"}
+# In a description, an object is a noun after one of these ("for a commit", "a specific workflow run"), never
+# straight after a joining word ("or post a new one").
+_BEFORE_A_NOUN = {"a", "an", "the", "each", "this", "that", "its", "their", "your", "one", "of", "for", "by", "from",
+                  "about", "specific", "given"}
+_JOINING = {"and", "then", "or", "to"}
 _SAYS_A_CHANGE = _any_form(_ROUTINE_RE, extra=("replace", "clear"))
 HINTS = ("readOnlyHint", "destructiveHint")  # The annotations Row-Bot weighs; a saved catalog keeps them (B307).
 
@@ -125,16 +134,51 @@ def saved_hints(value: Any) -> dict[str, bool] | None:
     return value if valid else None
 
 
+def _object(word: str) -> tuple[str, bool] | None:
+    """The read object a word names and whether it is plural ("commits": ("commit", True)), or None."""
+    if word in _READ_OBJECTS:
+        return word, False
+    base = next((base for base in (word[:-1], word[:-2]) if base in _READ_OBJECTS and word in (base + "s", base + "es")),
+                None)
+    return (base, True) if base else None
+
+
 def _read_objects(name: str) -> set[str] | None:
     """What a plain read names as its object ("get_commit": {"commit"}, "list_commits": {"commit"}), or None when the
-    name is not a plain read: no read verb first, a second verb joined on ("get_and_push"), or a high-impact word
-    that is not something a read returns ("read_delete_log")."""
+    name is not a plain read: no read verb first, a joining word ("get_and_push", "fetch_to_upload"), a singular
+    object word where a verb could stand ("search_book_flight"), or a high-impact word that is not something a read
+    returns ("read_delete_log")."""
     words = name.split("_")
-    if not _READ_RE.match(name) or {"and", "then", "or"} & set(words):
+    if not _READ_RE.match(name) or _JOINING & set(words):
         return None
-    if any(word in _DESTRUCTIVE_WORDS and word not in _READ_OBJECTS for word in words[1:]):
-        return None
-    return {base for word in words[1:] for base in (word, word[:-1], word[:-2]) if base in _READ_OBJECTS}
+    objects = set()
+    for index, word in enumerate(words[1:], 1):
+        found = _object(word)
+        if found is None:
+            if word in _DESTRUCTIVE_WORDS:
+                return None
+            continue
+        base, plural = found
+        after = words[index + 1] if index + 1 < len(words) else ""
+        if not plural and index == 1 and after and after not in _NOUN_AFTER:
+            return None
+        objects.add(base)
+    return objects
+
+
+def _without_objects(words: str, objects: set[str]) -> str:
+    """A read's description without the objects it names as nouns ("Get details for a commit"), so only what it
+    says it does is weighed; "or post a new one" keeps its verb."""
+    kept = []
+    parts = words.split("_")
+    for index, word in enumerate(parts):
+        found = _object(word)
+        if found and found[0] in objects and (index == 0 or parts[index - 1] not in _JOINING) and (
+                found[1] or _BEFORE_A_NOUN & set(parts[max(0, index - 3):index])
+                or (index + 1 < len(parts) and parts[index + 1] in _NOUN_AFTER)):
+            continue
+        kept.append(word)
+    return "_".join(kept)
 
 
 def _classify(tool_name: str, description: str, tool: Any) -> str:
@@ -166,8 +210,7 @@ def _classify(tool_name: str, description: str, tool: Any) -> str:
         # Any other change or high-impact word in its description and it asks first (never runs on its own).
         said = _RUNS_A_READ.sub("_", words)
         if objects:  # What it reads ("Get details for a commit") is what it returns, not something it does.
-            forms = sorted({form for base in objects for form in (base, base + "s", base + "es")})
-            said = re.sub(r"(^|_)(" + "|".join(forms) + r")(?=_|$)", "_", said)
+            said = _without_objects(said, objects)
         return "unknown" if _SAYS_HIGH_IMPACT.search(said) or _SAYS_A_CHANGE.search(said) else "read_only"
     return "high_impact" if _SAYS_HIGH_IMPACT.search(words) else "unknown"
 

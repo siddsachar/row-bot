@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import threading
 from uuid import uuid4
 
 import pytest
@@ -43,12 +44,18 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setattr(threads, "checkpointer", threads._DeletionAwareSqliteSaver(connection))
     monkeypatch.setattr(tools, "get_enabled_tools", lambda: [])
     result = _isolated_service()
+    before = set(threading.enumerate())
     yield result
     result.registry.shutdown()
     for handle in result.registry.active():
         assert handle.producer_done.wait(5)
     # A finished turn's page refresh can still be reading this connection.
     assert settle_background(10), "Fixture left background work running"
+    # Nor does a turn's own thread (a queued follow-up's too) outlive the test into the next data folder.
+    for thread in set(threading.enumerate()) - before:
+        if thread.name.startswith("row-bot-"):
+            thread.join(10)
+            assert not thread.is_alive(), f"{thread.name} outlived its test"
     connection.close()
 
 

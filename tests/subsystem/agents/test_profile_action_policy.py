@@ -676,6 +676,23 @@ def test_an_approval_reads_structured_arguments_in_words(runtime, monkeypatch):
                                        "sku B2, qty 1', note='first batch', rush=True")
 
 
+def test_an_approval_shows_an_empty_nested_value_and_keeps_list_items_apart(runtime, monkeypatch):
+    """A nested empty value is still sent (it can clear a field), so the approval says so; a list item holding a
+    comma stays one item."""
+    asked = []
+
+    def update_items(items: list[dict], tags: list[str]) -> str:
+        return "updated"
+
+    tool = StructuredTool.from_function(func=update_items, name="mcp_shop_update_items", description="Update items")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    tool.invoke({"items": [{"title": "Done", "status": None}], "tags": ["a, b", "c"]})
+    assert asked[0]["description"] == ("mcp_shop_update_items: items='title Done, status empty', "
+                                       "tags='\"a, b\", c'")
+
+
 def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypatch):
     """Allow all lets routine actions run; an app tool that is destructive or of unknown effect still asks,
     and says so, so an unattended run waits for the person instead of approving it."""

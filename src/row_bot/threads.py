@@ -1855,10 +1855,13 @@ def migrate_checkpoint_message_ids(thread_id: str) -> str:
         return revision
 
 
-def append_checkpoint_messages(thread_id: str, messages: list) -> bool:
-    """Append simple chat messages to checkpoint storage without constructing a graph."""
+def append_checkpoint_messages(thread_id: str, messages: list, *, retry_text: str = "") -> bool:
+    """Append simple chat messages to checkpoint storage without constructing a graph.
+
+    With ``retry_text``, a retry runs in place: the last turn is replaced in the same write when the person's
+    last message is that text and it ran no tool (``_retried_turn``); otherwise the messages are appended."""
     with checkpoint_mutation(thread_id):
-        return _append_checkpoint_messages_locked(thread_id, messages)
+        return _append_checkpoint_messages_locked(thread_id, messages, retry_text=retry_text)
 
 
 def answer_open_tool_calls(thread_id: str, reason: str, then: list | None = None) -> bool:
@@ -1939,7 +1942,7 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
     return {}
 
 
-def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
+def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_text: str = "") -> bool:
     if not thread_id or not messages or _thread_write_blocked(thread_id):
         return False
     try:
@@ -1954,6 +1957,9 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
         existing = channel_values.get("messages", [])
         if not isinstance(existing, list):
             existing = []
+        retried = _retried_turn(existing, retry_text) if retry_text else None
+        if retried is not None:
+            existing = existing[:retried]
         by_id = {str(message.id): message for message in existing if getattr(message, "id", None)}
         accepted = []
         for message in messages:
@@ -1986,7 +1992,8 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
         checkpointer.put(
             put_config,
             next_checkpoint,
-            {"source": "chat_only", "step": _version_to_int(next_version), "writes": {"messages": len(messages)}},
+            {"source": "retry" if retried is not None else "chat_only", "step": _version_to_int(next_version),
+             "writes": {"messages": len(messages)}},
             {"messages": next_version},
         )
         logger.debug("Appended %d checkpoint message(s) for thread %s", len(messages), str(thread_id)[:8])
@@ -2087,7 +2094,9 @@ def remove_latest_checkpoint_ai_message(thread_id: str, expected_text: str) -> b
 
 
 def _message_text(message) -> str:
-    content = getattr(message, "content", "")
+    """What the person wrote: an admitted message keeps it beside the prepared text (attachment context)."""
+    public = (getattr(message, "additional_kwargs", None) or {}).get("platform_public_content")
+    content = public if isinstance(public, str) else getattr(message, "content", "")
     if isinstance(content, list):
         content = "\n".join(
             str(item.get("text") or "") if isinstance(item, dict) else str(item)
@@ -2097,55 +2106,18 @@ def _message_text(message) -> str:
     return str(content or "").strip()
 
 
-def drop_last_turn(thread_id: str, expected_text: str) -> bool:
-    """Retry in place: remove the latest turn (the person's last message and everything after it) when that
-    message is ``expected_text``, so sending it again runs it again instead of adding a second copy. False, and
-    nothing changes, when the person's last message is something else."""
-    expected = str(expected_text or "").strip()
-    if not thread_id or not expected:
-        return False
-    with checkpoint_mutation(thread_id):
-        try:
-            from langgraph.checkpoint.base import empty_checkpoint
-
-            config = {"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}}
-            checkpoint_tuple = checkpointer.get_tuple(config)
-            parent_config = getattr(checkpoint_tuple, "config", None) if checkpoint_tuple else None
-            checkpoint = getattr(checkpoint_tuple, "checkpoint", None) if checkpoint_tuple else None
-            checkpoint, _changed = _normalize_checkpoint_versions(checkpoint)
-            channel_values = dict(checkpoint.get("channel_values", {})) if isinstance(checkpoint, dict) else {}
-            existing = channel_values.get("messages", [])
-            if not isinstance(existing, list):
-                return False
-            human = next((index for index in range(len(existing) - 1, -1, -1)
-                          if str(getattr(existing[index], "type", "") or "") == "human"), -1)
-            if human < 0 or _message_text(existing[human]) != expected:
-                return False
-            removed_count = len(existing) - human
-            channel_values["messages"] = existing[:human]
-
-            next_checkpoint = empty_checkpoint()
-            next_checkpoint["channel_values"] = channel_values
-            channel_versions = dict(checkpoint.get("channel_versions", {}))
-            next_version = checkpointer.get_next_version(channel_versions.get("messages"), None)
-            channel_versions["messages"] = next_version
-            next_checkpoint["channel_versions"] = channel_versions
-            next_checkpoint["versions_seen"] = dict(checkpoint.get("versions_seen", {}))
-            next_checkpoint["pending_sends"] = []
-            put_config = parent_config or config
-            put_config.setdefault("configurable", {})
-            put_config["configurable"].setdefault("thread_id", str(thread_id))
-            put_config["configurable"].setdefault("checkpoint_ns", "")
-            checkpointer.put(
-                put_config,
-                next_checkpoint,
-                {"source": "retry", "step": _version_to_int(next_version), "writes": {"messages": -removed_count}},
-                {"messages": next_version},
-            )
-            return True
-        except Exception:
-            logger.warning("Could not set the last turn aside to retry it in thread %s", thread_id, exc_info=True)
-            return False
+def _retried_turn(existing: list, text: str) -> int | None:
+    """Where the turn a retry replaces starts: the person's last message, when it is ``text`` and nothing after
+    it called a tool. A step that already ran stays on record (the person can check what changed, the model
+    knows it ran), so that retry is sent as a new message instead."""
+    human = next((index for index in range(len(existing) - 1, -1, -1)
+                  if str(getattr(existing[index], "type", "") or "") == "human"), None)
+    if human is None or not text.strip() or _message_text(existing[human]) != text.strip():
+        return None
+    if any(getattr(message, "type", "") == "tool" or getattr(message, "tool_calls", None)
+           for message in existing[human + 1:]):
+        return None
+    return human
 
 
 def pick_or_create_thread() -> dict:

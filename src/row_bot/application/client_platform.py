@@ -283,8 +283,11 @@ class ClientPlatformService:
                         cancel_scope: Any = None, queued_pass_id: str = "", queue_context: dict | None = None,
                         resume_pending: bool = False,
                         attachments: list[dict[str, Any]] | None = None,
-                        note: str = "") -> Any:
-        """Single admission path for every conversation turn."""
+                        note: str = "", retry: bool = False) -> Any:
+        """Single admission path for every conversation turn.
+
+        ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
+        admits the new one, after every check has passed (``threads.append_checkpoint_messages``)."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -323,9 +326,10 @@ class ClientPlatformService:
                 # the model reads the prompt.
                 public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
             first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
+            retry_text = text if retry and text is not None and not note and not self._approval_waiting(conversation_id) else ""
             if text is not None and not threads.append_checkpoint_messages(
-                    conversation_id, [HumanMessage(content=text, id=submission_id,
-                                                   additional_kwargs=public_metadata)]):
+                    conversation_id, [HumanMessage(content=text, id=submission_id, additional_kwargs=public_metadata)],
+                    retry_text=retry_text):
                 raise ClientPlatformError("checkpoint_unavailable")
             if first_message:
                 # Named before the cut is published, so pages re-reading it see the name (B230).
@@ -1074,8 +1078,6 @@ class ClientPlatformService:
             self.projection.publish(target, "resource.changed", {"revision": str(resources.revision)})
             return {"conversation_id": target, "revision": str(resources.revision), "status": "completed"}
         if kind in {"conversation.submit", "conversation.resume"}:
-            if kind == "conversation.submit" and payload.get("retry"):
-                self._set_last_turn_aside(target, str(payload.get("text") or ""))
             if kind == "conversation.resume":
                 from row_bot.tasks import _get_conn
                 with _get_conn() as conn:
@@ -1120,19 +1122,13 @@ class ClientPlatformService:
             }
         raise ClientPlatformError("invalid_command")
 
-    def _set_last_turn_aside(self, conversation_id: str, text: str) -> None:
-        """Retry in place: the last turn (the person's message and what followed it) is set aside, so sending
-        the same message again runs it again instead of adding a second copy. Only while nothing runs or waits
-        on an approval; otherwise, or when the last message is something else, it is sent as a new message."""
-        from row_bot import threads
+    @staticmethod
+    def _approval_waiting(conversation_id: str) -> bool:
+        """An approval of any kind waits in this conversation: a retry then never replaces its turn."""
         from row_bot.tasks import _get_conn
-        if self.registry.active(conversation_id):
-            return
         with _get_conn() as conn:
-            waiting = conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND status='pending'",
-                                   (conversation_id,)).fetchone()
-        if not waiting and threads.drop_last_turn(conversation_id, text):
-            self._refresh_checkpoint(conversation_id)
+            return conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND status='pending'",
+                                (conversation_id,)).fetchone() is not None
 
     def stop_conversation(self, conversation_id: str, generation_id: str = "") -> dict:
         """Stop a conversation's turn, and the computer use it holds.
@@ -1314,7 +1310,8 @@ class ClientPlatformService:
         handle = self.admit_execution(conversation_id, config, text=None if resume else text,
             queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
             resume_pending=resume, attachments=None if resume else attachment_views,
-            note=followup.note if followup is not None else "")
+            note=followup.note if followup is not None else "",
+            retry=not resume and queue_record is None and followup is None and payload.get("retry") is True)
         handle.followups = True
         if not resume and frozen_context is None and queue_record is None and followup is None and command_id:
             from row_bot.application.conversation_drafts import consume_admitted_draft

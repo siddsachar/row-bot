@@ -568,18 +568,25 @@ export function approvalAction(name: string, app?: ToolApp): string {
 const ARGUMENT =
   /(\w+)=('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^,'"]*)(?:, (?=\w+=)|$)/y;
 
-/** A tool argument in words: `[{"sku": "A1", "qty": 2}]` reads "sku A1, qty 2"; every value is kept. */
+/**
+ * A tool argument in words: `[{"sku": "A1", "qty": 2}]` reads "sku A1, qty 2". Every value is kept, an empty
+ * one too (it is still sent: it can clear a field), and a list item holding a separator is quoted.
+ */
 export function readableValue(value: unknown, nested = false): string {
   if (Array.isArray(value)) {
     const structured = value.some((item) => item && typeof item === 'object');
     const text = value
-      .map((item) => readableValue(item))
+      .map((item) =>
+        typeof item === 'string' && /[,;]/.test(item)
+          ? `"${item}"`
+          : readableValue(item),
+      )
       .join(structured ? '; ' : ', ');
     return nested && structured ? `(${text})` : text;
   }
   if (value && typeof value === 'object') {
     const text = Object.entries(value)
-      .filter(([, item]) => item !== null && item !== undefined)
+      .filter(([, item]) => item !== undefined)
       .map(
         ([key, item]) =>
           `${key.replace(/_/g, ' ')} ${readableValue(item, true)}`,
@@ -588,7 +595,7 @@ export function readableValue(value: unknown, nested = false): string {
     return nested ? `(${text})` : text;
   }
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  return String(value ?? '');
+  return value === null ? 'empty' : String(value ?? '');
 }
 
 function unquote(value: string): string {

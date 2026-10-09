@@ -1,15 +1,16 @@
 """Retry runs the last message again in place.
 
 Found live: Retry and "Send again" added a second copy of the person's message under the first. A retry
-sets the last turn aside (the message and whatever followed it) and runs the same message again, so the
-transcript shows it once. The real graph and platform run here; only the model is a fake.
+replaces the last turn (the message and whatever followed it) in the same write that admits it again, so the
+transcript shows it once. A retry the server refuses changes nothing, and a turn whose tool steps already ran
+stays on record. The real graph and platform run here; only the model is a fake.
 """
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 import pytest
 
@@ -86,11 +87,43 @@ def test_retry_runs_the_last_message_again_in_place(platform, turns):
     assert platform.transcript("conversation-a")["rows"][-1]["blocks"][0]["text"] == "Your apps are fine."
 
 
-def test_only_the_message_being_retried_is_set_aside(platform):
-    from row_bot import threads
+def _answered(text: str = "Check my apps", *, tool: bool = False) -> None:
+    from row_bot import agent_runs, threads
 
-    assert threads.append_checkpoint_messages("conversation-a", [HumanMessage(id="first", content="First question"),
-                                                                 AIMessage(id="answer", content="An answer")])
-    assert threads.drop_last_turn("conversation-a", "Another question") is False  # Sent as a new message.
-    assert threads.drop_last_turn("conversation-a", "First question") is True
-    assert threads.drop_last_turn("conversation-a", "First question") is False  # Nothing left to set aside.
+    agent_runs.ensure_agent_run_schema(force=True)  # A chat with an answer checks its goal before the next turn.
+
+    steps = [AIMessage(id="call", content="", tool_calls=[{"id": "t1", "name": "create_issue", "args": {}}]),
+             ToolMessage(id="result", tool_call_id="t1", content="Issue 12 created.")] if tool else []
+    assert threads.append_checkpoint_messages("conversation-a", [
+        HumanMessage(id="first", content=text), *steps, AIMessage(id="answer", content="Something went wrong.")])
+
+
+def test_a_retry_the_server_refuses_keeps_the_turn(platform, turns):
+    from row_bot.application.client_platform import ClientPlatformError
+
+    platform.stream_factory, platform.resume_factory = turns
+    _answered()
+    with pytest.raises(ClientPlatformError):  # Another conversation's attachment: refused before admission.
+        _submit(platform, "refused", retry=True, attachment_refs=["conversation-b:file"])
+    assert _people(platform) == ["Check my apps"]
+    assert platform.transcript("conversation-a")["rows"][-1]["blocks"][0]["text"] == "Something went wrong."
+
+
+def test_a_turn_whose_tools_ran_stays_on_record_and_the_retry_is_a_new_message(platform, turns):
+    platform.stream_factory, platform.resume_factory = turns
+    _answered(tool=True)
+
+    _submit(platform, "after-tools", retry=True)
+
+    assert _people(platform) == ["Check my apps", "Check my apps"]
+    texts = [block.get("text", "") for row in platform.transcript("conversation-a")["rows"] for block in row["blocks"]]
+    assert "Something went wrong." in texts  # The step and its outcome are still there to check.
+
+
+def test_a_retry_of_another_message_is_sent_as_a_new_message(platform, turns):
+    platform.stream_factory, platform.resume_factory = turns
+    _answered("First question")
+
+    _submit(platform, "other", retry=True)
+
+    assert _people(platform) == ["First question", "Check my apps"]

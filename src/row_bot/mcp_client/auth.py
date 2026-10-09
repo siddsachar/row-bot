@@ -256,12 +256,14 @@ def _session_end(method: str, address: str, endpoint: str) -> bool:
 
 
 _READS = {"read", "readonly", "search", "view", "list", "get", "history"}
+# Any of these anywhere in a scope's name and it can change something ("read_write", "view_and_edit:files").
+_CHANGES = {"write", "edit", "manage", "admin", "delete", "create", "update"}
 _ACCOUNT = {"openid", "profile", "email", "offline_access"}
 
 
 def _reads(name: str) -> bool:
     words = re.split(r"[:./_-]", name.lower())
-    return name.lower() in _ACCOUNT or bool({words[0], words[-1]} & _READS)
+    return name.lower() in _ACCOUNT or (bool({words[0], words[-1]} & _READS) and not _CHANGES & set(words))
 
 
 def read_scope(scope: str) -> str:

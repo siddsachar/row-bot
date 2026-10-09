@@ -3652,19 +3652,21 @@ _DESTRUCTIVE_LABELS: dict[str, str] = {
 
 def _readable(value, nested: bool = False) -> str:
     """A structured argument in words for the approval line: ``[{"sku": "A1", "qty": 2}]`` reads
-    "sku A1, qty 2". Every key and value is kept; only the code punctuation goes."""
+    "sku A1, qty 2". Every key and value is kept, an empty one too (it is still sent: it can clear a field);
+    only the code punctuation goes, and a list item holding a separator is quoted."""
     if isinstance(value, dict):
-        text = ", ".join(f"{str(key).replace('_', ' ')} {_readable(item, True)}"
-                         for key, item in value.items() if item is not None)
+        text = ", ".join(f"{str(key).replace('_', ' ')} {_readable(item, True)}" for key, item in value.items())
         return f"({text})" if nested else text
     if isinstance(value, (list, tuple, set)):
         items = list(value)
         structured = any(isinstance(item, (dict, list, tuple, set)) for item in items)
-        text = ("; " if structured else ", ").join(_readable(item) for item in items)
+        text = ("; " if structured else ", ").join(
+            f'"{item}"' if isinstance(item, str) and ("," in item or ";" in item) else _readable(item)
+            for item in items)
         return f"({text})" if nested and structured else text
     if isinstance(value, bool):
         return "yes" if value else "no"
-    return str(value)
+    return "empty" if value is None else str(value)
 
 
 def _argument(value) -> str:

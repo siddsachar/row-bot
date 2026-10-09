@@ -104,6 +104,11 @@ def test_classification_separates_routine_changes_from_high_impact_ones(name, an
     ("list_workflow_runs", "List workflow runs and cancel stale ones", None, "unknown", False),
     ("read_delete_log", "", None, "mutation", True),
     ("commit_changes", "", None, "mutation", True),
+    # A singular object where a verb could stand, a joining word, or the word used as a verb in its description.
+    ("search_book_flight", "Search and book a flight", None, "mutation", True),
+    ("fetch_to_upload", "", None, "mutation", True),
+    ("list_workflow_run_artifacts", "", None, "read_only", False),  # After another word it is part of a noun.
+    ("get_post", "Get a post or post a new one", None, "unknown", False),
     ("run_query", "", None, "mutation", True),
 ])
 def test_a_read_of_a_commit_run_or_order_is_a_read_and_changes_still_ask(name, description, annotations, effect,

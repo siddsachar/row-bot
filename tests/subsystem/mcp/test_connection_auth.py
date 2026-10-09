@@ -263,6 +263,9 @@ def test_callback_can_be_used_only_once(isolated):
     ("read:all search:all", ""),  # Nothing to leave out: asked for as it is.
     ("openid email write:all", ""),  # Nothing but the account left: asked for as it is.
     ("mcp", ""),  # A scope Row-Bot can't place counts as a change.
+    # A read word at one end never makes a scope that can write a read one.
+    ("read_write admin read:me", "read:me"),
+    ("view_and_edit:files read-write delete search:files", "search:files"),
 ])
 def test_looking_things_up_asks_for_the_reads_of_what_a_server_lists(listed, reads):
     assert auth.read_scope(listed) == reads
