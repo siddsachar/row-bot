@@ -9,8 +9,8 @@
     "files": {
       "src/row_bot/api/v1/__init__.py": "d14be0852486e10539fd8ed7cafe67c2753a7964679096fe9c1191497a1ba329",
       "src/row_bot/api/v1/document_upload_stream.py": "53d30ae8e005629173bff81693effdba40fc84189822687431b4f2ddbe2bf38c",
-      "src/row_bot/api/v1/routes.py": "3a02c126edff4bba02c6088d73d61f0ea92d1af060ffc57b026babc886b747dc",
-      "src/row_bot/api/v1/schemas.py": "e363fb0ad8270610208479a46cb6813a6ac69f904160318bc3459b748343da2a",
+      "src/row_bot/api/v1/routes.py": "a873d50fc57451b305c204c20e95d9608da16dcc88ee1171ff14e348ec806cf6",
+      "src/row_bot/api/v1/schemas.py": "eab01857f0e1f4dd70144eca82129affe344195161c75ce7fbc8370aa6247ed6",
       "src/row_bot/api/v1/security.py": "b5d3dbc410e6f1167c496bc2dbf725ced6cf036903cfe99eed0bee4aeaeb116d",
       "src/row_bot/application/__init__.py": "ddac8928976922c73246ae791f5cc0ff84837ef1a9890f5938ee56f58eb7d468",
       "src/row_bot/application/app_notices.py": "be79549365341e28529f23fa219b67a4b2ee839d9a1812009f500c73e4be9ebf",
@@ -35,17 +35,17 @@
       "src/row_bot/application/client_browser_controls.py": "e48324149b05175095f96be12bb6432f5f20d20bc1946610c25e94af5629265c",
       "src/row_bot/application/client_computer_controls.py": "ae4768eca95a6f9c639a5450eaef12f789e772f663b1bf8549b1412a30a75f6c",
       "src/row_bot/application/client_data_backup.py": "9b46a9234872131b1aeb6aed4e063f57c54a5f484f5d273dec5966bf12dd9df6",
-      "src/row_bot/application/client_diagnosis.py": "f1cc25edc2e4a3e57d26f397c43e158052cac300ae373f591f9517e67efa97eb",
+      "src/row_bot/application/client_diagnosis.py": "ef060350e8ba7c9fb03bb4cd2e6df6182ab46c28e5bff7002e20ab6b7f0b26f2",
       "src/row_bot/application/client_first_run.py": "34c9bf34db0e3935bd12823b9b716179babc9704746c3f7ff8ff4e6b28b01d04",
       "src/row_bot/application/client_goal_profile_commands.py": "e37390db1a981382c93d7598b1cd7e40955e86c1e17b294a3a8520f17700256f",
       "src/row_bot/application/client_insights.py": "14ea59875594bc649f272acd1b94902ffc72260acf81cb86cf103a1d7ac27827",
-      "src/row_bot/application/client_integrations.py": "20f68524763fec3e3445e27ebf252d85f3b96d6ed097a3ac32c8aecdeab8be9b",
+      "src/row_bot/application/client_integrations.py": "32d06b1dce80df43c389d476691b4813e740e447a32fbebc5a11a05697ac96b3",
       "src/row_bot/application/client_mcp_auth.py": "74e45a8b03abfe2e4c938af3c6a7f66961caae043dddf5ecce03088d58680eae",
       "src/row_bot/application/client_migration.py": "a5e4b82a4a65a4f1499a921e3eae6ff2cf695a526841bd9d07c89aa11bdf9360",
       "src/row_bot/application/client_models_settings.py": "95d37b154b9558bfc19daded3abffa9b82073df5e8e24d8436070ceceadc143a",
       "src/row_bot/application/client_monitor.py": "746a379b763da8cac9eab4b6cb7072d12b906ad35cfadeb17198b8a4612fc7af",
       "src/row_bot/application/client_onboarding.py": "bb402745a4d8a1c3ab3b1e22902dc04b478dee090f10441386486b71a5b29e3f",
-      "src/row_bot/application/client_platform.py": "e24c6335285dff6bc4ed395c4a4d06fbbd0f613e5ce097823041679f6dfbad98",
+      "src/row_bot/application/client_platform.py": "d108afb8094f84061e475e7f1a0025a8b2d5c1e4a6f5356f10f965ff04210db2",
       "src/row_bot/application/client_plugin_lifecycle.py": "ffbd1333d98fecd32a7a531a8667d5ecad2c311bfbb07067761b2c91227cf34c",
       "src/row_bot/application/client_queue.py": "3a3fd09bbae990937db3751b4441fdfd15a4807e4f093b7053edd61e36118a66",
       "src/row_bot/application/client_skill_hub.py": "739b6189efec803f3fea21f8952d200051b5a9ff7595a15e36eca92c2381eb67",
@@ -61,12 +61,12 @@
       "src/row_bot/application/conversation_naming.py": "966ac6928949e5a5b1e32e0d58619a7458fdb1ad60c619afaf48b132167a8172",
       "src/row_bot/application/conversation_open.py": "77be633cb159681ba3131d7497ccbc1229db5d4aee42b725e8fc59c14667473e",
       "src/row_bot/application/conversation_pdf.py": "a18381ce322ddc33342ac1b2a1d96bf6b3de901ef8ff7f4bf6ba786d37176f4f",
-      "src/row_bot/application/conversation_resource_commands.py": "05e1b529887659d5077535ac081cdddce1b03ffe406e0e67f9ef62c16fbff89b",
+      "src/row_bot/application/conversation_resource_commands.py": "1bff720090dc098d6092672cc343816c7863e3a6458e7c2d36f963b544a4a7e9",
       "src/row_bot/application/conversation_search.py": "b1f9a17d305b4c3177d5c20a94593a440d74990fc522c392c6f182e768d33d05",
       "src/row_bot/application/conversation_traces.py": "42c875631b5164008b5a858d7157255f8fc64a5ba459c417e32dc14d0ccc9d7b",
       "src/row_bot/application/conversation_writer.py": "0a9e5daba9ac931985871f650010b3275df209876b149b19ee0bee4c40be4225",
       "src/row_bot/application/delegated_activity.py": "415da986b2fdae3a8f89d5802a53fa869ae5a7ddc0c1d68ed56203db4db51cf3",
-      "src/row_bot/application/developer_repository_commands.py": "293c43a9c3e92df7c490644bc4a4e2224a40dda8e1522bbb7eaf26bda1f0c705",
+      "src/row_bot/application/developer_repository_commands.py": "b119541278cef950be833b37c6e7645b39510f9eff50e55b4430c3b93bd13d6b",
       "src/row_bot/application/developer_tool_upgrade.py": "040377b6b6053b3a6c965a74ec4a83277c0d01c72907244f231928b2193aeb23",
       "src/row_bot/application/document_commands.py": "b387716f0206c07cecc0a3f8d3273ec3675db060468de5f68ae3eb65ae452bbc",
       "src/row_bot/application/document_job_commands.py": "2f74d01e59aa3725620149b185a510c29785447fd7c9edc12ed97f6e1673d584",
@@ -94,7 +94,7 @@
       "src/row_bot/application/provider_settings_controls.py": "6d17be38961297c688a36cb119df120bbbab757a501ed1aec7b7f7b66b16abfb",
       "src/row_bot/application/reasoning_controls.py": "1e62f9821be17d4a6bbfec52ea3470af33b0986854d53b61e52bb1853c9840a1",
       "src/row_bot/application/settings_commands.py": "893e77258f1769a5d8fa4f128ad3581cc97dc091f8a3f93028f85d775d6b479d",
-      "src/row_bot/application/settings_snapshot.py": "4a2d7abd56be2924b80ffae554dfa5ad678fb1e3e90dac1daf1154ea11e1873b",
+      "src/row_bot/application/settings_snapshot.py": "43ae037b5215840ae5ba06df3f736cc9336a120ef610ad28ff224f41b2e446f8",
       "src/row_bot/application/skill_commands.py": "6187012d9d2534857303d605c48abf99b6a76e79b3e1c6c3562254f7cd25bf50",
       "src/row_bot/application/startup_state.py": "54ccd05f93c019b37289c7f3199a865fa479422db5092dd12d88aa3e6f591084",
       "src/row_bot/application/subscription_controls.py": "aa6eac43bbe1017b29c3e456776b294f45b71900f6b6b7b82dabba2eb28cf1ec",
@@ -112,7 +112,7 @@
       "src/row_bot/application/workspace_edit_commands.py": "6510627cd7448dabcbaff8ef7cdf65a4158231d2a775969b3291638601e7047e",
       "src/row_bot/application/workspace_import_commands.py": "69e4a23bf469740c068c3501ea10ec81c84da8451942007d8e43ed17a3394ce4",
       "src/row_bot/application/workspace_process_commands.py": "148d14b8b697f37191bf10491b3d1d178d0c4f725088719f2e27ef0ee766006b",
-      "src/row_bot/application/workspace_setup.py": "a5b3bfc674b9f3ea82514c6883e09e7472f1feef50c1cb95694ed71fda74c344",
+      "src/row_bot/application/workspace_setup.py": "c109375a5b9482c222e1fb993e293d4aed6850711da522e52651f6816e38ec02",
       "src/row_bot/application/workspace_undo_commands.py": "af0053c06d9b7ac184aedd6b10a15550cd0bf69d183cb41b59212f54749d96ad",
       "src/row_bot/conversation_resources.py": "12ce1485c73f669edd951c4169772e43b78a86cafbbfc6e336e86c464af410aa",
       "src/row_bot/projection/__init__.py": "246b0f37fc792dc5787564e86fdd2d1153e380cbd362a9d3f2db70669131da00",
@@ -122,13 +122,13 @@
       "src/row_bot/runtime/admissions.py": "98dee903faf8fe18b1402c60b23700ba7739ef6aaa7a27656e51aa57c1fe5207",
       "src/row_bot/runtime/checkpoint_reader.py": "49b1a0b051fad863183732a55348315df08213b6f47ecf397b6968270e79d627",
       "src/row_bot/runtime/executions.py": "0dc9472f53d8da986c0793e55841c46228fd8a7fea73ba8c4ca18c905ba06411",
-      "src/row_bot/tasks.py": "b70a9db02c0a8f135f449096b3041f12fa6eb32c388aa9de7b2b9031a8943f5d",
-      "src/row_bot/threads.py": "01c1870d699fa919da52205843af8f6266f8785d1b66bcb41688a41ca64fce15",
+      "src/row_bot/tasks.py": "4807e16f4b5310706048cfc745f3040f1c85dfd831c39a1ae94bde277cf5e939",
+      "src/row_bot/threads.py": "08200a25c18534f97e94ee127508a2f3866f0e38b34d4348d0d16dfb3435361a",
       "tests/helpers/client_platform_fakes.py": "9e219d0f847a1103cfd603f388df9eee25d5b3afdb970e05b8b78db298c0f892",
       "src/row_bot/providers/reasoning.py": "5ac24b6269134ee952ca6646b2a82c149d3227a87d224a64acd799ba514f265d",
       "tests/contracts/client_platform/test_reasoning_recording.py": "a6e7946dfa13811f4ee64f87122be139714c6db0379f6a5eed276ef79484324a"
     },
-    "sha256": "c76c94f8b0cb2389cae9738bbe6c2a40db3fa74a079b77826213ff101cc16dd2"
+    "sha256": "7b613b85ba5704129acb6414748fe3fe67ab68088209c6850fa6669c824a4449"
   },
   "records": [
     {
@@ -182,55 +182,68 @@
         "profiles": [
           {
             "id": "builtin:row_bot_default",
-            "label": "Default"
+            "label": "Default",
+            "description": "Normal Row-Bot behavior for ordinary chats and channel conversations."
           },
           {
             "id": "builtin:plan",
-            "label": "Plan"
+            "label": "Plan",
+            "description": "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps."
           },
           {
             "id": "builtin:research",
-            "label": "Research"
+            "label": "Research",
+            "description": "Research current facts, sources, documents, videos, references, and explain concepts clearly."
           },
           {
             "id": "builtin:write",
-            "label": "Write"
+            "label": "Write",
+            "description": "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups."
           },
           {
             "id": "builtin:ideas",
-            "label": "Ideas"
+            "label": "Ideas",
+            "description": "Generate ideas, names, alternatives, creative directions, gifts, events, and angles."
           },
           {
             "id": "builtin:knowledge",
-            "label": "Knowledge"
+            "label": "Knowledge",
+            "description": "Organize memories, documents, project notes, and relationships between saved facts."
           },
           {
             "id": "builtin:data",
-            "label": "Data"
+            "label": "Data",
+            "description": "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts."
           },
           {
             "id": "builtin:automate",
-            "label": "Automate"
+            "label": "Automate",
+            "description": "Design reminders, monitors, recurring tasks, and multi-step workflows."
           },
           {
             "id": "builtin:review",
-            "label": "Review"
+            "label": "Review",
+            "description": "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk."
           },
           {
             "id": "builtin:design",
-            "label": "Design"
+            "label": "Design",
+            "description": "Create visual directions, images, layouts, brand assets, and presentation-ready concepts."
           },
           {
             "id": "builtin:develop",
-            "label": "Develop"
+            "label": "Develop",
+            "description": "Implement, debug, inspect repository context, make focused code changes, and run checks."
           },
           {
             "id": "builtin:code_review",
-            "label": "Code Review"
+            "label": "Code Review",
+            "description": "Review implementation correctness, regressions, and test coverage."
           },
           {
             "id": "builtin:ui_check",
-            "label": "UI Check"
+            "label": "UI Check",
+            "description": "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence."
           }
         ],
         "resources": [],
@@ -618,55 +631,68 @@
         "profiles": [
           {
             "id": "builtin:row_bot_default",
-            "label": "Default"
+            "label": "Default",
+            "description": "Normal Row-Bot behavior for ordinary chats and channel conversations."
           },
           {
             "id": "builtin:plan",
-            "label": "Plan"
+            "label": "Plan",
+            "description": "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps."
           },
           {
             "id": "builtin:research",
-            "label": "Research"
+            "label": "Research",
+            "description": "Research current facts, sources, documents, videos, references, and explain concepts clearly."
           },
           {
             "id": "builtin:write",
-            "label": "Write"
+            "label": "Write",
+            "description": "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups."
           },
           {
             "id": "builtin:ideas",
-            "label": "Ideas"
+            "label": "Ideas",
+            "description": "Generate ideas, names, alternatives, creative directions, gifts, events, and angles."
           },
           {
             "id": "builtin:knowledge",
-            "label": "Knowledge"
+            "label": "Knowledge",
+            "description": "Organize memories, documents, project notes, and relationships between saved facts."
           },
           {
             "id": "builtin:data",
-            "label": "Data"
+            "label": "Data",
+            "description": "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts."
           },
           {
             "id": "builtin:automate",
-            "label": "Automate"
+            "label": "Automate",
+            "description": "Design reminders, monitors, recurring tasks, and multi-step workflows."
           },
           {
             "id": "builtin:review",
-            "label": "Review"
+            "label": "Review",
+            "description": "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk."
           },
           {
             "id": "builtin:design",
-            "label": "Design"
+            "label": "Design",
+            "description": "Create visual directions, images, layouts, brand assets, and presentation-ready concepts."
           },
           {
             "id": "builtin:develop",
-            "label": "Develop"
+            "label": "Develop",
+            "description": "Implement, debug, inspect repository context, make focused code changes, and run checks."
           },
           {
             "id": "builtin:code_review",
-            "label": "Code Review"
+            "label": "Code Review",
+            "description": "Review implementation correctness, regressions, and test coverage."
           },
           {
             "id": "builtin:ui_check",
-            "label": "UI Check"
+            "label": "UI Check",
+            "description": "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence."
           }
         ],
         "resources": [],
@@ -1024,55 +1050,68 @@
         "profiles": [
           {
             "id": "builtin:row_bot_default",
-            "label": "Default"
+            "label": "Default",
+            "description": "Normal Row-Bot behavior for ordinary chats and channel conversations."
           },
           {
             "id": "builtin:plan",
-            "label": "Plan"
+            "label": "Plan",
+            "description": "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps."
           },
           {
             "id": "builtin:research",
-            "label": "Research"
+            "label": "Research",
+            "description": "Research current facts, sources, documents, videos, references, and explain concepts clearly."
           },
           {
             "id": "builtin:write",
-            "label": "Write"
+            "label": "Write",
+            "description": "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups."
           },
           {
             "id": "builtin:ideas",
-            "label": "Ideas"
+            "label": "Ideas",
+            "description": "Generate ideas, names, alternatives, creative directions, gifts, events, and angles."
           },
           {
             "id": "builtin:knowledge",
-            "label": "Knowledge"
+            "label": "Knowledge",
+            "description": "Organize memories, documents, project notes, and relationships between saved facts."
           },
           {
             "id": "builtin:data",
-            "label": "Data"
+            "label": "Data",
+            "description": "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts."
           },
           {
             "id": "builtin:automate",
-            "label": "Automate"
+            "label": "Automate",
+            "description": "Design reminders, monitors, recurring tasks, and multi-step workflows."
           },
           {
             "id": "builtin:review",
-            "label": "Review"
+            "label": "Review",
+            "description": "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk."
           },
           {
             "id": "builtin:design",
-            "label": "Design"
+            "label": "Design",
+            "description": "Create visual directions, images, layouts, brand assets, and presentation-ready concepts."
           },
           {
             "id": "builtin:develop",
-            "label": "Develop"
+            "label": "Develop",
+            "description": "Implement, debug, inspect repository context, make focused code changes, and run checks."
           },
           {
             "id": "builtin:code_review",
-            "label": "Code Review"
+            "label": "Code Review",
+            "description": "Review implementation correctness, regressions, and test coverage."
           },
           {
             "id": "builtin:ui_check",
-            "label": "UI Check"
+            "label": "UI Check",
+            "description": "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence."
           }
         ],
         "resources": [],
@@ -1487,55 +1526,68 @@
         "profiles": [
           {
             "id": "builtin:row_bot_default",
-            "label": "Default"
+            "label": "Default",
+            "description": "Normal Row-Bot behavior for ordinary chats and channel conversations."
           },
           {
             "id": "builtin:plan",
-            "label": "Plan"
+            "label": "Plan",
+            "description": "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps."
           },
           {
             "id": "builtin:research",
-            "label": "Research"
+            "label": "Research",
+            "description": "Research current facts, sources, documents, videos, references, and explain concepts clearly."
           },
           {
             "id": "builtin:write",
-            "label": "Write"
+            "label": "Write",
+            "description": "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups."
           },
           {
             "id": "builtin:ideas",
-            "label": "Ideas"
+            "label": "Ideas",
+            "description": "Generate ideas, names, alternatives, creative directions, gifts, events, and angles."
           },
           {
             "id": "builtin:knowledge",
-            "label": "Knowledge"
+            "label": "Knowledge",
+            "description": "Organize memories, documents, project notes, and relationships between saved facts."
           },
           {
             "id": "builtin:data",
-            "label": "Data"
+            "label": "Data",
+            "description": "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts."
           },
           {
             "id": "builtin:automate",
-            "label": "Automate"
+            "label": "Automate",
+            "description": "Design reminders, monitors, recurring tasks, and multi-step workflows."
           },
           {
             "id": "builtin:review",
-            "label": "Review"
+            "label": "Review",
+            "description": "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk."
           },
           {
             "id": "builtin:design",
-            "label": "Design"
+            "label": "Design",
+            "description": "Create visual directions, images, layouts, brand assets, and presentation-ready concepts."
           },
           {
             "id": "builtin:develop",
-            "label": "Develop"
+            "label": "Develop",
+            "description": "Implement, debug, inspect repository context, make focused code changes, and run checks."
           },
           {
             "id": "builtin:code_review",
-            "label": "Code Review"
+            "label": "Code Review",
+            "description": "Review implementation correctness, regressions, and test coverage."
           },
           {
             "id": "builtin:ui_check",
-            "label": "UI Check"
+            "label": "UI Check",
+            "description": "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence."
           }
         ],
         "resources": [],
@@ -1874,55 +1926,68 @@
         "profiles": [
           {
             "id": "builtin:row_bot_default",
-            "label": "Default"
+            "label": "Default",
+            "description": "Normal Row-Bot behavior for ordinary chats and channel conversations."
           },
           {
             "id": "builtin:plan",
-            "label": "Plan"
+            "label": "Plan",
+            "description": "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps."
           },
           {
             "id": "builtin:research",
-            "label": "Research"
+            "label": "Research",
+            "description": "Research current facts, sources, documents, videos, references, and explain concepts clearly."
           },
           {
             "id": "builtin:write",
-            "label": "Write"
+            "label": "Write",
+            "description": "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups."
           },
           {
             "id": "builtin:ideas",
-            "label": "Ideas"
+            "label": "Ideas",
+            "description": "Generate ideas, names, alternatives, creative directions, gifts, events, and angles."
           },
           {
             "id": "builtin:knowledge",
-            "label": "Knowledge"
+            "label": "Knowledge",
+            "description": "Organize memories, documents, project notes, and relationships between saved facts."
           },
           {
             "id": "builtin:data",
-            "label": "Data"
+            "label": "Data",
+            "description": "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts."
           },
           {
             "id": "builtin:automate",
-            "label": "Automate"
+            "label": "Automate",
+            "description": "Design reminders, monitors, recurring tasks, and multi-step workflows."
           },
           {
             "id": "builtin:review",
-            "label": "Review"
+            "label": "Review",
+            "description": "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk."
           },
           {
             "id": "builtin:design",
-            "label": "Design"
+            "label": "Design",
+            "description": "Create visual directions, images, layouts, brand assets, and presentation-ready concepts."
           },
           {
             "id": "builtin:develop",
-            "label": "Develop"
+            "label": "Develop",
+            "description": "Implement, debug, inspect repository context, make focused code changes, and run checks."
           },
           {
             "id": "builtin:code_review",
-            "label": "Code Review"
+            "label": "Code Review",
+            "description": "Review implementation correctness, regressions, and test coverage."
           },
           {
             "id": "builtin:ui_check",
-            "label": "UI Check"
+            "label": "UI Check",
+            "description": "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence."
           }
         ],
         "resources": [],
@@ -2253,55 +2318,68 @@
         "profiles": [
           {
             "id": "builtin:row_bot_default",
-            "label": "Default"
+            "label": "Default",
+            "description": "Normal Row-Bot behavior for ordinary chats and channel conversations."
           },
           {
             "id": "builtin:plan",
-            "label": "Plan"
+            "label": "Plan",
+            "description": "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps."
           },
           {
             "id": "builtin:research",
-            "label": "Research"
+            "label": "Research",
+            "description": "Research current facts, sources, documents, videos, references, and explain concepts clearly."
           },
           {
             "id": "builtin:write",
-            "label": "Write"
+            "label": "Write",
+            "description": "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups."
           },
           {
             "id": "builtin:ideas",
-            "label": "Ideas"
+            "label": "Ideas",
+            "description": "Generate ideas, names, alternatives, creative directions, gifts, events, and angles."
           },
           {
             "id": "builtin:knowledge",
-            "label": "Knowledge"
+            "label": "Knowledge",
+            "description": "Organize memories, documents, project notes, and relationships between saved facts."
           },
           {
             "id": "builtin:data",
-            "label": "Data"
+            "label": "Data",
+            "description": "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts."
           },
           {
             "id": "builtin:automate",
-            "label": "Automate"
+            "label": "Automate",
+            "description": "Design reminders, monitors, recurring tasks, and multi-step workflows."
           },
           {
             "id": "builtin:review",
-            "label": "Review"
+            "label": "Review",
+            "description": "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk."
           },
           {
             "id": "builtin:design",
-            "label": "Design"
+            "label": "Design",
+            "description": "Create visual directions, images, layouts, brand assets, and presentation-ready concepts."
           },
           {
             "id": "builtin:develop",
-            "label": "Develop"
+            "label": "Develop",
+            "description": "Implement, debug, inspect repository context, make focused code changes, and run checks."
           },
           {
             "id": "builtin:code_review",
-            "label": "Code Review"
+            "label": "Code Review",
+            "description": "Review implementation correctness, regressions, and test coverage."
           },
           {
             "id": "builtin:ui_check",
-            "label": "UI Check"
+            "label": "UI Check",
+            "description": "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence."
           }
         ],
         "resources": [],

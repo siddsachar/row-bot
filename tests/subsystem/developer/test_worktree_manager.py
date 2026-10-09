@@ -1,6 +1,7 @@
 import importlib
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -66,8 +67,10 @@ def _commit(repo, message="initial"):
 def _create_repo(tmp_path):
     if shutil.which("git") is None:
         pytest.skip("git is required for local worktree allocation")
-    repo = tmp_path / "repo"
-    repo.mkdir()
+    # Beside the test's own folder, under a short name: Git refuses a worktree whose admin path passes
+    # Windows' length limit ("'$GIT_DIR' too big"), and the test's folder name alone is 30 characters.
+    repo = tmp_path.parent / f"r{uuid.uuid4().hex[:6]}" / "repo"
+    repo.mkdir(parents=True)
     _run_git(repo, "init")
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
     (repo / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
@@ -97,7 +100,7 @@ def test_thread_worktree_creates_hidden_workspace_and_preserves_metadata(tmp_pat
     )
 
     worktree_path = (
-        tmp_path
+        repo.parent
         / ".row-bot-worktrees"
         / parent.id
         / allocated["branch_name"].replace("/", "-")
@@ -248,7 +251,7 @@ def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_change
         "thread",
         thread_id,
         parent.id,
-        objective="Sandbox",  # Short: Git refuses a worktree whose path passes Windows' limit.
+        objective="Sandbox branch",
         seed_mode="last_commit",
     )
     assert allocated["status"] == "active", allocated.get("error")  # A failed one has no folder: never write beside the checkout.
