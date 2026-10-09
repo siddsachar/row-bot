@@ -168,3 +168,34 @@ it('keeps a notice with work waiting on it while plain notices come and go', () 
   expect(deleted.onEnd).not.toHaveBeenCalled();
   expect(screen.getAllByText(/^Saved /)).toHaveLength(2);
 });
+
+it('keeps timing the next notice after Undo was pressed in another', async () => {
+  vi.useFakeTimers();
+  const undone = action();
+  const next = action();
+  render(
+    <OverlayProvider>
+      <Notices
+        actions={{
+          "Deleted 'One'.": () => undone,
+          "Deleted 'Two'.": () => next,
+        }}
+      />
+    </OverlayProvider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: "Raise Deleted 'One'." }));
+  const undo = screen.getByRole('button', { name: 'Undo' });
+  undo.focus();
+  await act(async () => fireEvent.click(undo));
+  await act(async () => {
+    vi.advanceTimersByTime(10);
+  });
+  fireEvent.click(screen.getByRole('button', { name: "Raise Deleted 'Two'." }));
+  await act(async () => {
+    vi.advanceTimersByTime(ACTION_NOTICE_MS + 100);
+  });
+  // Its delete is sent when it ends; focus left on the notices would hold it.
+  expect(next.onEnd).toHaveBeenCalledTimes(1);
+  expect(undone.onAction).toHaveBeenCalledTimes(1);
+  vi.useRealTimers();
+});

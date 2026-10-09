@@ -218,6 +218,20 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
     showNotices(next.filter((notice) => !pushedOut.includes(notice)));
     pushedOut.forEach((notice) => notice.action?.onEnd?.());
   };
+  // Focus on a notice pauses every notice, and one that closes holding focus
+  // hands it to the notices themselves, where the pause outlives it: a notice
+  // waiting to delete would never end. So before a notice's own button closes
+  // it, focus goes back where it was before it entered the notices.
+  const layer = useRef<HTMLDivElement>(null);
+  const focusBefore = useRef<HTMLElement | null>(null);
+  const releaseFocus = () => {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !layer.current?.contains(active))
+      return;
+    const back = focusBefore.current;
+    if (back?.isConnected) back.focus();
+    else active.blur();
+  };
   /** A notice goes: its action was chosen, or it ended without it. */
   const finish = (id: number, chosen: boolean) => {
     const notice = live.current.find((item) => item.id === id);
@@ -339,8 +353,14 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               notice, never over a page header, and takes no room in the
               layout (styles.css). */}
           <div
+            ref={layer}
             className="notification-layer"
             hidden={Boolean(current) || notices.length === 0}
+            onFocus={(event) => {
+              const from = event.relatedTarget;
+              if (from instanceof HTMLElement && !layer.current?.contains(from))
+                focusBefore.current = from;
+            }}
           >
             <Toast.Viewport className="toast-viewport" label="Notifications" />
           </div>
@@ -372,7 +392,10 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     <Button
                       variant="ghost"
                       className="small"
-                      onClick={() => finish(notice.id, true)}
+                      onClick={() => {
+                        releaseFocus();
+                        finish(notice.id, true);
+                      }}
                     >
                       {notice.action.label}
                     </Button>
@@ -383,6 +406,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     iconOnly
                     variant="ghost"
                     aria-label="Dismiss notification"
+                    onClick={releaseFocus}
                   >
                     <X size={16} aria-hidden />
                   </Button>
