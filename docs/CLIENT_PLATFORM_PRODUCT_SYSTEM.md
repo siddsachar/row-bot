@@ -84,7 +84,7 @@ both OS schemes.
 | `Button`, `Input`, `Select`, `Field` | Native semantics and labels; primary/secondary/ghost/danger actions; disabled states and named icon buttons. Select stays a native browser control. |
 | `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Menu actions may carry a 16px monochrome `icon`, a keycap `shortcut` (announced through `aria-keyshortcuts`, kept out of the item's name) and `separatorBefore`; destructive actions always render last, in red, after a separator. An action with `afterClose` runs once the menu has released focus instead of returning focus to the trigger (for items that focus a field they open, such as Rename). Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
 | `OverlayProvider`, `useOverlay` | One Radix modal scope with title/description; dialogs, short sheets, navigation drawers, the command palette (`kind: 'palette'`: no header or footer chrome, title kept for assistive tech) and alert-dialog semantics share it. |
-| Notifications | `notify` coalesces duplicate text and retains at most three notices. They float just below the top bar (centred, 420px; full width on phones), take no room in the layout and never cover the composer, and go away by themselves: 5 s, warnings and errors 8 s, with an action such as Undo 12 s; hovering or focusing one holds it. Notices wait while a modal is open, so they cannot cover its footer or consume Escape. Errors also need a persistent inline recovery action. |
+| Notifications | `notify` coalesces duplicate text and retains at most three notices. They float at the bottom centre (420px; full width on phones), above the composer, the on-screen keyboard and the app-install notice, so they never cover a page header or the composer; they take no room in the layout and go away by themselves: 5 s, warnings and errors 8 s, with an action such as Undo 6 s; hovering or focusing one holds it. Notices wait while a modal is open, so they cannot cover its footer or consume Escape. Errors also need a persistent inline recovery action. |
 | `Skeleton`, `EmptyState`, `ErrorState`, `Progress` | Name the operation; delay skeleton visuals 150ms with cancellation; never invent percentage progress. Empty states explain a useful next step. |
 | `Surface` | Opaque by default. The optional elevated effect has a 94% overlay backing and bounded blur only with supporting CSS and appropriate preferences. |
 | `IconButton`, `Kbd` | Icons for verbs: 28px (`sm`) or 32px (`md`) on fine pointers and 44px on touch. The `label` is required and is both the accessible name and the tooltip; an optional `shortcut` such as `Mod+K` renders keycaps (⌘ on macOS, Ctrl elsewhere) and sets `aria-keyshortcuts`. When a text button becomes an icon button, keep its accessible name. |
@@ -428,10 +428,13 @@ Updates are built on it):
    confirmed change (document queue, MCP servers, skills), so a row never needs
    a manual refresh to show what just happened.
 
-Removals that are easy to regret say so with Undo in the notice for 12 s
+Removals that are easy to regret say so with Undo in the notice for 6 s
 (`notify(message, tone, { label: 'Undo', run })`): removing a resource from a
-conversation ("Removed X from this conversation." · Undo adds it back) and
-dismissing an insight (Undo restores it).
+conversation ("Removed X from this conversation." · Undo adds it back),
+dismissing an insight (Undo restores it), and deleting one conversation. A
+confirmed delete hides the conversation at once and is sent only when its
+notice ends (`onEnd`); Undo sends nothing. If the page goes away first, nothing
+is sent and the conversation stays.
 
 **Settings › Data** (decision 21) has three parts. *Back up and restore*
 (local owner on this computer only; other devices read that backups belong
@@ -630,7 +633,9 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
 - **Design** fills the panel with the page on a dotted ground, fitted by
   default (tall pages start at the panel width). A design that was just made
   (Add resource, a turn that made it, a duplicate) opens with the side region
-  at its widest; one already open keeps the width the person chose. Add
+  at its widest; one already open keeps the width the person chose. In Add
+  resource a template brings the canvas it is made for (a desktop dashboard,
+  a square post), which Advanced › Canvas can still change. Add
   resource with a brief creates and drafts in one step ("Draft it now", on
   when a brief is given); while a turn works on the design the panel says so
   ("Drafting · Adding pages…", a live dot that stays still under reduced
@@ -645,8 +650,15 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
   for page-based designs (16:9, 4:3, 1:1, A4, 9:16 · Phone; every page is
   re-fitted) and, for landing pages and app mockups, device width. A deletion
   or size change says what happened with Undo in place. ⋯ also offers
-  Duplicate design (a "(copy)" bound beside it, opened in its own panel), and
-  while a design is shown ⌘K lists its actions (Present, Export, Share or
+  Duplicate design (a "(copy)" bound beside it, opened in its own panel) and,
+  last in red, Delete design…: a confirmation names the design and says its
+  pages, saved versions and files are deleted while conversations that used
+  it keep their messages. It is refused while a conversation using the
+  design is running; otherwise the design leaves every conversation's Working
+  on and Add resource › Open saved, and its panels close. No conversation is
+  deleted. If some files cannot be deleted, a notice says the design left its
+  conversations and that opening it from Open saved and deleting it again
+  finishes the job. While a design is shown ⌘K lists its actions (Present, Export, Share or
   publish, Add a slide, Duplicate, Review, versions). From 720px the page
   strip sits on the left with thumbnails in the design's own aspect ratio and
   the inspector beside the canvas; below that the strip hides and the

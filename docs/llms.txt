@@ -75,7 +75,7 @@ Public documentation index for Row-Bot.
 - [Settings: System](/docs/settings/system)
   Route: /docs/settings/system. Choose Row-Bot's workspace folder and what it may do on this computer (commands, files, browser and computer use), and manage logs.
 - [Settings: Tracker](/docs/settings/tracker)
-  Route: /docs/settings/tracker. Configure recurring activity, habit, symptom, and health tracking surfaces.
+  Route: /docs/settings/tracker. Turn tracking on or off, open a tracker to see its entries, start one in chat, and delete trackers.
 - [Settings: Documents](/docs/settings/documents)
   Route: /docs/settings/documents. Manage document ingestion, extraction, and vector indexing.
 - [Settings: Tools](/docs/settings/tools)

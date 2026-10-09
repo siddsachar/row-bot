@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.1">
 <title data-rh="true">Settings: Apps | Row-Bot</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" name="twitter:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" property="og:url" content="https://row-bot.ai/docs/settings/apps/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Settings: Apps | Row-Bot"><meta data-rh="true" name="description" content="Find and connect the services Row-Bot can work in, including your accounts and messaging channels, choose what each app may do, change its settings, and turn apps off or remove them."><meta data-rh="true" property="og:description" content="Find and connect the services Row-Bot can work in, including your accounts and messaging channels, choose what each app may do, change its settings, and turn apps off or remove them."><link data-rh="true" rel="icon" href="/favicon.ico"><link data-rh="true" rel="canonical" href="https://row-bot.ai/docs/settings/apps/"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/settings/apps/" hreflang="en"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/settings/apps/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Settings: Apps","item":"https://row-bot.ai/docs/settings/apps"}]}</script><link rel="stylesheet" href="/assets/css/styles.e50d20ac.css">
-<script src="/assets/js/runtime~main.9781a010.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.f2d3fff8.js" defer="defer"></script>
 <script src="/assets/js/main.44729db0.js" defer="defer"></script>
 </head>
 <body>
@@ -19,7 +19,7 @@
 <p>Search by an app&#x27;s name or by what you want done, such as &quot;send email&quot; or &quot;take meeting notes&quot;. Search is instant and local: Row-Bot searches catalog copies kept on this computer, and nothing you type leaves it. <strong>Search online catalogs</strong> also asks the live catalogs, such as Hermes, and sends them your search words.</p>
 <p>The page lists:</p>
 <ul>
-<li class=""><strong>Your apps</strong>: the apps you have added, with anything that needs attention first. Each shows its status: <strong>Ready</strong>, <strong>Off</strong>, <strong>Sign in needed</strong>, <strong>Key needed</strong>, <strong>Finish setup</strong>, <strong>Working…</strong>, <strong>Needs attention</strong>, or <strong>Removed</strong> for a package whose saved data was kept. <a class="" href="/docs/troubleshooting/#apps-and-skills">Troubleshooting</a> says what to do about each.</li>
+<li class=""><strong>Your apps</strong>: the apps you have added, with anything that needs attention first. Each app is one card, even when you connected it more than one way; its chips name the ways. Each shows its status: <strong>Ready</strong>, <strong>Off</strong>, <strong>Sign in needed</strong>, <strong>Key needed</strong>, <strong>Finish setup</strong>, <strong>Working…</strong>, <strong>Needs attention</strong>, or <strong>Removed</strong> for a package whose saved data was kept. <a class="" href="/docs/troubleshooting/#apps-and-skills">Troubleshooting</a> says what to do about each.</li>
 <li class=""><strong>Featured</strong>, then category chips (Productivity, Developer, Data, Design, Communication, Finance and Local tools), then <strong>All apps</strong>. <strong>Communication</strong> lists the messaging channels.</li>
 </ul>
 <p>While the app catalog is first being built, the page says <strong>Preparing the app catalog…</strong> and more apps appear in a moment.</p>
@@ -40,6 +40,7 @@
 <li class=""><strong>Show views in chat</strong>: for an app that can show its results as an interactive view. See <a class="" href="/docs/chat/#app-views">App views</a>.</li>
 <li class=""><strong>Settings</strong>: for a connected app, the account, whether a key is saved (in your system keychain), each setting, and anything it needs on this computer, with <strong>Change settings</strong>. See <a href="#change-settings-after-setup" class="">Change settings after setup</a>. For a built-in way, <strong>Set up</strong> or <strong>Open</strong> opens its own settings.</li>
 <li class=""><strong>Ways to connect</strong>: when an app can be connected more than one way, every way, the recommended one first. See <a href="#ways-to-connect" class="">Ways to connect</a>.</li>
+<li class=""><strong>Skills for</strong> the app: skills made for it, yours first. An app lets Row-Bot use a service for you; a skill teaches Row-Bot how to do a task, and some work with an app.</li>
 <li class=""><strong>Included</strong>: for a package, the apps and skills it brought. Each of those says <strong>Installed as part of <em>package</em></strong>.</li>
 <li class=""><strong>Details</strong>: source, version, licence, other catalogs it is listed in, and its identifier.</li>
 </ul>
@@ -50,7 +51,7 @@
 <li class=""><strong>GitHub</strong>: GitHub&#x27;s hosted server (with a token, or with your own OAuth app), then the GitHub account built into Row-Bot, then GitHub&#x27;s server on this computer.</li>
 <li class=""><strong>Google</strong>: the Google account built into Row-Bot first.</li>
 <li class=""><strong>Slack</strong>: Slack&#x27;s hosted server, then the Slack channel built into Row-Bot.</li>
-<li class=""><strong>Tavily</strong>: Row-Bot&#x27;s built-in <strong>Web search</strong> with your Tavily key, then Tavily&#x27;s hosted server, then its server on this computer.</li>
+<li class=""><strong>Tavily</strong>: Row-Bot&#x27;s built-in <strong>Tavily web search</strong> with your Tavily key, then Tavily&#x27;s hosted server, then its server on this computer.</li>
 </ul>
 <p>Each way keeps its own credentials. A GitHub account token and a GitHub server connection, for example, never share a token: connecting one doesn&#x27;t sign in the other.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="built-in-ways-to-connect">Built-In Ways To Connect<a href="#built-in-ways-to-connect" class="hash-link" aria-label="Direct link to Built-In Ways To Connect" title="Direct link to Built-In Ways To Connect" translate="no">​</a></h2>
@@ -58,7 +59,7 @@
 <ul>
 <li class="">the <strong>GitHub</strong>, <strong>Google</strong> and <strong>X</strong> accounts;</li>
 <li class="">the <strong>Telegram</strong>, <strong>WhatsApp</strong>, <strong>Discord</strong>, <strong>Slack</strong> and <strong>Text messages</strong> (SMS) channels;</li>
-<li class="">tools that use your own key: <strong>Web search</strong> (a Tavily key) and <strong>Wolfram Alpha</strong>.</li>
+<li class="">tools that use your own key: <strong>Tavily web search</strong> (a Tavily key) and <strong>Wolfram Alpha</strong>.</li>
 </ul>
 <p>A built-in way is set up and changed in its own settings, not with a setup sheet. Its <strong>Set up</strong> (or <strong>Open</strong> once it is set up), and <strong>⋯ › Open its settings</strong>, open those settings for that one account, channel or tool only, with <strong>Back</strong> to the app page:</p>
 <ul>

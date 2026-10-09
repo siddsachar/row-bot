@@ -17,7 +17,7 @@ Search by an app's name or by what you want done, such as "send email" or "take 
 
 The page lists:
 
-- **Your apps**: the apps you have added, with anything that needs attention first. Each shows its status: **Ready**, **Off**, **Sign in needed**, **Key needed**, **Finish setup**, **Working…**, **Needs attention**, or **Removed** for a package whose saved data was kept. [Troubleshooting](/docs/troubleshooting/#apps-and-skills) says what to do about each.
+- **Your apps**: the apps you have added, with anything that needs attention first. Each app is one card, even when you connected it more than one way; its chips name the ways. Each shows its status: **Ready**, **Off**, **Sign in needed**, **Key needed**, **Finish setup**, **Working…**, **Needs attention**, or **Removed** for a package whose saved data was kept. [Troubleshooting](/docs/troubleshooting/#apps-and-skills) says what to do about each.
 - **Featured**, then category chips (Productivity, Developer, Data, Design, Communication, Finance and Local tools), then **All apps**. **Communication** lists the messaging channels.
 
 While the app catalog is first being built, the page says **Preparing the app catalog…** and more apps appear in a moment.
@@ -43,6 +43,7 @@ The main action is whatever comes next: **Connect**, **Add**, **Set up**, **Sign
 - **Show views in chat**: for an app that can show its results as an interactive view. See [App views](/docs/chat/#app-views).
 - **Settings**: for a connected app, the account, whether a key is saved (in your system keychain), each setting, and anything it needs on this computer, with **Change settings**. See [Change settings after setup](#change-settings-after-setup). For a built-in way, **Set up** or **Open** opens its own settings.
 - **Ways to connect**: when an app can be connected more than one way, every way, the recommended one first. See [Ways to connect](#ways-to-connect).
+- **Skills for** the app: skills made for it, yours first. An app lets Row-Bot use a service for you; a skill teaches Row-Bot how to do a task, and some work with an app.
 - **Included**: for a package, the apps and skills it brought. Each of those says **Installed as part of _package_**.
 - **Details**: source, version, licence, other catalogs it is listed in, and its identifier.
 
@@ -55,7 +56,7 @@ For example:
 - **GitHub**: GitHub's hosted server (with a token, or with your own OAuth app), then the GitHub account built into Row-Bot, then GitHub's server on this computer.
 - **Google**: the Google account built into Row-Bot first.
 - **Slack**: Slack's hosted server, then the Slack channel built into Row-Bot.
-- **Tavily**: Row-Bot's built-in **Web search** with your Tavily key, then Tavily's hosted server, then its server on this computer.
+- **Tavily**: Row-Bot's built-in **Tavily web search** with your Tavily key, then Tavily's hosted server, then its server on this computer.
 
 Each way keeps its own credentials. A GitHub account token and a GitHub server connection, for example, never share a token: connecting one doesn't sign in the other.
 
@@ -65,7 +66,7 @@ Some ways to connect are part of Row-Bot itself, so their cards and pages say **
 
 - the **GitHub**, **Google** and **X** accounts;
 - the **Telegram**, **WhatsApp**, **Discord**, **Slack** and **Text messages** (SMS) channels;
-- tools that use your own key: **Web search** (a Tavily key) and **Wolfram Alpha**.
+- tools that use your own key: **Tavily web search** (a Tavily key) and **Wolfram Alpha**.
 
 A built-in way is set up and changed in its own settings, not with a setup sheet. Its **Set up** (or **Open** once it is set up), and **⋯ › Open its settings**, open those settings for that one account, channel or tool only, with **Back** to the app page:
 
