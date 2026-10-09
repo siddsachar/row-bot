@@ -78,6 +78,7 @@ import {
   type PanelPlacement,
 } from '../panels/model';
 import { PanelSubscriptions } from '../panels/subscriptions';
+import { useDeletingConversations } from './delete-with-undo';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import CommandPalette, { type PaletteCommand } from './CommandPalette';
 import {
@@ -558,11 +559,14 @@ export default function Workspace() {
   const deletedConversation = useClientSelector(
     (value) => value.deletedConversationId ?? null,
   );
+  // One the person is deleting here already says so, with Undo.
+  const deletingHere = useDeletingConversations();
   useEffect(() => {
     if (!conversationId || deletedConversation !== conversationId) return;
     navigate('/', { replace: true });
-    overlay.notify('That conversation was deleted.');
-  }, [deletedConversation, conversationId, navigate, overlay]);
+    if (!deletingHere.has(conversationId))
+      overlay.notify('That conversation was deleted.');
+  }, [deletedConversation, conversationId, navigate, overlay, deletingHere]);
   const reconcileResources = useEffectEvent(() => {
     const workspace = state.workspace;
     if (

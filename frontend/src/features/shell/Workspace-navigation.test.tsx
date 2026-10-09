@@ -13,7 +13,8 @@ import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
 import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
-import { OverlayProvider } from '../../ui/overlays';
+import { OverlayProvider, useOverlay } from '../../ui/overlays';
+import { deleteWithUndo } from './delete-with-undo';
 import Workspace from './Workspace';
 import { settingsReturnPath } from '../settings/return-path';
 
@@ -341,6 +342,51 @@ it('remembers the chat Settings was opened from, for Close settings', async () =
   );
   expect(settingsReturnPath()).toBe('/conversations/conversation-a');
 });
+
+it('goes Home without "deleted elsewhere" when the person deletes the open chat with Undo', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <DeleteOpenChat controller={controller} />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByText('Delete the open chat'));
+  });
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/),
+  );
+  expect(await screen.findByText(/^Deleted '/)).toBeVisible();
+  expect(screen.queryByText('That conversation was deleted.')).toBeNull();
+});
+
+function DeleteOpenChat({ controller }: { controller: ClientController }) {
+  const overlay = useOverlay();
+  return (
+    <button
+      onClick={() => {
+        const row = controller
+          .getSnapshot()
+          .conversations.find((item) => item.id === 'conversation-a')!;
+        deleteWithUndo(controller, overlay.notify, row);
+      }}
+    >
+      Delete the open chat
+    </button>
+  );
+}
 
 it('stays on the chat while a sign-in is replaced after a restart', async () => {
   const transport = new FixtureTransport({ conversationCount: 2 });
