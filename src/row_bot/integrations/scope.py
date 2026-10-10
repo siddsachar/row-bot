@@ -104,6 +104,11 @@ def chat_apps(conversation_id: str) -> list[dict]:
     return sorted(found, key=lambda app: (not app["switchable"], app["name"].casefold(), app["item_id"]))[:64]
 
 
+def turned_off() -> list[str]:
+    """The apps added here but turned off everywhere, by name: a mention of one is ignored, and its card turns it on."""
+    return [_name(item) for item in _items() if item["lifecycle"] == "off"][:8]
+
+
 def servers_off(conversation_id: str) -> set[str]:
     """The servers of the apps switched off in this chat (a mention never turns one back on)."""
     from row_bot.threads import get_thread_apps_off

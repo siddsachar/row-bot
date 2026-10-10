@@ -156,3 +156,17 @@ def test_a_turn_names_the_apps_switched_off_in_its_chat(local, monkeypatch):
     finally:
         agent._current_thread_id_var.reset(token)
     assert "APPS SWITCHED OFF IN THIS CHAT: Notion" in guidance and "+ › Apps" in guidance
+
+
+def test_a_turn_names_the_apps_turned_off_everywhere_and_asking_by_name_offers_to_turn_it_on(local):
+    """Found live: "@Composio, find tools for Notion pages" with Composio turned off brought cards for Notion."""
+    from row_bot import agent
+    config.CONFIG_PATH.write_text(json.dumps({"version": 1, "enabled": True, "servers": {"Notion MCP": {
+        "transport": "streamable_http", "url": "https://mcp.notion.com/mcp", "enabled": False,
+        "source": {"marketplace": "curated", "id": "makenotion-notion-mcp-server"}}}}))
+    config._config_cache = None
+    facts.invalidate()
+    added = next(row for row in facts.inventory()[0] if row["name"] == "Notion MCP")
+    guidance = agent._setup_guidance(["row_bot_status"])
+    assert "APPS TURNED OFF: Notion." in guidance and "suggest_apps with that app's name" in guidance
+    assert json.loads(suggest_apps("Notion"))["apps"] == [added["id"]]  # Its own card, which turns it on.

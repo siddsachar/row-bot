@@ -1244,11 +1244,19 @@ def _setup_guidance(tool_names: list[str]) -> str:
                 "If they choose Not now, it stays off: don't ask again unless they ask."
             )
         try:
-            from row_bot.integrations.scope import chat_apps
+            from row_bot.integrations.scope import chat_apps, turned_off
             thread = _current_thread_id_var.get("")
             switched_off = [app["name"] for app in chat_apps(thread) if not app["on"]][:8] if thread else []
+            everywhere = turned_off()
         except Exception:
-            switched_off = []
+            switched_off, everywhere = [], []
+        if everywhere:
+            # Found live: "@Composio, find tools for Notion pages" with Composio off brought cards for Notion.
+            parts.append(
+                "APPS TURNED OFF: " + ", ".join(everywhere) + f". If the person names one of them (such as "
+                f"@{everywhere[0]}), call suggest_apps with that app's name as the need, not the task: its card "
+                "offers to turn it on. Don't do the work another way."
+            )
         if switched_off:
             # Found live: GitHub switched off in a chat, and the answer came from a web search without a word.
             parts.append(
