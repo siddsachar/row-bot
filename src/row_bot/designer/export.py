@@ -669,7 +669,8 @@ def _render_png_screenshots(project: DesignerProject, pages: Optional[str] = Non
             )
             pg = ctx.new_page()
             pg.set_content(html, wait_until="load")
-            png_bytes = pg.screenshot(full_page=False, type="png")
+            # A landing page runs on below its canvas, as it does in the preview: the image is all of it.
+            png_bytes = pg.screenshot(full_page=project.mode == "landing", type="png")
             safe_title = _sanitize_name(page.title, max_len=40)
             screenshots.append((f"page_{i + 1}_{safe_title}.png", png_bytes))
             _export_collection_size(data for _name, data in screenshots)

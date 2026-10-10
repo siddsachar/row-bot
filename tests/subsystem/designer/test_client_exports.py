@@ -43,7 +43,7 @@ def renderer(monkeypatch):
     writer, buffer = PdfWriter(), io.BytesIO()
     writer.add_blank_page(width=100, height=100)
     writer.write(buffer)
-    calls = {'contexts': [], 'html': [], 'routes': [], 'launches': 0}
+    calls = {'contexts': [], 'html': [], 'routes': [], 'launches': 0, 'screenshots': []}
 
     class Page:
         def set_content(self, html, **_kwargs):
@@ -52,7 +52,8 @@ def renderer(monkeypatch):
         def pdf(self, **_kwargs):
             return buffer.getvalue()
 
-        def screenshot(self, **_kwargs):
+        def screenshot(self, **kwargs):
+            calls['screenshots'].append(kwargs)
             return png
 
         def evaluate(self, _script):
@@ -141,6 +142,15 @@ def test_all_modes_use_real_export_owners_with_fake_offline_browser(project, ren
         assert options['java_script_enabled'] is False and options['service_workers'] == 'block'
         assert options['accept_downloads'] is False
     assert len(renderer['contexts']) == len(renderer['routes'])
+
+
+@pytest.mark.parametrize(('mode', 'whole'), [('landing', True), ('deck', False), ('storyboard', False)])
+def test_a_landing_page_picture_is_all_of_it_and_a_fixed_canvas_is_its_canvas(project, renderer, mode, whole):
+    """Found live: a landing page's PNG stopped at its canvas, halfway through the pricing cards."""
+    project.mode = mode
+    storage.save_project(project)
+    create(project, format='png', pages='1')
+    assert [shot['full_page'] for shot in renderer['screenshots']] == [whole]
 
 
 def test_replay_and_single_page_png_do_not_repeat_render_or_change_scope(project, renderer):
