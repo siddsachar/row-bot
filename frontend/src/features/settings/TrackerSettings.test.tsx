@@ -183,6 +183,17 @@ it('opens a tracker to its latest entries, newest first, and closes it again', a
   expect(screen.queryByRole('region', { name: 'Water entries' })).toBeNull();
 });
 
+it('says a last entry dated by its day as that day, never as hours ago', () => {
+  // Found live: sleep logged for this morning read "Last 7 hours ago".
+  setup([{ ...sleep, last_event_at: '2026-10-10' }]);
+  const day = new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+  }).format(new Date(2026, 9, 10));
+  const open = screen.getByRole('button', { name: /^Sleep/ });
+  expect(open).toHaveTextContent(`Last ${day}`);
+  expect(open).not.toHaveTextContent(/ago/);
+});
+
 it('says when a tracker’s entries could not be read and reads them again', async () => {
   const trackerEntries = vi
     .fn()

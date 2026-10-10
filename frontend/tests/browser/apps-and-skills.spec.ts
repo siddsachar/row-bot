@@ -535,6 +535,12 @@ test('GitHub is one card, and its token goes only to the keychain', async ({
   await expect(page.getByText('Settings saved.')).toBeVisible();
   await expect(settings).toContainText(/Read only\s*No/);
   await expect(page.getByText('synthetic-github-token')).toHaveCount(0);
+
+  // Your apps lists it once, with its way, down to a narrow phone.
+  await openApps(page, context);
+  const yours = page.getByRole('region', { name: 'Your apps' });
+  await expect(yours.getByRole('link', { name: /^GitHub/ })).toHaveCount(1);
+  await views(page, info, 'p5-your-apps', true);
 });
 
 test('a server that asks to sign in when first checked signs in before anything else', async ({

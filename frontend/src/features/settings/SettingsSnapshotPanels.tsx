@@ -3446,12 +3446,20 @@ function TrackerRow({
           {tracker.last_event_at ? (
             <>
               {' · Last '}
-              <time
-                dateTime={tracker.last_event_at}
-                title={absoluteTime(tracker.last_event_at)}
-              >
-                {relativeTime(tracker.last_event_at)}
-              </time>
+              {/^\d{4}-\d{2}-\d{2}$/.test(tracker.last_event_at) ? (
+                // A day without a time (sleep is dated by its morning): the
+                // day, as the entries show it, never "7 hours ago".
+                <time dateTime={tracker.last_event_at}>
+                  {trackerEntryTime(tracker.last_event_at)}
+                </time>
+              ) : (
+                <time
+                  dateTime={tracker.last_event_at}
+                  title={absoluteTime(tracker.last_event_at)}
+                >
+                  {relativeTime(tracker.last_event_at)}
+                </time>
+              )}
             </>
           ) : (
             ' · No entries yet'
