@@ -617,11 +617,12 @@ export default function Conversation({
     };
     publish();
     // Its own size, and the column's (a bottom panel or the keyboard moves it).
+    // Its border box: the install notice raises it with padding alone.
     const observer =
       typeof ResizeObserver === 'function'
         ? new ResizeObserver(publish)
         : undefined;
-    observer?.observe(composer);
+    observer?.observe(composer, { box: 'border-box' });
     if (composer.parentElement) observer?.observe(composer.parentElement);
     window.addEventListener('resize', publish);
     return () => {
