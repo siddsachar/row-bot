@@ -226,6 +226,10 @@
   flex: 1 1 200px;
   min-height: 72px;
   overflow-y: auto;
+  /* Its width never changes when it starts or stops scrolling: the composer
+     follows it (B221), and a narrower composer is shorter, which could stop
+     the scrolling again, round and round (found live in an empty chat). */
+  scrollbar-gutter: stable;
   overflow-anchor: none;
   overscroll-behavior: contain;
   padding: 8px 0 32px;
