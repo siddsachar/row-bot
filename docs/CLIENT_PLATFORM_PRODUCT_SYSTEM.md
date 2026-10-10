@@ -265,8 +265,11 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   `create_code_folder`) is a card in its turn: "Created design Harbour cleanup
   deck" with Open, Rename (in place) and Undo; once undone it reads "Removed
   …". A tool the work needs is a setup card ("Turn on Web Search?" with Turn on
-  / Not now) instead of a generic approval, and an account or channel it needs
-  is a Connect card that opens its Settings page. Nothing is created from a
+  / Not now) instead of a generic approval, and an app it needs (an account, a
+  channel or any connection) is a Connect card (`suggest_apps`,
+  `features/apps/ChatConnect.tsx`) showing apps from Row-Bot's own catalog: it
+  runs that app's consent and setup plan in place, and once the app is ready
+  Continue sends the request on in this chat. Nothing is created from a
   message's wording, and a design opens by itself only when a turn changed it.
 - A folder the person already has or a repository to clone (`use_code_folder`,
   `clone_repository`) never takes a path from the model. A folder they added
@@ -338,18 +341,21 @@ Add from a folder is a desktop folder pick that says first that it sends
 excerpts to the chosen model; Remove confirms and keeps the files.
 
 `features/settings/model.ts` is the one navigation/search/label/deep-link map:
-seven groups ordered by how often people visit them — General (Preferences,
+six groups ordered by how often people visit them — General (Preferences,
 Appearance, Buddy) · Models (Providers, Models, Voice) · Knowledge (Memory,
-Documents, Tracker) · Capabilities (Tools with the built-in tools, Skills,
-Plugins, MCP) · Connections (Accounts, Channels) · Agents (Agent profiles) ·
-System (System, Access, Updates, Data). Leaf ids are stable deep links.
-Legacy ids and moved pages redirect to their new page and, when useful, to one
-row (`/settings/utilities` → `/settings/tools#built-in-tools`,
-`migration` → `data#migration`, `wiki` → `knowledge#wiki-vault`). Goals belong
-to one conversation, so they live in its Context card; `/settings/goals`
-opens the conversation. Unknown setting links return the index. Domain
-settings remain typed capability forms; this metadata is not a form schema or
-another backend settings store.
+Documents, Tracker) · Capabilities (Tools with the built-in tools, Skills) ·
+Connections (Apps: MCP servers, packages and the built-in accounts and channels)
+· System (System, Access, Updates, Data). Leaf ids are stable deep links. Legacy
+ids and moved pages redirect to their new page and, when useful, to one row
+(`/settings/utilities` → `/settings/tools#built-in-tools`, `migration` →
+`data#migration`, `wiki` → `knowledge#wiki-vault`); the 5.0 `plugins`, `mcp` and
+`integrations` links open Apps (or the selected item), and `accounts` and
+`channels` open that app's page (`/settings/apps/google`) or Apps filtered to
+communication. Agent profile links open the sidebar's Agents dialog. Goals
+belong to one conversation, so they live in its Context card; `/settings/goals`
+opens the conversation. Unknown setting links return the index. Domain settings
+remain typed capability forms; this metadata is not a form schema or another
+backend settings store.
 
 The shell is one canvas: a 232px navigation column (the `Settings` h1 and
 Close, a `/`-focused search, then every group as a small label over its page
@@ -482,7 +488,8 @@ every 12 hours); a signed-out or expired device is told how to connect
 again.
 
 **Connect sheets** (`ConnectSheet`): every channel, account and plugin opens
-to one "Connect <name>" sheet of numbered steps, each with the link where it
+from its page in Settings › Apps to one "Connect <name>" sheet of numbered
+steps, each with the link where it
 happens, a value to copy (X's callback address) and the step's control in
 place (a token field, Start, Authenticate, Prepare); done steps show a check.
 Channels: the built-in steps are React's own words (`connect-guides.ts`), a
@@ -498,8 +505,8 @@ Google (Cloud project, consent screen, Desktop client, file, Authenticate), X
 notes, declared sign-ins, settings, local test, turning it on, the changelog
 link; a worker plugin that can't load offers Prepare (its private
 environment). Install, update, prepare and uninstall show the server's review
-first and run only after it is confirmed. The chat's Connect card opens the
-connection's sheet (`/settings/<page>#<id>`).
+first and run only after it is confirmed. The chat's Connect card runs the
+app's own consent and setup plan in the chat rather than opening a sheet.
 
 Values speak human: enums are translated (`humanizeToken`: "Router",
 "Private · on device", "HTTP", "Local process"), times are relative with the

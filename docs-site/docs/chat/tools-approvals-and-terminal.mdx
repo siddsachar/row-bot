@@ -51,6 +51,22 @@ Before approving, check:
 
 Approving lets Row-Bot continue that action. Denying stops that action and returns control to the conversation.
 
+An approval card offers **Details**, **Deny** and **Approve** (⌘/Ctrl+Enter), and in a chat also:
+
+- **Approve the rest**: approves this and later actions of the same kind until this reply ends. It is offered only for code-folder work that stays on this computer: applying sandbox changes, editing files, creating or switching branches, committing, running detected checks and plain commands. Pushing, opening a pull request, merging, reverting, installing, deleting, network actions, the Shell tool and the Custom Tool Builder ask every time.
+- **Always allow in this chat**: approves this and switches the chat to **Auto**. Apps still ask when their access says to.
+
+### What Asks In A Code Folder
+
+- A Developer command that isn't on the read-only list (such as `ls`, `git status`, `git diff` or `node --version`) counts as running a command: **Ask** asks ("Run a command?"), **Auto** runs it, **Block** refuses it. Installs, deletes, network use, Git commits and pushes, and starting a server keep their own checks.
+- **Apply the sandbox changes?** applies every sandbox change waiting in this conversation, oldest first, with one approval.
+- **Open a pull request?** opens one with the GitHub command-line tool (`gh`) on this computer, as a draft unless you ask otherwise. It follows the conversation's approvals, and needs `gh` installed and signed in.
+- The Custom Tool Builder asks before it tests, installs dependencies for, creates, turns on or offers a custom tool in chats, and the card lists the commands it will run on this computer.
+
+### Row-Bot's Own Data Folder
+
+Row-Bot's data folder holds your conversations, settings and keys, so the Shell tool refuses commands that name it, and file tools refuse paths inside it. To let the agent read it, turn on **Let the agent read Row-Bot's data folder** in [Settings › System](/docs/settings/system) › Advanced; such commands then ask you every time, even under **Auto**, and **Block** still refuses them.
+
 ## Interactive Terminal
 
 In the Row-Bot desktop app, a conversation can open a real interactive terminal docked at the bottom of the window. Open or close it with the terminal button in the header, **Open panel › Interactive terminal**, the command palette (**Toggle terminal**), or Ctrl+`.

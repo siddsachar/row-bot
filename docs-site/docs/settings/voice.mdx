@@ -20,7 +20,9 @@ Open **Settings**, then choose **Voice** in the **Models** group, or search for 
 - Talk settings decide whether spoken input submits directly to Row-Bot.
 - Dictate settings decide whether speech is inserted into the composer for review before sending.
 - Read-aloud settings control spoken assistant responses.
-- Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate.
+- Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate. Once SenseVoice is installed, **Speech engine** (**Talk listens with**, **Dictation listens with**) chooses it for each mode, in Talk and Dictation in the browser too.
+- A saved Whisper size, SenseVoice model or read-aloud voice and speed applies to the next use, without restarting Row-Bot.
+- **Test voice**, beside the read-aloud voice, plays the test phrase in this browser, not on the computer running Row-Bot.
 - SenseVoice readiness shows whether the platform, packaged runtime, and verified local model snapshot are ready. Its install action is always explicit.
 - Realtime voice controls use provider-backed low-latency voice models.
 - Device controls select microphone and output devices.
@@ -52,6 +54,8 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 ## Troubleshooting
 
 - If the microphone is silent, check the selected input device and browser/app permissions.
+- "SenseVoice isn't ready on this computer." means the engine chosen for Talk or Dictation needs installing: install it in Voice settings, or choose Whisper.
+- If **Test voice** says "This browser couldn't play the test phrase.", check the browser's sound output and that the page is allowed to play audio.
 - If SenseVoice is missing or invalid, use its install or reinstall action in Voice settings. Source installs also require the `voice` extra.
 - SenseVoice is unavailable on Intel macOS because the required CPU PyTorch and Torchaudio wheels are not published for that runtime; use local Whisper there.
 - If realtime voice is unavailable, configure a compatible provider in Providers.

@@ -116,8 +116,13 @@ Because `src/row_bot` is recursive, the shared Browser runtime, native Computer
 Use, the Buddy desktop overlay, coordinated conversation cleanup, live provider
 media catalogs, context accounting and compaction, progressive capability and
 skill discovery, durable skill activation, access/runtime policy, provider
-transports, channel streaming, the staged React client, and the mobile routes
-require no per-file installer entries. Deployment examples under `deploy/` are
+transports, channel streaming, Apps & Skills (`integrations/`) with its shipped
+catalogs, the staged React client, and the mobile routes require no per-file
+installer entries. Non-Python data inside the package (`apps.json`, `skills.json`,
+the compressed MCP Registry snapshot, the public suffix list, the bundled
+`local-text-tools` example) must also be listed under
+`[tool.setuptools.package-data]` in `pyproject.toml`, because the Docker image
+installs the project as a wheel. Deployment examples under `deploy/` are
 source-distribution/operator artifacts rather than runtime Python packages.
 `tests/subsystem/installer/test_linux_support.py` keeps required runtime
 packages in the cross-platform payload inventory.

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.1">
 <title data-rh="true">Settings: Voice | Row-Bot</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" name="twitter:image" content="https://row-bot.ai/img/brand/row_bot_preview.png"><meta data-rh="true" property="og:url" content="https://row-bot.ai/docs/settings/voice/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Settings: Voice | Row-Bot"><meta data-rh="true" name="description" content="Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics."><meta data-rh="true" property="og:description" content="Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics."><link data-rh="true" rel="icon" href="/favicon.ico"><link data-rh="true" rel="canonical" href="https://row-bot.ai/docs/settings/voice/"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/settings/voice/" hreflang="en"><link data-rh="true" rel="alternate" href="https://row-bot.ai/docs/settings/voice/" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Settings: Voice","item":"https://row-bot.ai/docs/settings/voice"}]}</script><link rel="stylesheet" href="/assets/css/styles.e50d20ac.css">
-<script src="/assets/js/runtime~main.4fbcabcd.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.081efae3.js" defer="defer"></script>
 <script src="/assets/js/main.44729db0.js" defer="defer"></script>
 </head>
 <body>
@@ -21,7 +21,9 @@
 <li class="">Talk settings decide whether spoken input submits directly to Row-Bot.</li>
 <li class="">Dictate settings decide whether speech is inserted into the composer for review before sending.</li>
 <li class="">Read-aloud settings control spoken assistant responses.</li>
-<li class="">Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate.</li>
+<li class="">Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate. Once SenseVoice is installed, <strong>Speech engine</strong> (<strong>Talk listens with</strong>, <strong>Dictation listens with</strong>) chooses it for each mode, in Talk and Dictation in the browser too.</li>
+<li class="">A saved Whisper size, SenseVoice model or read-aloud voice and speed applies to the next use, without restarting Row-Bot.</li>
+<li class=""><strong>Test voice</strong>, beside the read-aloud voice, plays the test phrase in this browser, not on the computer running Row-Bot.</li>
 <li class="">SenseVoice readiness shows whether the platform, packaged runtime, and verified local model snapshot are ready. Its install action is always explicit.</li>
 <li class="">Realtime voice controls use provider-backed low-latency voice models.</li>
 <li class="">Device controls select microphone and output devices.</li>
@@ -46,6 +48,8 @@
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="troubleshooting">Troubleshooting<a href="#troubleshooting" class="hash-link" aria-label="Direct link to Troubleshooting" title="Direct link to Troubleshooting" translate="no">​</a></h2>
 <ul>
 <li class="">If the microphone is silent, check the selected input device and browser/app permissions.</li>
+<li class="">&quot;SenseVoice isn&#x27;t ready on this computer.&quot; means the engine chosen for Talk or Dictation needs installing: install it in Voice settings, or choose Whisper.</li>
+<li class="">If <strong>Test voice</strong> says &quot;This browser couldn&#x27;t play the test phrase.&quot;, check the browser&#x27;s sound output and that the page is allowed to play audio.</li>
 <li class="">If SenseVoice is missing or invalid, use its install or reinstall action in Voice settings. Source installs also require the <code>voice</code> extra.</li>
 <li class="">SenseVoice is unavailable on Intel macOS because the required CPU PyTorch and Torchaudio wheels are not published for that runtime; use local Whisper there.</li>
 <li class="">If realtime voice is unavailable, configure a compatible provider in Providers.</li>

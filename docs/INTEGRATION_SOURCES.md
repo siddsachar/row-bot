@@ -8,13 +8,16 @@ facts. Nothing here establishes live-account compatibility.
 
 | Source | Contract and current discovery policy |
 | --- | --- |
-| Vendor recommendations | Local metadata in `recommended_servers.json`: 46 recipes, including 27 vendor-hosted endpoints whose URL and sign-in method were checked against vendor documentation on 4 October 2026. Sign-in is declared only where any client can sign in or an API key header is documented; the rest say sign-in arrives later. Live account checks remain pending. Developer fixtures are explicit `examples` or imports, never normal recommendations. |
+| Vendor recommendations | Local metadata in `recommended_servers.json`: 50 recipes (40 hosted endpoints, 10 local commands), each with its own review date. 27 hosted endpoints' URL and sign-in method were checked against vendor documentation on 4 October 2026, live accounts untested. Eight (GitHub's two hosted ways, Notion, Linear, Sentry, Supabase, Stripe, Context7) were validated live with Row-Bot on Windows on 5 to 8 October 2026 and are marked `tested_with_row_bot`. Sign-in is declared only where any client can sign in or an API key header is documented. Developer fixtures are explicit `examples` or imports, never normal recommendations. |
 | Featured skills | Local `skills.json`: 40 skills referenced at pinned commits in 17 official and maintainer repositories, each under an OSI licence checked at that commit (proprietary, unlicensed and share-alike skills were left out). Opens Skills Discover; adding one reads the pinned folder from GitHub after consent. |
-| Official MCP Registry | A full local mirror of every latest v0.1 record, shipped as a compressed snapshot and indexed on this computer. Search sends no request. Only an explicit **Update catalogs** (or a schedule the user turns on) reads the Registry, as `updated_since` deltas. Preview and new configuration publication recheck the exact name/version and recipe against current status. |
+| Official MCP Registry | A full local mirror of every latest v0.1 record, shipped as a compressed snapshot and indexed on this computer. Search sends no request. Only an explicit **Update** or **Update all** in Apps › Advanced › Catalogs (or **Update catalogs automatically**, off by default) reads the Registry, as `updated_since` deltas. Preview and new configuration publication recheck the exact name/version and recipe against current status. |
 | ClawHub skills | Documented public v1 search/list/detail/download. Complete pinned bundles and publisher identity remain owned by Skills Hub. Installation rechecks current moderation and the exact version. Summaries are shown as plain text; downloads, stars and the official flag pass through as publisher signals. |
 | GitHub skills | Existing bounded maintainer repository roots through the GitHub owner and documented repository contents/tree APIs. Explicit imports preserve subdirectories/revisions. No arbitrary repository search or upstream install CLI. |
 | Hermes packages / MCP recipes | Existing pinned catalog and recipe adapters. Ordinary sources, not format authorities. Fresh package inspection/publication rejects unavailable, removed or changed catalog identities. The exact reviewed catalog migration redirect remains the only exception. |
 | Row-Bot native marketplace | Saved marketplace metadata only. Its existing reviewed refresh and install lifecycle remain canonical. |
+| Built in | Row-Bot's own accounts (Google, GitHub, X), channels and key-based tools, read from their owners; no service is contacted and no program is started. Each opens its owner's page. |
+| Windows connectors | Only on Windows builds whose On-device Agent Registry (`odr.exe` in the Windows system folder) is present; hidden elsewhere. `odr.exe list` runs only on an explicit update of this catalog, and searching reads the saved list. Row-Bot never adds, removes or configures a connector. |
+| Composio | A third-party hosted broker, `explicit_only` until the person turns it on in Apps › Advanced › Catalogs after its disclosure (a separate Composio account; requests and results for those apps pass through it). Its catalog cannot be listed without an account, so Row-Bot searches its own list of app names (`broker_apps.json`). Its remote code tools start off and its acting tools ask every time. |
 | skills.sh | Discovery unavailable: documented v1 requires Vercel OIDC. Anonymous legacy responses do not establish a desktop contract. Existing imports and installed provenance remain available. |
 | Glama | Discovery unavailable: directory reads require an API key; the data license requires visible Glama credit on each displaying view and a backlink for every listing. Access/license integration is not implemented. No telemetry endpoint is used. |
 | PulseMCP | Discovery unavailable: B2B tenant/key access has no approved desktop integration. |
@@ -42,8 +45,8 @@ supported by this implementation; no shared desktop secret is shipped.
 ## Registry mirror: snapshot, index and updates
 
 `registry_snapshot.jsonl.xz` is packaged with the application: every latest
-Registry record (39,231 on 4 October 2026), normalized and sorted by name, as
-xz-compressed JSON lines. A header records the source, capture time, the newest
+Registry record (40,103 captured on 6 October 2026), normalized and sorted by name,
+as xz-compressed JSON lines. A header records the source, capture time, the newest
 `updatedAt` (the update watermark), the record count and the SHA-256 of the
 records; the loader refuses a changed digest, schema or oversized file. The same
 records and capture time always produce the same bytes.
@@ -70,9 +73,10 @@ endorsement.
 
 `POST /api/v1/integrations/sources/{id}/update` starts one background update of a
 source that declares `network: explicit` (the Registry, Hermes packages and MCP
-recipes, ClawHub and GitHub skills); `GET /api/v1/integrations/sources` reports its
-state. The Registry update pages `updated_since` deltas from the mirror's watermark
-(with `If-None-Match` when an ETag was saved; a full resync when the mirror is over
+recipes, ClawHub and GitHub skills, and Windows connectors where present);
+`GET /api/v1/integrations/sources` reports its state. The Registry update pages
+`updated_since` deltas from the mirror's watermark (with `If-None-Match` when an
+ETag was saved; a full resync when the mirror is over
 180 days old), builds a new index generation and swaps it in; any failure keeps the
 previous index. It also caches up to 200 new Registry icons per update, only from each
 publisher's own domain (its namespace's domain, or GitHub's content hosts for
@@ -93,17 +97,19 @@ is complete or the exact reason it is not, offline and in a throwaway data folde
 
 Every catalog request goes through one fetcher (`integrations/safe.py`): https on
 port 443 only, no automatic redirects (each hop is checked again), credentials
-never sent to another host, identity encoding, and size and time caps.
+never sent to another host, identity encoding, and size and time caps. A direct
+connection that cannot reach one checked address moves on to the host's next
+checked address within the same deadline.
 
 - **Reviewed catalog hosts** (the Registry, Hermes, ClawHub and the GitHub API and
   download hosts) use the system or environment proxy when one is set
   (`HTTPS_PROXY`/`NO_PROXY`, the Windows Internet settings or macOS network
   settings; only `http`/`https` proxies; PAC scripts are not run). Without a proxy
   they connect directly, only to an address checked to be public.
-- **Any other host** (Registry icons fetched during an update, skill or plugin
-  imports from a link, well-known skill indexes) is never sent through a proxy. It
-  connects directly, only to a checked public address, so these fail on networks
-  that allow traffic only through a proxy.
+- **Any other host** (Registry icons fetched during an update, Registry bundles
+  after consent, skill or plugin imports from a link, well-known skill indexes) is
+  never sent through a proxy. It connects directly, only to a checked public
+  address, so these fail on networks that allow traffic only through a proxy.
 - **Limitation:** through a proxy, Row-Bot cannot see or check the address the
   proxy connects to; the host allow-list is then the protection. Proxy credentials
   go only to the proxy; TLS stays end to end with the reviewed host.
@@ -118,9 +124,8 @@ unknown ids.
 `refresh=false` is passive/cache-only, including pasted query drafts. An explicit
 Search uses `refresh=true`; Registry metadata still searches locally. Source
 settings can request the named unavailable sources to inspect their typed
-eligibility/reasons. Optional catalog credentials have no editor. Category and disabled catalog IDs
-are persisted in device-local browser storage; queries and secrets are not. The
-server eligibility policy still decides which sources can execute.
+eligibility/reasons. Optional catalog credentials have no editor. The server
+eligibility policy decides which sources can execute.
 
 A four-slot coordinator applies eight-second source deadlines. It returns useful
 partial outcomes, checks cancellation/disconnect, suppresses late search results
@@ -129,10 +134,11 @@ transport reads can finish within their transport timeout; they cannot publish a
 cancelled search revision. No forced process termination is involved.
 
 Ranking is deterministic, one key for every source (and the same order inside the
-Registry index): an exact name or app name; a featured app or a vendor-verified
-record; every query word in the name, publisher, app name, synonyms or jobs;
-featured order; an installable plan with known authentication; freshness (90 days,
-a year); source-provided popularity; then source precedence and stable ties (a merged
+Registry index): a featured app or a vendor-verified record first (a community
+record never wins on its name alone); then an exact name or app name; every query
+word in the name, publisher, app name, synonyms or jobs; featured order; an
+installable plan with known authentication; freshness (90 days, a year);
+source-provided popularity; then source precedence and stable ties (a merged
 deployment is led by its most reviewed source, then its vendor-verified record). The
 empty query lists featured app records only, never an alphabetical dump; the
 Registry returns its top 200 matches and reports `truncated` beyond that. There is
@@ -159,35 +165,41 @@ version/digest, fetched time and truncation. Installed inventory remains local.
 Existing preview references remain owner-bound; setup, secrets, approvals,
 profiles, idempotency and durability stay behind existing owners.
 
-The implemented shell selects type before discovery, uses one explicit Search,
-and shows full-width detail/setup. Client AbortSignals and generation/identity
-checks suppress late search and inspection output after navigation. Catalogs
-shows provenance, age, device enablement and exact unavailable-source reasons.
-Focused setup, first-use drafts and lifecycle controls delegate to the original
-owners; see [implementation guidance](INTEGRATIONS.md) for authority and recovery.
+Settings › Apps and Settings › Skills read local results as the person types
+(`GET /api/v1/integrations/items`); **Search online catalogs** is the one explicit
+online search. Item pages show full-width detail and run setup as server plans.
+Client AbortSignals and generation/identity checks suppress late search and
+inspection output after navigation. Apps › Advanced › Catalogs shows provenance,
+age, update state, opt-in brokers and exact unavailable-source reasons. Setup and
+lifecycle controls delegate to the original owners; see
+[implementation guidance](INTEGRATIONS.md) for authority and recovery.
 
 
 ## Registry declaration binding
 
-Snapshot schema 2 binds the complete bounded delivery declarations to a SHA-256
-setup digest, including remote headers/variables, authentication extensions,
-package environment, runtime/arguments, registry location and integrity fields.
-Header/environment values and defaults are not copied into metadata, notes or
-a configuration. Only plain HTTPS transports and the existing pinned npm subset
-can produce import recipes. Unsupported header/environment/argument mappings,
-custom runtime or registry requirements, integrity constraints and unknown setup
-extensions remain explicitly unsupported; adding them is a separate owner change.
+The snapshot (schema 4, whose recipes carry their declared inputs) binds the
+complete bounded delivery declarations to a SHA-256 setup digest, including remote
+headers/variables, authentication extensions, package environment,
+runtime/arguments, registry location and integrity fields. Header/environment
+values and defaults are not copied into metadata, notes or a configuration; they
+become declared inputs (`integrations/inputs.py`). Recipes come from HTTPS
+streamable-HTTP or SSE remotes, from npm, PyPI and OCI packages on their default
+registries (an image needs a fixed tag or digest and gets no folders, ports or
+host network), and from MCP bundles named by their SHA-256. A secret on a command
+line, a payment header, a custom registry, a package that runs as a web server and
+unknown setup fields stay unsupported, with the reason shown; adding them is a
+separate owner change.
 An alternate supported recipe may still be selected, with the entire declared
 variant set bound to its review. This is conservative: changes to unused variants
 can also require review again.
 
 Search identity includes the setup digest. Preview and configuration publication
 recompute it from current exact-version metadata; any setup change invalidates
-the earlier review. Older snapshots without declaration binding cannot authorize
-an import and saved schema-1 snapshots fall back to the shipped schema-2 copy.
+the earlier review. A snapshot of any other schema is refused, so an older saved
+copy cannot authorize an import.
 The bound input is at most 64 KiB with at most 16 remotes and 16 packages; oversized
 declarations are rejected rather than truncated into a misleading identity.
-Catalog preferences and browser abort/stale-response handling are implemented.
+Browser abort/stale-response handling is implemented.
 Setup preserves unknown authentication and derives readiness from saved owners.
 A recipe indicates representable declarations only: authentication, prepared
 package dependencies and successful tool use need independent evidence.
@@ -209,6 +221,6 @@ outcomes. Listing, metadata/package inspection, compatible recipe, authenticated
 successful approved tool use and lifecycle evidence are independent fields.
 Parser acceptance alone is not package verification; service-name alternatives
 remain separate publishers. Synthetic lifecycle tests are a separate evidence set.
-The shipped 500 records and 333 recipe candidates are not working integrations.
-Production refresh distribution, real authorized accounts, Windows native OAuth,
-macOS/Linux hosts and participant usability remain explicit pending gates.
+Shipped records and their recipe candidates are not working integrations. Real
+authorized accounts beyond the recipes marked tested, macOS/Linux hosts and
+participant usability remain explicit pending gates.

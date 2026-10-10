@@ -94,8 +94,11 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    scripts copy), Windows `installer/row_bot_setup.iss`, macOS
    `installer/build_mac_app.sh`, Linux `installer/build_linux_app.sh`, the Linux
    bootstrapper `installer/install-linux.sh`, and the payload notes in
-   `installer/README.md`. The source-layout and payload contract is summarized
-   in [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md). For server or deployment
+   `installer/README.md`. Non-Python data under `src/row_bot` (catalog JSON, the
+   MCP Registry snapshot) also needs a `[tool.setuptools.package-data]` entry in
+   `pyproject.toml` for the wheel the Docker image installs. The source-layout
+   and payload contract is summarized in
+   [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md). For server or deployment
    changes, also review `deploy/docker/Dockerfile`,
    `deploy/docker/compose.yaml`, the reverse-proxy and systemd examples under
    `deploy/`, `.dockerignore`, and `.github/workflows/container.yml`. For
@@ -181,9 +184,9 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    a clean Linux VM, run `./install.sh`, and confirm `~/.local/bin/row-bot` opens
    the React client in the browser and `~/.local/bin/row-bot serve --port 8092`
    answers `/healthz` and `/readyz`.
-6. Upload the signed exe, the stapled DMG, and the Linux tarball to the draft
-   GitHub Release (Release Drafter keeps one up to date). Use the notes from
-   `RELEASE_NOTES.md`; remove any unsigned, unstapled, or wrong-version asset.
+6. Create a draft GitHub Release for the tag and upload the signed exe, the
+   stapled DMG, and the Linux tarball. Use the notes from `RELEASE_NOTES.md`;
+   remove any unsigned, unstapled, or wrong-version asset.
 7. Smoke-test the final Windows, macOS, and Linux assets on clean or
    representative machines. For Windows, include repair/upgrade over an
    existing install and confirm the bundled `python\`, `app\src\` and
