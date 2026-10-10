@@ -127,6 +127,30 @@ def test_open_fetch_refuses_names_that_reach_private_networks(http, address):
     assert sent == []
 
 
+def test_an_address_that_cannot_be_connected_to_gives_way_to_the_next_checked_one(http):
+    """Found live: one of raw.githubusercontent.com's addresses never answered here, and every featured
+    skill failed although the others did. Each address is still checked public; TLS and Host keep the name."""
+    def handler(request):
+        if request.url.host == "93.184.216.34":
+            raise httpx.ConnectTimeout("no answer")
+        return httpx.Response(200, content=b"ok")
+    sent = http(handler, {"catalog.example": ["93.184.216.34", "93.184.216.36"]})
+    assert safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10) == b"ok"
+    assert [request.url.host for request in sent] == ["93.184.216.34", "93.184.216.36"]
+    assert {reached(request) for request in sent} == {"https://catalog.example/a.json"}
+    assert sent.resolved == ["catalog.example"]  # Resolved once: the same checked answer.
+
+
+def test_a_request_that_reached_an_address_is_never_sent_again(http):
+    """Once connected, the request may have been seen: a later failure is not retried elsewhere."""
+    def handler(request):
+        raise httpx.ReadTimeout("slow")
+    sent = http(handler, {"catalog.example": ["93.184.216.34", "93.184.216.36"]})
+    with pytest.raises(httpx.ReadTimeout):
+        safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10)
+    assert [request.url.host for request in sent] == ["93.184.216.34"]
+
+
 @pytest.mark.parametrize("host", ["localhost", "printer.local", "svc.internal", "app.localhost"])
 def test_open_fetch_refuses_local_names_without_resolving(http, monkeypatch, host):
     http(lambda request: pytest.fail("local name was contacted"))

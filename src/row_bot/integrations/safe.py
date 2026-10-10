@@ -60,7 +60,7 @@ def _global(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return True
 
 
-def _public_address(host: str, refused: str) -> str:
+def _public_addresses(host: str, refused: str) -> list[str]:
     """Resolve once; a name reaching loopback, private or link-local space is refused."""
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
         raise ValueError(refused)
@@ -71,7 +71,7 @@ def _public_address(host: str, refused: str) -> str:
     addresses = [ipaddress.ip_address(item[4][0].split("%", 1)[0]) for item in found]
     if not addresses or not all(_global(address) for address in addresses):
         raise ValueError(refused)
-    return str(addresses[0])
+    return list(dict.fromkeys(str(address) for address in addresses))
 
 
 def proxy_for(host: str) -> str | None:
@@ -97,18 +97,26 @@ def proxy_for(host: str) -> str | None:
 
 
 class _Pinned(httpx.HTTPTransport):
-    """Connect to the checked address while TLS and Host keep the reviewed name."""
+    """Connect to a checked address while TLS and Host keep the reviewed name. One that can't be connected
+    to (found live: one of a host's four addresses never answered) gives way to the next, until the fetch's
+    deadline; nothing was sent to it, so nothing is repeated."""
 
-    def __init__(self, host: str, address: str) -> None:
+    def __init__(self, host: str, addresses: list[str], deadline: float) -> None:
         super().__init__()
-        self.host, self.address = host, address
+        self.host, self.addresses, self.deadline = host, addresses, deadline
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         if request.url.host != self.host:
             raise httpx.ConnectError("unreviewed host")
-        pinned = httpx.Request(request.method, request.url.copy_with(host=self.address), headers=request.headers,
-            stream=request.stream, extensions={**request.extensions, "sni_hostname": self.host})
-        return super().handle_request(pinned)
+        for number, address in enumerate(self.addresses):
+            pinned = httpx.Request(request.method, request.url.copy_with(host=address), headers=request.headers,
+                stream=request.stream, extensions={**request.extensions, "sni_hostname": self.host})
+            try:
+                return super().handle_request(pinned)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                if number == len(self.addresses) - 1 or time.monotonic() > self.deadline:
+                    raise
+        raise httpx.ConnectError("no address")
 
 
 def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: float = 20,
@@ -150,7 +158,7 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
         if proxy:
             options["proxy"] = proxy
         else:
-            options["transport"] = _Pinned(parts.hostname, _public_address(parts.hostname, refused))
+            options["transport"] = _Pinned(parts.hostname, _public_addresses(parts.hostname, refused), deadline)
         # A fresh client per hop: no cookie or connection state crosses origins.
         with httpx.Client(**options) as client:
             with client.stream(method, url, headers={"User-Agent": "Row-Bot", **sent, "Accept-Encoding": "identity"}) as response:
