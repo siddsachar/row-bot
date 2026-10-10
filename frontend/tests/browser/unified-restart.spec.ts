@@ -20,15 +20,23 @@ test('reconnects by itself after a restart, without a reload (B110)', async ({
     'Flaky in WebKit: varying 500 console errors',
   );
   // Requests in flight when the sessions disappear are refused, as on a
-  // real restart; how many depends on timing.
-  for (const [status, text, count] of [
-    [401, 'Unauthorized', 40],
-    [404, 'Not Found', 10],
+  // real restart; how many depends on timing. A body still streaming then
+  // (the Buddy's media, which re-checks the session on every chunk) is cut.
+  for (const [signature, count] of [
+    [
+      'Failed to load resource: the server responded with a status of 401 (Unauthorized)',
+      40,
+    ],
+    [
+      'Failed to load resource: the server responded with a status of 404 (Not Found)',
+      10,
+    ],
+    ['Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING', 4],
   ] as const)
     testInfo.annotations.push({
       type: 'expected-console-error',
       description: JSON.stringify({
-        signature: `Failed to load resource: the server responded with a status of ${status} (${text})`,
+        signature,
         count,
         upTo: true,
         owner: 'Phase 9 restart recovery',

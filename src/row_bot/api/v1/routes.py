@@ -7310,10 +7310,14 @@ def create_router(
             expected_revision=revision,
             validate=validate,
         )
+        # A session gone during the read is refused here (401), before a byte. Inside the body it was a 500:
+        # compression holds the headers back until the first chunk. Each later chunk checks again.
+        security.session(await _context(request), current.id, current.csrf)
 
         async def chunks() -> Any:
             for offset in range(0, len(data), EVENT_LIMIT):
-                security.session(await _context(request), current.id, current.csrf)
+                if offset:
+                    security.session(await _context(request), current.id, current.csrf)
                 yield data[offset : offset + EVENT_LIMIT]
 
         return StreamingResponse(
@@ -7414,10 +7418,16 @@ def create_router(
             validate=dictation_validation(request, current, conversation_id),
         )
 
+        async def allowed() -> None:
+            security.session(await _context(request), current.id, current.csrf)
+            await readable_conversation(conversation_id)
+
+        await allowed()  # Before a byte, as global_buddy_media does; then each later chunk.
+
         async def chunks() -> Any:
             for offset in range(0, len(data), EVENT_LIMIT):
-                security.session(await _context(request), current.id, current.csrf)
-                await readable_conversation(conversation_id)
+                if offset:
+                    await allowed()
                 yield data[offset : offset + EVENT_LIMIT]
 
         return StreamingResponse(
