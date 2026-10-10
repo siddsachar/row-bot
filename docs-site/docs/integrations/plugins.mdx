@@ -1,41 +1,28 @@
 ---
-title: "Plugins"
-description: "Install, enable, configure, update, remove, and troubleshoot Row-Bot plugins."
+title: "Packages (Plugins)"
+description: "Add, turn off, and remove packages of apps and skills in Settings › Apps."
 ---
 
-import Screenshot from '@site/src/components/Screenshot';
+# Packages (Plugins)
 
-# Plugins
+A package (plugin) bundles several things, such as apps, skills and settings, under one name. Packages are managed in [Settings › Apps](/docs/settings/apps) like any other app.
 
-Plugins add optional capabilities to Row-Bot: tools, skills, apps, settings, and integration surfaces. Install them only from sources you trust, because they can run code inside the local app environment.
+## Add A Package
 
-<Screenshot id="settings-plugins" alt="Row-Bot Plugins settings." caption="Plugins settings list installed plugins, marketplace entry points, configuration, enablement, and Custom Tool promotion." />
+Find it in **Settings › Apps**, or use **Add from link or file** with a GitHub repository or a .zip file. Package rows from the Hermes catalog say **Checked when you add**: Row-Bot checks what the package contains when you add it, not while you browse. Nothing is downloaded or run until you agree on its page.
 
-## Setup Workflow
+The package page's **Included** section lists what it brings. Each of those items says **Installed as part of _package_** and is managed through the package. Finish any app inside it that still needs a sign-in or a key from its own page.
 
-1. Open Settings -> Plugins.
-2. Review installed plugins and marketplace options.
-3. Read the plugin description and requested configuration.
-4. Install or enable the plugin.
-5. Configure required fields.
-6. Test with a low-risk prompt.
-7. Disable, update, or remove the plugin when needed.
+## Turn Off And Remove
 
-## Controls
+- **Turn off** stops the package and everything it brought. Settings and keys are kept.
+- **Remove…** removes the package and everything it brought. Its saved keys and data are kept unless you choose **Also delete saved keys and data**; while they are kept, its card says **Removed** and **Delete saved data** deletes them.
+- **Check for updates**, for a package from GitHub, downloads its newest version and checks it before anything changes.
 
-- **Installed plugin cards** show version and status.
-- **Enable/disable** controls whether plugin capabilities are active.
-- **Configure** opens plugin-specific settings.
-- **Update/remove** manage the local installation.
-- **Plugin marketplace** opens plugin discovery and install previews; every download is checked against its published checksum.
-- **Custom Tools** can be promoted after review so they behave like reusable app capabilities.
+Shared runtimes such as Node.js and uv stay installed.
 
 ## Safety
 
-Plugins can add tools that read files, call services, or create outputs. Keep approval mode active for risky actions and disable plugins you do not actively use.
+A package does not skip approvals or agent profile limits; its apps follow the access you choose for them. Code a package runs on this computer is not sandboxed, so add packages only from publishers you trust. Hooks and entry points written for other assistants are not run.
 
-## Troubleshooting
-
-- If a plugin does not load, inspect its manifest and dependency message.
-- If plugin tools are missing, confirm the plugin is enabled.
-- If a plugin causes errors, disable it, restart Row-Bot if needed, then review configuration.
+See [Extend Row-Bot](/docs/extending/) for how packages compare with skills, apps and Custom Tools.

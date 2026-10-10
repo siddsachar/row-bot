@@ -52,6 +52,8 @@ def platform(tmp_path, monkeypatch):
         registry.shutdown()
         for handle in registry.active():
             assert handle.producer_done.wait(10), "Fixture left a producer running"
+        # Leaving the block closes the checkpointer a page refresh may still read.
+        assert client_platform.settle_background(10), "Fixture left background work running"
 
 
 def command(kind: str, label: str, payload: dict | None = None, revision: str = "0") -> dict:

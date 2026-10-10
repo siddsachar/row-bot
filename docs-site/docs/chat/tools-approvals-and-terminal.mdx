@@ -19,13 +19,15 @@ Discovery does not widen permissions. The selected provider, Agent Profile, work
 
 <Screenshot id="chat-tool-trace" alt="Row-Bot conversation with a folded tool step and its results." caption="Tool steps fold into one line per turn; open one to see each call, what came back, and whether approval was needed." />
 
-When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what came back, and whether more action is needed. Open it for each call's details. Each result also records whether approval was needed, given or denied, so Row-Bot reports it truthfully. A denied action shows as skipped, never as done, and Row-Bot is told that it did not run.
+When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what came back, and whether more action is needed. A step that used an app starts with that app's logo and name. Open it for each call's details. Each result also records whether approval was needed, given or denied, so Row-Bot reports it truthfully. A denied action shows as skipped, never as done, and Row-Bot is told that it did not run.
 
 ## Approvals
 
 <Screenshot id="chat-approval" alt="Row-Bot approval card for a file change with Approve and Deny." caption="An approval card names the action and what it affects; Approve and Deny decide it in place." />
 
 Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the mode for the conversation: **Ask**, **Block** or **Auto**.
+
+An app's tools also follow the access you chose for it in [Settings › Apps](/docs/settings/apps): **Read only**, **Ask before changes** or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions ask first whichever access you choose. An approval card for an app's action shows the app's logo and name above the question, with **Details**, **Deny** and **Approve**. Turning an app on or off for a chat, or mentioning it, never skips an approval; see [Apps in a chat](/docs/chat/#apps-in-a-chat).
 
 **Approvals wait until you answer.** They no longer expire after a set time; a workflow step that sets its own time limit still honours it. Each one shows how long it has been waiting.
 

@@ -233,18 +233,22 @@ it('disposal aborts a passive read and late data cannot repopulate the queue', a
   view.unmount();
 });
 
-it('names batches in words and keeps the exact id in each action name', async () => {
+it('names batches by their files, never by an id, in rows and action names', async () => {
   const f = fixture();
+  f.controller.documentQueue.mockResolvedValue({
+    ...page,
+    items: [{ ...page.items[0], name: 'notes.txt', document_count: 1 }],
+  });
   render(<DocumentQueuePanel owner={f.owner} />);
   const inspect = await screen.findByRole('button', {
-    name: 'Inspect batch batch',
+    name: 'Show files in notes.txt',
   });
-  // Inspect is an icon; the batch id stays in its name and tooltip (B258).
+  // Show files is an icon; its name says which upload (B258).
   expect(inspect).toHaveTextContent('');
   const row = inspect.closest('.document-batch-row') as HTMLElement;
-  expect(within(row).getByText('Batch · batch')).toBeVisible();
+  expect(within(row).getByText('notes.txt')).toBeVisible();
   expect(within(row).getByText('Queued')).toBeVisible();
-  expect(within(row).queryByText(/Batch · queued/)).not.toBeInTheDocument();
+  expect(within(row).queryByText(/batch/i)).not.toBeInTheDocument();
   f.owner.dispose();
 });
 

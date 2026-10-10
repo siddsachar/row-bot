@@ -1,0 +1,476 @@
+{
+  "$defs": {
+    "AppViewsAbout": {
+      "additionalProperties": false,
+      "properties": {
+        "everywhere": {
+          "title": "Everywhere",
+          "type": "boolean"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "on",
+        "everywhere"
+      ],
+      "title": "AppViewsAbout",
+      "type": "object"
+    },
+    "IntegrationFile": {
+      "additionalProperties": false,
+      "properties": {
+        "executable": {
+          "title": "Executable",
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 256,
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "executable"
+      ],
+      "title": "IntegrationFile",
+      "type": "object"
+    },
+    "IntegrationRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 96,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "available"
+      ],
+      "title": "IntegrationRequirement",
+      "type": "object"
+    },
+    "IntegrationWay": {
+      "additionalProperties": false,
+      "description": "One way to connect an app (a hosted endpoint, a local package, an account...), from local catalogs.",
+      "properties": {
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "hosted_sign_in",
+            "api_key",
+            "hosted",
+            "local",
+            "",
+            "built_in"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "publisher": {
+          "maxLength": 160,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "recommended": {
+          "default": false,
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "supported": {
+          "title": "Supported",
+          "type": "boolean"
+        },
+        "verified": {
+          "title": "Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "method",
+        "verified",
+        "publisher",
+        "supported"
+      ],
+      "title": "IntegrationWay",
+      "type": "object"
+    },
+    "PlanAccess": {
+      "additionalProperties": false,
+      "properties": {
+        "limited": {
+          "default": false,
+          "title": "Limited",
+          "type": "boolean"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Note",
+          "type": "string"
+        },
+        "preset": {
+          "enum": [
+            "read_only",
+            "ask",
+            "full",
+            "custom"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/PlanTool"
+          },
+          "maxItems": 256,
+          "title": "Tools",
+          "type": "array"
+        },
+        "tools_digest": {
+          "maxLength": 64,
+          "title": "Tools Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "preset",
+        "tools",
+        "tools_digest"
+      ],
+      "title": "PlanAccess",
+      "type": "object"
+    },
+    "PlanInput": {
+      "additionalProperties": false,
+      "properties": {
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Choices",
+          "type": "array"
+        },
+        "default": {
+          "maxLength": 1024,
+          "title": "Default",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
+        "format": {
+          "default": "string",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "filepath"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "help_url": {
+          "maxLength": 2048,
+          "title": "Help Url",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 128,
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "saved": {
+          "default": false,
+          "title": "Saved",
+          "type": "boolean"
+        },
+        "secret": {
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "target": {
+          "enum": [
+            "header",
+            "env",
+            "argument",
+            "url_variable"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "template": {
+          "maxLength": 256,
+          "title": "Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "secret",
+        "required",
+        "target",
+        "name",
+        "template",
+        "default",
+        "choices",
+        "help_url"
+      ],
+      "title": "PlanInput",
+      "type": "object"
+    },
+    "PlanTool": {
+      "additionalProperties": false,
+      "properties": {
+        "always_asks": {
+          "default": true,
+          "title": "Always Asks",
+          "type": "boolean"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "read_only",
+            "mutation",
+            "interaction",
+            "unknown"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "use",
+            "ask",
+            "off"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        },
+        "view": {
+          "default": false,
+          "title": "View",
+          "type": "boolean"
+        },
+        "view_only": {
+          "default": false,
+          "title": "View Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "effect",
+        "state"
+      ],
+      "title": "PlanTool",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a detail page shows beyond the card. Identifiers appear only under Details.",
+  "properties": {
+    "access": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanAccess"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actions": {
+      "items": {
+        "enum": [
+          "turn_off",
+          "update",
+          "remove"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Actions",
+      "type": "array"
+    },
+    "destination": {
+      "maxLength": 2048,
+      "title": "Destination",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/IntegrationFile"
+      },
+      "maxItems": 100,
+      "title": "Files",
+      "type": "array"
+    },
+    "identifier": {
+      "maxLength": 512,
+      "title": "Identifier",
+      "type": "string"
+    },
+    "license": {
+      "maxLength": 256,
+      "title": "License",
+      "type": "string"
+    },
+    "package": {
+      "maxLength": 256,
+      "title": "Package",
+      "type": "string"
+    },
+    "pin": {
+      "maxLength": 128,
+      "title": "Pin",
+      "type": "string"
+    },
+    "profiles": {
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Profiles",
+      "type": "array"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/IntegrationRequirement"
+      },
+      "maxItems": 16,
+      "title": "Requirements",
+      "type": "array"
+    },
+    "runs_locally": {
+      "title": "Runs Locally",
+      "type": "boolean"
+    },
+    "saved_key": {
+      "title": "Saved Key",
+      "type": "boolean"
+    },
+    "settings": {
+      "items": {
+        "$ref": "#/$defs/PlanInput"
+      },
+      "maxItems": 32,
+      "title": "Settings",
+      "type": "array"
+    },
+    "signed_in": {
+      "title": "Signed In",
+      "type": "boolean"
+    },
+    "signs_in": {
+      "title": "Signs In",
+      "type": "boolean"
+    },
+    "source_url": {
+      "maxLength": 2048,
+      "title": "Source Url",
+      "type": "string"
+    },
+    "views": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AppViewsAbout"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ways": {
+      "items": {
+        "$ref": "#/$defs/IntegrationWay"
+      },
+      "maxItems": 24,
+      "title": "Ways",
+      "type": "array"
+    }
+  },
+  "required": [
+    "license",
+    "source_url",
+    "pin",
+    "identifier",
+    "destination",
+    "runs_locally",
+    "saved_key",
+    "signs_in",
+    "signed_in",
+    "requirements",
+    "access",
+    "package",
+    "files",
+    "profiles",
+    "actions"
+  ],
+  "title": "IntegrationAbout",
+  "type": "object"
+}

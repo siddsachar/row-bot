@@ -105,17 +105,17 @@ def _pitch_deck() -> Template:
         icon="📊",
         pages=[
             {"title": "Title Slide", "notes": "Introduce company and tagline.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:80px;">
-  <div style="width:120px;height:120px;border-radius:24px;background:var(--primary);margin-bottom:40px;display:flex;align-items:center;justify-content:center;">
+<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;height:100%;padding:80px;">
+  <div style="width:120px;height:120px;border-radius:24px;background:var(--primary);margin-bottom:24px;display:flex;align-items:center;justify-content:center;">
     <span style="font-size:3rem;color:#fff;">✦</span>
   </div>
-  <h1 style="font-size:4.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Your Company Name</h1>
+  <h1 style="font-size:4.5rem;font-weight:800;text-align:center;">Your Company Name</h1>
   <p style="font-size:1.8rem;opacity:0.7;text-align:center;max-width:800px;">A one-line description of what you do and why it matters</p>
-  <div style="margin-top:60px;padding:12px 32px;border:2px solid var(--accent);border-radius:8px;font-size:1.2rem;color:var(--accent);">investor@company.com</div>
+  <div style="margin-top:44px;padding:12px 32px;border:2px solid var(--accent);border-radius:8px;font-size:1.2rem;color:var(--accent);">investor@company.com</div>
 </div></body></html>"""},
             {"title": "Problem", "notes": "Define the problem you solve.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:3rem;font-weight:700;color:var(--accent);margin-bottom:48px;">The Problem</h2>
+  <h1 style="font-size:3rem;font-weight:700;color:var(--accent);margin-bottom:48px;">The Problem</h1>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;flex:1;align-items:start;">
     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:40px;">
       <div style="font-size:2.5rem;margin-bottom:16px;">😤</div>
@@ -136,7 +136,7 @@ def _pitch_deck() -> Template:
 </div></body></html>"""},
             {"title": "Solution", "notes": "Show your solution.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:3rem;font-weight:700;color:var(--primary);margin-bottom:48px;">Our Solution</h2>
+  <h1 style="font-size:3rem;font-weight:700;color:var(--primary);margin-bottom:48px;">Our Solution</h1>
   <div style="display:flex;gap:60px;flex:1;align-items:center;">
     <div style="flex:1;">
       <h3 style="font-size:2rem;margin-bottom:24px;">How It Works</h3>
@@ -152,9 +152,9 @@ def _pitch_deck() -> Template:
   </div>
 </div></body></html>"""},
             {"title": "Traction", "notes": "Show your progress and metrics.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:3rem;font-weight:700;color:var(--accent);margin-bottom:48px;">Traction</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:32px;margin-bottom:48px;">
+<div style="display:flex;flex-direction:column;gap:48px;padding:80px 100px;height:100%;">
+  <h1 style="font-size:3rem;font-weight:700;color:var(--accent);">Traction</h1>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:32px;">
     <div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;">
       <div style="font-size:3rem;font-weight:800;color:var(--primary);">10K+</div>
       <div style="font-size:1rem;opacity:0.6;margin-top:8px;">Active Users</div>
@@ -177,10 +177,10 @@ def _pitch_deck() -> Template:
   </div>
 </div></body></html>"""},
             {"title": "Call to Action", "notes": "Next steps and contact info.", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:80px;">
-  <h2 style="font-size:3.5rem;font-weight:800;text-align:center;margin-bottom:24px;">Let's Build the Future Together</h2>
-  <p style="font-size:1.5rem;opacity:0.6;text-align:center;max-width:700px;margin-bottom:60px;">We're raising a $5M Series A to scale our platform globally.</p>
-  <div style="display:flex;gap:24px;margin-bottom:60px;">
+<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:24px;height:100%;padding:80px;">
+  <h1 style="font-size:3.5rem;font-weight:800;text-align:center;">Let's Build the Future Together</h1>
+  <p style="font-size:1.5rem;opacity:0.6;text-align:center;max-width:700px;margin-bottom:36px;">We're raising a $5M Series A to scale our platform globally.</p>
+  <div style="display:flex;gap:24px;margin-bottom:36px;">
     <div style="padding:16px 40px;background:var(--primary);border-radius:12px;font-size:1.3rem;font-weight:600;">Schedule a Call</div>
     <div style="padding:16px 40px;border:2px solid var(--accent);border-radius:12px;font-size:1.3rem;color:var(--accent);">Download Deck</div>
   </div>
@@ -194,7 +194,9 @@ def _pitch_deck() -> Template:
 
 
 def _status_report() -> Template:
-    s = _base_style()
+    # Green marks done work; naming it keeps it part of the page's palette.
+    # An A4 page, like the canvas it opens on.
+    s = _base_style(width=794, height=1123) + "<style>:root { --success: #22C55E; }</style>"
     return Template(
         id="status_report",
         name="Status Report",
@@ -205,19 +207,19 @@ def _status_report() -> Template:
         mode="document",
         pages=[
             {"title": "Executive Summary", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:48px;">
-    <h1 style="font-size:3rem;font-weight:800;">Project Status Report</h1>
+<div style="display:flex;flex-direction:column;padding:64px 56px;height:100%;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:36px;">
+    <h1 style="font-size:2.2rem;font-weight:800;">Project Status Report</h1>
     <div style="padding:8px 24px;background:var(--accent);border-radius:8px;font-weight:600;color:#000;">On Track</div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;flex:1;">
-    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:36px;">
+  <div style="display:grid;grid-template-columns:1fr;gap:20px;flex:1;">
+    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:28px;">
       <h3 style="font-size:1.3rem;color:var(--primary);margin-bottom:16px;">Overview</h3>
-      <p style="font-size:1.1rem;line-height:1.8;opacity:0.8;">Summary of the project's current state, key accomplishments this period, and overall health assessment.</p>
+      <p style="font-size:1.05rem;line-height:1.8;opacity:0.8;max-width:62ch;">Summary of the project's current state, key accomplishments this period, and overall health assessment.</p>
     </div>
-    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:36px;">
+    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:28px;">
       <h3 style="font-size:1.3rem;color:var(--primary);margin-bottom:16px;">Key Highlights</h3>
-      <ul style="font-size:1.1rem;line-height:2;opacity:0.8;list-style:none;padding:0;">
+      <ul style="font-size:1.05rem;line-height:2;opacity:0.8;list-style:none;padding:0;">
         <li>✅ Milestone 1 completed ahead of schedule</li>
         <li>✅ Team expanded by 2 engineers</li>
         <li>⚠️ Budget utilization at 78%</li>
@@ -228,20 +230,20 @@ def _status_report() -> Template:
   <div style="margin-top:32px;opacity:0.4;font-size:0.9rem;">Report Date: April 2026 · Prepared by: Team Lead</div>
 </div></body></html>"""},
             {"title": "Metrics", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">Key Metrics</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px;margin-bottom:40px;">
-    <div style="text-align:center;padding:32px;background:rgba(37,99,235,0.15);border-radius:16px;border:1px solid rgba(37,99,235,0.3);">
-      <div style="font-size:2.5rem;font-weight:800;color:var(--primary);">87%</div>
-      <div style="font-size:1rem;opacity:0.6;margin-top:8px;">Sprint Velocity</div>
+<div style="display:flex;flex-direction:column;padding:64px 56px;height:100%;">
+  <h1 style="font-size:2.2rem;font-weight:700;margin-bottom:36px;">Key Metrics</h1>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:32px;">
+    <div style="text-align:center;padding:20px;background:rgba(37,99,235,0.15);border-radius:16px;border:1px solid rgba(37,99,235,0.3);">
+      <div style="font-size:2rem;font-weight:800;color:var(--primary);">87%</div>
+      <div style="font-size:0.9rem;opacity:0.6;margin-top:8px;">Sprint Velocity</div>
     </div>
-    <div style="text-align:center;padding:32px;background:rgba(245,158,11,0.15);border-radius:16px;border:1px solid rgba(245,158,11,0.3);">
-      <div style="font-size:2.5rem;font-weight:800;color:var(--accent);">23</div>
-      <div style="font-size:1rem;opacity:0.6;margin-top:8px;">Tasks Completed</div>
+    <div style="text-align:center;padding:20px;background:rgba(245,158,11,0.15);border-radius:16px;border:1px solid rgba(245,158,11,0.3);">
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);">23</div>
+      <div style="font-size:0.9rem;opacity:0.6;margin-top:8px;">Tasks Completed</div>
     </div>
-    <div style="text-align:center;padding:32px;background:rgba(34,197,94,0.15);border-radius:16px;border:1px solid rgba(34,197,94,0.3);">
-      <div style="font-size:2.5rem;font-weight:800;color:#22c55e;">4</div>
-      <div style="font-size:1rem;opacity:0.6;margin-top:8px;">Blockers Resolved</div>
+    <div style="text-align:center;padding:20px;background:rgba(34,197,94,0.15);border-radius:16px;border:1px solid rgba(34,197,94,0.3);">
+      <div style="font-size:2rem;font-weight:800;color:var(--success);">4</div>
+      <div style="font-size:0.9rem;opacity:0.6;margin-top:8px;">Blockers Resolved</div>
     </div>
   </div>
   <div style="flex:1;background:rgba(255,255,255,0.03);border-radius:16px;padding:40px;display:flex;align-items:center;justify-content:center;">
@@ -249,25 +251,25 @@ def _status_report() -> Template:
   </div>
 </div></body></html>"""},
             {"title": "Next Steps", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">Next Steps</h2>
+<div style="display:flex;flex-direction:column;padding:64px 56px;height:100%;">
+  <h1 style="font-size:2.2rem;font-weight:700;margin-bottom:36px;">Next Steps</h1>
   <div style="display:flex;flex-direction:column;gap:24px;flex:1;">
-    <div style="display:flex;gap:20px;align-items:start;padding:24px;background:rgba(255,255,255,0.05);border-radius:12px;border-left:4px solid var(--primary);">
+    <div style="display:flex;gap:20px;align-items:start;padding:20px;background:rgba(255,255,255,0.05);border-radius:12px;border-left:4px solid var(--primary);">
       <div style="font-size:1.2rem;font-weight:700;color:var(--primary);white-space:nowrap;">Week 1</div>
       <div><h4 style="font-size:1.2rem;margin-bottom:8px;">Complete Feature Integration</h4><p style="opacity:0.6;">Finish API integration and run end-to-end tests.</p></div>
     </div>
-    <div style="display:flex;gap:20px;align-items:start;padding:24px;background:rgba(255,255,255,0.05);border-radius:12px;border-left:4px solid var(--accent);">
+    <div style="display:flex;gap:20px;align-items:start;padding:20px;background:rgba(255,255,255,0.05);border-radius:12px;border-left:4px solid var(--accent);">
       <div style="font-size:1.2rem;font-weight:700;color:var(--accent);white-space:nowrap;">Week 2</div>
       <div><h4 style="font-size:1.2rem;margin-bottom:8px;">User Testing Round</h4><p style="opacity:0.6;">Run beta testing with 50 users and collect feedback.</p></div>
     </div>
-    <div style="display:flex;gap:20px;align-items:start;padding:24px;background:rgba(255,255,255,0.05);border-radius:12px;border-left:4px solid #22c55e;">
-      <div style="font-size:1.2rem;font-weight:700;color:#22c55e;white-space:nowrap;">Week 3</div>
+    <div style="display:flex;gap:20px;align-items:start;padding:20px;background:rgba(255,255,255,0.05);border-radius:12px;border-left:4px solid var(--success);">
+      <div style="font-size:1.2rem;font-weight:700;color:var(--success);white-space:nowrap;">Week 3</div>
       <div><h4 style="font-size:1.2rem;margin-bottom:8px;">Production Release</h4><p style="opacity:0.6;">Deploy to production and begin monitoring.</p></div>
     </div>
   </div>
   <div style="margin-top:32px;padding:24px;background:rgba(245,158,11,0.1);border-radius:12px;border:1px solid rgba(245,158,11,0.3);">
-    <h4 style="color:var(--accent);margin-bottom:8px;">⚠️ Risks</h4>
-    <p style="opacity:0.7;">Third-party API rate limits may require caching strategy. Team capacity reduced in Week 2 due to company offsite.</p>
+    <h4 style="font-size:1.2rem;color:var(--accent);margin-bottom:8px;">⚠️ Risks</h4>
+    <p style="opacity:0.7;line-height:1.6;max-width:70ch;">Third-party API rate limits may require caching strategy. Team capacity reduced in Week 2 due to company offsite.</p>
   </div>
 </div></body></html>"""},
         ],
@@ -311,7 +313,7 @@ def _marketing_one_pager() -> Template:
   </div>
   <div style="background:rgba(255,255,255,0.03);border-radius:12px;padding:24px;text-align:center;">
     <p style="font-size:1rem;font-style:italic;opacity:0.7;">"This product transformed how our team works. We saved 20 hours per week."</p>
-    <p style="font-size:0.85rem;margin-top:8px;color:var(--accent);">— Jane Doe, VP Engineering at Acme Corp</p>
+    <p style="font-size:0.85rem;margin-top:8px;font-weight:600;color:var(--text);">— Jane Doe, VP Engineering at Acme Corp</p>
   </div>
   <div style="text-align:center;padding:24px;background:linear-gradient(135deg,var(--primary),var(--secondary));border-radius:12px;">
     <h3 style="font-size:1.3rem;margin-bottom:8px;">Ready to Get Started?</h3>
@@ -336,11 +338,11 @@ def _product_launch() -> Template:
 <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;background:linear-gradient(135deg,var(--bg) 0%,rgba(37,99,235,0.2) 100%);">
   <div style="padding:8px 20px;border:1px solid var(--accent);border-radius:20px;font-size:0.9rem;color:var(--accent);margin-bottom:32px;">🎉 NOW AVAILABLE</div>
   <h1 style="font-size:5rem;font-weight:800;text-align:center;margin-bottom:16px;">Introducing<br><span style="color:var(--primary);">Product 2.0</span></h1>
-  <p style="font-size:1.5rem;opacity:0.6;text-align:center;max-width:700px;">The next generation of your favourite tool — faster, smarter, and more powerful than ever.</p>
+  <p style="font-size:1.5rem;line-height:1.5;opacity:0.6;text-align:center;max-width:700px;">The next generation of your favourite tool — faster, smarter, and more powerful than ever.</p>
 </div></body></html>"""},
             {"title": "Features", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;padding:80px 100px;height:100%;">
-  <h2 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">What's New</h2>
+  <h1 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">What's New</h1>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;flex:1;">
     <div style="padding:36px;background:rgba(255,255,255,0.05);border-radius:16px;"><div style="font-size:2rem;margin-bottom:12px;">⚡</div><h3 style="font-size:1.4rem;margin-bottom:12px;">Lightning Fast</h3><p style="opacity:0.6;line-height:1.6;">3x performance improvement with our new engine.</p></div>
     <div style="padding:36px;background:rgba(255,255,255,0.05);border-radius:16px;"><div style="font-size:2rem;margin-bottom:12px;">🤖</div><h3 style="font-size:1.4rem;margin-bottom:12px;">AI-Powered</h3><p style="opacity:0.6;line-height:1.6;">Built-in AI assistant for smarter workflows.</p></div>
@@ -350,7 +352,7 @@ def _product_launch() -> Template:
 </div></body></html>"""},
             {"title": "Pricing", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;align-items:center;padding:80px 100px;height:100%;">
-  <h2 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">Simple Pricing</h2>
+  <h1 style="font-size:2.5rem;font-weight:700;margin-bottom:48px;">Simple Pricing</h1>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px;width:100%;max-width:1200px;">
     <div style="padding:40px;background:rgba(255,255,255,0.05);border-radius:16px;text-align:center;">
       <h3 style="font-size:1.2rem;opacity:0.6;margin-bottom:16px;">STARTER</h3>
@@ -374,7 +376,7 @@ def _product_launch() -> Template:
 </div></body></html>"""},
             {"title": "Get Started", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;background:linear-gradient(135deg,var(--bg) 0%,rgba(37,99,235,0.15) 100%);">
-  <h2 style="font-size:3.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Start Building Today</h2>
+  <h1 style="font-size:3.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Start Building Today</h1>
   <p style="font-size:1.3rem;opacity:0.6;margin-bottom:48px;">Free 14-day trial • No credit card required</p>
   <div style="padding:16px 48px;background:var(--primary);border-radius:12px;font-size:1.4rem;font-weight:600;">Get Started Free →</div>
 </div></body></html>"""},
@@ -401,8 +403,8 @@ def _social_media() -> Template:
 </div></body></html>"""},
             {"title": "Stats Post", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:80px;">
-  <h2 style="font-size:1.2rem;text-transform:uppercase;letter-spacing:3px;color:var(--accent);margin-bottom:32px;">Did You Know?</h2>
-  <div style="font-size:6rem;font-weight:800;color:var(--primary);margin-bottom:16px;">73%</div>
+  <p style="font-size:1.2rem;font-weight:700;text-transform:uppercase;letter-spacing:3px;color:var(--accent);margin-bottom:32px;">Did You Know?</p>
+  <h1 style="font-size:6rem;font-weight:800;color:var(--primary);margin-bottom:16px;">73%</h1>
   <p style="font-size:1.5rem;text-align:center;opacity:0.7;max-width:600px;">of teams report increased productivity after adopting AI tools</p>
   <div style="margin-top:48px;display:flex;gap:16px;">
     <div style="width:60px;height:4px;background:var(--primary);border-radius:2px;"></div>
@@ -413,7 +415,7 @@ def _social_media() -> Template:
             {"title": "CTA Post", "notes": "", "html": f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:80px;background:linear-gradient(180deg,var(--bg) 0%,rgba(37,99,235,0.3) 100%);">
   <div style="width:80px;height:80px;border-radius:20px;background:var(--primary);margin-bottom:32px;display:flex;align-items:center;justify-content:center;font-size:2rem;">✦</div>
-  <h2 style="font-size:2.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Join 10,000+<br>Happy Users</h2>
+  <h1 style="font-size:2.5rem;font-weight:800;text-align:center;margin-bottom:16px;">Join 10,000+<br>Happy Users</h1>
   <p style="font-size:1.2rem;opacity:0.6;margin-bottom:40px;">Start your free trial today</p>
   <div style="padding:14px 40px;background:var(--accent);border-radius:30px;font-weight:700;color:#000;font-size:1.1rem;">Try It Free</div>
 </div></body></html>"""},
@@ -678,7 +680,7 @@ def _blank_app_mockup() -> Template:
     def _screen(title: str, body: str) -> str:
         return f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div class="screen">
-  <div class="topbar"><h2 style="font-size:1.2rem;">{title}</h2><span style="opacity:0.5;">⋯</span></div>
+  <div class="topbar"><h1 style="font-size:1.2rem;">{title}</h1><span style="opacity:0.5;">⋯</span></div>
   <div class="screen-body">{body}</div>
 </div></body></html>"""
     home_body = (
@@ -880,7 +882,7 @@ def _app_mockup_starter() -> Template:
                     '<a href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right" style="opacity:0.7;text-decoration:none;color:var(--text);">‹ Back</a>')
         return f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div class="screen">
-  <div class="topbar">{back_btn or '<span></span>'}<h2 style="font-size:1.1rem;">{title}</h2><span style="opacity:0.5;">⋯</span></div>
+  <div class="topbar">{back_btn or '<span></span>'}<h1 style="font-size:1.1rem;">{title}</h1><span style="opacity:0.5;">⋯</span></div>
   <div class="screen-body">{body}</div>
   <div class="tabbar">
     <a href="#" class="tab{home_cls}" data-row-bot-action="navigate:home">🏠<br>Home</a>
@@ -894,9 +896,9 @@ def _app_mockup_starter() -> Template:
         '<a class="row" href="#" data-row-bot-action="navigate:detail" data-row-bot-transition="slide_left"><div class="icon">📄</div><div><div class="title">Third item</div><div class="sub">Tap to view details</div></div></a>'
     )
     detail_body = (
-        '<h1 style="font-size:1.6rem;font-weight:700;margin-bottom:8px;">Item title</h1>'
+        '<h2 style="font-size:1.6rem;font-weight:700;margin-bottom:8px;">Item title</h2>'
         '<p style="color:var(--muted);font-size:0.9rem;margin-bottom:20px;">Subheading or metadata line</p>'
-        '<p style="line-height:1.6;margin-bottom:24px;">Detail body copy. Replace this with the actual record contents, media, or description.</p>'
+        '<p style="line-height:1.6;max-width:60ch;margin-bottom:24px;">Detail body copy. Replace this with the actual record contents, media, or description.</p>'
         '<a class="btn" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right">Primary action</a>'
         '<div style="height:10px;"></div>'
         '<a class="btn btn-ghost" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right">Back to list</a>'
@@ -945,7 +947,7 @@ def _storyboard_4shot() -> Template:
   <div style="padding:80px 60px;display:flex;flex-direction:column;gap:28px;justify-content:center;">
     <div>
       <div style="font-size:0.8rem;letter-spacing:0.2em;text-transform:uppercase;opacity:0.5;margin-bottom:8px;">Caption</div>
-      <p style="font-size:1.4rem;font-weight:600;line-height:1.3;">{caption}</p>
+      <h1 style="font-size:1.4rem;font-weight:600;line-height:1.3;">{caption}</h1>
     </div>
     <div>
       <div style="font-size:0.8rem;letter-spacing:0.2em;text-transform:uppercase;opacity:0.5;margin-bottom:8px;">Camera</div>
@@ -989,6 +991,7 @@ def _dashboard_desktop() -> Template:
         "    --primary:#2563EB; --accent:#F59E0B;\n"
         "    --bg:#0B1220; --surface:#111A2E; --surface-2:#1A2440;\n"
         "    --text:#F8FAFC; --muted:#94A3B8; --border:rgba(255,255,255,0.06);\n"
+        "    --success:#22C55E;\n"
         f"    --body-font:'Inter', {fallback};\n"
         "  }\n"
         "  html, body { margin:0; width:1440px; height:900px; overflow:hidden; }\n"
@@ -1007,7 +1010,7 @@ def _dashboard_desktop() -> Template:
         "  .kpi { padding:20px; background:var(--surface); border:1px solid var(--border); border-radius:12px; }\n"
         "  .kpi .label { color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; }\n"
         "  .kpi .value { font-size:1.9rem; font-weight:700; }\n"
-        "  .kpi .delta { color:#22c55e; font-size:0.8rem; margin-top:4px; }\n"
+        "  .kpi .delta { color:var(--success); font-size:0.8rem; margin-top:4px; }\n"
         "  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; }\n"
         "  .row2 { display:grid; grid-template-columns:2fr 1fr; gap:16px; }\n"
         "  .chart { height:240px; display:flex; align-items:end; gap:12px; padding:8px 0; }\n"
@@ -1016,7 +1019,7 @@ def _dashboard_desktop() -> Template:
         "  th,td { padding:10px 8px; text-align:left; border-bottom:1px solid var(--border); font-size:0.88rem; }\n"
         "  th { color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:0.04em; font-size:0.7rem; }\n"
         "  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:0.72rem; font-weight:600; }\n"
-        "  .pill.ok { background:rgba(34,197,94,0.15); color:#22c55e; }\n"
+        "  .pill.ok { background:rgba(34,197,94,0.15); color:var(--success); }\n"
         "  .pill.warn { background:rgba(245,158,11,0.15); color:var(--accent); }\n"
         "  .btn { padding:8px 14px; background:var(--primary); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.85rem; }\n"
         "  .field { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }\n"
@@ -1132,6 +1135,7 @@ def _resume_onepage() -> Template:
         "  .header .role { color:var(--muted); font-size:1.05rem; margin-top:4px; }\n"
         "  .header .contact { text-align:right; color:var(--muted); font-size:0.85rem; line-height:1.6; }\n"
         "  section { display:flex; flex-direction:column; gap:10px; }\n"
+        "  section > p { max-width:62ch; }\n"
         "  h2 { font-size:0.8rem; color:var(--primary); text-transform:uppercase; letter-spacing:0.15em; }\n"
         "  .entry { display:flex; flex-direction:column; gap:4px; }\n"
         "  .entry .row { display:flex; justify-content:space-between; align-items:baseline; }\n"
@@ -1243,10 +1247,11 @@ def _landing_product() -> Template:
         "  .screenshot { margin-top:48px; border-radius:20px; border:1px solid rgba(255,255,255,0.08); background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(15,23,42,0.9)); padding:32px; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; color:var(--muted); }\n"
         "  .feature-row { display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center; margin-bottom:64px; }\n"
         "  .feature-row:nth-child(even) .copy { order:2; }\n"
+        "  .feature-row .copy p { max-width:52ch; }\n"
         "  .feature-row .visual { border-radius:16px; padding:48px; background:linear-gradient(135deg,rgba(124,58,237,0.12),rgba(67,56,202,0.08)); border:1px solid rgba(255,255,255,0.06); aspect-ratio:4/3; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:2.2rem; }\n"
         "  .testimonials { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px; }\n"
         "  .testimonial { padding:28px; background:var(--surface); border:1px solid rgba(255,255,255,0.06); border-radius:16px; }\n"
-        "  .testimonial p { margin-bottom:20px; opacity:0.9; }\n"
+        "  .testimonial p { margin-bottom:20px; opacity:0.9; max-width:60ch; }\n"
         "  .testimonial .author { display:flex; align-items:center; gap:12px; }\n"
         "  .testimonial .avatar { width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,var(--primary),var(--accent)); }\n"
         "  .testimonial .name { font-weight:600; font-size:0.9rem; }\n"

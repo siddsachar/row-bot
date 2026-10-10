@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "always_asks": {
+      "default": true,
+      "title": "Always Asks",
+      "type": "boolean"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Description",
+      "type": "string"
+    },
+    "effect": {
+      "enum": [
+        "read_only",
+        "mutation",
+        "interaction",
+        "unknown"
+      ],
+      "title": "Effect",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "use",
+        "ask",
+        "off"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 128,
+      "title": "Title",
+      "type": "string"
+    },
+    "view": {
+      "default": false,
+      "title": "View",
+      "type": "boolean"
+    },
+    "view_only": {
+      "default": false,
+      "title": "View Only",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name",
+    "title",
+    "effect",
+    "state"
+  ],
+  "title": "PlanTool",
+  "type": "object"
+}

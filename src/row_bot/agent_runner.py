@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 import uuid
@@ -447,6 +448,29 @@ def _is_task_stopped(exc: BaseException) -> bool:
     return exc.__class__.__name__ == "TaskStoppedError"
 
 
+def _delegating_app_scope(parent_thread_id: str, stored: Mapping[str, Any] | None = None) -> dict | None:
+    """What an agent a chat starts leaves out: the delegating turn's own exclusions, the ones an earlier
+    run of the same work started with (``stored``: a retry or resume keeps the message's focus), and
+    always the apps the chat has switched off (for an agent started with /agent, or resumed later, too)."""
+    from row_bot.integrations.scope import turn_scope
+    from row_bot.threads import get_thread_apps_off
+    # The running turn's scope lives with the agent; with no agent loaded there is no turn to inherit from.
+    reader = getattr(sys.modules.get("row_bot.agent"), "current_app_scope", None)
+    current = (reader() if callable(reader) else None) or {}
+    stored = stored or {}
+    inherited = {key: sorted({str(name) for name in [*(current.get(key) or []), *(stored.get(key) or [])]})
+                 for key in ("exclude_servers", "exclude_tools")} if current or stored else None
+    try:
+        found = turn_scope(parent_thread_id, "", None, inherited)
+    except Exception as exc:
+        if inherited or get_thread_apps_off(parent_thread_id):  # Never widen what the chat left out.
+            raise AgentRunnerError("This chat's apps could not be read.") from exc
+        found = None
+    if not found:
+        return None
+    return {"exclude_servers": found["exclude_servers"], "exclude_tools": found["exclude_tools"], "focus": [], "skills": []}
+
+
 def _build_child_config(
     *,
     run_id: str,
@@ -459,6 +483,7 @@ def _build_child_config(
     parent_run_id: str = "",
     profile_snapshot: Mapping[str, Any],
     tool_allowlist: Sequence[str] | None = None,
+    app_scope: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     configurable = {
         "thread_id": child_thread_id,
@@ -483,6 +508,8 @@ def _build_child_config(
         configurable["developer_workspace_id"] = developer_workspace_id
     if designer_project_id:
         configurable["designer_project_id"] = designer_project_id
+    if app_scope:  # The apps the delegating turn left out stay out for its agent too.
+        configurable["app_scope"] = dict(app_scope)
     return {"configurable": configurable}
 
 
@@ -508,10 +535,12 @@ def spawn_agent_run(
     orchestration_dependencies: Sequence[str] | None = None,
     orchestration_attempt: int = 1,
     retry_of_run_id: str = "",
+    app_scope: Mapping[str, Any] | None = None,
     wait: bool = False,
     timeout: float | None = None,
 ) -> dict[str, Any]:
-    """Create and start a single child Agent run."""
+    """Create and start a single child Agent run. ``app_scope``: what an earlier run of this work left out
+    of the apps (a retry or resume), kept as well as anything the chat leaves out now."""
     objective = str(objective or "").strip()
     if not objective:
         raise AgentRunnerError("Child Agent objective cannot be empty.")
@@ -596,6 +625,8 @@ def spawn_agent_run(
             f"Nested Agent depth {depth} exceeds the configured maximum of "
             f"{runtime_settings.max_spawn_depth}."
         )
+    # Read before anything is created, so a refusal leaves nothing behind.
+    app_scope = _delegating_app_scope(parent_thread_id, app_scope) if parent_thread_id else None
     effective_developer_workspace_id = parent_developer_workspace_id
     workspace_path = ""
     worktree_allocation: dict[str, Any] | None = None
@@ -705,6 +736,7 @@ def spawn_agent_run(
         parent_run_id=parent_run_id,
         profile_snapshot=profile_snapshot,
         tool_allowlist=tool_allowlist,
+        app_scope=app_scope,
     )
     if tool_allowlist:
         try:
@@ -746,6 +778,7 @@ def spawn_agent_run(
         workspace_path=workspace_path,
         workspace_mode=effective_workspace_mode,
         write_lock_key=write_lock_key,
+        app_scope_json=app_scope,
     )
     if _parent_deletion_started():
         from row_bot.agent_runs import cleanup_thread_agent_runs

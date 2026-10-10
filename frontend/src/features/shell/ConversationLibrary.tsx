@@ -121,7 +121,7 @@ export type SingleDeleteOutcome =
  */
 export async function deleteOneConversation(
   controller: Pick<ClientController, 'getSnapshot' | 'command'>,
-  row: ConversationView,
+  row: Pick<ConversationView, 'id' | 'revision'>,
 ): Promise<SingleDeleteOutcome> {
   const session = controller.getSnapshot().handshake?.client_session_id;
   if (!session)
@@ -314,6 +314,14 @@ export default function ConversationLibrary({
       if (mounted.current) setSearchError(clientError(cause).message);
     }
   }
+
+  // Results follow typing after a short pause; Enter searches at once.
+  useEffect(() => {
+    const text = query.trim();
+    if (!text || text === searchedFor) return;
+    const timer = setTimeout(() => void runSearch(), 350);
+    return () => clearTimeout(timer);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function clearSearch() {
     setSearchedFor('');

@@ -7,6 +7,7 @@ import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
 import FolderSetupCard from './FolderSetupCard';
+import { AppIcon } from '../apps/parts';
 import { WaitingSince } from './InPlaceApproval';
 import { readPendingApprovalsNow } from './pending-approvals';
 import {
@@ -14,6 +15,7 @@ import {
   approvalQuestion,
   keyArgument,
   plainApprovalReason,
+  readableValue,
 } from './tool-activity';
 
 type Hint_ = {
@@ -46,16 +48,13 @@ function plainScope(scope: string | null | undefined): string {
   return together ? `These ${together[1]} actions, together.` : scope;
 }
 
-/** `{"file_path":"notes.txt"}` reads "File path: notes.txt". */
+/** `{"file_path":"notes.txt"}` reads "File path: notes.txt"; a list or mapping reads in words. */
 function plainArguments(summary: string): string[] {
   try {
     const value: unknown = JSON.parse(summary);
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const lines = Object.entries(value).map(
-        ([key, item]) =>
-          `${humanizeToken(key)}: ${
-            typeof item === 'string' ? item : JSON.stringify(item)
-          }`,
+        ([key, item]) => `${humanizeToken(key)}: ${readableValue(item)}`,
       );
       if (lines.length) return lines;
     }
@@ -75,7 +74,7 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
       </p>
       <dl>
         <dt>Action</dt>
-        <dd>{approvalAction(view.action_label || '')}</dd>
+        <dd>{approvalAction(view.action_label || '', view.app)}</dd>
         {risk && (
           <>
             <dt>Risk</dt>
@@ -132,7 +131,8 @@ function editableTarget(target: EventTarget | null) {
 /**
  * An inline card anchored at the step that needs a decision: what will
  * happen, how risky it is, and Approve (⌘↵) / Deny. "Always allow in this
- * chat" switches the conversation to automatic approvals, then approves.
+ * chat" switches the conversation to automatic approvals, then approves;
+ * an app's tools still ask when its access says to.
  *
  * Turning on a tool the work needs is a setup card instead (decision 12):
  * "Turn on Web search?" with Turn on (⌘↵) / Not now, in place of sending
@@ -231,6 +231,8 @@ export default function ApprovalCard({
     return () => document.removeEventListener('keydown', key);
   });
   const action = view?.action_label || hint?.action_label || '';
+  // The app asking, shown as the catalog knows it.
+  const app = view?.app ?? null;
   const risk = view?.risk_class || hint?.risk_class || 'unknown';
   const argument = keyArgument(view?.safe_argument_summary);
   if (answered)
@@ -306,16 +308,17 @@ export default function ApprovalCard({
   return (
     <aside
       className="approval-card"
-      aria-label={`Approval required for ${action || 'requested action'}`}
+      aria-label={`Approval required for ${action || 'requested action'}${app ? ` in ${app.name}` : ''}`}
       data-risk={risk}
     >
       <span className="approval-card-icon" aria-hidden>
-        <ShieldAlert />
+        {app ? <AppIcon icon={app.icon} size={24} /> : <ShieldAlert />}
       </span>
       {view ? (
         <>
           <div className="approval-card-context">
-            <strong>{approvalQuestion(view.action_label || '')}</strong>
+            {app && <span className="approval-card-app">{app.name}</span>}
+            <strong>{approvalQuestion(view.action_label || '', app)}</strong>
             <span className="approval-card-reason">
               {plainApprovalReason(view.reason || view.summary || '')}
             </span>
@@ -337,7 +340,7 @@ export default function ApprovalCard({
               disabled={busy || Boolean(resolution)}
               onClick={() =>
                 overlay.open({
-                  title: approvalQuestion(view.action_label || ''),
+                  title: approvalQuestion(view.action_label || '', app),
                   description: 'What Row-Bot wants to do, and what it affects.',
                   content: <ApprovalDetails view={view} />,
                 })
@@ -379,7 +382,7 @@ export default function ApprovalCard({
               </Hint>
             )}
             {onAllowInChat && (
-              <Hint label="Switch this conversation to automatic approvals and approve this request">
+              <Hint label="Approves this and switches this chat to Auto. Apps still ask when their access says to.">
                 <Button
                   variant="ghost"
                   className="approval-card-allow"

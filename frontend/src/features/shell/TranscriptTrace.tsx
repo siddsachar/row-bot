@@ -19,6 +19,7 @@ import type {
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, CopyGlyph, useCopyFeedback } from '../../ui/primitives';
+import { AppIcon } from '../apps/parts';
 import {
   activityLabel,
   formatElapsed,
@@ -27,6 +28,7 @@ import {
   orderedSteps,
   skipReason,
   splitApproval,
+  stepElapsed,
   stepIcon,
   stepVerb,
   summarizeActivity,
@@ -81,8 +83,7 @@ function finishedMoments(step: TranscriptTraceItem, now: number) {
   return end !== undefined && now - end < FRESH_FINISH_MS;
 }
 function stepDuration(step: TranscriptTraceItem) {
-  const value = timing.get(step.call_id);
-  return value?.end === undefined ? null : value.end - value.start;
+  return stepElapsed(timing.get(step.call_id));
 }
 /** "Waited 19.8s for approval · ran 0.2s", when this client saw the wait. */
 function approvalTiming(step: TranscriptTraceItem) {
@@ -310,7 +311,18 @@ function TraceItem({
           <StepNode item={item} />
           <span className="activity-step-text">
             <span className="activity-step-verb">
-              {stepVerb(item.canonical_name, item.status)}
+              {item.app && (
+                <span className="activity-step-app">
+                  <AppIcon icon={item.app.icon} size={14} />
+                  {item.app.name}
+                  {item.app.tool ? (
+                    <span aria-hidden> · </span>
+                  ) : (
+                    <span className="visually-hidden">: </span>
+                  )}
+                </span>
+              )}
+              {stepVerb(item.canonical_name, item.status, item.app)}
               {reason && <span className="activity-step-tag">{reason}</span>}
             </span>
             {argument ? (
@@ -544,7 +556,9 @@ export default function TranscriptTrace({
         ? 'Waiting for your approval'
         : current
           ? [
-              stepVerb(current.canonical_name, 'pending'),
+              current.app?.tool
+                ? `${current.app.name} · ${current.app.tool}`
+                : stepVerb(current.canonical_name, 'pending'),
               keyArgument(current.safe_input),
             ]
               .filter(Boolean)
@@ -566,7 +580,9 @@ export default function TranscriptTrace({
         : live.waiting
           ? 'Waiting for your approval'
           : current
-            ? stepVerb(current.canonical_name, 'pending')
+            ? current.app?.tool
+              ? `${current.app.name} · ${current.app.tool}`
+              : stepVerb(current.canonical_name, 'pending')
             : answering
               ? 'Answering'
               : running

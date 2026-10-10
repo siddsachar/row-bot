@@ -55,6 +55,19 @@ const verb = (done: string, running: string, icon: LucideIcon): Verb => ({
 // Exact tool names first; prefix and pattern rules below cover families.
 const EXACT: Record<string, Verb> = {
   read_url: verb('Read page', 'Reading page', Globe),
+  // Each says what it does, so an approval does too ("Delete tracker entries?", not "Update notes?").
+  tracker_log: verb('Logged to a tracker', 'Logging to a tracker', ChartColumn),
+  tracker_query: verb('Read a tracker', 'Reading a tracker', ChartColumn),
+  tracker_delete: verb(
+    'Deleted tracker entries',
+    'Deleting tracker entries',
+    ChartColumn,
+  ),
+  task_create: verb('Created a workflow', 'Creating a workflow', Zap),
+  task_update: verb('Changed a workflow', 'Changing a workflow', Zap),
+  task_delete: verb('Deleted a workflow', 'Deleting a workflow', Zap),
+  task_run_now: verb('Ran a workflow', 'Running a workflow', Zap),
+  task_list: verb('Listed workflows', 'Listing workflows', Zap),
   browser_navigate: verb('Opened page', 'Opening page', Globe),
   browser_click: verb('Clicked in the browser', 'Clicking', MousePointerClick),
   browser_type: verb('Typed in the browser', 'Typing', MousePointerClick),
@@ -118,6 +131,7 @@ const EXACT: Record<string, Verb> = {
     GitBranch,
   ),
   request_connection: verb('Asked to connect', 'Asking to connect', Plug),
+  suggest_apps: verb('Suggested apps', 'Looking for apps', Plug),
   export_to_pdf: verb('Exported a PDF', 'Exporting a PDF', FileText),
   save_memory: verb('Saved a memory', 'Saving a memory', Brain),
   search_memory: verb('Searched memory', 'Searching memory', Brain),
@@ -247,8 +261,23 @@ function describe(name: string): Verb | null {
   return null;
 }
 
-/** "Searched the web", "Searching the web" or "Web search failed". */
-export function stepVerb(name: string, status: StepStatus): string {
+/** The app behind a step or approval, and the tool's readable title in it ("Delete page"). */
+type ToolApp = { name: string; tool?: string } | null | undefined;
+
+/** "Searched the web", "Searching the web" or "Web search failed"; an app's tool reads as its own
+ * title ("Delete page", shown after the app's name). */
+export function stepVerb(
+  name: string,
+  status: StepStatus,
+  app?: ToolApp,
+): string {
+  const tool = app?.tool;
+  if (tool) {
+    if (status === 'failed') return `${tool} failed`;
+    if (status === 'blocked' || status === 'cancelled')
+      return `${tool} skipped`;
+    return tool;
+  }
   const known = describe(name);
   const fallback = humanizeToken(bareName(name)) || 'Tool';
   if (status === 'pending')
@@ -459,6 +488,19 @@ export function formatElapsed(ms: number): string {
   return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+/**
+ * How long a step ran, as this client watched it, or null when that is not
+ * known. Under a tenth of a second the client only saw the step as it
+ * finished (its start and end arrived together), so "0.0s" would be wrong.
+ */
+export function stepElapsed(
+  span: { start: number; end?: number } | undefined,
+): number | null {
+  if (span?.end === undefined) return null;
+  const ms = span.end - span.start;
+  return ms >= 100 ? ms : null;
+}
+
 // Stems whose present participle dropped a silent "e" ("Saving" → "Save").
 const SILENT_E = new Set([
   'analyz',
@@ -491,15 +533,33 @@ export function imperative(participle: string): string {
   return [stem, ...rest].join(' ');
 }
 
-/** "Send an email?" for a canonical tool name awaiting approval. */
-export function approvalQuestion(name: string): string {
+// How app tools' titles usually begin ("Get commit"). A title that begins otherwise is named, never read as a verb.
+const TOOL_VERBS = new Set(
+  (
+    'add append approve archive assign book cancel change check close comment copy create decrement delete ' +
+    'download draft duplicate edit export fetch find generate get import increment insert invite list lock ' +
+    'mark merge move open pay post publish query read refund reject remove rename reopen reply request reset ' +
+    'resolve restore retrieve run save schedule search send set share start stop submit summarize sync tag ' +
+    'transfer unlock update upload upsert write'
+  ).split(' '),
+);
+
+/** "Send an email?" for a canonical tool name awaiting approval; "Allow Granola to delete page?" for an app's. */
+export function approvalQuestion(name: string, app?: ToolApp): string {
+  if (app?.tool) {
+    const phrase = midSentence(app.tool);
+    return TOOL_VERBS.has(phrase.split(' ')[0].toLowerCase())
+      ? `Allow ${app.name} to ${phrase}?`
+      : `Allow ${app.name} to use “${app.tool}”?`;
+  }
   if (!describe(name))
     return `Allow ${humanizeToken(bareName(name)) || 'this action'}?`;
   return `${imperative(stepVerb(name, 'pending'))}?`;
 }
 
-/** The action itself, for a label: "Delete a file", or "Fixture action". */
-export function approvalAction(name: string): string {
+/** The action itself, for a label: "Delete a file", "Fixture action", or "Granola · Delete page". */
+export function approvalAction(name: string, app?: ToolApp): string {
+  if (app?.tool) return `${app.name} · ${app.tool}`;
   if (!describe(name)) return humanizeToken(bareName(name)) || 'This action';
   return imperative(stepVerb(name, 'pending'));
 }
@@ -508,7 +568,40 @@ export function approvalAction(name: string): string {
 const ARGUMENT =
   /(\w+)=('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^,'"]*)(?:, (?=\w+=)|$)/y;
 
+/**
+ * A tool argument in words: `[{"sku": "A1", "qty": 2}]` reads "sku A1, qty 2". Every value is kept, an empty
+ * one too (it is still sent: it can clear a field), and a list item holding a separator is quoted.
+ */
+export function readableValue(value: unknown, nested = false): string {
+  if (Array.isArray(value)) {
+    const structured = value.some((item) => item && typeof item === 'object');
+    const text = value
+      .map((item) =>
+        typeof item === 'string' && /[,;]/.test(item)
+          ? `"${item}"`
+          : readableValue(item),
+      )
+      .join(structured ? '; ' : ', ');
+    return nested && structured ? `(${text})` : text;
+  }
+  if (value && typeof value === 'object') {
+    const text = Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(
+        ([key, item]) =>
+          `${key.replace(/_/g, ' ')} ${readableValue(item, true)}`,
+      )
+      .join(', ');
+    return nested ? `(${text})` : text;
+  }
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  return value === null ? 'empty' : String(value ?? '');
+}
+
 function unquote(value: string): string {
+  // Python's True and False, as the agent writes a yes/no option.
+  if (value === 'True' || value === 'False')
+    return value === 'True' ? 'yes' : 'no';
   const quoted = /^(['"])([\s\S]*)\1$/.exec(value);
   if (!quoted) return value;
   return quoted[2].replace(/\\(.)/g, (_match, character: string) =>

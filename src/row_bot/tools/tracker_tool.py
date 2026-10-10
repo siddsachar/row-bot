@@ -428,8 +428,14 @@ def _tracker_log(
     tracker = _find_tracker(conn, tracker_name)
     created_new = False
     if tracker is None:
-        tracker = _create_tracker(conn, tracker_name, tracker_type, unit)
-        created_new = True
+        try:
+            tracker = _create_tracker(conn, tracker_name, tracker_type, unit)
+            created_new = True
+        except sqlite3.IntegrityError:  # Another log made it a moment ago (two entries logged at once).
+            conn.rollback()
+            tracker = _find_tracker(conn, tracker_name)
+            if tracker is None:
+                raise
     entry = _log_entry(conn, tracker["id"], value, notes, timestamp)
     ts_display = entry["timestamp"]
     parts = [f"✅ Logged **{tracker['name']}**"]

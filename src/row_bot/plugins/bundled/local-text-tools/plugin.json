@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "local-text-tools",
+  "version": "1.0.0",
+  "description": "Edit concise prose and count text locally, with a reusable review checklist.",
+  "author": {"name": "Row-Bot"},
+  "license": "MIT"
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import importlib
 import zipfile
 
@@ -482,44 +483,102 @@ def test_browse_sh_search_uses_full_catalog_not_first_page(monkeypatch):
     assert [entry.install_ref for entry in entries] == ["browse_sh:deep.example.com/rare-result"]
 
 
-def test_clawhub_fetch_constructs_raw_skill_endpoint_before_zip(monkeypatch):
-    calls: list[str] = []
-
-    def fake_fetch_text(url):
-        calls.append(url)
-        return "# Shellish\n\n## When to use\nUse carefully.\n\n## Instructions\nReview before enabling."
-
-    monkeypatch.setattr(clawhub_source, "fetch_text", fake_fetch_text)
-
+def test_clawhub_fetch_pins_complete_bundle(monkeypatch):
+    calls = []
+    data = _zip_bytes({"SKILL.md": _skill_md("shellish").encode(),
+                       "references/guide.md": b"Guide", "assets/pixel.png": b"\x89PNG\x00"})
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: {"skill": {"slug": "shellish"}, "latestVersion": {"version": "1.2.3"}})
+    monkeypatch.setattr(clawhub_source, "fetch_bytes", lambda url: calls.append(url) or data)
+    monkeypatch.setattr(clawhub_source, "fetch_text", lambda url: pytest.fail("Never fetch single-file fallback"))
     bundle = ClawHubSource().fetch("clawhub:shellish")
+    assert calls == ["https://clawhub.ai/api/v1/download?slug=shellish&version=1.2.3"]
+    assert bundle.install_ref == "clawhub:shellish@1.2.3"
+    assert bundle.metadata["version"] == "1.2.3"
+    assert bundle.file_tree() == ["SKILL.md", "assets/pixel.png", "references/guide.md"]
+    assert next(f.content for f in bundle.files if f.path.endswith(".png")) == b"\x89PNG\x00"
 
-    assert calls == ["https://clawhub.ai/api/v1/skills/shellish/file?path=SKILL.md"]
-    assert bundle.frontmatter["name"] == "shellish"
-    assert bundle.metadata["risk"] == "high"
+
+def test_clawhub_failed_bundle_does_not_fall_back(monkeypatch):
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: {"latestVersion": {"version": "1"}})
+    monkeypatch.setattr(clawhub_source, "fetch_bytes", lambda url: b"deleted version")
+    monkeypatch.setattr(clawhub_source, "fetch_text", lambda url: pytest.fail("Never fetch fallback"))
+    with pytest.raises(zipfile.BadZipFile):
+        ClawHubSource().fetch("clawhub:shellish")
 
 
-def test_clawhub_fetch_falls_back_to_constructed_zip_endpoint(monkeypatch):
-    calls: list[str] = []
-    data = _zip_bytes({"skill/SKILL.md": _skill_md("zip_shellish").encode("utf-8")})
+def test_clawhub_search_uses_public_search_endpoint(monkeypatch):
+    calls = []
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: calls.append(url) or {"results": [{"slug": "shellish"}]})
+    assert ClawHubSource().search("shellish")
+    assert calls == ["https://clawhub.ai/api/v1/search?q=shellish&limit=24"]
 
-    def fake_fetch_text(url):
-        calls.append(url)
-        raise RuntimeError("raw missing")
 
-    def fake_fetch_bytes(url):
-        calls.append(url)
-        return data
+def test_clawhub_search_keeps_publishers_and_display_names_distinct():
+    # Public v1 cards use displayName + ownerHandle; slugs are not globally unique.
+    entries = parse_clawhub_payload({"results": [
+        {"id": "clawhub:opaque-a", "slug": "shared", "displayName": "Helpful skill", "ownerHandle": "alice"},
+        {"id": "clawhub:opaque-b", "slug": "shared", "displayName": "Different skill", "ownerHandle": "bob"},
+    ]})
+    assert [entry.name for entry in entries] == ["Helpful skill", "Different skill"]
+    assert [entry.install_ref for entry in entries] == ["clawhub:alice/shared", "clawhub:bob/shared"]
+    assert len({entry.id for entry in entries}) == 2
+    assert entries[0].url == "https://clawhub.ai/alice/skills/shared"
 
-    monkeypatch.setattr(clawhub_source, "fetch_text", fake_fetch_text)
-    monkeypatch.setattr(clawhub_source, "fetch_bytes", fake_fetch_bytes)
 
-    bundle = ClawHubSource().fetch("clawhub:shellish")
+@pytest.mark.parametrize("qualified", [True, False])
+def test_clawhub_pins_the_resolved_publisher_for_download_and_future_updates(monkeypatch, qualified):
+    calls = []
+    detail = {"skill": {"slug": "shared", "displayName": "Helpful skill"},
+        "owner": {"handle": "alice"}, "latestVersion": {"version": "1.0.0"}}
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: calls.append(url) or detail)
+    archive = _zip_bytes({"SKILL.md": _skill_md("shared").encode(), "references/guide.md": b"Guide"})
+    monkeypatch.setattr(clawhub_source, "fetch_bytes", lambda url: calls.append(url) or archive)
+    source = ClawHubSource()
+    reference = "clawhub:alice/shared" if qualified else "clawhub:shared"
+    if qualified:
+        assert source.resolve("https://clawhub.ai/alice/skills/shared").entries[0].install_ref == reference
+    bundle = source.fetch(reference)
+    assert calls[-2] == "https://clawhub.ai/api/v1/skills/shared" + ("?owner=alice" if qualified else "")
+    assert calls[-1] == "https://clawhub.ai/api/v1/download?slug=shared&version=1.0.0&owner=alice"
+    assert bundle.install_ref == "clawhub:alice/shared@1.0.0"
+    assert bundle.metadata["author"] == "alice"
 
-    assert calls == [
-        "https://clawhub.ai/api/v1/skills/shellish/file?path=SKILL.md",
-        "https://clawhub.ai/api/v1/download?slug=shellish",
-    ]
-    assert bundle.frontmatter["name"] == "zip_shellish"
+
+def test_clawhub_cannot_substitute_another_publisher(monkeypatch):
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: {"owner": {"handle": "bob"}})
+    monkeypatch.setattr(clawhub_source, "fetch_bytes", lambda url: pytest.fail("Must not download another publisher"))
+    with pytest.raises(ValueError, match="different publisher"):
+        ClawHubSource().fetch("clawhub:alice/shared@1.0.0")
+
+
+def test_clawhub_live_moderation_shape_blocks_acquisition(monkeypatch):
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: {"moderation": {"isMalwareBlocked": True}})
+    monkeypatch.setattr(clawhub_source, "fetch_bytes", lambda url: pytest.fail("Must not download blocked content"))
+    with pytest.raises(clawhub_source.ClawHubSourceBlocked):
+        ClawHubSource().fetch("clawhub:shared")
+
+
+@pytest.mark.parametrize("path", ["/outside", "C:/outside", "a:stream", "a/../b", "a/CON.txt", "a/trailing.", "a\\outside"])
+def test_clawhub_rejects_ambiguous_paths(path):
+    with pytest.raises(ValueError):
+        bundle_from_clawhub_zip(_zip_bytes({"SKILL.md": _skill_md("test").encode(), path: b"x"}), install_ref="clawhub:test@1")
+
+
+def test_clawhub_github_handoff_is_bound_to_commit_and_subdirectory(monkeypatch):
+    sha = "a" * 40
+    descriptor = {"sourceRef": "public-github", "repo": "example/skills", "commit": sha,
+                  "path": "skills/test", "contentHash": "upstream", "archiveUrl": f"https://codeload.github.com/example/skills/zip/{sha}"}
+    archive = _zip_bytes({"repo/skills/test/SKILL.md": _skill_md("test").encode(),
+                          "repo/skills/test/assets/pixel.png": b"PNG", "repo/other.txt": b"unrelated"})
+    calls = []
+    monkeypatch.setattr(clawhub_source, "fetch_json", lambda url: {"latestVersion": {"version": "1"}})
+    monkeypatch.setattr(clawhub_source, "fetch_bytes", lambda url: calls.append(url) or (archive if "codeload" in url else json.dumps(descriptor).encode()))
+    bundle = ClawHubSource().fetch("clawhub:test")
+    assert bundle.file_tree() == ["SKILL.md", "assets/pixel.png"]
+    assert bundle.metadata["ref"] == sha
+    descriptor["commit"] = "main"
+    with pytest.raises(ValueError, match="not pinned"):
+        ClawHubSource().fetch("clawhub:test")
 
 
 def test_clawhub_payload_marks_high_risk():
@@ -657,6 +716,32 @@ def test_github_source_uses_public_safe_headers(monkeypatch):
     assert calls == ["Row-Bot-Skills-Hub/1.0"]
 
 
+def test_a_skill_folder_reads_the_github_account_once(monkeypatch):
+    """Found live: each file asked the GitHub account again (about a second each), and a featured skill of
+    eight files ran past its source's time limit."""
+    from row_bot.skills_hub import github_source
+
+    asked: list[str] = []
+    monkeypatch.setattr(github_source.github_account, "github_public_api_headers",
+                        lambda **kwargs: asked.append(kwargs["user_agent"]) or {"User-Agent": "test"})
+    listings = {
+        "skills/demo": [{"type": "file", "path": "skills/demo/SKILL.md", "download_url": "https://raw.example/SKILL.md"},
+                        {"type": "dir", "path": "skills/demo/scripts"}],
+        "skills/demo/scripts": [{"type": "file", "path": "skills/demo/scripts/a.py", "download_url": "https://raw.example/a.py"},
+                                {"type": "file", "path": "skills/demo/scripts/b.py", "download_url": "https://raw.example/b.py"}],
+    }
+    monkeypatch.setattr(github_source, "fetch_json",
+                        lambda url, headers=None: listings[url.split("/contents/", 1)[1].split("?", 1)[0]])
+    monkeypatch.setattr(github_source, "fetch_bytes",
+                        lambda url, headers=None: b"---\nname: demo\ndescription: Demo\n---\nUse it." if url.endswith(".md") else b"print(1)\n")
+
+    files = GitHubSource()._fetch_folder_files(github_source.parse_github_install_ref("github:o/r/skills/demo"),
+                                               "skills/demo")
+
+    assert sorted(file.path for file in files) == ["SKILL.md", "scripts/a.py", "scripts/b.py"]
+    assert len(asked) == 1
+
+
 def test_github_source_reports_anonymous_fallback_status(monkeypatch):
     import row_bot.github_account as github_account
 
@@ -722,23 +807,30 @@ def _one_skill_tree(url: str) -> dict:
     return {"tree": [{"path": f"{root.root}/{repo.replace('/', '-')}/SKILL.md", "type": "blob"}]}
 
 
-def test_github_browse_reads_its_repositories_in_parallel(monkeypatch):
+def test_github_browse_bounds_parallel_repository_requests(monkeypatch):
     import threading
 
-    together: list[threading.Barrier] = []
+    lock = threading.Lock()
+    together = threading.Barrier(4, timeout=1)
+    counts = {"calls": 0, "active": 0, "peak": 0}
 
     def fetch_json(url, *, headers=None, timeout=15):
-        # Every repository's request must be in flight at once to pass.
-        together[0].wait()
+        with lock:
+            counts["calls"] += 1
+            index = counts["calls"]
+            counts["active"] += 1
+            counts["peak"] = max(counts["peak"], counts["active"])
+        if index <= 4:
+            together.wait()
+        with lock:
+            counts["active"] -= 1
         return _one_skill_tree(url)
 
     roots = _quiet_github(monkeypatch, fetch_json)
-    together.append(threading.Barrier(len(roots), timeout=5))
-
     result = GitHubSource().browse(limit=100)
-
     assert result.status == "live"
     assert len(result.entries) == len(roots)
+    assert counts["peak"] == 4
 
 
 def test_github_browse_describes_unreadable_repositories_in_plain_words(monkeypatch):
@@ -762,5 +854,7 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         for path, content in files.items():
-            archive.writestr(path, content)
+            member = zipfile.ZipInfo()
+            member.filename = path
+            archive.writestr(member, content)
     return buffer.getvalue()

@@ -57,5 +57,6 @@ def test_run_dream_cycle_below_minimum_records_journal_skip(tmp_path, monkeypatc
     assert summary["merges"] == []
     assert summary["enrichments"] == []
     assert summary["inferred_relations"] == []
-    assert "below minimum" in summary["summary"]
+    assert summary["summary"].startswith("Skipped — waits for 20 saved memories;")
+    assert "entities" not in summary["summary"]
     assert journal[-1]["cycle_id"] == summary["cycle_id"]

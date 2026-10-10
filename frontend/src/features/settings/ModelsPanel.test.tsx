@@ -18,6 +18,7 @@ import type {
 import { OverlayProvider } from '../../ui/overlays';
 import { DefaultModelSession } from './DefaultModelSettings';
 import ModelsPanel from './ModelsPanel';
+import { settingsRows } from './model';
 
 const brain = 'model:codex:gpt-6-astra';
 const vision = 'model:codex:gpt-6-astra';
@@ -223,6 +224,16 @@ async function notice(text: string | RegExp) {
   return within(notices.parentElement!).findByText(text);
 }
 
+it('says the Brain picker lists pinned models and where to pin more', async () => {
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Brain model' }));
+  expect(
+    await screen.findByText(
+      'Pinned models are listed here. Pin more in the Catalog below.',
+    ),
+  ).toBeVisible();
+});
+
 it('renders actual defaults and limits while leaving catalog rows unloaded', async () => {
   const { controller } = show();
   expect(
@@ -250,6 +261,22 @@ it('renders actual defaults and limits while leaving catalog rows unloaded', asy
       /Readiness not checked|Runtime not checked|Brain draft|Review default/,
     ),
   ).not.toBeInTheDocument();
+});
+
+it('has a row for every Models result of Settings search', async () => {
+  show();
+  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('spinbutton', { name: /Steps per run/ });
+  const rendered = new Set(
+    [...document.querySelectorAll<HTMLElement>('[data-setting-anchor]')].map(
+      (element) => element.dataset.settingAnchor,
+    ),
+  );
+  expect(
+    settingsRows
+      .filter((row) => row.leaf === 'models' && !rendered.has(row.anchor))
+      .map((row) => row.label),
+  ).toEqual([]);
 });
 
 it('gives the four jobs one row each: name, purpose, switch, picker (B229)', async () => {

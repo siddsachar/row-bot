@@ -333,6 +333,51 @@
       "title": "TraceAgentReference",
       "type": "object"
     },
+    "TraceAppRef": {
+      "additionalProperties": false,
+      "description": "An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,\nre-read from local data, and for a step the tool's readable title in that app (\"Delete page\").",
+      "properties": {
+        "allow_changes": {
+          "default": false,
+          "title": "Allow Changes",
+          "type": "boolean"
+        },
+        "icon": {
+          "maxLength": 128,
+          "title": "Icon",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "tool": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Tool",
+          "type": "string"
+        },
+        "view": {
+          "default": false,
+          "title": "View",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "name",
+        "icon"
+      ],
+      "title": "TraceAppRef",
+      "type": "object"
+    },
     "TraceMediaReference": {
       "additionalProperties": false,
       "properties": {
@@ -367,6 +412,14 @@
           "title": "Agent Runs",
           "type": "array"
         },
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/TraceAppRef"
+          },
+          "maxItems": 3,
+          "title": "Apps",
+          "type": "array"
+        },
         "binding_id": {
           "default": "",
           "maxLength": 256,
@@ -398,7 +451,8 @@
             "media",
             "resource_created",
             "resource_bound",
-            "setup_needed"
+            "setup_needed",
+            "connect_apps"
           ],
           "title": "Kind",
           "type": "string"
@@ -762,6 +816,17 @@
     "TranscriptTraceItem": {
       "additionalProperties": false,
       "properties": {
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceAppRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "call_id": {
           "maxLength": 256,
           "minLength": 1,

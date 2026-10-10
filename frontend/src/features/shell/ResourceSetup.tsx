@@ -214,7 +214,6 @@ export default function ResourceSetup({
   const setKind = (kind: SetupDraft['kind']) => update({ kind });
   const setMode = (mode: SetupDraft['mode']) => update({ mode });
   const setSelected = (selected: ResourceChoice | null) => update({ selected });
-  const setTemplate = (template: string) => update({ template });
   const setCanvas = (canvas: string) => update({ canvas });
   const setName = (name: string) => update({ name });
   const setBrief = (brief: string) => update({ brief });
@@ -865,15 +864,24 @@ export default function ResourceSetup({
             {!confirmed
               ? 'Checking saved setup outcome…'
               : receipt.status === 'completed'
-                ? 'Resource ready'
+                ? receipt.resource_kind === 'artifact'
+                  ? 'Design ready'
+                  : receipt.resource_kind === 'workspace'
+                    ? 'Code folder ready'
+                    : 'Ready'
                 : 'Setup partially completed'}
           </p>
-          <ul>
-            {receipt.confirmed_stages?.map((stage) => (
-              <li key={stage}>{stage}</li>
-            ))}
-          </ul>
-          <small>Resource {receipt.resource_id}</small>
+          {/* The saved stages and id help finish a partial setup; a ready one needs neither. */}
+          {receipt.status !== 'completed' && (
+            <>
+              <ul>
+                {receipt.confirmed_stages?.map((stage) => (
+                  <li key={stage}>{stage}</li>
+                ))}
+              </ul>
+              <small>Resource {receipt.resource_id}</small>
+            </>
+          )}
           {receipt.status === 'partial' &&
             receipt.folder_reselection_required && (
               <div className="stack">
@@ -1020,7 +1028,7 @@ export default function ResourceSetup({
                   generationReceipt.status,
                 ))) && (
               <Button disabled={busy} onClick={reset}>
-                Start another resource
+                Create another
               </Button>
             )}
         </section>
@@ -1145,6 +1153,32 @@ export default function ResourceSetup({
                   ))}
                 </Select>
               </Field>
+              {currentOptions && (
+                // Templates are a first choice, not an advanced one.
+                <Field label="Template">
+                  <Select
+                    disabled={busy}
+                    value={template}
+                    onChange={(e) => {
+                      // A template brings its own canvas (a desktop
+                      // dashboard, a square post); Advanced can change it.
+                      const own = currentOptions.templates.find(
+                        (item) => item.id === e.target.value,
+                      )?.canvas;
+                      update({
+                        template: e.target.value,
+                        ...(own ? { canvas: own } : {}),
+                      });
+                    }}
+                  >
+                    {currentOptions.templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label="Name (optional)">
                 <Input
                   disabled={busy}
@@ -1178,19 +1212,6 @@ export default function ResourceSetup({
               {currentOptions ? (
                 <Disclosure className="setup-options" summary="Advanced">
                   <div className="setup-grid">
-                    <Field label="Template">
-                      <Select
-                        disabled={busy}
-                        value={template}
-                        onChange={(e) => setTemplate(e.target.value)}
-                      >
-                        {currentOptions.templates.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
                     <Field label="Canvas">
                       <Select
                         disabled={busy}

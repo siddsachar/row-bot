@@ -81,6 +81,8 @@ export type ClientState = {
   loadingConversations: boolean;
   conversationListError: ClientError | null;
   selectedConversationId: string | null;
+  /** The open conversation the server reported deleted (here or in another window), until another opens. */
+  deletedConversationId?: string | null;
   conversation: Wire.ConversationView | null;
   projection: Wire.Snapshot | null;
   workspace: Wire.ConversationWorkspace | null;
@@ -133,6 +135,102 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
 
 /** The sole network boundary. Fixtures implement this same interface. */
 export interface ClientTransport {
+  integrationSources?(
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationSourceList>;
+  updateIntegrationSource?(
+    source: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationSourceView>;
+  workflowTemplates?(signal?: AbortSignal): Promise<Wire.WorkflowTemplateList>;
+  useWorkflowTemplate?(
+    template: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkflowTemplateCreated>;
+  setIntegrationSourceOptIn?(
+    source: string,
+    on: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationSourceView>;
+  catalogSchedule?(signal?: AbortSignal): Promise<Wire.CatalogSchedule>;
+  setCatalogSchedule?(
+    body: Wire.CatalogSchedule,
+    signal?: AbortSignal,
+  ): Promise<Wire.CatalogSchedule>;
+  integrationApps?(query: string, signal?: AbortSignal): Promise<Wire.AppList>;
+  integrationIcons?(
+    icons: string[],
+    signal?: AbortSignal,
+  ): Promise<Wire.IconBatch>;
+  renderAppView?(
+    conversation: string,
+    callId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewRender>;
+  callAppViewTool?(
+    render: string,
+    body: Wire.AppViewToolCall,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewToolResult>;
+  appViewSettings?(signal?: AbortSignal): Promise<Wire.AppViewSettings>;
+  setAppViewSettings?(
+    body: Wire.AppViewSettings,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewSettings>;
+  setAppViewAppSetting?(
+    body: Wire.AppViewAppSetting,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewSettings>;
+  integrationItems?(
+    options: {
+      query?: string;
+      kind?: string;
+      scope?: 'installed' | 'catalog';
+      cursor?: string;
+      all?: 'true';
+    },
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  searchIntegrationItems?(
+    body: Wire.IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  resolveIntegration?(
+    body: Wire.IntegrationResolveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  settleIntegration?(
+    body: Wire.IntegrationSettleRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationDetail>;
+  uploadIntegration?(
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  integrationDetail?(
+    options: { item_id: string; revision?: string },
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationDetail>;
+  reviewInstallPlan?(
+    body: Wire.PlanReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+  startInstallPlan?(
+    body: Wire.PlanStartRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+  installPlan?(plan: string, signal?: AbortSignal): Promise<Wire.InstallPlan>;
+  continueInstallPlan?(
+    plan: string,
+    body: Wire.PlanContinueRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+  cancelInstallPlan?(
+    plan: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+
   conversationActions?(
     conversation: string,
     signal?: AbortSignal,
@@ -696,31 +794,6 @@ export interface ClientTransport {
     request: Wire.MigrationScanRequest,
     signal?: AbortSignal,
   ): Promise<Wire.MigrationPreview>;
-  searchSkillHub?(
-    request: Wire.SkillHubSearchRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubSearchResult>;
-  previewSkillHub?(
-    request: Wire.SkillHubPreviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubPreview>;
-  installSkillHub?(
-    command: Wire.SkillHubInstallCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubInstallReceipt>;
-  skillHubInstallReceipt?(
-    commandId: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubInstallReceipt>;
-  skillHubInstalled?(signal?: AbortSignal): Promise<Wire.SkillHubInstalledPage>;
-  skillHubMaintenance?(
-    command: Wire.SkillHubMaintenanceCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubMaintenanceReceipt>;
-  skillHubMaintenanceReceipt?(
-    commandId: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.SkillHubMaintenanceReceipt>;
   reviewMigration?(
     request: Wire.MigrationApplyReviewRequest,
     signal?: AbortSignal,
@@ -888,28 +961,11 @@ export interface ClientTransport {
     body: Wire.PluginReviewRequest,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReview>;
-  pluginReceipt?(
-    plugin: string,
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginReceipt>;
   executePlugin?(
     plugin: string,
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReceipt>;
-  reviewPluginLifecycle?(
-    body: Wire.PluginLifecycleReviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginLifecycleReview>;
-  pluginLifecycleReceipt?(
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginLifecycleReceipt>;
-  executePluginLifecycle?(
-    command: Wire.PluginLifecycleCommand,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginLifecycleReceipt>;
   skills?(
     query: string,
     source?: string,
@@ -1012,11 +1068,6 @@ export interface ClientTransport {
     body: Wire.PluginReviewRequest,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReview>;
-  pluginReceipt?(
-    plugin: string,
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.PluginReceipt>;
   executePlugin?(
     plugin: string,
     command: Wire.Command,
@@ -1044,22 +1095,12 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.SkillReceipt>;
-  mcpTestedCatalog?(
-    server: string,
-    command: string,
-    query: string,
-    cursor?: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpTestedCatalogPage>;
-  reviewMcpCatalog?(
-    body: Wire.McpCatalogRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpCatalogReview>;
   mcpPolicy?(
     server: string | null,
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: Wire.McpTarget,
   ): Promise<Wire.McpPolicyPage>;
   reviewMcpPolicy?(
     body: Wire.McpPolicyRequest,
@@ -1070,14 +1111,6 @@ export interface ClientTransport {
     body: Wire.McpChatReviewRequest,
     signal?: AbortSignal,
   ): Promise<Wire.McpChatReview>;
-  mcpRuntime?(
-    server: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpRuntimeState>;
-  reviewMcpRuntime?(
-    body: Wire.McpRuntimeReviewRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpRuntimeReview>;
   subscriptionAccounts?(
     signal?: AbortSignal,
   ): Promise<Wire.SubscriptionAccountsSnapshot>;
@@ -1212,11 +1245,8 @@ export interface ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: Wire.McpTarget,
   ): Promise<Wire.McpConfigurationPage>;
-  searchMcpDirectory?(
-    query: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpDirectoryResult>;
   reviewMcpConfiguration?(
     body: Wire.McpConfigurationReviewRequest,
     signal?: AbortSignal,
@@ -1289,6 +1319,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ToolCatalogPage>;
   settingsSnapshot?(signal?: AbortSignal): Promise<Wire.SettingsSnapshot>;
+  trackerEntries?(
+    trackerId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.TrackerEntryPage>;
   reviewSettingsMutation?(
     body: Wire.SettingsMutationRequest,
     signal?: AbortSignal,

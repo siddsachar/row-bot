@@ -45,7 +45,7 @@ def test_settings_inventory_uses_the_react_remote_access_page() -> None:
         row for row in collect_settings_controls() if row["page_id"] == "access"
     ]
 
-    assert {"connect", "devices", "remote-access", "tunnel"} <= {
+    assert {"connect", "devices", "network", "tunnel"} <= {
         row["anchor"] for row in access_rows
     }
     assert all(

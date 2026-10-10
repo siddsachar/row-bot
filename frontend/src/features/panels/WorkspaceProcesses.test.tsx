@@ -123,7 +123,7 @@ const commandBox = () =>
   screen.getByRole('textbox', { name: 'Process command' });
 const runButton = () => screen.getByRole('button', { name: 'Run' });
 async function type(command = 'python check.py') {
-  await screen.findByText(/No commands have run here yet/);
+  await screen.findByText(/Nothing is running here/);
   fireEvent.change(commandBox(), { target: { value: command } });
   await waitFor(() => expect(runButton()).toBeEnabled());
 }

@@ -338,3 +338,35 @@ def test_a_channel_link_code_is_read_only_by_the_owner_on_this_computer(tmp_path
         assert response.status_code == 200, response.text
         assert response.json() == {"state": "scan", "code": "synthetic-link-code"}
     assert reads == ["whatsapp"]
+
+
+@pytest.mark.parametrize(("target", "kind", "visible"), [
+    ("skills", "skill.preference", True),
+    ("other", "skill.preference", False),
+    ("skills", "plugin.configure", False),
+])
+def test_skill_receipt_reports_only_its_own_rejected_admission(api, target, kind, visible):
+    from row_bot.runtime import admissions
+    from row_bot.application import skill_commands
+
+    client, headers = api
+    owner = headers["X-Client-Session"]
+    command_id = str(uuid4())
+    command = {"command_id": command_id, "type": kind, "payload": {}}
+    admissions.claim_command(owner, command_id, command, target)
+    admissions.reject_command(owner, command_id, "private rejection detail")
+    response = client.get(f"/api/v1/settings/skills/commands/{command_id}", headers=headers)
+    if visible:
+        assert response.status_code == 200
+        assert response.json() == {"command_id": command_id, "status": "rejected",
+            "action": "skill.preference", "skill_id": None, "revision": None,
+            "code": "skill_operation_rejected"}
+        with pytest.raises(ValueError):
+            skill_commands.read_skill_command(owner_id=owner, authority_id="another-authority",
+                command_id=command_id, validate=lambda: None)
+    else:
+        assert response.status_code != 200
+    assert "private rejection detail" not in response.text
+    with pytest.raises(ValueError):
+        skill_commands.read_skill_command(owner_id="another-owner", authority_id="another-owner",
+            command_id=command_id, validate=lambda: None)

@@ -27,12 +27,6 @@ def audit_log_path() -> Path:
     return hub_dir() / "audit.log"
 
 
-def quarantine_dir() -> Path:
-    path = hub_dir() / "quarantine"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -65,9 +59,8 @@ def save_records(records: dict[str, SkillInstallRecord]) -> None:
         "updated_at": now_iso(),
         "records": {name: record.as_dict() for name, record in sorted(records.items())},
     }
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
+    from row_bot.integrations.safe import write_atomic
+    write_atomic(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def get_record(local_name: str) -> SkillInstallRecord | None:
@@ -85,10 +78,6 @@ def remove_record(local_name: str) -> SkillInstallRecord | None:
     record = records.pop(local_name, None)
     save_records(records)
     return record
-
-
-def hub_installed_count() -> int:
-    return len(load_records())
 
 
 def append_audit(event: str, **data: Any) -> None:

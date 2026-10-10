@@ -9,7 +9,6 @@ The plugin system intentionally avoids importing anything from ``tools/``,
 
 - ``agent.py``  appends plugin LangChain tools + skills prompt
 - ``app.py``    calls ``refresh_plugin_runtime()`` at startup
-- ``ui/settings.py``  adds a Plugins tab
 """
 
 from row_bot.plugins.loader import get_load_summary, load_plugins, refresh_plugin_runtime

@@ -493,7 +493,7 @@ export default function TaskEditor({
                   ))}
                   <p className="field-hint">
                     {!channelRows.length
-                      ? 'Set up a channel in Settings › Channels to also send results there.'
+                      ? 'Set up a channel in Settings › Apps to also send results there.'
                       : following
                         ? 'Following your defaults.'
                         : ticked.size
@@ -565,7 +565,7 @@ export default function TaskEditor({
             ? 'Saving…'
             : meta.uncertain
               ? 'Retry original save'
-              : 'Save task'}
+              : 'Save workflow'}
         </Button>
       </footer>
     </form>

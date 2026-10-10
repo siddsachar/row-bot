@@ -203,9 +203,7 @@ const INTENTS: {
     query: 'connect telegram',
     first: /^Connect Telegram/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith(
-        '/settings/channels#telegram',
-      ),
+      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps/telegram'),
   },
   {
     query: 'api key',
@@ -225,17 +223,14 @@ const INTENTS: {
   },
   {
     query: 'add mcp server',
-    first: /^Add an MCP server/,
-    ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/mcp#mcp-servers'),
+    first: /^Connect an app/,
+    ran: (h) => expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps'),
   },
   {
     query: 'install a skill',
-    first: /^Find and install skills/,
+    first: /^Add a skill/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith(
-        '/settings/skills#public-skills',
-      ),
+      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/skills'),
   },
   {
     query: 'change model',
@@ -258,7 +253,7 @@ const INTENTS: {
     query: 'connect gmail',
     first: /^Connect Google/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/accounts#google'),
+      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps/google'),
   },
 ];
 

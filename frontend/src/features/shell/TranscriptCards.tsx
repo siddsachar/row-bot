@@ -3,18 +3,23 @@ import { FolderCode, Link2, Palette } from 'lucide-react';
 import type {
   EventRecord,
   ResourceView,
+  TraceAppRef,
   TranscriptTraceGroup,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { useOverlay } from '../../ui/overlays';
 import { Button, Input } from '../../ui/primitives';
+import ChatConnect from '../apps/ChatConnect';
+import AppViewFrame from '../apps/AppViewFrame';
 
 /**
  * Cards the assistant leaves in a turn (decision 12): a design or code folder
  * it created, with Open · Rename · Undo, a code folder the person had or
  * cloned (B277), with Open · Undo (it only leaves this conversation), and a
- * Connect card for an account or channel the work needs. Each comes from its
- * tool's reviewed specialization, live from `tool.activity` and settled from
- * the turn's traces.
+ * Connect card for apps from Row-Bot's catalog the work needs (or, in chats
+ * from before apps, an account or channel). Each comes from its tool's
+ * reviewed specialization, live from `tool.activity` and settled from the
+ * turn's traces.
  */
 export type TranscriptCard =
   | {
@@ -31,7 +36,10 @@ export type TranscriptCard =
       target: string;
       label: string;
       page: 'accounts' | 'channels';
-    };
+    }
+  | { kind: 'apps'; apps: TraceAppRef[] }
+  /** A finished step whose app shows a view (MCP Apps). */
+  | { kind: 'view'; callId: string; app: TraceAppRef };
 
 type Specialization = NonNullable<
   TranscriptTraceGroup['items'][number]['specialization']
@@ -52,6 +60,8 @@ export function cardOf(value: Specialization | null | undefined) {
       resourceId: value.resource_id ?? '',
       ...(value.kind === 'resource_bound' ? { bound: true } : {}),
     } satisfies TranscriptCard;
+  if (value.kind === 'connect_apps' && value.apps?.length)
+    return { kind: 'apps', apps: value.apps } satisfies TranscriptCard;
   if (
     value.kind === 'setup_needed' &&
     (value.settings_page === 'accounts' || value.settings_page === 'channels')
@@ -68,7 +78,11 @@ export function cardOf(value: Specialization | null | undefined) {
 export function cardKey(card: TranscriptCard) {
   return card.kind === 'resource'
     ? `resource:${card.bindingId}`
-    : `connect:${card.target}`;
+    : card.kind === 'apps'
+      ? `apps:${card.apps.map((app) => app.item_id).join(',')}`
+      : card.kind === 'view'
+        ? `view:${card.callId}`
+        : `connect:${card.target}`;
 }
 
 export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
@@ -76,7 +90,10 @@ export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
   const cards: TranscriptCard[] = [];
   for (const group of groups)
     for (const item of group.items) {
-      const card = cardOf(item.specialization);
+      const card: TranscriptCard | null =
+        item.app?.view && item.status === 'succeeded'
+          ? { kind: 'view', callId: item.call_id, app: item.app }
+          : cardOf(item.specialization);
       if (!card || seen.has(cardKey(card))) continue;
       seen.add(cardKey(card));
       cards.push(card);
@@ -110,8 +127,10 @@ export type CardActions = {
   undo: (bindingId: string) => Promise<void>;
   /** Takes a folder the person had out of this conversation; files stay. */
   remove: (bindingId: string) => Promise<void>;
-  /** Opens that connection's connect sheet (its page, at its anchor). */
+  /** Opens that connection's app page (cards from chats before apps). */
   connect: (page: 'accounts' | 'channels', target: string) => void;
+  /** Sends the request on in this chat once a suggested app is ready. */
+  continueWith: () => void;
 };
 
 export const CardActionsContext = createContext<CardActions | null>(null);
@@ -126,6 +145,7 @@ function ResourceCard({
   live: boolean;
 }) {
   const actions = useContext(CardActionsContext);
+  const overlay = useOverlay();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -241,14 +261,27 @@ function ResourceCard({
               ? 'Stop using this folder in this conversation; its files stay'
               : card.resourceKind === 'design'
                 ? 'Delete this design'
-                : 'Delete this code folder and its files'
+                : 'Delete this code folder while it is still empty; files added to it are never deleted'
           }
-          onClick={() =>
-            actions &&
-            void run(() =>
-              (card.bound ? actions.remove : actions.undo)(card.bindingId),
-            )
-          }
+          onClick={(event) => {
+            if (!actions) return;
+            const undo = () =>
+              void run(() =>
+                (card.bound ? actions.remove : actions.undo)(card.bindingId),
+              );
+            // Undo deletes a design with whatever was made in it since, so it
+            // asks first, as Delete design does.
+            if (card.bound || card.resourceKind !== 'design') undo();
+            else
+              overlay.open({
+                kind: 'alert',
+                returnFocusTo: event.currentTarget,
+                title: 'Delete design?',
+                description: `“${title}” will be deleted for good, with its pages, saved versions and files, including changes made since it was created.`,
+                confirmLabel: 'Delete design',
+                onConfirm: undo,
+              });
+          }}
         >
           Undo
         </Button>
@@ -293,12 +326,26 @@ function ConnectCard({
   );
 }
 
+function AppsCard({
+  card,
+}: {
+  card: Extract<TranscriptCard, { kind: 'apps' }>;
+}) {
+  const actions = useContext(CardActionsContext);
+  return (
+    <ChatConnect apps={card.apps} onContinue={() => actions?.continueWith()} />
+  );
+}
+
 export function TranscriptCards({
   cards,
   live = false,
+  conversation,
 }: {
   cards: TranscriptCard[];
   live?: boolean;
+  /** The chat a view belongs to; views show only where it is known. */
+  conversation?: string | null;
 }) {
   if (!cards.length) return null;
   return (
@@ -306,6 +353,17 @@ export function TranscriptCards({
       {cards.map((card) =>
         card.kind === 'resource' ? (
           <ResourceCard key={cardKey(card)} card={card} live={live} />
+        ) : card.kind === 'apps' ? (
+          <AppsCard key={cardKey(card)} card={card} />
+        ) : card.kind === 'view' ? (
+          conversation ? (
+            <AppViewFrame
+              key={cardKey(card)}
+              conversation={conversation}
+              callId={card.callId}
+              app={card.app}
+            />
+          ) : null
         ) : (
           <ConnectCard key={cardKey(card)} card={card} />
         ),

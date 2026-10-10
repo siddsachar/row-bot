@@ -1,20 +1,18 @@
 """Explicit acceptance of an exact completed MCP Test's retained tool catalog."""
 from __future__ import annotations
 
-import base64
 from collections.abc import Callable
 import copy
-from dataclasses import dataclass
-import hmac
 import json
 import math
+import re
 from uuid import UUID
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_policy_controls as policy
-from row_bot.mcp_client import config
-from row_bot.mcp_client.conflicts import requires_manual_tool_selection
-from row_bot.mcp_client.safety import is_destructive_tool
+from row_bot.integrations import brokers, presets
+from row_bot.mcp_client import config, targets
+from row_bot.mcp_client.safety import is_destructive_tool, saved_hints, schema_digest
 from row_bot.runtime import admissions
 
 Error = configuration.CapabilityConfigurationError
@@ -76,42 +74,39 @@ def capture_tested_catalog(tested: dict) -> dict:
                     or type(description) is not str or len(description) > 16384 or type(schema) is not dict
                     or type(tool.get("destructive")) is not bool or type(tool.get("requires_approval")) is not bool):
                 raise ValueError
+            # A stored record keeps the digest a test computed; a test's own result has the whole schema.
+            digest = tool.get("input_schema_digest", None if "input_schema_digest" in tool else schema_digest(schema))
+            if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError
             names.add(name)
             runtime_names.add(runtime_name)
             effect = tool.get("effect")
             if type(effect) is not str or effect not in {"read_only", "mutation", "interaction", "unknown"}:
                 effect = "unknown"
-            destructive = tool["destructive"] or is_destructive_tool(name, description)
+            annotations = saved_hints(tool.get("annotations", {}))
+            if annotations is None:
+                raise ValueError
+            destructive = tool["destructive"] or is_destructive_tool(name, description, {"annotations": annotations})
             # Recorded safety is never lowered by a catalog edit or a missing hint.
-            rows.append({"name": name, "description": description, "input_schema": schema,
+            # The schema is kept as its digest: what is agreed to is exact, however large the schema.
+            row = {"name": name, "description": description, "input_schema_digest": digest,
                 "destructive": destructive, "requires_approval": tool["requires_approval"] or destructive or effect == "unknown",
-                "effect": effect})
+                "effect": effect}
+            if annotations:
+                row["annotations"] = annotations  # The policy weighs them again when it reads this catalog (B307).
+            row.update(brokers.tool_rules(name))  # A broker's remote code and acting tools: only ever stricter.
+            # A test's result says "ui" and "visibility"; a stored record (read back to be checked) "view" and
+            # "view_only": both read the same, or an app with views could never be accepted.
+            view, visibility = tool.get("ui", tool.get("view", "")), tool.get("visibility") or ["model", "app"]
+            if isinstance(view, str) and view.startswith("ui://") and len(view) <= 512:
+                row["view"] = view  # It shows an interactive view in chat (MCP Apps): part of what is agreed to.
+            if tool.get("view_only") is True or list(visibility) == ["app"]:
+                row["view_only"] = True  # Only its own view calls it; the agent never sees it.
+            rows.append(row)
         result = {"availability": "available", "tools": rows}
         return json.loads(_bounded_json(result))
     except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
         return {"availability": "unavailable", "tools": []}
-
-
-@dataclass(frozen=True)
-class McpCatalogTool:
-    tool_id: str
-    name: str
-    enabled_after_accept: bool | None
-    requires_approval: bool
-    destructive: bool
-
-
-@dataclass(frozen=True)
-class McpTestedCatalogPage:
-    schema_version: int
-    configuration_revision: str | None
-    server_id: str
-    test_command_id: str
-    availability: str
-    manual_selection_required: bool | None
-    items: tuple[McpCatalogTool, ...]
-    total: int | None
-    next_cursor: str | None
 
 
 def _ids(server_id, test_command_id):
@@ -154,8 +149,8 @@ def _captured(owner_id, server_id, test_command_id, saved):
     return catalog
 
 
-def _document(saved, server_id, captured):
-    name, server = policy._server(saved, server_id)
+def _document(saved, server_id, captured, preset=None, overrides=None):
+    name, _server = policy._server(saved, server_id)
     if name is None:
         raise Error("not_found")
     document = copy.deepcopy(saved.document)
@@ -165,113 +160,97 @@ def _document(saved, server_id, captured):
         raise Error("mcp_policy_unavailable")
     policy._tool_policies(server_id, tools)  # Retain strict existing safety shapes.
     enabled, catalog = tools.setdefault("enabled", {}), tools.setdefault("catalog", {})
+    tools["accepted_names"] = [row["name"] for row in captured["tools"]]
     approvals = set(tools.get("require_approval", []))
-    manual = requires_manual_tool_selection(name, server)
     for row in captured["tools"]:
         tool_name = row["name"]
         old = catalog.get(tool_name, {})
         if type(old) is not dict:
             raise Error("mcp_policy_unavailable")
-        updated = {**old, **row}
+        # Hints are only ever the latest test's, so one the server dropped never lingers to relax a tool; a whole
+        # schema an older acceptance kept gives way to its digest.
+        updated = {**{key: value for key, value in old.items() if key not in {"annotations", "input_schema"}}, **row}
         updated["requires_approval"] = (row["requires_approval"] or old.get("requires_approval") is not False and "requires_approval" in old
             or old.get("destructive") is not False and "destructive" in old or tool_name in approvals)
         updated["destructive"] = row["destructive"] or old.get("destructive") is True
         catalog[tool_name] = updated
-        if updated["requires_approval"]:
+        if updated["requires_approval"] and presets.locked(updated):  # A routine change asks until it is allowed.
             approvals.add(tool_name)
-        if tool_name not in enabled:
-            enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] == "unknown")
+        if tool_name not in enabled and preset is None:
+            enabled[tool_name] = not (updated["destructive"] or row["effect"] in {"unknown", "mutation"})
     tools["require_approval"] = sorted(approvals)
-    return document, (name,), manual
-
-
-def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: str,
-                            query: str = "", cursor: str | None = None, limit: int = 25,
-                            validate: Callable[[], None] = lambda: None) -> McpTestedCatalogPage:
-    validate()
-    _ids(server_id, test_command_id)
-    if type(query) is not str or len(query) > 128 or type(limit) is not int or not 1 <= limit <= 50:
-        raise Error("invalid_query")
-    query = query.strip().casefold()
-    revision = None
-    try:
-        saved = config.read_saved_configuration()
-        revision = configuration._revision(saved)
-        captured = _captured(owner_id, server_id, test_command_id, saved)
-        document, names, manual = _document(saved, server_id, captured)
-        rows = policy._tool_policies(server_id, document["servers"][names[0]]["tools"])
-        matches = sorted((McpCatalogTool(rows[row["name"]].tool_id, rows[row["name"]].name,
-            rows[row["name"]].enabled, bool(rows[row["name"]].requires_approval), bool(rows[row["name"]].destructive))
-            for row in captured["tools"] if query in rows[row["name"]].name.casefold()), key=lambda row: (row.name.casefold(), row.tool_id))
-        availability = "recovery_required" if config.configuration_recovery_required() else "available"
-    except (Error, config.McpConfigurationError, admissions.AdmissionError) as error:
-        validate()
-        if cursor is not None:
-            raise Error("cursor_expired") from None
-        return McpTestedCatalogPage(1, revision, server_id, test_command_id,
-            "stale" if getattr(error, "code", "") == "mcp_catalog_stale" else "unavailable", None, (), None, None)
-    fingerprint = configuration._digest([owner_id, server_id, test_command_id, captured])
-    offset = 0
-    if cursor is not None:
+    added = [row["name"] for row in captured["tools"] if row["name"] not in enabled]
+    if preset is not None:
+        # A preset applies only to tools this acceptance adds; explicit choices apply to any accepted tool.
         try:
-            if type(cursor) is not str or len(cursor) > 2048:
-                raise ValueError
-            value, signature = json.loads(base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True))
-            if (type(value) is not list or len(value) != 5 or value[:3] != [revision, fingerprint, query]
-                    or type(value[3]) is not int or not 0 <= value[3] <= _TOOL_LIMIT or value[4] != limit
-                    or type(signature) is not str or not hmac.compare_digest(signature, configuration._digest(value))):
-                raise ValueError
-            offset = value[3]
-        except (ValueError, TypeError, UnicodeError, RecursionError):
-            raise Error("cursor_expired") from None
-    items = tuple(matches[offset:offset + limit])
-    next_cursor = None
-    if offset + len(items) < len(matches):
-        value = [revision, fingerprint, query, offset + len(items), limit]
-        next_cursor = base64.urlsafe_b64encode(json.dumps([value, configuration._digest(value)], separators=(",", ":")).encode()).decode().rstrip("=")
-    validate()
-    return McpTestedCatalogPage(1, revision, server_id, test_command_id, availability, manual, items, len(matches), next_cursor)
+            presets.apply(tools, preset, added, overrides)
+        except ValueError:
+            raise Error("approval_required") from None
+    return document, (name,)
 
 
-def _intent(server_id, test_command_id):
+def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target: dict | None = None) -> list[dict]:
+    """The tools a test found, with the safety that accepting them would record; reads only."""
+    target = targets.normalize(target)
     _ids(server_id, test_command_id)
-    return {"operation": "accept_catalog", "server_id": server_id, "test_command_id": test_command_id}
+    saved = config.read_saved_configuration(target)
+    if config.configuration_recovery_required(target=target):
+        raise Error("mcp_catalog_unavailable")
+    captured = _captured(owner_id, server_id, test_command_id, saved)
+    document, names = _document(saved, server_id, captured)
+    catalog = document["servers"][names[0]]["tools"]["catalog"]
+    return [{"name": row["name"], **{key: catalog[row["name"]].get(key) for key in
+             ("description", "input_schema_digest", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
+
+
+def _intent(server_id, test_command_id, preset=None, overrides=None):
+    _ids(server_id, test_command_id)
+    from row_bot.integrations.presets import PRESETS, STATES
+    if (preset is not None and preset not in PRESETS) or (overrides is not None and (
+            preset is None or type(overrides) is not dict or len(overrides) > _TOOL_LIMIT
+            or any(type(name) is not str or state not in STATES for name, state in overrides.items()))):
+        raise Error("invalid_command")
+    return {"operation": "accept_catalog", "server_id": server_id, "test_command_id": test_command_id,
+            **({"preset": preset} if preset else {}), **({"overrides": overrides} if overrides else {})}
 
 
 def review_mcp_catalog_command(*, owner_id: str, configuration_revision: str, server_id: str,
-                               test_command_id: str, validate: Callable[[], None]) -> dict:
+                               test_command_id: str, validate: Callable[[], None], target: dict | None = None,
+                               preset: str | None = None, overrides: dict | None = None) -> dict:
     validate()
-    intent = _intent(server_id, test_command_id)
+    target = targets.normalize(target)
+    intent = _intent(server_id, test_command_id, preset, overrides)
     policy._identity(configuration_revision)
     with config.configuration_transaction():
-        config.require_configuration_write_available()
-        saved = config.read_saved_configuration()
+        config.require_configuration_write_available(target=target)
+        saved = config.read_saved_configuration(target)
         current = configuration._revision(saved)
         if current != configuration_revision:
             raise Error("revision_conflict", current)
         captured = _captured(owner_id, server_id, test_command_id, saved)
-        _next, _names, manual = _document(saved, server_id, captured)
+        _document(saved, server_id, captured, preset, overrides)
         validate()
         return {"configuration_revision": current, "server_id": server_id, "test_command_id": test_command_id,
             "operation": "accept_catalog", "action_digest": admissions.keyed_digest({"revision": current, "intent": intent}),
-            "tool_count": len(captured["tools"]), "manual_selection_required": manual, "saved_disabled": None}
+            "tool_count": len(captured["tools"]), "saved_disabled": None}
 
 
 def execute_mcp_catalog_command(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],
-                                validate_review: Callable[[dict], None]) -> dict:
+                                validate_review: Callable[[dict], None], target: dict | None = None) -> dict:
     validate()
+    command, target = targets.from_command(command, target)
     payload = command.get("payload")
     if (command.get("type") != "mcp.catalog.accept" or type(payload) is not dict
-            or set(payload) != {"configuration_revision", "server_id", "test_command_id"}):
+            or set(payload) - {"preset", "overrides"} != {"configuration_revision", "server_id", "test_command_id"}):
         raise Error("invalid_command")
-    intent = _intent(payload["server_id"], payload["test_command_id"])
+    intent = _intent(payload["server_id"], payload["test_command_id"], payload.get("preset"), payload.get("overrides"))
     mapped = {**command, "payload": {"configuration_revision": payload["configuration_revision"], "intent": intent}}
     def next_document(saved: config.SavedMcpConfiguration, _intent: dict) -> tuple[dict, tuple[str, ...]]:
         captured = _captured(owner_id, payload["server_id"], payload["test_command_id"], saved)
-        document, names, _manual = _document(saved, payload["server_id"], captured)
-        return document, names
+        return _document(saved, payload["server_id"], captured, payload.get("preset"), payload.get("overrides"))
     return configuration._execute_saved_change(owner_id=owner_id, key=key, command=mapped, validate=validate,
-        validate_review=validate_review, command_type="mcp.catalog.accept", next_document=next_document, saved_disabled=None)
+        validate_review=validate_review, command_type="mcp.catalog.accept", next_document=next_document, saved_disabled=None,
+        target=target)
 
 
 public_receipt = configuration.public_receipt

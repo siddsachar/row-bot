@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type ComponentType,
@@ -8,6 +9,7 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
+  AppWindow,
   ArrowUpCircle,
   Bot,
   Brain,
@@ -18,20 +20,17 @@ import {
   KeyRound,
   Mic,
   Palette,
-  Plug,
-  Puzzle,
-  Radio,
   Search,
   Settings2,
   Shield,
   SlidersHorizontal,
   Sparkles,
-  UserRound,
   UsersRound,
   Wrench,
   X,
 } from 'lucide-react';
 import { Field, Input, Kbd } from '../../ui/primitives';
+import { settingsReturnPath } from './return-path';
 import {
   agentProfileLibrary,
   searchFindsAgentProfiles,
@@ -62,11 +61,8 @@ const icons: Record<string, Icon> = {
   documents: FileText,
   tracker: Activity,
   tools: Wrench,
+  apps: AppWindow,
   skills: Sparkles,
-  plugins: Puzzle,
-  mcp: Plug,
-  accounts: UserRound,
-  channels: Radio,
   profiles: UsersRound,
   system: Shield,
   access: KeyRound,
@@ -86,11 +82,8 @@ const descriptions: Record<string, string> = {
   documents: 'Files Row-Bot can search and learn from.',
   tracker: 'Habits, symptoms and health events you track.',
   tools: 'Search, research and built-in tools the assistant can use.',
-  skills: 'Reusable instructions: installed skills and public ones.',
-  plugins: 'Installed plugins and the plugin marketplace.',
-  mcp: 'Tools from MCP servers, on this computer or online.',
-  accounts: 'Services Row-Bot can use for you. Keys stay in your keychain.',
-  channels: 'Messaging platforms Row-Bot can talk through.',
+  apps: 'Services Row-Bot can work in for you. Connect one in about a minute.',
+  skills: 'Ways of doing a job that Row-Bot follows when they fit.',
   system: 'Where Row-Bot works on this computer, and what it may do there.',
   access:
     'Use Row-Bot on a phone or another computer, and see what is signed in.',
@@ -127,6 +120,9 @@ export default function SettingsShell({
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const [statusSlot, setStatusSlot] = useState<HTMLDivElement | null>(null);
   const [query, setQuery] = useState('');
+  // The result Enter opens; arrow keys move it.
+  const [active, setActive] = useState(0);
+  const resultId = useId();
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
     if (content && !location.hash) content.scrollTop = 0;
@@ -157,11 +153,49 @@ export default function SettingsShell({
   const profileLibrary = searching && searchFindsAgentProfiles(query);
   const leafLabel = (id: string) =>
     settingsLeaves.find((item) => item.id === id)?.label ?? id;
+  // Every result in reading order: pages, then rows, then the Agents dialog.
+  const results = [
+    ...pages.map((item) => item.href),
+    ...rows.map(settingsRowHref),
+    ...(profileLibrary ? [agentProfileLibrary.href] : []),
+  ];
+  const current = results.length
+    ? Math.min(Math.max(active, 0), results.length - 1)
+    : -1;
+  const optionId = (index: number) => `${resultId}-${index}`;
+  const optionProps = (index: number) => ({
+    id: optionId(index),
+    'data-active': index === current ? 'true' : undefined,
+  });
+  useEffect(() => {
+    if (current >= 0)
+      document
+        .getElementById(optionId(current))
+        ?.scrollIntoView?.({ block: 'nearest' });
+    // optionId only changes with the result position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, query]);
+  const openResult = (href: string) => {
+    setQuery('');
+    navigate(href);
+  };
   return (
     // The frame is a size container, so the shell also compacts when the
     // settings area is narrow in a wide window (sidebar open, 200% zoom).
     <div className="settings-shell-frame">
       <section className="settings-shell" aria-label="Settings">
+        {/* The workspace's own skip link targets a conversation; this one
+            passes the settings list and lands on the open page. */}
+        <a
+          className="skip-link"
+          href="#settings-page"
+          onClick={(event) => {
+            event.preventDefault();
+            heading.current?.focus();
+          }}
+        >
+          Skip to settings
+        </a>
         <header
           className="settings-shell-header"
           data-compact-controls={compactControls ? 'true' : undefined}
@@ -169,7 +203,11 @@ export default function SettingsShell({
           {compactControls?.navigation}
           <h1>Settings</h1>
           {compactControls?.commands}
-          <Link className="icon-button" to="/" aria-label="Close settings">
+          <Link
+            className="icon-button"
+            to={settingsReturnPath()}
+            aria-label="Close settings"
+          >
             <X size={18} aria-hidden />
           </Link>
         </header>
@@ -208,11 +246,28 @@ export default function SettingsShell({
               type="search"
               placeholder="Search settings"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              aria-controls={searching ? `${resultId}-results` : undefined}
+              aria-activedescendant={
+                current >= 0 ? optionId(current) : undefined
+              }
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Escape' && query) {
                   event.preventDefault();
                   setQuery('');
+                } else if (
+                  (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+                  results.length
+                ) {
+                  event.preventDefault();
+                  const step = event.key === 'ArrowDown' ? 1 : -1;
+                  setActive((current + step + results.length) % results.length);
+                } else if (event.key === 'Enter' && current >= 0) {
+                  event.preventDefault();
+                  openResult(results[current]);
                 }
               }}
             />
@@ -223,16 +278,17 @@ export default function SettingsShell({
             )}
           </label>
           {searching ? (
-            <div className="settings-search-results">
+            <div className="settings-search-results" id={`${resultId}-results`}>
               {pages.length > 0 && (
                 <div className="settings-nav-group">
                   <span className="settings-nav-label" aria-hidden>
                     Pages
                   </span>
                   <ul aria-label="Matching pages">
-                    {pages.map((item) => (
+                    {pages.map((item, index) => (
                       <li key={item.id}>
                         <Link
+                          {...optionProps(index)}
                           to={item.href}
                           aria-current={
                             item.id === leaf.id ? 'page' : undefined
@@ -254,9 +310,10 @@ export default function SettingsShell({
                     Settings
                   </span>
                   <ul aria-label="Matching settings">
-                    {rows.map((row) => (
+                    {rows.map((row, index) => (
                       <li key={`${row.leaf}:${row.anchor}`}>
                         <Link
+                          {...optionProps(pages.length + index)}
                           to={settingsRowHref(row)}
                           onClick={() => setQuery('')}
                         >
@@ -270,6 +327,7 @@ export default function SettingsShell({
                       // The sidebar's Agents dialog (B260).
                       <li>
                         <Link
+                          {...optionProps(pages.length + rows.length)}
                           to={agentProfileLibrary.href}
                           onClick={() => setQuery('')}
                         >
@@ -317,7 +375,11 @@ export default function SettingsShell({
             </div>
           )}
         </nav>
-        <div className="settings-page-content" ref={setContent}>
+        <div
+          className="settings-page-content"
+          id="settings-page"
+          ref={setContent}
+        >
           <header className="settings-pane-header">
             <span className="settings-pane-icon" aria-hidden>
               <SettingIcon id={leaf.id} size={18} />

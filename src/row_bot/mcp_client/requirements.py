@@ -15,7 +15,6 @@ import tarfile
 import tempfile
 import threading
 import time
-import urllib.request
 import urllib.parse
 import uuid
 import zipfile
@@ -132,7 +131,14 @@ class _Directory:
     def rename(self, source, destination, target=None):
         from row_bot.developer.edits import _rename_edit_no_replace
         target = target or self
-        _rename_edit_no_replace(self.leaf(source), target.leaf(destination), src_dir_fd=self.fd, dst_dir_fd=target.fd)
+        for attempt in range(5):  # Windows refuses a move briefly while a scanner holds a just-written file.
+            try:
+                _rename_edit_no_replace(self.leaf(source), target.leaf(destination), src_dir_fd=self.fd, dst_dir_fd=target.fd)
+                return
+            except OSError as exc:  # A refused move moved nothing, so trying it again is the same move.
+                if getattr(exc, "winerror", None) not in {5, 32} or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
 
 @contextlib.contextmanager
@@ -342,10 +348,6 @@ _COMMAND_RUNTIME_MAP = {
     "uvx": "uv",
     "docker": "docker",
 }
-
-
-def known_runtime_ids() -> list[str]:
-    return sorted(_RUNTIME_DEFS)
 
 
 def _normalize_command_name(command: str) -> str:
@@ -593,6 +595,10 @@ def apply_managed_runtime_env(server_cfg: dict[str, Any] | None, env: dict[str, 
             executable_path = playwright_browser_executable_path()
             if executable_path:
                 next_env.setdefault("PLAYWRIGHT_MCP_EXECUTABLE_PATH", executable_path)
+            # Its browser profile and page snapshots stay in Row-Bot's data folder, never the user's own
+            # AppData or whatever folder Row-Bot was started from.
+            next_env.setdefault("PLAYWRIGHT_MCP_USER_DATA_DIR", str(DATA_DIR / "playwright-mcp" / "profile"))
+            next_env.setdefault("PLAYWRIGHT_MCP_OUTPUT_DIR", str(DATA_DIR / "playwright-mcp" / "output"))
     return next_env
 
 
@@ -601,11 +607,6 @@ def managed_command_path(runtime_id: str, command: str) -> str | None:
     if not bin_dir:
         return None
     return shutil.which(command, path=str(bin_dir))
-
-
-def managed_path_for_requirement(requirement: RuntimeRequirement) -> str:
-    bin_dir = _managed_bin_dir(requirement.id)
-    return str(bin_dir) if bin_dir else ""
 
 
 def _path_with_prefix(bin_dir: str, env: dict[str, str]) -> str:
@@ -684,15 +685,6 @@ def check_server_requirements(server_cfg: dict[str, Any] | None, env: dict[str, 
     return [check_requirement(req, env) for req in requirements_for_server(server_cfg)]
 
 
-def missing_requirement_for_command(command: str, env: dict[str, str] | None = None) -> RuntimeCheck | None:
-    runtime_id = infer_runtime_id_for_command(command)
-    req = _requirement_from_id(runtime_id, commands=(command,), source="inferred") if runtime_id else None
-    if not req:
-        return None
-    check = check_requirement(req, env)
-    return check if not check.available else None
-
-
 def resolve_command(command: str, env: dict[str, str]) -> tuple[str | None, dict[str, str], RuntimeCheck | None]:
     expanded = os.path.expandvars(os.path.expanduser(command.strip()))
     if not expanded:
@@ -724,46 +716,38 @@ def missing_command_message(command: str, check: RuntimeCheck | None = None) -> 
     return f"MCP stdio command '{command}' was not found on PATH. Install the command, restart Row-Bot, or edit this MCP server to use an absolute executable path."
 
 
-class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
-    max_redirections = 5
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _safe_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+# Runtime publishers and the hosts their release downloads move to. Nothing else is ever contacted.
+_HOSTS = frozenset({"nodejs.org", "api.github.com", "github.com", "objects.githubusercontent.com",
+                    "release-assets.githubusercontent.com"})
 
 
-def _request(url, *, method=None):
-    request = urllib.request.Request(_safe_url(url), method=method,
-        headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0", "Accept-Encoding": "identity"})
-    return urllib.request.build_opener(_HttpsRedirects()).open(request, timeout=30)
+def _fetched(url: str, maximum: int, *, method: str = "GET", timeout: float = 30, meta: dict | None = None,
+             check: Callable[[], None] = lambda: None) -> bytes:
+    """One bounded fetch through the one safe path: https only, reviewed hosts, each redirect hop
+    checked again, a size cap, one deadline, and the system proxy for these hosts only."""
+    from row_bot.integrations.safe import fetch
+    try:
+        return fetch(_safe_url(url), hosts=_HOSTS, max_bytes=maximum, timeout=timeout, redirects=5, method=method, meta=meta,
+                     check=check, headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0"},
+                     refused="runtime_source_refused", too_large="runtime_download_too_large")
+    except ValueError as exc:  # A refused host or an oversized answer fails like any other runtime problem.
+        if str(exc) in {"runtime_source_refused", "runtime_download_too_large"}:
+            raise RuntimeError("Runtime download refused: it exceeds its download budget or left the reviewed hosts") from None
+        raise
 
 
 def _remote_bytes(url, maximum=METADATA_BYTE_LIMIT):
-    with _request(url) as response:
-        deadline, value = time.monotonic() + 30, bytearray()
-        read = getattr(response, "read1", response.read)
-        while block := read(min(16384, maximum + 1 - len(value))):
-            value.extend(block)
-            if len(value) > maximum or time.monotonic() >= deadline:
-                raise RuntimeError("Runtime metadata exceeds its download budget")
-        return bytes(value)
+    return _fetched(url, maximum)
 
 
 def _download(url: str, destination: Path, progress: Callable[[str], None] | None = None,
               *, validate: Callable[[], None] = lambda: None) -> None:
     if progress:
         progress("Downloading the reviewed runtime archive")
-    deadline = time.monotonic() + 120
     validate()
-    with _request(url) as response, destination.open("xb") as handle:
-        size = 0
-        read = getattr(response, "read1", response.read)
-        while block := read(1024 * 1024):
-            validate()
-            size += len(block)
-            if size > ARCHIVE_BYTE_LIMIT or time.monotonic() >= deadline:
-                raise RuntimeError("Runtime archive exceeds its download budget")
-            handle.write(block)
+    data = _fetched(url, ARCHIVE_BYTE_LIMIT, timeout=20, check=validate)  # One deadline of two minutes in all.
+    with destination.open("xb") as handle:
+        handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
 
@@ -771,13 +755,6 @@ def _download(url: str, destination: Path, progress: Callable[[str], None] | Non
 def _sha256(path: Path) -> str:
     with _owned_directory(path.absolute().parent) as directory:
         return hashlib.sha256(directory.read(path.name, ARCHIVE_BYTE_LIMIT)).hexdigest()
-
-
-def _verify_sha256(path: Path, expected: str | None) -> None:
-    if type(expected) is not str or not re.fullmatch(r"[a-fA-F0-9]{64}", expected):
-        raise RuntimeError("A pinned archive checksum is required")
-    if _sha256(path).lower() != expected.lower():
-        raise RuntimeError(f"Downloaded archive checksum mismatch for {path.name}")
 
 
 def _system_arch() -> str:
@@ -825,11 +802,12 @@ def _node_checksum(version: str, asset_name: str) -> str:
 
 
 def _remote_size(url):
-    with _request(url, method="HEAD") as response:
-        value = response.headers.get("Content-Length", "")
-        if not re.fullmatch(r"[0-9]{1,12}", value) or not 0 < int(value) <= ARCHIVE_BYTE_LIMIT:
-            raise RuntimeError("Runtime archive has no acceptable exact byte size")
-        return int(value)
+    meta: dict = {}
+    _fetched(url, 0, method="HEAD", meta=meta)
+    value = str(meta.get("headers", {}).get("content-length", ""))
+    if not re.fullmatch(r"[0-9]{1,12}", value) or not 0 < int(value) <= ARCHIVE_BYTE_LIMIT:
+        raise RuntimeError("Runtime archive has no acceptable exact byte size")
+    return int(value)
 
 
 def _archive_parts(name):
@@ -1419,11 +1397,6 @@ def _uv_release_asset():
     if len(matches) != 1:
         raise RuntimeError("Could not find an unambiguous compatible uv release asset")
     return version, matches[0]
-
-
-def _latest_uv_asset() -> tuple[str, str, str]:
-    version, asset = _uv_release_asset()
-    return version, asset["name"], asset.get("browser_download_url", "")
 
 
 def resolve_managed_runtime_plan(runtime_id: str, *, validate: Callable[[], None] = lambda: None,

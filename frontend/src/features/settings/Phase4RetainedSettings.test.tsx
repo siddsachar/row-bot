@@ -6,7 +6,7 @@ import {
   within,
 } from '@testing-library/react';
 import { useState } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type {
@@ -20,10 +20,14 @@ import type {
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
+import { ThemeProvider } from '../../ui/theme';
+import { settingsRows, type SettingsLeafId } from './model';
+import SettingRoute from './SettingRoute';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
 import {
+  AccountsSnapshotPanel,
   DocumentEmbeddingSnapshot,
   DocumentModelSetting,
   PreferencesSnapshotPanel,
@@ -390,18 +394,26 @@ beforeEach(() => {
   };
 });
 
-function renderSetting(setting: Phase4RetainedSetting) {
+function renderSetting(setting: Phase4RetainedSetting | 'accounts') {
   // Access reads and writes the System snapshot page.
   mutation.page = setting === 'access' ? 'system' : setting;
   return render(
     <MemoryRouter>
       <OverlayProvider>
-        <Phase4RetainedSettings
-          setting={setting}
-          snapshot={snapshot}
-          mutation={mutation}
-          selectedConversationId="conversation-a"
-        />
+        {setting === 'accounts' ? (
+          // Accounts are apps now; each app's settings show its account.
+          <AccountsSnapshotPanel
+            snapshot={snapshot.accounts}
+            mutation={mutation}
+          />
+        ) : (
+          <Phase4RetainedSettings
+            setting={setting}
+            snapshot={snapshot}
+            mutation={mutation}
+            selectedConversationId="conversation-a"
+          />
+        )}
       </OverlayProvider>
     </MemoryRouter>,
   );
@@ -423,7 +435,10 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(
     screen.getAllByRole('option', { name: 'Whisper · on this computer' }),
   ).toHaveLength(2);
-  expect(screen.getByText('Talk and dictation on this computer')).toBeVisible();
+  // The speech model isn't downloaded here: the header says what to do, not that it's ready.
+  expect(
+    screen.getByText('Download the speech model to talk on this computer'),
+  ).toBeVisible();
   expect(screen.getByLabelText('Speech model')).toHaveValue('base');
   expect(screen.queryByLabelText('Realtime voice')).toBeNull();
   expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
@@ -482,6 +497,8 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
   );
   expect(screen.getByLabelText('Live captions')).toBeChecked();
   expect(screen.getByLabelText('Realtime voice')).toHaveValue('alloy');
+  // Which realtime model Talk uses stays a choice (the saved talk model names it).
+  expect(screen.getByLabelText('Realtime model')).toHaveValue('gpt-realtime-2');
   expect(screen.getByLabelText('Fall back to this computer')).toBeChecked();
   // Kokoro's install is a text action in the Read aloud row's status line.
   expect(screen.getByText('Kokoro isn’t installed yet')).toBeVisible();
@@ -635,7 +652,7 @@ it('does not expose writable System fields when their tool owner is unavailable'
   expect(screen.getByText('Browser tool not found')).toBeVisible();
   expect(screen.getByText('Computer Use unavailable')).toBeVisible();
   expect(screen.getByText('Filesystem tool unavailable')).toBeVisible();
-  expect(screen.queryByLabelText(/Additional blocked patterns/)).toBeNull();
+  expect(screen.queryByLabelText('Blocked commands')).toBeNull();
   expect(
     screen.queryByRole('switch', { name: /Row-Bot's data folder/ }),
   ).toBeNull();
@@ -1220,9 +1237,9 @@ it('uses an opaque local-owner folder grant and never renders a workspace path',
 });
 
 it('saves one retained setting when the field is left, once, and offers Undo (decision 19)', async () => {
-  renderSetting('voice');
+  renderSetting('system');
   fireEvent.click(screen.getByText('Advanced'));
-  const model = screen.getByLabelText('Talk model');
+  const model = screen.getByLabelText('Blocked commands');
   fireEvent.change(model, {
     target: { value: 'medium' },
   });
@@ -1231,7 +1248,7 @@ it('saves one retained setting when the field is left, once, and offers Undo (de
   expect(screen.queryByRole('button', { name: /^Revert/ })).toBeNull();
   fireEvent.blur(model);
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
-  const saved = await notice('Talk model saved');
+  const saved = await notice('Blocked commands saved');
   // Never a line in the page (B258).
   expect(document.querySelector('.settings-saved-note')).toBeNull();
   fireEvent.click(
@@ -1239,14 +1256,17 @@ it('saves one retained setting when the field is left, once, and offers Undo (de
   );
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(2));
   expect(mutation.review).toHaveBeenLastCalledWith(
-    expect.objectContaining({ field: 'runtime.talk_model', value: 'small' }),
+    expect.objectContaining({
+      field: 'shell.blocked_patterns',
+      value: 'format c:',
+    }),
     expect.any(AbortSignal),
   );
-  expect(await notice('Talk model changed back')).toBeInTheDocument();
+  expect(await notice('Blocked commands changed back')).toBeInTheDocument();
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
-      page: 'voice',
-      field: 'runtime.talk_model',
+      page: 'system',
+      field: 'shell.blocked_patterns',
       value: 'medium',
     }),
     expect.any(AbortSignal),
@@ -1257,29 +1277,31 @@ it('saves one retained setting when the field is left, once, and offers Undo (de
 });
 
 it('marks a field that differs from its default and resets it in one step', async () => {
-  mutation.defaults = { 'runtime.talk_model': 'local-whisper' };
-  const { container } = renderSetting('voice');
+  mutation.defaults = { 'shell.blocked_patterns': '' };
+  const { container } = renderSetting('system');
   fireEvent.click(screen.getByText('Advanced'));
   const row = screen
-    .getByLabelText('Talk model')
+    .getByLabelText('Blocked commands')
     .closest('.settings-saved-control')!;
   expect(row).toHaveAttribute('data-modified', 'true');
   expect(row.querySelector('.settings-modified-dot')).not.toBeNull();
   // The mark never becomes part of the control's name.
-  expect(screen.getByRole('textbox', { name: 'Talk model' })).toBeVisible();
+  expect(
+    screen.getByRole('textbox', { name: 'Blocked commands' }),
+  ).toBeVisible();
   // A field already at its default offers no reset.
   expect(
-    screen.queryByRole('button', { name: 'Reset Listen with to default' }),
+    screen.queryByRole('button', { name: 'Reset Log detail to default' }),
   ).toBeNull();
   fireEvent.click(
-    screen.getByRole('button', { name: 'Reset Talk model to default' }),
+    screen.getByRole('button', { name: 'Reset Blocked commands to default' }),
   );
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
-      page: 'voice',
-      field: 'runtime.talk_model',
-      value: 'local-whisper',
+      page: 'system',
+      field: 'shell.blocked_patterns',
+      value: '',
     }),
     expect.any(AbortSignal),
   );
@@ -1298,11 +1320,13 @@ it('checks the original receipt instead of replaying an uncertain save', async (
       snapshot: { ...snapshot, revision: 'settings-b' },
     }),
   );
-  renderSetting('voice');
-  fireEvent.change(screen.getByLabelText('Talk model'), {
+  renderSetting('system');
+  fireEvent.change(screen.getByLabelText('Blocked commands'), {
     target: { value: 'medium' },
   });
-  fireEvent.keyDown(screen.getByLabelText('Talk model'), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByLabelText('Blocked commands'), {
+    key: 'Enter',
+  });
   fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
   await waitFor(() => expect(mutation.receipt).toHaveBeenCalledTimes(1));
   expect(execute).toHaveBeenCalledTimes(1);
@@ -1317,9 +1341,7 @@ it('reviews and cancels tracker deletion without executing it', async () => {
   expect(danger).not.toHaveAttribute('open');
   fireEvent.click(screen.getByText('Danger zone'));
 
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete all trackers' }));
   expect(await screen.findByText('saved locally')).toBeVisible();
   expect(mutation.review).toHaveBeenCalledWith(
     {
@@ -1336,7 +1358,7 @@ it('reviews and cancels tracker deletion without executing it', async () => {
   expect(screen.getByText(/Deletion cancelled/)).toBeVisible();
   expect(mutation.execute).not.toHaveBeenCalled();
   expect(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
+    screen.getByRole('button', { name: 'Delete all trackers' }),
   ).toBeEnabled();
 });
 
@@ -1346,9 +1368,7 @@ it('retires a tracker deletion review when the Settings revision changes', async
     <TrackerSnapshotPanel snapshot={snapshot.tracker} mutation={mutation} />,
   );
   fireEvent.click(screen.getByText('Danger zone'));
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete all trackers' }));
   expect(await screen.findByText('saved locally')).toBeVisible();
 
   mutation = { ...mutation, revision: 'settings-newer' };
@@ -1361,7 +1381,7 @@ it('retires a tracker deletion review when the Settings revision changes', async
   ).toBeVisible();
   expect(
     screen.queryByRole('button', {
-      name: 'Confirm Delete All Tracker Data',
+      name: 'Confirm permanent deletion',
     }),
   ).toBeNull();
   expect(mutation.execute).not.toHaveBeenCalled();
@@ -1382,12 +1402,10 @@ it('checks the original tracker deletion receipt without replaying it', async ()
     }),
   );
   renderSetting('tracker');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete all trackers' }));
   await screen.findByText('saved locally');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm Delete All Tracker Data' }),
+    screen.getByRole('button', { name: 'Confirm permanent deletion' }),
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
 
@@ -1402,18 +1420,20 @@ it('checks the original tracker deletion receipt without replaying it', async ()
 });
 
 it('retains an unsaved draft across pages and Escape puts the saved value back', () => {
-  const first = renderSetting('voice');
-  fireEvent.change(screen.getByLabelText('Talk model'), {
+  const first = renderSetting('system');
+  fireEvent.change(screen.getByLabelText('Blocked commands'), {
     target: { value: 'medium' },
   });
   first.unmount();
 
   expect(mutation.review).not.toHaveBeenCalled();
   expect(mutation.execute).not.toHaveBeenCalled();
-  renderSetting('voice');
-  expect(screen.getByLabelText('Talk model')).toHaveValue('medium');
-  fireEvent.keyDown(screen.getByLabelText('Talk model'), { key: 'Escape' });
-  expect(screen.getByLabelText('Talk model')).toHaveValue('small');
+  renderSetting('system');
+  expect(screen.getByLabelText('Blocked commands')).toHaveValue('medium');
+  fireEvent.keyDown(screen.getByLabelText('Blocked commands'), {
+    key: 'Escape',
+  });
+  expect(screen.getByLabelText('Blocked commands')).toHaveValue('format c:');
   expect(mutation.review).not.toHaveBeenCalled();
 });
 
@@ -1459,7 +1479,7 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   access.unmount();
 
   const tracker = renderSetting('tracker');
-  expect(screen.getByLabelText('Enable Habit Tracker')).toBeChecked();
+  expect(screen.getByLabelText('Track in chat')).toBeChecked();
   expect(screen.getByText(/Water/)).toBeVisible();
   // Last entries read as relative time with the full date on hover.
   expect(
@@ -1497,7 +1517,8 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   renderSetting('utilities');
   expect(screen.getByLabelText('Enable Calculator')).toBeChecked();
   expect(screen.getByText('Evaluate calculations locally.')).toBeVisible();
-  expect(screen.getByText(/of 2 on\./)).toBeVisible();
+  // The count is of the tools listed: one without a switch isn't listed or counted.
+  expect(screen.getByText(/1 of 1 on\./)).toBeVisible();
   expect(screen.queryByText('Timer')).not.toBeInTheDocument();
 });
 
@@ -1551,17 +1572,15 @@ it('updates the Accounts header after Check without reloading the page (B263)', 
   function Page() {
     const [current, setCurrent] = useState<SettingsSnapshot>(saved);
     return (
-      <Phase4RetainedSettings
-        setting="accounts"
-        snapshot={current}
+      <AccountsSnapshotPanel
+        snapshot={current.accounts}
         mutation={{
           ...mutation,
           page: 'accounts',
           refreshSnapshot,
           onSnapshot: setCurrent,
         }}
-        selectedConversationId={null}
-        showAccountActions
+        showActions
       />
     );
   }
@@ -1588,6 +1607,26 @@ it('updates the Accounts header after Check without reloading the page (B263)', 
   expect(refreshSnapshot).toHaveBeenCalledTimes(1);
 });
 
+it('says to download the search model rather than show documents as searchable', () => {
+  mutation.page = 'documents';
+  render(
+    <DocumentEmbeddingSnapshot
+      snapshot={{
+        ...snapshot.documents,
+        indexed_documents: 0,
+        local_runtime: { state: 'missing', detail: 'Not downloaded.' },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(
+    screen.getByText(
+      'Download the search model to search documents (Advanced › Search model files)',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText('0 searchable')).toBeNull();
+});
+
 it('renders editable document, tool, and preference owners', async () => {
   mutation.page = 'documents';
   const documents = render(
@@ -1602,7 +1641,7 @@ it('renders editable document, tool, and preference owners', async () => {
   ).toHaveAttribute('aria-checked', 'true');
   expect(screen.getByLabelText('Search model')).toHaveValue('qwen3-0.6b');
   expect(screen.getByLabelText('Free memory when idle')).toBeChecked();
-  expect(screen.getByLabelText('Dimension override')).toHaveValue(null);
+  expect(screen.getByLabelText('Index size')).toHaveValue(null);
   expect(screen.getByText('12 searchable')).toBeVisible();
   expect(screen.getByText('search runs on this computer')).toBeVisible();
   expect(screen.getByText(/In use: Qwen3 0\.6B \(local\)/)).toBeVisible();
@@ -1614,13 +1653,13 @@ it('renders editable document, tool, and preference owners', async () => {
   expect(screen.getByText(/Local model: cached/)).toBeVisible();
   expect(screen.getByText(/Memory index: pending/)).toBeVisible();
   expect(
-    screen.getByRole('button', { name: 'rebuild document vectors' }),
+    screen.getByRole('button', { name: 'Rebuild document index' }),
   ).toBeEnabled();
   expect(
     screen.getByRole('button', { name: 'repair local model' }),
   ).toBeEnabled();
   fireEvent.click(
-    screen.getByRole('button', { name: 'rebuild document vectors' }),
+    screen.getByRole('button', { name: 'Rebuild document index' }),
   );
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -1653,11 +1692,14 @@ it('renders editable document, tool, and preference owners', async () => {
   );
   expect(
     screen.getByRole('radio', {
-      name: 'Auto-select external tools (recommended)',
+      name: 'Only the ones a request needs (recommended)',
     }),
   ).toBeChecked();
-  expect(screen.getByLabelText('Enable Web Search')).toBeChecked();
-  expect(screen.getByText(/Search the live web with Tavily\./)).toBeVisible();
+  // Named for what it is, as Apps › Tavily names the same switch.
+  expect(screen.getByLabelText('Enable Tavily web search')).toBeChecked();
+  expect(
+    screen.getByText(/Search the live web with your own Tavily key\./),
+  ).toBeVisible();
   expect(screen.getByLabelText('Search research tools')).toBeVisible();
   expect(screen.queryByLabelText('Search API key')).not.toBeInTheDocument();
   fireEvent.click(screen.getByText('Credentials & setup'));
@@ -1783,7 +1825,7 @@ it('uses NiceGUI friendly research-tool labels and owner order', () => {
   ).toEqual([
     'arXiv',
     'DuckDuckGo',
-    'Web Search',
+    'Tavily web search',
     'Wikipedia',
     'Wolfram Alpha',
     'YouTube',
@@ -1846,6 +1888,7 @@ it('installs the chosen Whisper size from Voice settings (B140)', () => {
     </MemoryRouter>,
   );
   expect(screen.getByText('Whisper Base (~74 MB) installed')).toBeVisible();
+  expect(screen.getByText('Talk and dictation on this computer')).toBeVisible();
   expect(screen.queryByRole('button', { name: /Install Whisper/ })).toBeNull();
 });
 
@@ -1874,7 +1917,8 @@ it('picks the model for documents next to the queue and saves at once (U45)', as
     </OverlayProvider>,
   );
   const picker = screen.getByLabelText('Read documents with', { exact: true });
-  expect(picker).toHaveDisplayValue("Conversation's model");
+  // Settings processes without a chat: nothing picked is the default model.
+  expect(picker).toHaveDisplayValue('Default model');
   expect(
     screen.queryByRole('button', {
       name: 'Reset Read documents with to default',
@@ -1932,4 +1976,150 @@ it('saves Open in and the Dream Cycle hours at once, confirmed by the floating n
       expect.any(AbortSignal),
     ),
   );
+});
+
+it('shows one account alone as its app’s own settings', () => {
+  mutation.page = 'accounts';
+  const { container } = render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <AccountsSnapshotPanel
+          snapshot={snapshot.accounts}
+          mutation={mutation}
+          only="google"
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+  expect(container.querySelectorAll('.settings-account')).toHaveLength(1);
+  expect(screen.getByText('Google')).toBeVisible();
+  expect(screen.queryByText('GitHub')).toBeNull();
+});
+
+/**
+ * Settings search jumps to `data-setting-anchor` rows: every result for a
+ * page must name a row that page really renders, or the jump lands nowhere.
+ * (Pages whose rows need live owners check theirs in their own tests.)
+ */
+it.each<SettingsLeafId>([
+  'preferences',
+  'appearance',
+  'voice',
+  'tracker',
+  'tools',
+  'system',
+  'access',
+  'updates',
+  'data',
+])(
+  'every search result for Settings › %s lands on a rendered row',
+  async (leaf) => {
+    const everyRow = {
+      ...snapshot,
+      tools: {
+        ...snapshot.tools,
+        items: [
+          ...snapshot.tools.items,
+          {
+            tool_id: 'wolfram_alpha',
+            label: 'Wolfram Alpha',
+            available: true,
+            enabled: false,
+            configured_fields: [],
+            credentials: [
+              {
+                label: 'Wolfram Alpha App ID',
+                name: 'app_id',
+                configured: false,
+                source: '',
+                fingerprint: '',
+              },
+            ],
+          },
+        ],
+      },
+    } satisfies SettingsSnapshot;
+    const state = { conversations: [], selectedConversationId: null };
+    const known: Record<string, unknown> = {
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+      settingsSnapshot: async () => everyRow,
+    };
+    // Any other read stays pending: only the page's own rows matter here.
+    const pending = (values: Record<string, unknown>) =>
+      new Proxy(values, {
+        get: (target, key: string) =>
+          key in target ? target[key] : () => new Promise(() => {}),
+      });
+    const controller = pending(known) as unknown as ClientController;
+    const platform = pending({}) as unknown as ClientPlatform;
+    const { container } = render(
+      <RuntimeContext.Provider value={{ controller, platform }}>
+        <ThemeProvider>
+          <OverlayProvider>
+            <MemoryRouter initialEntries={[`/settings/${leaf}`]}>
+              <Routes>
+                <Route path="settings/:setting/*" element={<SettingRoute />} />
+              </Routes>
+            </MemoryRouter>
+          </OverlayProvider>
+        </ThemeProvider>
+      </RuntimeContext.Provider>,
+    );
+    const wanted = settingsRows
+      .filter((row) => row.leaf === leaf && !row.href)
+      .map((row) => row.anchor);
+    expect(wanted.length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const rendered = new Set(
+        [
+          ...container.querySelectorAll<HTMLElement>('[data-setting-anchor]'),
+        ].map((element) => element.dataset.settingAnchor),
+      );
+      expect(wanted.filter((anchor) => !rendered.has(anchor))).toEqual([]);
+    });
+  },
+);
+
+it('offers a speech engine choice in Voice › Advanced only once there is one', () => {
+  mutation.page = 'voice';
+  const voice = (sensevoice: boolean) => (
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{
+            ...snapshot.voice,
+            runtime: {
+              ...snapshot.voice.runtime,
+              talk_model: 'local-whisper',
+              dictation_model: 'local-whisper',
+            },
+            local: {
+              ...snapshot.voice.local,
+              sensevoice_path_configured: sensevoice,
+            },
+          }}
+          conversationId="conversation-a"
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>
+  );
+  const view = render(voice(false));
+  fireEvent.click(screen.getByText('Advanced'));
+  // Saved ids such as "local-whisper" are never typed in by hand.
+  expect(screen.queryByRole('textbox', { name: /model/i })).toBeNull();
+  expect(screen.queryByLabelText('Talk listens with')).toBeNull();
+  expect(screen.queryByDisplayValue('local-whisper')).toBeNull();
+  view.rerender(voice(true));
+  const talk = screen.getByLabelText('Talk listens with');
+  expect(
+    within(talk)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['Whisper', 'SenseVoice']);
+  expect(talk).toHaveValue('local-whisper');
+  expect(screen.getByLabelText('Dictation listens with')).toBeVisible();
+  // Read aloud always speaks with Kokoro: nothing to choose.
+  expect(screen.queryByLabelText(/Read-aloud model/)).toBeNull();
 });

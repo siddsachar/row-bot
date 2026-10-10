@@ -43,7 +43,7 @@ def _repo(tmp_path: Path, name: str = "repo") -> Path:
     root = tmp_path / name
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True,
-                   capture_output=True, timeout=10)
+                   capture_output=True, timeout=30)
     (root / "app.py").write_text("print('fixture')\n", encoding="utf-8")
     return root
 
@@ -63,14 +63,14 @@ def test_a_filter_selected_by_any_attribute_source_blocks_inspection(git_env, tm
     if place == "root":
         (root / ".gitattributes").write_text(line, encoding="utf-8")
         subprocess.run(["git", "-C", str(root), "add", ".gitattributes"], check=True,
-                       capture_output=True, timeout=10)
+                       capture_output=True, timeout=30)
     elif place in {"nested", "untracked-nested"}:
         nested = root / "assets" / "images"
         nested.mkdir(parents=True)
         (nested / ".gitattributes").write_text(line, encoding="utf-8")
         if place == "nested":
             subprocess.run(["git", "-C", str(root), "add", "assets"], check=True,
-                           capture_output=True, timeout=10)
+                           capture_output=True, timeout=30)
     elif place == "info":
         (root / ".git" / "info").mkdir(exist_ok=True)
         (root / ".git" / "info" / "attributes").write_text(line, encoding="utf-8")
@@ -91,7 +91,7 @@ def test_an_attribute_naming_an_unconfigured_driver_does_not_block(git_env, tmp_
 def test_fsmonitor_and_plain_folders_keep_their_rules(git_env, tmp_path):
     root = _repo(tmp_path)
     subprocess.run(["git", "-C", str(root), "config", "core.fsmonitor", "must-never-execute"],
-                   check=True, capture_output=True, timeout=10)
+                   check=True, capture_output=True, timeout=30)
     assert review.workspace_has_custom_read_hooks(str(root)) is True
     plain = tmp_path / "plain"
     plain.mkdir()

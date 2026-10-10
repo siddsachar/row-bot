@@ -8,7 +8,7 @@ import GoalProfileSettings, {
 /** The built-in profile a conversation uses when it names none. */
 export const DEFAULT_PROFILE_ID = 'builtin:row_bot_default';
 
-type ProfileChoice = { id: string; label: string };
+type ProfileChoice = { id: string; label: string; description?: string };
 
 /**
  * Profiles to offer in a chat. Naming no profile means the built-in Default,
@@ -34,9 +34,9 @@ export function currentProfileChoice(
 }
 
 /**
- * Open the reusable Agent profiles library. Shared by the sidebar entry and
- * the /profiles slash command so both reach the same reviewed owner instead
- * of a text dump (B10).
+ * Open the Agents library: the reusable profiles a chat can use. Shared by
+ * the sidebar entry and the /profiles slash command so both reach the same
+ * reviewed owner instead of a text dump (B10).
  */
 export function openAgentProfiles({
   overlay,
@@ -52,8 +52,8 @@ export function openAgentProfiles({
   onStartProfileChat?: (profile: ProfileSummary) => void;
 }) {
   overlay.open({
-    title: 'Agent profiles',
-    description: 'Browse and manage reusable profiles.',
+    title: 'Agents',
+    description: 'Start a chat with an agent, or make and manage your own.',
     className: 'profile-library-dialog',
     returnFocusTo,
     content: (

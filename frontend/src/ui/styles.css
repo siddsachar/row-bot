@@ -1335,18 +1335,28 @@ small {
   min-height: 0;
   min-width: 0;
 }
-/* Notices float just below the top bar: they take no room in the layout and
-   never cover the composer at the bottom. Clicks pass through around them. */
+/* Notices float at the bottom centre: they take no room in the layout, never
+   cover a page header, and sit above the composer (the conversation
+   publishes how far its top edge is from the bottom of the window), the
+   on-screen keyboard and the app notice. Clicks pass through around them. */
 .notification-layer {
+  --notice-floor: calc(
+    max(12px, env(safe-area-inset-bottom)) + var(--virtual-keyboard-inset, 0px)
+  );
   position: fixed;
   z-index: 66;
-  top: calc(56px + env(safe-area-inset-top));
+  bottom: max(var(--notice-floor), calc(var(--composer-clearance, 0px) + 8px));
   inset-inline: 0;
   width: min(420px, calc(100vw - 32px));
-  max-height: calc(100dvh - 72px);
   margin-inline: auto;
   overflow: visible;
   pointer-events: none;
+}
+body:has(.pwa-status:not([hidden])) .notification-layer {
+  --notice-floor: calc(
+    max(12px, env(safe-area-inset-bottom)) +
+      var(--virtual-keyboard-inset, 0px) + var(--pwa-status-height, 0px) + 8px
+  );
 }
 .notification-layer[hidden] {
   display: none;
@@ -1414,10 +1424,11 @@ body:has(.pwa-status:not([hidden])) .composer {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-modal);
 }
+/* Up from the bottom edge, where notices sit. */
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(6px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3222,11 +3233,9 @@ progress {
 .settings-plugin-actions > .status-chip {
   margin-left: auto;
 }
-.settings-plugin-list,
 .settings-mcp-server-list {
   gap: 8px;
 }
-.settings-plugin-row,
 .settings-mcp-server-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3235,48 +3244,20 @@ progress {
   min-width: 0;
   padding: 10px 12px;
 }
-.settings-plugin-summary,
 .settings-mcp-server-summary {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
-.settings-plugin-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.settings-plugin-summary p {
-  margin: 0;
-  color: var(--text-secondary);
-}
-.settings-plugin-summary small,
 .settings-mcp-server-summary small {
   color: var(--text-secondary);
 }
-.settings-plugin-row-actions,
 .settings-mcp-server-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
   flex-wrap: wrap;
-}
-.settings-plugin-row {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-}
-.settings-plugin-row-actions {
-  justify-content: flex-start;
-  min-width: 0;
-}
-.settings-plugin-row-actions > .stack {
-  flex: 1 1 100%;
-  min-width: 0;
-}
-.settings-plugin-row-actions small {
-  overflow-wrap: anywhere;
 }
 .settings-mcp-editor > fieldset {
   margin: 0 0 8px;
@@ -3954,11 +3935,9 @@ details[open] > summary > .settings-disclosure-chevron {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
-  .settings-plugin-row,
   .settings-mcp-server-row {
     grid-template-columns: minmax(0, 1fr);
   }
-  .settings-plugin-row-actions,
   .settings-mcp-server-actions {
     justify-content: flex-start;
   }
@@ -4599,6 +4578,30 @@ details[open] > summary > .settings-disclosure-chevron {
   min-width: 24px;
   min-height: 24px;
   padding: 3px;
+}
+/* A profile's details or its form open under its row, across the row. */
+.profile-library-row > .profile-library-details,
+.profile-library-row > .settings-profile-editor {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.profile-library-details h3 {
+  margin: 0;
+}
+.profile-library-details p {
+  margin: 0;
+}
+.profile-library-uses {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+}
+.profile-library-uses dt {
+  color: var(--text-muted);
+}
+.profile-library-uses dd {
+  margin: 0;
 }
 .profile-off {
   margin-inline-start: 4px;

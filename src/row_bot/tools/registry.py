@@ -66,7 +66,11 @@ def _load_config() -> dict:
 
 
 def _write_config_atomic(path: pathlib.Path, payload: dict, *, expected_digest: str | None = None) -> None:
-    tool_configuration.legacy_publish(path, payload, expected_digest=expected_digest)
+    try:
+        tool_configuration.legacy_publish(path, payload, expected_digest=expected_digest)
+    finally:
+        from row_bot.integrations import builtin
+        builtin.changed()  # A key tool switched on or off shows as it is now in Apps.
 
 
 def _apply_saved_config(tool: "BaseTool", saved: dict) -> None:

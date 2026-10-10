@@ -222,7 +222,7 @@ it('preserves zero approval timeout and explicit decline branch', async () => {
   const callbacks = props();
   render(<TaskGraphEditor {...callbacks} />);
   await screen.findByLabelText('Prompt');
-  fireEvent.click(screen.getByRole('button', { name: '2. Approval · review' }));
+  fireEvent.click(screen.getByRole('button', { name: '2. Approval' }));
   expect(
     screen.getByLabelText('Approval timeout (minutes, 0 means no timeout)'),
   ).toHaveValue(0);
@@ -359,7 +359,7 @@ it('bounds the editing window to 100 steps without hiding saved steps', async ()
   await screen.findByLabelText('Prompt');
   expect(screen.getAllByRole('listitem')).toHaveLength(100);
   expect(screen.getByRole('button', { name: 'Add step' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: '100. Prompt · p_99' }));
+  fireEvent.click(screen.getByRole('button', { name: '100. Prompt' }));
   fireEvent.change(screen.getByLabelText('Prompt'), {
     target: { value: 'Last step edited' },
   });
@@ -380,7 +380,7 @@ function stepNames() {
   return stepButtons().map((button) => button.textContent);
 }
 
-it('lists one selectable button per step with its kind, id and a one-line summary', async () => {
+it('lists one selectable button per step with its kind and a one-line summary, never its saved id', async () => {
   const long = `${'Summarize the synthetic report '.repeat(4)}and stop`;
   const callbacks = props({
     load: vi.fn().mockResolvedValue(
@@ -402,7 +402,7 @@ it('lists one selectable button per step with its kind, id and a one-line summar
   expect(rows).toHaveLength(2);
   for (const row of rows)
     expect(within(row).getAllByRole('button')).toHaveLength(1);
-  expect(stepNames()).toEqual(['1. Prompt · draft', '2. Approval · review']);
+  expect(stepNames()).toEqual(['1. Prompt', '2. Approval']);
   expect(stepButtons()[0]).toHaveAttribute('aria-pressed', 'true');
   expect(stepButtons()[1]).toHaveAttribute('aria-pressed', 'false');
   const summary = rows[0].querySelector('.task-graph-step-summary');
@@ -427,8 +427,8 @@ it('names an unsaved step "new step" and selects it when added', async () => {
   });
   fireEvent.click(screen.getByRole('button', { name: 'Add step' }));
   expect(stepNames()).toEqual([
-    '1. Prompt · draft',
-    '2. Approval · review',
+    '1. Prompt',
+    '2. Approval',
     '3. Notification · new step',
   ]);
   expect(stepButtons()[2]).toHaveAttribute('aria-pressed', 'true');
@@ -449,13 +449,13 @@ it('moves and removes the selected step with its icon buttons', async () => {
   await screen.findByLabelText('Prompt');
   expect(screen.getByRole('button', { name: 'Move step up' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Move step down' })).toBeEnabled();
-  fireEvent.click(screen.getByRole('button', { name: '2. Approval · review' }));
+  fireEvent.click(screen.getByRole('button', { name: '2. Approval' }));
   expect(screen.getByRole('button', { name: 'Move step down' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Move step up' }));
-  expect(stepNames()).toEqual(['1. Approval · review', '2. Prompt · draft']);
+  expect(stepNames()).toEqual(['1. Approval', '2. Prompt']);
   expect(stepButtons()[0]).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(screen.getByRole('button', { name: 'Remove step' }));
-  expect(stepNames()).toEqual(['1. Prompt · draft']);
+  expect(stepNames()).toEqual(['1. Prompt']);
   expect(stepButtons()[0]).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('button', { name: 'Remove step' })).toBeDisabled();
   await act(async () =>
@@ -478,7 +478,7 @@ it('reorders steps by dragging one row onto another', async () => {
   expect(dataTransfer.effectAllowed).toBe('move');
   fireEvent.dragOver(first, { dataTransfer });
   fireEvent.drop(first, { dataTransfer });
-  expect(stepNames()).toEqual(['1. Approval · review', '2. Prompt · draft']);
+  expect(stepNames()).toEqual(['1. Approval', '2. Prompt']);
 });
 
 it('names branch targets by position, kind and saved id while keeping id values', async () => {
@@ -501,8 +501,8 @@ it('names branch targets by position, kind and saved id while keeping id values'
   expect(options).toEqual([
     ['', 'Continue to the next step'],
     ['end', 'End workflow'],
-    ['draft', 'Step 1 · Prompt · draft'],
-    ['review', 'Step 2 · Approval · review'],
+    ['draft', 'Step 1 · Prompt'],
+    ['review', 'Step 2 · Approval'],
     [unsaved, 'Step 3 · Prompt'],
   ]);
   expect(whenTrue).toHaveValue('end');

@@ -96,12 +96,20 @@ class McpClientFoundationTests(unittest.TestCase):
         clear_cache.assert_called_once_with()
 
     def test_destructive_detection_uses_annotations_and_names(self) -> None:
-        from row_bot.mcp_client.safety import is_destructive_tool, prefixed_tool_name
+        import row_bot.mcp_client.runtime as runtime
+        from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool, prefixed_tool_name
 
         self.assertTrue(is_destructive_tool("delete_file"))
         self.assertFalse(is_destructive_tool("search_messages"))
         readonly_tool = SimpleNamespace(annotations=SimpleNamespace(readOnlyHint=True, destructiveHint=False))
-        self.assertTrue(is_destructive_tool("update_index", tool_obj=readonly_tool))
+        # A routine change is not high impact, but a read-only hint never makes it read-only: it still asks first.
+        self.assertFalse(is_destructive_tool("update_index", tool_obj=readonly_tool))
+        self.assertEqual(classify_tool_effect("update_index", tool_obj=readonly_tool), "mutation")
+        update_index = SimpleNamespace(name="update_index", description="", inputSchema={},
+                                       annotations=readonly_tool.annotations)
+        normalized = runtime._normalize_tools("demo", {"enabled": True, "tools": {}}, [update_index])["update_index"]
+        self.assertTrue(normalized.requires_approval)
+        self.assertFalse(normalized.enabled)
         self.assertFalse(is_destructive_tool("search_messages", tool_obj=readonly_tool))
         destructive_tool = SimpleNamespace(annotations={"destructiveHint": True})
         self.assertTrue(is_destructive_tool("lookup", tool_obj=destructive_tool))
@@ -120,19 +128,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(is_destructive_tool("browser_file_upload", "Upload one or multiple files", destructive_tool))
         self.assertEqual(prefixed_tool_name("My Server", "Delete File"), "mcp_my_server_delete_file")
 
-    def test_marketplace_unknown_source_falls_back_to_curated_catalog(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-        with patch.object(marketplace, "_load_cache", return_value=[]):
-            results = marketplace.search_marketplace("filesystem", sources=["unknown-source"], limit=5)
-            status = marketplace.search_marketplace_with_status("filesystem", sources=["unknown-source"], limit=5)
-        self.assertGreaterEqual(len(results), 1)
-        self.assertTrue(any(entry.source == "curated" for entry in results))
-        self.assertEqual(status.mode, "curated")
-        self.assertEqual(status.query, "filesystem")
-        self.assertGreaterEqual(status.source_counts.get("curated", 0), 1)
-        self.assertEqual([entry.id for entry in status.entries], [entry.id for entry in results])
-
     def test_recommended_catalog_excludes_memory_and_marks_overlaps(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
@@ -150,7 +145,7 @@ class McpClientFoundationTests(unittest.TestCase):
     def test_xquik_catalog_entry_is_disabled_high_risk_and_approval_gated(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
-        from row_bot.mcp_client.conflicts import conflicts_for_entry, requires_manual_tool_selection
+        from row_bot.mcp_client.conflicts import conflicts_for_entry, overlap_note
         from row_bot.mcp_client.safety import is_destructive_tool
 
         xquik = next(entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.id == "xquik-mcp")
@@ -164,8 +159,9 @@ class McpClientFoundationTests(unittest.TestCase):
 
         xquik_config = marketplace.entry_to_server_config(xquik)
         self.assertFalse(xquik_config["enabled"])
-        self.assertEqual(xquik_config["headers"], {"x-api-key": ""})
-        self.assertTrue(requires_manual_tool_selection("xquik", xquik_config))
+        self.assertEqual(xquik_config["headers"], {"x-api-key": "{x_api_key}"})  # Asked for, never saved here.
+        self.assertEqual([(i["key"], i["secret"]) for i in xquik_config["inputs"]], [("x_api_key", True)])
+        self.assertEqual(overlap_note("xquik", xquik_config), "Row-Bot also has its own X tools.")
 
         executor_description = "Execute API calls against your Xquik account."
         self.assertTrue(is_destructive_tool("xquik", executor_description))
@@ -184,21 +180,20 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(source["overlaps_native"], ["browser"])
         self.assertEqual(source["conflicts"][0]["capability"], "browser")
 
-    def test_conflict_policy_uses_manual_selection_for_overlap_and_high_risk(self) -> None:
-        from row_bot.mcp_client.conflicts import conflicts_for_server, requires_manual_tool_selection, unique_server_name
+    def test_an_overlap_with_row_bot_is_only_a_note(self) -> None:
+        from row_bot.mcp_client.conflicts import conflicts_for_server, overlap_note
 
         overlap_cfg = {
             "name": "playwright",
             "source": {"overlaps_native": ["browser"], "risk_level": "medium"},
         }
-        self.assertTrue(requires_manual_tool_selection("playwright", overlap_cfg))
+        self.assertEqual(overlap_note("playwright", overlap_cfg), "Row-Bot also has its own Browser tools.")
         self.assertEqual(conflicts_for_server("playwright", overlap_cfg)[0].capability, "browser")
 
         high_risk_cfg = {"name": "stripe", "source": {"risk_level": "high"}}
-        self.assertTrue(requires_manual_tool_selection("stripe", high_risk_cfg))
+        self.assertEqual(overlap_note("stripe", high_risk_cfg), "")
         web_search_overlap_cfg = {"name": "context7", "source": {"overlaps_native": ["web_search"], "risk_level": "low"}}
-        self.assertTrue(requires_manual_tool_selection("context7", web_search_overlap_cfg))
-        self.assertEqual(unique_server_name("Playwright MCP", {"playwright-mcp"}), "playwright-mcp-2")
+        self.assertEqual(overlap_note("context7", web_search_overlap_cfg), "Row-Bot also has its own Web Search tools.")
 
     def test_probe_server_normalizes_cancelled_and_timed_out_handshakes(self) -> None:
         import concurrent.futures
@@ -243,93 +238,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(timed_out["tools"], [])
         self.assertEqual(timed_out["error"], "MCP connection timed out after 2 seconds.")
         self.assertTrue(timed_out_future.cancelled)
-
-    def test_marketplace_search_filters_unrelated_live_results(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        live_results = [
-            marketplace.MarketplaceEntry(
-                id="unrelated",
-                name="Static Site Builder",
-                description="Build websites with agents.",
-                source="glama",
-            ),
-            marketplace.MarketplaceEntry(
-                id="github-tools",
-                name="GitHub MCP",
-                description="Manage repositories, issues, and pull requests.",
-                source="glama",
-            ),
-        ]
-        with patch.object(marketplace, "_glama_search", return_value=live_results):
-            result = marketplace.search_marketplace_with_status("github", sources=["glama"], limit=10)
-
-        self.assertEqual(result.mode, "live")
-        self.assertEqual([entry.id for entry in result.entries], ["github-github-mcp-server", "github-tools"])
-        self.assertEqual(result.source_counts, {"curated": 1, "glama": 1})
-
-    def test_marketplace_search_uses_curated_when_live_source_ignores_query(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        ignored_query_results = [
-            marketplace.MarketplaceEntry(
-                id="statalog",
-                name="Stata MCP",
-                description="Controls Stata through automation.",
-                source="glama",
-            )
-        ]
-        with patch.object(marketplace, "_glama_search", return_value=ignored_query_results), \
-             patch.object(marketplace, "_load_cache", return_value=[]):
-            result = marketplace.search_marketplace_with_status("playwright", sources=["glama"], limit=10)
-
-        self.assertEqual(result.mode, "curated")
-        self.assertEqual([entry.name for entry in result.entries], ["Playwright MCP"])
-
-    def test_marketplace_search_uses_directory_page_fallback(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        html = """
-        <html><body>
-          <a href="/servers/example-filesystem">
-            <article>
-              <h2>Example Filesystem MCP</h2>
-              <p>Read and write local filesystem data through MCP.</p>
-            </article>
-          </a>
-                    <a href="/servers/example-filesystem-icon">
-                        <article>
-                            <h2>Example Filesystem MCP</h2>
-                            <p>Read and write local filesystem data through MCP.</p>
-                        </article>
-                    </a>
-        </body></html>
-        """
-        with patch.object(marketplace, "_fetch_json", side_effect=RuntimeError("gone")), \
-             patch.object(marketplace, "_fetch_text", return_value=html):
-            result = marketplace.search_marketplace_with_status("filesystem", sources=["pulsemcp"], limit=10)
-
-        self.assertEqual(result.mode, "live")
-        self.assertEqual(result.source_counts, {"curated": 1, "pulsemcp": 1})
-        self.assertEqual(len(result.entries), 2)
-        self.assertEqual(result.entries[0].id, "modelcontextprotocol-filesystem")
-        self.assertEqual(result.entries[1].id, "example-filesystem")
-        self.assertEqual(result.entries[1].name, "Example Filesystem MCP")
-        self.assertEqual(result.entries[1].source, "pulsemcp")
-        self.assertTrue(result.entries[1].metadata["page_fallback"])
-
-    def test_marketplace_search_does_not_match_repository_host_only(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        with patch.object(marketplace, "_load_cache", return_value=[]):
-            result = marketplace.search_marketplace_with_status("github", sources=["unknown-source"], limit=10)
-
-        self.assertEqual(result.mode, "curated")
-        self.assertEqual([entry.id for entry in result.entries], ["github-github-mcp-server"])
 
     def test_result_normalization_truncates_and_marks_errors(self) -> None:
         from row_bot.mcp_client.results import normalize_call_result
@@ -501,6 +409,14 @@ class McpClientFoundationTests(unittest.TestCase):
         env = requirements.apply_managed_runtime_env(playwright_cfg, base_env)
         self.assertEqual(env["PLAYWRIGHT_BROWSERS_PATH"], str(browsers_dir))
         self.assertEqual(env["PLAYWRIGHT_MCP_EXECUTABLE_PATH"], str(browser_exe))
+        # Its profile and page snapshots stay in the data folder, not the user's AppData or the working folder.
+        for name in ("PLAYWRIGHT_MCP_USER_DATA_DIR", "PLAYWRIGHT_MCP_OUTPUT_DIR"):
+            self.assertTrue(Path(env[name]).is_relative_to(requirements.DATA_DIR), name)
+        self.assertEqual(
+            requirements.apply_managed_runtime_env(playwright_cfg, {"PLAYWRIGHT_MCP_USER_DATA_DIR": "chosen"})[
+                "PLAYWRIGHT_MCP_USER_DATA_DIR"],
+            "chosen",
+        )
         self.assertNotIn("PLAYWRIGHT_BROWSERS_PATH", base_env)
         self.assertNotIn("PLAYWRIGHT_MCP_EXECUTABLE_PATH", base_env)
         self.assertEqual(original_process_env["PLAYWRIGHT_BROWSERS_PATH"], os.environ.get("PLAYWRIGHT_BROWSERS_PATH"))
@@ -510,6 +426,7 @@ class McpClientFoundationTests(unittest.TestCase):
         unrelated_env = requirements.apply_managed_runtime_env(unrelated_cfg, {"PATH": ""})
         self.assertNotIn("PLAYWRIGHT_BROWSERS_PATH", unrelated_env)
         self.assertNotIn("PLAYWRIGHT_MCP_EXECUTABLE_PATH", unrelated_env)
+        self.assertNotIn("PLAYWRIGHT_MCP_USER_DATA_DIR", unrelated_env)
 
         with patch.object(requirements, "_install_playwright_chrome", return_value=requirements.RuntimeInstallResult(True, "playwright-chrome", "installed", str(browsers_dir), "chromium")) as browser_installer:
             browser_result = requirements.install_managed_runtime("playwright-chrome")
@@ -667,25 +584,31 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("STRUCTURED_CONTENT", output)
         self.assertEqual(runtime.get_destructive_tool_names(), set())
 
-    def test_background_allow_all_runs_mcp_destructive_tool_without_interrupt_gate(self) -> None:
+    def test_allow_all_still_asks_where_the_apps_access_says_to(self) -> None:
+        """§3: a routine change asks unless the person chose Full access for the app (or let that tool run);
+        the chat's or workflow's Allow all never broadens an app. A high-impact tool asks even then."""
         import row_bot.agent as agent
         import row_bot.mcp_client.runtime as mcp_runtime
         from langchain_core.tools import StructuredTool
 
         interrupt_calls: list[dict] = []
         captured_tools: dict[str, object] = {}
+        tools = [{"name": "update_note", "description": "Update a note.", "inputSchema": {"type": "object"}},
+                 {"name": "delete_note", "description": "Delete a note for good.", "inputSchema": {"type": "object"}}]
 
-        def _dangerous() -> str:
+        def _run() -> str:
             return "ran"
 
         def _make_mcp_parent(tool):
-            return SimpleNamespace(
-                as_langchain_tools=lambda: [tool],
-                destructive_tool_names={"mcp_manual_delete_note"},
-            )
+            return SimpleNamespace(as_langchain_tools=lambda: [tool], destructive_tool_names=set())
 
-        def _build_graph_and_call(mode: str, tool) -> str:
+        def _build_graph_and_call(mode: str, name: str, access: dict, background: bool = True) -> str:
+            """The app's access as saved; the agent's own tool for ``name``, called once."""
             captured_tools.clear()
+            tool = StructuredTool.from_function(func=_run, name=f"mcp_manual_{name}", description="A note tool.")
+            cfg = {"enabled": True, "tools": {"enabled": {"update_note": True, "delete_note": True}, **access}}
+            with mcp_runtime._runtime_lock:
+                mcp_runtime._catalog["Manual"] = mcp_runtime._normalize_tools("Manual", cfg, tools)
 
             def _capture_agent(*, tools, **kwargs):
                 from langgraph.prebuilt import ToolNode
@@ -695,11 +618,12 @@ class McpClientFoundationTests(unittest.TestCase):
                 return SimpleNamespace(tools=tools)
 
             agent.clear_agent_cache()
-            bg_token = agent._background_workflow_var.set(True)
+            bg_token = agent._background_workflow_var.set(background)
             mode_token = agent._approval_mode_var.set(mode)
             discovery_token = agent._current_external_discovery_active_var.set(False)
             try:
                 with patch.object(agent.tool_registry, "get_tool", return_value=_make_mcp_parent(tool)), \
+                     patch.object(agent.tool_registry, "get_external_tool_loading_mode", return_value="eager"), \
                      patch.object(agent, "get_llm", return_value=object()), \
                      patch.object(agent, "get_current_model", return_value="test-model"), \
                      patch.object(agent, "get_context_size", return_value=8192), \
@@ -713,33 +637,36 @@ class McpClientFoundationTests(unittest.TestCase):
                      patch.object(agent, "create_react_agent", side_effect=_capture_agent), \
                      patch.object(agent, "interrupt", side_effect=lambda payload: interrupt_calls.append(payload) or True), \
                      patch.object(mcp_runtime, "get_langchain_tools", return_value=[tool]), \
-                     patch.object(mcp_runtime, "get_destructive_tool_names", return_value={"mcp_manual_delete_note"}):
+                     patch.object(mcp_runtime, "_get_effective_config",
+                                  return_value={"enabled": True, "servers": {"Manual": cfg}}):
                     agent.get_agent_graph(["mcp"])
-                    return captured_tools["mcp_manual_delete_note"].func()
+                    return captured_tools[f"mcp_manual_{name}"].func()
             finally:
                 agent._current_external_discovery_active_var.reset(discovery_token)
                 agent._approval_mode_var.reset(mode_token)
                 agent._background_workflow_var.reset(bg_token)
                 agent.clear_agent_cache()
+                with mcp_runtime._runtime_lock:
+                    mcp_runtime._catalog.pop("Manual", None)
 
-        allow_all_tool = StructuredTool.from_function(
-            func=_dangerous,
-            name="mcp_manual_delete_note",
-            description="Delete a note through MCP.",
-        )
-        self.assertEqual(_build_graph_and_call("allow_all", allow_all_tool), "ran")
+        asked = "Approval: asked; approved by you\nran"  # An approved result leads with its approval line (B235).
+        full_access = {"run_without_asking": ["update_note", "delete_note"]}
+        for background in (True, False):  # A workflow's run, and a chat.
+            # Ask before changes (the default): Allow all still asks before a routine change, so a run waits.
+            self.assertEqual(_build_graph_and_call("allow_all", "update_note", {}, background), asked)
+            self.assertIs(interrupt_calls.pop()["always_ask"], True)
+            # Full access: the same change runs without asking...
+            self.assertEqual(_build_graph_and_call("allow_all", "update_note", full_access, background), "ran")
+            self.assertEqual(interrupt_calls, [])
+            # ...unless that one tool is set to ask first; and a high-impact tool asks whatever the access.
+            self.assertEqual(_build_graph_and_call("allow_all", "update_note",
+                                                   {**full_access, "require_approval": ["update_note"]}, background), asked)
+            self.assertIs(interrupt_calls.pop()["always_ask"], True)
+            self.assertEqual(_build_graph_and_call("allow_all", "delete_note", full_access, background), asked)
+            self.assertIs(interrupt_calls.pop()["always_ask"], True)
+        self.assertEqual(_build_graph_and_call("approve", "update_note", {}), asked)
+        self.assertEqual(interrupt_calls.pop()["tool"], "mcp_manual_update_note")
         self.assertEqual(interrupt_calls, [])
-
-        approve_tool = StructuredTool.from_function(
-            func=_dangerous,
-            name="mcp_manual_delete_note",
-            description="Delete a note through MCP.",
-        )
-        # An approved result leads with its approval line (B235).
-        self.assertEqual(_build_graph_and_call("approve", approve_tool),
-                         "Approval: asked; approved by you\nran")
-        self.assertEqual(len(interrupt_calls), 1)
-        self.assertEqual(interrupt_calls[0]["tool"], "mcp_manual_delete_note")
 
     def test_mcp_dynamic_tool_display_name_uses_actual_tool(self) -> None:
         import row_bot.agent as agent
@@ -864,3 +791,59 @@ class McpClientFoundationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+def test_the_sdks_own_transport_errors_never_log_an_address(caplog):
+    import logging
+    from row_bot.mcp_client import runtime  # noqa: F401 -- installs the transport log filter
+    key = "k7Qx9vR2mP4tL8wZ3nB6"
+    try:
+        raise RuntimeError(f"Client error '401' for url 'https://mcp.example.test/s/{key}/messages'")
+    except RuntimeError:
+        logging.getLogger("mcp.client.sse").error("Error in post_writer", exc_info=True)
+    assert "MCP transport error (RuntimeError)" in caplog.text and key not in caplog.text
+
+
+def test_a_stopping_hosted_session_may_end_itself_and_send_nothing_else():
+    import asyncio
+    import httpx
+    import pytest
+    from row_bot.mcp_client import auth
+
+    def stopping():
+        raise asyncio.CancelledError
+    url = "https://mcp.example.test/mcp"
+    _, options = auth.transport_options("Hosted", {"transport": "streamable_http", "url": url}, validate=stopping)
+    guard = options["httpx_client_factory"]().event_hooks["request"][0]
+    asyncio.run(guard(httpx.Request("DELETE", url)))  # Ends the session the server gave; cleanup can finish.
+    for request in (httpx.Request("POST", url), httpx.Request("DELETE", "https://mcp.example.test/other")):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(guard(request))
+
+
+def test_a_stopping_signed_in_session_may_end_itself_but_never_renews_to_do_it():
+    import asyncio
+    import time
+    import httpx
+    import pytest
+    from row_bot.mcp_client import auth
+
+    def stopping():
+        raise asyncio.CancelledError
+    url = "https://mcp.example.test/mcp"
+
+    async def first(provider, request):
+        flow = provider.async_auth_flow(request)
+        try:
+            return await anext(flow)
+        finally:
+            await flow.aclose()
+
+    def provider(expires_at):
+        storage = auth.TokenStorage("a" * 32, "b" * 64, validate=stopping, data={"binding": "b" * 64, "expires_at": expires_at,
+            "tokens": {"access_token": "synthetic-access", "token_type": "Bearer", "refresh_token": "synthetic-refresh"}})
+        return auth.oauth_provider(url, "http://127.0.0.1:8766" + auth.CALLBACK_PATH, storage)
+    sent = asyncio.run(first(provider(time.time() + 3600), httpx.Request("DELETE", url)))
+    assert sent.method == "DELETE" and sent.headers["authorization"] == "Bearer synthetic-access"
+    with pytest.raises(asyncio.CancelledError):  # Anything else stays stopped.
+        asyncio.run(first(provider(time.time() + 3600), httpx.Request("POST", url)))

@@ -10,6 +10,7 @@ from collections.abc import Callable
 from copy import deepcopy
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -22,6 +23,7 @@ from row_bot.application.client_platform import ClientPlatformError
 from row_bot.developer.sandbox import action_needs_explicit_user_intent, decide_action
 from row_bot.runtime import admissions
 
+_LOG = logging.getLogger(__name__)
 
 _ACTIONS = frozenset(
     {
@@ -683,6 +685,7 @@ def execute_developer_repository_command(command: dict[str, Any], resource_id: s
         except DeveloperRepositoryError as exc:
             result.update(status="rejected", code=str(exc))
         except Exception:
+            _LOG.warning("Developer repository %s ended without a confirmed outcome", action, exc_info=True)
             result.update(status="partial", code="developer_repository_outcome_uncertain")
         admissions.complete_command(owner_id, key, progress)
         return deepcopy(result)

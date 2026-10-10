@@ -40,6 +40,10 @@ import {
 import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
+
+/** The pickers list pinned models only; the Catalog below is where more come from. */
+const PINNED_NOTE =
+  'Pinned models are listed here. Pin more in the Catalog below.';
 import DefaultModelPicker from './DefaultModelPicker';
 import { modelRefName, splitModelLabel } from '../shell/model-choices';
 
@@ -701,6 +705,7 @@ export default function ModelsPanel({
               disabled={locked}
               onChoose={(ref) => void brainDefault(ref).catch(() => {})}
               onRefresh={() => void refreshCatalog()}
+              note={PINNED_NOTE}
             />
           }
         >
@@ -755,6 +760,7 @@ export default function ModelsPanel({
                     disabled={!!busy || !on}
                     onChoose={(ref) => void saveMedia(surface, 'default', ref)}
                     onRefresh={() => void refreshCatalog()}
+                    note={PINNED_NOTE}
                   />
                 </>
               }
@@ -812,6 +818,7 @@ export default function ModelsPanel({
                 : 'Reading limit'
             }
             sub
+            anchor="reading-limit"
             bind={false}
             help={
               contextKind === 'local'
@@ -879,6 +886,7 @@ export default function ModelsPanel({
       </SettingsGroup>
       <SettingsAdvanced
         summary="Limits for long work"
+        anchor="long-work"
         meta={
           agents
             ? `${agents.max_iterations} steps per run · ${agents.max_concurrent_children} helper agents at a time`

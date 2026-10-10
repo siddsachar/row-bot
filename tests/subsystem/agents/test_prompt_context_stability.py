@@ -242,6 +242,11 @@ def test_anthropic_cache_markers_stay_on_stable_system_context_only(tmp_path, mo
         agent.set_active_model_override("")
 
     marked = _marked_messages(result)
+    # The turn's date says its UTC offset and the time in UTC: a workflow that searches by date in UTC
+    # never stops to ask approval for a shell command to find it (found live with the GitHub digest).
+    import re
+    assert re.search(r"Current date and time: .+, UTC[+-]\d\d:\d\d \(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)\.",
+                     _combined_text(result))
 
     assert marked, "Anthropic should receive at least one cache breakpoint"
     assert all(message_type == "system" for message_type, _text in marked)

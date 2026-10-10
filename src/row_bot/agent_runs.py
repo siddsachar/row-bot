@@ -114,6 +114,7 @@ _CREATE_TABLE_SQL: dict[str, str] = {
             error TEXT DEFAULT '',
             settings_snapshot_json TEXT DEFAULT '{}',
             resume_state_json TEXT DEFAULT '{}',
+            app_scope_json TEXT DEFAULT '{}',
             stop_requested INTEGER DEFAULT 0,
             updated_at TEXT NOT NULL
         )
@@ -294,6 +295,7 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         "error": "TEXT DEFAULT ''",
         "settings_snapshot_json": "TEXT DEFAULT '{}'",
         "resume_state_json": "TEXT DEFAULT '{}'",
+        "app_scope_json": "TEXT DEFAULT '{}'",
         "stop_requested": "INTEGER DEFAULT 0",
         "updated_at": "TEXT NOT NULL",
     },
@@ -419,6 +421,7 @@ _RUN_JSON_FIELDS = {
     "result_json",
     "settings_snapshot_json",
     "resume_state_json",
+    "app_scope_json",
 }
 
 
@@ -696,8 +699,11 @@ def create_agent_run(
     error: str = "",
     settings_snapshot_json: Mapping[str, Any] | None = None,
     resume_state_json: Mapping[str, Any] | None = None,
+    app_scope_json: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create or update an Agent Run row and snapshot its effective profile."""
+    """Create or update an Agent Run row and snapshot its effective profile. ``app_scope_json`` is what the
+    run left out of the apps (its chat's switches and the delegating message's focus), so a retry or
+    resume started later narrows the same way."""
     ensure_agent_run_schema()
     run_id = str(run_id or uuid.uuid4().hex[:12])
     kind = _normalize_kind(kind)
@@ -777,6 +783,7 @@ def create_agent_run(
         "error": str(error or ""),
         "settings_snapshot_json": _json_text(settings_snapshot),
         "resume_state_json": _json_text(resume_state_json),
+        "app_scope_json": _json_text(app_scope_json),
         "stop_requested": 0,
         "updated_at": now,
     }
@@ -784,11 +791,13 @@ def create_agent_run(
     conn = _get_conn()
     try:
         existing = conn.execute(
-            "SELECT created_at, started_at, finished_at FROM agent_runs WHERE id = ?",
+            "SELECT created_at, started_at, finished_at, app_scope_json FROM agent_runs WHERE id = ?",
             (run_id,),
         ).fetchone()
         values["created_at"] = existing["created_at"] if existing else now
         if existing:
+            if existing["app_scope_json"] and values["app_scope_json"] == "{}":
+                values["app_scope_json"] = existing["app_scope_json"]  # An update never widens what it left out.
             if existing["started_at"] and not values["started_at"]:
                 values["started_at"] = existing["started_at"]
             if existing["finished_at"] and not values["finished_at"]:

@@ -67,22 +67,29 @@ test('a folder the work needs is chosen on a card in the chat (B277)', async ({
   ).toBeVisible();
 });
 
-test('an account the work needs shows a Connect card that opens its connect sheet', async ({
+test('an app the work needs shows a Connect card that opens its consent sheet', async ({
   page,
 }, testInfo) => {
   await newConversation(page);
-  await send(page, 'Read my calendar connect fixture');
-  const card = page.getByRole('group', { name: 'Connect Google', exact: true });
-  await expect(card).toContainText('Row-Bot needs Google for this.');
+  // Figma: no other spec in this fixture backend connects it (an app already added gets no Connect card).
+  await send(page, 'Find my design file connect fixture Figma');
+  const card = page.getByRole('group', {
+    name: 'Apps to connect',
+    exact: true,
+  });
+  const figma = card.getByRole('listitem', { name: 'Figma', exact: true });
+  // The card names the app as Row-Bot's catalog knows it.
+  await expect(figma).toContainText('by Figma');
   await screenshot(page, testInfo, 'connect-card');
-  await card
-    .getByRole('button', { name: 'Connect Google', exact: true })
-    .click();
-  // The card opens Google's own connect sheet (Phase 15).
-  await expect(page).toHaveURL(/\/settings\/accounts#google$/);
-  await expect(
-    page.getByRole('region', { name: 'Connect Google', exact: true }),
-  ).toBeVisible();
+  await figma.getByRole('button', { name: 'Connect', exact: true }).click();
+  // Connecting is the app's own consent sheet, right in the chat.
+  const sheet = page.getByRole('dialog', {
+    name: 'Connect Figma',
+    exact: true,
+  });
+  await expect(sheet).toContainText('What you ask goes to mcp.figma.com.');
+  await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(sheet).toHaveCount(0);
 });
 
 test('slash commands run with their argument instead of reaching the model', async ({

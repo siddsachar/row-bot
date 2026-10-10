@@ -1,0 +1,244 @@
+{
+  "$defs": {
+    "CatalogUpdate": {
+      "additionalProperties": false,
+      "description": "The last explicit (or scheduled) update of a source that can be updated.",
+      "properties": {
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked At"
+        },
+        "entries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entries"
+        },
+        "error": {
+          "maxLength": 64,
+          "title": "Error",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "never",
+            "updating",
+            "done",
+            "failed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "state",
+        "updated_at",
+        "checked_at",
+        "error",
+        "entries"
+      ],
+      "title": "CatalogUpdate",
+      "type": "object"
+    },
+    "IntegrationSourceView": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "local",
+            "snapshot",
+            "public",
+            "unavailable"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "catalog": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CatalogUpdate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "eligibility": {
+          "enum": [
+            "eligible",
+            "explicit_only",
+            "auth_required",
+            "contract_unresolved",
+            "unsupported"
+          ],
+          "title": "Eligibility",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[a-z0-9_]{1,40}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kinds": {
+          "items": {
+            "enum": [
+              "skill",
+              "mcp",
+              "plugin",
+              "builtin"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Kinds",
+          "type": "array"
+        },
+        "label": {
+          "maxLength": 80,
+          "title": "Label",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "network": {
+          "enum": [
+            "none",
+            "explicit"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "opt_in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceOptIn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "kinds",
+        "label",
+        "access",
+        "eligibility",
+        "network",
+        "enabled",
+        "message"
+      ],
+      "title": "IntegrationSourceView",
+      "type": "object"
+    },
+    "SourceLink": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 80,
+          "title": "Label",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 512,
+          "pattern": "^https://",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "url"
+      ],
+      "title": "SourceLink",
+      "type": "object"
+    },
+    "SourceOptIn": {
+      "additionalProperties": false,
+      "description": "A catalog the person turns on themselves (a hosted broker): off by default, and what turning it on means.",
+      "properties": {
+        "disclosure": {
+          "maxLength": 1024,
+          "title": "Disclosure",
+          "type": "string"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/SourceLink"
+          },
+          "maxItems": 4,
+          "title": "Links",
+          "type": "array"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "on",
+        "disclosure",
+        "links"
+      ],
+      "title": "SourceOptIn",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/IntegrationSourceView"
+      },
+      "maxItems": 64,
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "items"
+  ],
+  "title": "IntegrationSourceList",
+  "type": "object"
+}

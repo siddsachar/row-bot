@@ -129,7 +129,8 @@ def test_workflow_run_keeps_memory_fallback_warning_at_finish(tmp_path, monkeypa
 
     assert run["status"] == "completed"
     assert run["status_message"].startswith("Delivered")
-    assert "Memory recall fallback (local_model_timeout)" in run["status_message"]
+    assert "Memory search is limited: " in run["status_message"]  # In words, without an internal code.
+    assert "local_model_timeout" not in run["status_message"]
     assert "Retry local load" in run["status_message"]
 
 

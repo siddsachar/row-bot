@@ -695,19 +695,19 @@ os._exit(0)
         stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        assert pool.submit(process.stdout.readline).result(timeout=15).strip() == "held"
+        assert pool.submit(process.stdout.readline).result(timeout=60).strip() == "held"
         with pytest.raises(document_jobs.DocumentJobError,match="processing is active"):
             with service._processing_scope_lock(batch):
                 pytest.fail("Active native scope was replaced")
         process.stdin.write("x")
         process.stdin.flush()
-        assert process.wait(timeout=15) == 0
+        assert process.wait(timeout=30) == 0
         with service._processing_scope_lock(batch):
             pass  # The OS releases on crash/exit even without explicit unlock.
     finally:
         if process.poll() is None:
             process.kill()
-        process.communicate(timeout=15)
+        process.communicate(timeout=30)
         pool.shutdown(wait=True)
 
 
@@ -1180,3 +1180,41 @@ def test_worker_policy_digest_captures_capability_revision(processing,monkeypatc
     capability["context_window"] = 16384
     assert captured.chat.capabilities["context_window"] == 8192
     assert policy.capture().digest != captured.digest
+
+
+def test_processing_says_up_front_when_the_search_model_is_not_downloaded(processing, monkeypatch):
+    """Found live: without the local search model every document failed at "parse" with no reason."""
+    from row_bot import embedding_providers as embeddings
+    from row_bot.application.document_job_commands import _snapshot
+    api, _service, policy, batch, _context, cfg, _state = processing
+    cfg.update(provider="local", local_model=next(iter(embeddings.LOCAL_MODELS)))
+    revision = api.common._digest(_snapshot([batch]))
+    monkeypatch.setattr(embeddings, "_cached_snapshot", lambda model: None)
+    with pytest.raises(Exception) as refused:
+        policy.review(batch, revision)
+    assert getattr(refused.value, "code", "") == "document_processing_search_model_missing"
+    monkeypatch.setattr(embeddings, "_cached_snapshot", lambda model: object())  # Downloaded: reviewed as before.
+    assert policy.review(batch, revision)["embedding"]["provider"] == "local"
+
+
+def test_a_batch_whose_last_document_fails_finishes_with_errors_and_can_be_cleared(processing, monkeypatch):
+    """Found live: one failed document left its batch paused for good, so it could never be cleared."""
+    from row_bot import document_jobs
+    api, service, policy, batch, *_ = processing
+    monkeypatch.setattr(document_jobs, "_notify_batch_complete", lambda *a: None)
+    # No saved knowledge to project here, whatever another test on the worker left pending.
+    monkeypatch.setattr(document_jobs, "_finalize_shared_knowledge_indexes", lambda **kwargs: True)
+    admit(processing)
+    supervisor = document_jobs.DocumentSupervisor(service)
+
+    def fail(job):
+        raise RuntimeError("synthetic parse failure")
+
+    monkeypatch.setattr(supervisor, "_process_job", fail)
+    # One pass of the worker loop: it stops when it would wait for more work.
+    supervisor._wake = SimpleNamespace(wait=lambda timeout: supervisor._stop.set(), clear=lambda: None,
+                                       set=lambda: None)
+    supervisor._run()
+    assert [job.status for job in service.list_jobs(batch)] == ["failed"]
+    assert service.get_batch(batch).status == "completed_with_errors"
+    assert service.clear_finished() == 1

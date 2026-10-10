@@ -12,7 +12,7 @@ export function createDocumentRemovals(
 ) {
   const sessions = new Map<
     string,
-    { label: string; session: DocumentRemovalSession }
+    { label: string; listOnly: boolean; session: DocumentRemovalSession }
   >();
   const listeners = new Set<() => void>();
   let state = { selected: '', error: '', revision: 0 },
@@ -40,9 +40,16 @@ export function createDocumentRemovals(
       };
     },
     entries: () => [...sessions.entries()],
-    select(id: string | null, label: string) {
+    /** `listOnly`: it never reached search, so removal only unlists it. */
+    select(
+      id: string | null,
+      label: string,
+      { listOnly = false }: { listOnly?: boolean } = {},
+    ) {
       if (disposed) return;
       const key = id ?? '*';
+      const existing = sessions.get(key);
+      if (existing) existing.listOnly = listOnly;
       if (!sessions.has(key)) {
         if (sessions.size >= capacity) {
           const settled = [...sessions].find(
@@ -64,7 +71,7 @@ export function createDocumentRemovals(
         session.subscribe(() => {
           if (!disposed) emit();
         });
-        sessions.set(key, { label, session });
+        sessions.set(key, { label, listOnly, session });
       }
       emit({ selected: key, error: '' });
     },
@@ -105,7 +112,11 @@ export default function DocumentRemovalsPanel({
           {entries.map(([key, row]) => (
             <Button
               key={key}
-              onClick={() => owner.select(key === '*' ? null : key, row.label)}
+              onClick={() =>
+                owner.select(key === '*' ? null : key, row.label, {
+                  listOnly: row.listOnly,
+                })
+              }
             >
               {row.label}
             </Button>
@@ -117,6 +128,7 @@ export default function DocumentRemovalsPanel({
           key={state.selected}
           session={current.session}
           label={current.label}
+          listOnly={current.listOnly}
         />
       )}
     </section>

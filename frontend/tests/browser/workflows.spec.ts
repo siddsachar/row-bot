@@ -7,7 +7,7 @@ import {
 } from './evidence';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 import { captureBrowserDownload } from './download-helpers';
-import type { Page } from '@playwright/test';
+import type { Page, TestInfo } from '@playwright/test';
 
 async function seed(page: Page, kind: 'tasks' | 'tools', state = 'populated') {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -81,7 +81,9 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
     await screenshot(page, info, `workflow-editor-${appearance}`);
     await accessibility(page, info, `workflow-editor-${appearance}`);
   }
-  await editor.getByRole('button', { name: 'Save task', exact: true }).click();
+  await editor
+    .getByRole('button', { name: 'Save workflow', exact: true })
+    .click();
   await expect(
     page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();
@@ -129,7 +131,9 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
   await expect(
     edit.getByRole('textbox', { name: 'Description', exact: true }),
   ).toHaveValue('Edited in the unified client');
-  await edit.getByRole('button', { name: 'Save task', exact: true }).click();
+  await edit
+    .getByRole('button', { name: 'Save workflow', exact: true })
+    .click();
   await expect(
     page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();
@@ -222,7 +226,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     exact: true,
   });
   await editor
-    .getByRole('textbox', { name: 'Concurrency group', exact: true })
+    .getByRole('textbox', { name: 'Queue name', exact: true })
     .fill('synthetic-browser-group');
   await editor
     .getByRole('combobox', { name: 'Trigger', exact: true })
@@ -234,7 +238,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     page.getByRole('tab', { name: 'Workflows', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(
-    editor.getByRole('textbox', { name: 'Concurrency group', exact: true }),
+    editor.getByRole('textbox', { name: 'Queue name', exact: true }),
   ).toHaveValue('synthetic-browser-group');
   await expect(
     editor.getByRole('combobox', { name: 'Trigger', exact: true }),
@@ -263,7 +267,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     'Workflow settings',
   );
   await expect(
-    editor.getByRole('textbox', { name: 'Concurrency group', exact: true }),
+    editor.getByRole('textbox', { name: 'Queue name', exact: true }),
   ).toHaveValue('synthetic-browser-group');
   await expect(
     editor.getByRole('combobox', { name: 'Trigger', exact: true }),
@@ -477,10 +481,7 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
       .getByRole('navigation', { name: 'Settings sections' })
       .getByRole('link', { name: 'Tools', exact: true })
       .click();
-  await page
-    .locator('summary')
-    .filter({ hasText: 'Cached tool catalogue' })
-    .click();
+  await page.locator('summary').filter({ hasText: 'All tools' }).click();
   await page
     .getByRole('combobox', { name: 'Tool source' })
     .selectOption('core');
@@ -587,7 +588,7 @@ test('workflow rows and the new-workflow editor fit, retain drafts, and restore 
   await expect(
     editor.getByRole('textbox', { name: 'Name', exact: true }),
   ).toHaveValue(`Slice 5 workflow ${info.project.name}`);
-  await editor.getByRole('button', { name: 'Save task' }).click();
+  await editor.getByRole('button', { name: 'Save workflow' }).click();
   await expect(view).toHaveCount(0);
   await expect(create).toBeFocused();
   await page
@@ -600,3 +601,66 @@ test('workflow rows and the new-workflow editor fit, retain drafts, and restore 
   await expect(page.locator('.workflow-metadata')).toContainText('1 step');
   await assertNoOverflow(page);
 });
+
+async function seedApps(page: Page, path: string) {
+  const origin = new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin;
+  const response = await page.request.post(path, {
+    headers: {
+      'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
+      'X-Fixture-Origin': origin,
+      Origin: origin,
+    },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
+test('app templates start switched off and offer Connect, and a step names the apps it uses', async ({
+  page,
+}, info) => {
+  test.slow();
+  await seedApps(page, '/__p6_fixture/views');
+  await seedApps(page, '/__p6_fixture/app-workflow');
+  try {
+    await appTemplatesJourney(page, info);
+  } finally {
+    await seedApps(page, '/__p6_fixture/views/remove');
+  }
+});
+
+async function appTemplatesJourney(page: Page, info: TestInfo) {
+  await page.goto('/app-v2/?tab=workflows');
+  const templates = page.getByRole('region', { name: 'Start from a template' });
+  await expect(templates.getByText('GitHub pull-request digest')).toBeVisible();
+  // A template without apps works with nothing connected.
+  await expect(
+    templates.getByRole('button', {
+      name: 'Use template: Daily brief from the web',
+    }),
+  ).toBeVisible();
+  // Linear isn't connected: its template offers Connect instead, never a workflow that can't work.
+  const linear = templates
+    .getByRole('listitem')
+    .filter({ hasText: 'Linear triage' });
+  await expect(
+    linear.getByRole('link', { name: 'Connect Linear' }),
+  ).toHaveAttribute('href', /\/settings\/apps\/linear$/);
+  await expect(linear.getByRole('button')).toHaveCount(0);
+  await expect(
+    templates.getByText('Every day at 09:00 · starts off').first(),
+  ).toBeVisible();
+  await templates.scrollIntoViewIfNeeded();
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'workflow-templates');
+
+  await searchWorkflows(page, 'Counter morning digest');
+  await chooseWorkflowAction(
+    page,
+    'Counter morning digest',
+    'Edit workflow steps',
+  );
+  await expect(
+    page.getByRole('switch', { name: 'Use Counter in this step' }),
+  ).toBeChecked();
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'workflow-step-apps');
+}

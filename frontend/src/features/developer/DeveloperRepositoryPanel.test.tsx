@@ -480,7 +480,7 @@ it('shows the Connect GitHub card when a pull request needs the GitHub tool', as
   expect(card).toHaveTextContent('GitHub command-line tool (gh)');
   expect(
     within(card).getByRole('link', { name: 'Connect GitHub' }),
-  ).toHaveAttribute('href', '/settings/accounts#github');
+  ).toHaveAttribute('href', '/settings/apps/github');
   expect(screen.queryByRole('alert')).toBeNull();
   expect(props.execute).not.toHaveBeenCalled();
 });

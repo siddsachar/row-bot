@@ -38,12 +38,10 @@ import { createProviderConfigurationOwner } from './features/settings/provider-c
 import { createAuthenticatedEditorOwner } from './features/settings/authenticated-editor-owner';
 import { DefaultModelSession } from './features/settings/DefaultModelSettings';
 import { createCapabilitySettingsSession } from './features/settings/CapabilitySettings';
-import { createMcpFacadeSession } from './features/settings/McpFacadeControls';
 import { SubscriptionAccountsSession } from './features/settings/SubscriptionAccounts';
 import { SubscriptionProbesSession } from './features/settings/SubscriptionProbes';
 import { SubscriptionOptionsSession } from './features/settings/SubscriptionOptions';
 import { createDocumentRemovals } from './features/knowledge/DocumentRemovals';
-import { createMcpConnections } from './features/settings/McpConnections';
 import { createRuntimeInstallations } from './features/mcp/RuntimeInstallations';
 import { createDocumentQueueSession } from './features/knowledge/DocumentQueuePanel';
 import { createDocumentUploadSession } from './features/knowledge/DocumentUploadPanel';
@@ -245,10 +243,6 @@ async function start() {
     controller,
     createCapabilitySettingsSession,
   );
-  const mcpChatOwner = createAuthenticatedEditorOwner(
-    controller,
-    createMcpFacadeSession,
-  );
   const buddyOwner = createAuthenticatedEditorOwner(controller, () =>
     createBuddySessions(controller),
   );
@@ -266,10 +260,6 @@ async function start() {
   const subscriptionOptionsOwner = createAuthenticatedEditorOwner(
     controller,
     () => new SubscriptionOptionsSession(),
-  );
-  const mcpConnectionsOwner = createAuthenticatedEditorOwner(
-    controller,
-    createMcpConnections,
   );
   const runtimeInstallationsOwner = createAuthenticatedEditorOwner(
     controller,
@@ -359,12 +349,10 @@ async function start() {
             providerSettingsSessions,
             defaultModelOwner,
             capabilitySettingsOwner,
-            mcpChatOwner,
             buddyOwner,
             subscriptionAccountsOwner,
             subscriptionOptionsOwner,
             subscriptionProbesOwner,
-            mcpConnectionsOwner,
             runtimeInstallationsOwner,
             documentRemovalsOwner,
             documentQueueOwner,
@@ -405,7 +393,7 @@ async function start() {
                       element={<Navigate to="/?tab=workflows" replace />}
                     />
                     <Route
-                      path="settings/:setting"
+                      path="settings/:setting/*"
                       element={<SettingRoute />}
                     />
                     <Route
@@ -444,12 +432,10 @@ async function start() {
       providerSettingsSessions.hasRetained() ||
       defaultModelOwner.hasRetained() ||
       capabilitySettingsOwner.hasRetained() ||
-      mcpChatOwner.hasRetained() ||
       buddyOwner.hasRetained() ||
       subscriptionAccountsOwner.hasRetained() ||
       subscriptionOptionsOwner.hasRetained() ||
       subscriptionProbesOwner.hasRetained() ||
-      mcpConnectionsOwner.hasRetained() ||
       runtimeInstallationsOwner.hasRetained() ||
       documentRemovalsOwner.hasRetained() ||
       documentQueueOwner.hasRetained() ||
@@ -474,12 +460,10 @@ async function start() {
       providerSettingsSessions.dispose();
       defaultModelOwner.dispose();
       capabilitySettingsOwner.dispose();
-      mcpChatOwner.dispose();
       buddyOwner.dispose();
       subscriptionAccountsOwner.dispose();
       subscriptionOptionsOwner.dispose();
       subscriptionProbesOwner.dispose();
-      mcpConnectionsOwner.dispose();
       runtimeInstallationsOwner.dispose();
       documentRemovalsOwner.dispose();
       documentQueueOwner.dispose();

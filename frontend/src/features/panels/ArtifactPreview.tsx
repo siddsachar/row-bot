@@ -105,6 +105,12 @@ export type ArtifactPreviewProps = {
   edit?: ArtifactEditorProps['edit'];
   /** Make a copy of this design beside it (it opens in its own panel). */
   duplicate?: () => Promise<void>;
+  /**
+   * Delete this design for good, once confirmed here: it leaves every
+   * conversation using it, then its pages, versions and files go. Resolves
+   * when it is gone (the panel then closes).
+   */
+  deleteDesign?: () => Promise<void>;
   /** A turn is drafting this design: what it is doing (U35). */
   drafting?: DesignDrafting | null;
   createExport?: ArtifactExportsProps['create'];
@@ -203,6 +209,20 @@ function historyFailure(error: unknown): string {
   return 'The change was not confirmed. The saved design is unchanged or shown as it is now.';
 }
 
+function deleteFailure(error: unknown): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String(error.code)
+      : '';
+  if (code === 'generation_active')
+    return 'A conversation using this design is still working. Stop it, then try again. Nothing was deleted.';
+  if (code === 'conversation_deleting')
+    return 'A conversation using this design is being deleted. Try again in a moment. Nothing was deleted.';
+  if (code === 'resource_revision_conflict' || code === 'revision_conflict')
+    return 'The design changed meanwhile, so nothing was deleted. Check it and try again.';
+  return 'The design was not deleted. Try again.';
+}
+
 export default function ArtifactPreview({
   resourceId,
   resourceRevision,
@@ -223,6 +243,7 @@ export default function ArtifactPreview({
   title,
   onAsk,
   duplicate,
+  deleteDesign,
   drafting,
 }: ArtifactPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -271,6 +292,10 @@ export default function ArtifactPreview({
     values: DesignLook;
   } | null>(null);
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
+  // "Delete design…": the confirmation, and why a delete was refused.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const moreButton = useRef<HTMLButtonElement | null>(null);
   // A phone-width panel: one short toolbar row, the rest in ⋯.
   const [compact, setCompact] = useState(false);
@@ -1001,6 +1026,20 @@ export default function ArtifactPreview({
     }
   }
 
+  async function confirmDelete() {
+    if (!deleteDesign || deleting) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteDesign();
+      setDeleteOpen(false);
+    } catch (reason) {
+      setDeleteError(deleteFailure(reason));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function addPage() {
     if (!current) return;
     void changeStructure(
@@ -1152,6 +1191,18 @@ export default function ArtifactPreview({
             onSelect: () => undefined,
             // Opens once the menu has closed and let go of focus.
             afterClose: () => setCapabilitiesOpen(true),
+          },
+        ]
+      : []),
+    // Also when its preview cannot load: a broken design can still go.
+    ...(deleteDesign
+      ? [
+          {
+            label: 'Delete design…',
+            danger: true,
+            disabled: structureBusy || loading,
+            onSelect: () => setDeleteError(''),
+            afterClose: () => setDeleteOpen(true),
           },
         ]
       : []),
@@ -1496,6 +1547,36 @@ export default function ArtifactPreview({
             )}
           </>
         )}
+      </ModalTask>
+      <ModalTask
+        open={deleteOpen && visible && Boolean(deleteDesign)}
+        onOpenChange={setDeleteOpen}
+        dismissible={!deleting}
+        returnFocusTo={moreButton.current}
+        title="Delete design?"
+        description={`“${displayName}” will be deleted for good.`}
+      >
+        <p>
+          Its pages, saved versions and files are deleted. Conversations that
+          used it keep their messages; it leaves their Working on.
+        </p>
+        {deleteError && <p role="alert">{deleteError}</p>}
+        <div className="action-cluster">
+          <Button
+            data-initial-focus
+            disabled={deleting}
+            onClick={() => setDeleteOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            disabled={deleting}
+            onClick={() => void confirmDelete()}
+          >
+            {deleting ? 'Deleting…' : 'Delete design'}
+          </Button>
+        </div>
       </ModalTask>
       {design && current && ['deck', 'document'].includes(current.mode) && (
         <ArtifactDocumentImport

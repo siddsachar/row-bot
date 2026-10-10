@@ -429,6 +429,13 @@
   background: var(--accent-solid);
   color: var(--accent-on-solid);
 }
+/* Disabled reads as the chat composer's Send does: a quiet filled button
+   with a muted arrow, never a white arrow on nothing. */
+.overview-ask .overview-ask-send.button.primary:disabled {
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  opacity: 1;
+}
 .overview-quick {
   display: flex;
   flex-wrap: wrap;
@@ -624,6 +631,8 @@
 .overview-setup-first {
   grid-template-columns: minmax(0, 1fr) auto;
 }
+/* A narrow card: the title wraps rather than cutting to "Finish set…". */
+.overview-setup .overview-need-title,
 .overview-setup .overview-need-meta {
   white-space: normal;
 }
@@ -3935,4 +3944,56 @@ button.overview-stat:hover {
 .task-webhook-option {
   color: var(--text-muted);
   font-size: var(--text-12);
+}
+
+/* Workflows › Start from a template: workflows that use apps. */
+.workflow-templates {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.workflow-templates h2 {
+  margin: 0;
+  font-size: var(--text-15);
+}
+.workflow-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workflow-template {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+.workflow-template-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.workflow-template p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.workflow-template small {
+  color: var(--text-tertiary);
+}
+.step-apps {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-apps li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }

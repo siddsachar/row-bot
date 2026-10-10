@@ -329,3 +329,18 @@ it('downloads a result once when it mounts again, and again only on retry', asyn
   await screen.findByAltText('Generated result');
   expect(mock.download).toHaveBeenCalledTimes(2);
 });
+
+it('waits for the same download when it mounts again before that download ends', async () => {
+  const bytes = pending<Blob>();
+  mock.download.mockReturnValue(bytes.promise);
+  const first = render(<MediaPreview reference="in-flight" mime="video/mp4" />);
+  // The live row is replaced by the saved one while the video still downloads.
+  first.unmount();
+  render(<MediaPreview reference="in-flight" mime="video/mp4" />);
+  await act(async () =>
+    bytes.resolve(new Blob(['frames'], { type: 'video/mp4' })),
+  );
+  expect(await screen.findByLabelText('Generated video result')).toBeVisible();
+  expect(mock.download).toHaveBeenCalledTimes(1);
+  expect(mock.download.mock.calls[0][1].aborted).toBe(false);
+});

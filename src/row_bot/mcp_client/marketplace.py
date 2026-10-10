@@ -1,39 +1,20 @@
-"""Fail-safe MCP marketplace/directory discovery adapters."""
+"""MCP catalog records: the curated starter list and Registry v0.1 metadata."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-import time
 import urllib.parse
-import urllib.request
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    import requests
-except Exception:  # pragma: no cover - optional dependency fallback
-    requests = None
-
-try:
-    from bs4 import BeautifulSoup
-except Exception:  # pragma: no cover - optional dependency fallback
-    BeautifulSoup = None
-
-from row_bot.mcp_client.config import DATA_DIR
 from row_bot.mcp_client.conflicts import conflicts_for_entry
 from row_bot.mcp_client.logging import log_event
 
-CACHE_PATH = DATA_DIR / "mcp_marketplace_cache.json"
 CATALOG_PATH = Path(__file__).with_name("recommended_servers.json")
 DEFAULT_TIMEOUT = 3
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 Row-Bot-MCP-Client/1.0",
-    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-}
 
 
 @dataclass
@@ -59,61 +40,6 @@ class MarketplaceEntry:
     recommended: bool = False
     last_reviewed: str = ""
     notes: list[str] = field(default_factory=list)
-
-
-@dataclass
-class MarketplaceSearchResult:
-    entries: list[MarketplaceEntry]
-    mode: str
-    query: str = ""
-    source_counts: dict[str, int] = field(default_factory=dict)
-
-
-def _count_sources(entries: list[MarketplaceEntry]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for entry in entries:
-        counts[entry.source] = counts.get(entry.source, 0) + 1
-    return counts
-
-
-def _dedupe_entries(entries: list[MarketplaceEntry]) -> list[MarketplaceEntry]:
-    dedup: dict[str, MarketplaceEntry] = {}
-    seen_names: set[str] = set()
-    for entry in entries:
-        if not _is_useful_entry(entry):
-            continue
-        name_key = re.sub(r"[^a-z0-9]+", " ", entry.name.lower()).strip()
-        if name_key:
-            name_key = f"{entry.source}:{name_key}"
-            if name_key in seen_names:
-                continue
-            seen_names.add(name_key)
-        dedup.setdefault(f"{entry.source}:{entry.id}", entry)
-    return list(dedup.values())
-
-
-def _is_useful_entry(entry: MarketplaceEntry) -> bool:
-    if not entry.name.strip():
-        return False
-    return not (entry.name == "MCP Server" and not entry.description.strip())
-
-
-def _entry_search_text(entry: MarketplaceEntry) -> str:
-    return " ".join([
-        entry.id,
-        entry.name,
-        entry.description,
-        entry.publisher,
-        entry.classification,
-        entry.transport,
-    ]).lower()
-
-
-def _filter_relevant(entries: list[MarketplaceEntry], query: str) -> list[MarketplaceEntry]:
-    tokens = [token for token in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(token) > 1]
-    if not tokens:
-        return entries
-    return [entry for entry in entries if all(token in _entry_search_text(entry) for token in tokens)]
 
 
 def _entry_from_mapping(item: dict[str, Any]) -> MarketplaceEntry | None:
@@ -144,369 +70,376 @@ CURATED_STARTER_CATALOG: list[MarketplaceEntry] = _load_curated_catalog()
 
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> Any:
-    request = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-MCP-Client/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered directory fetch
-        return json.loads(response.read().decode("utf-8"))
+    from row_bot.integrations.safe import fetch
+    return json.loads(fetch(url, hosts={"registry.modelcontextprotocol.io"}, max_bytes=2 * 1024 * 1024, timeout=timeout,
+        refused="registry_source_not_supported", too_large="registry_response_too_large"))
 
 
-def _fetch_text(url: str, timeout: int = DEFAULT_TIMEOUT, *, prefer_urllib: bool = False) -> str:
-    if requests is not None and not prefer_urllib:
-        response = requests.get(url, headers=BROWSER_HEADERS, timeout=timeout)
-        if response.status_code < 200 or response.status_code >= 400:
-            raise RuntimeError(f"HTTP {response.status_code}")
-        return response.text
-    request = urllib.request.Request(url, headers=BROWSER_HEADERS)
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered directory fetch
-        return response.read().decode("utf-8", errors="replace")
+def _registry_setup_digest(item: dict) -> str:
+    # Bind all delivery declarations, including unknown extensions. Display-only
+    # metadata does not identify a deployment. Never persist raw declaration values:
+    # even a public catalog may accidentally contain a secret header/default.
+    display = {"$schema", "name", "version", "title", "description", "repository", "websiteUrl", "icons"}
+    setup = {key: value for key, value in item.items() if key not in display}
+    try:
+        encoded = json.dumps(setup, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("invalid_registry_setup") from exc
+    if len(encoded) > 65536:
+        raise ValueError("registry_setup_too_large")
+    return hashlib.sha256(encoded).hexdigest()
 
 
-def _clean_text(value: str, *, max_len: int = 800) -> str:
-    text = re.sub(r"\s+", " ", value or "").strip()
-    return text[:max_len].rstrip()
+_RASTER = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
 
 
-def _title_from_slug(slug: str) -> str:
-    tail = slug.strip("/").split("/")[-1]
-    text = re.sub(r"[-_]+", " ", tail).strip()
-    return text.title() if text else "MCP Server"
-
-
-def _parse_directory_html(
-    html: str,
-    *,
-    source: str,
-    base_url: str,
-    path_prefix: str,
-    limit: int,
-) -> list[MarketplaceEntry]:
-    if BeautifulSoup is None:
-        return []
-    soup = BeautifulSoup(html, "html.parser")
-    entries: list[MarketplaceEntry] = []
-    seen: set[str] = set()
-    for link in soup.find_all("a", href=True):
-        absolute = urllib.parse.urljoin(base_url, str(link.get("href") or ""))
-        parsed = urllib.parse.urlparse(absolute)
-        if not parsed.path.startswith(path_prefix):
-            continue
-        slug = parsed.path.removeprefix(path_prefix).strip("/")
-        if not slug or slug in seen or slug.startswith("#"):
-            continue
-        seen.add(slug)
-        link_text = _clean_text(link.get_text(" ", strip=True), max_len=160)
-        container = link.find_parent(["article", "li"]) or link.find_parent("div") or link
-        heading = container.find(["h1", "h2", "h3", "h4"]) if hasattr(container, "find") else None
-        heading_text = _clean_text(heading.get_text(" ", strip=True), max_len=120) if heading else ""
-        description = _clean_text(container.get_text(" ", strip=True), max_len=700)
-        if not description:
-            description = link_text
-        name = heading_text or (link_text if 0 < len(link_text) <= 80 and "CLASSIFICATION" not in link_text else _title_from_slug(slug))
-        if name.lower() in {"servers", "next", "previous", "go to next page", "go to previous page"}:
-            continue
-        entries.append(MarketplaceEntry(
-            id=slug,
-            name=name,
-            description=description,
-            source=source,
-            url=absolute,
-            classification="directory-page",
-            metadata={"page_fallback": True, "source_url": base_url},
-        ))
-        if len(entries) >= limit:
+def _registry_display(item: dict, official: dict) -> dict:
+    """Display-only facts: freshness and at most one declared raster icon (SVG is never kept)."""
+    shown = {}
+    updated = official.get("updatedAt") or official.get("publishedAt")
+    if isinstance(updated, str) and re.match(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", updated):
+        shown["updated_at"] = updated[:10]
+    icons = item.get("icons")
+    for icon in icons if isinstance(icons, list) else []:
+        source = icon.get("src") if isinstance(icon, dict) else None
+        if (isinstance(source, str) and source.startswith("https://") and len(source) <= 2048
+                and str(icon.get("mimeType") or "image/png").lower() in _RASTER and not source.lower().endswith(".svg")):
+            shown["icon"] = source
             break
+    return shown
+
+
+_UNSUPPORTED_PACKAGE = "Package environment, runtime, argument, integrity or registry declarations are unsupported by catalog import."
+_UNSUPPORTED_REMOTE = "Remote header, authentication or variable declarations require setup that catalog import cannot safely express."
+_NPM = r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+"
+_SEMVER = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?"
+_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}")
+_VARIABLE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.-]{0,63})\}")
+# Docker flags a declaration may keep: they only narrow what the container can do.
+_DOCKER_KEEP = {("--cap-drop", "ALL"), ("--security-opt", "no-new-privileges"), ("--read-only", None), ("--init", None)}
+
+
+class _Declared(ValueError):
+    """A declaration Row-Bot cannot express safely; the record stays listed with this reason."""
+
+
+def _filled(spec: dict, *, target: str, name: str, inputs: dict, flag: str = "", carrier: str = "") -> str:
+    """The template for one Registry input, adding the inputs it asks for: a fixed value stays fixed,
+    ``{variables}`` in a value become inputs, and a value the person supplies becomes one input."""
+    from row_bot.integrations import inputs as declared
+    if not isinstance(spec, dict):
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    description = str(spec.get("description") or "")[:512]
+
+    def add(key: str, item: object, label: str, implied_secret: bool) -> None:
+        item = item if isinstance(item, dict) else {}
+        secret = bool(item.get("isSecret")) or implied_secret
+        found = declared.declaration(key, target=target, name=label, label=label, secret=secret,
+            required=bool(item.get("isRequired", spec.get("isRequired"))), description=str(item.get("description") or description),
+            default="" if secret else str(item.get("default") or ""), choices=[str(c) for c in item.get("choices") or []],
+            format=str(item.get("format") or "string"), flag=flag)
+        if key in inputs:  # The same variable twice is one value; the stricter declaration wins.
+            found["secret"] = found["secret"] or inputs[key]["secret"]
+            found["required"] = found["required"] or inputs[key]["required"]
+            found["default"] = "" if found["secret"] else found["default"]
+        inputs[key] = found
+    fixed = str(spec.get("value") or "")
+    if "value" in spec and not (spec.get("isSecret") and not _VARIABLE.search(fixed.replace("${", "{"))):
+        # A secret written into a public listing is never copied: the person supplies their own instead.
+        value = fixed.replace("${", "{")
+        variables = spec.get("variables") if isinstance(spec.get("variables"), dict) else {}
+        for var in dict.fromkeys(_VARIABLE.findall(value)):
+            key = declared.key_of(var)
+            value = value.replace("{" + var + "}", "{" + key + "}")
+            implied = declared.secretish(var) or declared.secretish(carrier or name) or bool(spec.get("isSecret"))
+            add(key, variables.get(var, {}), var, implied)
+        return value
+    key = declared.key_of(name)
+    add(key, spec, name, declared.secretish(name) or bool(carrier and declared.secretish(carrier)))
+    if (target == "header" and name.lower() == "authorization" and not inputs[key]["choices"]
+            and "bearer" in description.lower()):
+        return "Bearer {" + key + "}"  # Most declarations describe the scheme but leave it to the person.
+    return "{" + key + "}"
+
+
+def _arguments(arguments: object, inputs: dict) -> list[str]:
+    from row_bot.integrations import inputs as declared
+    argv: list[str] = []
+    listed = arguments if isinstance(arguments, list) else []
+    # A flag with nothing but a name is a switch (``--stdio``), unless it names a secret or the package
+    # lists so many that they are its settings, not switches it needs: then each is an optional input.
+    bare = [a for a in listed if isinstance(a, dict) and a.get("type") == "named" and not any(
+        key in a for key in ("value", "valueHint", "default", "isSecret", "isRequired", "choices", "format"))]
+    for argument in listed:
+        if not isinstance(argument, dict) or argument.get("type") not in {"positional", "named"}:
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        if argument["type"] == "positional":
+            hint = str(argument.get("valueHint") or "value")
+            if "value" not in argument and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}", hint):
+                raise _Declared(_UNSUPPORTED_PACKAGE)
+            argv.append(_filled(argument, target="argument", name=hint, inputs=inputs))
+            continue
+        flag = str(argument.get("name") or "")
+        if not re.fullmatch(r"--?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", flag):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        if not argument.get("isRequired") and (argument.get("isSecret") or declared.secretish(flag.lstrip("-"))):
+            continue  # An optional key is left off the command line, where any program here could read it.
+        if argument in bare and len(bare) <= 8 and not declared.secretish(flag.lstrip("-")):
+            argv.append(flag)  # A plain switch.
+            continue
+        argv += [flag, _filled(argument, target="argument", name=str(argument.get("valueHint") or flag.lstrip("-")),
+                               inputs=inputs, flag=flag, carrier=flag.lstrip("-"))]  # --api-key is secret by its name.
+    return argv
+
+
+def _checked(install: dict) -> dict:
+    from row_bot.integrations import inputs as declared
+    try:
+        found = declared.check(install.get("inputs"))
+        if "{" in install.get("url", ""):
+            declared.check_url(install["url"], found)
+        templates = [*install.get("headers", {}).values(), *install.get("env", {}).values(), *install.get("args", [])]
+        known = {item["key"] for item in found}
+        if any(key not in known for text in templates for key in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]{0,63})\}", text)):
+            raise declared.InputError("invalid_inputs")
+    except declared.InputError as exc:
+        raise _Declared("Its address is chosen when you set it up; add it from a link instead." if "url" in str(exc)
+                        else "It takes a key on its command line, where other programs on this computer could read it."
+                        if str(exc) == "secret_argument"
+                        else _UNSUPPORTED_PACKAGE if install.get("command") else _UNSUPPORTED_REMOTE) from None
+    return install
+
+
+def _remote(remote: dict) -> dict:
+    from row_bot.integrations import inputs as declared
+    url, kind = str(remote.get("url", "")), remote.get("type")
+    parsed = urllib.parse.urlsplit(url.replace("{", "x").replace("}", "x"))
+    if (kind not in {"streamable-http", "sse"} or parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or set(remote) - {"type", "url", "headers", "variables"}):
+        raise _Declared(_UNSUPPORTED_REMOTE)
+    inputs: dict = {}
+    variables = remote.get("variables") if isinstance(remote.get("variables"), dict) else {}
+    for var in dict.fromkeys(_VARIABLE.findall(url)):
+        key = declared.key_of(var)
+        url = url.replace("{" + var + "}", "{" + key + "}")
+        spec = variables.get(var) if isinstance(variables.get(var), dict) else {}
+        _filled({"value": "{" + var + "}", "variables": {var: spec}, "isRequired": True},
+                target="url_variable", name=var, inputs=inputs)
+    headers: dict = {}
+    for header in remote.get("headers") or []:
+        name = str((header or {}).get("name") or "") if isinstance(header, dict) else ""
+        if name.lower() == "payment-signature":
+            raise _Declared("It charges for each request (x402 payments); Row-Bot can't connect to it.")
+        if not _HEADER_NAME.fullmatch(name) or name.lower() in {key.lower() for key in headers}:
+            raise _Declared(_UNSUPPORTED_REMOTE)
+        headers[name] = _filled(header, target="header", name=name, inputs=inputs, carrier=name)
+    return _checked({"transport": kind.replace("-", "_"), "url": url, **({"headers": headers} if headers else {}),
+                     **({"inputs": list(inputs.values())} if inputs else {})})
+
+
+def _bundle(package: dict) -> dict:
+    """A Registry MCP bundle: downloaded only after consent and used only if it matches the record's own
+    SHA-256; its manifest then says how it runs and what it asks for, checked as a picked file is."""
+    url, digest = str(package.get("identifier") or ""), str(package.get("fileSha256") or "").lower()
+    parts = urllib.parse.urlsplit(url)
+    if (set(package) - {"registryType", "identifier", "version", "transport", "fileSha256"}
+            or package.get("transport", {"type": "stdio"}) != {"type": "stdio"} or parts.scheme != "https"
+            or not parts.hostname or parts.username or parts.password or parts.fragment or len(url) > 2048
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+        raise _Declared("Download this bundle from its publisher, then add it from a file.")
+    return {"transport": "stdio", "command": "", "args": [], "bundle": {"url": url, "sha256": "sha256:" + digest}}
+
+
+def _package(package: dict) -> dict:
+    from row_bot.integrations import inputs as declared
+    kind, identifier, version = package.get("registryType"), str(package.get("identifier") or ""), str(package.get("version") or "")
+    allowed = {"registryType", "identifier", "version", "transport", "registryBaseUrl", "runtimeHint", "runtimeArguments",
+               "packageArguments", "environmentVariables", "fileSha256"}
+    if kind == "mcpb":
+        return _bundle(package)
+    if set(package) - allowed or kind not in {"npm", "pypi", "oci"}:
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    if package.get("transport") != {"type": "stdio"}:
+        raise _Declared("It runs as a web server on this computer; Row-Bot can't start those yet.")
+    default = {"npm": "https://registry.npmjs.org", "pypi": "https://pypi.org"}.get(kind, "")
+    if str(package.get("registryBaseUrl") or default).rstrip("/") not in {default, "https://pypi.org/simple"}:
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    inputs: dict = {}
+    env: dict = {}
+    for variable in package.get("environmentVariables") or []:
+        name = str((variable or {}).get("name") or "") if isinstance(variable, dict) else ""
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) or name.upper() in declared.NEVER_ENV or name in env:
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        env[name] = _filled(variable, target="env", name=name, inputs=inputs, carrier=name)
+    arguments = _arguments(package.get("packageArguments"), inputs)
+    flags = [flag for flag in package.get("runtimeArguments") or [] if isinstance(flag, dict)]
+    if len(flags) != len(package.get("runtimeArguments") or []):
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    if kind == "npm":
+        if (not re.fullmatch(_NPM, identifier) or not re.fullmatch(_SEMVER, version)
+                or any(str(flag.get("name") or flag.get("value") or "") not in {"-y", "--yes"} for flag in flags)):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        install = {"transport": "stdio", "command": "npx", "args": [identifier + "@" + version, *arguments]}
+    elif kind == "pypi":
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", identifier) or not re.fullmatch(r"[A-Za-z0-9.!+_-]{1,64}", version):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        spec, entry = identifier + "==" + version, identifier
+        for flag in flags:
+            word, value = str(flag.get("name") or flag.get("value") or ""), str(flag.get("value") or "")
+            if word == "--from" and re.fullmatch(re.escape(identifier) + r"(\[[A-Za-z0-9,_-]+\])?(==[A-Za-z0-9.!+_-]+)?", value):
+                spec = value if "==" in value else value + "==" + version  # Extras of this record's own package, pinned.
+            elif (flag.get("type") == "positional" and "value" in flag and entry == identifier and spec != identifier + "==" + version
+                  and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value)):
+                entry = value  # The console script to run from that package (``uvx --from pkg[mcp]==1.0 pkg-mcp``).
+            elif word != "--python":
+                raise _Declared(_UNSUPPORTED_PACKAGE)
+        install = {"transport": "stdio", "command": "uvx", "args": ["--from", spec, entry, *arguments]}
+    else:
+        tagged = ":" in identifier.rsplit("/", 1)[-1] or "@sha256:" in identifier
+        image = identifier if tagged else identifier + ":" + (version or "latest")
+        if image.endswith(":latest"):
+            raise _Declared("Its container image has no fixed version, so what runs could change without review.")
+        if not re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+(:[A-Za-z0-9._-]{1,128}|@sha256:[0-9a-f]{64})", image):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        kept: list[str] = []
+        for flag in flags:
+            word, value = str(flag.get("name") or ""), flag.get("value")
+            if (flag.get("type") == "positional" and str(value) == "run") or word in {"-i", "--interactive", "--rm"}:
+                continue
+            if word == "-e" and isinstance(value, str) and "=" in value:
+                name, _, template = value.partition("=")
+                if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) or name.upper() in declared.NEVER_ENV
+                        or name.upper().startswith(("DOCKER_", "BUILDKIT_", "COMPOSE_"))):
+                    raise _Declared(_UNSUPPORTED_PACKAGE)
+                env[name] = _filled({**flag, "value": template}, target="env", name=name, inputs=inputs, carrier=name)
+                continue
+            if (word, value if value is None else str(value)) not in _DOCKER_KEEP:
+                raise _Declared("It asks Docker for access to this computer (folders, ports or the network) that "
+                                "Row-Bot doesn't grant.")
+            kept += [word] + ([str(value)] if value is not None else [])
+        if any(name.upper().startswith(("DOCKER_", "BUILDKIT_", "COMPOSE_")) for name in env):
+            raise _Declared(_UNSUPPORTED_PACKAGE)  # The Docker CLI reads these itself: never the recipe's to set.
+        passed = [part for name in env for part in ("-e", name)]
+        install = {"transport": "stdio", "command": "docker", "args": ["run", "-i", "--rm", *kept, *passed, image, *arguments]}
+    if len(inputs) > declared.LIMIT:
+        # Dozens of tuning options (one server lists 84): keep what the person must give or keeps secret;
+        # the rest stay at the server's own defaults.
+        dropped = {key for key, item in inputs.items() if not item["required"] and not item["secret"]}
+        flags = {inputs[key]["flag"] for key in dropped if inputs[key]["flag"]}
+        inputs = {key: item for key, item in inputs.items() if key not in dropped}
+
+        def unused(text: str) -> bool:
+            keys = set(_VARIABLE.findall(text))
+            return bool(keys) and keys <= dropped
+        gone = {name for name, text in env.items() if unused(text)}
+        env = {name: text for name, text in env.items() if name not in gone}
+        kept: list[str] = []
+        for arg in install["args"]:
+            if unused(arg) or (install["command"] == "docker" and arg in gone and kept[-1:] == ["-e"]):
+                if kept and kept[-1] in flags | {"-e"}:
+                    kept.pop()  # A named argument goes with its value; ``-e NAME`` with its variable.
+                continue
+            kept.append(arg)
+        install["args"] = kept
+    if env:
+        install["env"] = env
+    if inputs:
+        install["inputs"] = list(inputs.values())
+    return _checked(install)
+
+
+def registry_entries(data: dict) -> list[MarketplaceEntry]:
+    """Parse bounded v0.1 metadata; unsupported declarations never become recipes.
+
+    Declared headers, URL variables, environment variables and arguments become the recipe's
+    templates and declared inputs (``row_bot.integrations.inputs``); the person fills them in when
+    connecting. A server whose declarations cannot be expressed safely is still listed, with the
+    reason and no recipe or setup binding, so it can never be imported.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
+        raise ValueError("invalid_registry_response")
+    entries = []
+    known = {"$schema", "name", "version", "title", "description", "repository", "websiteUrl", "icons", "remotes", "packages", "_meta"}
+    for envelope in data["servers"][:1000]:
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("server"), dict):
+            continue
+        item = envelope["server"]
+        official = envelope.get("_meta", {}).get("io.modelcontextprotocol.registry/official", {})
+        official = official if isinstance(official, dict) else {}
+        name, version = item.get("name"), item.get("version")
+        if not isinstance(name, str) or not isinstance(version, str) or not name or len(name) > 200 or len(version) > 128:
+            continue
+        status = official.get("status", "unknown")
+        install, notes = None, []
+        remotes, packages, reviewable = item.get("remotes", []), item.get("packages", []), True
+        try:
+            if not isinstance(remotes, list) or not isinstance(packages, list) or len(remotes) > 16 or len(packages) > 16:
+                raise ValueError("invalid_registry_declarations")
+            setup_digest = _registry_setup_digest(item)
+        except ValueError:
+            reviewable, setup_digest = False, ""
+            notes.append("This server declares more setup than Row-Bot can review.")
+        if not reviewable:
+            pass
+        elif status != "active":
+            notes.append("Registry status: " + str(status)[:80] + ". New installation is unavailable.")
+        elif set(item) - known:
+            notes.append("Additional server setup or authentication declarations are unsupported by catalog import.")
+        else:
+            # The first route Row-Bot can express: a hosted remote, else a package it can run.
+            routes = [(remote, _remote) for remote in remotes] + [(package, _package) for package in packages]
+            for declaration, build in routes:
+                try:
+                    install = build(declaration if isinstance(declaration, dict) else {})
+                    break
+                except _Declared as reason:
+                    notes.append(str(reason))
+            if install is not None:
+                notes = []  # Reasons for routes not taken are not the record's.
+        secret = any(field["secret"] for field in (install or {}).get("inputs", []))
+        repository = item.get("repository", {})
+        url = str(repository.get("url", "")) if isinstance(repository, dict) else ""
+        entries.append(MarketplaceEntry(id=name + "@" + version, name=str(item.get("title") or name)[:128],
+            description=str(item.get("description", ""))[:800], source="official", publisher=name.split("/", 1)[0],
+            url=url or str(item.get("websiteUrl") or "")[:2048], classification="official-registry",
+            transport=install.get("transport", "") if install else "", requires_auth=secret,
+            install=install, notes=list(dict.fromkeys(notes)), metadata={"version": version, "status": status,
+                "canonical_name": name, **({"setup_digest": setup_digest} if install else {}),
+                **({"auth_mode": "api_key"} if secret else {}), **_registry_display(item, official)}))
     return entries
-
-
-def _load_cache() -> list[MarketplaceEntry]:
-    try:
-        with open(CACHE_PATH, "r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-        return [MarketplaceEntry(**item) for item in raw.get("entries", [])]
-    except Exception:
-        return []
-
-
-def _save_cache(entries: list[MarketplaceEntry]) -> None:
-    try:
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(CACHE_PATH, "w", encoding="utf-8") as handle:
-            json.dump({"saved_at": time.time(), "entries": [asdict(e) for e in entries]}, handle, indent=2)
-    except Exception as exc:
-        log_event("mcp.marketplace.cache_failed", level=30, error=str(exc))
-
-
-def _official_registry_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    # Generic Registry API endpoints can evolve; try conservative paths and
-    # degrade silently to the next source/cache if unavailable.
-    encoded = urllib.parse.urlencode({"search": query, "limit": str(limit)})
-    candidates = [
-        f"https://registry.modelcontextprotocol.io/v0/servers?{encoded}",
-        f"https://registry.modelcontextprotocol.io/api/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.official_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data if isinstance(data, list) else data.get("items", [])) if isinstance(data, (dict, list)) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("id") or "").strip()
-            if not name:
-                continue
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or ""),
-                source="official",
-                url=str(item.get("homepage") or item.get("repository") or item.get("url") or "https://registry.modelcontextprotocol.io/"),
-                publisher=str(item.get("publisher") or ""),
-                classification="official-registry",
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    return []
-
-
-def _pulsemcp_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    encoded = urllib.parse.urlencode({"q": query, "limit": str(limit)})
-    candidates = [
-        f"https://www.pulsemcp.com/api/v0.1/servers?{encoded}",
-        f"https://www.pulsemcp.com/api/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.pulsemcp_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data.get("items", [])) if isinstance(data, dict) else data if isinstance(data, list) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("displayName") or "").strip()
-            if not name:
-                continue
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or ""),
-                source="pulsemcp",
-                url=str(item.get("url") or item.get("homepage") or "https://www.pulsemcp.com/servers"),
-                publisher=str(item.get("publisher") or item.get("owner") or ""),
-                classification=str(item.get("classification") or ""),
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    page_url = f"https://www.pulsemcp.com/servers?{urllib.parse.urlencode({'query': query})}"
-    try:
-        html = _fetch_text(page_url, prefer_urllib=True)
-        entries = _parse_directory_html(
-            html,
-            source="pulsemcp",
-            base_url=page_url,
-            path_prefix="/servers/",
-            limit=limit * 3,
-        )
-        if entries:
-            return entries
-    except Exception as exc:
-        log_event("mcp.marketplace.pulsemcp_page_failed", level=10, url=page_url, error=str(exc))
-    return []
-
-
-def _smithery_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    encoded = urllib.parse.urlencode({"q": query, "query": query, "limit": str(limit)})
-    candidates = [
-        f"https://smithery.ai/api/servers?{encoded}",
-        f"https://server.smithery.ai/api/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.smithery_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data.get("items", data.get("data", []))) if isinstance(data, dict) else data if isinstance(data, list) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("displayName") or item.get("qualifiedName") or "").strip()
-            if not name:
-                continue
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("qualifiedName") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or item.get("summary") or ""),
-                source="smithery",
-                url=str(item.get("url") or item.get("homepage") or item.get("repository") or f"https://smithery.ai/server/{urllib.parse.quote(name)}"),
-                publisher=str(item.get("publisher") or item.get("author") or ""),
-                classification="hosted" if item.get("isHosted") else str(item.get("classification") or ""),
-                transport="streamable_http" if item.get("isHosted") else "",
-                requires_auth=bool(item.get("requiresAuth") or item.get("security")),
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    page_url = f"https://smithery.ai/servers?{urllib.parse.urlencode({'q': query})}"
-    try:
-        html = _fetch_text(page_url)
-        entries = _parse_directory_html(
-            html,
-            source="smithery",
-            base_url=page_url,
-            path_prefix="/servers/",
-            limit=limit * 3,
-        )
-        if entries:
-            return entries
-    except Exception as exc:
-        log_event("mcp.marketplace.smithery_page_failed", level=10, url=page_url, error=str(exc))
-    return []
-
-
-def _glama_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    encoded = urllib.parse.urlencode({"q": query, "search": query, "limit": str(limit)})
-    candidates = [
-        f"https://glama.ai/api/mcp/servers?{encoded}",
-        f"https://glama.ai/api/mcp/v1/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.glama_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data.get("items", data.get("data", []))) if isinstance(data, dict) else data if isinstance(data, list) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("slug") or "").strip()
-            if not name:
-                continue
-            quality = item.get("quality") or item.get("score") or item.get("grade") or ""
-            official = item.get("official") or item.get("isOfficial")
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("slug") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or item.get("summary") or ""),
-                source="glama",
-                url=str(item.get("url") or item.get("homepage") or f"https://glama.ai/mcp/servers/{urllib.parse.quote(name)}"),
-                publisher=str(item.get("publisher") or item.get("owner") or ""),
-                classification="official" if official else str(quality or ""),
-                transport=str(item.get("transport") or ""),
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    page_url = f"https://glama.ai/mcp/servers?{urllib.parse.urlencode({'query': query})}"
-    try:
-        html = _fetch_text(page_url)
-        entries = _parse_directory_html(
-            html,
-            source="glama",
-            base_url=page_url,
-            path_prefix="/mcp/servers/",
-            limit=limit * 3,
-        )
-        if entries:
-            return entries
-    except Exception as exc:
-        log_event("mcp.marketplace.glama_page_failed", level=10, url=page_url, error=str(exc))
-    return []
-
-
-def search_marketplace_with_status(query: str = "", *, sources: list[str] | None = None, limit: int = 24) -> MarketplaceSearchResult:
-    """Search MCP directories and report whether results are live or fallback."""
-    normalized_query = (query or "").strip().lower()
-    if not normalized_query:
-        result = [entry for entry in CURATED_STARTER_CATALOG if entry.recommended][:limit]
-        return MarketplaceSearchResult(
-            entries=result,
-            mode="curated",
-            query=normalized_query,
-            source_counts=_count_sources(result),
-        )
-    selected = sources or ["official", "pulsemcp", "smithery", "glama"]
-    curated_matches = _filter_relevant(CURATED_STARTER_CATALOG, normalized_query)
-    entries: list[MarketplaceEntry] = []
-    for source in selected:
-        try:
-            if source == "official":
-                entries.extend(_official_registry_search(normalized_query, limit))
-            elif source == "pulsemcp":
-                entries.extend(_pulsemcp_search(normalized_query, limit))
-            elif source == "smithery":
-                entries.extend(_smithery_search(normalized_query, limit))
-            elif source == "glama":
-                entries.extend(_glama_search(normalized_query, limit))
-        except Exception as exc:
-            log_event("mcp.marketplace.source_failed", level=30, source=source, error=str(exc))
-    if entries:
-        live_matches = _filter_relevant(_dedupe_entries(entries), normalized_query)
-        if live_matches:
-            result = _dedupe_entries(curated_matches + live_matches)[:limit]
-            _save_cache(result)
-            return MarketplaceSearchResult(
-                entries=result,
-                mode="live",
-                query=normalized_query,
-                source_counts=_count_sources(result),
-            )
-    cached = _load_cache()
-    cached_matches = _filter_relevant(cached, normalized_query)
-    if cached_matches:
-        result = _dedupe_entries(curated_matches + cached_matches)[:limit]
-        return MarketplaceSearchResult(
-            entries=result,
-            mode="cache",
-            query=normalized_query,
-            source_counts=_count_sources(result),
-        )
-    if curated_matches:
-        result = _dedupe_entries(curated_matches)[:limit]
-        return MarketplaceSearchResult(
-            entries=result,
-            mode="curated",
-            query=normalized_query,
-            source_counts=_count_sources(result),
-        )
-    mode = "cache" if cached_matches else "curated"
-    fallback = _dedupe_entries(curated_matches + cached_matches) if cached_matches else curated_matches
-    result = fallback[:limit]
-    return MarketplaceSearchResult(
-        entries=result,
-        mode=mode,
-        query=normalized_query,
-        source_counts=_count_sources(result),
-    )
-
-
-def search_marketplace(query: str = "", *, sources: list[str] | None = None, limit: int = 24) -> list[MarketplaceEntry]:
-    """Search MCP directories with cache/curated fallback."""
-    return search_marketplace_with_status(query, sources=sources, limit=limit).entries
 
 
 def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
     """Return a disabled, review-required server config template."""
+    if entry.source == "official" and (not entry.install or not (entry.metadata or {}).get("setup_digest")):
+        raise ValueError("registry_recipe_unsupported")
+    from row_bot.integrations import inputs as declared
     install = dict(entry.install or {})
     conflicts = [conflict.as_dict() for conflict in conflicts_for_entry(entry)]
+    fields = {field: dict(install.get(field) or {}) for field in ("headers", "env")}
+    found = declared.check(install.get("inputs"))
+    if not found and not (entry.metadata or {}).get("auth_bindings"):
+        # A recipe that leaves a header or variable blank asks the person for it when connecting.
+        for field, target in (("headers", "header"), ("env", "env")):
+            for name, value in fields[field].items():
+                if value == "":
+                    found.append(declared.declaration(declared.key_of(name), target=target, name=name,
+                                                      secret=declared.secretish(name), required=True))
+                    fields[field][name] = "{" + found[-1]["key"] + "}"
+    metadata = dict(entry.metadata or {})
+    if any(item["secret"] for item in found) and not metadata.get("auth_mode"):
+        metadata["auth_mode"] = "api_key"
     return {
         "enabled": False,
+        "environment_mode": "minimal",
         "transport": install.get("transport") or entry.transport or "stdio",
         "command": install.get("command", ""),
         "args": install.get("args", []),
         "url": install.get("url", ""),
-        "headers": install.get("headers", {}),
-        "env": install.get("env", {}),
+        "headers": fields["headers"],
+        "env": fields["env"],
+        **({"inputs": found} if found else {}),
+        **({"bundle": dict(install["bundle"])} if install.get("bundle") else {}),
         "requirements": list(entry.requirements or []),
         "trust_level": entry.trust_tier or "standard",
         "source": {
@@ -521,11 +454,17 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
             "risk_level": entry.risk_level,
             "action_scope": entry.action_scope,
             "requires_auth": entry.requires_auth,
+            **{key: metadata[key] for key in ("auth_mode", "auth_bindings", "account_requirements", "cost", "evidence",
+                                              "oauth_client", "oauth_client_url", "oauth_scope") if key in metadata},
             "recommended": entry.recommended,
             "capabilities": list(entry.capabilities or []),
             "overlaps_native": list(entry.overlaps_native or []),
             "requirements": list(entry.requirements or []),
             "conflicts": conflicts,
             "not_verified_by_row_bot": True,
+            **({"registry_name": (entry.metadata or {}).get("canonical_name", ""),
+                "registry_version": (entry.metadata or {}).get("version", ""),
+                "registry_setup_digest": (entry.metadata or {}).get("setup_digest", "")}
+               if entry.source == "official" else {}),
         },
     }

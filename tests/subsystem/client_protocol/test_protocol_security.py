@@ -69,6 +69,30 @@ def test_authenticated_command_revalidates_and_masks_errors():
         assert len(service.commands) == 1
 
 
+def test_many_windows_never_lock_out_a_new_one_and_the_one_in_use_stays_signed_in():
+    """Found live: after 256 sign-ins in 12 hours every new window got 429 until a restart. At the cap the least
+    recently used session gives way instead; the one in use keeps working."""
+    now = [100.0]
+    app = create_client_platform_app(
+        Service(), access_config=AccessConfig(deployment_mode=DeploymentMode.DESKTOP),
+        security=ClientSecurity("fixture", clock=lambda: now[0]),
+        choices=lambda: {"models": [], "capabilities": []})
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        _, first = bootstrap(client)
+        _, in_use = bootstrap(client)
+        for _ in range(254):
+            now[0] += 1
+            bootstrap(client)
+        now[0] += 1
+        assert client.get("/api/v1/conversations", headers=in_use).status_code == 200  # Used just now.
+        now[0] += 1
+        _, newest = bootstrap(client)  # The 257th: admitted, not refused.
+        assert client.get("/api/v1/conversations", headers=newest).status_code == 200
+        assert client.get("/api/v1/conversations", headers=in_use).status_code == 200
+        gone = client.get("/api/v1/conversations", headers=first)  # The least recently used gave way.
+        assert gone.status_code == 401 and gone.json()["code"] == "session_expired"
+
+
 def test_query_revoked_during_store_wait_never_delivers_data():
     client, service, active = client_app(remote=True)
     def read(*args):

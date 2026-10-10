@@ -36,6 +36,50 @@ class ClientPlatformError(ValueError):
 
 _COMMAND_LOCK = threading.RLock()
 _LOG = logging.getLogger(__name__)
+# Best-effort work run off the caller's thread (an outside change's page
+# refresh, a smart name). It reads module state such as threads.checkpointer
+# and its shared connection when it runs, so it stays owned until it ends:
+# whoever closes or replaces that state settles it first (settle_background).
+_BACKGROUND_LOCK = threading.RLock()  # Re-entrant: a start that runs its work at once may finish under it.
+_BACKGROUND: set[threading.Thread] = set()
+
+
+def run_in_background(target: Callable[[], None], *, name: str) -> None:
+    """Run ``target`` on a daemon thread that ``settle_background`` can wait for."""
+    def run() -> None:
+        try:
+            target()
+        finally:
+            with _BACKGROUND_LOCK:
+                _BACKGROUND.discard(thread)
+
+    thread = threading.Thread(target=run, daemon=True, name=name)
+    # Registered and started as one step: settle_background never sees (and joins) a thread not yet started.
+    with _BACKGROUND_LOCK:
+        _BACKGROUND.add(thread)
+        try:
+            thread.start()
+        except BaseException:
+            _BACKGROUND.discard(thread)
+            raise
+
+
+def settle_background(timeout: float | None = None) -> bool:
+    """Wait for the background work started so far, and any it starts in turn.
+
+    True once none is left; False if some is still running at the timeout.
+    """
+    deadline = None if timeout is None else time.monotonic() + timeout
+    while True:
+        with _BACKGROUND_LOCK:
+            pending = [thread for thread in _BACKGROUND if thread is not threading.current_thread()]
+        if not pending:
+            return True
+        for thread in pending:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            thread.join(remaining)
 # The client shows a trailing marker as a "Stopped" chip (TranscriptMessage).
 _STOPPED_MARKER = "\n\n⏹️ *[Stopped]*"
 # Conversation listings by group. The sidebar's type filters (B239) read the
@@ -143,6 +187,14 @@ def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: 
     yield ("done", message)
 
 
+def _accepted_app_scope(conversation_id: str) -> dict | None:
+    """What the turn being continued left out (see integrations.scope); continuing never widens it."""
+    from row_bot.application.client_queue import _staged
+    _, values = _staged(conversation_id)
+    scope = ((values.get("accepted_context") or {}).get("configurable") or {}).get("app_scope")
+    return scope if isinstance(scope, dict) else None
+
+
 def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> list[str]:
     """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``)."""
     from row_bot.tasks import _get_conn
@@ -231,8 +283,11 @@ class ClientPlatformService:
                         cancel_scope: Any = None, queued_pass_id: str = "", queue_context: dict | None = None,
                         resume_pending: bool = False,
                         attachments: list[dict[str, Any]] | None = None,
-                        note: str = "") -> Any:
-        """Single admission path for every conversation turn."""
+                        note: str = "", retry: bool = False) -> Any:
+        """Single admission path for every conversation turn.
+
+        ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
+        admits the new one, after every check has passed (``threads.append_checkpoint_messages``)."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -271,9 +326,10 @@ class ClientPlatformService:
                 # the model reads the prompt.
                 public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
             first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
+            retry_text = text if retry and text is not None and not note and not self._approval_waiting(conversation_id) else ""
             if text is not None and not threads.append_checkpoint_messages(
-                    conversation_id, [HumanMessage(content=text, id=submission_id,
-                                                   additional_kwargs=public_metadata)]):
+                    conversation_id, [HumanMessage(content=text, id=submission_id, additional_kwargs=public_metadata)],
+                    retry_text=retry_text):
                 raise ClientPlatformError("checkpoint_unavailable")
             if first_message:
                 # Named before the cut is published, so pages re-reading it see the name (B230).
@@ -618,7 +674,7 @@ class ClientPlatformService:
             except Exception:
                 _LOG.debug("Could not publish an outside change to %s", conversation_id, exc_info=True)
 
-        threading.Thread(target=publish, daemon=True, name="conversation-changed").start()
+        run_in_background(publish, name="conversation-changed")
 
     def _paused_approval_generation(self, conversation_id: str) -> dict | None:
         """The paused turn of a conversation whose approval is still pending.
@@ -763,7 +819,9 @@ class ClientPlatformService:
             if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
                 return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
         from row_bot.application.workspace_setup import reconcile_setup_receipt
-        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_clone_workspace", "draft_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
+        # Every owner's private proof ("_..."), not a list each new owner must remember to join.
+        return {key: value for key, value in reconcile_setup_receipt(result).items()
+                if not key.startswith("_") and key != "draft_workspace"}
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
                 validate: Callable[[], None] | None = None, authorized_folder: Any = None,
@@ -913,6 +971,10 @@ class ClientPlatformService:
         if kind == "resource.rename":
             from row_bot.application.conversation_resource_commands import rename
             return rename(self, target, str(payload["binding_id"]), str(payload["name"]))
+        if kind == "resource.delete":
+            from row_bot.application.conversation_resource_commands import delete_design
+            return delete_design(self, target, str(payload["binding_id"]),
+                                 expected_resource_revision=str(payload["expected_resource_revision"]))
         if kind in {"agent.stop", "agent.message", "agent.start", "agent.resume", "agent.dismiss"}:
             from row_bot.application import delegated_activity
             if kind == "agent.stop":
@@ -997,6 +1059,15 @@ class ClientPlatformService:
             revision = str(changed["conversation_revision"])
             self.projection.publish(target, "resource.changed", {"revision": revision})
             return {"conversation_id": target, "revision": revision, "status": "completed"}
+        if kind == "conversation.apps":
+            from row_bot.integrations import builtin, facts
+            from row_bot.threads import set_thread_app
+            item = facts.read(str(payload["item_id"])) or builtin.read(str(payload["item_id"]))
+            if item is None or item["kind"] not in {"mcp", "builtin"}:
+                raise ClientPlatformError("not_found")
+            revision = str(set_thread_app(target, item["id"], bool(payload["on"])))
+            self.projection.publish(target, "resource.changed", {"revision": revision})
+            return {"conversation_id": target, "revision": revision, "status": "completed"}
         if kind in {"conversation.bind", "conversation.unbind"}:
             from row_bot.conversation_resources import bind, unbind, ResourceError
             try:
@@ -1054,6 +1125,14 @@ class ClientPlatformService:
                 "retained_developer_work": bool(result.retained_worktree_path or result.retained_sandbox),
             }
         raise ClientPlatformError("invalid_command")
+
+    @staticmethod
+    def _approval_waiting(conversation_id: str) -> bool:
+        """An approval of any kind waits in this conversation: a retry then never replaces its turn."""
+        from row_bot.tasks import _get_conn
+        with _get_conn() as conn:
+            return conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND status='pending'",
+                                (conversation_id,)).fetchone() is not None
 
     def stop_conversation(self, conversation_id: str, generation_id: str = "") -> dict:
         """Stop a conversation's turn, and the computer use it holds.
@@ -1207,16 +1286,36 @@ class ClientPlatformService:
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
+        # Apps: the profile is the ceiling; this chat's switches and the message's mentions only narrow
+        # it. A queued message narrows by its own mentions (never by the turn it waited behind); a
+        # continued turn keeps what it left out; today's switches always apply.
+        from row_bot.integrations.scope import turn_scope
+        previous = _accepted_app_scope(conversation_id) if resume else None
+        try:
+            narrowed = turn_scope(conversation_id, "" if resume else text,
+                                  config["configurable"].get("tool_allowlist"), previous)
+        except Exception:
+            from row_bot.threads import get_thread_apps_off
+            _LOG.warning("Apps for %s could not be read", conversation_id, exc_info=True)
+            if previous or get_thread_apps_off(conversation_id):
+                raise ClientPlatformError("dependency_unavailable") from None  # Never widen what this chat switched off.
+            narrowed = None
+        if narrowed is not None:
+            config["configurable"]["app_scope"] = narrowed
         from row_bot.application.reasoning_controls import freeze_reasoning, restore_resume_reasoning
         if resume:
             restore_resume_reasoning(config["configurable"], conversation_id,
                                      pass_id=str((approval_context or {}).get("pass_id") or ""))
         freeze_reasoning(config["configurable"], conversation_id, revalidate=frozen_context is not None)
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
+        if frozen_context is not None:  # Remembered for a resume: this turn's own apps, not those it was queued behind.
+            kept = {key: value for key, value in queue_context["configurable"].items() if key != "app_scope"}
+            queue_context = {**queue_context, "configurable": {**kept, **({"app_scope": deepcopy(narrowed)} if narrowed else {})}}
         handle = self.admit_execution(conversation_id, config, text=None if resume else text,
             queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
             resume_pending=resume, attachments=None if resume else attachment_views,
-            note=followup.note if followup is not None else "")
+            note=followup.note if followup is not None else "",
+            retry=not resume and queue_record is None and followup is None and payload.get("retry") is True)
         handle.followups = True
         if not resume and frozen_context is None and queue_record is None and followup is None and command_id:
             from row_bot.application.conversation_drafts import consume_admitted_draft
@@ -1447,6 +1546,12 @@ class ClientPlatformService:
 
             safe_input = safe_tool_input(getter("args") or {})
             result_message_id = str(getter("message_id") or "")
+            # The app a call belongs to, read when it starts and kept for its result.
+            from row_bot.application.conversation_traces import app_of_tool
+            apps = handle.__dict__.setdefault("tool_apps", {})
+            if call_id not in apps:
+                apps[call_id] = app_of_tool(getter("runtime_name") or raw_tool, getter("args"))
+            app = apps[call_id]
             item = build_trace_item(
                 item_id=call_id,
                 group_id=group_id,
@@ -1465,6 +1570,7 @@ class ClientPlatformService:
                 external_outcome=str(getter("external_outcome") or ""),
                 content_ref=result_message_id if kind == "tool_done" else "",
                 safe_input=safe_input,
+                app=app,
             )
             self.projection.publish(conversation_id, "tool.activity", {
                 "tool_name": tool_name[:128],
@@ -1478,6 +1584,7 @@ class ClientPlatformService:
                 "safe_summary": item.safe_summary,
                 "summary_truncated": item.summary_truncated,
                 "content_ref": item.content_ref,
+                **({"app": dict(app)} if app else {}),
                 **({"specialization": public_specialization(item.specialization)}
                    if item.specialization is not None and item.specialization.kind in CARD_SPECIALIZATIONS
                    else {})})

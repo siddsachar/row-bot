@@ -302,7 +302,7 @@ assert len(read_accounts().accounts) == 3
 assert 'row_bot.api_keys' not in sys.modules
 assert not Path(os.environ['ROW_BOT_DATA_DIR']).exists()
 """
-    result = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(cold)}, capture_output=True, text=True, timeout=20)
+    result = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(cold)}, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
 
 

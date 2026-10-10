@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "pattern": "^[a-z_]{1,64}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 512,
+      "title": "Message",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "blocking",
+        "info"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "subject": {
+      "maxLength": 256,
+      "title": "Subject",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "severity",
+    "message",
+    "subject"
+  ],
+  "title": "IntegrationBlocker",
+  "type": "object"
+}

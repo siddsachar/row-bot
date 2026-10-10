@@ -245,11 +245,44 @@ def test_memory_policy_publishes_clear_fallback_warning_with_next_action(tmp_pat
 
     assert decision.trace["semantic_status"] == "fallback"
     assert decision.trace["semantic_fallback_code"] == "local_model_missing"
-    assert notices[0]["title"] == "Memory recall fallback"
+    assert notices[0]["title"] == "Memory search is limited"
     assert "continued" in notices[0]["message"]
-    assert notices[0]["action"].endswith("choose Download model.")
+    assert not {"lexical", "semantic", "fallback"} & set(" ".join(notifications[0][0]).lower().split())
+    assert notices[0]["action"] == "Open Settings › Documents › Advanced, then under Search model files choose Download."
     assert notifications[0][1]["toast_type"] == "warning"
     assert notifications[0][1]["sound"] == "none"
+
+
+def test_a_recall_fallback_is_shown_once_with_the_cause_to_fix_first(tmp_path, monkeypatch):
+    """Found live (a laptop without the search model): every reply showed the notice again, and it advised
+    rebuilding the memory index, which can't work until the model is downloaded."""
+    kg, _mem, policy, _extraction = _fresh_memory_modules(tmp_path, monkeypatch)
+    kg.save_entity("fact", "Atlas", "The user is building Atlas.", source="test")
+    notifications, status = [], {"semantic": "fallback"}
+
+    def _candidates(*_args, diagnostics=None, **_kwargs):
+        diagnostics.update({"semantic_status": status["semantic"], "semantic_fallback_code": "memory_index_missing",
+                            "semantic_fallback_detail": "The memory vector index needs a complete rebuild."})
+        return []
+
+    monkeypatch.setattr(kg, "retrieve_memory_candidates", _candidates)
+    monkeypatch.setattr("row_bot.notifications.notify", lambda *args, **kwargs: notifications.append(args))
+    monkeypatch.setattr("row_bot.embedding_providers.get_local_embedding_status", lambda **_: {"state": "missing"})
+
+    def reply(generation):
+        policy.build_auto_recall("What do you remember about Atlas?", [], thread_id="thread-1",
+                                 generation_id=generation, runtime_surface="chat")
+        return policy.consume_recall_fallback_notices(generation)
+
+    first, second = reply("gen-1"), reply("gen-2")
+    assert len(notifications) == 1  # Shown once, not on every reply,
+    assert [n["code"] for n in first + second] == ["local_model_missing"] * 2  # though each reply still records it,
+    assert first[0]["action"].endswith("under Search model files choose Download.")  # naming the model first.
+    status["semantic"] = "used"
+    reply("gen-3")  # Working again,
+    status["semantic"] = "fallback"
+    reply("gen-4")
+    assert len(notifications) == 2  # so a later failure is shown again.
 
 
 def test_agent_pre_model_trim_injects_policy_block_and_touches_only_selected(tmp_path, monkeypatch):

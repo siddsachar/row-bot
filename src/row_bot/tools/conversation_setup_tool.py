@@ -8,8 +8,9 @@ is bound for the turn (a turn captures its bindings when it starts).
 
 ``create_code_folder`` with Developer tools off asks to turn them on through
 the usual approval (shown as a "Turn on Developer tools" card) instead of
-letting files land loosely in the workspace. ``request_connection`` shows a
-"Connect …" card for an account or channel the work needs.
+letting files land loosely in the workspace. ``suggest_apps`` looks for apps that
+could do the work in Row-Bot's local catalogs and leaves a Connect card for them;
+connecting is the person's choice, through the app's normal consent.
 
 ``use_code_folder`` and ``clone_repository`` bring in a folder the person
 already has or a repository (B277). The model never gives a path: a folder the
@@ -45,20 +46,6 @@ _DESIGN_WORDS = {
     "landing": "landing page",
     "app_mockup": "app mockup",
     "storyboard": "storyboard",
-}
-Connection = Literal[
-    "google", "github", "x", "telegram", "slack", "discord", "sms", "whatsapp", "email",
-]
-_CONNECTIONS: dict[str, tuple[str, str]] = {
-    "google": ("Google", "accounts"),
-    "github": ("GitHub", "accounts"),
-    "x": ("X", "accounts"),
-    "telegram": ("Telegram", "channels"),
-    "slack": ("Slack", "channels"),
-    "discord": ("Discord", "channels"),
-    "sms": ("SMS", "channels"),
-    "whatsapp": ("WhatsApp", "channels"),
-    "email": ("Email", "channels"),
 }
 
 GUIDANCE = (
@@ -288,22 +275,49 @@ def create_code_folder(name: str = "") -> str:
     return _created("code", result, title, continues)
 
 
-def request_connection(service: Connection, reason: str = "") -> str:
-    """Show a Connect card for an account or channel the work needs."""
-    label, page = _CONNECTIONS.get(str(service), ("", ""))
-    if not label:
-        return _json({"ok": False, "error": "Unknown connection."})
+def suggest_apps(need: str, changes: bool = False) -> str:
+    """Suggest apps from Row-Bot's local catalogs that could do the work; a card offers to connect them."""
+    from row_bot.integrations.scope import out_of_turn, suggestions
+    try:
+        found = suggestions(need)
+        conversation_id = _conversation_id() if any(app.get("ready") for app in found) else ""
+        reasons = {app["item_id"]: out_of_turn(app["item_id"], conversation_id) for app in found if app.get("ready")}
+    except Exception:
+        logger.warning("App suggestions are unavailable", exc_info=True)
+        found, reasons = [], {}
+    # One already added and ready is never offered as a lookalike to connect: say why it isn't doing this. Only
+    # one that just looks things up gets a card, which allows changes, and only when the work changes something.
+    allow = [app for app in found if changes and reasons.get(app["item_id"]) == "changes_off"]
+    added = [app for app in found if app.get("ready") and app not in allow]
+    found = [app for app in found if not app.get("ready")]
+    why = " ".join(app["name"] + {
+        "off": " is already added but switched off in this chat; the person can switch it on in + › Apps.",
+        "left_out": " is already added and on, but this message @mentions other apps, so it isn't in this turn.",
+    }.get(reasons[app["item_id"]], " is already added and on in this turn: use its tools.") for app in added)
+    if not found and not allow and added:
+        return _json({"ok": True, "kind": "apps_added", "display_summary": "Already added: "
+                      + ", ".join(app["name"] for app in added), "next": why + " Say so in one sentence. Don't "
+                      "suggest other apps, websites or commands."})
+    if not found and not allow:
+        return _json({"ok": True, "kind": "no_apps", "display_summary": "No app found",
+                      "next": "No app in Row-Bot's catalog does this. Say so briefly. Don't suggest websites, "
+                              "downloads or commands to install anything."})
+    names = [app["name"] for app in [*allow, *found]]
+    offer = [f"{app['name']} only looks things up: its card offers to allow changes, which still ask first." for app in allow]
+    offer += [f"{app['name']} is already added: its card offers {app['action']}." for app in found if app.get("action")]
+    new = [app["name"] for app in found if not app.get("action")]
+    if new:
+        offer.append("The person sees a card to connect " + ", ".join(new) + ". Nothing is "
+                     "installed or connected unless they choose to, and they see what each app can do first.")
     return _json({
         "ok": True,
-        "kind": "setup_needed",
-        "setup_kind": "connection",
-        "target": str(service),
-        "label": label,
-        "settings_page": page,
-        "reason": str(reason or "")[:300],
-        "display_summary": f"Asked to connect {label}",
-        "next": f"The person sees a Connect {label} card. Tell them what you will do once it is "
-                "connected, then stop.",
+        "kind": "connect_apps",
+        "apps": [app["item_id"] for app in [*allow, *found]],
+        "allow": [app["item_id"] for app in allow],  # Only these cards offer to allow changes; the rest Continue.
+        "names": names,
+        "display_summary": "Suggested " + ", ".join(names),
+        "next": " ".join(offer) + " Say in one sentence what you will do once it's ready, then stop; they press "
+                "Continue when it's ready." + (" " + why if why else ""),
     })
 
 
@@ -504,9 +518,11 @@ class _CodeFolderInput(BaseModel):
     name: str = Field(default="", description="A short folder name from the request, e.g. “Tiny date app”.")
 
 
-class _ConnectionInput(BaseModel):
-    service: Connection = Field(description="The account or channel the work needs.")
-    reason: str = Field(default="", description="One short sentence on why it is needed.")
+class _AppsInput(BaseModel):
+    need: str = Field(max_length=200, description="What the person wants done or the service they named, e.g. "
+                                                  "'read my calendar' or 'Notion'.")
+    changes: bool = Field(default=False, description="True when the work creates, edits, sends or deletes something "
+                                                     "in the app; false when it only reads.")
 
 
 class _UseFolderInput(BaseModel):
@@ -531,8 +547,7 @@ class ConversationSetupTool(BaseTool):
     @property
     def description(self) -> str:
         return ("Create a design or a code folder for this conversation when the work needs one, use a "
-                "folder the person already has, clone a repository, or ask the person to connect an "
-                "account.")
+                "folder the person already has, clone a repository, or suggest an app to connect.")
 
     @property
     def enabled_by_default(self) -> bool:
@@ -540,7 +555,7 @@ class ConversationSetupTool(BaseTool):
 
     def execute(self, query: str) -> str:
         return ("Use create_design, create_code_folder, use_code_folder, clone_repository or "
-                "request_connection.")
+                "suggest_apps.")
 
     def as_langchain_tools(self) -> list:
         return [
@@ -591,14 +606,16 @@ class ConversationSetupTool(BaseTool):
                 args_schema=_CloneInput,
             ),
             StructuredTool.from_function(
-                func=request_connection,
-                name="request_connection",
+                func=suggest_apps,
+                name="suggest_apps",
                 description=(
-                    "When the work needs an account or channel that is not connected (Google for "
-                    "Gmail or Calendar, GitHub, X, or a messaging channel), show the person a Connect "
-                    "card instead of sending them to Settings."
+                    "When the work needs an app or service you have no tool for (email, a calendar, "
+                    "Notion, Linear, a messaging channel), or a change in an app you have that only looks "
+                    "things up, look it up in Row-Bot's own catalog and show the person a card to connect it "
+                    "or allow changes. It never installs or connects anything; the person decides. Use it "
+                    "instead of sending them to Settings or to a website."
                 ),
-                args_schema=_ConnectionInput,
+                args_schema=_AppsInput,
             ),
         ]
 

@@ -1,0 +1,10 @@
+{
+  "telegram": {
+    "auto_start": true,
+    "approved_users": [],
+    "approved_user_names": {}
+  },
+  "tunnel": {
+    "tunnel_main_app": false
+  }
+}

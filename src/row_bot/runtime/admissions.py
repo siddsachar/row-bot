@@ -215,6 +215,15 @@ def read_command_metadata(owner_id: str, command_id: str) -> dict | None:
         return dict(row) if row is not None else None
 
 
+def unfinished(command_id: str) -> bool:
+    """Whether any owner's command with this id is unfinished, so its recovery files may still be needed."""
+    with _read_command_connection() as conn:
+        if conn is None:
+            return False
+        return conn.execute("SELECT 1 FROM client_commands WHERE command_id=? AND "
+                            "(status NOT IN ('completed','rejected') OR status IS NULL) LIMIT 1", (command_id,)).fetchone() is not None
+
+
 def read_command_receipt(owner_id: str, command_id: str) -> dict | None:
     """Read one bounded saved receipt without schema, key or command writes."""
     with _read_command_connection() as conn:
@@ -246,6 +255,24 @@ def read_unfinished_target_commands(target: str, *, limit: int = 32) -> dict:
                             "WHERE target=? AND (status NOT IN ('completed','rejected') OR status IS NULL) ORDER BY owner_id,key LIMIT ?",
                             (target, limit + 1)).fetchmany(limit + 1)
         if any(not isinstance(value, str) or len(value) > 1024 for row in rows for value in row):
+            raise AdmissionError("command_metadata_unavailable")
+        return {"items": [dict(row) for row in rows[:limit]], "overflow": len(rows) > limit}
+
+
+def read_unfinished_commands(*, prefixes: tuple[str, ...], limit: int = 256) -> dict:
+    """Unfinished commands whose targets start with a prefix, in one bounded read;
+    overflow must remain a recovery requirement."""
+    if not prefixes or not all(type(prefix) is str and prefix for prefix in prefixes):
+        raise AdmissionError("command_metadata_unavailable")
+    within = " OR ".join("substr(target,1,?)=?" for _ in prefixes)
+    bound = [value for prefix in prefixes for value in (len(prefix), prefix)]
+    with _read_command_connection() as conn:
+        if conn is None:
+            return {"items": [], "overflow": False}
+        rows = conn.execute("SELECT owner_id,key,command_id,target,type,status FROM client_commands "
+                            f"WHERE (status NOT IN ('completed','rejected') OR status IS NULL) AND ({within}) "
+                            "ORDER BY target,owner_id,key LIMIT ?", (*bound, limit + 1)).fetchmany(limit + 1)
+        if any(not isinstance(value, str) or len(value) > 1024 for row in rows for value in tuple(row)[:5]):
             raise AdmissionError("command_metadata_unavailable")
         return {"items": [dict(row) for row in rows[:limit]], "overflow": len(rows) > limit}
 

@@ -1,0 +1,7 @@
+{
+  "servers": [{
+    "server": {"name": "org.example/notes", "title": "Example Notes", "version": "1.2.3", "description": "Synthetic notes service", "remotes": [{"type": "streamable-http", "url": "https://notes.example.test/mcp"}]},
+    "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active"}}
+  }],
+  "metadata": {}
+}

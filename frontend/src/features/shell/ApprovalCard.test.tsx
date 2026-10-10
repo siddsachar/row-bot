@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import ApprovalCard from './ApprovalCard';
@@ -107,6 +108,24 @@ it('explains the action in plain words, without request ids or unrated risk', as
   expect(screen.queryByText(/No server expiry/)).toBeNull();
 });
 
+it('lists structured arguments in words, never as code', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    safe_argument_summary:
+      '{"orders":[{"sku":"A1","qty":2,"ship_to":{"city":"Leeds"}},{"sku":"B2","qty":1}],"rush":true}',
+  });
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  expect(
+    screen.getByText(
+      'Orders: sku A1, qty 2, ship to (city Leeds); sku B2, qty 1',
+    ),
+  ).toBeVisible();
+  expect(screen.getByText('Rush: yes')).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/[{[]"/);
+});
+
 it('says since when the approval waits (B255)', async () => {
   approval.mockResolvedValue({
     ...view,
@@ -170,6 +189,21 @@ it('keeps the tool off with Not now', async () => {
   );
 });
 
+it('shows which app asks, with its logo and name, and still needs the person', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'mcp_notion_delete_page',
+    reason: 'Delete a page for good.',
+    app: { item_id: 'mcp:notion', name: 'Notion', icon: 'letter:N' },
+  });
+  await renderCard();
+  const card = screen.getByRole('complementary', {
+    name: /Approval required for .* in Notion$/,
+  });
+  expect(card).toHaveTextContent('Notion');
+  expect(intent).not.toHaveBeenCalled();
+});
+
 it('re-reads the waiting approvals at once after an answer (B302)', async () => {
   pendingApprovals.mockResolvedValue({ items: [], next_cursor: null });
   function Sidebar() {
@@ -194,9 +228,12 @@ it('offers approving the rest of the reply only for a repeatable action (F21)', 
     action_label: 'developer_commit_changes',
     repeatable: true,
   });
-  render(<ApprovalCard id="approval-b" />);
+  // Within the second card: the first may read its approval again meanwhile and offer it too.
+  const second = render(<ApprovalCard id="approval-b" />);
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Approve the rest' }),
+    await within(second.container).findByRole('button', {
+      name: 'Approve the rest',
+    }),
   );
   await waitFor(() =>
     expect(intent).toHaveBeenCalledWith(

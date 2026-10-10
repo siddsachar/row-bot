@@ -363,3 +363,20 @@ def test_forged_private_receipt_does_not_escape_wire(client):
         {"command_id":value["command_id"],"status":"completed","_document_queue":"not a proof"})
     with pytest.raises(Exception,match="unavailable"):
         api.read_document_control_command(command_id=value["command_id"],**identity)
+
+
+def test_batch_rows_are_named_by_their_documents_and_stay_reviewable(client):
+    api,service,_ = client
+    batch = service.create_batch()
+    for index,name in enumerate(("Quarterly report.pdf","notes.txt","slides.pptx")):
+        service.create_staging_job(batch,index,name)
+    single,_ = queued(client,"only.txt")
+    rows = {item.id:item for item in api.read_document_queue(validate=lambda:None).items}
+    assert (rows[batch].name,rows[batch].document_count) == ("Quarterly report.pdf",3)
+    assert (rows[single].name,rows[single].document_count) == ("only.txt",1)
+    jobs = api.read_document_queue(kind="jobs",batch_id=batch,validate=lambda:None).items
+    assert all(item.document_count is None for item in jobs)
+    # The page's batch revision is the reviewed one: the name is display only.
+    review = api.read_document_control_review("document.batch.pause",
+        {"target_id":batch,"revision":rows[batch].revision},validate=lambda:None)
+    assert review["batch_ids"] == [batch]

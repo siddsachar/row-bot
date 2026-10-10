@@ -562,6 +562,50 @@ describe('Developer inspector', () => {
     ).toBeInTheDocument();
   });
 
+  it('marks a file an agent change created as added, and one it deleted as deleted', async () => {
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...fixture,
+      is_git: false,
+      changed_total: 0,
+    }));
+    options.changeSets = vi.fn(async () => ({
+      items: [
+        {
+          id: 'set-two',
+          summary: 'Write two.py',
+          reviewed: false,
+          reverted: false,
+          file_count: 3,
+          undoable: true,
+        },
+      ],
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 1,
+    }));
+    // The change ledger's own words for each file (developer/edits.py).
+    options.changeSetFiles = vi.fn(async (identifier) => ({
+      items: [
+        { path: 'two.py', action: 'create' },
+        { path: 'old.py', action: 'delete' },
+        { path: 'one.py', action: 'update' },
+      ],
+      change_set_id: identifier,
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 3,
+    }));
+    render(<WorkspaceInspector {...options} />);
+    const letter = async (path: string) =>
+      (
+        await screen.findByRole('button', { name: `Show changes in ${path}` })
+      ).querySelector('.dev-status-letter');
+    expect(await letter('two.py')).toHaveAttribute('title', 'Added');
+    expect(await letter('old.py')).toHaveAttribute('title', 'Deleted');
+    expect(await letter('one.py')).toHaveAttribute('title', 'Modified');
+  });
+
   it('groups files under the agent change that made them and keeps other changes apart', async () => {
     const options = props();
     const onUndo = vi.fn();
@@ -993,24 +1037,21 @@ describe('Developer inspector', () => {
     }));
     render(<WorkspaceInspector {...options} />);
     await openFile();
+    // 72 page turns: the fake reads resolve at once, so one act() flush
+    // settles each turn. waitFor's real-timer polling and getByRole's
+    // accessible-name pass made this test overrun 5 s under load.
     for (let offset = 1; offset <= 40; offset += 1) {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Next file section' }),
-      );
-      await waitFor(() =>
-        expect(screen.getByLabelText('File text')).toHaveTextContent(
-          new RegExp(`^Section ${offset}$`),
-        ),
+      fireEvent.click(screen.getByText('Next file section'));
+      await act(async () => {});
+      expect(screen.getByLabelText('File text')).toHaveTextContent(
+        new RegExp(`^Section ${offset}$`),
       );
     }
     for (let offset = 39; offset >= 8; offset -= 1) {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Previous file section' }),
-      );
-      await waitFor(() =>
-        expect(screen.getByLabelText('File text')).toHaveTextContent(
-          new RegExp(`^Section ${offset}$`),
-        ),
+      fireEvent.click(screen.getByText('Previous file section'));
+      await act(async () => {});
+      expect(screen.getByLabelText('File text')).toHaveTextContent(
+        new RegExp(`^Section ${offset}$`),
       );
     }
     expect(

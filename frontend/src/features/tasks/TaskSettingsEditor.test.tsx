@@ -51,9 +51,9 @@ function snapshot(
 // SettingRow names its control and its row group with the same visible label,
 // so query the control itself by role and accessible name.
 const concurrencyGroup = () =>
-  screen.getByRole('textbox', { name: 'Concurrency group' });
+  screen.getByRole('textbox', { name: 'Queue name' });
 const findConcurrencyGroup = () =>
-  screen.findByRole('textbox', { name: 'Concurrency group' });
+  screen.findByRole('textbox', { name: 'Queue name' });
 
 /** The webhook rotation sits in a collapsed Danger zone until opened. */
 function openDangerZone() {
@@ -223,7 +223,7 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
   );
   expect(profileField()).toHaveValue('builtin:review');
   expect(
-    screen.getByText(/Reviewed effective approval policy: Block/),
+    screen.getByText(/^Approvals: Block\. This workflow can only read/),
   ).toBeVisible();
   expect(screen.getByText(/Auto permits actions/)).toBeInTheDocument();
 });
@@ -513,9 +513,9 @@ it('groups controls by purpose and names the workflow in its description', async
       name: 'Reuse a conversation across runs',
     }),
   ).not.toBeChecked();
-  expect(
-    within(runs).getByRole('textbox', { name: 'Concurrency group' }),
-  ).toHaveValue('');
+  expect(within(runs).getByRole('textbox', { name: 'Queue name' })).toHaveValue(
+    '',
+  );
   expect(within(runs).getByRole('combobox', { name: 'Trigger' })).toHaveValue(
     'none',
   );

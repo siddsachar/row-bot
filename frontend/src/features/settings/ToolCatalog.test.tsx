@@ -53,7 +53,7 @@ function pending<T>() {
 }
 
 async function openCatalog() {
-  const summary = await screen.findByText('Cached tool catalogue');
+  const summary = await screen.findByText('All tools');
   const disclosure = summary.closest('details')!;
   if (!disclosure.open) fireEvent.click(summary);
 }
@@ -72,31 +72,47 @@ it('keeps at most 200 tool rows while forward paging reaches the entire catalog'
     async (_source?: Tool['source'], _query?: string, cursor?: string) =>
       chunk(Number(cursor ?? 0)),
   );
+  // 200 rows make whole-page queries costly in jsdom (getByText tests every
+  // node, getByRole computes names and visibility), and findBy repeats them
+  // on each real-timer poll; this overran 5 s under load. The fake reads
+  // resolve at once, so one act() flush settles each step, and the queries
+  // look only at buttons, row titles or the page's text.
+  const rowTitle = (text: string) =>
+    screen.getByText(text, { selector: '.settings-results strong' });
+  const button = (name: string) =>
+    screen.getByText(name, { selector: 'button' });
   const view = render(<ToolCatalog load={load} />);
   await openCatalog();
-  await screen.findByText('Tool 099 · Core');
+  await act(async () => {});
+  expect(rowTitle('Tool 099 · Core')).toBeInTheDocument();
   for (const end of [199, 299, 399]) {
-    fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
-    await screen.findByText(`Tool ${end} · Core`);
+    fireEvent.click(button('Load more tools'));
+    await act(async () => {});
+    expect(rowTitle(`Tool ${end} · Core`)).toBeInTheDocument();
     expect(
       view.container.querySelectorAll('.settings-results > li'),
     ).toHaveLength(200);
   }
-  expect(screen.queryByText('Tool 000 · Core')).not.toBeInTheDocument();
-  expect(screen.getByText('Tool 200 · Core')).toBeVisible();
-  expect(screen.getByText(/Showing entries 201–400/)).toBeVisible();
+  expect(document.body).not.toHaveTextContent('Tool 000 · Core');
+  expect(rowTitle('Tool 200 · Core')).toBeVisible();
+  expect(
+    screen.getByText(/Showing entries 201–400/, {
+      selector: '[role="status"]',
+    }),
+  ).toBeVisible();
   expect(load.mock.calls.map((call) => call[2])).toEqual([
     undefined,
     '100',
     '200',
     '300',
   ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Reload cached tools' }));
-  await screen.findByText('Tool 000 · Core');
+  fireEvent.click(button('Reload cached tools'));
+  await act(async () => {});
+  expect(rowTitle('Tool 000 · Core')).toBeInTheDocument();
   expect(
     view.container.querySelectorAll('.settings-results > li'),
   ).toHaveLength(100);
-  expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent('Showing entries');
 });
 
 it('distinguishes cached zero counts from unavailable sources and unknown runtime readiness', async () => {
@@ -115,9 +131,7 @@ it('distinguishes cached zero counts from unavailable sources and unknown runtim
   expect(screen.getByText('Cached · 0 recorded entries')).toBeVisible();
   expect(screen.getAllByText('Unavailable · Count unknown')).toHaveLength(2);
   expect(
-    screen.getByText(
-      /Runtime readiness and account access have not been checked/,
-    ),
+    screen.getByText(/Opening this list doesn’t check that each one works/),
   ).toBeVisible();
   fireEvent.click(screen.getByText('First tool · Core'));
   expect(screen.getAllByText('Unknown')).toHaveLength(5);
@@ -155,7 +169,8 @@ it('keeps declarations separate from access and renders labels as text', async (
   expect(row.getAllByText('No')).toHaveLength(2);
   expect(row.getByText('Unknown')).toBeVisible();
   expect(row.getByText('Plugin ID')).toBeVisible();
-  expect(screen.getByText('same · Core')).toBeVisible();
+  // A bare id reads as a name.
+  expect(screen.getByText('Same · Core')).toBeVisible();
   expect(
     screen.queryByText(/ready to run|credentials verified|safe to execute/i),
   ).not.toBeInTheDocument();
@@ -171,17 +186,20 @@ it('uses compact friendly-label rows and keeps stable IDs behind disclosure', as
   const { container } = render(
     <ToolCatalog load={async () => page([entry])} />,
   );
-  expect(await screen.findByText('Cached tool catalogue')).toBeVisible();
-  expect(screen.getByText('Web Search · Core')).not.toBeVisible();
+  expect(await screen.findByText('All tools')).toBeVisible();
+  // Row-Bot's own tool goes by the name the Tools page and Apps › Tavily give it.
+  expect(screen.getByText('Tavily web search · Core')).not.toBeVisible();
   await openCatalog();
-  const heading = await screen.findByText('Web Search · Core');
+  const heading = await screen.findByText('Tavily web search · Core');
   const row = heading.closest('li')!;
   expect(row.closest('ul')).toHaveClass(
     'settings-catalog-list',
     'settings-tool-catalog-list',
   );
   expect(row).not.toHaveClass('surface');
-  const savedState = within(row).getByLabelText('Web Search saved state');
+  const savedState = within(row).getByLabelText(
+    'Tavily web search saved state',
+  );
   expect(within(savedState).getByText('Enabled')).toBeVisible();
   expect(within(savedState).getByText('Configured')).toBeVisible();
   expect(within(row).getByText('web_search')).not.toBeVisible();
@@ -403,4 +421,24 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
   expect(await screen.findByText('Recovered · Core')).toBeVisible();
   expect(screen.getByText('Confirmed · Core')).toBeVisible();
   expect(load.mock.calls[2].slice(0, 3)).toEqual([undefined, '', 'next']);
+});
+
+it('names bare tool ids as people read them, with no filler line under each', async () => {
+  render(
+    <ToolCatalog
+      load={async () =>
+        page([
+          tool('browser'),
+          tool('arxiv'),
+          tool('youtube'),
+          tool('mcp', 'mcp'),
+        ])
+      }
+    />,
+  );
+  await openCatalog();
+  for (const name of ['Browser · Core', 'arXiv · Core', 'YouTube · Core'])
+    expect(await screen.findByText(name)).toBeVisible();
+  expect(screen.getByText('MCP · MCP')).toBeVisible();
+  expect(screen.queryByText('Saved catalog entry')).toBeNull();
 });

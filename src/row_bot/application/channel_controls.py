@@ -961,6 +961,9 @@ async def execute_channel_command(
         # the admitted original uncertain and never invoke it on a retry.
         retained = admissions.read_command_receipt(owner_id, command["command_id"])
         return _public_receipt(retained or initial)
+    finally:
+        from row_bot.integrations import builtin
+        builtin.changed()  # Apps shows the channel as it is now.
 
 
 def read_channel_link(

@@ -13,8 +13,10 @@ import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
 import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
-import { OverlayProvider } from '../../ui/overlays';
+import { OverlayProvider, useOverlay } from '../../ui/overlays';
+import { deleteWithUndo } from './delete-with-undo';
 import Workspace from './Workspace';
+import { settingsReturnPath } from '../settings/return-path';
 
 // JSDOM has no measured panes. Keep the production shell, navigation, router,
 // composer and controller mounted while replacing only resize geometry.
@@ -280,4 +282,169 @@ it('returns focus to the phone header menu after Workspace commands opened from 
   );
   // The menu item that opened it is gone; its trigger takes focus back.
   await waitFor(() => expect(menu).toHaveFocus());
+});
+
+it('goes Home and says so when the open conversation is deleted in another window', async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
+  // Another window deleted it: the controller closes it.
+  await act(async () => controller.forgetConversation('conversation-a'));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/),
+  );
+  expect(
+    await screen.findByText('That conversation was deleted.'),
+  ).toBeVisible();
+});
+
+it('remembers the chat Settings was opened from, for Close settings', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <GoToSettings />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByText('Route elsewhere'));
+  });
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/settings/buddy',
+  );
+  expect(settingsReturnPath()).toBe('/conversations/conversation-a');
+});
+
+it('goes Home without "deleted elsewhere" when the person deletes the open chat with Undo', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <DeleteOpenChat controller={controller} />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByText('Delete the open chat'));
+  });
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/),
+  );
+  expect(await screen.findByText(/^Deleted '/)).toBeVisible();
+  expect(screen.queryByText('That conversation was deleted.')).toBeNull();
+});
+
+function DeleteOpenChat({ controller }: { controller: ClientController }) {
+  const overlay = useOverlay();
+  return (
+    <button
+      onClick={() => {
+        const row = controller
+          .getSnapshot()
+          .conversations.find((item) => item.id === 'conversation-a')!;
+        deleteWithUndo(controller, overlay.notify, row);
+      }}
+    >
+      Delete the open chat
+    </button>
+  );
+}
+
+it('stays on the chat while a sign-in is replaced after a restart', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  // A restart drops the session: the chat closes for a moment, then the app is ready again.
+  const update = (patch: object) =>
+    (controller as unknown as { update(patch: object): void }).update(patch);
+  await act(async () =>
+    update({ selectedConversationId: null, status: 'unauthorized' }),
+  );
+  await act(async () => update({ status: 'ready' }));
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/conversations/conversation-a',
+  );
+  expect(screen.queryByText('That conversation was deleted.')).toBeNull();
+});
+
+it('says whether the sidebar is open, and leaves out the conversation skip link in Settings', async () => {
+  vi.stubGlobal('innerWidth', 1440);
+  vi.stubGlobal('innerHeight', 900);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <GoToSettings />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getAllByRole('button', { name: 'Toggle navigation' })[0],
+  ).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByText('Skip to conversation')).toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(screen.getByText('Route elsewhere'));
+  });
+  expect(screen.queryByText('Skip to conversation')).toBeNull();
 });

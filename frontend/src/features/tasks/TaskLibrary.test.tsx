@@ -135,39 +135,53 @@ it('bounds rendered task rows while preserving full forward traversal and reload
     async (_query?: string, _enabled?: boolean, cursor?: string) =>
       chunk(Number(cursor ?? 0)),
   );
+  // 200 rows, each with a menu and a switch, make whole-page queries costly
+  // in jsdom: getByRole computes visibility and names for every control
+  // (~190 ms) and getByText tests ~5,600 nodes (~80 ms), which findBy repeats
+  // on each poll; with the renders this overran 15 s under load. The fake
+  // reads resolve at once, so one act() flush settles each step, and the
+  // queries look only at buttons, row names, the header or the page's text.
+  const rowName = (name: string) =>
+    screen.getByText(name, { selector: '.workflow-row-name' });
+  const loadMore = () =>
+    screen.getByText('Load more workflows', { selector: 'button' });
   const view = show(load);
-  await screen.findByText('Task 059');
+  await act(async () => {});
+  expect(rowName('Task 059')).toBeInTheDocument();
   for (const [end, expectedRows] of [
     [119, 120],
     [179, 180],
     [239, 200],
   ] as const) {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Load more workflows' }),
-    );
-    await screen.findByText(`Task ${end}`);
+    fireEvent.click(loadMore());
+    await act(async () => {});
+    expect(rowName(`Task ${end}`)).toBeInTheDocument();
     expect(
       view.container.querySelectorAll('.workflow-grid > li.workflow-row'),
     ).toHaveLength(expectedRows);
   }
-  expect(screen.queryByText('Task 000')).not.toBeInTheDocument();
-  expect(screen.getByText('Task 040')).toBeVisible();
-  expect(screen.getByText(/Showing entries 41–240/)).toBeVisible();
+  expect(document.body).not.toHaveTextContent('Task 000');
+  expect(rowName('Task 040')).toBeVisible();
   expect(
-    screen.queryByRole('button', { name: 'Load more workflows' }),
-  ).not.toBeInTheDocument();
+    screen.getByText(/Showing entries 41–240/, { selector: '[role="status"]' }),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent('Load more workflows');
   expect(load.mock.calls.map((call) => call[2])).toEqual([
     undefined,
     '60',
     '120',
     '180',
   ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }));
-  await screen.findByText('Task 000');
+  const header = view.container.querySelector<HTMLElement>('.workflow-header');
+  fireEvent.click(
+    within(header!).getByRole('button', { name: 'Refresh workflows' }),
+  );
+  await act(async () => {});
+  expect(rowName('Task 000')).toBeInTheDocument();
   expect(view.container.querySelectorAll('.workflow-grid > li')).toHaveLength(
     60,
   );
-  expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent('Showing entries');
 }, 15_000);
 
 it('shows recorded task facts and opens its existing conversation', async () => {

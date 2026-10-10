@@ -100,6 +100,15 @@ function io(changes: Partial<SkillsSettingsIO> = {}): SkillsSettingsIO {
   };
 }
 
+/**
+ * A typist that sends every key event but skips user-event's default
+ * setTimeout(0) between keys, which Windows rounds up to about 15 ms: the
+ * forms below type 30 to 50 characters each.
+ */
+function typist() {
+  return userEvent.setup({ delay: null });
+}
+
 it('renders path-free skills as text and searches from the inline field', async () => {
   const api = io({
     list: vi.fn(async () =>
@@ -245,13 +254,14 @@ it('updates availability through an accessible switch in one click', async () =>
 });
 
 it('creates and imports from one explicit click per action', async () => {
+  const user = typist();
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
   await screen.findByText('✨ Sample skill');
   fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
-  await userEvent.type(screen.getByLabelText('Skill name'), 'new_skill');
-  await userEvent.type(screen.getByLabelText('Display name'), 'New skill');
-  await userEvent.type(
+  await user.type(screen.getByLabelText('Skill name'), 'new_skill');
+  await user.type(screen.getByLabelText('Display name'), 'New skill');
+  await user.type(
     screen.getByLabelText('Instructions'),
     'Review this workflow.',
   );
@@ -278,19 +288,20 @@ it('creates and imports from one explicit click per action', async () => {
 });
 
 it('explains the skill name rule before review instead of failing it', async () => {
+  const user = typist();
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
   await screen.findByText('✨ Sample skill');
   fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
   const name = screen.getByLabelText('Skill name');
-  await userEvent.type(name, 'weekly-review');
-  await userEvent.type(screen.getByLabelText('Display name'), 'Weekly review');
-  await userEvent.type(screen.getByLabelText('Instructions'), 'Review.');
+  await user.type(name, 'weekly-review');
+  await user.type(screen.getByLabelText('Display name'), 'Weekly review');
+  await user.type(screen.getByLabelText('Instructions'), 'Review.');
   expect(name).toHaveAttribute('aria-invalid', 'true');
   expect(name).toHaveAccessibleDescription(/^Not a valid name\. Lowercase/);
   expect(screen.getByRole('button', { name: 'Save new skill' })).toBeDisabled();
-  await userEvent.clear(name);
-  await userEvent.type(name, 'weekly_review');
+  await user.clear(name);
+  await user.type(name, 'weekly_review');
   expect(name).not.toHaveAttribute('aria-invalid');
   expect(screen.getByRole('button', { name: 'Save new skill' })).toBeEnabled();
   expect(api.review).not.toHaveBeenCalledWith(
@@ -301,6 +312,7 @@ it('explains the skill name rule before review instead of failing it', async () 
 });
 
 it('says which field to fix when the server refuses a new skill', async () => {
+  const user = typist();
   const api = io({
     review: vi.fn(async () => {
       throw { status: 422, code: 'invalid_skill_fields' };
@@ -309,9 +321,9 @@ it('says which field to fix when the server refuses a new skill', async () => {
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
   await screen.findByText('✨ Sample skill');
   fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
-  await userEvent.type(screen.getByLabelText('Skill name'), 'weekly_review');
-  await userEvent.type(screen.getByLabelText('Display name'), 'Weekly review');
-  await userEvent.type(screen.getByLabelText('Instructions'), 'Review.');
+  await user.type(screen.getByLabelText('Skill name'), 'weekly_review');
+  await user.type(screen.getByLabelText('Display name'), 'Weekly review');
+  await user.type(screen.getByLabelText('Instructions'), 'Review.');
   fireEvent.click(screen.getByRole('button', { name: 'Save new skill' }));
   expect(
     await screen.findByText(/^Check the fields: a display name, icon/),
@@ -347,24 +359,13 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
-it('keeps public discovery explicit in its own tab', async () => {
+it('keeps advanced editing local, with no public-skill Discover tab', async () => {
   render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
-
   await screen.findByText('✨ Sample skill');
-  const installed = screen.getByRole('tab', { name: /^Installed/ });
-  const discover = screen.getByRole('tab', { name: 'Discover' });
-  expect(installed).toHaveAttribute('aria-selected', 'true');
-  fireEvent.click(discover);
-  expect(discover).toHaveAttribute('aria-selected', 'true');
   expect(
-    screen.getByText('Public skill sources are unavailable.'),
-  ).toBeVisible();
-  // The installed list stays mounted behind its tab.
-  expect(screen.getByText('✨ Sample skill')).not.toBeVisible();
-  fireEvent.click(installed);
-  expect(
-    screen.getByText('Import a skill').closest('details'),
-  ).not.toHaveAttribute('open');
+    screen.queryByRole('tab', { name: 'Discover' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Create skill' })).toBeVisible();
 });
 
 it('opens, edits, duplicates, and confirms destructive deletion', async () => {

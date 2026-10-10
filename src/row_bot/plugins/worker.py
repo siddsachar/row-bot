@@ -320,7 +320,9 @@ class PluginWorker:
                 pass  # A just-finished callback may already have closed its loop.
         if process is None:
             return not callbacks
-        if not self._close_lock.acquire(timeout=3):
+        # A timed-out call and the peer watcher close at once: the second waits for the first's verdict (the job
+        # may take 10 s to empty and the process 10 s to be signalled on a busy machine) and then reuses it.
+        if not self._close_lock.acquire(timeout=25):
             return False
         try:
             tree_stopped = True
@@ -338,7 +340,7 @@ class PluginWorker:
             elif process.poll() is None:
                 request_process_stop(process)  # Failed pre-registration job setup.
             try:
-                process.wait(timeout=3)
+                process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 return False
             for stream in (process.stdin, process.stdout):

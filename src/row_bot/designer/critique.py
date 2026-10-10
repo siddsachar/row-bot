@@ -20,6 +20,75 @@ _ROOT_VARS_RE = re.compile(r":root\s*\{([^}]*)\}", re.IGNORECASE | re.DOTALL)
 _CSS_VAR_DECL_RE = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;]+)")
 
 
+class _Styles:
+    """What each element sets: the page's own plain ``<style>`` rules, then its
+    inline style (which wins).
+
+    Rules inside ``@media``/``@font-face`` and selectors that cannot be matched
+    here (``::after``, ``:hover``) are skipped; later rules win over earlier
+    ones without weighing specificity.
+    """
+
+    def __init__(self, soup: BeautifulSoup) -> None:
+        self._sheet: dict[int, dict[str, str]] = {}
+        for style in soup.find_all("style"):
+            for selectors, body in _css_rules(style.get_text()):
+                declarations = _parse_style(body)
+                if not declarations:
+                    continue
+                for selector in selectors.split(","):
+                    try:
+                        matched = soup.select(selector.strip()) if selector.strip() else []
+                    except Exception:
+                        continue
+                    for tag in matched:
+                        self._sheet.setdefault(id(tag), {}).update(declarations)
+
+    def of(self, tag: Tag) -> dict[str, str]:
+        return {**self._sheet.get(id(tag), {}), **_parse_style(tag.get("style", ""))}
+
+    def inherited(self, tag: Tag, key: str) -> str | None:
+        """The value of an inherited property such as line-height."""
+        current: Tag | None = tag
+        while isinstance(current, Tag):
+            value = self.of(current).get(key)
+            if value:
+                return value
+            current = current.parent
+        return None
+
+
+def _css_rules(css: str) -> list[tuple[str, str]]:
+    """``(selectors, declarations)`` for each plain rule of a stylesheet."""
+    css = re.sub(r"/\*.*?\*/", "", css or "", flags=re.DOTALL)
+    rules: list[tuple[str, str]] = []
+    index = 0
+    while (brace := css.find("{", index)) >= 0:
+        depth, end = 1, brace + 1
+        while end < len(css) and depth:
+            depth += {"{": 1, "}": -1}.get(css[end], 0)
+            end += 1
+        selector = css[index:brace].rsplit(";", 1)[-1].strip()
+        body = css[brace + 1:end - 1]
+        if selector and not selector.startswith("@") and "{" not in body:
+            rules.append((selector, body))
+        index = end
+    return rules
+
+
+_SPACING_FUNCTION_RE = re.compile(r"\b(?:clamp|calc|var|min|max)\(")
+_LENGTH_RE = re.compile(r"-?\d*\.?\d+")
+
+
+def _spaces(value: str | None) -> bool:
+    """A spacing value that leaves room: not empty, ``0`` or ``auto``."""
+    if not value:
+        return False
+    if _SPACING_FUNCTION_RE.search(value):
+        return True
+    return any(float(number) > 0 for number in _LENGTH_RE.findall(value))
+
+
 def critique_page_html(page_html: str, canvas_width: int, canvas_height: int) -> dict:
     """Return a structured critique report for one page of HTML."""
 
@@ -30,13 +99,14 @@ def critique_page_html(page_html: str, canvas_width: int, canvas_height: int) ->
     body_style = _parse_style(body.get("style", "") if isinstance(body, Tag) else "")
     body_color_raw = body_style.get("color") or "var(--text)"
     body_bg_raw = body_style.get("background-color") or body_style.get("background") or "var(--bg)"
+    styles = _Styles(soup)
 
     findings: list[dict] = []
     _add_hierarchy_findings(root, findings)
     _add_overflow_findings(root, canvas_width, canvas_height, findings)
     _add_contrast_findings(root, variables, body_color_raw, body_bg_raw, findings)
-    _add_readability_findings(root, findings)
-    _add_spacing_findings(root, findings)
+    _add_readability_findings(root, styles, canvas_width, findings)
+    _add_spacing_findings(root, styles, findings)
 
     findings = findings[:12]
     severities = Counter(finding["severity"] for finding in findings)
@@ -71,13 +141,14 @@ def apply_page_repairs(
     body_style = _parse_style(body.get("style", "") if isinstance(body, Tag) else "")
     body_bg_raw = body_style.get("background-color") or body_style.get("background") or "var(--bg)"
 
+    styles = _Styles(soup)
     changes: list[dict] = []
     if "hierarchy" in selected:
         _repair_hierarchy(root, changes)
     if "readability" in selected:
-        _repair_readability(root, changes)
+        _repair_readability(root, styles, canvas_width, changes)
     if "spacing" in selected:
-        _repair_spacing(root, changes)
+        _repair_spacing(root, styles, changes)
     if "contrast" in selected:
         _repair_contrast(root, variables, body_bg_raw, changes)
     if "overflow" in selected:
@@ -152,6 +223,13 @@ def _resolve_color(raw: str | None, variables: dict[str, str]) -> tuple[float, f
         parts = [part.strip() for part in rgb_match.group(1).split(",")]
         if len(parts) >= 3:
             try:
+                # A see-through color shows what is behind it: it is no
+                # background of its own, so callers look past it.
+                if len(parts) >= 4:
+                    alpha = parts[3]
+                    opacity = float(alpha[:-1]) / 100 if alpha.endswith("%") else float(alpha)
+                    if opacity < 1:
+                        return None
                 return tuple(max(0.0, min(255.0, float(parts[i]))) / 255 for i in range(3))
             except ValueError:
                 return None
@@ -164,6 +242,37 @@ def _relative_luminance(rgb: tuple[float, float, float]) -> float:
 
     r, g, b = (_channel(channel) for channel in rgb)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _font_px(value: str | None) -> float | None:
+    """An inline font size in pixels (px, rem or em), when it is one."""
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(px|rem|em)\s*", value or "")
+    if not match:
+        return None
+    size = float(match.group(1))
+    return size if match.group(2) == "px" else size * 16
+
+
+def _contrast_minimum(tag: Tag) -> float:
+    """WCAG AA: 3:1 for large text (24px, or 18.66px bold), else 4.5:1.
+
+    Size and weight are inherited, so the nearest element that sets each wins.
+    """
+    size: float | None = None
+    weight: str | None = None
+    current: Tag | None = tag
+    while isinstance(current, Tag) and (size is None or weight is None):
+        style = _parse_style(current.get("style", ""))
+        if size is None:
+            # Browsers draw h1 and h2 at 32px and 24px by default.
+            size = _font_px(style.get("font-size")) or {"h1": 32.0, "h2": 24.0}.get(current.name)
+        if weight is None:
+            weight = style.get("font-weight") or (
+                "bold" if current.name in {"h1", "h2", "h3", "h4", "h5", "h6", "strong", "b"} else None)
+        current = current.parent
+    bold = weight == "bold" or (weight or "").isdigit() and int(weight or 0) >= 700
+    large = size is not None and (size >= 24 or bold and size >= 18.66)
+    return 3.0 if large else 4.5
 
 
 def _contrast_ratio(foreground: tuple[float, float, float], background: tuple[float, float, float]) -> float:
@@ -222,6 +331,9 @@ def _add_finding(findings: list[dict], category: str, severity: str, message: st
 def _add_hierarchy_findings(root: Tag | BeautifulSoup, findings: list[dict]) -> None:
     headings = root.find_all(["h1", "h2", "h3"])
     if not headings:
+        # A blank starter page has nothing to organize yet.
+        if _word_count(root) < 12:
+            return
         _add_finding(
             findings,
             "hierarchy",
@@ -285,8 +397,12 @@ def _add_overflow_findings(root: Tag | BeautifulSoup, canvas_width: int, canvas_
             any(k in cls for k in ("card", "panel", "tile", "metric", "stat", "chip", "pill", "callout"))
             or ("background" in style and ("border-radius" in style or "padding" in style))
         )
-        if looks_card:
+        # A card holds something to read; an empty bar or placeholder line
+        # (a progress bar, a wireframe skeleton) is not a section.
+        if looks_card and child.get_text(strip=True):
             card_like += 1
+    # A tall page (a landing page scrolls) has room for proportionally more.
+    room = max(1, canvas_height // 1080)
     if total_words > word_budget:
         _add_finding(
             findings,
@@ -295,7 +411,7 @@ def _add_overflow_findings(root: Tag | BeautifulSoup, canvas_width: int, canvas_
             f"The page carries about {total_words} words, which risks overflow for a {canvas_width}x{canvas_height} canvas.",
             "Condense copy, tighten spacing, or split the content across more pages.",
         )
-    elif structural_blocks >= 5 or card_like >= 7:
+    elif structural_blocks >= 5 * room or card_like >= 7 * room:
         _add_finding(
             findings,
             "overflow",
@@ -322,7 +438,7 @@ def _add_contrast_findings(root: Tag | BeautifulSoup, variables: dict[str, str],
         if foreground is None or background is None:
             continue
         ratio = _contrast_ratio(foreground, background)
-        if ratio < 4.5:
+        if ratio < _contrast_minimum(tag):
             severity = "high" if ratio < 3 else "medium"
             _add_finding(
                 findings,
@@ -335,19 +451,29 @@ def _add_contrast_findings(root: Tag | BeautifulSoup, variables: dict[str, str],
             seen += 1
 
 
-def _add_readability_findings(root: Tag | BeautifulSoup, findings: list[dict]) -> None:
+def _needs_readability(tag: Tag, styles: _Styles, canvas_width: int) -> bool:
+    """Long copy without a measure, a comfortable line height or size.
+
+    A phone-width page already keeps its lines short; line height is
+    inherited, so a page-wide ``body { line-height: 1.5 }`` counts.
+    """
+    if len(_text_excerpt(tag)) < 80:
+        return False
+    style = styles.of(tag)
+    has_max_width = canvas_width <= 640 or any(key in style for key in ("max-width", "width"))
+    line_height = _line_height_value(styles.inherited(tag, "line-height"))
+    font_size = _numeric_px(style.get("font-size"))
+    return (not has_max_width or line_height is None or line_height < 1.4
+            or (font_size is not None and font_size < 14))
+
+
+def _add_readability_findings(root: Tag | BeautifulSoup, styles: _Styles, canvas_width: int,
+                              findings: list[dict]) -> None:
     seen = 0
     for tag in root.find_all(["p", "li", "blockquote"]):
         if seen >= 4:
             break
-        excerpt = _text_excerpt(tag)
-        if len(excerpt) < 80:
-            continue
-        style = _parse_style(tag.get("style", ""))
-        has_max_width = any(key in style for key in ("max-width", "width"))
-        line_height = _line_height_value(style.get("line-height"))
-        font_size = _numeric_px(style.get("font-size"))
-        if not has_max_width or line_height is None or line_height < 1.4 or (font_size is not None and font_size < 14):
+        if _needs_readability(tag, styles, canvas_width):
             _add_finding(
                 findings,
                 "readability",
@@ -359,19 +485,40 @@ def _add_readability_findings(root: Tag | BeautifulSoup, findings: list[dict]) -
             seen += 1
 
 
-def _add_spacing_findings(root: Tag | BeautifulSoup, findings: list[dict]) -> None:
+def _spacing_needs(tag: Tag, styles: _Styles) -> tuple[bool, bool]:
+    """(needs a gap, needs padding) for a container of three or more blocks.
+
+    Its blocks are spaced by a gap, or by a margin between each pair of
+    neighbours. A flex or grid layout set on the element itself needs that;
+    a section or article needs padding when it has a background of its own
+    or nothing else spaces its blocks. Values from the page's own styles
+    count; ``0`` and ``auto`` do not.
+    """
+    children = [child for child in tag.children if isinstance(child, Tag)]
+    if len(children) < 3:
+        return False, False
+    style = styles.of(tag)
+    has_gap = any(_spaces(style.get(key)) for key in ("gap", "row-gap", "column-gap"))
+    margins = [any(_spaces(value) for key, value in styles.of(child).items() if key.startswith("margin"))
+               for child in children]
+    spaced = has_gap or all(left or right for left, right in zip(margins, margins[1:]))
+    has_padding = tag.name == "body" or any(
+        _spaces(value) for key, value in style.items() if key.startswith("padding"))
+    filled = any(key in {"background", "background-color"} and value.strip().lower() not in {"none", "transparent"}
+                 for key, value in style.items())
+    # Only a layout set on the element itself: a page's own shells (a phone
+    # screen's bars, spaced by their own padding) would read as cramped.
+    layout = _parse_style(tag.get("style", "")).get("display", "")
+    return (layout in {"flex", "grid"} and not spaced,
+            tag.name in {"section", "article"} and not has_padding and (filled or not spaced))
+
+
+def _add_spacing_findings(root: Tag | BeautifulSoup, styles: _Styles, findings: list[dict]) -> None:
     seen = 0
     for tag in root.find_all(_CONTAINER_TAGS):
         if seen >= 4:
             break
-        children = [child for child in tag.children if isinstance(child, Tag)]
-        if len(children) < 3:
-            continue
-        style = _parse_style(tag.get("style", ""))
-        display = style.get("display", "")
-        has_gap = any(key in style for key in ("gap", "row-gap", "column-gap"))
-        has_padding = "padding" in style or tag.name == "body"
-        if (display in {"flex", "grid"} and not has_gap) or (tag.name in {"section", "article"} and not has_padding):
+        if any(_spacing_needs(tag, styles)):
             _add_finding(
                 findings,
                 "spacing",
@@ -421,32 +568,31 @@ def _repair_hierarchy(root: Tag | BeautifulSoup, changes: list[dict]) -> None:
             _record_change(changes, "hierarchy", first_heading, "Strengthened the lead heading.")
 
 
-def _repair_readability(root: Tag | BeautifulSoup, changes: list[dict]) -> None:
+def _repair_readability(root: Tag | BeautifulSoup, styles: _Styles, canvas_width: int,
+                        changes: list[dict]) -> None:
     for tag in root.find_all(["p", "li", "blockquote"]):
-        if len(_text_excerpt(tag)) < 80:
+        if not _needs_readability(tag, styles, canvas_width):
             continue
-        style = _parse_style(tag.get("style", ""))
+        style = styles.of(tag)
         font_size = _numeric_px(style.get("font-size"))
+        line_height = _line_height_value(styles.inherited(tag, "line-height"))
         updated = _update_style(tag, **{
-            "max-width": style.get("max-width", "62ch") or "62ch",
-            "line-height": "1.55" if (_line_height_value(style.get("line-height")) or 0) < 1.45 else style.get("line-height", "1.55"),
-            "font-size": "15px" if font_size is not None and font_size < 14 else style.get("font-size", ""),
+            "max-width": ("" if canvas_width <= 640 or "width" in style or "max-width" in style
+                          else "62ch"),
+            "line-height": "1.55" if (line_height or 0) < 1.45 else "",
+            "font-size": "15px" if font_size is not None and font_size < 14 else "",
         })
         if updated:
             _record_change(changes, "readability", tag, "Improved text measure and line spacing.")
 
 
-def _repair_spacing(root: Tag | BeautifulSoup, changes: list[dict]) -> None:
+def _repair_spacing(root: Tag | BeautifulSoup, styles: _Styles, changes: list[dict]) -> None:
     for tag in root.find_all(_CONTAINER_TAGS):
-        children = [child for child in tag.children if isinstance(child, Tag)]
-        if len(children) < 3:
-            continue
-        style = _parse_style(tag.get("style", ""))
-        display = style.get("display", "")
+        needs_gap, needs_padding = _spacing_needs(tag, styles)
         updates = {}
-        if display in {"flex", "grid"} and not any(key in style for key in ("gap", "row-gap", "column-gap")):
+        if needs_gap:
             updates["gap"] = "16px"
-        if tag.name in {"section", "article"} and "padding" not in style:
+        if needs_padding:
             updates["padding"] = "24px"
         if updates and _update_style(tag, **updates):
             _record_change(changes, "spacing", tag, "Added padding or gap to a dense container.")

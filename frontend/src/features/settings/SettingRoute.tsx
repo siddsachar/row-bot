@@ -6,7 +6,14 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+  useLocation,
+} from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
@@ -14,6 +21,9 @@ import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import {
   AGENT_PROFILE_SETTINGS,
+  CONNECTION_PAGES,
+  connectionHref,
+  legacyIntegrationHref,
   resolveSetting,
   settingsHref,
   THREAD_SETTINGS,
@@ -28,29 +38,22 @@ import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
-import CapabilitySettings, {
-  type CapabilitySettingsSession,
-} from './CapabilitySettings';
-import McpFacadeControls, { type McpFacadeSession } from './McpFacadeControls';
-import { McpGlobalSwitch } from './McpPolicyControls';
-import {
-  addAndConnect,
-  turnOnServer,
-  type AddConnectApi,
-  type TurnOnApi,
-} from './mcp-add-connect';
+import CapabilitySettings from './CapabilitySettings';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
-import McpConnectionsPanel, { type McpConnections } from './McpConnections';
-import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
-import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
+import {
+  DocumentProcessingPanel,
+  SETTINGS_PROCESSING_SCOPE,
+} from '../knowledge/DocumentProcessingPanel';
+import { batchTitle } from '../knowledge/document-words';
 import ChannelSettings from './ChannelSettings';
 import { SETTINGS_CHANGED } from '../shell/palette-switches';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
+import AppsArea from '../apps/AppsArea';
 import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
@@ -64,6 +67,7 @@ import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
 import { pickSettingsFolder } from './settings-folder';
 import {
+  AccountsSnapshotPanel,
   DocumentEmbeddingSnapshot,
   DocumentModelSetting,
   StartPublicLink,
@@ -88,7 +92,6 @@ const snapshotPages: Partial<Record<string, SettingsPage>> = {
   tracker: 'tracker',
   documents: 'documents',
   tools: 'tools',
-  accounts: 'accounts',
   preferences: 'preferences',
   updates: 'preferences',
   data: 'preferences',
@@ -107,8 +110,10 @@ function AgentProfilesMoved() {
 }
 
 export default function SettingRoute() {
-  const { setting = 'preferences' } = useParams();
+  const { setting = 'preferences', '*': item = '' } = useParams();
+  const navigate = useNavigate();
   const [search] = useSearchParams();
+  const location = useLocation();
   const leaf = resolveSetting(setting);
   const {
     controller,
@@ -117,10 +122,8 @@ export default function SettingRoute() {
     providerConfigurationOwner,
     defaultModelOwner,
     capabilitySettingsOwner,
-    mcpChatOwner,
     subscriptionAccountsOwner,
     subscriptionOptionsOwner,
-    mcpConnectionsOwner,
     documentRemovalsOwner,
     documentQueueOwner,
     documentUploadOwner,
@@ -236,16 +239,26 @@ export default function SettingRoute() {
   }
   if (AGENT_PROFILE_SETTINGS.has(setting.toLowerCase()))
     return <AgentProfilesMoved />;
+  if (CONNECTION_PAGES.has(setting.toLowerCase()))
+    // Accounts and channels are apps now: their old links open the app.
+    return <Navigate to={connectionHref(setting, location.hash)} replace />;
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
-    const target = settingsHref(setting) ?? leaf.href;
-    const [path, hash] = target.split('#');
+    if (['integrations', 'plugins', 'mcp'].includes(setting.toLowerCase()))
+      return (
+        <Navigate to={legacyIntegrationHref(search, location.hash)} replace />
+      );
+    const target = settingsHref(setting, location.hash) ?? leaf.href;
+    const [pathQuery, hash] = target.split('#');
+    const [path, defaults] = pathQuery.split('?');
+    const merged = new URLSearchParams(defaults);
+    search.forEach((value, key) => merged.set(key, value));
     return (
       <Navigate
         to={{
           pathname: path,
-          search: search.size ? `?${search.toString()}` : '',
+          search: merged.size ? `?${merged.toString()}` : '',
           hash: hash ? `#${hash}` : '',
         }}
         replace
@@ -290,6 +303,108 @@ export default function SettingRoute() {
       </ErrorState>
     )
   ) : null;
+  /** The advanced editor for one app or skill: its raw settings, never a whole list. */
+  const editor = (kind: 'app' | 'skill', id: string) => {
+    // A built-in way (an account, a channel, a key tool) opens its own page, scoped to it.
+    const builtIn = /(?:^|:)builtin:(account|channel|tool):(.+)$/.exec(id);
+    if (builtIn && !settingsSnapshot) return snapshotState;
+    if (builtIn?.[1] === 'account')
+      return (
+        <AccountsSnapshotPanel
+          snapshot={settingsSnapshot!.accounts}
+          mutation={mutationFor('accounts')!}
+          showActions
+          only={builtIn[2] as 'github' | 'google' | 'x'}
+        />
+      );
+    if (builtIn?.[1] === 'tool')
+      return (
+        <ToolConfigurationSnapshot
+          snapshot={settingsSnapshot!.tools}
+          mutation={mutationFor('tools')!}
+          only={builtIn[2]}
+        />
+      );
+    if (builtIn?.[1] === 'channel' && channelOwner?.get())
+      return (
+        <ChannelSettings
+          session={channelOwner.get()!}
+          load={controller.channels}
+          review={controller.reviewChannel}
+          execute={(command, review) =>
+            controller.executeChannel({
+              ...command,
+              payload: { ...command.payload, review_id: review.review_id },
+            })
+          }
+          loadLink={controller.channelLink}
+          only={builtIn[2]}
+        />
+      );
+    if (kind === 'skill' && skillsOwner?.get())
+      return (
+        <SkillsSettings
+          integrationId={id === 'new' ? 'create' : id.replace(/^skill:/, '')}
+          session={skillsOwner.get()!}
+          io={{
+            list: controller.skills,
+            detail: controller.skill,
+            proposals: controller.skillProposals,
+            review: controller.reviewSkill,
+            execute: controller.executeSkill,
+            receipt: controller.skillReceipt,
+          }}
+        />
+      );
+    if (id.startsWith('plugin:') && pluginOwner?.get())
+      return (
+        <PluginSettings
+          integrationId={id.replace(/^plugin:/, '')}
+          session={pluginOwner.get()!}
+          load={({ query, source, cursor }, signal) =>
+            controller.plugins(query, source, cursor, signal)
+          }
+          open={controller.plugin}
+          review={(action, payload, signal) =>
+            controller.reviewPlugin(
+              String(payload.plugin_id ?? ''),
+              action,
+              payload,
+              signal,
+            )
+          }
+          execute={(command, review) =>
+            controller.executePlugin(String(command.payload.plugin_id), {
+              ...command,
+              payload: { ...command.payload, review_id: review.review_id },
+            })
+          }
+        />
+      );
+    if (
+      (id === 'custom' || id.startsWith('mcp:')) &&
+      capabilitySettingsOwner?.get()
+    )
+      return (
+        <CapabilitySettings
+          session={capabilitySettingsOwner.get()!}
+          only={id === 'custom' ? undefined : id.replace(/^mcp:/, '')}
+          startAdd={id === 'custom'}
+          load={({ query, cursor }, signal) =>
+            controller.mcpConfiguration(query, cursor, signal)
+          }
+          review={controller.reviewMcpConfiguration}
+          execute={controller.executeMcpConfiguration}
+          onConnection={(serverId) =>
+            navigate(
+              `/settings/apps/item?${new URLSearchParams({ id: 'mcp:' + serverId })}`,
+            )
+          }
+          onRemoved={() => navigate('/settings/apps')}
+        />
+      );
+    return <p>These settings are unavailable. Reconnect to continue.</p>;
+  };
   return (
     <SettingsShell key={session} leaf={leaf}>
       <section
@@ -486,13 +601,11 @@ export default function SettingRoute() {
             initialProvider={search.get('provider') ?? ''}
             openExternal={(url) => void platform.openExternal(url)}
           />
-        ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
-          // B262: the switches and runtimes first, then the servers (their
-          // details open in a drawer).
-          <McpSettings
-            capability={capabilitySettingsOwner.get()!}
-            chat={mcpChatOwner?.get() ?? null}
-            connections={mcpConnectionsOwner?.get() ?? null}
+        ) : leaf.id === 'apps' || leaf.id === 'skills' ? (
+          <AppsArea
+            kind={leaf.id === 'apps' ? 'app' : 'skill'}
+            item={item}
+            editor={editor}
           />
         ) : leaf.id === 'tools' ? (
           <>
@@ -558,72 +671,6 @@ export default function SettingRoute() {
             snapshot={settingsSnapshot?.knowledge}
             refreshToken={knowledgeRefresh}
           />
-        ) : leaf.id === 'channels' && channelOwner?.get() ? (
-          <ChannelSettings
-            session={channelOwner.get()!}
-            load={controller.channels}
-            review={controller.reviewChannel}
-            execute={(command, review) =>
-              controller.executeChannel({
-                ...command,
-                payload: { ...command.payload, review_id: review.review_id },
-              })
-            }
-            loadLink={controller.channelLink}
-          />
-        ) : leaf.id === 'plugins' && pluginOwner?.get() ? (
-          <PluginSettings
-            session={pluginOwner.get()!}
-            load={({ query, source, cursor }, signal) =>
-              controller.plugins(query, source, cursor, signal)
-            }
-            open={controller.plugin}
-            review={(action, payload, signal) =>
-              controller.reviewPlugin(
-                String(payload.plugin_id ?? ''),
-                action,
-                payload,
-                signal,
-              )
-            }
-            execute={(command, review) =>
-              controller.executePlugin(String(command.payload.plugin_id), {
-                ...command,
-                payload: { ...command.payload, review_id: review.review_id },
-              })
-            }
-            lifecycle={{
-              review: (action, pluginId) =>
-                controller.reviewPluginLifecycle(action, pluginId),
-              execute: (command) => controller.executePluginLifecycle(command),
-              receipt: (commandId) =>
-                controller.pluginLifecycleReceipt(commandId),
-            }}
-          />
-        ) : leaf.id === 'skills' && skillsOwner?.get() ? (
-          <SkillsSettings
-            session={skillsOwner.get()!}
-            ownerKey={session}
-            hub={{
-              search: controller.searchSkillHub,
-              preview: controller.previewSkillHub,
-              install: controller.installSkillHub,
-              receipt: controller.skillHubInstallReceipt,
-            }}
-            hubMaintenance={{
-              installed: controller.skillHubInstalled,
-              action: controller.skillHubMaintenance,
-              receipt: controller.skillHubMaintenanceReceipt,
-            }}
-            io={{
-              list: controller.skills,
-              detail: controller.skill,
-              proposals: controller.skillProposals,
-              review: controller.reviewSkill,
-              execute: (command) => controller.executeSkill(command),
-              receipt: controller.skillReceipt,
-            }}
-          />
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-snapshot-page settings-documents-flow">
             <SettingsGroup title="Add documents" surface={false}>
@@ -654,19 +701,16 @@ export default function SettingRoute() {
                   onProcess={
                     documentProcessingOwner?.get()
                       ? (batch) => {
-                          if (!state.selectedConversationId) {
-                            setProcessingSelectionError(
-                              'Open or create a conversation first, then return here to review its document processing policy.',
-                            );
-                            return;
-                          }
+                          // Settings processes on its own, never through
+                          // whichever chat was open last.
                           try {
                             documentProcessingOwner
                               .get()!
                               .select(
-                                state.selectedConversationId,
+                                SETTINGS_PROCESSING_SCOPE,
                                 batch.id,
                                 batch.revision,
+                                batchTitle(batch),
                               );
                             setProcessingSelectionError('');
                           } catch {
@@ -705,8 +749,8 @@ export default function SettingRoute() {
               <DocumentsCatalog
                 key={session}
                 load={controller.savedDocuments}
-                onRemove={(id, label) => {
-                  documentRemovalsOwner?.get()?.select(id, label);
+                onRemove={(id, label, options) => {
+                  documentRemovalsOwner?.get()?.select(id, label, options);
                   // The removal review lives in the Danger zone: show it.
                   setDocumentDangerOpen(true);
                   requestAnimationFrame(() =>
@@ -733,17 +777,15 @@ export default function SettingRoute() {
               >
                 <div className="settings-document-danger">
                   <p className="settings-help">
-                    Remove indexed source material through reviewed,
-                    receipt-backed commands.
+                    Choose a document to remove. You confirm each removal before
+                    it happens.
                   </p>
                   <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
                 </div>
               </SettingsDangerZone>
             )}
           </div>
-        ) : ['voice', 'accounts', 'tracker', 'system', 'access'].includes(
-            leaf.id,
-          ) ? (
+        ) : ['voice', 'tracker', 'system', 'access'].includes(leaf.id) ? (
           settingsSnapshot && mutation ? (
             <>
               {leaf.id === 'access' ? (
@@ -772,7 +814,6 @@ export default function SettingRoute() {
                 pickFolder={(signal) =>
                   pickSettingsFolder(platform, controller, signal)
                 }
-                showAccountActions
                 writeClipboard={platform.writeClipboard}
                 accessNetwork={
                   leaf.id === 'access' ? (
@@ -834,116 +875,5 @@ function DataDangerZone({
         <TrackerDangerAction mutation={mutation} />
       ) : null}
     </SettingsDangerZone>
-  );
-}
-
-/**
- * Settings › MCP (B262): "Use MCP servers", "Offer MCP tools in chats" and
- * the runtimes in one group, then the saved servers; a server's details
- * (connection, tools, permissions) open in a drawer. Each control runs the
- * same reviewed command as before.
- */
-function McpSettings({
-  capability,
-  chat,
-  connections,
-}: {
-  capability: CapabilitySettingsSession;
-  chat: McpFacadeSession | null;
-  connections: McpConnections | null;
-}) {
-  const { controller } = useRuntime();
-  const turnOn = (serverId: string) =>
-    turnOnServer(
-      {
-        policy: (query) => controller.mcpPolicy(query),
-        reviewPolicy: (body) => controller.reviewMcpPolicy(body),
-        executeConfiguration: (command, review) =>
-          controller.executeMcpConfiguration(command, review),
-      } as TurnOnApi,
-      serverId,
-    );
-  const policy = {
-    load: controller.mcpPolicy,
-    review: controller.reviewMcpPolicy,
-    execute: controller.executeMcpConfiguration,
-  };
-  return (
-    <>
-      <SettingsGroup label="MCP" className="settings-mcp-switches">
-        {connections && (
-          <McpGlobalSwitch {...policy} session={connections.globalPolicy} />
-        )}
-        {chat && (
-          <McpFacadeControls
-            session={chat}
-            load={(signal) => controller.mcpChat(signal)}
-            review={(payload, signal) =>
-              controller.reviewMcpChat(payload, signal)
-            }
-            execute={(command, review) =>
-              controller.executeMcpChat(command, review)
-            }
-          />
-        )}
-        <RuntimeInstallations />
-      </SettingsGroup>
-      <CapabilitySettings
-        session={capability}
-        load={({ query, cursor }, signal) =>
-          controller.mcpConfiguration(query, cursor, signal)
-        }
-        review={controller.reviewMcpConfiguration}
-        execute={controller.executeMcpConfiguration}
-        searchDirectory={controller.searchMcpDirectory}
-        onConnection={(id, name) => connections?.select(id, name)}
-        onRemoved={() => connections?.close()}
-        runtime={
-          connections
-            ? {
-                owner: connections,
-                load: controller.mcpRuntime,
-                review: controller.reviewMcpRuntime,
-                execute: controller.executeMcpRuntime,
-                turnOn,
-              }
-            : undefined
-        }
-        addAndConnect={(serverId, onStep) =>
-          addAndConnect(
-            {
-              runtime: (id) => controller.mcpRuntime(id),
-              reviewRuntime: (payload) => controller.reviewMcpRuntime(payload),
-              executeRuntime: (command, review) =>
-                controller.executeMcpRuntime(command, review),
-              catalog: (query) => controller.mcpTestedCatalog(query),
-              reviewCatalog: (body) => controller.reviewMcpCatalog(body),
-              policy: (query) => controller.mcpPolicy(query),
-              reviewPolicy: (body) => controller.reviewMcpPolicy(body),
-              executeConfiguration: (command, review) =>
-                controller.executeMcpConfiguration(command, review),
-            } as AddConnectApi,
-            serverId,
-            onStep,
-          )
-        }
-      />
-      {connections && (
-        <McpConnectionsPanel
-          catalog={{
-            load: controller.mcpTestedCatalog,
-            review: controller.reviewMcpCatalog,
-            execute: controller.executeMcpConfiguration,
-          }}
-          owner={connections}
-          load={controller.mcpRuntime}
-          review={controller.reviewMcpRuntime}
-          execute={controller.executeMcpRuntime}
-          policy={policy}
-          turnOn={turnOn}
-          onRemove={(id, name) => capability.confirmRemove(id, name)}
-        />
-      )}
-    </>
   );
 }

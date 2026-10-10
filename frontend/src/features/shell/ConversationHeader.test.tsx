@@ -97,7 +97,7 @@ it('is one phone row: back, title and a ⋯ that holds every action', async () =
     'Workspace commands',
     'Find in conversation',
     'Conversation details',
-    'Share or export',
+    'Export conversation',
     'Rename conversation',
   ]);
   await act(async () =>
@@ -193,3 +193,18 @@ it.each([
     expect(await screen.findByText('Opened parent-a')).toBeVisible();
   },
 );
+
+it('names the conversation actions button for what it opens: Export, no share', () => {
+  const onShare = vi.fn();
+  render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename={false}
+      onRename={vi.fn(async () => {})}
+      onShare={onShare}
+    />,
+  );
+  expect(screen.queryByRole('button', { name: /share/i })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  expect(onShare).toHaveBeenCalledTimes(1);
+});

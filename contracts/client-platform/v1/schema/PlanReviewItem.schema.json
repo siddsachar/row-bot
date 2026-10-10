@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "integrity": {
+      "maxLength": 128,
+      "title": "Integrity",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 128,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "integrity"
+  ],
+  "title": "PlanReviewItem",
+  "type": "object"
+}

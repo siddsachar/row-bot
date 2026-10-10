@@ -1,0 +1,52 @@
+---
+title: "MCP Bundles (.mcpb)"
+description: "For developers: how Row-Bot imports .mcpb bundles, which manifest fields it reads, how user_config becomes setup inputs, platform and runtime checks, signatures, and Registry bundles downloaded only after consent and a checksum match."
+---
+
+# MCP Bundles (.mcpb)
+
+This page is for developers who publish an MCP server as an `.mcpb` bundle (formerly `.dxt`) and want it to work in Row-Bot. People add a bundle with **Settings › Apps › Add from link or file**, or connect a Registry record that points to one. The reader is `src/row_bot/mcp_client/bundles.py`; installing and launching are in `mcp_client/packages.py`.
+
+## What Row-Bot Checks When A Bundle Is Chosen
+
+A picked file is staged in Row-Bot's data folder for up to a day and read without being unpacked or run:
+
+- **Size**: at most 128 MiB as a file, 512 MiB unpacked, 20,000 files, and a manifest of at most 1 MiB.
+- **Manifest**: `manifest_version` (or the older `dxt_version`) `0.1` to `0.4`, with `name`, `version`, `description`, `author.name` and `server`. Known optional fields are type-checked; an unknown field refuses the bundle, because what Row-Bot can't read it doesn't accept.
+- **Server**: `server.type` is `node`, `python` or `binary`; `uv` bundles, which install packages when they start, are read but not run. `server.entry_point` must be inside the archive, and `server.mcp_config` supplies `command`, `args`, `env` and `platform_overrides`. The command must be `node`, `python`, `python3` or a program inside the bundle.
+- **Platform**: `compatibility.platforms` (all three when absent) must include this computer's (`win32`, `darwin` or `linux`), or the bundle is refused. `compatibility.runtimes` must be well formed but isn't checked against this computer.
+- **Signature**: see below.
+
+## Settings The Bundle Asks For
+
+Each `user_config` entry becomes a field in the setup's **Add your settings** step:
+
+| `user_config` | Setup input |
+| --- | --- |
+| `title`, `description` (both required) | The field's label and help. |
+| `type`: `string`, `number`, `boolean`, `directory`, `file` | Text, number, yes or no, or a path. |
+| `sensitive: true` | A secret, kept in the system keychain and never shown again. |
+| `required` | Whether it must be filled. |
+| `default` | The starting value; `${HOME}`, `${DESKTOP}`, `${DOCUMENTS}` and `${DOWNLOADS}` become this computer's folders. |
+
+`multiple: true` isn't supported. In `mcp_config`, `${__dirname}` is the unpacked bundle and `${user_config.key}` is the person's value, which may fill an argument or an environment variable but never the `command`: a person's value never chooses what runs. Environment variables that change what runs, such as `PATH`, `NODE_OPTIONS` or `LD_PRELOAD`, are refused, except `NODE_PATH` or `PYTHONPATH` inside the bundle.
+
+## Signatures
+
+A signed bundle is the zip followed by an `MCPB_SIG_V1` block holding a detached CMS (PKCS #7) signature over the zip, ending with `MCPB_SIG_END`. Row-Bot accepts SHA-256, SHA-384 or SHA-512 with RSA or ECDSA keys, and checks that the signature matches the bundle's bytes.
+
+- **Signed and matching**: the review shows the name the certificate gives itself and its fingerprint, and says that nobody checked that name. Row-Bot doesn't decide whether the certificate is trusted.
+- **Unsigned**: the review says Row-Bot can't tell who made it.
+- **Damaged or not matching**: the bundle is refused. A tampered bundle never passes as an unsigned one.
+
+## Install And Launch
+
+After the person agrees, the bundle is extracted into a new private folder: only regular files and folders, no links, encrypted entries or path escapes, with the written bytes counted against the limits. Its lock is the file's SHA-256, and its unpacked tree digest is recorded and checked again before every launch; a changed file or folder stops it. `node` bundles run with Row-Bot's managed Node.js (or Node.js on the path), `python` bundles with Row-Bot's own uv-managed Python, and `binary` bundles from inside their folder. Nothing in a bundle runs before consent.
+
+## Bundles From The Registry
+
+A Registry record of type `mcpb` gets a recipe only when it gives an https download address and a `fileSha256`; one without a checksum is listed with "Download this bundle from its publisher, then add it from a file". Its consent sheet names the file and its host, "checked against its Registry checksum". Only after the person agrees does Row-Bot re-check the record against the live Registry, download the file through its safe fetcher (https, public addresses, at most 128 MiB), and compare its SHA-256. A bundle that doesn't match is never used or saved: "The bundle didn't match the checksum its Registry record gives, so Row-Bot didn't use it."
+
+## Testing
+
+Deterministic tests build bundles in a temporary folder: `tests/subsystem/mcp/test_bundles.py` covers reading, signatures, tampering and contained extraction, and `tests/subsystem/integrations/test_runtimes.py` covers Registry bundles and checksums.

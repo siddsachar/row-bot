@@ -358,51 +358,6 @@ screenshots:
     route: /app-v2/settings/tools
     capture_selector: '#workspace-columns'
     expected_text: ["Search", "research and built-in tools", "Capability loading"]
-  settings-skills:
-    <<: *desktop
-    title: Skills settings
-    output: settings-skills.png
-    alt: Skills settings with the installed skills, each with its pin and actions, and the Discover tab.
-    docs_pages: [/docs/settings/skills]
-    route: /app-v2/settings/skills
-    capture_selector: '#workspace-columns'
-    expected_text: ["Installed", "Discover", "Create skill"]
-  settings-accounts:
-    <<: *desktop
-    title: Accounts settings
-    output: settings-accounts.png
-    alt: Accounts settings with GitHub, Google and X not connected and the steps to connect GitHub; no account details are shown.
-    docs_pages: [/docs/settings/accounts]
-    route: /app-v2/settings/accounts
-    capture_selector: '#workspace-columns'
-    expected_text: ["Services Row-Bot can use for you", "GitHub"]
-  settings-channels:
-    <<: *desktop
-    title: Channels settings
-    output: settings-channels.png
-    alt: Channels settings listing Telegram, Slack, SMS, Discord and WhatsApp with their state; none is running.
-    docs_pages: [/docs/settings/channels, /docs/integrations/channels]
-    route: /app-v2/settings/channels
-    capture_selector: '#workspace-columns'
-    expected_text: ["Messaging platforms Row-Bot can talk through", "Telegram"]
-  settings-mcp:
-    <<: *desktop
-    title: MCP settings
-    output: settings-mcp.png
-    alt: MCP settings with MCP off, the local runtimes, and two demonstration servers that are off.
-    docs_pages: [/docs/settings/mcp, /docs/integrations/mcp]
-    route: /app-v2/settings/mcp
-    capture_selector: '#workspace-columns'
-    expected_text: ["Tools from MCP servers", "Demo GitHub MCP"]
-  settings-plugins:
-    <<: *desktop
-    title: Plugins settings
-    output: settings-plugins.png
-    alt: Plugins settings with one inert demonstration plugin installed and the Discover tab for the marketplace.
-    docs_pages: [/docs/settings/plugins, /docs/integrations/plugins]
-    route: /app-v2/settings/plugins
-    capture_selector: '#workspace-columns'
-    expected_text: ["Installed plugins and the plugin marketplace", "Demo CRM Lookup"]
   settings-preferences:
     <<: *desktop
     title: Preferences settings
@@ -412,57 +367,6 @@ screenshots:
     route: /app-v2/settings/preferences
     capture_selector: '#workspace-columns'
     expected_text: ["How Row-Bot introduces itself", "Identity"]
-  skills-hub:
-    <<: *desktop
-    title: Discover skills
-    output: skills-hub.png
-    alt: The Discover tab of Skills settings with reviewable public skills from an offline demonstration catalog.
-    docs_pages: [/docs/skills/]
-    route: /app-v2/settings/skills
-    actions:
-      - click_selector: 'button[role="tab"]:has-text("Discover")'
-      - click_selector: 'button.primary:has-text("Search")'
-    capture_selector: '#workspace-columns'
-    expected_text: ["Browse public skills", "Research Brief", "Workflow Review"]
-    settle_ms: 2000
-  plugin-marketplace:
-    <<: *desktop
-    title: Plugin marketplace
-    output: plugin-marketplace.png
-    alt: The Discover tab of Plugins settings after refreshing an offline demonstration marketplace of two plugins, with the one already installed.
-    docs_pages: [/docs/integrations/plugins]
-    route: /app-v2/settings/plugins
-    actions:
-      - click_selector: 'button[role="tab"]:has-text("Discover")'
-      - click_selector: 'button:has-text("Refresh marketplace")'
-    capture_selector: '#workspace-columns'
-    expected_text: ["Marketplace has 2 plugin", "Demo CRM Lookup"]
-    settle_ms: 2000
-  mcp-add-server:
-    <<: *desktop
-    title: Add an MCP server
-    output: mcp-add-server.png
-    alt: The Add a server dialog on its Manual tab, with the fields to describe a server; nothing is started.
-    docs_pages: [/docs/integrations/mcp]
-    route: /app-v2/settings/mcp
-    actions:
-      - click_selector: 'button:has-text("Add server")'
-      - click_selector: '[role="dialog"] button:has-text("Manual")'
-    capture_selector: '[role="dialog"]'
-    expected_text: ["Add a server", "Server name", "Environment variables"]
-  mcp-marketplace:
-    <<: *desktop
-    title: Browse MCP servers
-    output: mcp-marketplace.png
-    alt: The Add a server dialog on its Browse tab, listing the bundled starter servers with their publisher, transport and risk.
-    docs_pages: [/docs/integrations/mcp, /docs/extending/]
-    route: /app-v2/settings/mcp
-    actions:
-      - click_selector: 'button:has-text("Add server")'
-      - click_selector: '[role="dialog"] button:has-text("Search")'
-    capture_selector: '[role="dialog"]'
-    expected_text: ["Add a server", "GitHub MCP Server", "Playwright MCP"]
-    settle_ms: 2000
   mobile-chat-list:
     <<: *mobile
     title: Phone conversation list

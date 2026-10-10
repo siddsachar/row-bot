@@ -36,6 +36,8 @@ import {
 import type {
   ConversationView,
   InsightsSnapshot,
+  IntegrationEntry,
+  IntegrationEntryPage,
   KnowledgeGraphSnapshot,
   MonitorSnapshot,
   OnboardingSnapshot,
@@ -57,6 +59,7 @@ import {
 import { humanizeToken, parseTimestamp, relativeTime } from '../../ui/format';
 import { useReducedMotion } from '../buddy/BuddyAvatar';
 import { ConversationGlyph } from '../shell/ConversationGlyph';
+import { AppIcon } from '../apps/parts';
 import {
   conversationKinds,
   type ConversationKind,
@@ -67,6 +70,7 @@ import {
 } from '../shell/DelegatedActivity';
 import { ApprovalDecision, WaitingSince } from '../shell/InPlaceApproval';
 import { usePendingApprovals } from '../shell/pending-approvals';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 import FixAction, { RunAgain } from './FixAction';
 import { typeToken } from './knowledge-palette';
 import {
@@ -113,6 +117,10 @@ export type OverviewHomeProps = {
   /** Workflows tab, optionally with one workflow's runs open. */
   onOpenWorkflows: (taskId?: string) => void;
   onOpenTab: (tab: 'knowledge' | 'monitor' | 'insights') => void;
+  /** Your apps (installed), so a broken one or one that needs a sign-in shows here. */
+  loadApps?: (signal?: AbortSignal) => Promise<IntegrationEntryPage>;
+  /** Open an app's page; `fix` starts its fix there at once. */
+  onOpenApp?: (itemId: string, fix?: boolean) => void;
   onHideSetup?: () => void;
   setupError?: string;
   /** Re-read one listed conversation (approvals and runs change live). */
@@ -445,7 +453,8 @@ function Stat({
   lineTone?: 'success';
   picture?: ReactNode;
   note?: string;
-  onOpen?: () => void;
+  /** Opens the card's place; given the card, for focus to come back to. */
+  onOpen?: (opener: HTMLButtonElement) => void;
 }) {
   const body = (
     <>
@@ -479,7 +488,7 @@ function Stat({
           aria-label={[`${label}: ${value}`, line, note]
             .filter(Boolean)
             .join('. ')}
-          onClick={onOpen}
+          onClick={(event) => onOpen(event.currentTarget)}
         >
           {body}
         </button>
@@ -741,6 +750,8 @@ export default function OverviewHome({
   onOpenConversation,
   onOpenWorkflows,
   onOpenTab,
+  loadApps,
+  onOpenApp,
   onHideSetup,
   setupError = '',
   refreshConversation,
@@ -753,6 +764,7 @@ export default function OverviewHome({
   const [tasksError, setTasksError] = useState('');
   const [health, setHealth] = useState<SystemDiagnosis | null>(null);
   const [healthFailed, setHealthFailed] = useState(false);
+  const [apps, setApps] = useState<readonly IntegrationEntry[]>([]);
   const [memory, setMemory] = useState<KnowledgeGraphSnapshot | null>(null);
   const [memoryFailed, setMemoryFailed] = useState(false);
   const [insights, setInsights] = useState<InsightsSnapshot | null>(null);
@@ -779,6 +791,18 @@ export default function OverviewHome({
     );
     return () => abort.abort();
   }, [fixed, loadHealth, refreshKey]);
+
+  useEffect(() => {
+    if (!loadApps) return;
+    const abort = new AbortController();
+    loadApps(abort.signal).then(
+      (page) => {
+        if (!abort.signal.aborted) setApps(page.items);
+      },
+      () => undefined, // Apps can't be read: nothing to add here.
+    );
+    return () => abort.abort();
+  }, [fixed, loadApps, refreshKey]);
 
   useEffect(() => {
     if (!loadTasks) return;
@@ -999,6 +1023,46 @@ export default function OverviewHome({
         ),
       },
     })),
+    // An app that is on but broken or signed out: its fix is one click away.
+    ...apps
+      .flatMap((entry) => [entry, ...entry.children]) // A package's connections too.
+      .filter(
+        (entry) =>
+          entry.lifecycle === 'installed' &&
+          ['needs_sign_in', 'needs_key', 'attention'].includes(
+            entry.readiness ?? '',
+          ),
+      )
+      .map<Need>((entry) => {
+        const name = entry.app?.name || entry.name;
+        const fix = entry.next_action;
+        return {
+          key: `app:${entry.id}`,
+          item: {
+            icon: <AppIcon icon={entry.icon} size={16} />,
+            tone: entry.readiness === 'attention' ? 'danger' : 'warning',
+            title:
+              entry.readiness === 'needs_sign_in'
+                ? `Sign in to ${name}`
+                : entry.readiness === 'needs_key'
+                  ? `${name} needs its key`
+                  : `${name} needs attention`,
+            meta:
+              entry.blockers.find((blocker) => blocker.message)?.message ??
+              'It can’t be used until this is fixed.',
+            label: `Open ${name}`,
+            onOpen: () => onOpenApp?.(entry.id),
+            actions: onOpenApp && fix.kind !== 'none' && (
+              <Button
+                className="small"
+                onClick={() => onOpenApp(entry.id, true)}
+              >
+                {fix.label}
+              </Button>
+            ),
+          },
+        };
+      }),
     // A Monitor check that turned red, checked in the background (B252).
     ...(health?.checks ?? [])
       .filter((check) => check.status === 'error')
@@ -1063,6 +1127,8 @@ export default function OverviewHome({
       within(row.updated_at, today, now),
   );
   const agentTarget = view.running[0] ?? finishedToday[0];
+  // With no agent to show, the card opens the Agents library instead.
+  const openAgents = useWorkspaceActions()?.openAgentProfiles;
   const next = view.scheduled.find(
     (task) => parseTimestamp(task.next_run)! > now,
   );
@@ -1361,7 +1427,11 @@ export default function OverviewHome({
                 pulse={!reduced}
               />
             }
-            onOpen={agentTarget && (() => onOpenConversation(agentTarget.id))}
+            onOpen={
+              agentTarget
+                ? () => onOpenConversation(agentTarget.id)
+                : openAgents
+            }
           />
           <Stat
             label="Workflows"
@@ -1424,7 +1494,8 @@ export default function OverviewHome({
               memoryFailed
                 ? 'Memory could not be read'
                 : week.saved
-                  ? `+${week.saved.toLocaleString()} this week`
+                  ? // Saves include updates to memories already there, so not "+12" beside "5 memories".
+                    `${plural(week.saved, 'update')} this week`
                   : 'Nothing new this week'
             }
             lineTone={week.saved ? 'success' : undefined}
@@ -1639,7 +1710,8 @@ export default function OverviewHome({
               <>
                 {week.saved > 0 && (
                   <p className="overview-learned-line">
-                    {plural(week.saved, 'new memory', 'new memories')} from{' '}
+                    {/* Saves include updates to memories already there, not only new ones. */}
+                    {plural(week.saved, 'memory update')} from{' '}
                     {plural(week.threads, 'conversation')}
                   </p>
                 )}

@@ -278,14 +278,21 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
     }),
   });
   render(<WorkspaceImports {...p} />);
-  await screen.findByText(/303 saved in all/);
+  // Up to 200 row buttons make whole-page role queries costly in jsdom (each
+  // button's name is computed from its text, ~100 ms a query), and waitFor
+  // repeats them on each poll; this overran 5 s under load. The fake reads
+  // resolve at once, so one act() flush settles each step, and the paging
+  // buttons are found by their text.
+  const button = (text: string) =>
+    screen.getByText(text, { selector: 'button' });
+  await act(async () => {});
+  expect(screen.getByText(/303 saved in all/)).toBeInTheDocument();
   for (let index = 0; index < 3; index++) {
-    fireEvent.click(screen.getByRole('button', { name: 'Load more changes' }));
-    await waitFor(() => expect(p.load).toHaveBeenCalledTimes(index + 2));
-    await waitFor(() =>
-      expect(
-        screen.queryByText('Reading saved sandbox changes'),
-      ).not.toBeInTheDocument(),
+    fireEvent.click(button('Load more changes'));
+    await act(async () => {});
+    expect(p.load).toHaveBeenCalledTimes(index + 2);
+    expect(document.body).not.toHaveTextContent(
+      'Reading saved sandbox changes',
     );
   }
   const buttons = screen.getAllByRole('button', { name: /Pending · 1 file/ });
@@ -294,21 +301,14 @@ it('bounds visible rows at 200 while every forward page remains reachable and re
     button.querySelector('time')?.getAttribute('datetime');
   expect(shown(buttons[0])).toBe(minute(103));
   expect(shown(buttons.at(-1)!)).toBe(minute(302));
-  expect(
-    screen.queryByRole('button', { name: 'Load more changes' }),
-  ).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent('Load more changes');
   expect(screen.getByText(/latest 200 loaded changes/)).toBeInTheDocument();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Reload sandbox changes' }),
-  );
-  await waitFor(() =>
-    expect(
-      screen.getAllByRole('button', { name: /Pending · 1 file/ }),
-    ).toHaveLength(100),
-  );
+  fireEvent.click(button('Reload sandbox changes'));
+  await act(async () => {});
   expect(
-    screen.queryByText(/latest 200 loaded changes/),
-  ).not.toBeInTheDocument();
+    screen.getAllByRole('button', { name: /Pending · 1 file/ }),
+  ).toHaveLength(100);
+  expect(document.body).not.toHaveTextContent('latest 200 loaded changes');
 });
 it('pages the patch without appending unbounded text and rejects stale page revisions', async () => {
   const p = props({

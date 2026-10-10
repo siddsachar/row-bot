@@ -16,7 +16,7 @@ import {
   Palette,
   Puzzle,
   SkipForward,
-  UsersRound,
+  Sparkles,
   Workflow,
   Wrench,
   type LucideIcon,
@@ -75,22 +75,10 @@ const areas: Record<string, Area> = {
     action: 'Developer tools',
     to: '/settings/tools#built-in-tools',
   },
-  channels: {
-    icon: MessagesSquare,
-    action: 'Open Channels',
-    to: '/settings/channels',
-  },
-  accounts: {
-    icon: UsersRound,
-    action: 'Open Accounts',
-    to: '/settings/accounts',
-  },
+  // Accounts and channels are apps: one place connects everything.
+  apps: { icon: Puzzle, action: 'Open Apps', to: '/settings/apps' },
+  skills: { icon: Sparkles, action: 'Open Skills', to: '/settings/skills' },
   tools: { icon: Wrench, action: 'Review tools', to: '/settings/tools' },
-  extensions: {
-    icon: Puzzle,
-    action: 'Open MCP & Plugins',
-    to: '/settings/mcp',
-  },
   voice: { icon: Mic, action: 'Open Voice', to: '/settings/voice' },
   final: { icon: BadgeCheck, action: 'Run diagnosis', to: '/?tab=monitor' },
 };
@@ -108,11 +96,11 @@ const intentIcons: Record<string, LucideIcon> = {
 /** Areas that matter most for each use, in the order they are recommended. */
 const intentPriority: Record<string, readonly string[]> = {
   chat: ['models', 'tools'],
-  research: ['knowledge', 'tools', 'extensions'],
-  workflows: ['workflows', 'channels', 'accounts'],
+  research: ['knowledge', 'tools', 'apps'],
+  workflows: ['workflows', 'apps'],
   designer: ['designer', 'knowledge'],
   developer: ['developer', 'tools'],
-  channels: ['channels', 'accounts'],
+  channels: ['apps'],
   local: ['models', 'knowledge'],
 };
 

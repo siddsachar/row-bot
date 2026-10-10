@@ -83,6 +83,30 @@ describe('active conversation session', () => {
     expect(client.listenerCount()).toBe(0);
   });
 
+  it('forgets a restored conversation that turns out to be deleted', () => {
+    sessionStorage.setItem(
+      activeConversationSessionKey,
+      record('instance-a', 'conversation_1'),
+    );
+    const client = controller();
+    bindActiveConversationSession(client.value, '/', sessionStorage);
+    client.publish(ready('instance-a'));
+    expect(client.selectConversation).toHaveBeenCalledWith('conversation_1');
+
+    // Closed for a moment while a sign-in is replaced: still the one to reopen.
+    client.publish({ selectedConversationId: null });
+    expect(sessionStorage.getItem(activeConversationSessionKey)).toBe(
+      record('instance-a', 'conversation_1'),
+    );
+    // Opening it found it deleted: the controller closes it and says so.
+    client.publish({
+      selectedConversationId: null,
+      deletedConversationId: 'conversation_1',
+    });
+
+    expect(sessionStorage.getItem(activeConversationSessionKey)).toBeNull();
+  });
+
   it('writes only a validated selected ID under the authenticated instance', () => {
     const client = controller(ready('instance-a'));
     bindActiveConversationSession(client.value, '/', sessionStorage);

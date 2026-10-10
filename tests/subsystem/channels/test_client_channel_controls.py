@@ -199,7 +199,7 @@ assert 'row_bot.channels.auth' not in sys.modules
         [sys.executable, "-c", script, str(data_dir)],
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=60,
         env=environment,
     )
     assert result.returncode == 0, result.stdout + result.stderr

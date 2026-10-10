@@ -16,6 +16,7 @@ import pathlib
 import re
 import secrets
 import stat
+from collections.abc import Callable
 from typing import Any
 
 from row_bot.brand import APP_DATA_DIR_ENV, KEYRING_SERVICE_PREFIX, default_data_dir
@@ -45,6 +46,30 @@ _PERSISTENT_SERVER_SECRET_NONCE_BYTES = 12
 MAX_PERSISTENT_SERVER_SECRET_BYTES = MAX_SERVER_SECRET_BYTES + 1024
 
 _backend_override: Any | None = None
+_change_listeners: list[Callable[[str], None]] = []
+_changes = 0  # Secrets saved or removed so far: readers compare it, so a missed listener never leaves them stale.
+
+
+def on_change(listener: Callable[[str], None]) -> None:
+    """Call ``listener(namespace)`` after a secret is saved or removed; never with a name or value."""
+    if listener not in _change_listeners:
+        _change_listeners.append(listener)
+
+
+def change_count() -> int:
+    """How many secrets have been saved or removed since this module loaded."""
+    return _changes
+
+
+def notify_change(namespace: str) -> None:
+    """Tell listeners a secret in ``namespace`` changed (also used for session-only keys)."""
+    global _changes
+    _changes += 1
+    for listener in list(_change_listeners):
+        try:
+            listener(namespace)
+        except Exception:
+            logger.debug("A secret change listener failed", exc_info=True)
 
 
 def _docs_capture_active() -> bool:
@@ -630,11 +655,14 @@ def set_secret(name: str, value: str, *, namespace: str = "api_keys", service: s
             account,
             str(value),
         ):
+            notify_change(namespace)
             return "encrypted_file"
         if _write_windows_user_secret(resolved_service, account, str(value)):
+            notify_change(namespace)
             return "encrypted_file"
         _raise_secret_error("write", name, exc)
     _delete_windows_user_secret(resolved_service, account)
+    notify_change(namespace)
     return "keyring"
 
 
@@ -651,15 +679,18 @@ def delete_secret(name: str, *, namespace: str = "api_keys", service: str | None
         if "not found" in message or "not exist" in message or "no such" in message:
             _delete_persistent_server_secret(resolved_service, account)
             _delete_windows_user_secret(resolved_service, account)
+            notify_change(namespace)
             return
         if _is_unavailable_error(exc):
             server_deleted = _delete_persistent_server_secret(resolved_service, account)
             windows_deleted = _delete_windows_user_secret(resolved_service, account)
             if server_deleted or windows_deleted:
+                notify_change(namespace)
                 return
         _raise_secret_error("delete", name, exc)
     _delete_persistent_server_secret(resolved_service, account)
     _delete_windows_user_secret(resolved_service, account)
+    notify_change(namespace)
 
 
 def fingerprint(value: str) -> str:

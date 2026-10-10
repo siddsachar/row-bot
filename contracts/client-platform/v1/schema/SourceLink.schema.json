@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "label": {
+      "maxLength": 80,
+      "title": "Label",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 512,
+      "pattern": "^https://",
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "label",
+    "url"
+  ],
+  "title": "SourceLink",
+  "type": "object"
+}

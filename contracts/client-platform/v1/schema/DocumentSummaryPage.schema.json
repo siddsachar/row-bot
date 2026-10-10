@@ -3,6 +3,20 @@
     "DocumentSummary": {
       "additionalProperties": false,
       "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
         "extraction_current": {
           "anyOf": [
             {

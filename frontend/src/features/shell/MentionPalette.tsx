@@ -19,6 +19,8 @@ export type MentionItem = {
   icon: ReactNode;
   /** Marks the current choice (the chat's profile or write target). */
   current?: boolean;
+  /** Text that replaces the typed "@…" (an app mention stays in the message). */
+  replacement?: string;
   onChoose(): void;
 };
 
@@ -33,9 +35,10 @@ function currentToken(text: string, cursor: number) {
 }
 
 /**
- * "@" in the composer: agents, this chat's resources and files. Choosing one
- * removes the "@…" token and applies the choice (agent profile, write target
- * or file picker), so mentions are a keyboard path to existing controls.
+ * "@" in the composer: this chat's apps, agents, resources and files. An app
+ * stays in the message as "@App" and focuses that turn on it; choosing any
+ * other item removes the "@…" token and applies the choice (agent profile,
+ * write target or file picker), a keyboard path to existing controls.
  */
 const MentionPalette = forwardRef<
   SlashPaletteHandle,
@@ -45,8 +48,11 @@ const MentionPalette = forwardRef<
     items: MentionItem[];
     disabled: boolean;
     inputRef?: RefObject<HTMLTextAreaElement | null>;
-    /** Remove the "@…" token from the draft. */
-    onConsume(token: { start: number; end: number }): void;
+    /** Remove the "@…" token from the draft, or put the item's mention in its place. */
+    onConsume(
+      token: { start: number; end: number },
+      replacement?: string,
+    ): void;
   }
 >(function MentionPalette(
   { text, cursor, items, disabled, inputRef, onConsume },
@@ -130,7 +136,8 @@ const MentionPalette = forwardRef<
   }, [open, selected]);
   const choose = (item: MentionItem) => {
     if (!token) return;
-    onConsume(token);
+    if (item.replacement) onConsume(token, item.replacement);
+    else onConsume(token);
     setDismissed(identity);
     item.onChoose();
   };

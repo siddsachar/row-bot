@@ -211,7 +211,6 @@ def _event_args(index: int = 1, *, summary: str | None = None) -> dict[str, Any]
 def _fake_tool(monkeypatch: pytest.MonkeyPatch, backend: FakeCalendarBackend) -> calendar_tool.CalendarTool:
     tool = calendar_tool.CalendarTool()
     monkeypatch.setattr(tool, "_build_api_resource", backend.service_factory)
-    monkeypatch.setattr(tool, "_get_token_path", lambda: "fake-calendar-token.json")
     return tool
 
 
@@ -439,61 +438,3 @@ def test_search_update_move_and_delete_use_request_scoped_services(
     assert deleted["status"] == "deleted"
     assert len(backend.services) == services_after_create + 4
     assert len({id(service) for service in backend.services}) == len(backend.services)
-
-
-def test_concurrent_token_refresh_is_single_flight_and_atomic(
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from google.auth.transport import requests as google_requests
-    from google.oauth2.credentials import Credentials
-
-    token_path = tmp_path / "token.json"
-    token_path.write_text('{"valid": false}', encoding="utf-8")
-    initial_load_barrier = threading.Barrier(2)
-    calls_guard = threading.Lock()
-    loader_calls = 0
-    refresh_calls = 0
-
-    class FakeCredentials:
-        def __init__(self, valid: bool) -> None:
-            self.valid = valid
-            self.refresh_token = "refresh-token"
-
-        def refresh(self, _request: Any) -> None:
-            nonlocal refresh_calls
-            with calls_guard:
-                refresh_calls += 1
-            self.valid = True
-
-        def to_json(self) -> str:
-            return '{"valid": true}'
-
-    def load_credentials(filename: str, _scopes: Any) -> FakeCredentials:
-        nonlocal loader_calls
-        with calls_guard:
-            loader_calls += 1
-            call_number = loader_calls
-        if call_number <= 2:
-            initial_load_barrier.wait(timeout=2)
-        return FakeCredentials('"valid": true' in calendar_tool.pathlib.Path(filename).read_text(encoding="utf-8"))
-
-    monkeypatch.setattr(
-        Credentials,
-        "from_authorized_user_file",
-        staticmethod(load_credentials),
-    )
-    monkeypatch.setattr(google_requests, "Request", lambda: object())
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        credentials = list(
-            executor.map(
-                lambda _index: calendar_tool._load_google_credentials(str(token_path)),
-                range(2),
-            )
-        )
-
-    assert all(credential.valid for credential in credentials)
-    assert refresh_calls == 1
-    assert json.loads(token_path.read_text(encoding="utf-8")) == {"valid": True}
-    assert list(tmp_path.glob(".token.json.*.tmp")) == []

@@ -37,6 +37,14 @@ SessionAuthenticator = Callable[
 
 logger = logging.getLogger(__name__)
 
+
+class _OAuthCallbackLogFilter(logging.Filter):
+    def filter(self, record):
+        if isinstance(record.args, tuple):
+            record.args = tuple(value.split("?", 1)[0] if isinstance(value, str)
+                and value.startswith("/api/v1/settings/mcp/auth/callback?") else value for value in record.args)
+        return True
+
 _REJECTION_CACHE_MAX = 128
 _REJECTION_WINDOW_SECONDS = 30.0
 
@@ -196,6 +204,9 @@ class AccessMiddleware:
         websocket_revalidation_seconds: float = 5.0,
     ) -> None:
         self.app = app
+        access_logger = logging.getLogger("uvicorn.access")
+        if not any(isinstance(value, _OAuthCallbackLogFilter) for value in access_logger.filters):
+            access_logger.addFilter(_OAuthCallbackLogFilter())
         if runtime_policy is not None and config is not None:
             raise ValueError("pass config or runtime_policy, not both")
         self.runtime_policy = runtime_policy
@@ -341,6 +352,7 @@ class AccessMiddleware:
         forwarded_scope = dict(scope)
         forwarded_scope[PROVENANCE_SCOPE_KEY] = provenance
         forwarded_scope[ACCESS_CONTEXT_SCOPE_KEY] = context
+        forwarded_scope["row_bot_public_origins"] = resolver.config.public_origins
         async def revalidate_access() -> AccessContext | None:
             """Reuse current access policy for long-lived authenticated delivery."""
             try:

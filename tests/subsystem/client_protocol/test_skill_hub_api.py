@@ -4,7 +4,6 @@ import hashlib
 import urllib.error
 
 import pytest
-from uuid import uuid4
 
 from row_bot.application import client_skill_hub as hub
 from row_bot.skills_hub import source_registry
@@ -18,7 +17,11 @@ from row_bot.skills_hub.models import (
     SkillScanResult,
     SourceResult,
 )
-from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
+
+
+@pytest.fixture(autouse=True)
+def isolated_receipts(tmp_path, reload_for_data_dir):
+    reload_for_data_dir(tmp_path, "row_bot.tasks")
 
 
 def _entry() -> SkillHubEntry:
@@ -107,11 +110,7 @@ def test_search_preview_install_uses_exact_scanned_bundle_once(
     )
     first = hub.install_previewed_skill(**kwargs)
     second = hub.install_previewed_skill(**kwargs)
-    assert (
-        first
-        == second
-        == hub.read_skill_install_receipt(owner_id="one", command_id="command-1")
-    )
+    assert first == second
     assert first["success"] is True
     assert installed == [(preview["content_hash"], False)]
 
@@ -164,64 +163,9 @@ def test_revoked_authority_prevents_install(monkeypatch) -> None:
             make_available=False,
             validate=deny,
         )
-    with pytest.raises(hub.SkillHubCommandError, match="skill_receipt_missing"):
-        hub.read_skill_install_receipt(owner_id="revoked", command_id="command-revoked")
+    assert hub.admissions.read_command_metadata("revoked", "command-revoked") is None
 
 
-def test_v1_hub_search_preview_install_and_receipt_use_session_proof(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
-    _fake_catalog(monkeypatch)
-    monkeypatch.setattr(
-        hub.installer,
-        "install_bundle",
-        lambda bundle, *, enabled: InstallResult(
-            True,
-            "Skill installed disabled.",
-            skill_name="sample",
-        ),
-    )
-    client, _service, _active = client_app()
-    with client:
-        _view, headers = bootstrap(client)
-        searched = client.post(
-            "/api/v1/settings/skills/hub/search",
-            headers=headers,
-            json={"query": "sample", "source": "all", "refresh": False},
-        )
-        assert searched.status_code == 200, searched.text
-        found = searched.json()
-        previewed = client.post(
-            "/api/v1/settings/skills/hub/preview",
-            headers=headers,
-            json={"revision": found["revision"], "entry_id": "fixture:sample"},
-        )
-        assert previewed.status_code == 200, previewed.text
-        preview = previewed.json()
-        command_id = str(uuid4())
-        payload = {
-            "command_id": command_id,
-            "preview_id": preview["preview_id"],
-            "content_hash": preview["content_hash"],
-            "make_available": False,
-        }
-        no_key = client.post(
-            "/api/v1/settings/skills/hub/install", headers=headers, json=payload
-        )
-        assert no_key.status_code == 409
-        installed = client.post(
-            "/api/v1/settings/skills/hub/install",
-            headers={**headers, "Idempotency-Key": command_id},
-            json=payload,
-        )
-        assert installed.status_code == 200, installed.text
-        assert installed.json()["success"] is True
-        original = client.get(
-            f"/api/v1/settings/skills/hub/install/{command_id}", headers=headers
-        )
-        assert original.json() == installed.json()
 
 
 def _unreachable_source(entry: SkillHubEntry) -> SkillBundle:
@@ -249,24 +193,6 @@ def test_preview_failures_map_to_their_own_codes(monkeypatch, inspect, code) -> 
         )
 
 
-def test_v1_preview_failure_answers_with_its_code(monkeypatch) -> None:
-    _fake_catalog(monkeypatch)
-    monkeypatch.setattr(hub.catalog, "inspect_entry", _unreachable_source)
-    client, _service, _active = client_app()
-    with client:
-        _view, headers = bootstrap(client)
-        found = client.post(
-            "/api/v1/settings/skills/hub/search",
-            headers=headers,
-            json={"query": "sample"},
-        ).json()
-        previewed = client.post(
-            "/api/v1/settings/skills/hub/preview",
-            headers=headers,
-            json={"revision": found["revision"], "entry_id": "fixture:sample"},
-        )
-    assert previewed.status_code == 503
-    assert previewed.json()["code"] == "skill_preview_unavailable"
 
 
 def test_load_more_extends_results_and_earlier_pages_stay_previewable(
@@ -357,18 +283,6 @@ def test_install_records_the_listing_it_came_from(monkeypatch) -> None:
     assert installed[0].metadata["hub_entry_ref"] == "fixture:sample"
 
 
-def test_v1_hub_remote_session_revocation_blocks_delivery(monkeypatch) -> None:
-    _fake_catalog(monkeypatch)
-    client, _service, active = client_app(remote=True)
-    with client:
-        _view, headers = bootstrap(client)
-        active["value"] = False
-        response = client.post(
-            "/api/v1/settings/skills/hub/search",
-            headers=headers,
-            json={"query": "sample", "source": "all", "refresh": False},
-        )
-        assert response.status_code == 401
 
 
 def test_installed_provenance_is_bounded_and_maintenance_is_fenced(monkeypatch) -> None:
@@ -397,11 +311,7 @@ def test_installed_provenance_is_bounded_and_maintenance_is_fenced(monkeypatch) 
             or InstallResult(True, "Skill 'sample' is up to date.", skill_name=name)
         ),
     )
-    page = hub.read_installed_public_skills()
-    assert page["items"][0]["name"] == "sample"
-    assert "secret-ref" not in str(page)
-    assert "private-source" not in str(page)
-    revision = page["items"][0]["revision"]
+    revision = hub._record_revision(record)
     kwargs = dict(
         owner_id="maint",
         command_id="command-check",
@@ -413,6 +323,9 @@ def test_installed_provenance_is_bounded_and_maintenance_is_fenced(monkeypatch) 
     assert first == hub.execute_public_skill_maintenance(**kwargs)
     assert checks == ["sample"]
     assert first["success"] is True
+    assert first["record"]["name"] == "sample"
+    assert "secret-ref" not in str(first)
+    assert "private-source" not in str(first)
     with pytest.raises(hub.SkillHubCommandError, match="skill_command_conflict"):
         hub.execute_public_skill_maintenance(**{**kwargs, "action": "update"})
     with pytest.raises(hub.SkillHubCommandError, match="skill_record_changed"):
@@ -444,8 +357,9 @@ def test_uninstall_uses_expected_record_and_cannot_delete_another_skill(
     monkeypatch.setattr(hub.provenance, "get_record", lambda name: saved.get(name))
     removed = []
 
-    def uninstall(name, *, expected_record):
+    def uninstall(name, *, expected_record, operation_id):
         assert name == "sample" and expected_record == record
+        assert operation_id == "delete-1"
         removed.append(name)
         saved.pop(name)
         return InstallResult(True, "Skill uninstalled.", skill_name=name)
@@ -462,7 +376,11 @@ def test_uninstall_uses_expected_record_and_cannot_delete_another_skill(
     assert result["success"] is True
     assert result["record"] is None
     assert removed == ["sample"]
-    assert (
-        hub.read_skill_maintenance_receipt(owner_id="maint-two", command_id="delete-1")
-        == result
-    )
+    assert hub.execute_public_skill_maintenance(
+        owner_id="maint-two",
+        command_id="delete-1",
+        name="sample",
+        expected_revision=hub._record_revision(record),
+        action="uninstall",
+        confirmed=True,
+    ) == result

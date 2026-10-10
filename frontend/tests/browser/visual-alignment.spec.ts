@@ -67,7 +67,7 @@ async function addDeck(page: Page, name: string): Promise<void> {
   await openAddResource(page);
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   const another = setup.getByRole('button', {
-    name: 'Start another resource',
+    name: 'Create another',
     exact: true,
   });
   if (await another.isVisible()) await another.click();
@@ -76,7 +76,7 @@ async function addDeck(page: Page, name: string): Promise<void> {
     .fill(name);
   await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
 }
@@ -394,7 +394,7 @@ test('last explicitly opened Deck retains priority when another client adds a wo
       .getByRole('button', { name: 'Add to this conversation', exact: true })
       .click();
     await expect(
-      setup.getByText('Resource ready', { exact: true }),
+      setup.getByText(/^(Design ready|Code folder ready)$/),
     ).toBeVisible();
     // The background workspace is listed for this client without opening a
     // panel, so the explicitly opened Deck keeps its place. (Below 1024px the

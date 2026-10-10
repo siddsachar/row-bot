@@ -347,13 +347,15 @@ it('names itself Conversation details and keeps no utilities the header already 
     within(rail).queryByRole('button', { name: /find in conversation/i }),
   ).toBeNull();
   expect(within(rail).queryByRole('button', { name: /terminal/i })).toBeNull();
-  // Set a goal lives with the goal itself, which always shows.
+  // Without a goal no Goal row shows, only a small Set a goal, which opens
+  // the section with its form.
   fireEvent.click(
     await within(rail).findByRole('button', { name: 'Set a goal' }),
   );
   expect(
     await within(rail).findByRole('form', { name: 'Set a goal' }),
   ).toBeVisible();
+  expect(within(rail).getByText('Goal', { selector: 'summary' })).toBeVisible();
 });
 
 it('hides the Agents section while delegated work is empty and draws disclosure affordances', () => {
@@ -377,11 +379,12 @@ it('hides the Agents section while delegated work is empty and draws disclosure 
   const view = render(<ConversationContextRail {...props} agentsEmpty />);
   const agents = screen.getByText('Agents', { selector: 'summary' });
   expect(agents).not.toBeVisible();
-  const goal = screen.getByText('Goal', { selector: 'summary' });
-  expect(goal).toBeVisible();
-  expect(goal.querySelector('.disclosure-chevron')).not.toBeNull();
+  // No goal: no Goal row, only the small Set a goal.
+  expect(screen.queryByText('Goal', { selector: 'summary' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Set a goal' })).toBeVisible();
   view.rerender(<ConversationContextRail {...props} agentsEmpty={false} />);
   expect(screen.getByText('Agents', { selector: 'summary' })).toBeVisible();
+  expect(agents.querySelector('.disclosure-chevron')).not.toBeNull();
 });
 
 it('opens and promotes the Agents section while delegated agents are live (B30)', () => {

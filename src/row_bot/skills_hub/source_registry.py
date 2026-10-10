@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import logging
 import threading
@@ -12,6 +13,10 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+import httpx
+
+from row_bot.integrations.safe import write_atomic
+
 from .input_detection import detect_source_input
 from .models import DetectedSourceInput, SourceHealth, SourceResult, SkillHubEntry
 from .provenance import hub_dir
@@ -20,7 +25,6 @@ from .search_index import dedupe_entries, search_entries
 logger = logging.getLogger(__name__)
 
 BROWSE_CACHE_TTL_SECONDS = 6 * 60 * 60
-HEALTH_CACHE_TTL_SECONDS = 30 * 60
 # How long a browse or search waits before answering with the sources that have
 # replied. Slower sources keep going and are reported "pending"; their results
 # land in the cache, and the client asks again to pick them up.
@@ -36,7 +40,7 @@ BROWSE_PER_SOURCE = 50
 # A finished live answer that wasn't cached (a failure, or nothing found) is
 # reused this long, so follow-up requests don't ask that source again.
 RECENT_ANSWER_SECONDS = 60
-SOURCE_CACHE_SCHEMA_VERSION = 4
+SOURCE_CACHE_SCHEMA_VERSION = 5
 RESOLVE_FAILED_MESSAGE = (
     "Row-Bot couldn't find a skill there. Try a GitHub folder, a SKILL.md link, "
     "or a skills.sh, browse.sh, ClawHub or LobeHub page."
@@ -92,8 +96,12 @@ class SkillSourceRegistry:
         source_filter: str = "all",
         limit: int = 50,
         force_refresh: bool = False,
+        cached_only: bool = False,
+        cancelled: Callable[[], bool] | None = None,
     ) -> tuple[list[SkillHubEntry], list[SourceResult], DetectedSourceInput]:
         detected = detect_source_input(query)
+        if detected.is_import_like and cached_only:
+            return [], [SourceResult([], source_filter, "empty", "Use explicit public search to inspect a skill link.")], detected
         if detected.is_import_like:
             result = self.resolve(query, detected=detected)
             return result.entries[:limit], [result], detected
@@ -109,6 +117,8 @@ class SkillSourceRegistry:
                 query="",
                 limit=limit,
                 force_refresh=force_refresh,
+                cached_only=cached_only,
+                cancelled=cancelled,
                 timeout=DEFAULT_BROWSE_TIMEOUT,
             )
             entries = dedupe_entries(
@@ -122,6 +132,8 @@ class SkillSourceRegistry:
             query=query,
             limit=max(limit, 50),
             force_refresh=force_refresh,
+            cached_only=cached_only,
+            cancelled=cancelled,
             timeout=DEFAULT_SEARCH_TIMEOUT,
         )
         entries = dedupe_entries(entry for result in results for entry in result.entries)
@@ -231,10 +243,7 @@ class SkillSourceRegistry:
         for source in self._sources:
             source_id = _normalize_source_id(getattr(source, "id", ""))
             source_group = _normalize_source_id(getattr(source, "source_group", source_id))
-            trust = str(getattr(source, "trust_default", "community")).lower()
-            if normalized in {"", "all"}:
-                pass
-            elif source_id != normalized and source_group != normalized:
+            if normalized not in {"", "all"} and normalized not in {source_id, source_group}:
                 continue
             if browse_or_search and not (
                 bool(getattr(source, "supports_browse", False))
@@ -243,6 +252,17 @@ class SkillSourceRegistry:
                 continue
             selected.append(source)
         return selected
+
+    def refresh(self, source_id: str, *, cancelled: Callable[[], bool] | None = None) -> SourceResult:
+        """An explicit catalog update: read the source's browse list now and save it."""
+        source = self.source(source_id)
+        if source is None or not getattr(source, "supports_browse", False):
+            raise ValueError("not_updatable")
+        limit = SOURCE_INDEX_LIMIT if getattr(source, "search_from_browse", False) else BROWSE_PER_SOURCE
+        result = _call_source(source, "browse", "", limit, cancelled=cancelled)
+        if result.entries and not (cancelled is not None and cancelled()):
+            _write_source_cache(result, "browse", "")
+        return result
 
     def _run_sources(
         self,
@@ -253,23 +273,46 @@ class SkillSourceRegistry:
         limit: int,
         force_refresh: bool,
         timeout: float,
+        cached_only: bool = False,
+        cancelled: Callable[[], bool] | None = None,
     ) -> list[SourceResult]:
         results: list[SourceResult] = []
         waiting: dict[concurrent.futures.Future, tuple[object, str, str, bool]] = {}
 
         for source in sources:
             source_id = str(getattr(source, "id", "unknown"))
+            if not getattr(source, "discovery_eligible", True) and not cached_only:
+                results.append(SourceResult([], source_id, "error", getattr(source, "discovery_reason", "Discovery unavailable.")))
+                continue
             from_index = bool(getattr(source, "search_from_browse", False))
             # A keyword search of an index source filters its cached browse list.
             filtered = from_index and operation == "search"
             live_operation, live_query = ("browse", "") if filtered else (operation, query)
-            cached = None
-            if not force_refresh:
-                cached = _read_source_cache(source_id, live_operation, live_query)
+            # Explicit searches reuse results within their TTL; only expiry fetches again.
+            cached = _read_source_cache(source_id, live_operation, live_query, allow_stale=cached_only)
             if cached is not None:
                 results.append(_filtered(cached, query, limit) if filtered else cached)
                 continue
+            if cached_only:
+                results.append(SourceResult([], source_id, "empty", "Choose Search public source to query this catalog."))
+                continue
             fetch_limit = SOURCE_INDEX_LIMIT if from_index else max(limit, BROWSE_PER_SOURCE)
+            if cancelled is not None:
+                # The outer integration coordinator owns the deadline/thread.
+                if cancelled():
+                    raise ValueError("integration_search_cancelled")
+                result = _call_source(source, live_operation, live_query, fetch_limit, cancelled=cancelled)
+                if cancelled():
+                    raise ValueError("integration_search_cancelled")
+                if result.entries:
+                    _write_source_cache(result, live_operation, live_query)
+                elif result.status in {"error", "auth_required", "rate_limited", "timeout", "malformed"}:
+                    stale = _read_source_cache(source_id, live_operation, live_query, allow_stale=True)
+                    if stale is not None:
+                        stale.status, stale.message = "stale", result.message
+                        result = stale
+                results.append(_filtered(result, query, limit) if filtered else result)
+                continue
             future = self._live_fetch(
                 source, live_operation, live_query, fetch_limit, retry=force_refresh
             )
@@ -284,7 +327,7 @@ class SkillSourceRegistry:
             stale = None
             if future in done:
                 result = future.result()
-                if result.status == "error":
+                if result.status in {"error", "auth_required", "rate_limited", "timeout", "malformed"}:
                     stale = _read_source_cache(source_id, live_operation, live_query, allow_stale=True)
                 if stale is not None:
                     stale.status = "stale"
@@ -301,7 +344,7 @@ class SkillSourceRegistry:
         self, source: object, operation: str, query: str, limit: int, *, retry: bool
     ) -> concurrent.futures.Future:
         """Start one live fetch per source, operation and query, or join the known one."""
-        key = (_normalize_source_id(getattr(source, "id", "")), operation, _normalize_source_id(query))
+        key = (_normalize_source_id(getattr(source, "id", "")), operation, query.strip().casefold())
         now = time.monotonic()
         with self._live_lock:
             for known, (started, future) in list(self._live.items()):
@@ -348,11 +391,6 @@ def default_registry() -> SkillSourceRegistry:
     if _DEFAULT_REGISTRY is None:
         _DEFAULT_REGISTRY = SkillSourceRegistry()
     return _DEFAULT_REGISTRY
-
-
-def reset_default_registry() -> None:
-    global _DEFAULT_REGISTRY
-    _DEFAULT_REGISTRY = None
 
 
 def _in_background(source: object, fn: Callable[..., Any], *args: Any) -> concurrent.futures.Future:
@@ -404,15 +442,16 @@ def _display_name(source: object) -> str:
 
 def _failure_message(exc: BaseException, name: str) -> str:
     """Why a source failed, in plain words; the raw error only reaches the log."""
-    if isinstance(exc, urllib.error.HTTPError):
-        if exc.code in {403, 429}:
+    code = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "code", None)
+    if isinstance(exc, (httpx.HTTPStatusError, urllib.error.HTTPError)):
+        if code in {403, 429}:
             return f"{name} is limiting requests right now. Try again later."
-        if exc.code == 404:
+        if code == 404:
             return f"{name} couldn't find it."
         return f"{name} had a problem answering. Try again later."
-    if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)) or isinstance(getattr(exc, "reason", None), TimeoutError):
         return f"{name} took too long to answer."
-    if isinstance(exc, (urllib.error.URLError, ConnectionError)):
+    if isinstance(exc, (httpx.TransportError, urllib.error.URLError, ConnectionError)):
         return f"{name} couldn't be reached."
     if isinstance(exc, ValueError):
         return f"{name} sent something Row-Bot couldn't read."
@@ -426,15 +465,16 @@ def _log_outcome(source_id: str, operation: str, outcome: str, started: float, e
     )
 
 
-def _call_source(source: object, operation: str, query: str, limit: int) -> SourceResult:
+def _call_source(source: object, operation: str, query: str, limit: int, *, cancelled: Callable[[], bool] | None = None) -> SourceResult:
     source_id = getattr(source, "id", "unknown")
     started = time.perf_counter()
+    options = {"cancelled": cancelled} if getattr(source, "supports_cancellation", False) else {}
     try:
         if operation == "browse":
             browse = getattr(source, "browse", None)
             if not callable(browse):
                 return SourceResult([], source_id, "empty", "Browse is not supported.")
-            result = browse(limit=limit)
+            result = browse(limit=limit, **options)
         else:
             if bool(getattr(source, "supports_search", False)):
                 search_result = getattr(source, "search_result", None)
@@ -442,7 +482,7 @@ def _call_source(source: object, operation: str, query: str, limit: int) -> Sour
                     result = search_result(query, limit=limit)
                 else:
                     search = getattr(source, "search", None)
-                    entries = search(query, limit=limit) if callable(search) else []
+                    entries = search(query, limit=limit, **options) if callable(search) else []
                     result = SourceResult(entries, source_id, "live" if entries else "empty")
             else:
                 browse = getattr(source, "browse", None)
@@ -450,10 +490,14 @@ def _call_source(source: object, operation: str, query: str, limit: int) -> Sour
                 result = SourceResult(search_entries(entries, query, limit=limit), source_id, "live")
     except Exception as exc:
         logger.warning("Skills hub %s %s failed: %s", source_id, operation, type(exc).__name__)
+        code = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "code", None)
         return SourceResult(
             [],
             source_id,
-            "error",
+            "auth_required" if code in {401, 403} else
+            "rate_limited" if code == 429 else
+            "timeout" if isinstance(exc, (TimeoutError, httpx.TimeoutException)) else
+            "malformed" if isinstance(exc, (ValueError, TypeError, KeyError)) else "error",
             _failure_message(exc, _display_name(source)),
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
@@ -466,8 +510,10 @@ def _call_source(source: object, operation: str, query: str, limit: int) -> Sour
     return result
 
 
-def _cache_root() -> Path:
-    root = hub_dir() / "index-cache"
+def _cache_root(*, create: bool = True) -> Path:
+    root = hub_dir(create=create) / "index-cache"
+    if not create:
+        return root
     root.mkdir(parents=True, exist_ok=True)
     ignore = root / ".ignore"
     if not ignore.exists():
@@ -475,10 +521,10 @@ def _cache_root() -> Path:
     return root
 
 
-def _cache_path(source_id: str, operation: str, query: str) -> Path:
-    safe_query = _normalize_source_id(query or "browse")[:80] or "browse"
+def _cache_path(source_id: str, operation: str, query: str, *, create: bool = True) -> Path:
+    safe_query = hashlib.sha256(query.encode("utf-8")).hexdigest()
     name = f"{_normalize_source_id(source_id)}_{operation}_{safe_query}.json"
-    return _cache_root() / name
+    return _cache_root(create=create) / name
 
 
 def _read_source_cache(
@@ -488,8 +534,8 @@ def _read_source_cache(
     *,
     allow_stale: bool = False,
 ) -> SourceResult | None:
-    path = _cache_path(source_id, operation, query)
-    if not path.exists():
+    path = _cache_path(source_id, operation, query, create=False)
+    if not path.exists() or path.is_symlink() or path.stat().st_size > 8 * 1024 * 1024:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -516,9 +562,7 @@ def _write_source_cache(result: SourceResult, operation: str, query: str) -> Non
     payload = result.as_dict()
     payload["cache_schema_version"] = SOURCE_CACHE_SCHEMA_VERSION
     payload["entries"] = [asdict(entry) for entry in result.entries]
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
+    write_atomic(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def _normalize_source_id(value: str) -> str:

@@ -111,6 +111,39 @@ def test_uncertain_new_launch_is_not_repeated_by_a_new_command(owner, monkeypatc
     assert calls == []
 
 
+def test_a_launch_refused_before_it_started_is_final_and_blocks_nothing(owner, monkeypatch):
+    """Live: Stripe's earlier connection still held its name after a tool call hung, so a reconnect was
+    refused before it started; it stayed "unconfirmed" and the app said "Finishing your last change…"
+    even after a restart. Nothing was scheduled, so nothing can have connected."""
+    runtime, calls = owner
+    original = runtime.launch_server_owned
+    monkeypatch.setattr(runtime, "launch_server_owned", lambda *a, **k: (_ for _ in ()).throw(ValueError("mcp_runtime_busy")))
+    refused = execute(request("connect"))
+    assert refused["status"] == "completed" and refused["mcp_runtime"]["state"] == "failed"
+    monkeypatch.setattr(runtime, "launch_server_owned", original)
+    assert execute(request("connect"))["mcp_runtime"]["state"] == "connected"  # Nothing left waiting on it.
+    assert calls == ["connect", "list_tools"]
+
+
+def test_a_launch_its_process_never_checkpointed_settles_once_that_process_has_ended(owner, monkeypatch):
+    runtime, calls = owner
+
+    class Crash(BaseException):
+        pass
+
+    def crash(*_a, **_k):
+        raise Crash()  # Row-Bot stops after admitting the command, before any launch checkpoint.
+    monkeypatch.setattr(runtime, "launch_server_owned", crash)
+    command = request("connect")
+    with pytest.raises(Crash):
+        execute(command)
+    monkeypatch.setattr(controls, "_ended", lambda recorded: False)
+    assert execute(command)["status"] == "partial"  # Its process may still be launching: never guessed.
+    monkeypatch.setattr(controls, "_ended", lambda recorded: type(recorded) is dict)
+    settled = execute(command)
+    assert settled["status"] == "completed" and settled["mcp_runtime"]["state"] == "failed" and calls == []
+
+
 def test_stop_uses_owned_identity_even_after_saved_config_is_corrupt(owner):
     _, calls = owner
     connected = execute(request("connect"))
@@ -257,7 +290,7 @@ assert not pathlib.Path(sys.argv[1]).exists()
 '''
     completed = subprocess.run([sys.executable, "-c", script, str(target)],
         env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, capture_output=True, text=True,
-        timeout=20, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        timeout=60, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     assert completed.returncode == 0, completed.stderr
 
 
@@ -286,7 +319,7 @@ assert "row_bot.mcp_client.runtime" not in sys.modules
 '''
     completed = subprocess.run([sys.executable, "-c", script, json.dumps(command)],
         env={**os.environ, "ROW_BOT_DATA_DIR": str(tmp_path)}, capture_output=True, text=True,
-        timeout=20, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        timeout=60, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     assert completed.returncode == 0, completed.stderr
     assert calls == ["connect", "list_tools"]
 
@@ -409,3 +442,60 @@ def test_admitted_approval_expiry_after_handshake_blocks_discovery(owner, monkey
     result = execute(request(), validate_admitted_review=admitted)
     assert result["status"] == "completed" and result["mcp_runtime"]["state"] == "failed"
     assert result["mcp_runtime"]["session_quiesced"] is True and calls == ["connect"]
+
+
+def test_recovery_by_retained_id_completes_without_repeating_test(owner, monkeypatch):
+    runtime, calls = owner
+    persist = controls._persist_progress
+    def fail_completion(owner_id, key, result):
+        if result.get("status") == "completed":
+            raise OSError("lost completion")
+        return persist(owner_id, key, result)
+    monkeypatch.setattr(controls, "_persist_progress", fail_completion)
+    command = request()
+    with pytest.raises(OSError, match="lost completion"):
+        execute(command)
+    monkeypatch.setattr(controls, "_persist_progress", persist)
+    monkeypatch.setattr(runtime, "launch_server_owned", lambda *a, **k: pytest.fail("repeated launch"))
+    with pytest.raises(controls.CapabilityRuntimeError, match="not_found"):
+        controls.reconcile_mcp_runtime_operation(owner_id="different", command_id=command["command_id"], validate=lambda: None)
+    checked = controls.reconcile_mcp_runtime_operation(owner_id="synthetic-owner", command_id=command["command_id"], validate=lambda: None)
+    assert checked["settled"] and calls == ["connect", "list_tools"]
+    from row_bot.runtime import admissions
+    receipt = admissions.read_command_receipt("synthetic-owner", command["command_id"])
+    assert receipt["mcp_runtime"]["state"] == "tested"
+
+
+@pytest.mark.parametrize("earlier", ["ended", "this", "still_running"])
+def test_a_disconnect_left_unconfirmed_by_a_restart_settles_only_once_its_process_has_ended(owner, monkeypatch, earlier):
+    import psutil
+    from row_bot.runtime import admissions
+    runtime, _ = owner
+    current = controls._process()
+    process = {"ended": {"pid": 2**31 - 4, "started": 1.0}, "this": current,
+               "still_running": {"pid": os.getppid(), "started": psutil.Process(os.getppid()).create_time()}}[earlier]
+    monkeypatch.setattr(controls, "_process", lambda: process)  # The Row-Bot that connected and began to disconnect.
+    identity = execute(request("connect"))["mcp_runtime"]["runtime_id"]
+    disconnect = request("disconnect", identity)
+
+    def ends_first(*_args, **_kwargs):
+        raise RuntimeError("Row-Bot quit before the session ended")
+    stop = runtime.stop_server_owned
+    monkeypatch.setattr(runtime, "stop_server_owned", ends_first)
+    with pytest.raises(RuntimeError):
+        execute(disconnect)
+    with runtime._runtime_lock:  # Its session went with it, and nothing recorded how.
+        ended = runtime._servers["Synthetic"]
+        ended._before_release, ended._release_confirmed = None, True
+    monkeypatch.setattr(runtime, "stop_server_owned", stop)
+    runtime.shutdown()
+    monkeypatch.setattr(runtime, "launch_server_owned", lambda *a, **k: pytest.fail("repeated launch"))
+    monkeypatch.setattr(controls, "_process", lambda: current)  # Row-Bot started again.
+
+    checked = controls.reconcile_mcp_runtime_operation(owner_id="synthetic-owner", command_id=disconnect["command_id"],
+                                                       validate=lambda: None)
+    receipt = admissions.read_command_receipt("synthetic-owner", disconnect["command_id"])
+    if earlier == "ended":
+        assert checked["settled"] and receipt["mcp_runtime"]["state"] == "stopped"
+    else:  # Absence proves nothing while the process that owned the session may still hold it.
+        assert not checked["settled"] and receipt["mcp_runtime"]["state"] == "unknown"

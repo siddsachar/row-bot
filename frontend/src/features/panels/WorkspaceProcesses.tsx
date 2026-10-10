@@ -1002,7 +1002,8 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
       )}
       {state.snapshot && !state.processes.length && !checks.length && (
         <p className="dev-empty">
-          No commands have run here yet. Run one above; its output streams here.
+          Nothing is running here. Run a command above and its output streams
+          here; commands Row-Bot runs for you show in the chat.
         </p>
       )}
       {log && (

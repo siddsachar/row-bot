@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
@@ -86,6 +87,7 @@ async function setup(
   count = 55,
   route = '/',
   prepare?: (transport: FixtureTransport) => void,
+  onPanel?: ComponentProps<typeof Navigation>['onPanel'],
 ) {
   const onOpenConversation = vi.fn();
   const onNewChat = vi.fn();
@@ -105,6 +107,7 @@ async function setup(
           <Navigation
             onOpenConversation={onOpenConversation}
             onNewChat={onNewChat}
+            onPanel={onPanel}
           />
         </OverlayProvider>
       </RuntimeContext.Provider>
@@ -193,7 +196,7 @@ it('opens the grouped profile panel with counts and starts the selected profile 
     name: /^All agents \(1\).*1 built-in.*0 custom/,
   });
   fireEvent.click(entry);
-  const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
+  const dialog = await screen.findByRole('dialog', { name: 'Agents' });
   expect(within(dialog).getByText('Everyday')).toBeInTheDocument();
   fireEvent.click(
     within(dialog).getByRole('button', { name: 'View General Assistant' }),
@@ -205,7 +208,7 @@ it('opens the grouped profile panel with counts and starts the selected profile 
     }),
   );
   await waitFor(() => expect(onStartProfileChat).toHaveBeenCalledWith(profile));
-  expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull();
+  expect(screen.queryByRole('dialog', { name: 'Agents' })).toBeNull();
   owner.dispose();
 });
 
@@ -257,7 +260,10 @@ const AGENTS = [
 ];
 
 /** The expanded sidebar with the agent library's profiles loaded. */
-async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
+async function setupAgents(
+  prepare?: (transport: FixtureTransport) => void,
+  items: ProfileSummary[] = AGENTS,
+) {
   const transport = new FixtureTransport({ conversationCount: 2 });
   prepare?.(transport);
   const controller = new ClientController(transport, () => 1);
@@ -267,13 +273,13 @@ async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
     schema_version: 1,
     scope: 'global',
     revision: 'a'.repeat(64),
-    items: AGENTS,
-    total: AGENTS.length,
+    items,
+    total: items.length,
     next_cursor: null,
   });
   controller.profile = vi.fn().mockImplementation(async (id: string) => ({
     schema_version: 1,
-    profile: AGENTS.find((item) => item.id === id),
+    profile: items.find((item) => item.id === id),
   }));
   const owner = createAuthenticatedEditorOwner(
     controller,
@@ -302,8 +308,19 @@ async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
     </MemoryRouter>,
   );
   const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
-  await within(nav).findByRole('button', { name: /^All agents \(8\)/ });
+  await within(nav).findByRole('button', {
+    name: new RegExp(`^All agents \\(${items.length}\\)`),
+  });
   return { controller, transport, nav, view, onNewChat, onStartProfileChat };
+}
+
+/** A menu's item names, without the description line under each. */
+function menuNames(menu: HTMLElement) {
+  return within(menu)
+    .getAllByRole('menuitem')
+    .map(
+      (item) => item.querySelector('.menu-item-label')?.firstChild?.textContent,
+    );
 }
 
 function avatarOf(seed: string) {
@@ -335,11 +352,7 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
   });
   // Until a profile is pinned, the library's first five stand in; the
   // Default profile is plain New chat and a disabled one can't start.
-  expect(
-    within(menu)
-      .getAllByRole('menuitem')
-      .map((item) => item.textContent),
-  ).toEqual([
+  expect(menuNames(menu)).toEqual([
     'Planner',
     'Researcher',
     'Writer',
@@ -347,7 +360,20 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
     'Knowledge',
     'All agents…',
   ]);
-  await user.click(within(menu).getByRole('menuitem', { name: 'Researcher' }));
+  // Each agent says what it is for, on one muted line under its name.
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.querySelector('small')?.textContent ?? null),
+  ).toEqual([
+    'Planner profile.',
+    'Researcher profile.',
+    'Writer profile.',
+    'Ideas profile.',
+    'Knowledge profile.',
+    null,
+  ]);
+  await user.click(within(menu).getByRole('menuitem', { name: /^Researcher/ }));
   expect(onStartProfileChat).toHaveBeenCalledWith(AGENTS[2]);
   expect(onNewChat).toHaveBeenCalledTimes(1);
   await user.click(
@@ -357,7 +383,7 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
     await screen.findByRole('menuitem', { name: 'All agents…' }),
   );
   expect(
-    await screen.findByRole('dialog', { name: 'Agent profiles' }),
+    await screen.findByRole('dialog', { name: 'Agents' }),
   ).toBeInTheDocument();
 });
 
@@ -411,15 +437,54 @@ it('starts a chat with a favourite agent in one click and opens the library from
     }),
   );
   expect(
-    await screen.findByRole('dialog', { name: 'Agent profiles' }),
+    await screen.findByRole('dialog', { name: 'Agents' }),
   ).toBeInTheDocument();
+});
+
+it('stands in the everyday agents, each with its name and a face of its own, until one is pinned', async () => {
+  const group = (id: string, name: string, ui: string) =>
+    agentProfile(id, name, { group: ui });
+  // The library lists A–Z: work and developer agents come first.
+  const { nav } = await setupAgents(undefined, [
+    group('builtin:automate', 'Automate', 'Work'),
+    group('builtin:code_review', 'Code Review', 'Developer'),
+    group('builtin:data', 'Data', 'Work'),
+    group('builtin:row_bot_default', 'Default', 'Everyday'),
+    group('builtin:design', 'Design', 'Creative'),
+    group('builtin:develop', 'Develop', 'Developer'),
+    group('builtin:ideas', 'Ideas', 'Everyday'),
+    group('builtin:plan', 'Plan', 'Everyday'),
+    group('builtin:research', 'Research', 'Everyday'),
+    group('builtin:write', 'Write', 'Everyday'),
+  ]);
+  const favourites = within(nav).getByRole('group', {
+    name: 'Favourite agents',
+  });
+  const buttons = within(favourites).getAllByRole('button');
+  expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+    'New chat with Ideas',
+    'New chat with Plan',
+    'New chat with Research',
+    'New chat with Write',
+  ]);
+  // The name shows under each face, not only on hover.
+  expect(buttons.map((button) => button.textContent)).toEqual([
+    'Ideas',
+    'Plan',
+    'Research',
+    'Write',
+  ]);
+  const faces = buttons.map((button) =>
+    button.querySelector('.agent-avatar')!.getAttribute('data-avatar'),
+  );
+  expect(new Set(faces).size).toBe(faces.length);
 });
 
 it('shows pinned profiles as the favourites once one is pinned in the library (B268)', async () => {
   const user = userEvent.setup();
   const { nav } = await setupAgents();
   await user.click(within(nav).getByRole('button', { name: /^All agents/ }));
-  const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
+  const dialog = await screen.findByRole('dialog', { name: 'Agents' });
   const pin = await within(dialog).findByRole('button', {
     name: 'Pin Analyst to the sidebar',
   });
@@ -436,7 +501,7 @@ it('shows pinned profiles as the favourites once one is pinned in the library (B
   );
   await user.keyboard('{Escape}');
   await waitFor(() =>
-    expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull(),
+    expect(screen.queryByRole('dialog', { name: 'Agents' })).toBeNull(),
   );
   const favourites = within(nav).getByRole('group', {
     name: 'Favourite agents',
@@ -450,11 +515,7 @@ it('shows pinned profiles as the favourites once one is pinned in the library (B
     within(nav).getByRole('button', { name: 'New chat with an agent…' }),
   );
   const menu = await screen.findByRole('menu');
-  expect(
-    within(menu)
-      .getAllByRole('menuitem')
-      .map((item) => item.textContent),
-  ).toEqual(['Analyst', 'Writer', 'All agents…']);
+  expect(menuNames(menu)).toEqual(['Analyst', 'Writer', 'All agents…']);
 });
 
 it('keeps the Agents section collapsed across a reload and lists no agent runs (B268)', async () => {
@@ -1103,4 +1164,177 @@ it('keeps Home, New chat, commands and Settings reachable on the collapsed rail 
   expect(
     screen.getByRole('status', { name: 'Current route' }),
   ).toHaveTextContent('/');
+});
+
+it('pins a conversation in one tap, without opening its actions dialog', async () => {
+  const { controller, transport } = await setup(3);
+  const reviewed: unknown[] = [];
+  controller.conversationActions = vi.fn(async (id: string) => ({
+    schema_version: 1 as const,
+    conversation_id: id,
+    revision: '4',
+    checkpoint_revision: 'checkpoint-7',
+    title: 'Sample conversation 2',
+    pinned: false,
+    capabilities: {
+      rename: { available: true, code: null },
+      pin: { available: true, code: null },
+      archive: { available: false, code: 'conversation_archive_unavailable' },
+      export: { available: true, code: null },
+    },
+  }));
+  controller.reviewConversationAction = vi.fn(
+    async (id, action, revision, fields) => {
+      reviewed.push(fields);
+      return {
+        schema_version: 1 as const,
+        conversation_id: id,
+        action,
+        revision,
+        checkpoint_revision: 'checkpoint-7',
+        fields,
+        action_digest: 'a'.repeat(64),
+        summary: 'Pin',
+        disclosures: [],
+      };
+    },
+  ) as unknown as typeof controller.reviewConversationAction;
+  controller.executeConversationAction = vi.fn(async (_id, command) => {
+    transport.conversations[1].pinned = true;
+    return {
+      command_id: command.command_id,
+      status: 'completed',
+      action: command.type,
+      conversation: {
+        conversation_id: 'conversation-2',
+        revision: '5',
+        title: 'Sample conversation 2',
+        pinned: true,
+      },
+    };
+  }) as unknown as typeof controller.executeConversationAction;
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Pin Sample conversation 2' }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Unpin Sample conversation 2' }),
+    ).toHaveAttribute('aria-pressed', 'true'),
+  );
+  expect(reviewed).toEqual([{ pinned: true }]);
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+/** The floating notice that says `text` (not its screen-reader echo). */
+async function noticeWith(text: string) {
+  const matches = await screen.findAllByText(text);
+  const toast = matches
+    .map((match) => match.closest<HTMLElement>('.toast'))
+    .find(Boolean);
+  return within(toast!);
+}
+
+async function confirmDelete(
+  user: ReturnType<typeof userEvent.setup>,
+  title: string,
+) {
+  await user.click(
+    screen.getByRole('button', { name: `Actions for ${title}` }),
+  );
+  await user.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+  const confirmation = await screen.findByRole('alertdialog', {
+    name: `Delete '${title}'?`,
+  });
+  await user.click(
+    within(confirmation).getByRole('button', { name: 'Delete conversation' }),
+  );
+}
+
+it('deletes one conversation after confirmation with Undo, and sends the delete only when its notice ends', async () => {
+  const user = userEvent.setup();
+  const { transport } = await setup(3);
+  const command = vi.spyOn(transport, 'command');
+  const listed = () => transport.conversations.map((row) => row.id);
+  await confirmDelete(user, 'Sample conversation 2');
+  // It leaves the list at once; nothing is deleted while Undo is offered.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('button', { name: 'Sample conversation 2' }),
+    ).toBeNull(),
+  );
+  const offered = await noticeWith("Deleted 'Sample conversation 2'.");
+  expect(command).not.toHaveBeenCalled();
+  // Radix toasts handle pointer capture, which jsdom lacks: plain clicks.
+  fireEvent.click(offered.getByRole('button', { name: 'Undo' }));
+  expect(
+    await screen.findByRole('button', { name: 'Sample conversation 2' }),
+  ).toBeVisible();
+  expect(command).not.toHaveBeenCalled();
+  expect(listed()).toContain('conversation-2');
+
+  // Deleted again, and its notice dismissed: now it goes for good.
+  await confirmDelete(user, 'Sample conversation 2');
+  const ended = await noticeWith("Deleted 'Sample conversation 2'.");
+  fireEvent.click(ended.getByRole('button', { name: 'Dismiss notification' }));
+  await waitFor(() => expect(listed()).not.toContain('conversation-2'));
+  expect(command).toHaveBeenCalledTimes(1);
+  expect(command).toHaveBeenCalledWith(
+    'conversation-2',
+    expect.objectContaining({ type: 'conversation.delete' }),
+    expect.any(String),
+    expect.anything(),
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Sample conversation 2' }),
+  ).toBeNull();
+  expect(listed()).toEqual(['conversation-a', 'conversation-3']);
+});
+
+it('leaves never-used chats out of the list, except the open one, and counts without them', async () => {
+  const { controller } = await setup(
+    13,
+    '/conversations/conversation-3',
+    (transport) =>
+      transport.conversations.forEach((row, index) => {
+        row.pinned = false;
+        // Chats 2, 3 and 4 were started and never used.
+        if (index >= 1 && index <= 3)
+          Object.assign(row, { title: 'New conversation', category: 'chat' });
+      }),
+  );
+  await act(async () => controller.selectConversation('conversation-3'));
+  const open = screen.getByRole('button', { name: 'New conversation' });
+  expect(open).toHaveAttribute('aria-current', 'page');
+  // Eleven listed (the open never-used chat with ten used ones): the
+  // preview shows ten and Show all offers the rest.
+  expect(
+    screen.getAllByRole('button', { name: 'New conversation' }),
+  ).toHaveLength(1);
+  expect(rows()).toHaveLength(10);
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toContain(
+    'New conversation',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+  expect(rows()).toHaveLength(11);
+});
+
+it('offers New design where the Designs filter has none, opening the New design flow', async () => {
+  await setup(2, '/', undefined, vi.fn());
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Designs' })),
+  );
+  expect(await screen.findByText('No designs yet.')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'New design' }));
+  expect(
+    await screen.findByRole('dialog', { name: 'New design' }),
+  ).toHaveAccessibleDescription('Row-Bot opens it in a new chat.');
+  // Other filters keep their plain empty line.
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Workflows' })),
+  );
+  expect(
+    await screen.findByText('No workflow conversations yet.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'New design' })).toBeNull();
 });

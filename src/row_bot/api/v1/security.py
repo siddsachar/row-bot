@@ -67,6 +67,7 @@ class ClientSession:
     csrf: str
     expires: float
     buckets: dict[str, tuple[float, float]] = field(default_factory=dict)
+    used: float = 0.0  # Last authenticated request: the least recently used gives way at the cap.
     worker_validation: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
 
@@ -294,9 +295,13 @@ class ClientSecurity:
             if group_id:
                 raise ProtocolError("action_denied", 403)
             if len(self._sessions) >= 256:
-                raise ProtocolError("rate_limited", 429)
+                # At the cap the least recently used session gives way (the same caller's first), and its
+                # tab signs in again if it comes back. Refusing instead locked every new window out for hours.
+                own = [item for item in self._sessions.values() if item.binding == binding]
+                del self._sessions[min(own or self._sessions.values(), key=lambda item: item.used).id]
+                self._prune()
             session = ClientSession(str(uuid4()), self._local_group if context.is_local_owner else str(uuid4()),
-                                    binding, secrets.token_urlsafe(32), self.clock() + 12 * 3600)
+                                    binding, secrets.token_urlsafe(32), self.clock() + 12 * 3600, used=self.clock())
             self._sessions[session.id] = session
             return session
 
@@ -308,6 +313,7 @@ class ClientSecurity:
                 raise ProtocolError("session_expired", 401)
             if not csrf or not hmac.compare_digest(csrf, session.csrf):
                 raise ProtocolError("origin_rejected", 403)
+            session.used = self.clock()
             return session
 
     def rate(self, session: ClientSession, lane: str) -> None:

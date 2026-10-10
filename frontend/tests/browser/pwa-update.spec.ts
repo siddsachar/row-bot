@@ -250,3 +250,36 @@ test('a waiting update never covers the composer or its Send button', async ({
   }
   await writeEvidence(testInfo, 'pwa-update-clear-of-composer', geometry);
 });
+
+test('a notice stays above the composer when the install offer appears later', async ({
+  page,
+}, testInfo) => {
+  await newConversation(page);
+  // The offer arrives after the composer measured itself; it rises above it.
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      Object.assign(new Event('beforeinstallprompt', { cancelable: true }), {
+        prompt: async () => {},
+        userChoice: Promise.resolve({ outcome: 'dismissed', platform: 'web' }),
+      }),
+    ),
+  );
+  await expect(page.getByTestId('pwa-install')).toBeVisible();
+  await composer(page).fill('/stop');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const notice = page
+    .locator('.toast')
+    .filter({ hasText: 'No response is currently running.' });
+  await expect(notice).toBeVisible();
+  await notice.evaluate((element) =>
+    Promise.all(element.getAnimations().map((motion) => motion.finished)),
+  );
+  // Found live: it stayed where it was and covered the composer's top.
+  const box = (await notice.boundingBox())!;
+  const field = (await page.locator('.composer').boundingBox())!;
+  expect(
+    box.y + box.height,
+    'the notice covers the composer',
+  ).toBeLessThanOrEqual(field.y);
+  await captureSurface(page, testInfo, 'notice-above-composer-with-install');
+});

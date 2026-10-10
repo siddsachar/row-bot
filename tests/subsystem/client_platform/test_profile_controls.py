@@ -173,3 +173,19 @@ def test_chats_list_people_facing_profiles_not_internal_helpers(profile):
     assert not set(internal) & set(listed)
     # A chat that already uses a helper still sees it.
     assert internal[0] in [item["id"] for item in _people_facing_profiles(internal[0])]
+
+
+def test_the_composer_lists_each_agent_with_its_one_line_description(platform):
+    """The + menu's Agent list says under each name what the agent is for."""
+    from row_bot import agent_profiles
+    from row_bot.application.workspace_setup import conversation_workspace
+
+    agent_profiles.ensure_agent_profiles_schema(force=True)
+    custom = agent_profiles.save_agent_profile(
+        slug="tide-notes", display_name="Tide notes", instructions="Keep tide notes.",
+        description="Keeps the harbour's tide notes.\n  Second line   too.")
+    listed = {item["id"]: item for item in conversation_workspace(platform, "conversation-a")["profiles"]}
+    assert listed["builtin:plan"]["description"] == agent_profiles.require_agent_profile("builtin:plan")["description"]
+    assert listed["builtin:plan"]["description"].startswith("Plan projects")
+    assert listed[custom["id"]] == {"id": custom["id"], "label": "Tide notes",
+                                    "description": "Keeps the harbour's tide notes. Second line too."}

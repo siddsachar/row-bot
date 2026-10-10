@@ -26,6 +26,7 @@ import type {
 } from '../../api/types';
 import { clientError, rejectedBeforeRunning } from '../../api/errors';
 import { unbindWithUndo } from './resource-unbind';
+import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
@@ -79,6 +80,7 @@ import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import MentionPalette, { type MentionItem } from './MentionPalette';
+import { AppIcon } from '../apps/parts';
 import {
   goalRequest,
   profileChoice,
@@ -186,6 +188,20 @@ function TranscriptContexts({
       </SpeakersContext.Provider>
     </CardActionsContext.Provider>
   );
+}
+
+// Each mounted composer's distance from its top edge to the bottom of the
+// window. Notices clear the highest one; none mounted, the variable goes.
+const composerClearances = new Map<object, number>();
+function publishComposerClearance() {
+  const root = document.documentElement;
+  if (composerClearances.size === 0)
+    root.style.removeProperty('--composer-clearance');
+  else
+    root.style.setProperty(
+      '--composer-clearance',
+      `${Math.max(...composerClearances.values())}px`,
+    );
 }
 
 export default function Conversation({
@@ -585,6 +601,37 @@ export default function Conversation({
     observer.observe(composer);
     return () => observer.disconnect();
   }, [id]);
+  // Notices float above the composer (styles.css): publish how far its top
+  // edge is from the bottom of the window. Hidden (Home, a route), it is 0.
+  useLayoutEffect(() => {
+    const composer = toolbarRef.current?.closest('.composer');
+    if (!composer) return;
+    const own = {};
+    const publish = () => {
+      const shown = composer.getClientRects().length > 0;
+      const clearance = shown
+        ? window.innerHeight - composer.getBoundingClientRect().top
+        : 0;
+      composerClearances.set(own, Math.max(0, Math.round(clearance)));
+      publishComposerClearance();
+    };
+    publish();
+    // Its own size, and the column's (a bottom panel or the keyboard moves it).
+    // Its border box: the install notice raises it with padding alone.
+    const observer =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver(publish)
+        : undefined;
+    observer?.observe(composer, { box: 'border-box' });
+    if (composer.parentElement) observer?.observe(composer.parentElement);
+    window.addEventListener('resize', publish);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', publish);
+      composerClearances.delete(own);
+      publishComposerClearance();
+    };
+  }, [id]);
   // The field grows from one line; an empty draft always rests at one line
   // (a wrapped placeholder must not size it), and width changes re-measure.
   const fitComposer = useCallback(() => {
@@ -730,6 +777,7 @@ export default function Conversation({
             safe_summary: value.safe_summary ?? '',
             summary_truncated: value.summary_truncated ?? false,
             content_ref: value.content_ref ?? '',
+            ...(value.app ? { app: value.app } : {}),
           },
         ],
       },
@@ -1051,6 +1099,13 @@ export default function Conversation({
       return;
     }
     if (command.handler_kind === 'activate_skill' && command.skill_id) {
+      // A skill named in a message is used for that message; the Skills
+      // menu (or the command on its own) keeps one on for the whole chat.
+      const rest = controller.getDraft(id).text;
+      if (rest.slice(0, token.start).trim() || rest.slice(token.end).trim()) {
+        replaceSlashToken(token, `${command.token} `);
+        return;
+      }
       replaceSlashToken(token);
       await skillAction('activate', command.skill_id);
       return;
@@ -1217,6 +1272,7 @@ export default function Conversation({
     targets: WriteTarget[] = [],
     capturedDraft?: ReturnType<typeof controller.getDraft>,
     selectedVersion = controller.getSelectionVersion(),
+    retry = false,
   ) {
     if (
       !id ||
@@ -1301,6 +1357,8 @@ export default function Conversation({
               ),
               model_selection: sendControls!.model_selection,
               write_targets: targets,
+              // Retry runs the last message again in place, never a second copy of it.
+              ...(retry ? { retry: true } : {}),
             },
             sendRevision,
             claim.commandId,
@@ -1317,10 +1375,26 @@ export default function Conversation({
         if (
           captured?.commandId === claim.commandId &&
           captured.conversation === target &&
-          controller.getSnapshot().handshake?.instance_id === instance &&
-          controller.getDraft(target) === captured.value
-        )
-          controller.setDraft(target, { text: '', attachments: [] });
+          controller.getSnapshot().handshake?.instance_id === instance
+        ) {
+          // What was sent leaves the composer; anything typed after it stays
+          // (found live: a quick follow-up joined the sent text, which then
+          // waited there to be sent a second time).
+          const now = controller.getDraft(target);
+          if (now === captured.value)
+            controller.setDraft(target, { text: '', attachments: [] });
+          else if (now.text.startsWith(captured.value.text)) {
+            const sent = new Set(
+              captured.value.attachments.map((a) => a.attachment_ref),
+            );
+            controller.setDraft(target, {
+              text: now.text.slice(captured.value.text.length).trimStart(),
+              attachments: now.attachments.filter(
+                (a) => !sent.has(a.attachment_ref),
+              ),
+            });
+          }
+        }
         if (current()) {
           setUnknown(null);
           setMissingReceipt(null);
@@ -1364,6 +1438,7 @@ export default function Conversation({
     example?: string,
     keepTargets = false,
     attachments: typeof draft.attachments = [],
+    retry = false,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
     if (
@@ -1433,7 +1508,7 @@ export default function Conversation({
       }));
     const text = outgoing.text;
     const selectedVersion = controller.getSelectionVersion();
-    void dispatch(text, targets, outgoing, selectedVersion);
+    void dispatch(text, targets, outgoing, selectedVersion, retry);
   }
   const sendFirstPrompt = useEffectEvent(() => send());
   useEffect(() => {
@@ -1956,6 +2031,38 @@ export default function Conversation({
       content: <SearchConversations conversationId={id} />,
     });
   }
+  // Ctrl/Cmd+F opens Find, so the words meant for it never reach the
+  // composer. Another text field (a panel's editor, a terminal), a dialog or
+  // a menu with focus keeps the keys.
+  const findFromShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.altKey ||
+      event.shiftKey ||
+      !(event.ctrlKey || event.metaKey) ||
+      event.key.toLowerCase() !== 'f' ||
+      !id
+    )
+      return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (
+      target &&
+      target !== composerRef.current &&
+      target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="alertdialog"], [role="menu"]',
+      )
+    )
+      return;
+    event.preventDefault();
+    findConversation();
+  });
+  useEffect(() => {
+    if (!id) return;
+    const keydown = (event: KeyboardEvent) => findFromShortcut(event);
+    document.addEventListener('keydown', keydown);
+    return () => document.removeEventListener('keydown', keydown);
+  }, [id]);
   // Easy to regret, so the notice offers Undo (decision 19).
   function unbindResource(resource: ResourceView) {
     if (!id || !state.conversation) return;
@@ -1965,10 +2072,12 @@ export default function Conversation({
   }
   // From the actions dialog (B237) the confirmation opens over it, its
   // confirm closes both, and the dialog passes the revision it last saw (a
-  // rename or pin there moves it on).
+  // rename or pin there moves it on). Confirmed, the chat closes at once and
+  // the notice offers Undo until the delete is sent.
   function deleteConversation(closeActions?: () => void, revision?: string) {
     if (!id || !state.conversation) return;
     const expected = revision ?? state.conversation.revision;
+    const title = state.conversation.title;
     overlay.open({
       kind: 'alert',
       title: 'Delete conversation?',
@@ -1978,16 +2087,12 @@ export default function Conversation({
       onConfirm: () => {
         closeActions?.();
         overlay.close();
-        void controller
-          .intent(id, 'conversation.delete', {}, expected)
-          .then((receipt) => {
-            if (receipt.status === 'DeleteCompleted') navigate('/');
-            else
-              setError(
-                'Deletion is waiting for running work to stop. Review and try again.',
-              );
-          })
-          .catch((e) => setError(clientError(e).message));
+        navigate('/');
+        deleteWithUndo(controller, overlay.notify, {
+          id,
+          title,
+          revision: expected,
+        });
       },
     });
   }
@@ -2236,14 +2341,17 @@ export default function Conversation({
       if (id && bound)
         await unbindWithUndo(controller, overlay.notify, id, bound);
     },
-    // The connection's own connect sheet opens (Phase 15); email is Gmail.
-    connect: (page, target) =>
+    // An older card opens that connection's app page; email is Google.
+    connect: (_page, target) =>
       navigate(
-        `/settings/${page}#${encodeURIComponent(target === 'email' ? 'google' : target)}`,
+        `/settings/apps/${encodeURIComponent(target === 'email' ? 'google' : target)}`,
       ),
+    // The person's own message, in fixed words: an app's name can come from a third-party listing.
+    continueWith: () =>
+      send("It's connected now. Please continue with my request."),
   };
-  // Retry and Send again resend the last message as it was: its words and
-  // its files, never the files' names as text (B136). A follow-up note is
+  // Retry and Send again resend the last message as it was (its words and
+  // its files, never the files' names as text, B136), marked a retry so the server runs it again in place. A follow-up note is
   // the server continuing, not something the person sent.
   const lastUser = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index -= 1)
@@ -2493,7 +2601,7 @@ export default function Conversation({
   const retryAction = useRef<() => void>(() => undefined);
   useLayoutEffect(() => {
     retryAction.current = () => {
-      if (lastUserText) send(lastUserText, true, lastUser.attachments);
+      if (lastUserText) send(lastUserText, true, lastUser.attachments, true);
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);
@@ -2557,6 +2665,19 @@ export default function Conversation({
   // "@" mentions: a keyboard path to agent profile, write target and files.
   const selectedTargets = id ? (targetSelection[id] ?? defaultTargetIds) : [];
   const mentionItems: MentionItem[] = [
+    // An app mention stays in the message and focuses that turn on the app. A built-in way without chat
+    // tools (the GitHub account, a channel) has nothing to focus on, so it isn't offered.
+    ...(composerSnapshot?.apps ?? [])
+      .filter((app) => app.on && app.available && app.switchable !== false)
+      .map((app) => ({
+        id: `app:${app.item_id}`,
+        group: 'Apps',
+        label: app.name,
+        description: 'Use only this app for this message',
+        icon: <AppIcon icon={app.icon} size={16} />,
+        replacement: `@${app.name} `,
+        onChoose: () => undefined,
+      })),
     ...profileChoices(state.workspace?.profiles ?? []).map((profile) => ({
       id: `profile:${profile.id}`,
       group: 'Agents',
@@ -2984,6 +3105,9 @@ export default function Conversation({
                   onChoose={editMessage}
                   recent={state.conversations}
                   onOpen={(target) => navigate(`/conversations/${target}`)}
+                  design={resources.some(
+                    (item) => item.binding.kind === 'artifact',
+                  )}
                 />
               )}
               {pendingShown && (
@@ -3471,7 +3595,9 @@ export default function Conversation({
                 items={mentionItems}
                 disabled={busy || composerBusy}
                 inputRef={composerRef}
-                onConsume={(token) => replaceSlashToken(token)}
+                onConsume={(token, replacement) =>
+                  replaceSlashToken(token, replacement)
+                }
               />
               <div className="composer-toolbar" ref={toolbarRef}>
                 {!singleLine && composerControls}

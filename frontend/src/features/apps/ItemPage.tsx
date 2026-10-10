@@ -1,0 +1,860 @@
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, MoreHorizontal } from 'lucide-react';
+import { useRuntime } from '../../runtime';
+import { clientError } from '../../api/errors';
+import type {
+  AppRef,
+  IntegrationDetail,
+  IntegrationEntry,
+  IntegrationWay,
+  PlanInput,
+} from '../../api/types';
+import {
+  Button,
+  Disclosure,
+  EmptyState,
+  ErrorState,
+  Field,
+  Menu,
+  Skeleton,
+  StatusDot,
+  Toggle,
+  type MenuAction,
+  type Tone,
+} from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
+import { SettingsGroup, StatusLine } from '../settings/anatomy';
+import { useWorkspaceActions } from '../shell/workspace-actions';
+import AccessSheet, { ToolGroups } from './AccessSheet';
+import {
+  ConsentSheet,
+  hostOf,
+  InputsForm,
+  PlanProgress,
+  usePlan,
+} from './SetupFlow';
+import {
+  AppIcon,
+  appCatalog,
+  asApp,
+  attentionOrder,
+  idPath,
+  ItemCard,
+  Publisher,
+  statusOf,
+  useAppCatalog,
+  useYourApps,
+  yourItems,
+} from './parts';
+
+const WAYS: Record<string, string> = {
+  built_in: 'Built in',
+  hosted_sign_in: 'Hosted · Sign-in',
+  api_key: 'Hosted · API key',
+  hosted: 'Hosted',
+  local: 'Runs on this computer',
+};
+
+function WayText({ way }: { way: IntegrationWay }) {
+  return (
+    <span className="app-way-text">
+      <strong>{way.name}</strong>
+      <small>
+        {[
+          WAYS[way.method] ?? '',
+          way.verified ? `by ${way.publisher}` : way.publisher,
+          way.recommended ? 'Recommended' : '',
+          way.supported ? '' : 'Not available yet',
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </small>
+    </span>
+  );
+}
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+/** A setting as it is now: Yes/No for a switch, and a key only as saved or not. */
+function settingValue(input: PlanInput) {
+  if (input.secret)
+    return input.saved ? 'Saved in your system keychain' : 'Not added yet';
+  if (input.format === 'boolean')
+    return { true: 'Yes', false: 'No' }[input.default] ?? 'Not set';
+  return input.default || 'Not set';
+}
+
+/** The chat command for a skill, as the composer names it. */
+function slashOf(name: string) {
+  return (
+    '/' +
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+  );
+}
+
+/** `/settings/apps/notion` names an app: open what is installed, else its best catalog entry. */
+function useItemId(kind: 'app' | 'skill', param: string) {
+  const { controller } = useRuntime();
+  const [found, setFound] = useState(() =>
+    param.includes(':') ? param : kind === 'skill' ? `skill:${param}` : '',
+  );
+  const [missing, setMissing] = useState(false);
+  useEffect(() => {
+    if (param.includes(':') || kind === 'skill') return;
+    let alive = true;
+    void (async () => {
+      const app = (await appCatalog(controller)).get(param);
+      const installed = await controller.integrationItems({
+        scope: 'installed',
+        kind: 'app',
+      });
+      const pick = (items: IntegrationEntry[]) =>
+        items.find((item) => item.app?.id === param);
+      let entry = pick(installed.items);
+      let revision = '';
+      if (!entry && app) {
+        const page = await controller.integrationItems({
+          scope: 'catalog',
+          kind: 'app',
+          query: app.name,
+        });
+        entry = pick(page.items);
+        revision = page.revision;
+      }
+      if (!alive) return;
+      if (entry) setFound(entry.id + (revision ? `\n${revision}` : ''));
+      else setMissing(true);
+    })().catch(() => alive && setMissing(true));
+    return () => {
+      alive = false;
+    };
+  }, [controller, kind, param]);
+  return { found, missing };
+}
+
+/** What a skill's page says about the app it works with (`ways`: yours for that app, null until read). */
+function appLine(
+  app: string,
+  ways: IntegrationEntry[] | null,
+): [Tone | undefined, string] {
+  if (ways === null) return [undefined, `Works with ${app}.`];
+  if (
+    ways.some(
+      (way) => way.lifecycle === 'installed' && way.readiness === 'ready',
+    )
+  )
+    return ['success', `Works with ${app}, which is connected.`];
+  const first = [...ways].sort(
+    (a, b) => attentionOrder(a) - attentionOrder(b),
+  )[0];
+  const status = first ? statusOf(first) : null;
+  return status
+    ? [status[0], `Works with ${app}, which isn't ready (${status[1]}).`]
+    : [undefined, `Works with ${app}, which isn't connected yet.`];
+}
+
+/** The skills made for an app: yours first (with their status), then the catalog's; local data only. */
+function useAppSkills(app: AppRef | null) {
+  const { controller } = useRuntime();
+  const [found, setFound] = useState<{
+    items: IntegrationEntry[];
+    revision: string;
+  }>({ items: [], revision: '' });
+  const id = app?.id ?? '';
+  const name = app?.name ?? '';
+  useEffect(() => {
+    if (!id) return;
+    const abort = new AbortController();
+    const ours = (entry: IntegrationEntry) =>
+      entry.kind === 'skill' && entry.app?.id === id;
+    const read = async () => {
+      // A skill made for an app is found by the app's name.
+      const listed = controller.integrationItems(
+        { scope: 'catalog', kind: 'skill', query: name },
+        abort.signal,
+      );
+      return Promise.all([
+        yourItems(controller, 'skill', abort.signal),
+        listed,
+      ]);
+    };
+    read().then(
+      ([installed, listed]) => {
+        if (abort.signal.aborted) return;
+        const mine = installed
+          .flatMap((item) => [item, ...item.children])
+          .filter(ours);
+        const more = listed.items.filter(
+          (entry) => ours(entry) && !entry.installed,
+        );
+        setFound({
+          items: [...mine, ...more].slice(0, 8),
+          revision: listed.revision,
+        });
+      },
+      () => undefined, // Only a list beside the page: the page itself stays as it is.
+    );
+    return () => abort.abort();
+  }, [controller, id, name]);
+  return found;
+}
+
+/** An app that shows views in chat: they show unless switched off here (or for every app in Advanced). */
+function ViewsSwitch({
+  itemId,
+  views,
+}: {
+  itemId: string;
+  views: { on: boolean; everywhere: boolean };
+}) {
+  const { controller } = useRuntime();
+  const [on, setOn] = useState(views.on);
+  const [error, setError] = useState('');
+  const change = async (next: boolean) => {
+    setError('');
+    try {
+      const saved = await controller.setAppViewAppSetting({
+        item_id: itemId,
+        enabled: next,
+      });
+      setOn(saved.enabled !== false && (saved.apps?.[itemId] ?? next));
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  };
+  return (
+    <div className="app-section">
+      <Field
+        label="Show views in chat"
+        hint={
+          views.everywhere
+            ? 'Its results can open as an interactive view. A view runs apart from Row-Bot and asks before it changes anything.'
+            : 'App views are off for every app in Apps › Advanced.'
+        }
+        layout="row"
+      >
+        <Toggle
+          label="Show views in chat"
+          checked={on}
+          disabled={!views.everywhere}
+          onChange={(event) => void change(event.target.checked)}
+        />
+      </Field>
+      {error && <StatusLine tone="danger">{error}</StatusLine>}
+    </div>
+  );
+}
+
+export default function ItemPage({
+  kind,
+  param,
+}: {
+  kind: 'app' | 'skill';
+  param: string;
+}) {
+  const { found, missing } = useItemId(kind, param);
+  const [search] = useSearchParams();
+  const [itemId, resolvedRevision = ''] = found.split('\n');
+  const back = kind === 'skill' ? '/settings/skills' : '/settings/apps';
+  if (missing)
+    return (
+      <EmptyState
+        title="This app isn't available"
+        action={
+          <Link className="button" to={back}>
+            Browse apps
+          </Link>
+        }
+      >
+        Search for it by name, or add it from a link.
+      </EmptyState>
+    );
+  if (!itemId) return <Skeleton label="Opening app" />;
+  return (
+    <Detail
+      key={itemId}
+      kind={kind}
+      itemId={itemId}
+      revision={search.get('r') ?? resolvedRevision}
+      back={back}
+    />
+  );
+}
+
+function Detail({
+  kind,
+  itemId,
+  revision,
+  back,
+}: {
+  kind: 'app' | 'skill';
+  itemId: string;
+  revision: string;
+  back: string;
+}) {
+  const { controller } = useRuntime();
+  const navigate = useNavigate();
+  const workspace = useWorkspaceActions();
+  const catalog = useAppCatalog();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const [detail, setDetail] = useState<IntegrationDetail | null>(null);
+  const [error, setError] = useState('');
+  const [changing, setChanging] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // Opened from Home's "Needs you" with ?fix=1: the fix starts once, here.
+  const [search, setSearch] = useSearchParams();
+  const fixing = useRef(search.get('fix') === '1');
+  const [settling, setSettling] = useState(false);
+  const load = useCallback(
+    (signal?: AbortSignal) =>
+      controller.integrationDetail({ item_id: itemId, revision }, signal).then(
+        (value) => {
+          setDetail(value);
+          setError('');
+        },
+        (cause) => {
+          if (!signal?.aborted) setError(clientError(cause).message);
+        },
+      ),
+    [controller, itemId, revision],
+  );
+  useEffect(() => {
+    const abort = new AbortController();
+    void load(abort.signal);
+    return () => abort.abort();
+  }, [load]);
+  const settle = async () => {
+    setSettling(true);
+    try {
+      setDetail(await controller.settleIntegration({ item_id: itemId }));
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setSettling(false);
+    }
+  };
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, [Boolean(detail)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const entry = detail?.entry;
+  const name = entry ? (asApp(entry) && entry.app?.name) || entry.name : '';
+  // One app, its ways and its skills: which of them are yours, and the skills made for it.
+  const yours = useYourApps(Boolean(entry?.app));
+  const appSkills = useAppSkills(
+    entry && entry.kind !== 'skill' ? entry.app : null,
+  );
+  const control = usePlan({ itemId, revision, name }, (plan) => {
+    // Set up from a catalog entry: follow it to the installed item; removed: back to the library.
+    // Stopped, it follows only to what it saved that still opens (a Remove may have deleted it since).
+    const installed = plan.installed_id;
+    const follow = () =>
+      navigate(idPath(kind, installed ?? ''), { replace: true });
+    if (plan.state === 'completed' && plan.intent === 'remove')
+      navigate(back, { replace: true });
+    else if (plan.state === 'completed' && installed && installed !== itemId)
+      follow();
+    else if (plan.state === 'cancelled' && installed && installed !== itemId)
+      controller
+        .integrationDetail({ item_id: installed, revision: '' })
+        .then(follow, () => void load());
+    else void load();
+  });
+  const openPlan = detail?.plan?.plan_id ? detail.plan : null;
+  useEffect(() => {
+    // An unfinished plan for this item (from another visit or device) shows its progress.
+    if (openPlan && !control.plan) void control.review(openPlan.intent);
+  }, [openPlan?.plan_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!fixing.current || !detail) return;
+    fixing.current = false;
+    setSearch(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('fix');
+        return next;
+      },
+      { replace: true },
+    );
+    const fix = detail.entry.next_action;
+    if (['none', 'try', 'delete_data', 'retry'].includes(fix.kind)) return;
+    if (detail.entry.kind === 'builtin') {
+      navigate(`${idPath(kind, detail.entry.id)}&edit=1`, { replace: true });
+      return;
+    }
+    if (!control.plan && (!detail.plan || detail.plan.supported))
+      void control.review('', fix.label);
+  }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (error && !detail)
+    return (
+      <ErrorState
+        title="Couldn't open this"
+        action={<Button onClick={() => void load()}>Retry</Button>}
+      >
+        {error}
+      </ErrorState>
+    );
+  if (!detail || !entry) return <Skeleton label="Opening details" />;
+  const about = detail.about;
+  const app = entry.app ? catalog.get(entry.app.id) : undefined;
+  const status = statusOf(entry);
+  const action = entry.next_action;
+  const recovering = entry.blockers.some((b) =>
+    [
+      'change_unconfirmed',
+      'configuration_recovery',
+      'change_in_progress',
+    ].includes(b.code),
+  );
+  const tryIt = () => {
+    const prompt =
+      entry.kind === 'skill'
+        ? `${slashOf(entry.name)} `
+        : `${app?.example_prompts[0] ?? `Use ${name} to `}`;
+    workspace?.newChat?.(prompt);
+  };
+  // A built-in way (an account, a channel, a key tool) is set up and changed in
+  // its own settings, scoped to it here: Row-Bot runs no plan for it.
+  const builtIn = entry.kind === 'builtin';
+  const ownSettings = `${idPath(kind, entry.id)}&edit=1`;
+  const start = () => {
+    if (action.kind === 'try') tryIt();
+    else if (builtIn) navigate(ownSettings);
+    else if (action.kind === 'delete_data') void control.review('remove');
+    else void control.review('', action.label);
+  };
+  const plannable =
+    !detail.plan || detail.plan.supported || detail.plan.plan_id;
+  const primary =
+    action.kind !== 'none' && plannable && !recovering && !control.plan ? (
+      <Button
+        variant="primary"
+        aria-disabled={control.busy}
+        onClick={() => !control.busy && start()}
+      >
+        {action.label}
+      </Button>
+    ) : null;
+  const menu: MenuAction[] = [];
+  if (about.actions.includes('turn_off'))
+    menu.push({
+      label: 'Turn off',
+      onSelect: () => void control.review('turn_off'),
+    });
+  if (about.actions.includes('update'))
+    menu.push({
+      label: 'Check for updates',
+      onSelect: () => void control.review('update'),
+    });
+  if (builtIn && entry.installed)
+    menu.push({
+      label: 'Open its settings',
+      onSelect: () => navigate(ownSettings),
+    });
+  else if (entry.installed && (entry.kind !== 'mcp' || !entry.parent_id))
+    menu.push({
+      label: 'Advanced settings',
+      onSelect: () => {
+        const path = idPath(kind, entry.id);
+        navigate(`${path}${path.includes('?') ? '&' : '?'}edit=1`);
+      },
+    });
+  if (about.actions.includes('remove'))
+    menu.push({
+      label: 'Remove…',
+      danger: true,
+      onSelect: () => void control.review('remove'),
+    });
+  const files = about.files;
+  const scripts = files.filter((file) => file.executable).length;
+  const settings = about.settings ?? [];
+  // A skill made for an app says which, whether it is connected here, and opens it.
+  const worksWith = entry.kind === 'skill' ? entry.app : null;
+  const appWays =
+    worksWith && yours
+      ? yours.filter(
+          (item) =>
+            item.app?.id === worksWith.id && item.lifecycle !== 'data_retained',
+        )
+      : null;
+  const appState = worksWith ? appLine(worksWith.name, appWays) : null;
+  // A package's own skills are under Included already.
+  const skillsFor = appSkills.items.filter(
+    (skill) => skill.parent_id !== entry.id,
+  );
+  return (
+    <article className="app-detail stack" aria-labelledby="app-detail-title">
+      <Link className="settings-link app-back" to={back}>
+        <ArrowLeft size={14} aria-hidden />{' '}
+        {kind === 'skill' ? 'Skills' : 'Apps'}
+      </Link>
+      <header className="app-detail-header">
+        <AppIcon icon={entry.icon} size={56} />
+        <div className="app-detail-title">
+          <h3 id="app-detail-title" ref={heading} tabIndex={-1}>
+            {name}
+          </h3>
+          <span className="app-card-meta">
+            <Publisher entry={entry} />
+            {status && (
+              <StatusDot tone={status[0]} label={status[1]} showLabel />
+            )}
+          </span>
+        </div>
+        <div className="app-detail-actions">
+          {primary}
+          {menu.length > 0 && (
+            <Menu
+              label={`More for ${name}`}
+              actions={menu}
+              iconOnly
+              variant="ghost"
+            >
+              <MoreHorizontal size={18} aria-hidden />
+            </Menu>
+          )}
+        </div>
+      </header>
+      {about.package && (
+        <p className="settings-help">
+          Installed as part of{' '}
+          <Link to={idPath('app', entry.parent_id ?? '')}>{about.package}</Link>
+          .
+        </p>
+      )}
+      {recovering && !control.plan && (
+        <div className="app-banner" role="status">
+          <span>Finishing your last change…</span>
+          <Button disabled={settling} onClick={() => void settle()}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {detail.plan && !detail.plan.supported && !detail.plan.plan_id && (
+        <p className="settings-help" role="status">
+          {detail.plan.unsupported_reason}
+        </p>
+      )}
+      {control.error && <p role="alert">{control.error}</p>}
+      {control.notice && (
+        <p className="settings-help" role="status">
+          {control.notice}
+        </p>
+      )}
+      <PlanProgress control={control} name={name} />
+      <SettingsGroup title="Overview">
+        <div className="app-section">
+          <p>{(asApp(entry) && app?.summary) || entry.description}</p>
+          {entry.kind === 'skill' ? (
+            <p>
+              Use it in chat with <code>{slashOf(entry.name)}</code>
+              {entry.installed ? '' : ' once added'}.
+            </p>
+          ) : app?.example_prompts.length &&
+            (!builtIn || action.kind === 'try') ? (
+            <ul className="app-prompts" aria-label="Things to ask">
+              {app.example_prompts.slice(0, 3).map((prompt) => (
+                <li key={prompt}>“{prompt}”</li>
+              ))}
+            </ul>
+          ) : null}
+          {worksWith && appState && (
+            <StatusLine
+              tone={appState[0]}
+              action={
+                <Link
+                  className="settings-link"
+                  to={`/settings/apps/${worksWith.id}`}
+                >
+                  {appWays?.length === 0 ? 'Connect' : 'Open'} {worksWith.name}
+                </Link>
+              }
+            >
+              {appState[1]}
+            </StatusLine>
+          )}
+          <StatusLine>
+            {entry.kind === 'skill'
+              ? 'Instructions stay on this computer.'
+              : builtIn
+                ? `Part of Row-Bot: it works through your own ${entry.app?.name || name} sign-in or key.`
+                : about.destination
+                  ? `What you ask goes to ${hostOf(about.destination)}.`
+                  : about.runs_locally
+                    ? 'Runs on this computer.'
+                    : 'Hosted by its publisher.'}
+          </StatusLine>
+        </div>
+      </SettingsGroup>
+      {about.access && (
+        <SettingsGroup title="Access">
+          <div className="app-section">
+            <StatusLine
+              action={
+                <Button
+                  className="settings-link"
+                  onClick={() => setChanging(true)}
+                >
+                  Choose
+                </Button>
+              }
+            >
+              {about.access.tools.filter((tool) => tool.state !== 'off').length}{' '}
+              of {about.access.tools.length} actions on ·{' '}
+              {
+                {
+                  read_only: 'Read only',
+                  ask: 'Ask before changes',
+                  full: 'Full access',
+                  custom: 'Custom',
+                }[about.access.preset]
+              }
+            </StatusLine>
+            {about.access.note && (
+              <p className="settings-help">{about.access.note}</p>
+            )}
+            <ToolGroups tools={about.access.tools} />
+          </div>
+          <AccessSheet
+            open={changing}
+            name={name}
+            access={about.access}
+            change
+            busy={control.busy}
+            onCancel={() => setChanging(false)}
+            onAllow={(choice) => {
+              setChanging(false);
+              void control.apply('access', choice);
+            }}
+          />
+        </SettingsGroup>
+      )}
+      {entry.kind === 'skill' && entry.installed && (
+        <SettingsGroup title="Settings">
+          <div className="app-section">
+            <p>
+              {entry.lifecycle === 'off'
+                ? 'Turned off: chats don’t use it.'
+                : 'Available in every chat without a profile.'}{' '}
+              {about.profiles.length
+                ? `Also in these agent profiles: ${about.profiles.join(', ')}.`
+                : 'No agent profile includes it yet.'}
+            </p>
+            {files.length > 0 && (
+              <Disclosure
+                summary="What's inside"
+                meta={`${files.length} files${scripts ? ` · ${scripts} script${scripts > 1 ? 's' : ''}` : ''}`}
+              >
+                {scripts > 0 && (
+                  <p className="settings-help">
+                    Scripts never run when you add a skill. If Row-Bot runs one
+                    later, your approval rules apply.
+                  </p>
+                )}
+                <ul className="app-files">
+                  {files.map((file) => (
+                    <li key={file.path}>
+                      <code>{file.path}</code>
+                      {file.executable && (
+                        <span className="app-chip">Script</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </Disclosure>
+            )}
+          </div>
+        </SettingsGroup>
+      )}
+      {builtIn && entry.installed && (
+        <SettingsGroup title="Settings">
+          <StatusLine
+            action={
+              <Link className="settings-link" to={ownSettings}>
+                Open
+              </Link>
+            }
+          >
+            {`Change how ${name} works in its own settings.`}
+          </StatusLine>
+        </SettingsGroup>
+      )}
+      {entry.kind !== 'skill' && !builtIn && entry.installed && (
+        <SettingsGroup title="Settings">
+          {settings.length > 0 && (
+            <StatusLine
+              action={
+                <Button
+                  className="settings-link"
+                  disabled={Boolean(control.plan) || control.busy}
+                  onClick={() => setEditing(true)}
+                >
+                  Change settings
+                </Button>
+              }
+            >
+              {settings.some((input) => input.secret)
+                ? 'Keys are never shown once saved.'
+                : 'What this app is set to now.'}
+            </StatusLine>
+          )}
+          <dl className="app-facts-list">
+            {entry.account_label && (
+              <Fact label="Account">{entry.account_label}</Fact>
+            )}
+            {(about.signs_in ||
+              (about.saved_key && !settings.some((s) => s.secret))) && (
+              <Fact label={about.signs_in ? 'Sign-in' : 'Key'}>
+                {!about.signed_in
+                  ? 'Not added yet'
+                  : about.access?.limited
+                    ? 'Saved in your system keychain. Read access only.'
+                    : 'Saved in your system keychain'}
+              </Fact>
+            )}
+            {settings.map((input) => (
+              <Fact key={input.key} label={input.label}>
+                {settingValue(input)}
+              </Fact>
+            ))}
+            {about.requirements.map((need) => (
+              <Fact key={need.label} label={need.label}>
+                {need.available ? 'Ready' : 'Needed'}
+              </Fact>
+            ))}
+            <Fact label="Runs">
+              {about.runs_locally
+                ? 'On this computer'
+                : 'Hosted by its publisher'}
+            </Fact>
+          </dl>
+          {about.views && <ViewsSwitch itemId={entry.id} views={about.views} />}
+        </SettingsGroup>
+      )}
+      {(about.ways ?? []).length > 1 && (
+        <SettingsGroup title="Ways to connect">
+          <ul className="app-ways">
+            {(about.ways ?? []).map((way) => {
+              // Another way you set up opens as yours (the server lists it by its id), with its
+              // status; this one's status is in the heading above.
+              const mine = yours?.find((item) => item.id === way.id);
+              const state = mine ? statusOf(mine) : null;
+              return (
+                <li key={way.id}>
+                  {way.id === entry.id ? (
+                    <span className="app-way" aria-current="true">
+                      <WayText way={way} />
+                      <span className="app-chip">This one</span>
+                    </span>
+                  ) : (
+                    <Link className="app-way" to={idPath('app', way.id)}>
+                      <WayText way={way} />
+                      {state && (
+                        <StatusDot tone={state[0]} label={state[1]} showLabel />
+                      )}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </SettingsGroup>
+      )}
+      {skillsFor.length > 0 && entry.app && (
+        <SettingsGroup
+          title={`Skills for ${entry.app.name}`}
+          note={`Skills teach Row-Bot how to do a task with ${entry.app.name}.`}
+        >
+          <ul className="app-grid">
+            {skillsFor.map((skill) => (
+              <ItemCard
+                key={skill.id}
+                entry={skill}
+                revision={appSkills.revision}
+              />
+            ))}
+          </ul>
+        </SettingsGroup>
+      )}
+      {entry.children.length > 0 && (
+        <SettingsGroup title="Included">
+          <ul className="app-grid">
+            {entry.children.map((child) => (
+              <ItemCard key={child.id} entry={child} />
+            ))}
+          </ul>
+        </SettingsGroup>
+      )}
+      <Disclosure summary="Details">
+        <dl className="app-facts-list">
+          <Fact label="Source">
+            {about.source_url ? (
+              <a href={about.source_url} target="_blank" rel="noreferrer">
+                {entry.source}
+              </a>
+            ) : (
+              entry.source
+            )}
+          </Fact>
+          {entry.version && <Fact label="Version">{entry.version}</Fact>}
+          {about.license && <Fact label="Licence">{about.license}</Fact>}
+          {entry.attributions.length > 1 && (
+            <Fact label="Also listed in">
+              {entry.attributions
+                .slice(1)
+                .map((a) => a.source)
+                .join(', ')}
+            </Fact>
+          )}
+          <Fact label="Identifier">
+            <code>{about.identifier}</code>
+            {about.pin && <code> @ {about.pin}</code>}
+          </Fact>
+        </dl>
+      </Disclosure>
+      <ModalTask
+        open={editing}
+        onOpenChange={setEditing}
+        title={`Settings for ${name}`}
+        description="Row-Bot checks the connection again after you save."
+      >
+        <InputsForm
+          step={{ inputs: settings }}
+          busy={control.busy}
+          submitLabel="Save"
+          secondary={<Button onClick={() => setEditing(false)}>Cancel</Button>}
+          onSubmit={(inputs) => {
+            setEditing(false);
+            void control.apply('settings', { inputs });
+          }}
+        />
+      </ModalTask>
+      <ConsentSheet
+        control={control}
+        name={name}
+        cleanupOffered={
+          (entry.kind === 'plugin' && entry.lifecycle !== 'data_retained') ||
+          (entry.kind === 'mcp' && about.signed_in)
+        }
+      />
+    </article>
+  );
+}

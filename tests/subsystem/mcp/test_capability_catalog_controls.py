@@ -1,9 +1,5 @@
 """Actual temporary MCP Test ownership, saved catalogs and no retest on acceptance."""
-from dataclasses import asdict
 import json
-import os
-import subprocess
-import sys
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -13,6 +9,7 @@ from row_bot.application import capability_catalog_controls as controls
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_runtime_controls as lifecycle
 from row_bot.mcp_client import config
+from row_bot.mcp_client.safety import schema_digest
 from row_bot.runtime import admissions
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport]
@@ -20,13 +17,14 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport]
 
 @pytest.fixture
 def owner(tmp_path, monkeypatch):
-    from row_bot import tasks
+    from row_bot import tasks, tool_configuration
     from row_bot.mcp_client import runtime
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
+    monkeypatch.setattr(tool_configuration, "configuration_path", lambda: tmp_path / "tools_config.json")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "mcp_servers.json")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "_config_cache", None)
-    for name in ("_servers", "_catalog", "_statuses"):
+    for name in ("_servers", "_catalog", "_statuses", "_stderr_tails"):
         monkeypatch.setattr(runtime, name, {})
     monkeypatch.setattr(runtime, "_loop", None)
     monkeypatch.setattr(runtime, "_thread", None)
@@ -68,9 +66,9 @@ def run_test():
     return request
 
 
-def read(request, **query):
-    return controls.read_tested_mcp_catalog(owner_id=query.pop("owner_id", "synthetic-owner"),
-        server_id=request["payload"]["server_id"], test_command_id=request["command_id"], **query)
+def tools(request, owner_id="synthetic-owner"):
+    return {row["name"]: row for row in controls.tested_tools(owner_id=owner_id,
+        server_id=request["payload"]["server_id"], test_command_id=request["command_id"])}
 
 
 def command(test):
@@ -89,28 +87,26 @@ def test_actual_test_metadata_survives_cleanup_and_explicit_acceptance_never_ret
     before = config.CONFIG_PATH.read_bytes()
     tested = run_test()
     assert config.CONFIG_PATH.read_bytes() == before and not owner.runtime._servers and not owner.runtime._catalog
-    page = read(tested)
-    assert page.availability == "available" and page.total == 3
-    rows = {item.name: item for item in page.items}
-    assert rows["get_record"].enabled_after_accept is True
-    assert rows["delete_record"].enabled_after_accept is False and rows["delete_record"].requires_approval
-    assert rows["unrecognized"].enabled_after_accept is False and rows["unrecognized"].requires_approval
+    rows = tools(tested)
+    assert len(rows) == 3 and not rows["get_record"]["requires_approval"]
+    assert rows["delete_record"]["requires_approval"] and rows["unrecognized"]["requires_approval"]
     request = command(tested)
     reviewed = controls.review_mcp_catalog_command(owner_id="synthetic-owner", **request["payload"], validate=lambda: None)
-    assert reviewed["tool_count"] == 3 and reviewed["manual_selection_required"] is False
+    assert reviewed["tool_count"] == 3
     monkeypatch.setattr(owner.runtime, "launch_server_owned", lambda *_a, **_k: pytest.fail("Acceptance retested server"))
     saved = execute(request)
     assert saved["status"] == "completed" and saved["mcp_configuration"]["saved_disabled"] is None
     assert saved["mcp_configuration"]["runtime_cleanup"] == "not_requested"
     current = config.read_saved_configuration().document
     assert current["enabled"] is False and current["servers"]["Synthetic"]["enabled"] is False
+    assert current["servers"]["Synthetic"]["tools"]["enabled"] == {"get_record": True, "delete_record": False, "unrecognized": False}
     assert current["future"] == owner.document["future"]
     assert current["servers"]["Synthetic"]["env"] == owner.document["servers"]["Synthetic"]["env"]
     assert current["servers"]["Synthetic"]["tools"]["future"] == {"keep": 2}
-    assert current["servers"]["Synthetic"]["tools"]["catalog"]["get_record"]["input_schema"] == {"type": "object"}
+    assert current["servers"]["Synthetic"]["tools"]["catalog"]["get_record"]["input_schema_digest"] == schema_digest({"type": "object"})
     assert owner.calls == ["connect", "list_tools"]
     assert execute(request) == saved
-    assert "synthetic-secret" not in json.dumps([asdict(page), reviewed, saved])
+    assert "synthetic-secret" not in json.dumps([rows, reviewed, saved])
 
 
 def test_existing_explicit_choices_and_unknown_fields_survive_acceptance(owner):
@@ -126,13 +122,15 @@ def test_existing_explicit_choices_and_unknown_fields_survive_acceptance(owner):
     assert {"get_record", "delete_record", "unrecognized"}.issubset(current["require_approval"])
 
 
-def test_overlap_requires_explicit_manual_tool_selection(owner):
+def test_an_overlap_with_row_bot_is_a_note_and_risky_tools_still_ask(owner):
     owner.document["servers"]["Synthetic"]["source"] = {"overlaps_native": ["memory"]}
     config.CONFIG_PATH.write_text(json.dumps(owner.document), encoding="utf-8")
     tested = run_test()
-    assert read(tested).manual_selection_required is True
-    assert all(item.enabled_after_accept is False for item in read(tested).items)
+    rows = tools(tested)
+    assert rows["delete_record"]["requires_approval"] and rows["unrecognized"]["requires_approval"]
     assert execute(command(tested))["status"] == "completed"
+    enabled = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["enabled"]
+    assert enabled["get_record"] is True  # Lookups are not held back by the overlap.
 
 
 def test_changed_configuration_expires_test_capture_without_retest(owner):
@@ -140,7 +138,6 @@ def test_changed_configuration_expires_test_capture_without_retest(owner):
     changed = config.read_saved_configuration().document
     changed["future"] = "changed"
     config.CONFIG_PATH.write_text(json.dumps(changed), encoding="utf-8")
-    assert read(tested).availability == "stale"
     with pytest.raises(controls.Error, match="mcp_catalog_stale"):
         execute(command(tested))
     assert owner.calls == ["connect", "list_tools"]
@@ -148,50 +145,30 @@ def test_changed_configuration_expires_test_capture_without_retest(owner):
 
 def test_other_owner_and_unknown_original_cannot_accept_tested_metadata(owner):
     tested = run_test()
-    assert read(tested, owner_id="other").availability == "unavailable"
     with pytest.raises(controls.Error, match="mcp_catalog_unavailable"):
         execute(command(tested), owner_id="other")
     unknown = {**tested, "command_id": str(uuid4())}
-    assert read(unknown).total is None
+    with pytest.raises(controls.Error, match="mcp_catalog_unavailable"):
+        tools(unknown)
 
 
-@pytest.mark.parametrize("kind", ["count", "bytes", "depth", "duplicate-runtime-name"])
+@pytest.mark.parametrize("kind", ["count", "bytes", "duplicate-runtime-name"])
 def test_unavailable_catalog_never_blocks_actual_test_transport_cleanup(owner, kind):
     if kind == "count":
         owner.tools[:] = [{"name": f"get_{index}"} for index in range(1001)]
     elif kind == "bytes":
         owner.tools[:] = [{"name": f"get_{index}", "description": "x" * 16384} for index in range(12)]
-    elif kind == "depth":
-        schema = {}
-        for _ in range(30):
-            schema = {"nested": schema}
-        owner.tools[0]["inputSchema"] = schema
     else:
         owner.tools[:] = [{"name": "get-a"}, {"name": "get_a"}]
     tested = run_test()
     assert not owner.runtime._servers
-    assert read(tested).availability == "unavailable"
+    with pytest.raises(controls.Error, match="mcp_catalog_unavailable"):
+        tools(tested)
     receipt = admissions.read_command_receipt("synthetic-owner", tested["command_id"])
     assert len(json.dumps(receipt).encode()) < 256 * 1024
     assert owner.calls == ["connect", "list_tools"]
 
 
-def test_full_catalog_filter_and_pages_are_bounded_and_cursor_scope_exact(owner):
-    owner.tools[:] = [{"name": f"get_{index:03d}"} for index in range(205)]
-    tested = run_test()
-    page = read(tested, limit=50)
-    assert page.total == 205 and len(page.items) == 50 and page.next_cursor
-    names = []
-    while True:
-        names.extend(item.name for item in page.items)
-        if not page.next_cursor:
-            break
-        page = read(tested, limit=50, cursor=page.next_cursor)
-    assert len(names) == len(set(names)) == 205
-    filtered = read(tested, query="get_204")
-    assert filtered.total == 1 and filtered.items[0].name == "get_204"
-    with pytest.raises(controls.Error, match="cursor_expired"):
-        read(tested, query="changed", limit=50, cursor=read(tested, limit=50).next_cursor)
 
 
 def test_original_acceptance_reconciles_lost_response_without_repeat_save(owner, monkeypatch):
@@ -213,49 +190,10 @@ def test_original_acceptance_reconciles_lost_response_without_repeat_save(owner,
     assert owner.calls == ["connect", "list_tools"]
 
 
-def test_cold_unknown_test_read_never_initializes_database_runtime_or_data(tmp_path):
-    target = tmp_path / "missing"
-    script = '''
-import pathlib,sys
-def forbidden(*args,**kwargs): raise AssertionError("directory mutation")
-pathlib.Path.mkdir=forbidden
-from row_bot.application.capability_catalog_controls import read_tested_mcp_catalog
-page=read_tested_mcp_catalog(owner_id="synthetic",server_id="a"*64,test_command_id="00000000-0000-0000-0000-000000000001")
-assert page.availability=="unavailable" and page.total is None
-assert not any(name in sys.modules for name in ("row_bot.tasks","row_bot.tools","row_bot.mcp_client.runtime","mcp"))
-assert not pathlib.Path(sys.argv[1]).exists()
-'''
-    completed = subprocess.run([sys.executable, "-c", script, str(target)], capture_output=True, text=True, timeout=20,
-        env={**os.environ, "ROW_BOT_DATA_DIR": str(target)}, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    assert completed.returncode == 0, completed.stderr
 
 
-def test_saved_test_catalog_can_be_read_after_actual_process_restart(owner):
-    tested = run_test()
-    script = '''
-import pathlib,sys
-def forbidden(*args,**kwargs): raise AssertionError("directory mutation")
-pathlib.Path.mkdir=forbidden
-from row_bot.application.capability_catalog_controls import read_tested_mcp_catalog
-page=read_tested_mcp_catalog(owner_id="synthetic-owner",server_id=sys.argv[1],test_command_id=sys.argv[2])
-assert page.availability=="available" and page.total==3
-assert not any(name in sys.modules for name in ("row_bot.tasks","row_bot.tools","row_bot.mcp_client.runtime","mcp"))
-'''
-    completed = subprocess.run([sys.executable, "-c", script, tested["payload"]["server_id"], tested["command_id"]],
-        capture_output=True, text=True, timeout=20, env={**os.environ, "ROW_BOT_DATA_DIR": str(config.CONFIG_PATH.parent)},
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    assert completed.returncode == 0, completed.stderr
-    assert owner.calls == ["connect", "list_tools"]
 
 
-def test_catalog_public_projection_never_exposes_private_names_schemas_or_descriptions(owner):
-    owner.tools[:] = [{"name": "Bearer-synthetic-private", "description": "synthetic-private-description",
-        "inputSchema": {"secret": "synthetic-private-schema"}}, {"name": "sk-synthetic-other", "description": ""}]
-    tested = run_test()
-    public = json.dumps(asdict(read(tested)))
-    assert "synthetic-private" not in public and "sk-synthetic" not in public
-    assert len({row.name for row in read(tested).items}) == 2
-    assert read(tested, query="private").total == 0
 
 
 def test_approval_is_rechecked_at_final_publication_authority(owner):
@@ -307,7 +245,8 @@ def test_inconsistent_retained_test_is_not_accepted(owner, change):
     else:
         private.pop("configuration_digest")
     admissions.complete_command("synthetic-owner", tested["command_id"], receipt)
-    assert read(tested).availability in {"unavailable", "stale"}
+    with pytest.raises(controls.Error):
+        tools(tested)
     with pytest.raises(controls.Error):
         execute(command(tested))
 
@@ -317,10 +256,125 @@ def test_required_approval_cannot_be_lowered_by_new_catalog_metadata(owner):
         "description": "Read", "destructive": True, "requires_approval": True}}, enabled={"get_record": True})
     config.CONFIG_PATH.write_text(json.dumps(owner.document), encoding="utf-8")
     tested = run_test()
-    reviewed = next(row for row in read(tested).items if row.name == "get_record")
-    assert reviewed.requires_approval is True and reviewed.destructive is True
+    reviewed = tools(tested)["get_record"]
+    assert reviewed["requires_approval"] is True and reviewed["destructive"] is True
     assert execute(command(tested))["status"] == "completed"
     current = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]
     assert current["catalog"]["get_record"]["destructive"] is True
     assert current["catalog"]["get_record"]["requires_approval"] is True
     assert "get_record" in current["require_approval"]
+
+
+@pytest.mark.parametrize("change", ["added", "schema", "description", "removed_returned"])
+def test_remote_catalog_change_requires_renewed_acceptance_before_exposure(owner, monkeypatch, change):
+    tested = run_test()
+    assert execute(command(tested))["status"] == "completed"
+    accepted = config.read_saved_configuration().document
+    accepted["enabled"] = True
+    accepted["servers"]["Synthetic"]["enabled"] = True
+    config.CONFIG_PATH.write_text(json.dumps(accepted), encoding="utf-8")
+    if change == "added":
+        owner.tools.append({"name": "get_new_record", "description": "Read newly deployed records", "inputSchema": {}})
+        name = "get_new_record"
+    elif change == "schema":
+        owner.tools[0]["inputSchema"] = {"type": "object", "properties": {"destination": {"type": "string"}}}
+        name = "get_record"
+    elif change == "description":
+        owner.tools[0]["description"] = "Read records from a newly selected destination"
+        name = "get_record"
+    else:
+        # A saved preference cannot reactivate a tool removed from the last accepted deployment.
+        accepted["servers"]["Synthetic"]["tools"]["accepted_names"].remove("get_record")
+        config.CONFIG_PATH.write_text(json.dumps(accepted), encoding="utf-8")
+        name = "get_record"
+    cfg = config.read_saved_configuration().document
+    monkeypatch.setattr(owner.runtime, "_get_effective_config", lambda: cfg)
+    owner.runtime._catalog["Synthetic"] = owner.runtime._normalize_tools("Synthetic", cfg["servers"]["Synthetic"], owner.tools)
+    tools = owner.runtime.get_langchain_tools(refresh=False)
+    assert not any(tool.name.endswith("_" + name) for tool in tools)
+    assert next(row for row in owner.runtime.get_catalog_snapshot()["Synthetic"] if row["name"] == name)["enabled"] is False
+    # The next explicit test/acceptance records exactly these capabilities.
+    owner.runtime._catalog.clear()
+    tested = run_test()
+    assert execute(command(tested))["status"] == "completed"
+    cfg = config.read_saved_configuration().document
+    owner.runtime._catalog["Synthetic"] = owner.runtime._normalize_tools("Synthetic", cfg["servers"]["Synthetic"], owner.tools)
+    assert any(tool.name.endswith("_" + name) for tool in owner.runtime.get_langchain_tools(refresh=False))
+
+
+def _policy_rows(tested):
+    from row_bot.application import capability_policy_controls as policy
+    return {row.name: row for row in policy.read_mcp_policy(server_id=tested["payload"]["server_id"]).items}
+
+
+def test_annotations_reach_the_saved_catalog_so_read_only_tools_run_and_destructive_ones_stay_locked(owner):
+    """B307: what a server declares about its tools is weighed after acceptance too, not just while testing."""
+    owner.tools[:] = [
+        {"name": "check_stock", "description": "Execute a stock check", "inputSchema": {},
+         "annotations": {"readOnlyHint": True, "title": "Check stock"}},
+        {"name": "lookup", "description": "Look a record up", "inputSchema": {}, "annotations": {"destructiveHint": True}},
+        {"name": "save_purchase_orders", "description": "Save purchase orders", "inputSchema": {},
+         "annotations": {"readOnlyHint": False}}]
+    tested = run_test()
+    found = tools(tested)
+    assert found["check_stock"]["effect"] == "read_only" and not found["check_stock"]["requires_approval"]
+    assert found["lookup"]["destructive"] and found["save_purchase_orders"]["effect"] == "mutation"
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]
+    assert saved["catalog"]["check_stock"]["annotations"] == {"readOnlyHint": True}  # Only the hints Row-Bot weighs.
+    assert saved["enabled"] == {"check_stock": True, "lookup": False, "save_purchase_orders": False}
+    rows = _policy_rows(tested)
+    assert rows["check_stock"].enabled is True and rows["check_stock"].requires_approval is False
+    assert rows["check_stock"].approval_locked is False
+    assert rows["lookup"].approval_locked is True and rows["lookup"].destructive is True
+    assert rows["save_purchase_orders"].requires_approval is True and rows["save_purchase_orders"].approval_locked is False
+
+
+def test_a_hint_the_server_drops_does_not_linger_to_relax_its_tool(owner):
+    owner.tools[:] = [{"name": "check_stock", "description": "Check stock", "inputSchema": {},
+                       "annotations": {"readOnlyHint": True}}]
+    assert execute(command(run_test()))["status"] == "completed"
+    del owner.tools[0]["annotations"]
+    tested = run_test()
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]["check_stock"]
+    assert "annotations" not in saved
+    assert _policy_rows(tested)["check_stock"].approval_locked is True  # Unknown again: it always asks.
+
+
+def test_a_deeply_nested_schema_is_kept_as_its_digest_and_never_grows_the_record(owner):
+    schema = {}
+    for _ in range(30):
+        schema = {"nested": schema}
+    owner.tools[0]["inputSchema"] = schema
+    tested = run_test()
+    assert tools(tested)[owner.tools[0]["name"]]["input_schema_digest"] == schema_digest(schema)
+    assert len(json.dumps(admissions.read_command_receipt("synthetic-owner", tested["command_id"])).encode()) < 256 * 1024
+
+
+def test_tools_with_very_large_schemas_can_be_accepted_and_only_their_digests_are_kept(owner):
+    """Notion's tools carry about 170 KB of input schemas: what is agreed to stays exact without keeping them."""
+    big = {"type": "object", "properties": {f"field_{n}": {"type": "string", "description": "d" * 200} for n in range(300)}}
+    owner.tools[:] = [{"name": f"get_{n}", "description": "Read records", "inputSchema": big} for n in range(3)]
+    tested = run_test()
+    assert set(tools(tested)) == {"get_0", "get_1", "get_2"}
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]
+    assert all(row["input_schema_digest"] == schema_digest(big) and "input_schema" not in row for row in saved.values())
+
+
+def test_tools_with_views_can_be_accepted_after_their_record_is_read_back(owner):
+    """Found live with Notion: a tool with an MCP Apps view (and one only its view may call) lost its view when
+    the stored record was checked, so the record never matched and no such app could be accepted."""
+    owner.tools[:] = [
+        {"name": "get_card", "description": "Show a card", "inputSchema": {},
+         "_meta": {"ui": {"resourceUri": "ui://fixture/card.html", "visibility": ["model"]}}},
+        {"name": "get_card_page", "description": "The card's next page", "inputSchema": {},
+         "_meta": {"ui": {"resourceUri": "ui://fixture/card.html", "visibility": ["app"]}}}]
+    tested = run_test()
+    found = tools(tested)
+    assert set(found) == {"get_card", "get_card_page"}
+    assert execute(command(tested))["status"] == "completed"
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]["catalog"]
+    assert saved["get_card"]["view"] == saved["get_card_page"]["view"] == "ui://fixture/card.html"
+    assert saved["get_card_page"]["view_only"] is True and "view_only" not in saved["get_card"]

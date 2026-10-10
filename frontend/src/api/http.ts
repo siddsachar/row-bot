@@ -248,45 +248,6 @@ export class HttpTransport implements ClientTransport {
   scanMigration(request: wire.MigrationScanRequest, signal?: AbortSignal) {
     return wire.scanMigration(this.base, this.session(), request, signal);
   }
-  searchSkillHub(request: wire.SkillHubSearchRequest, signal?: AbortSignal) {
-    return wire.searchSkillHub(this.base, this.session(), request, signal);
-  }
-  previewSkillHub(request: wire.SkillHubPreviewRequest, signal?: AbortSignal) {
-    return wire.previewSkillHub(this.base, this.session(), request, signal);
-  }
-  installSkillHub(command: wire.SkillHubInstallCommand, signal?: AbortSignal) {
-    return wire.installSkillHub(this.base, this.session(), command, signal);
-  }
-  skillHubInstallReceipt(commandId: string, signal?: AbortSignal) {
-    return wire.getSkillHubInstallReceipt(
-      this.base,
-      this.session(),
-      commandId,
-      signal,
-    );
-  }
-  skillHubInstalled(signal?: AbortSignal) {
-    return wire.getSkillHubInstalled(this.base, this.session(), signal);
-  }
-  skillHubMaintenance(
-    command: wire.SkillHubMaintenanceCommand,
-    signal?: AbortSignal,
-  ) {
-    return wire.sendSkillHubMaintenance(
-      this.base,
-      this.session(),
-      command,
-      signal,
-    );
-  }
-  skillHubMaintenanceReceipt(commandId: string, signal?: AbortSignal) {
-    return wire.getSkillHubMaintenanceReceipt(
-      this.base,
-      this.session(),
-      commandId,
-      signal,
-    );
-  }
   reviewMigration(
     request: wire.MigrationApplyReviewRequest,
     signal?: AbortSignal,
@@ -563,42 +524,8 @@ export class HttpTransport implements ClientTransport {
   ) {
     return wire.reviewPlugin(this.base, this.session(), plugin, body, signal);
   }
-  pluginReceipt(plugin: string, command: string, signal?: AbortSignal) {
-    return wire.getPluginReceipt(
-      this.base,
-      this.session(),
-      plugin,
-      command,
-      signal,
-    );
-  }
   executePlugin(plugin: string, command: wire.Command, signal?: AbortSignal) {
     return wire.sendPlugin(this.base, this.session(), plugin, command, signal);
-  }
-  reviewPluginLifecycle(
-    body: wire.PluginLifecycleReviewRequest,
-    signal?: AbortSignal,
-  ) {
-    return wire.reviewPluginLifecycle(this.base, this.session(), body, signal);
-  }
-  pluginLifecycleReceipt(command: string, signal?: AbortSignal) {
-    return wire.getPluginLifecycleReceipt(
-      this.base,
-      this.session(),
-      command,
-      signal,
-    );
-  }
-  executePluginLifecycle(
-    command: wire.PluginLifecycleCommand,
-    signal?: AbortSignal,
-  ) {
-    return wire.sendPluginLifecycleCommand(
-      this.base,
-      this.session(),
-      command,
-      signal,
-    );
   }
   skills(
     query: string,
@@ -736,6 +663,7 @@ export class HttpTransport implements ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: wire.McpTarget,
   ) {
     return wire.getMcpPolicy(
       this.base,
@@ -744,27 +672,8 @@ export class HttpTransport implements ClientTransport {
       query,
       cursor,
       signal,
+      target,
     );
-  }
-  mcpTestedCatalog(
-    server: string,
-    command: string,
-    query: string,
-    cursor?: string,
-    signal?: AbortSignal,
-  ) {
-    return wire.getMcpTestedCatalog(
-      this.base,
-      this.session(),
-      server,
-      command,
-      query,
-      cursor,
-      signal,
-    );
-  }
-  reviewMcpCatalog(body: wire.McpCatalogRequest, signal?: AbortSignal) {
-    return wire.reviewMcpCatalog(this.base, this.session(), body, signal);
   }
   documentQueue(
     kind: string,
@@ -1161,28 +1070,177 @@ export class HttpTransport implements ClientTransport {
   revokeSubscriptionFlows(signal?: AbortSignal) {
     return wire.revokeSubscriptionFlows(this.base, this.session(), signal);
   }
-  mcpConfiguration(query: string, cursor?: string, signal?: AbortSignal) {
+  integrationSources(signal?: AbortSignal) {
+    return wire.getIntegrationSources(this.base, this.session(), signal);
+  }
+  updateIntegrationSource(source: string, signal?: AbortSignal) {
+    return wire.updateIntegrationSource(
+      this.base,
+      this.session(),
+      source,
+      signal,
+    );
+  }
+  workflowTemplates(signal?: AbortSignal) {
+    return wire.getWorkflowTemplates(this.base, this.session(), signal);
+  }
+  useWorkflowTemplate(template: string, signal?: AbortSignal) {
+    return wire.useWorkflowTemplate(
+      this.base,
+      this.session(),
+      template,
+      signal,
+    );
+  }
+  setIntegrationSourceOptIn(source: string, on: boolean, signal?: AbortSignal) {
+    return wire.setIntegrationSourceOptIn(
+      this.base,
+      this.session(),
+      source,
+      { on },
+      signal,
+    );
+  }
+  catalogSchedule(signal?: AbortSignal) {
+    return wire.getCatalogSchedule(this.base, this.session(), signal);
+  }
+  setCatalogSchedule(body: wire.CatalogSchedule, signal?: AbortSignal) {
+    return wire.setCatalogSchedule(this.base, this.session(), body, signal);
+  }
+  integrationApps(query: string, signal?: AbortSignal) {
+    return wire.getApps(this.base, this.session(), { query }, signal);
+  }
+  integrationIcons(icons: string[], signal?: AbortSignal) {
+    return wire.readAppIcons(this.base, this.session(), icons, signal);
+  }
+  renderAppView(conversation: string, callId: string, signal?: AbortSignal) {
+    return wire.renderAppView(
+      this.base,
+      this.session(),
+      conversation,
+      { call_id: callId },
+      signal,
+    );
+  }
+  callAppViewTool(
+    render: string,
+    body: import('./types').AppViewToolCall,
+    signal?: AbortSignal,
+  ) {
+    return wire.callAppViewTool(
+      this.base,
+      this.session(),
+      render,
+      body,
+      signal,
+    );
+  }
+  appViewSettings(signal?: AbortSignal) {
+    return wire.getAppViewSettings(this.base, this.session(), signal);
+  }
+  setAppViewSettings(
+    body: import('./types').AppViewSettings,
+    signal?: AbortSignal,
+  ) {
+    return wire.setAppViewSettings(this.base, this.session(), body, signal);
+  }
+  setAppViewAppSetting(
+    body: import('./types').AppViewAppSetting,
+    signal?: AbortSignal,
+  ) {
+    return wire.setAppViewAppSetting(this.base, this.session(), body, signal);
+  }
+  integrationItems(
+    options: {
+      query?: string;
+      kind?: string;
+      scope?: 'installed' | 'catalog';
+      cursor?: string;
+      all?: 'true';
+    },
+    signal?: AbortSignal,
+  ) {
+    return wire.getIntegrationItems(this.base, this.session(), options, signal);
+  }
+  searchIntegrationItems(
+    body: wire.IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.searchIntegrationItems(this.base, this.session(), body, signal);
+  }
+  resolveIntegration(
+    body: wire.IntegrationResolveRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.resolveIntegrationReference(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
+  }
+  settleIntegration(body: wire.IntegrationSettleRequest, signal?: AbortSignal) {
+    return wire.settleIntegrationItem(this.base, this.session(), body, signal);
+  }
+  uploadIntegration(file: Blob, name: string, signal?: AbortSignal) {
+    return wire.uploadIntegrationFile(
+      this.base,
+      this.session(),
+      file,
+      name,
+      signal,
+    );
+  }
+  integrationDetail(
+    options: { item_id: string; revision?: string },
+    signal?: AbortSignal,
+  ) {
+    return wire.getIntegrationDetail(
+      this.base,
+      this.session(),
+      options,
+      signal,
+    );
+  }
+  reviewInstallPlan(body: wire.PlanReviewRequest, signal?: AbortSignal) {
+    return wire.reviewInstallPlan(this.base, this.session(), body, signal);
+  }
+  startInstallPlan(body: wire.PlanStartRequest, signal?: AbortSignal) {
+    return wire.startInstallPlan(this.base, this.session(), body, signal);
+  }
+  installPlan(plan: string, signal?: AbortSignal) {
+    return wire.getInstallPlan(this.base, this.session(), plan, signal);
+  }
+  continueInstallPlan(
+    plan: string,
+    body: wire.PlanContinueRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.continueInstallPlan(
+      this.base,
+      this.session(),
+      plan,
+      body,
+      signal,
+    );
+  }
+  cancelInstallPlan(plan: string, signal?: AbortSignal) {
+    return wire.cancelInstallPlan(this.base, this.session(), plan, signal);
+  }
+  mcpConfiguration(
+    query: string,
+    cursor?: string,
+    signal?: AbortSignal,
+    target?: wire.McpTarget,
+  ) {
     return wire.getMcpConfiguration(
       this.base,
       this.session(),
       query,
       cursor,
       signal,
+      target,
     );
-  }
-  searchMcpDirectory(query: string, signal?: AbortSignal) {
-    return wire.searchMcpDirectory(
-      this.base,
-      this.session(),
-      { query },
-      signal,
-    );
-  }
-  mcpRuntime(server: string, signal?: AbortSignal) {
-    return wire.getMcpRuntime(this.base, this.session(), server, signal);
-  }
-  reviewMcpRuntime(body: wire.McpRuntimeReviewRequest, signal?: AbortSignal) {
-    return wire.reviewMcpRuntime(this.base, this.session(), body, signal);
   }
   reviewMcpConfiguration(
     body: wire.McpConfigurationReviewRequest,
@@ -1732,6 +1790,9 @@ export class HttpTransport implements ClientTransport {
   }
   settingsSnapshot(signal?: AbortSignal) {
     return wire.getSettingsSnapshot(this.base, this.session(), signal);
+  }
+  trackerEntries(trackerId: string, signal?: AbortSignal) {
+    return wire.getTrackerEntries(this.base, this.session(), trackerId, signal);
   }
   reviewSettingsMutation(
     body: wire.SettingsMutationRequest,

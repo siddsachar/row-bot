@@ -96,18 +96,15 @@ def _load_modules(data_dir: Path):
 
 def _apply_probe_defaults(server_cfg: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any]:
     """Accept a probed catalog the way a first review does: destructive tools off and gated."""
-    from row_bot.mcp_client.conflicts import requires_manual_tool_selection
-
     enabled: dict[str, bool] = {}
     approvals: list[str] = []
     catalog: dict[str, dict[str, Any]] = {}
-    manual_select = requires_manual_tool_selection(str(server_cfg.get("name") or ""), server_cfg)
     for tool in probe.get("tools") or []:
         tool_name = tool.get("name")
         if not tool_name:
             continue
         destructive = bool(tool.get("destructive"))
-        enabled[tool_name] = False if manual_select else not destructive
+        enabled[tool_name] = not destructive
         if destructive:
             approvals.append(tool_name)
         catalog[tool_name] = {
@@ -187,9 +184,6 @@ def _run_target(target: Target, args: argparse.Namespace) -> TargetResult:
                 return TargetResult(target.name, "fail", "Probe returned no tools")
 
             reviewed_cfg = _apply_probe_defaults(dict(imported_cfg), probe)
-            enabled_defaults = dict((reviewed_cfg.get("tools") or {}).get("enabled") or {})
-            if source.get("overlaps_native") and any(enabled_defaults.values()):
-                return TargetResult(target.name, "fail", "Overlapping server enabled tools before manual selection")
 
             reviewed_cfg["enabled"] = True
             if target.call_tool:

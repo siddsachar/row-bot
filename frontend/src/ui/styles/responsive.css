@@ -413,8 +413,9 @@
   .settings-shell .icon-button {
     min-width: 44px !important;
   }
-  /* Links keep their line; their hit area grows vertically. */
-  .settings-page-content a[href]:not(.button):not(.icon-button) {
+  /* Links keep their line; their hit area grows vertically. A card is already its own target. */
+  .settings-page-content
+    a[href]:not(.button):not(.icon-button):not(.app-card):not(.app-way) {
     padding-block: 14px;
     margin-block: -14px;
   }

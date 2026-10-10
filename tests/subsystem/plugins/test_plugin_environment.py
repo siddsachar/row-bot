@@ -212,10 +212,10 @@ def test_missing_distribution_after_install_never_ready(setup, monkeypatch):
 def test_verified_candidate_publication_retry_does_not_reinstall(setup, monkeypatch):
     state = setup[1]
     actual = state._atomic_json
-    def failure(path, data, restricted=False):
+    def failure(path, data):
         if data.get("sample-plugin", {}).get("environment", {}).get("active_operation_id") == OPERATION:
             raise OSError("synthetic replace failure")
-        actual(path, data, restricted)
+        actual(path, data)
     monkeypatch.setattr(state, "_atomic_json", failure)
     first = prepare(setup)
     assert not first.ready

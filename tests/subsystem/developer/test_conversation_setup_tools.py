@@ -122,7 +122,6 @@ def test_undo_removes_what_the_conversation_created_and_keeps_the_conversation(c
     with _in(conversation):
         folder = json.loads(create_code_folder("Tiny date app"))
         design = json.loads(create_design("deck", "Harbour cleanup deck"))
-    (root / "Drafts" / "Tiny date app" / "index.html").write_text("<p>date</p>", encoding="utf-8")
     for created in (folder, design):
         receipt = _command(service, conversation, "resource.discard", {"binding_id": created["binding_id"]})
         assert receipt["status"] == "completed"
@@ -131,6 +130,52 @@ def test_undo_removes_what_the_conversation_created_and_keeps_the_conversation(c
     assert not (root / "Drafts" / "Tiny date app").exists()
     assert load_project(design["resource_id"]) is None
     assert service._metadata(conversation)["thread_id"] == conversation, "the conversation stays"
+
+
+@pytest.mark.parametrize("added", ["two.py", "src/app/main.py"])
+def test_undo_never_deletes_files_added_to_the_code_folder_after_it_was_created(creation, added):  # noqa: F811
+    from row_bot.application.client_platform import ClientPlatformError
+    from row_bot.conversation_resources import list_bindings
+    from row_bot.developer.storage import get_workspace
+    from row_bot.tools.conversation_setup_tool import create_code_folder
+
+    service, conversation, root = creation
+    with _in(conversation):
+        folder = json.loads(create_code_folder("tour-test-math"))
+    work = root / "Drafts" / "tour-test-math" / added
+    work.parent.mkdir(parents=True, exist_ok=True)
+    work.write_text("print(1 + 1)\n", encoding="utf-8")
+    with pytest.raises(ClientPlatformError, match="resource_not_empty"):
+        _command(service, conversation, "resource.discard", {"binding_id": folder["binding_id"]})
+    assert work.read_text(encoding="utf-8") == "print(1 + 1)\n"
+    # Nothing changed: still in this conversation and still a saved code folder.
+    assert [item.binding_id for item in list_bindings(conversation).bindings] == [folder["binding_id"]]
+    assert get_workspace(folder["resource_id"]) is not None
+
+
+def test_undo_keeps_a_file_that_arrives_while_the_empty_folder_is_being_removed(creation, monkeypatch):  # noqa: F811
+    from row_bot import conversation_resources
+    from row_bot.conversation_resources import list_bindings
+    from row_bot.developer.storage import get_workspace
+    from row_bot.tools.conversation_setup_tool import create_code_folder
+
+    service, conversation, root = creation
+    with _in(conversation):
+        folder = json.loads(create_code_folder("tour-test-math"))
+    late = root / "Drafts" / "tour-test-math" / "two.py"
+    unbind = conversation_resources.unbind
+
+    def unbind_then_a_late_write(*args, **kwargs):
+        snapshot = unbind(*args, **kwargs)
+        late.write_text("print(2)\n", encoding="utf-8")
+        return snapshot
+
+    monkeypatch.setattr(conversation_resources, "unbind", unbind_then_a_late_write)
+    _command(service, conversation, "resource.discard", {"binding_id": folder["binding_id"]})
+    assert late.read_text(encoding="utf-8") == "print(2)\n"
+    assert list_bindings(conversation).bindings == ()
+    # The folder is still on disk, so it stays a saved code folder to reopen.
+    assert get_workspace(folder["resource_id"]) is not None
 
 
 def test_undo_never_touches_a_folder_or_design_it_did_not_create(creation, tmp_path):  # noqa: F811
@@ -261,21 +306,22 @@ def test_the_model_is_told_when_to_create_and_when_not_to(monkeypatch):
     assert "deck, slides, a presentation" in context
     assert "in the chat or the app only" in context
     assert "Never write a project's files loosely" in context
-    assert "request_connection" in context
+    assert "suggest_apps" in context
     assert "If they choose Not now, it stays off" in context
 
 
 def test_cards_and_setup_approvals_are_specialised():
     from row_bot.application.approval_projection import project_approval_context
     from row_bot.application.conversation_traces import specialize_tool_result
-    from row_bot.tools.conversation_setup_tool import request_connection
 
     created = specialize_tool_result({"name": "create_code_folder", "content": json.dumps({
         "ok": True, "kind": "resource_created", "resource_kind": "code", "resource_id": "workspace-1",
         "binding_id": "binding-1", "name": "Tiny date app", "display_summary": "Created code folder"})})
     assert (created.kind, created.resource_kind, created.binding_id, created.display_name) == (
         "resource_created", "code", "binding-1", "Tiny date app")
-    connect = specialize_tool_result({"name": "request_connection", "content": request_connection("google")})
+    # A Connect card from a chat before apps joined it still shows (and now opens the app's page).
+    connect = specialize_tool_result({"name": "request_connection", "content": json.dumps({
+        "ok": True, "kind": "setup_needed", "target": "google", "label": "Google"})})
     assert (connect.kind, connect.setup_target, connect.settings_page) == ("setup_needed", "google", "accounts")
     approval = project_approval_context({"tool": "row_bot_update_setting", "label": "Turn on Web Search",
                                          "description": "Row-Bot needs Web Search for this.",

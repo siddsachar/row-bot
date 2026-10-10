@@ -4,6 +4,19 @@ import importlib
 import json
 import types
 
+import pytest
+
+
+@pytest.fixture
+def no_durable_activity(monkeypatch):
+    """The brain also reconciles with running workflows, pending approvals and Agent groups: none here,
+    whatever an earlier test on the worker left behind."""
+    import row_bot.agent_orchestrator as orchestrator
+    import row_bot.tasks as tasks
+    monkeypatch.setattr(tasks, "get_pending_approvals", lambda *args, **kwargs: [])
+    monkeypatch.setattr(tasks, "get_running_tasks", lambda *args, **kwargs: {})
+    monkeypatch.setattr(orchestrator, "get_thread_orchestration_activity", lambda *args, **kwargs: {})
+
 
 def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
     # Its own data folder: the durable document store starts empty, whatever
@@ -77,7 +90,7 @@ def test_home_status_has_single_faiss_check(monkeypatch):
     assert names.count("Threads DB") == 1
 
 
-def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch):
+def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch, no_durable_activity):
     import row_bot.buddy.brain as brain_mod
     from row_bot.buddy.brain import BuddyBrain
     from row_bot.buddy.events import BuddyEvent, BuddyEventType
@@ -111,7 +124,7 @@ def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch):
     assert idle.animation == "idle_breathe"
 
 
-def test_buddy_state_machine_keeps_other_pending_approval(monkeypatch):
+def test_buddy_state_machine_keeps_other_pending_approval(monkeypatch, no_durable_activity):
     import row_bot.buddy.brain as brain_mod
     from row_bot.buddy.brain import BuddyBrain
     from row_bot.buddy.events import BuddyEvent, BuddyEventType

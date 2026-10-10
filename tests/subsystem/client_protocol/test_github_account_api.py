@@ -110,6 +110,7 @@ def test_accounts_and_monitor_share_one_github_status(tmp_path, monkeypatch):
     monkeypatch.setattr(github_account, "_github_cli_status", lambda: github_account.GitHubAccountStatus(
         connected=False, gh_installed=True, gh_authenticated=True, user="octo"))
     monkeypatch.setattr(client_accounts, "resolve_github_cli", lambda: "fixture-gh")
+    monkeypatch.setattr(github_account, "_github_cli_installed", lambda: True)
     probes = []
 
     def api(token, source="", timeout=10):
@@ -119,7 +120,7 @@ def test_accounts_and_monitor_share_one_github_status(tmp_path, monkeypatch):
             state=github_account.GITHUB_STATE_CONNECTED, authenticated=True, token_valid=True)
 
     monkeypatch.setattr(github_account, "check_github_token_access", api)
-    # Before anything checked it: signed in through the CLI, not yet checked.
+    # Before anything checked it: the CLI is there, not yet checked (a read never starts it).
     passive = client_accounts.read_github_access(owner_id="owner-fixture")
     assert passive["state"] == "configured_unchecked" and passive["credential_source"] == "github_cli"
     assert _accounts(tmp_path, {}, {}, {})["github"]["authentication_state"] == "configured_unchecked"

@@ -20,9 +20,14 @@ export const settingsGroups = [
   {
     id: 'capabilities',
     label: 'Capabilities',
-    leaves: ['tools', 'skills', 'plugins', 'mcp'],
+    leaves: ['tools', 'skills'],
   },
-  { id: 'connections', label: 'Connections', leaves: ['accounts', 'channels'] },
+  {
+    id: 'connections',
+    label: 'Connections',
+    // Accounts and channels are apps too (Apps › Google, Apps › Telegram).
+    leaves: ['apps'],
+  },
   {
     id: 'system',
     label: 'System',
@@ -45,10 +50,7 @@ const leafLabels: Record<SettingsLeafId, string> = {
   tracker: 'Tracker',
   tools: 'Tools',
   skills: 'Skills',
-  plugins: 'Plugins',
-  mcp: 'MCP',
-  accounts: 'Accounts',
-  channels: 'Channels',
+  apps: 'Apps',
   system: 'System',
   access: 'Devices & remote access',
   updates: 'Updates',
@@ -60,19 +62,20 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   preferences: 'identity name personality launch window dream cycle',
   appearance: 'theme dark light accent colour color density transparency',
   buddy: 'companion avatar pack motion desktop',
-  providers: 'api key credentials ollama openai anthropic cloud connect',
-  models: 'default model thinking reasoning catalog pin vision image',
-  voice: 'dictation talk speech microphone tts read aloud',
+  providers:
+    'api key credentials ollama openai anthropic claude chatgpt codex grok xai gemini subscription sign in cloud connect',
+  models:
+    'default model brain thinking reasoning catalog pin vision camera image video reading limit context steps helpers',
+  voice: 'dictation talk speech microphone tts read aloud whisper',
   knowledge: 'knowledge memories wiki graph vault',
-  documents: 'files upload pdf library embedding index',
+  documents: 'files upload pdf library embedding index search model',
   tracker: 'habits tracking health',
-  tools: 'utilities built-in search web research compression custom tools',
-  skills: 'hub install discover',
-  plugins: 'extensions install marketplace discover',
-  mcp: 'servers model context protocol connectors runtimes',
-  accounts: 'github google gmail calendar x twitter oauth',
-  channels: 'telegram discord slack sms whatsapp messaging',
-  system: 'shell browser computer use workspace folder logging files',
+  tools:
+    'utilities built-in search web research compression custom tools api key tavily wolfram',
+  skills: 'skill library slash commands instructions clawhub create import',
+  apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes accounts github google gmail calendar x twitter oauth channels telegram discord slack sms whatsapp messaging',
+  system:
+    'shell commands browser computer use workspace folder logging logs files blocked',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',
@@ -102,12 +105,12 @@ export const settingsRedirects: Record<
   string,
   { leaf: SettingsLeafId; anchor?: string }
 > = {
+  integrations: { leaf: 'apps' },
+  plugins: { leaf: 'apps' },
+  mcp: { leaf: 'apps' },
   wiki: { leaf: 'knowledge', anchor: 'wiki-vault' },
   memory: { leaf: 'knowledge' },
   cloud: { leaf: 'providers' },
-  google: { leaf: 'accounts', anchor: 'google' },
-  gmail: { leaf: 'accounts', anchor: 'google' },
-  calendar: { leaf: 'accounts', anchor: 'google' },
   migration: { leaf: 'data', anchor: 'migration' },
   backup: { leaf: 'data', anchor: 'backup' },
   search: { leaf: 'tools', anchor: 'search-tools' },
@@ -139,13 +142,69 @@ export function resolveSetting(value: string) {
   return settingsLeaves.find((leaf) => leaf.id === target);
 }
 
+/**
+ * Where an old Integrations, MCP or Plugins link lands now: Apps, Skills, one
+ * item, or Apps › Advanced (catalogs and runtimes).
+ */
+export function legacyIntegrationHref(search: URLSearchParams, anchor = '') {
+  const hash = anchor.replace(/^#/, '');
+  const selected = search.get('selected') ?? '';
+  if (selected.startsWith('skill:'))
+    return `/settings/skills/${encodeURIComponent(selected.slice(6))}`;
+  if (selected)
+    return `/settings/apps/item?${new URLSearchParams({ id: selected })}`;
+  if (search.get('view') === 'catalogs' || hash === 'mcp-runtimes')
+    return '/settings/apps?view=advanced';
+  if (search.get('type') === 'skill') return '/settings/skills';
+  return '/settings/apps';
+}
+
+/**
+ * Settings › Accounts and › Channels joined Apps: an account or channel is an
+ * app's built-in way to connect, so its old link opens that app's page.
+ */
+const CONNECTION_APPS: Record<string, string> = {
+  google: 'google',
+  gmail: 'google',
+  calendar: 'google',
+  github: 'github',
+  x: 'x',
+  telegram: 'telegram',
+  whatsapp: 'whatsapp',
+  discord: 'discord',
+  slack: 'slack',
+  sms: 'sms',
+};
+export const CONNECTION_PAGES = new Set([
+  'accounts',
+  'channels',
+  'google',
+  'gmail',
+  'calendar',
+]);
+
+export function connectionHref(key: string, anchor = '') {
+  const page = key.toLowerCase();
+  const app =
+    CONNECTION_APPS[anchor.replace(/^#/, '').split('.')[0]] ??
+    CONNECTION_APPS[page];
+  if (app) return `/settings/apps/${app}`;
+  return page === 'channels'
+    ? '/settings/apps?category=communication'
+    : '/settings/apps';
+}
+
 /** The canonical href for a leaf id, legacy id or moved page. */
-export function settingsHref(value: string) {
+export function settingsHref(value: string, anchor = '') {
   const key = value.toLowerCase();
+  if (['integrations', 'plugins', 'mcp'].includes(key))
+    return legacyIntegrationHref(new URLSearchParams(), anchor);
+  if (CONNECTION_PAGES.has(key)) return connectionHref(key, anchor);
   const redirect = settingsRedirects[key];
   const leaf = resolveSetting(key);
   if (!leaf) return undefined;
-  return redirect?.anchor ? `${leaf.href}#${redirect.anchor}` : leaf.href;
+  const section = anchor || redirect?.anchor;
+  return section ? `${leaf.href}#${section.replace(/^#/, '')}` : leaf.href;
 }
 
 function leafText(leaf: SettingsLeaf) {
@@ -170,17 +229,25 @@ export function searchSettings(query: string) {
 /**
  * Rows that search can jump to. `anchor` matches a `data-setting-anchor` on
  * the page; the shell opens any collapsed section around it, scrolls to it and
- * highlights it.
+ * highlights it. `label` uses the page's own words; older or technical names
+ * stay findable as `keywords`.
  */
 export type SettingsRow = {
   leaf: SettingsLeafId;
   anchor: string;
   label: string;
   keywords?: string;
+  /** A row that is its own page (an app). */
+  href?: string;
 };
 
 export const settingsRows: SettingsRow[] = [
-  { leaf: 'preferences', anchor: 'identity.name', label: 'Assistant name' },
+  {
+    leaf: 'preferences',
+    anchor: 'identity.name',
+    label: 'Assistant name',
+    keywords: 'identity call itself',
+  },
   {
     leaf: 'preferences',
     anchor: 'identity.personality',
@@ -190,32 +257,32 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'preferences',
     anchor: 'identity.self_improvement_enabled',
-    label: 'Self-improvement',
-    keywords: 'skills learn',
+    label: 'Learn new skills',
+    keywords: 'self-improvement improve',
   },
   {
     leaf: 'preferences',
     anchor: 'window_mode',
-    label: 'Window mode',
-    keywords: 'native browser launch',
+    label: 'Open Row-Bot in',
+    keywords: 'window mode app native browser launch',
   },
   {
     leaf: 'preferences',
     anchor: 'dream-cycle',
     label: 'Dream Cycle',
-    keywords: 'overnight background consolidation',
+    keywords: 'overnight tidy-up background consolidation hours',
   },
   {
     leaf: 'appearance',
     anchor: 'theme',
-    label: 'Theme',
-    keywords: 'dark light system mode',
+    label: 'Light or dark',
+    keywords: 'theme appearance dark light system mode',
   },
   {
     leaf: 'appearance',
     anchor: 'accent',
-    label: 'Accent colour',
-    keywords: 'color blue teal violet amber',
+    label: 'Colour theme',
+    keywords: 'accent color blue teal violet amber',
   },
   {
     leaf: 'appearance',
@@ -244,22 +311,65 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'providers',
+    anchor: 'providers-local',
+    label: 'On this device',
+    keywords: 'ollama local models computer',
+  },
+  {
+    leaf: 'providers',
+    anchor: 'providers-subscription',
+    label: 'Subscriptions',
+    keywords: 'claude chatgpt codex grok xai sign in plan account',
+  },
+  {
+    leaf: 'providers',
+    anchor: 'providers-api',
+    label: 'API providers',
+    keywords:
+      'api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek',
+  },
+  {
+    leaf: 'providers',
     anchor: 'custom-endpoints',
     label: 'Custom endpoints',
-    keywords: 'base url openai compatible',
+    keywords: 'base url openai compatible self-hosted',
   },
   {
     leaf: 'models',
     anchor: 'default-model',
-    label: 'Default model',
-    keywords: 'brain chat',
+    label: 'Brain model',
+    keywords: 'default model chat main',
   },
-  { leaf: 'models', anchor: 'vision-model', label: 'Vision model' },
+  {
+    leaf: 'models',
+    anchor: 'vision-model',
+    label: 'Vision model',
+    keywords: 'camera images screenshots see look',
+  },
   {
     leaf: 'models',
     anchor: 'image-model',
     label: 'Image model',
-    keywords: 'generation',
+    keywords: 'generation pictures',
+  },
+  {
+    leaf: 'models',
+    anchor: 'video-model',
+    label: 'Video model',
+    keywords: 'clips animate generation',
+  },
+  {
+    leaf: 'models',
+    anchor: 'reading-limit',
+    label: 'Reading limit',
+    keywords: 'context window tokens advanced',
+  },
+  {
+    leaf: 'models',
+    anchor: 'long-work',
+    label: 'Limits for long work',
+    keywords:
+      'steps per run iterations helpers helper levels agents time limit goal turns',
   },
   {
     leaf: 'models',
@@ -267,36 +377,48 @@ export const settingsRows: SettingsRow[] = [
     label: 'Model catalog',
     keywords: 'pin models',
   },
-  { leaf: 'voice', anchor: 'talk', label: 'Talk', keywords: 'realtime' },
+  {
+    leaf: 'voice',
+    anchor: 'talk',
+    label: 'Talk',
+    keywords: 'realtime microphone listen',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'runtime.captions_enabled',
+    label: 'Live captions',
+    keywords: 'subtitles talk',
+  },
   { leaf: 'voice', anchor: 'dictation', label: 'Dictation' },
   {
     leaf: 'voice',
     anchor: 'local.whisper_model',
-    label: 'Whisper model size',
+    label: 'Speech model',
+    keywords: 'whisper model size transcription',
   },
   {
     leaf: 'voice',
     anchor: 'read-aloud',
     label: 'Read aloud',
-    keywords: 'text to speech tts kokoro',
+    keywords: 'text to speech tts kokoro voice',
   },
   {
     leaf: 'knowledge',
     anchor: 'memory-graph',
-    label: 'Memory graph',
-    keywords: 'entities relations',
+    label: 'Graph health',
+    keywords: 'memory graph entities relations',
   },
   {
     leaf: 'knowledge',
     anchor: 'wiki-vault',
     label: 'Wiki vault',
-    keywords: 'obsidian markdown',
+    keywords: 'obsidian markdown vault path folder',
   },
   {
     leaf: 'documents',
     anchor: 'embedding',
-    label: 'Embedding engine',
-    keywords: 'vectors model',
+    label: 'Search model',
+    keywords: 'embedding engine vectors',
   },
   {
     leaf: 'documents',
@@ -307,24 +429,38 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'tracker',
     anchor: 'tracker.enabled',
-    label: 'Habit tracker',
+    label: 'Track in chat',
+    keywords: 'habit tracker habits tracking',
   },
   {
     leaf: 'tools',
     anchor: 'capability-loading',
-    label: 'Capability loading',
-    keywords: 'external tools',
+    label: 'How tools are offered',
+    keywords: 'capability loading external tools apps plugins',
   },
   {
     leaf: 'tools',
     anchor: 'retrieval-compression',
-    label: 'Retrieval compression',
+    label: 'Trim search results',
+    keywords: 'retrieval compression',
   },
   {
     leaf: 'tools',
     anchor: 'search-tools',
     label: 'Search and knowledge tools',
     keywords: 'web search tavily arxiv duckduckgo wolfram',
+  },
+  {
+    leaf: 'tools',
+    anchor: 'web_search.credential',
+    label: 'Tavily API key',
+    keywords: 'web search credential',
+  },
+  {
+    leaf: 'tools',
+    anchor: 'wolfram_alpha.credential',
+    label: 'Wolfram Alpha App ID',
+    keywords: 'api key credential',
   },
   {
     leaf: 'tools',
@@ -341,45 +477,89 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'skills',
     anchor: 'skill-library',
-    label: 'Installed skills',
+    label: 'Find or add skills',
+    keywords: 'your skills library hub browse discover public clawhub install',
   },
   {
     leaf: 'skills',
-    anchor: 'public-skills',
-    label: 'Discover public skills',
-    keywords: 'hub browse',
+    anchor: 'new-skill',
+    label: 'Create a skill',
+    keywords: 'new write make own',
+    href: '/settings/skills/new',
   },
   {
-    leaf: 'plugins',
-    anchor: 'installed-plugins',
-    label: 'Installed plugins',
+    leaf: 'apps',
+    anchor: 'chats',
+    label: 'Apps in chats',
+    keywords: 'views use apps conversation',
   },
   {
-    leaf: 'plugins',
-    anchor: 'plugin-marketplace',
-    label: 'Plugin marketplace',
-    keywords: 'discover browse',
+    leaf: 'apps',
+    anchor: 'catalogs',
+    label: 'App catalogs',
+    keywords: 'update registry hermes mcp',
   },
   {
-    leaf: 'mcp',
-    anchor: 'mcp-servers',
-    label: 'MCP servers',
-    keywords: 'add server import config',
-  },
-  {
-    leaf: 'mcp',
-    anchor: 'mcp-runtimes',
+    leaf: 'apps',
+    anchor: 'runtimes',
     label: 'Runtimes (Node.js, uv)',
-    keywords: 'node python uv',
+    keywords: 'node python uv mcp',
   },
-  { leaf: 'accounts', anchor: 'github', label: 'GitHub account' },
   {
-    leaf: 'accounts',
+    leaf: 'apps',
+    anchor: 'github',
+    label: 'GitHub account',
+    href: '/settings/apps/github',
+  },
+  {
+    leaf: 'apps',
     anchor: 'google',
     label: 'Google account',
     keywords: 'gmail calendar',
+    href: '/settings/apps/google',
   },
-  { leaf: 'accounts', anchor: 'x', label: 'X account', keywords: 'twitter' },
+  {
+    leaf: 'apps',
+    anchor: 'x',
+    label: 'X account',
+    keywords: 'twitter',
+    href: '/settings/apps/x',
+  },
+  {
+    leaf: 'apps',
+    anchor: 'telegram',
+    label: 'Telegram channel',
+    keywords: 'messaging channel',
+    href: '/settings/apps/telegram',
+  },
+  {
+    leaf: 'apps',
+    anchor: 'whatsapp',
+    label: 'WhatsApp channel',
+    keywords: 'messaging channel',
+    href: '/settings/apps/whatsapp',
+  },
+  {
+    leaf: 'apps',
+    anchor: 'discord',
+    label: 'Discord channel',
+    keywords: 'messaging channel',
+    href: '/settings/apps/discord',
+  },
+  {
+    leaf: 'apps',
+    anchor: 'slack',
+    label: 'Slack channel',
+    keywords: 'messaging channel',
+    href: '/settings/apps/slack',
+  },
+  {
+    leaf: 'apps',
+    anchor: 'sms',
+    label: 'Text messages channel',
+    keywords: 'messaging channel',
+    href: '/settings/apps/sms',
+  },
   {
     leaf: 'system',
     anchor: 'workspace-folder',
@@ -388,20 +568,32 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'system',
     anchor: 'shell.enabled',
-    label: 'Shell access',
-    keywords: 'terminal commands',
+    label: 'Run commands',
+    keywords: 'shell access terminal',
+  },
+  {
+    leaf: 'system',
+    anchor: 'file-operations',
+    label: 'Work with files',
+    keywords: 'file operations read write delete',
   },
   {
     leaf: 'system',
     anchor: 'browser-computer-use',
-    label: 'Browser and Computer Use',
+    label: 'Browser and computer use',
+    keywords: 'websites apps cua',
   },
-  { leaf: 'system', anchor: 'file-operations', label: 'File operations' },
   {
     leaf: 'system',
     anchor: 'logging.level',
-    label: 'Log level',
-    keywords: 'logging logs diagnostics debug',
+    label: 'Log detail',
+    keywords: 'log level logging logs diagnostics debug',
+  },
+  {
+    leaf: 'system',
+    anchor: 'shell.blocked_patterns',
+    label: 'Blocked commands',
+    keywords: 'shell patterns deny never run',
   },
   {
     leaf: 'access',
@@ -417,7 +609,7 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'access',
-    anchor: 'remote-access',
+    anchor: 'network',
     label: 'Network access',
     keywords: 'listen wifi lan allowed addresses origins',
   },
@@ -463,7 +655,11 @@ export function searchSettingsRows(query: string) {
 }
 
 export function settingsRowHref(row: SettingsRow) {
-  return `/settings/${row.leaf}#${row.anchor}`;
+  if (row.href) return row.href;
+  if (row.leaf === 'apps') return `/settings/apps?view=advanced#${row.anchor}`;
+  return (
+    settingsHref(row.leaf, row.anchor) ?? `/settings/${row.leaf}#${row.anchor}`
+  );
 }
 
 /** Whether every word of a search names the Agent profile library. */

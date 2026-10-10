@@ -138,10 +138,7 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
     'tracker',
     'tools',
     'skills',
-    'plugins',
-    'mcp',
-    'accounts',
-    'channels',
+    'apps',
     'system',
     'access',
     'updates',
@@ -160,10 +157,7 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
         await expect(
           page
             .getByRole('heading', {
-              name:
-                leaf === 'mcp'
-                  ? 'MCP'
-                  : new RegExp(`^${headings[leaf] ?? leaf}$`, 'i'),
+              name: new RegExp(`^${headings[leaf] ?? leaf}$`, 'i'),
             })
             .last(),
         ).toBeVisible();

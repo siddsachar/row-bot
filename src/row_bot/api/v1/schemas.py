@@ -89,6 +89,12 @@ class ConversationControls(WireModel):
     reasoning: ReasoningControl | None = None
 
 
+class ConversationAppPayload(WireModel):
+    """Switch one ready app on or off for this chat; turns only ever narrow what the profile allows."""
+    item_id: str = Field(min_length=1, max_length=512)
+    on: bool
+
+
 class ConversationSkillPayload(WireModel):
     action: Literal["activate", "remove", "dismiss", "reset"]
     composer_revision: str = Field(min_length=1, max_length=128)
@@ -110,6 +116,8 @@ class SubmitPayload(WireModel):
     attachment_refs: list[Reference] = Field(default_factory=list, max_length=32)
     model_selection: ModelSelection
     write_targets: list[WriteTarget] | None = Field(default=None, max_length=2)
+    # Retry: the last turn is set aside first when it is this same message, so it runs again in place.
+    retry: bool = False
 
 
 class RenamePayload(WireModel):
@@ -492,6 +500,7 @@ class DocumentSummary(WireModel):
     updated_at: str = Field(max_length=64)
     truncated: bool
     searchability: Literal["unknown"]
+    error_code: str | None = Field(default=None, max_length=64, pattern=r"^[a-z0-9_]+$")
 
 
 class EntitySummaryPage(WireModel):
@@ -822,6 +831,21 @@ class TrackerSettingsSnapshot(WireModel):
     total_entries: int = Field(ge=0)
 
 
+class TrackerEntry(WireModel):
+    at: str = Field(max_length=80)
+    value: str = Field(max_length=256)
+    note: str | None = Field(max_length=1024)
+
+
+class TrackerEntryPage(WireModel):
+    """One tracker's newest entries, newest first; `total` counts them all."""
+
+    schema_version: Literal[1]
+    tracker_id: str = Field(min_length=1, max_length=128)
+    total: int = Field(ge=0)
+    items: list[TrackerEntry] = Field(max_length=50)
+
+
 class KnowledgeTypeCount(WireModel):
     kind: str = Field(max_length=64)
     count: int = Field(ge=0)
@@ -1013,119 +1037,6 @@ class GitHubAccessCommand(WireModel):
     command_id: UUID
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: Literal["check", "cli_login", "cli_refresh", "anonymous"]
-
-
-class SkillHubEntryView(WireModel):
-    id: str = Field(max_length=256)
-    name: str = Field(max_length=160)
-    description: str = Field(max_length=1000)
-    source: str = Field(max_length=80)
-    author: str = Field(max_length=160)
-    trust_level: str = Field(max_length=80)
-    tags: list[str] = Field(max_length=8)
-    installed: bool
-
-
-class SkillHubSourceStatus(WireModel):
-    source_id: str = Field(max_length=80)
-    status: str = Field(max_length=40)
-    message: str = Field(max_length=300)
-
-
-class SkillHubSearchRequest(WireModel):
-    query: str = Field(default="", max_length=2000)
-    source: Literal["all", "github", "skills_sh", "browse_sh", "clawhub", "lobehub"] = (
-        "all"
-    )
-    refresh: bool = False
-    limit: int = Field(default=24, ge=1, le=96)
-
-
-class SkillHubSearchResult(WireModel):
-    schema_version: Literal[1]
-    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mode: str = Field(max_length=40)
-    query: str = Field(max_length=2000)
-    entries: list[SkillHubEntryView] = Field(max_length=96)
-    has_more: bool
-    source_statuses: list[SkillHubSourceStatus] = Field(max_length=12)
-    error: str = Field(max_length=500)
-
-
-class SkillHubPreviewRequest(WireModel):
-    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    entry_id: str = Field(min_length=1, max_length=256)
-
-
-class SkillHubFinding(WireModel):
-    severity: Literal["block", "warn", "info"]
-    code: str = Field(max_length=80)
-    message: str = Field(max_length=500)
-    path: str = Field(max_length=256)
-
-
-class SkillHubScanView(WireModel):
-    blocked: bool
-    findings: list[SkillHubFinding] = Field(max_length=50)
-    token_estimate: int = Field(ge=0)
-
-
-class SkillHubPreview(WireModel):
-    schema_version: Literal[1]
-    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    entry: SkillHubEntryView
-    skill_name: str = Field(max_length=160)
-    primary_text: str = Field(max_length=6000)
-    files: list[str] = Field(max_length=100)
-    scan: SkillHubScanView
-
-
-class SkillHubInstallCommand(WireModel):
-    command_id: UUID
-    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    make_available: bool = False
-
-
-class SkillHubInstallReceipt(WireModel):
-    schema_version: Literal[1]
-    command_id: UUID
-    success: bool
-    message: str = Field(max_length=500)
-    skill_name: str = Field(max_length=160)
-
-
-class SkillHubInstalledRecord(WireModel):
-    name: str = Field(max_length=160)
-    source: str = Field(max_length=80)
-    enabled: bool
-    installed_at: str = Field(max_length=64)
-    updated_at: str = Field(max_length=64)
-    file_count: int = Field(ge=0)
-    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class SkillHubInstalledPage(WireModel):
-    schema_version: Literal[1]
-    items: list[SkillHubInstalledRecord] = Field(max_length=200)
-
-
-class SkillHubMaintenanceCommand(WireModel):
-    command_id: UUID
-    name: str = Field(min_length=1, max_length=160)
-    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    action: Literal["check", "update", "uninstall"]
-    confirmed: bool = False
-
-
-class SkillHubMaintenanceReceipt(WireModel):
-    schema_version: Literal[1]
-    command_id: UUID
-    action: Literal["check", "update", "uninstall"]
-    success: bool
-    message: str = Field(max_length=300)
-    record: SkillHubInstalledRecord | None
 
 
 class GitHubAccessReceipt(WireModel):
@@ -1808,37 +1719,61 @@ class SubscriptionOptionsReview(SubscriptionOptionsRequest):
     nonce: str = Field(min_length=1, max_length=128)
 
 
+class McpStandaloneTarget(WireModel):
+    kind: Literal["standalone"]
+
+
+class McpPluginTarget(WireModel):
+    kind: Literal["plugin"]
+    plugin_id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    server_key: str = Field(min_length=1, max_length=256)
+
+
+McpTarget = McpStandaloneTarget | McpPluginTarget
+
+
+class IntegrationAttribution(WireModel):
+    source: str = Field(max_length=80)
+    item_id: str = Field(max_length=512)
+    url: str = Field(max_length=2048)
+    publisher: str = Field(max_length=160)
+    version: str = Field(max_length=128)
+    pin: str = Field(max_length=128)
+
+
+class IntegrationSourceStatus(WireModel):
+    source: str = Field(max_length=80)
+    status: Literal["live", "cached", "stale", "partial", "pending", "error", "empty", "timeout", "auth_required", "rate_limited", "malformed", "busy", "unavailable"]
+    message: str = Field(max_length=512)
+    fetched_at: float | None
+    kind: Literal["skill", "mcp", "plugin"] | None = None
+    access: Literal["local", "snapshot", "public", "unavailable"] = "local"
+    eligibility: Literal["eligible", "explicit_only", "auth_required", "contract_unresolved", "unsupported"] = "eligible"
+    enabled: bool = True
+    snapshot_version: str = Field(default="", max_length=64)
+    snapshot_digest: str = Field(default="", max_length=64)
+    truncated: bool = False
+
+
+class IntegrationSearchRequest(WireModel):
+    query: str = Field(default="", max_length=256)
+    # Source ids come from GET /integrations/sources; the server validates them.
+    sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
+    kind: Literal["all", "app", "skill", "mcp", "plugin"] = "all"
+    refresh: bool = False
+    # "Show all results": unsupported, placeholder and duplicate records too.
+    include_incompatible: bool = False
+    cursor: str | None = Field(default=None, max_length=256)
+    limit: int = Field(default=50, ge=1, le=96)
+
+
 class McpRequirementSummary(WireModel):
-    id: Literal["node", "uv", "playwright-chrome", "other"]
+    id: Literal["node", "uv", "playwright-chrome", "docker", "other"]
     label: str = Field(max_length=96)
     available: bool
     managed: bool
     installable: bool
     source: Literal["system", "managed", "environment", "missing", "unknown"]
-
-
-class McpDirectorySearchRequest(WireModel):
-    query: str = Field(max_length=128)
-
-
-class McpDirectoryEntry(WireModel):
-    id: str = Field(max_length=128)
-    name: str = Field(max_length=128)
-    description: str = Field(max_length=800)
-    source: str = Field(max_length=32)
-    publisher: str = Field(max_length=128)
-    transport: str = Field(max_length=32)
-    risk_level: str = Field(max_length=32)
-    requires_auth: bool
-    sign_in_required: bool
-    recommended: bool
-    import_json: str = Field(max_length=8192)
-
-
-class McpDirectoryResult(WireModel):
-    schema_version: Literal[1]
-    mode: Literal["live", "cache", "curated"]
-    items: list[McpDirectoryEntry] = Field(max_length=24)
 
 
 class McpServerSummary(WireModel):
@@ -1896,6 +1831,7 @@ class McpConfigurationFields(WireModel):
 
 
 class McpConfigurationIntent(WireModel):
+    delete_credentials: bool = False
     operation: Literal["add", "edit", "rename", "import", "delete"]
     server_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     fields: McpConfigurationFields | None = None
@@ -1903,6 +1839,7 @@ class McpConfigurationIntent(WireModel):
 
 
 class McpConfigurationReviewRequest(WireModel):
+    target: McpTarget | None = None
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     intent: McpConfigurationIntent
 
@@ -2795,6 +2732,7 @@ class DocumentQueueItem(WireModel):
     extraction_total: int | None = Field(ge=0, le=2**53 - 1)
     error_code: str | None = Field(max_length=128)
     revision: KnowledgeRevision
+    document_count: int | None = Field(default=None, ge=0, le=2**53 - 1)
 
 
 class DocumentQueuePage(WireModel):
@@ -3169,39 +3107,6 @@ class PluginReceipt(WireModel):
     plugin: PluginReceiptItem | None = None
 
 
-class PluginLifecycleReviewRequest(WireModel):
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
-    plugin_id: str = Field(default="", max_length=128)
-
-
-class PluginLifecycleReview(WireModel):
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
-    plugin_id: str = Field(max_length=128)
-    name: str = Field(max_length=256)
-    version: str = Field(max_length=64)
-    source: str = Field(max_length=2048)
-    checksum: str = Field(max_length=128)
-    permissions: list[str] = Field(max_length=64)
-    disclosures: list[str] = Field(max_length=8)
-    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class PluginLifecycleCommand(WireModel):
-    command_id: UUID
-    client_session_id: UUID
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
-    plugin_id: str = Field(default="", max_length=128)
-    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class PluginLifecycleReceipt(WireModel):
-    command_id: UUID
-    status: Literal["completed", "failed", "uncertain"]
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
-    plugin_id: str = Field(max_length=128)
-    message: str = Field(max_length=1024)
-
-
 SkillAction = Literal[
     "skill.preference",
     "skill.create",
@@ -3337,7 +3242,7 @@ class SkillProposalPayload(WireModel):
 
 class SkillReceipt(WireModel):
     command_id: UUID
-    status: Literal["completed", "partial"]
+    status: Literal["completed", "partial", "rejected"]
     action: SkillAction
     skill_id: str | None = Field(max_length=128)
     revision: str | None = Field(max_length=128)
@@ -4083,36 +3988,6 @@ class RuntimeInstallationReceipt(WireModel):
     installation: RuntimeInstallationOutcome
 
 
-class McpCatalogTool(WireModel):
-    tool_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    name: str = Field(max_length=128)
-    enabled_after_accept: bool | None
-    requires_approval: bool
-    destructive: bool
-
-
-class McpTestedCatalogPage(WireModel):
-    schema_version: Literal[1]
-    configuration_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
-    server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    test_command_id: UUID
-    availability: Literal["available", "recovery_required", "stale", "unavailable"]
-    manual_selection_required: bool | None
-    items: list[McpCatalogTool] = Field(max_length=50)
-    total: int | None = Field(ge=0, le=1000)
-    next_cursor: str | None = Field(max_length=2048)
-
-
-class McpCatalogRequest(WireModel):
-    configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    test_command_id: UUID
-
-
-class McpCatalogPayload(McpCatalogRequest):
-    nonce: str = Field(min_length=1, max_length=128)
-
-
 class AttentionProblem(WireModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(max_length=160)
@@ -4186,15 +4061,6 @@ class McpChatOutcome(WireModel):
     code: str | None = Field(max_length=128)
 
 
-class McpCatalogReview(McpCatalogRequest):
-    operation: Literal["accept_catalog"]
-    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    tool_count: int = Field(ge=0, le=1000)
-    manual_selection_required: bool
-    saved_disabled: None
-    nonce: str = Field(min_length=1, max_length=128)
-
-
 class McpPolicyTool(WireModel):
     tool_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     name: str = Field(max_length=128)
@@ -4251,6 +4117,7 @@ class McpUtilityPolicyIntent(WireModel):
 
 
 class McpPolicyRequest(WireModel):
+    target: McpTarget | None = None
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     intent: (
         McpGlobalPolicyIntent
@@ -4281,31 +4148,8 @@ class McpPolicyReview(WireModel):
     nonce: str = Field(min_length=1, max_length=128)
 
 
-class McpRuntimeState(WireModel):
-    schema_version: Literal[1]
-    server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    configuration_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
-    cleanup_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
-    availability: Literal["available", "missing", "unavailable", "recovery_required"]
-    runtime_id: UUID | None
-    state: Literal[
-        "not_started",
-        "connecting",
-        "connected",
-        "stopping",
-        "stopped",
-        "failed",
-        "dependency_missing",
-        "cleanup_incomplete",
-        "unknown",
-        "missing",
-    ]
-    session_quiesced: bool | None
-    # MCP and this server are both turned on; Connect is refused until they are.
-    enabled: bool | None
-
-
 class McpRuntimeReviewRequest(WireModel):
+    target: McpTarget | None = None
     resource_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     operation: Literal["connect", "test", "disconnect"]
@@ -4650,6 +4494,17 @@ class ResourceForgetPayload(WireModel):
     resource_id: OpaqueId
     expected_resource_revision: str = Field(min_length=1, max_length=128)
     restore: bool = False
+
+
+class ResourceDeletePayload(WireModel):
+    """Delete a bound design for good, as the person confirmed it.
+
+    It leaves every conversation using it, then its pages, versions and files
+    go; conversations keep their messages.
+    """
+
+    binding_id: OpaqueId
+    expected_resource_revision: str = Field(min_length=1, max_length=128)
 
 
 class AgentStopPayload(WireModel):
@@ -5214,6 +5069,9 @@ class TaskGraphFields(WireModel):
     pass_output: bool | None = None
     run_ids: list[Annotated[str, StringConstraints(max_length=128)]] | None = Field(
         default=None, max_length=100
+    )
+    apps: list[Annotated[str, StringConstraints(min_length=3, max_length=512)]] | None = Field(
+        default=None, max_length=8
     )
 
 
@@ -5860,11 +5718,13 @@ class Command(WireModel):
         "approval.resolve",
         "conversation.controls",
         "conversation.skills",
+        "conversation.apps",
         "resource.setup",
         "resource.continue",
         "resource.discard",
         "resource.rename",
         "resource.forget",
+        "resource.delete",
         "agent.stop",
         "agent.message",
         "agent.start",
@@ -5949,7 +5809,6 @@ class Command(WireModel):
         "browser.check",
         "browser.back",
         "browser.end",
-        "mcp.catalog.accept",
         "mcp.facade.control",
         "knowledge.create",
         "knowledge.edit",
@@ -6040,11 +5899,13 @@ COMMAND_PAYLOADS = {
     "approval.resolve": ApprovalPayload,
     "conversation.controls": ConversationControls,
     "conversation.skills": ConversationSkillPayload,
+    "conversation.apps": ConversationAppPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
     "resource.discard": ResourceDiscardPayload,
     "resource.rename": ResourceRenamePayload,
     "resource.forget": ResourceForgetPayload,
+    "resource.delete": ResourceDeletePayload,
     "agent.stop": AgentStopPayload,
     "agent.message": AgentMessagePayload,
     "agent.start": AgentStartPayload,
@@ -6131,7 +5992,6 @@ COMMAND_PAYLOADS = {
     "browser.check": BrowserCommandRevisionPayload,
     "browser.back": BrowserCommandRevisionPayload,
     "browser.end": BrowserCommandRevisionPayload,
-    "mcp.catalog.accept": McpCatalogPayload,
     "mcp.facade.control": McpChatPayload,
     "knowledge.create": KnowledgeWritePayload,
     "knowledge.edit": KnowledgeWritePayload,
@@ -6281,6 +6141,8 @@ class ToolActivity(WireModel):
     # Only for results shown as a card (a created design or code folder, a
     # connection the work needs), so the card appears while the turn runs.
     specialization: TraceSpecialization | None = None
+    # The app the tool belongs to, shown with its logo; absent for Row-Bot's own tools.
+    app: TraceAppRef | None = None
 
 
 class GenerationActivity(WireModel):
@@ -6299,6 +6161,8 @@ class ApprovalRequired(WireModel):
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
     setup: ApprovalSetup | None = None
+    # The app asking, shown with its logo and name.
+    app: TraceAppRef | None = None
 
 
 class GenerationError(WireModel):
@@ -6745,9 +6609,72 @@ class TraceMediaReference(WireModel):
     mime_type: str = Field(max_length=128)
 
 
+class TraceAppRef(WireModel):
+    """An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,
+    re-read from local data, and for a step the tool's readable title in that app ("Delete page")."""
+    item_id: str = Field(min_length=1, max_length=512)
+    name: str = Field(max_length=128)
+    icon: str = Field(max_length=128)
+    tool: str = Field(default="", max_length=128)
+    # The step can show its app's view in chat (MCP Apps).
+    view: bool = False
+    # A Connect card's app offered to allow changes: the work changes something in an app that only looks
+    # things up. Any other ready app's card continues the request.
+    allow_changes: bool = False
+
+
+class AppViewRenderRequest(WireModel):
+    """Show the view of one finished tool step in this chat (MCP Apps)."""
+    call_id: str = Field(min_length=1, max_length=256)
+
+
+class AppViewTool(WireModel):
+    """The step's tool as MCP defines one: a view's SDK checks it (an inputSchema is required) before it starts."""
+    name: str = Field(max_length=256)
+    title: str = Field(max_length=128)
+    description: str = Field(default="", max_length=4096)
+    inputSchema: dict[str, Any] = Field(default_factory=lambda: {"type": "object"})
+
+
+class AppViewRender(WireModel):
+    """One step's view: the frame address it loads once, what it was called with and its result."""
+    render_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+    frame_url: str = Field(max_length=128)
+    app: TraceAppRef
+    tool: AppViewTool
+    input: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    prefers_border: bool = True
+    # The https origins the view says it loads from; nothing else is allowed.
+    domains: list[str] = Field(default_factory=list, max_length=64)
+
+
+class AppViewToolCall(WireModel):
+    """A tool call from a view: its own app's tool only, under the app's access and the chat's approvals."""
+    name: str = Field(min_length=1, max_length=256)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class AppViewToolResult(WireModel):
+    content: list[dict[str, Any]] = Field(default_factory=list, max_length=256)
+    structuredContent: dict[str, Any] | None = None
+    isError: bool = False
+
+
+class AppViewSettings(WireModel):
+    """The person's switch for app views in chat, and each app's own (by item id)."""
+    enabled: bool = True
+    apps: dict[str, bool] = Field(default_factory=dict)
+
+
+class AppViewAppSetting(WireModel):
+    item_id: str = Field(min_length=1, max_length=512)
+    enabled: bool
+
+
 class TraceSpecialization(WireModel):
     kind: Literal[
-        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps"
     ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
@@ -6763,9 +6690,11 @@ class TraceSpecialization(WireModel):
     resource_kind: Literal["", "design", "code"] = ""
     resource_id: str = Field(default="", max_length=256)
     binding_id: str = Field(default="", max_length=256)
-    # setup_needed: a Connect card for an account or channel.
+    # setup_needed: a Connect card for an account or channel (chats from before apps joined it).
     setup_target: str = Field(default="", max_length=64)
     settings_page: Literal["", "accounts", "channels"] = ""
+    # connect_apps: apps from Row-Bot's catalog the person may connect; nothing is installed by the card.
+    apps: list[TraceAppRef] = Field(default_factory=list, max_length=3)
 
 
 class TranscriptTraceItem(WireModel):
@@ -6786,6 +6715,8 @@ class TranscriptTraceItem(WireModel):
     summary_truncated: bool
     content_ref: str = Field(default="", max_length=256)
     specialization: TraceSpecialization | None = None
+    # The app the tool belongs to, shown with its logo; absent for Row-Bot's own tools.
+    app: TraceAppRef | None = None
 
 
 class TranscriptTraceGroup(WireModel):
@@ -7089,6 +7020,7 @@ class ApprovalView(WireModel):
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
     setup: ApprovalSetup | None = None
+    app: TraceAppRef | None = None
     # Whether "approve the rest of this turn" is offered for this action (F21).
     repeatable: bool = False
     policy_revision: Revision
@@ -7115,6 +7047,8 @@ class ActionReadiness(WireModel):
 class ProfileChoice(WireModel):
     id: OpaqueId
     label: str = Field(max_length=256)
+    # The agent's one-line description, shown under its name in the + menu.
+    description: str = Field(default="", max_length=512)
 
 
 class ContextUsageView(ContextUpdated):
@@ -7176,6 +7110,19 @@ class SlashCommandSpec(WireModel):
     skill_id: str | None = Field(default=None, max_length=256)
 
 
+class ComposerApp(WireModel):
+    """A ready app this chat can use: its switch here, and whether the agent profile allows it. A way
+    with no chat tools (``switchable`` false) is listed so the menu matches Your apps, with why."""
+    item_id: str = Field(max_length=512)
+    app_id: str = Field(max_length=64)
+    name: str = Field(max_length=128)
+    icon: str = Field(max_length=128)
+    on: bool
+    available: bool
+    switchable: bool = True
+    reason: str = Field(default="", max_length=256)
+
+
 class ConversationComposer(WireModel):
     schema_version: Literal[1]
     conversation_id: OpaqueId
@@ -7188,6 +7135,7 @@ class ConversationComposer(WireModel):
     commands: list[SlashCommandSpec] = Field(max_length=256)
     command_total: int = Field(ge=0, le=4096)
     commands_truncated: bool
+    apps: list[ComposerApp] = Field(default_factory=list, max_length=64)
 
 
 class ConversationComposerQuery(WireModel):
@@ -7304,6 +7252,8 @@ class FolderGrantView(WireModel):
 class DeckTemplateChoice(WireModel):
     id: OpaqueId
     label: str = Field(max_length=256)
+    # A template's own canvas, which New design switches to when it is picked.
+    canvas: str = Field(default="", max_length=32)
 
 
 class DeckSetupOptions(WireModel):
@@ -7753,3 +7703,429 @@ class LazyContent(WireModel):
     data: str = Field(max_length=87384)
     has_more: bool
     next_cursor: Cursor | None
+
+
+# Apps & Skills: one typed model over the existing owners (row_bot.integrations).
+IntegrationKind = Literal["skill", "mcp", "plugin", "builtin"]
+AccessPresetId = Literal["read_only", "ask", "full"]
+NextActionKind = Literal["connect", "add", "install", "set_up", "continue_setup", "sign_in", "add_key", "install_runtime", "open_app",
+                         "turn_on", "fix", "retry", "try", "delete_data", "turn_off", "remove", "update", "none"]
+PlanIntent = Literal["connect", "add", "turn_on", "fix", "access", "settings", "turn_off", "remove", "update"]
+ToolState = Literal["use", "ask", "off"]
+ToolOverrides = dict[Annotated[str, StringConstraints(min_length=1, max_length=512)], ToolState]
+
+
+class CatalogUpdate(WireModel):
+    """The last explicit (or scheduled) update of a source that can be updated."""
+    state: Literal["never", "updating", "done", "failed"]
+    updated_at: float | None
+    checked_at: float | None
+    error: str = Field(max_length=64)
+    entries: int | None = Field(ge=0)
+
+
+class CatalogSchedule(WireModel):
+    enabled: bool
+    interval_days: Literal[1, 7, 30]
+    # The catalogs to update (ids from GET /integrations/sources); null means every updatable one.
+    sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
+
+
+class WorkflowTemplateApp(WireModel):
+    app_id: str = Field(max_length=80)
+    name: str = Field(max_length=160)
+    icon: str = Field(max_length=200)
+    connected: bool
+
+
+class WorkflowTemplate(WireModel):
+    """A workflow, created switched off and scheduled; never a webhook. Its apps, if it uses any."""
+    id: str = Field(pattern=r"^[a-z0-9_]{1,64}$")
+    name: str = Field(max_length=160)
+    description: str = Field(max_length=512)
+    icon: str = Field(max_length=16)
+    schedule_label: str = Field(max_length=80)
+    apps: list[WorkflowTemplateApp] = Field(min_length=0, max_length=4)
+
+
+class WorkflowTemplateList(WireModel):
+    schema_version: Literal[1]
+    items: list[WorkflowTemplate] = Field(max_length=32)
+
+
+class WorkflowTemplateCreated(WireModel):
+    task_id: str = Field(max_length=128)
+    name: str = Field(max_length=200)
+
+
+class SourceLink(WireModel):
+    label: str = Field(max_length=80)
+    url: str = Field(max_length=512, pattern=r"^https://")
+
+
+class SourceOptIn(WireModel):
+    """A catalog the person turns on themselves (a hosted broker): off by default, and what turning it on means."""
+    on: bool
+    disclosure: str = Field(max_length=1024)
+    links: list[SourceLink] = Field(max_length=4)
+
+
+class SourceOptInChange(WireModel):
+    on: bool
+
+
+class IntegrationSourceView(WireModel):
+    id: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
+    kinds: list[IntegrationKind] = Field(min_length=1, max_length=3)
+    label: str = Field(max_length=80)
+    access: Literal["local", "snapshot", "public", "unavailable"]
+    eligibility: Literal["eligible", "explicit_only", "auth_required", "contract_unresolved", "unsupported"]
+    network: Literal["none", "explicit"]
+    enabled: bool
+    message: str = Field(max_length=512)
+    catalog: CatalogUpdate | None = None
+    opt_in: SourceOptIn | None = None
+
+
+class IntegrationSourceList(WireModel):
+    schema_version: Literal[1]
+    items: list[IntegrationSourceView] = Field(max_length=64)
+
+
+class AccessPresetView(WireModel):
+    id: AccessPresetId
+    label: str = Field(max_length=64)
+    description: str = Field(max_length=256)
+    default: bool
+
+
+IconId = Annotated[str, StringConstraints(pattern=r"^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$")]
+AppCategory = Literal["productivity", "developer", "data", "design", "communication", "finance", "local_tools"]
+
+
+class AppRef(WireModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    name: str = Field(max_length=128)
+    publisher: str = Field(max_length=128)
+    category: AppCategory
+    icon: IconId
+    # Published by the app's vendor, by rule (Registry namespace or vendor endpoint), never by name.
+    verified: bool
+    featured_rank: int | None = Field(default=None, ge=1, le=10000)
+
+
+class IconLicense(WireModel):
+    title: str = Field(max_length=128)
+    license: str = Field(max_length=64)
+    source: str = Field(max_length=512)
+    guidelines: str = Field(default="", max_length=512)
+
+
+class AppView(AppRef):
+    summary: str = Field(max_length=256)
+    jobs: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=16)
+    example_prompts: list[Annotated[str, StringConstraints(max_length=160)]] = Field(max_length=8)
+    variants: list[Literal["hosted_mcp", "local_mcp", "package", "account", "channel", "api_key_tool", "broker"]] = Field(max_length=8)
+    auth: Literal["", "oauth", "api_key", "none", "account", "mixed"]
+    docs_url: str = Field(max_length=512)
+    key_url: str = Field(max_length=512)
+    icon_license: IconLicense | None
+
+
+class AppList(WireModel):
+    schema_version: Literal[1]
+    items: list[AppView] = Field(max_length=512)
+
+
+# ``GET /integrations/icons?ids=a,b``: a read, so showing a screen never sends a change.
+ICON_IDS = TypeAdapter(Annotated[list[IconId], Field(min_length=1, max_length=64)])
+
+
+class AppIconData(WireModel):
+    id: IconId
+    data: str = Field(max_length=360000, pattern=r"^data:image/(svg\+xml|png);base64,[A-Za-z0-9+/]+=*$")
+    # A dark single-colour mark: the client inverts it in dark mode.
+    mono: bool = False
+
+
+class IconBatch(WireModel):
+    schema_version: Literal[1]
+    items: list[AppIconData] = Field(max_length=64)
+
+
+class IntegrationSignals(WireModel):
+    downloads: int | None = Field(default=None, ge=0)
+    stars: int | None = Field(default=None, ge=0)
+    official: bool = False
+
+
+class IntegrationBlocker(WireModel):
+    code: str = Field(pattern=r"^[a-z_]{1,64}$")
+    severity: Literal["blocking", "info"]
+    message: str = Field(max_length=512)
+    subject: str = Field(max_length=256)
+
+
+class IntegrationNextAction(WireModel):
+    kind: NextActionKind
+    label: str = Field(max_length=64)
+
+
+class IntegrationEntry(WireModel):
+    id: str = Field(min_length=1, max_length=512)
+    kind: IntegrationKind
+    parent_id: str | None = Field(max_length=512)
+    name: str = Field(max_length=256)
+    description: str = Field(max_length=2048)
+    app: AppRef | None
+    icon: IconId
+    verified: bool = False
+    signals: IntegrationSignals | None = None
+    source: str = Field(max_length=80)
+    # How it connects, for the card: signs in, takes a key, hosted, or runs on this computer ("" for skills).
+    method: Literal["hosted_sign_in", "api_key", "hosted", "local", "built_in", ""] = ""
+    publisher: str = Field(max_length=160)
+    version: str = Field(max_length=128)
+    installed: bool
+    enabled: bool
+    required: bool = True
+    account_label: str = Field(max_length=128)
+    compatibility: Literal["supported", "partial", "unsupported", "not_inspected"]
+    evidence: Literal["listed", "inspected"]
+    tested_with_row_bot: bool
+    lifecycle: Literal["available", "installed", "off", "data_retained"]
+    readiness: Literal["ready", "needs_setup", "needs_sign_in", "needs_key", "needs_runtime", "needs_app", "working", "attention"] | None
+    blockers: list[IntegrationBlocker] = Field(max_length=64)
+    next_action: IntegrationNextAction
+    attributions: list[IntegrationAttribution] = Field(max_length=512)
+    children: list[IntegrationEntry] = Field(max_length=256)
+
+
+class IntegrationEntryPage(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[IntegrationEntry] = Field(max_length=96)
+    total: int = Field(ge=0)
+    next_cursor: str | None = Field(max_length=256)
+    sources: list[IntegrationSourceStatus] = Field(max_length=64)
+    # Placeholder, test and duplicate records left out; "Show all results" brings them back.
+    hidden: int = Field(default=0, ge=0)
+
+
+class PlanInput(WireModel):
+    key: str = Field(max_length=128)
+    label: str = Field(max_length=128)
+    secret: bool
+    required: bool
+    target: Literal["header", "env", "argument", "url_variable"]
+    name: str = Field(max_length=128)
+    template: str = Field(max_length=256)
+    default: str = Field(max_length=1024)
+    choices: list[str] = Field(max_length=64)
+    help_url: str = Field(max_length=2048)
+    description: str = Field(default="", max_length=512)
+    format: Literal["string", "number", "boolean", "filepath"] = "string"
+    # A key already in the system keychain: left blank, it is kept. Its value is never sent.
+    saved: bool = False
+
+
+class PlanSignIn(WireModel):
+    method: Literal["oauth_dcr", "oauth_cimd", "oauth_preregistered", "oauth_client", "api_key"]
+    authorization_url: str | None = Field(default=None, max_length=8192)
+
+
+class PlanRuntime(WireModel):
+    id: Literal["node", "uv", "npm_package", "pypi_package", "oci_image", "mcpb", "docker", "playwright-chrome", "other"]
+    label: str = Field(max_length=96)
+
+
+class PlanReviewItem(WireModel):
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    integrity: str = Field(max_length=128)
+
+
+class PlanReview(WireModel):
+    """What a step found that nobody could know before it ran (exact packages and their checksums, or
+    what a recipe runs): shown in place, and the step continues only with this digest."""
+    summary: str = Field(max_length=256)
+    lines: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=8)
+    items: list[PlanReviewItem] = Field(max_length=200)
+    digest: str = Field(max_length=80)
+
+
+class PlanLocalApp(WireModel):
+    label: str = Field(max_length=256)
+    help_url: str = Field(max_length=2048)
+
+
+class PlanTool(WireModel):
+    name: str = Field(max_length=256)
+    title: str = Field(max_length=128)
+    description: str = Field(default="", max_length=512)
+    effect: Literal["read_only", "mutation", "interaction", "unknown"]
+    state: ToolState
+    # Destructive, high impact or unknown: it asks every time, whatever the preset.
+    always_asks: bool = True
+    # It shows an interactive view in chat (MCP Apps); ``view_only``: only that view calls it.
+    view: bool = False
+    view_only: bool = False
+
+
+class PlanAccess(WireModel):
+    preset: Literal["read_only", "ask", "full", "custom"]
+    tools: list[PlanTool] = Field(max_length=256)
+    tools_digest: str = Field(max_length=64)
+    # One line when Row-Bot has its own tools for the same job; presets apply as for any app.
+    note: str = Field(default="", max_length=256)
+    # Its sign-in was made to look things up only: allowing changes signs in once more (from its Access).
+    limited: bool = False
+
+
+class PlanStep(WireModel):
+    id: str = Field(pattern=r"^[a-z_]{1,32}[0-9]{0,2}$")
+    type: Literal["consent", "inputs", "runtime", "local_app_check", "sign_in", "allow_changes", "test", "access", "enable"]
+    state: Literal["pending", "running", "waiting", "done", "skipped", "failed", "unsupported"]
+    title: str = Field(max_length=256)
+    message: str = Field(max_length=512)
+    inputs: list[PlanInput] | None = Field(default=None, max_length=32)
+    sign_in: PlanSignIn | None = None
+    runtime: PlanRuntime | None = None
+    local_app: PlanLocalApp | None = None
+    access: PlanAccess | None = None
+    review: PlanReview | None = None
+    # A failed connection: what its program last wrote, secrets masked (F22).
+    log: list[str] = Field(default_factory=list, max_length=40)
+
+
+class PlanConsent(WireModel):
+    destinations: list[str] = Field(max_length=16)
+    runs_locally: bool
+    downloads: list[str] = Field(max_length=16)
+    access_preset: AccessPresetId
+    turns_on_mcp: bool = False
+    turns_on_chats: bool = False  # Also lets chats use apps: half of "Use apps" (B308).
+    # Remove only: also delete saved keys and data.
+    cleanup: bool = False
+
+
+class InstallPlan(WireModel):
+    schema_version: Literal[1]
+    plan_id: UUID | None
+    item_id: str = Field(max_length=512)
+    # Once a catalog entry is set up: the id of the installed item it became.
+    installed_id: str = Field(default="", max_length=512)
+    kind: IntegrationKind
+    name: str = Field(max_length=256)
+    intent: PlanIntent
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal["ready", "running", "paused", "completed", "failed", "cancelled", "uncertain", "expired"]
+    pause: Literal["sign_in", "inputs", "access", "digest_changed", "resume"] | None
+    current_step: str | None = Field(max_length=32)
+    steps: list[PlanStep] = Field(min_length=1, max_length=16)
+    consent: PlanConsent
+    supported: bool
+    unsupported_reason: str = Field(max_length=512)
+    message: str = Field(max_length=512)
+    next_action: IntegrationNextAction
+    consent_token: str = Field(default="", max_length=256)
+
+
+class IntegrationFile(WireModel):
+    path: str = Field(max_length=256)
+    size_bytes: int = Field(ge=0)
+    executable: bool
+
+
+class IntegrationRequirement(WireModel):
+    label: str = Field(max_length=96)
+    available: bool
+
+
+class IntegrationWay(WireModel):
+    """One way to connect an app (a hosted endpoint, a local package, an account...), from local catalogs."""
+    id: str = Field(min_length=1, max_length=512)
+    name: str = Field(max_length=256)
+    method: Literal["hosted_sign_in", "api_key", "hosted", "local", "", "built_in"]
+    verified: bool
+    publisher: str = Field(max_length=160)
+    supported: bool
+    recommended: bool = False
+
+
+class AppViewsAbout(WireModel):
+    on: bool
+    everywhere: bool
+
+
+class IntegrationAbout(WireModel):
+    """What a detail page shows beyond the card. Identifiers appear only under Details."""
+    license: str = Field(max_length=256)
+    source_url: str = Field(max_length=2048)
+    pin: str = Field(max_length=128)
+    identifier: str = Field(max_length=512)
+    destination: str = Field(max_length=2048)
+    runs_locally: bool
+    saved_key: bool
+    signs_in: bool
+    signed_in: bool
+    requirements: list[IntegrationRequirement] = Field(max_length=16)
+    access: PlanAccess | None
+    package: str = Field(max_length=256)
+    files: list[IntegrationFile] = Field(max_length=100)
+    profiles: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=32)
+    # Changes this item supports, for its menu.
+    actions: list[Literal["turn_off", "update", "remove"]] = Field(max_length=3)
+    # Every way to connect its app, recommended first.
+    ways: list[IntegrationWay] = Field(default_factory=list, max_length=24)
+    # Its declared settings and keys as they are now (a key only as saved or not), changed through a `settings` plan.
+    settings: list[PlanInput] = Field(default_factory=list, max_length=32)
+    # An app that shows views in chat (MCP Apps): whether they show for it, and whether views are on at all.
+    views: AppViewsAbout | None = None
+
+
+class IntegrationDetail(WireModel):
+    entry: IntegrationEntry
+    plan: InstallPlan | None
+    about: IntegrationAbout
+
+
+class IntegrationResolveRequest(WireModel):
+    reference: str = Field(min_length=1, max_length=2048)
+    kind: Literal["", "mcp", "skill", "plugin"] = ""
+
+
+class IntegrationSettleRequest(WireModel):
+    item_id: str = Field(min_length=1, max_length=512)
+
+
+class PlanStartRequest(WireModel):
+    plan_id: UUID
+    item_id: str = Field(min_length=1, max_length=512)
+    revision: str = Field(default="", max_length=64)
+    intent: PlanIntent | Literal[""] = ""
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    consent_token: str = Field(min_length=1, max_length=256)
+    preset: AccessPresetId | Literal[""] = ""
+    inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
+        default_factory=dict, max_length=16)
+    tools_digest: str = Field(default="", max_length=64)
+    overrides: ToolOverrides = Field(default_factory=dict, max_length=256)
+    cleanup: bool = False
+
+
+class PlanContinueRequest(WireModel):
+    preset: AccessPresetId | Literal[""] = ""
+    inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
+        default_factory=dict, max_length=16)
+    tools_digest: str = Field(default="", max_length=64)
+    # The digest of what the person just reviewed in place (a step's review), so a changed review can't continue.
+    review_digest: str = Field(default="", max_length=80)
+    overrides: ToolOverrides | None = Field(default=None, max_length=256)
+
+
+class PlanReviewRequest(WireModel):
+    item_id: str = Field(min_length=1, max_length=512)
+    revision: str = Field(default="", max_length=64)
+    intent: PlanIntent | Literal[""] = ""
+    cleanup: bool = False

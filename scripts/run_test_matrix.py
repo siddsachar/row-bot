@@ -61,14 +61,17 @@ BROWSER_SMOKE_SPECS = (
     "unified-restart",
     "buddy-overlay",
     "polish-foundation",
+    "apps-and-skills",
 )
-# Nightly at desktop width, in three fixture runs (each run starts a fresh backend).
+# Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
     "capability-surfaces", "conversation-layout", "media", "message-content",
     "navigation", "panels", "persistence", "polish-visual", "resources",
     "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
     "terminal", "theme", "visual-alignment", "voice", "workflows",
 )
+# Apps in chat connect fake apps and run fake turns: a backend of their own, so no other spec sees them.
+BROWSER_APPS_SPECS = ("apps-in-chat", "app-views")
 BROWSER_UNIFIED_SPECS = (
     "unified-history", "unified-panels", "unified-quality", "unified-recovery",
     "unified-resources", "unified-waiting",
@@ -109,8 +112,10 @@ def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> Comm
 
 
 # pytest-xdist: one worker per CPU; a file's tests stay on one worker (module
-# fixtures, and tests that rely on their file's order).
-PARALLEL = ("-n", "auto", "--dist", "loadfile")
+# fixtures, and tests that rely on their file's order). A worker that crashes
+# fails the run at once: after a restart, loadfile hands finished files out
+# again and every worker waits forever (pytest-xdist 3.8).
+PARALLEL = ("-n", "auto", "--dist", "loadfile", "--max-worker-restart=0")
 
 
 def _pytest(name: str, *args: str, marker: str = DETERMINISTIC, env: dict[str, str] = TEST_ENV) -> CommandSpec:
@@ -180,6 +185,7 @@ COMMANDS: dict[str, CommandSpec] = {
     ),
     "browser-nightly-desktop": _browser("browser-nightly-desktop", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
     "browser-nightly-unified": _browser("browser-nightly-unified", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
+    "browser-nightly-apps": _browser("browser-nightly-apps", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_APPS_SPECS)),
     "browser-nightly-dedicated": _browser("browser-nightly-dedicated", *NIGHTLY_RETRY, *BROWSER_DEDICATED_PROJECTS),
     "browser-nightly-phone": _browser("browser-nightly-phone", *NIGHTLY_RETRY, "--project=chromium-phone", *_specs(*BROWSER_PHONE_SPECS)),
     "browser-firefox": _browser(
@@ -211,7 +217,8 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "platform": ("runtime-deps", "platform", "launcher-smoke"),
     "browser-smoke": ("browser-smoke",),
     "browser-nightly": (
-        "browser-nightly-desktop", "browser-nightly-unified", "browser-nightly-dedicated", "browser-nightly-phone",
+        "browser-nightly-desktop", "browser-nightly-unified", "browser-nightly-apps", "browser-nightly-dedicated",
+        "browser-nightly-phone",
     ),
     "browser-firefox": ("browser-firefox",),
     "browser-webkit": ("browser-webkit",),

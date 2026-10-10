@@ -21,6 +21,7 @@ import {
   Select,
   Skeleton,
 } from '../../ui/primitives';
+import StepApps, { type StepApp } from './StepApps';
 
 export interface TaskGraphEditorProps {
   session?: TaskEditSession;
@@ -36,6 +37,8 @@ export interface TaskGraphEditorProps {
   onTaskSettings?: () => void;
   /** Switch back to the builder for this workflow. */
   onBuilder?: () => void;
+  /** The apps set up on this computer, for a prompt step to name the ones it uses. */
+  loadApps?: (signal?: AbortSignal) => Promise<readonly StepApp[]>;
 }
 
 const kinds = {
@@ -72,6 +75,7 @@ const emptyFields = (): TaskGraphFields => ({
   timeout_seconds: null,
   pass_output: null,
   run_ids: null,
+  apps: null,
 });
 
 function initialFields(kind: string): TaskGraphFields {
@@ -116,9 +120,9 @@ function initialFields(kind: string): TaskGraphFields {
   }
 }
 
-/** Saved step ids read as words; new steps have no name until saved. */
-function displayId(id: string) {
-  return id.startsWith('draft_') ? 'new step' : id;
+/** Steps read by position and kind, never by their saved ids; a step not saved yet says so. */
+function draftMark(id: string) {
+  return id.startsWith('draft_') ? ' · new step' : '';
 }
 
 /** A one-line hint of what a step does, beside its row. */
@@ -142,6 +146,7 @@ export default function TaskGraphEditor({
   onCancel,
   onTaskSettings,
   onBuilder,
+  loadApps,
   session: injectedSession,
 }: TaskGraphEditorProps) {
   const session = useTaskEditSession(injectedSession, 'graph', taskId);
@@ -405,7 +410,7 @@ export default function TaskGraphEditor({
           .filter((item) => item.id !== selected)
           .map((item): [string, string] => [
             item.id,
-            `Step ${steps.indexOf(item) + 1} · ${kinds[item.type as keyof typeof kinds] ?? item.type}${item.id.startsWith('draft_') ? '' : ` · ${item.id}`}`,
+            `Step ${steps.indexOf(item) + 1} · ${kinds[item.type as keyof typeof kinds] ?? item.type}`,
           ]),
       ],
       fallback,
@@ -541,8 +546,8 @@ export default function TaskGraphEditor({
                     onClick={() => setSelected(item.id)}
                     disabled={saving}
                   >
-                    {position + 1}. {kindLabel(item.type)} ·{' '}
-                    {displayId(item.id)}
+                    {position + 1}. {kindLabel(item.type)}
+                    {draftMark(item.id)}
                   </button>
                   <span className="task-graph-step-summary">
                     {stepSummary(item)}
@@ -673,6 +678,13 @@ export default function TaskGraphEditor({
                     {step.type === 'prompt' && (
                       <>
                         {text('prompt', 'Prompt')}
+                        {loadApps && (
+                          <StepApps
+                            load={loadApps}
+                            value={step.fields.apps ?? null}
+                            onChange={(next) => change('apps', next)}
+                          />
+                        )}
                         <div className="field-row">
                           {number('max_retries', 'Maximum retries', 1, 10, 2)}
                           {number(

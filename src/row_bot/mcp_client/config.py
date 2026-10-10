@@ -7,7 +7,7 @@ quarantined without affecting existing tool toggles.
 from __future__ import annotations
 
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.mcp_client.logging import log_event
+from row_bot.mcp_client import targets
 
 DATA_DIR = get_row_bot_data_dir(create=False)
 CONFIG_PATH = DATA_DIR / "mcp_servers.json"
@@ -30,10 +31,6 @@ VALID_TRANSPORTS = {"stdio", "http", "streamable_http", "streamable-http", "sse"
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": CURRENT_VERSION,
     "enabled": False,
-    "marketplace": {
-        "enabled": True,
-        "sources": ["official", "pulsemcp", "smithery", "glama"],
-    },
     "servers": {},
 }
 
@@ -55,6 +52,8 @@ class SavedMcpConfiguration:
     digest: str
     exists: bool
     identity: str = ""
+    storage_path: str = ""
+    storage_digest: str = ""
 
 
 @contextmanager
@@ -64,19 +63,19 @@ def configuration_transaction() -> Iterator[None]:
         yield
 
 
-def configuration_recovery_required(*, excluding: tuple[str, str] | None = None) -> bool:
+def configuration_recovery_required(*, excluding: tuple[str, str] | None = None, target: dict | None = None) -> bool:
     """Consult only bounded canonical receipts; uncertainty never means empty."""
     from row_bot.runtime import admissions
     try:
-        pending = admissions.read_unfinished_target_commands("settings:mcp", limit=32)
+        pending = admissions.read_unfinished_target_commands(targets.admission_target(target), limit=32)
     except admissions.AdmissionError:
         raise McpConfigurationError("mcp_configuration_recovery_unavailable") from None
     return pending["overflow"] or any(
         (row["owner_id"], row["key"]) != excluding for row in pending["items"])
 
 
-def require_configuration_write_available(*, excluding: tuple[str, str] | None = None) -> None:
-    if configuration_recovery_required(excluding=excluding):
+def require_configuration_write_available(*, excluding: tuple[str, str] | None = None, target: dict | None = None) -> None:
+    if configuration_recovery_required(excluding=excluding, target=target):
         raise McpConfigurationError("mcp_configuration_recovery_required")
 
 
@@ -89,15 +88,23 @@ def _strict_object(pairs):
     return result
 
 
-def read_saved_configuration() -> SavedMcpConfiguration:
+def read_saved_configuration(target: dict | None = None) -> SavedMcpConfiguration:
+    """The standalone library, or one plugin child's configuration when targeted."""
+    if target:
+        from row_bot.plugins.state import read_mcp_child_configuration
+        return read_mcp_child_configuration(target)
+    return read_saved_document(CONFIG_PATH)
+
+
+def read_saved_document(path, *, configuration: bool = True) -> SavedMcpConfiguration:
     """Read bounded saved bytes without imports, cache refresh or directory creation.
 
     The shared native guard pins Windows ancestors and supplies a descriptor
     for POSIX relative no-follow opens. Config source digests are private.
     """
     from row_bot.file_ownership import directory_identity, guard_directory
-    path = CONFIG_PATH.absolute()
-    with _CONFIG_LOCK:
+    path = path.absolute()
+    with _CONFIG_LOCK if configuration else nullcontext():
         try:
             if not path.parent.exists():
                 return SavedMcpConfiguration(_safe_copy(DEFAULT_CONFIG), "missing", False)
@@ -133,7 +140,9 @@ def read_saved_configuration() -> SavedMcpConfiguration:
                 raise ValueError
             document = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object,
                                   parse_constant=invalid_constant)
-            if (type(document) is not dict or type(document.get("servers", {})) is not dict
+            if type(document) is not dict:
+                raise ValueError
+            if configuration and (type(document.get("servers", {})) is not dict
                     or type(document.get("version", 1)) is not int or document.get("version", 1) != 1
                     or len(document.get("servers", {})) > 10000
                     or any(type(server) is not dict for server in document.get("servers", {}).values())):
@@ -147,9 +156,13 @@ def read_saved_configuration() -> SavedMcpConfiguration:
 def publish_saved_configuration(document: dict[str, Any], *, expected_digest: str,
                                 command_id: str, persist_recovery: Callable,
                                 validate: Callable[[], None] = lambda: None,
-                                recovery=None) -> SavedMcpConfiguration:
+                                recovery=None, target: dict | None = None) -> SavedMcpConfiguration:
     """Publish exact JSON through the existing metadata-safe file owner."""
     global _config_cache
+    if target:
+        from row_bot.plugins.state import publish_mcp_child_configuration
+        return publish_mcp_child_configuration(target, document, expected_digest=expected_digest,
+            command_id=command_id, persist_recovery=persist_recovery, validate=validate, recovery=recovery)
     from row_bot.developer.edits import publish_text_revision
     data = json.dumps(document, ensure_ascii=True, allow_nan=False, indent=2) + "\n"
     if len(data.encode("utf-8")) > SAVED_CONFIG_BYTE_LIMIT:
@@ -240,9 +253,16 @@ def normalize_server_config(name: str, raw: dict[str, Any] | None) -> dict[str, 
         "tools": dict(raw.get("tools") or {}),
         "source": dict(raw.get("source") or {}),
     }
+    for key in ("auth", "label", "environment_mode", "plugin_data", "plugin_prepared", "managed_launch", "inputs", "input_values", "bundle"):
+        if key in raw:
+            cfg[key] = copy.deepcopy(raw[key])
+    if "auth" in cfg:
+        from row_bot.mcp_client.auth import validate_metadata
+        cfg["auth"] = validate_metadata(cfg["auth"])
     tools_cfg = cfg["tools"]
     tools_cfg["enabled"] = dict(tools_cfg.get("enabled") or {})
     tools_cfg["require_approval"] = list(tools_cfg.get("require_approval") or [])
+    tools_cfg["run_without_asking"] = list(tools_cfg.get("run_without_asking") or [])
     tools_cfg["include"] = list(tools_cfg.get("include") or [])
     tools_cfg["exclude"] = list(tools_cfg.get("exclude") or [])
     tools_cfg["resources_enabled"] = bool(tools_cfg.get("resources_enabled", False))
@@ -256,8 +276,6 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         return cfg
     cfg["version"] = CURRENT_VERSION
     cfg["enabled"] = bool(raw.get("enabled", cfg["enabled"]))
-    if isinstance(raw.get("marketplace"), dict):
-        cfg["marketplace"].update(raw["marketplace"])
     servers = raw.get("servers", {})
     if isinstance(servers, dict):
         cfg["servers"] = {
@@ -339,13 +357,15 @@ def get_cached_enablement(tool_names: dict[str, tuple[str, ...]]) -> dict[str, A
         tools = server.get("tools")
         tools = tools if type(tools) is dict else {}
         enabled = tools.get("enabled")
-        approvals = tools.get("require_approval")
+        approvals, allowed = tools.get("require_approval"), tools.get("run_without_asking")
         result[name] = {
             "enabled": server.get("enabled"),
             "tools": {key: enabled[key] if type(enabled[key]) is bool else None for key in names
                       if key in enabled} if type(enabled) is dict else {},
             "require_approval": tuple(value for value in approvals if type(value) is str and value in requested_names)
             if type(approvals) in (list, tuple) else (),
+            "run_without_asking": tuple(value for value in allowed if type(value) is str and value in requested_names)
+            if type(allowed) in (list, tuple) else (),
         }
     return {"enabled": _config_cache.get("enabled"), "servers": result}
 

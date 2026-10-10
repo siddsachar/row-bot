@@ -97,20 +97,11 @@ def conflicts_for_server(server_name: str, server_cfg: dict[str, Any] | None) ->
     return conflicts_for_capabilities(overlaps, text=text)
 
 
-def requires_manual_tool_selection(server_name: str, server_cfg: dict[str, Any] | None) -> bool:
-    conflicts = conflicts_for_server(server_name, server_cfg)
-    if conflicts:
-        return True
-    source = _server_source(server_cfg)
-    return str(source.get("risk_level") or "").lower() == "high"
-
-
-def unique_server_name(base_name: str, existing_names: list[str] | set[str]) -> str:
-    base = sanitize_name_component(base_name).replace("_", "-") or "mcp-server"
-    existing = set(existing_names)
-    if base not in existing:
-        return base
-    counter = 2
-    while f"{base}-{counter}" in existing:
-        counter += 1
-    return f"{base}-{counter}"
+def overlap_note(server_name: str, server_cfg: dict[str, Any] | None) -> str:
+    """One line when Row-Bot has its own tools for the same job. Only a note: access presets
+    apply as for any app, and risky tools still ask whatever the overlap."""
+    labels = [conflict.label.removeprefix("Row-Bot ") for conflict in conflicts_for_server(server_name, server_cfg)]
+    if not labels:
+        return ""
+    named = labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+    return f"Row-Bot also has its own {named} tools."[:256]

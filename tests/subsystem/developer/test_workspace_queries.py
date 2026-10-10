@@ -43,6 +43,23 @@ def test_complete_large_directory_expands_one_level_only(tmp_path, monkeypatch):
         list_directory_page(str(tmp_path), cursor=cursor)
 
 
+def test_a_change_inside_a_subfolder_leaves_the_folders_next_page_valid(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    for number in range(60):
+        (tmp_path / f"file-{number:04}.txt").write_text("fixture")
+    first = list_directory_page(str(tmp_path), limit=50)
+    # What is inside a subfolder is its own listing; this level is unchanged.
+    (nested / "later.txt").write_text("later")
+    os.utime(nested, ns=(nested.stat().st_atime_ns, nested.stat().st_mtime_ns + 10**9))
+    rest = list_directory_page(str(tmp_path), cursor=first.next_cursor, limit=50)
+    assert len(first.items) + len(rest.items) == 61
+    # A new entry at this level still refuses the stale cursor.
+    (tmp_path / "new.txt").write_text("new")
+    with pytest.raises(ValueError, match="directory_revision_conflict"):
+        list_directory_page(str(tmp_path), cursor=first.next_cursor, limit=50)
+
+
 @pytest.mark.parametrize("relative", ["../secret", "/absolute", "C:secret", "\\\\host\\share", ".git/config", "nested/../secret", "a\0b"])
 def test_untrusted_path_rejected_without_read(tmp_path, relative):
     result = read_bounded_file(str(tmp_path), relative)

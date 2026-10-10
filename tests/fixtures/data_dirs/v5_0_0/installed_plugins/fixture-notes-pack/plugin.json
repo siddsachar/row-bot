@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "id": "fixture-notes-pack",
+  "name": "Fixture Notes Pack",
+  "version": "1.2.0",
+  "min_row_bot_version": "4.0.0",
+  "author": {"name": "Fixture Publisher"},
+  "description": "Notes tools, a notes server and a writing style for Row-Bot.",
+  "provides": {
+    "native_tools": [{"id": "notes_echo", "entrypoint": "plugin_main.py"}],
+    "mcp_servers": [
+      {
+        "id": "notes_server",
+        "transport": "stdio",
+        "command": "node",
+        "args": ["notes-server.mjs"],
+        "env": {"NOTES_API_KEY": "secret:NOTES_API_KEY", "NOTES_WORKSPACE": "setting:workspace"}
+      }
+    ],
+    "channels": [],
+    "skills": [{"id": "notes_style", "path": "skills/notes_style"}]
+  },
+  "permissions": ["network"],
+  "settings": {
+    "workspace": {"label": "Workspace", "type": "text", "required": true}
+  },
+  "secrets": {
+    "NOTES_API_KEY": {"label": "Notes API key", "type": "password", "required": true}
+  },
+  "auth": {},
+  "health_checks": [{"id": "mcp_starts", "type": "mcp_server_starts"}]
+}

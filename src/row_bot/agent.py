@@ -625,7 +625,7 @@ from row_bot.tools import registry as tool_registry  # noqa: E402
 # ═════════════════════════════════════════════════════════════════════════════
 # ReAct Agent — LLM decides which tools to call
 # ═════════════════════════════════════════════════════════════════════════════
-from datetime import datetime as _datetime  # noqa: E402
+from datetime import datetime as _datetime, timezone as _timezone  # noqa: E402
 
 
 def create_react_agent(*args, **kwargs):
@@ -1243,10 +1243,32 @@ def _setup_guidance(tool_names: list[str]) -> str:
                 "sees a 'Turn on …' card in the chat and decides. Never tell them to open Settings for this. "
                 "If they choose Not now, it stays off: don't ask again unless they ask."
             )
+        try:
+            from row_bot.integrations.scope import chat_apps, turned_off
+            thread = _current_thread_id_var.get("")
+            switched_off = [app["name"] for app in chat_apps(thread) if not app["on"]][:8] if thread else []
+            everywhere = turned_off()
+        except Exception:
+            switched_off, everywhere = [], []
+        if everywhere:
+            # Found live: "@Composio, find tools for Notion pages" with Composio off brought cards for Notion.
+            parts.append(
+                "APPS TURNED OFF: " + ", ".join(everywhere) + f". If the person names one of them (such as "
+                f"@{everywhere[0]}), call suggest_apps with that app's name as the need, not the task: its card "
+                "offers to turn it on. Don't do the work another way."
+            )
+        if switched_off:
+            # Found live: GitHub switched off in a chat, and the answer came from a web search without a word.
+            parts.append(
+                "APPS SWITCHED OFF IN THIS CHAT: " + ", ".join(switched_off) + ". If the request is for one of "
+                "them, say it is off in this chat and that the person can switch it on in + › Apps; don't do the "
+                "work another way (such as a web search) instead."
+            )
         parts.append(
-            "ACCOUNTS AND CHANNELS: if the work needs an account or channel that is not connected "
-            "(Google for Gmail or Calendar, GitHub, X, or a messaging channel), call request_connection "
-            "so the person gets a Connect card, then stop."
+            "APPS: if the work needs an app, account or channel you have no tool for (email, a calendar, "
+            "Notion, a messaging channel), or a change in an app that only looks things up, call suggest_apps "
+            "(changes: true for a change) so the person gets a card to connect it or allow changes, then stop. Only the person connects "
+            "apps; never suggest installing anything another way."
         )
     return (" " + " ".join(parts)) if parts else ""
 
@@ -1860,11 +1882,14 @@ def _collect_agent_complete_input(state: dict) -> dict:
     _stable_injection_sections = []
     _ephemeral_injection_sections = []
 
-    # Date/time — always present
-    now = _datetime.now()
+    # Date/time — always present, with its UTC offset and the time in UTC: a model that needs UTC (a date
+    # search) never reaches for a tool, which in a workflow would wait for an approval.
+    now = _datetime.now().astimezone()
+    utc = now.astimezone(_timezone.utc)
     _section = ephemeral_section(
         "turn.date_time",
-        f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}.",
+        f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}, "
+        f"UTC{now.isoformat(timespec='minutes')[-6:]} ({utc.strftime('%Y-%m-%d %H:%M')} UTC).",
         source="agent",
     )
     if _section is not None:
@@ -3326,6 +3351,19 @@ _current_agent_run_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVa
 _current_external_discovery_active_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
     "current_external_discovery_active", default=False
 )
+# What this turn leaves out (apps switched off in the chat, or not mentioned) and the skills it
+# mentions; see integrations.scope. It only ever removes tools.
+_current_app_scope_var: _contextvars.ContextVar[dict | None] = _contextvars.ContextVar(
+    "current_app_scope", default=None
+)
+
+
+def current_app_scope() -> dict | None:
+    """What the running turn leaves out (see integrations.scope), for work it starts: an agent it
+    delegates to never gains the apps this turn left out."""
+    scope = _current_app_scope_var.get(None) or {}
+    excluded = {key: [str(name) for name in scope.get(key) or []] for key in ("exclude_servers", "exclude_tools")}
+    return {**excluded, "focus": [], "skills": []} if any(excluded.values()) else None
 
 
 def _preparation_carrier_key(config: dict | None = None) -> str:
@@ -3426,6 +3464,7 @@ def _set_active_runtime_context(
     channel_streaming: bool = False,
     agent_run_id: str = "",
     external_discovery_active: bool = False,
+    app_scope: dict | None = None,
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -3447,6 +3486,7 @@ def _set_active_runtime_context(
     _current_channel_streaming_var.set(bool(channel_streaming))
     _current_agent_run_id_var.set(agent_run_id or "")
     _current_external_discovery_active_var.set(bool(external_discovery_active))
+    _current_app_scope_var.set(dict(app_scope) if isinstance(app_scope, dict) else None)
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
     _current_bound_tool_schema_tokens_var.set(0)
@@ -3618,6 +3658,30 @@ _DESTRUCTIVE_LABELS: dict[str, str] = {
 }
 
 
+def _readable(value, nested: bool = False) -> str:
+    """A structured argument in words for the approval line: ``[{"sku": "A1", "qty": 2}]`` reads
+    "sku A1, qty 2". Every key and value is kept, an empty one too (it is still sent: it can clear a field);
+    only the code punctuation goes, and a list item holding a separator is quoted."""
+    if isinstance(value, dict):
+        text = ", ".join(f"{str(key).replace('_', ' ')} {_readable(item, True)}" for key, item in value.items())
+        return f"({text})" if nested else text
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+        structured = any(isinstance(item, (dict, list, tuple, set)) for item in items)
+        text = ("; " if structured else ", ").join(
+            f'"{item}"' if isinstance(item, str) and ("," in item or ";" in item) else _readable(item)
+            for item in items)
+        return f"({text})" if nested and structured else text
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return "empty" if value is None else str(value)
+
+
+def _argument(value) -> str:
+    """One argument as the approval line writes it: ``'text'`` (quoted) or ``3``; a list or mapping in words."""
+    return repr(_readable(value)) if isinstance(value, (dict, list, tuple, set)) else repr(value)
+
+
 def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict) -> str:
     """Build a human-friendly description for the interrupt dialog."""
     if tool_name == "task_delete":
@@ -3643,8 +3707,10 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
     return f"{label}: {args_str}"
 
 
-def _wrap_with_interrupt_gate(tool) -> None:
-    """Keep sync and async targets behind the same current approval decision."""
+def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
+    """Keep sync and async targets behind the same current approval decision. ``always_ask``: an app tool
+    its app's access says to ask about (a routine change without Full access, or a high-impact one) asks even
+    under Allow all."""
     from functools import wraps
     from row_bot.tools.approval_gate import (
         APPROVAL_DENIED, APPROVAL_GIVEN, APPROVAL_NOT_NEEDED_AUTO, with_approval,
@@ -3658,6 +3724,8 @@ def _wrap_with_interrupt_gate(tool) -> None:
     def refusal(args, kwargs) -> tuple[str | None, str]:
         """The refusal (None when the call may run) and its result's approval line."""
         decision = decision_for_action(get_approval_mode())
+        if always_ask and decision == "allow":
+            decision = "ask"
         if decision == "block":
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
@@ -3665,11 +3733,13 @@ def _wrap_with_interrupt_gate(tool) -> None:
                     "and move on."), ""
         if decision == "allow":
             return None, APPROVAL_NOT_NEEDED_AUTO
-        args_str = ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+        # What the person reads names what was given: an option left unset (None) is not part of the action.
+        given = {key: value for key, value in kwargs.items() if value is not None}
+        args_str = ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
         if args:
-            args_str = repr(args[0]) if len(args) == 1 else repr(args)
-            if kwargs:
-                args_str += ", " + ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+            args_str = _argument(args[0]) if len(args) == 1 else _argument(args)
+            if given:
+                args_str += ", " + ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
         description = _enrich_description(tool.name, label, args_str, kwargs)
         try:
             from row_bot.tools.discovery import is_external_discovery_invocation
@@ -3680,6 +3750,7 @@ def _wrap_with_interrupt_gate(tool) -> None:
             "tool": tool.name, "label": label, "description": description,
             "args": kwargs or (args[0] if args else {}),
             "external_discovery_active": external_discovery_active,
+            **({"always_ask": True} if always_ask else {}),
         })
         if approval:
             return None, APPROVAL_GIVEN
@@ -4049,6 +4120,8 @@ def _resolve_active_skill_records(authorized_records: tuple) -> list:
         selected.extend(str(name) for name in state.get("pinned", []))
     if not is_background:
         selected.extend(str(name) for name in state.get("auto_loaded", []))
+        # Mentioned in this message: loaded for this turn only, and only if already authorized above.
+        selected.extend(str(name) for name in (_current_app_scope_var.get(None) or {}).get("skills") or [])
 
     ordered: list = []
     seen: set[str] = set()
@@ -4176,6 +4249,26 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
     return tool.model_copy(update=updates)
 
 
+def _apply_app_scope(core: list[dict], external: list[dict], scope: dict) -> tuple[list[dict], list[dict]]:
+    """Leave out the tools of apps this turn doesn't use. Only removes: the profile's ceiling
+    and every approval stay as they are."""
+    servers = {str(name) for name in scope.get("exclude_servers") or []}
+    parents = {str(name) for name in scope.get("exclude_tools") or []}
+    if not (servers or parents):
+        return core, external
+
+    def kept(entry: dict) -> bool:
+        if entry["parent"] in parents:
+            return False
+        source = str(entry.get("source") or "")
+        if source == "mcp":
+            from row_bot.mcp_client import runtime as mcp_runtime
+            # A name two apps share goes when either is left out: narrowing never widens.
+            return not mcp_runtime.servers_for_tool(str(getattr(entry["tool"], "name", "") or "")) & servers
+        return not (":mcp:" in source and source.rsplit(":mcp:", 1)[1] in servers)
+    return [entry for entry in core if kept(entry)], [entry for entry in external if kept(entry)]
+
+
 def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     model_override: str | None = None,
                     tool_allowlist: list[str] | tuple[str, ...] | set[str] | None = None):
@@ -4229,6 +4322,19 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         enabled_tool_names,
         allow_set,
     )
+    app_scope = _current_app_scope_var.get(None) or {}
+    eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
+    # App tools that ask even under Allow all: each one its app's access says to ask about (a routine change
+    # unless the app has Full access or that tool may run without asking; high-impact and unknown ones always).
+    # Standalone connections ("mcp") and those a plugin brings ("plugin:<id>:mcp:<server>") alike.
+    app_entries = [entry for entry in eager_core_entries + external_entries
+                   if entry["source"] == "mcp" or ":mcp:" in str(entry["source"])]
+    app_asks = ({str(getattr(entry["tool"], "name", "") or "") for entry in app_entries} & destructive_names
+                if approval_mode == "allow_all" else set())
+    # Which built-in tool each chat tool came from, so its app is named later without building any tool.
+    from row_bot.integrations.builtin import remember_tools
+    remember_tools({str(getattr(entry["tool"], "name", "") or ""): str(entry["parent"])
+                    for entry in eager_core_entries if entry["source"] == "core"})
     for entry in eager_core_entries + external_entries:
         # Graph-local copies keep approval/error wrappers off shared registrations.
         entry['tool'] = entry['tool'].model_copy()
@@ -4279,9 +4385,10 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
 
     loading_mode = tool_registry.get_external_tool_loading_mode()
     force_external_discovery = bool(_current_external_discovery_active_var.get(False))
-    effective_loading_mode = (
-        "auto" if force_external_discovery else "eager" if is_background else loading_mode
-    )
+    # Workflows discover external tools as chats do: an app with many tools (Notion's 46 carry about 220 KB of
+    # schemas) would otherwise go with every model call of a step. Gates are applied to each tool before it is
+    # bridged, so approvals are the same either way.
+    effective_loading_mode = "auto" if force_external_discovery else loading_mode
     discovery_fingerprint = capability_fingerprint(
         external_records,
         mode=effective_loading_mode,
@@ -4317,6 +4424,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"external_resume:{force_external_discovery}",
         f"capabilities:{discovery_fingerprint}",
         f"skills:{skill_fingerprint}",
+        f"apps:{sorted(app_scope.get('exclude_servers') or [])}:{sorted(app_scope.get('exclude_tools') or [])}",
     })
     # Designer tool schemas are scoped to the captured project, not whichever
     # project a client currently shows.
@@ -4342,22 +4450,10 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
 
             # Append tools from enabled plugins (totally separate registry)
             if is_background:
-                if approval_mode in {"block", "approve"}:
-                    # BG gating: block=strip destructive tools; approve=wrap
-                    # via interrupt() for pause-and-approve; allow_all=keep all.
-                    # run_command self-gates at runtime via classify_command.
-                    if approval_mode == "block":
-                        lc_tools = [t for t in lc_tools
-                                    if t.name not in destructive_names]
-                    elif approval_mode == "approve":
-                        for t in lc_tools:
-                            if t.name in destructive_names:
-                                _wrap_with_interrupt_gate(t)
-                    # else: allow_all — keep everything, no gates
-            else:
-                # Interactive sessions use the same app-wide approval mode:
-                # block=hide destructive tools; approve=wrap with interrupt();
-                # allow_all=keep everything, no gates.
+                # BG gating: block=strip destructive tools; approve=wrap
+                # via interrupt() for pause-and-approve; allow_all=keep
+                # everything, but app tools whose access says ask still ask.
+                # run_command self-gates at runtime via classify_command.
                 if approval_mode == "block":
                     lc_tools = [t for t in lc_tools
                                 if t.name not in destructive_names]
@@ -4365,6 +4461,25 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     for t in lc_tools:
                         if t.name in destructive_names:
                             _wrap_with_interrupt_gate(t)
+                else:
+                    for t in lc_tools:
+                        if t.name in app_asks:
+                            _wrap_with_interrupt_gate(t, always_ask=True)
+            else:
+                # Interactive sessions use the same app-wide approval mode:
+                # block=hide destructive tools; approve=wrap with interrupt();
+                # allow_all=keep everything; app tools whose access says ask still ask.
+                if approval_mode == "block":
+                    lc_tools = [t for t in lc_tools
+                                if t.name not in destructive_names]
+                elif approval_mode == "approve":
+                    for t in lc_tools:
+                        if t.name in destructive_names:
+                            _wrap_with_interrupt_gate(t)
+                else:
+                    for t in lc_tools:
+                        if t.name in app_asks:
+                            _wrap_with_interrupt_gate(t, always_ask=True)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,
@@ -4658,6 +4773,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -4993,9 +5109,11 @@ class ToolCallPayload(str):
         raw_name: str = "",
         args: dict[str, Any] | None = None,
         call_id: str = "",
+        runtime_name: str = "",
     ):
         obj = str.__new__(cls, str(name or "tool"))
         obj.raw_name = str(raw_name or "")
+        obj.runtime_name = str(runtime_name or raw_name or "")
         obj.args = dict(args or {})
         obj.call_id = str(call_id or "")
         return obj
@@ -5005,6 +5123,8 @@ class ToolCallPayload(str):
             return str(self)
         if key == "raw_name":
             return self.raw_name
+        if key == "runtime_name":
+            return self.runtime_name
         if key == "args":
             return self.args
         if key == "id":
@@ -5070,6 +5190,7 @@ def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
         raw_name=raw_name,
         args=_safe_tool_call_args(args),
         call_id=str(tc.get("id") or raw_name),
+        runtime_name=effective_name,
     )
 
 
@@ -5235,6 +5356,7 @@ def stream_chat_only(
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     set_active_model_override(model_label)
     _readiness_started = time.perf_counter()
@@ -5585,6 +5707,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
     if runtime_mode == "chat_only" or auto_allowed:
@@ -5685,6 +5808,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         (config.get("configurable") or {}).get("developer_context", "") or ""
@@ -5836,6 +5960,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -5926,6 +6051,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -6592,6 +6718,12 @@ def _stream_graph(agent, input_data, config: dict,
                 for m in ndata.get("messages", []):
                     if getattr(m, "type", "") == "ai" and getattr(m, "id", None) and _platform_segment_id:
                         _platform_outputs.append((m, _platform_segment_id))
+                        # This segment has its output: the next model call opens another, even when a resume
+                        # re-ran a failed call without the model hook that marks a call as started.
+                        from row_bot.runtime.executions import current_execution
+                        execution = current_execution()
+                        if execution is not None:
+                            execution.invocation_started = True
                     # Tool call initiated by the agent
                     tc_list = getattr(m, "tool_calls", [])
                     if tc_list:

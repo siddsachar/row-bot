@@ -140,6 +140,16 @@ describe('tool activity', () => {
     expect(approvalQuestion('developer_import_sandbox_changes')).toBe(
       'Apply the sandbox changes?',
     );
+    // An app's tool reads as a verb only when its title begins with one.
+    const app = { item_id: 'mcp:x', name: 'GitHub', icon: 'letter:G' };
+    expect(approvalQuestion('mcp_x', { ...app, tool: 'Get commit' })).toBe(
+      'Allow GitHub to get commit?',
+    );
+    expect(
+      approvalQuestion('mcp_x', { ...app, name: 'Counter', tool: 'Counter' }),
+    ).toBe('Allow Counter to use “Counter”?');
+    expect(approvalQuestion('tracker_delete')).toBe('Delete tracker entries?');
+    expect(approvalQuestion('task_delete')).toBe('Delete a workflow?');
     expect(approvalAction('workspace_file_delete')).toBe('Delete a file');
     expect(approvalAction('fixture_action')).toBe('Fixture action');
   });
@@ -153,6 +163,12 @@ describe('tool activity', () => {
         "Move / rename file: source='a.txt', destination=\"it's b.txt\"",
       ),
     ).toBe("Move / rename file: source a.txt · destination it's b.txt");
+    // A list the agent wrote in words, and a yes/no option.
+    expect(
+      plainApprovalReason(
+        "Save orders: orders='sku A1, qty 2; sku B2, qty 1', rush=True",
+      ),
+    ).toBe('Save orders: orders sku A1, qty 2; sku B2, qty 1 · rush yes');
     expect(plainApprovalReason('Delete task: 🗓️ Weekly brief')).toBe(
       'Delete task: 🗓️ Weekly brief',
     );

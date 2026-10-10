@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "default": "",
+      "enum": [
+        "",
+        "mcp",
+        "skill",
+        "plugin"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "reference": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Reference",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference"
+  ],
+  "title": "IntegrationResolveRequest",
+  "type": "object"
+}

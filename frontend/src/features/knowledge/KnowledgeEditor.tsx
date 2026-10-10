@@ -154,10 +154,26 @@ export function createKnowledgeEditorSession(
     )
       throw new Error('knowledge_receipt_changed');
     if (result.status === 'completed') target = result.entity_id!;
+    // Saved: the entry is at the receipt's revision now, so the next change saves too (it was refused as
+    // changed elsewhere). Its fields are what was saved; the draft stays as typed.
+    const entity = state.saved?.entity;
     emit({
       receipt: result,
       pending: result.status === 'partial',
       review: null,
+      ...(result.status === 'completed' && state.saved && entity
+        ? {
+            saved: {
+              ...state.saved,
+              entity: {
+                ...entity,
+                revision: result.revision!,
+                fields: { ...state.draft },
+              },
+            },
+            dirty: false,
+          }
+        : {}),
     });
     // Keep draft until an explicit load; an event/read response cannot overwrite it.
   }

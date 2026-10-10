@@ -126,7 +126,7 @@ export default function ConversationHeader({
         ...(onShare
           ? [
               {
-                label: 'Share or export',
+                label: 'Export conversation',
                 icon: <Share size={16} />,
                 onSelect: onShare,
               },
@@ -247,7 +247,7 @@ export default function ConversationHeader({
           </IconButton>
         )}
         {!phone && onShare && (
-          <IconButton label="Share or export" onClick={onShare}>
+          <IconButton label="Export" onClick={onShare}>
             <Share size={16} aria-hidden />
           </IconButton>
         )}

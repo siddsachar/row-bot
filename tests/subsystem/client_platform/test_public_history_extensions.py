@@ -277,25 +277,28 @@ def test_history_read_fences_pending_deletion(service, monkeypatch, phase):
 
 
 def test_global_search_skips_closed_rows_before_checkpoint_and_keeps_zero_hit_continuation(service, monkeypatch):
+    from langchain_core.messages import HumanMessage
     from row_bot import threads
     from row_bot.runtime import admissions, checkpoint_reader
     from row_bot.application.conversation_search import search
-    for index in range(33):
+    # The one open conversation is the oldest, so its messages are read after the 32 closed ones.
+    threads.create_thread("ordinary title", thread_id="closed-scan-000", seed_default_skills=False)
+    assert threads.append_checkpoint_messages("closed-scan-000", [HumanMessage(id="open-needle", content="needle")])
+    for index in range(1, 33):
         identity = threads.create_thread("needle title", thread_id=f"closed-scan-{index:03}", seed_default_skills=False)
-        if index < 32:
-            admissions.close_admission(identity)
+        admissions.close_admission(identity)
     actual = checkpoint_reader.open_checkpoint
     opened = []
     def reader(identity, *args, **kwargs):
         opened.append(identity)
-        assert identity == "closed-scan-032"
+        assert identity == "closed-scan-000"
         return actual(identity, *args, **kwargs)
     monkeypatch.setattr(checkpoint_reader, "open_checkpoint", reader)
     first = search(service, "needle")
     assert first["items"] == [] and first["has_more"] and first["scanned_messages"] == 0
     assert opened == []
     second = search(service, "needle", cursor=first["next_cursor"])
-    assert [item["conversation_id"] for item in second["items"]] == ["closed-scan-032"]
+    assert [item["message_id"] for item in second["items"]] == ["open-needle"]
     assert not second["has_more"]
 
 
@@ -335,3 +338,37 @@ def test_scoped_search_rejects_closed_conversation_before_checkpoint_read(servic
     monkeypatch.setattr(checkpoint_reader, "open_checkpoint", forbidden_read)
     with pytest.raises(ClientPlatformError, match="conversation_deleting"):
         search(service, "needle", conversation_id=conversation)
+
+
+def test_search_leaves_out_tool_results(service):
+    """Found live: Find matched a hidden tool result and showed its raw JSON."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from row_bot import threads
+    from row_bot.application.conversation_search import search
+
+    conversation = threads.create_thread("Tool results", seed_default_skills=False)
+    assert threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="ask", content="What is 6 times 7?"),
+        AIMessage(id="call", content="", tool_calls=[
+            {"id": "call-1", "name": "calculator", "args": {"expression": "6*7"}}]),
+        ToolMessage(id="result", tool_call_id="call-1", name="calculator",
+                    content='{"ok": true, "result": 42, "expression": "6*7"}'),
+        AIMessage(id="answer", content="6 times 7 is 42."),
+    ])
+    hits = search(service, "42", conversation_id=conversation)["items"]
+    assert [hit["message_id"] for hit in hits] == ["answer"]
+    assert search(service, "expression", conversation_id=conversation)["items"] == []
+
+
+def test_a_search_excerpt_reads_as_plain_text(service):
+    """Found live: results showed literal \n, \u003c and **markdown** from the stored text."""
+    from langchain_core.messages import HumanMessage
+    from row_bot import threads
+    from row_bot.application.conversation_search import search
+
+    conversation = threads.create_thread("Plain excerpts", seed_default_skills=False)
+    assert threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="marked", content="**Pipeline** check:\nuse <b>tags</b> and `code`"),
+    ])
+    hit = next(item for item in search(service, "pipeline")["items"] if item["message_id"] == "marked")
+    assert hit["excerpt"] == "Pipeline check: use <b>tags</b> and code"

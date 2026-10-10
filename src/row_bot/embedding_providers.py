@@ -6,6 +6,7 @@ import gc
 import importlib.util
 import logging
 import pathlib
+import queue
 import sys
 import threading
 import time
@@ -14,7 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from typing import Any
 
 from row_bot.api_keys import get_key
@@ -28,10 +29,36 @@ _provider_lock = threading.Lock()
 _provider = None
 _provider_key: tuple[Any, ...] | None = None
 _captured_provider: ContextVar[tuple | None] = ContextVar("document_captured_embedding_provider", default=None)
-_LOCAL_EMBEDDING_EXECUTOR = ThreadPoolExecutor(
-    max_workers=1,
-    thread_name_prefix="row-bot-local-embedding",
-)
+
+
+class _LocalEmbeddingLane:
+    """One stable caller thread for local inference; a daemon, so it never holds up exit."""
+
+    def __init__(self) -> None:
+        self._calls: queue.SimpleQueue = queue.SimpleQueue()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def submit(self, function: Callable[..., Any], *args: Any) -> Future:
+        future: Future = Future()
+        with self._lock:
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._run, name="row-bot-local-embedding", daemon=True)
+                self._thread.start()
+        self._calls.put((future, function, args))
+        return future
+
+    def _run(self) -> None:
+        while True:
+            future, function, args = self._calls.get()
+            if future.set_running_or_notify_cancel():
+                try:
+                    future.set_result(function(*args))
+                except BaseException as exc:
+                    future.set_exception(exc)
+
+
+_LOCAL_EMBEDDING_EXECUTOR = _LocalEmbeddingLane()
 
 RECALL_EMBEDDING_WAIT_SECONDS = 30.0
 

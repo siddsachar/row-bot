@@ -1,0 +1,534 @@
+/* Apps & Skills: cards, the detail page and setup, on the shared tokens. */
+.app-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+.app-icon img {
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
+}
+.app-letter {
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
+}
+/* Single-colour dark marks (GitHub, Notion, X) would vanish on a dark surface. */
+:root[data-theme='dark'] .app-icon img[data-mono] {
+  filter: invert(1);
+}
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+.app-card:hover {
+  background: var(--surface-hover);
+}
+.app-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.app-card-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.app-card-job {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.app-card > .status-indicator {
+  flex: none;
+}
+.app-publisher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.app-publisher[data-verified='true'] {
+  color: var(--text-secondary);
+}
+.app-chip {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.apps-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.apps-search {
+  position: relative;
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+}
+.apps-search > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.apps-search .input {
+  width: 100%;
+  padding-left: 32px;
+}
+.apps-library h3,
+.app-detail h3 {
+  margin: var(--space-2) 0;
+  font-size: var(--text-15);
+}
+.apps-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.app-chip-button[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+  background: var(--accent-subtle);
+}
+.app-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+}
+.app-detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.app-detail-title {
+  display: grid;
+  flex: 1 1 200px;
+  gap: 4px;
+  min-width: 0;
+}
+.app-detail-title h3 {
+  width: fit-content;
+  margin: 0;
+  font-size: var(--text-20);
+  overflow-wrap: anywhere;
+}
+.app-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.app-section {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+.app-section p {
+  margin: 0;
+}
+.app-prompts,
+.app-facts,
+.app-files,
+.access-tools,
+.catalog-list,
+.plan-steps,
+.app-ways,
+.chat-connect-apps {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-prompts li {
+  color: var(--text-secondary);
+}
+.app-facts li {
+  display: flex;
+  gap: var(--space-2);
+}
+.app-facts svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--status-success-text);
+}
+.app-facts-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+}
+.app-facts-list > div {
+  display: grid;
+  grid-template-columns: minmax(96px, 30%) 1fr;
+  gap: var(--space-3);
+}
+.app-facts-list dt {
+  color: var(--text-muted);
+}
+.app-facts-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.app-files li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.app-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-info-border);
+  border-radius: var(--radius-card);
+  background: var(--status-info-background);
+  color: var(--status-info-text);
+}
+.app-banner > span {
+  flex: 1;
+}
+.plan-progress {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.plan-progress p {
+  margin: 0;
+}
+.plan-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}
+.plan-steps li > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.plan-steps li span {
+  display: grid;
+}
+.plan-steps li small {
+  color: var(--text-secondary);
+}
+.plan-log {
+  max-height: 16rem;
+  margin: var(--space-1) 0 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.plan-steps li[data-state='running'],
+.plan-steps li[data-state='waiting'] {
+  color: var(--text-primary);
+}
+.plan-steps li[data-state='running'] > svg {
+  animation: app-spin 1s linear infinite;
+}
+.plan-steps li[data-state='done'] > svg {
+  color: var(--status-success-text);
+}
+.plan-steps li[data-state='failed'] > svg {
+  color: var(--status-danger-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-steps li[data-state='running'] > svg {
+    animation: none;
+  }
+}
+@keyframes app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.plan-wait {
+  display: grid;
+  gap: var(--space-2);
+}
+.app-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.access-presets {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.access-presets legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-weight: 600;
+}
+.access-preset {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.access-preset[data-selected='true'] {
+  border-color: var(--accent-solid);
+  background: var(--accent-subtle);
+}
+.access-preset span,
+.access-tools li > span,
+.access-tools li {
+  display: grid;
+}
+.access-preset small,
+.access-tools small,
+.catalog-list small {
+  color: var(--text-secondary);
+}
+.access-groups {
+  display: grid;
+  gap: var(--space-1);
+}
+.access-tool-choice {
+  grid-template-columns: 1fr minmax(120px, auto);
+  align-items: center;
+  gap: var(--space-2);
+}
+.access-tool-choice select {
+  width: 11rem; /* Every row's choice lines up, whichever options it offers. */
+  max-width: 100%;
+}
+.catalog-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.catalog-disclosure {
+  flex-basis: 100%;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+.catalog-disclosure p {
+  margin: 0;
+}
+.catalog-list li > span {
+  display: grid;
+  min-width: 0;
+}
+@media (max-width: 480px) {
+  .app-detail-actions {
+    width: 100%;
+  }
+  .app-detail-actions > .button.primary {
+    flex: 1;
+  }
+  .app-facts-list > div {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .access-tool-choice {
+    grid-template-columns: 1fr;
+  }
+}
+.app-way {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+a.app-way:hover {
+  background: var(--surface-sunken);
+}
+.app-way-text {
+  display: grid;
+  min-width: 0;
+}
+.app-way-text small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.app-way > .status-indicator {
+  flex: none;
+}
+.plan-review-items {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-review-items li {
+  display: grid;
+  min-width: 0;
+}
+.plan-review-items code {
+  color: var(--text-muted);
+  font-size: 0.8em;
+  overflow-wrap: anywhere;
+}
+
+/* The Connect card in a chat: each suggested app as the catalog knows it,
+   then its own plan right under it while it connects. */
+.transcript-card.chat-connect {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.chat-connect-intro {
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+}
+.chat-connect-app {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.chat-connect-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.chat-connect-text {
+  display: grid;
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+.chat-connect-text strong {
+  overflow-wrap: anywhere;
+}
+/* + → Apps: logo, name, then the check at the end, like the menu it opens from. */
+.composer-apps-menu .menu-item {
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 220px;
+}
+.composer-apps-menu .menu-item > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.composer-apps-menu .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.composer-apps-menu .app-icon {
+  flex: none;
+}
+/* A tool step or an approval from an app shows whose it is: its logo and name. */
+.activity-step-app,
+.approval-card-app {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  color: var(--text-secondary);
+  font-weight: var(--weight-semibold);
+}
+.approval-card-app {
+  display: flex;
+  font-size: var(--text-12);
+}
+.approval-card-icon .app-icon {
+  border-radius: 6px;
+}
+/* An app's view in chat (MCP Apps): its own sandboxed frame under a small header. */
+.app-view {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised, var(--surface-sunken));
+}
+.app-view[data-border='none'] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.app-view-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+.app-view-frame {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  max-height: 720px;
+  border: 0;
+  border-radius: calc(var(--radius-card) - 2px);
+  background: var(--surface-base, transparent);
+}
+.app-view-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.catalog-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

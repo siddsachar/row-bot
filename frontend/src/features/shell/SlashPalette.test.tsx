@@ -120,6 +120,33 @@ it('renders local SVG icons and a safe fallback without exposing raw icon names'
   }
 });
 
+it('leads with the command whose name starts with what was typed, past words that only contain it', () => {
+  // Many commands whose descriptions say "the", listed before /help.
+  const wordy = Array.from({ length: 14 }, (_, index) => ({
+    ...commands[1],
+    id: `wordy-${index}`,
+    token: `/wordy-${index}`,
+    label: `Wordy ${index}`,
+    description: 'Open the current thread.',
+  }));
+  const help = {
+    ...commands[0],
+    id: 'help',
+    token: '/help',
+    aliases: [],
+    label: 'Help',
+    description: 'Show available slash commands.',
+    category: 'Info',
+    icon: 'help',
+  };
+  render(<Harness text="/he" specs={[...wordy, help]} />);
+  expect(
+    screen
+      .getAllByRole('option')
+      .map((option) => option.getAttribute('aria-label')),
+  ).toEqual(['/help Help']);
+});
+
 it('shows an honest empty result and supports mouse choice', () => {
   const { rerender } = render(<Harness text="/missing" />);
   expect(screen.getByText('No slash commands match.')).toHaveTextContent(

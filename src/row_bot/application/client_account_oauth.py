@@ -4,105 +4,44 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-from pathlib import Path
 from threading import RLock, Thread
 from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import UUID
 
-from row_bot.account_token_checks import record_token_check, token_file_state
+from row_bot import account_tokens
 from row_bot.application.client_platform import ClientPlatformError
-from row_bot.data_paths import get_row_bot_data_dir
 
 _LOCK = RLock()
 _JOBS: dict[str, dict[str, Any]] = {}
 _ACTIVE: set[str] = set()
 
 
-def _root() -> Path:
-    return get_row_bot_data_dir(create=False)
-
-
-def _paths(account: str) -> tuple[Path, ...]:
-    root = _root()
-    if account == "google":
-        return root / "gmail" / "token.json", root / "calendar" / "token.json"
-    if account == "x":
-        return (root / "x" / "token.json",)
-    raise ClientPlatformError("invalid_account_command")
-
-
-def _google_credentials_path() -> Path:
-    root = _root()
-    canonical = root / "gmail" / "credentials.json"
-    try:
-        raw = json.loads((root / "tools_config.json").read_text(encoding="utf-8"))
-        configured = raw.get("tool_configs", {}).get("gmail", {}).get("credentials_path")
-        if isinstance(configured, str) and configured:
-            candidate = Path(configured).expanduser()
-            if candidate.is_absolute():
-                return candidate
-    except (OSError, ValueError, AttributeError, TypeError):
-        pass
-    return canonical
-
-
-def _stamp(path: Path) -> tuple[int, int] | None:
-    try:
-        state = path.stat()
-        return state.st_size, state.st_mtime_ns
-    except OSError:
-        return None
-
-
-# Google keeps two token files; the account reads as the less healthy one.
-_STATE_ORDER = ("not_authenticated", "invalid", "expired", "unavailable", "saved_unchecked", "connected")
+def _account(account: str) -> str:
+    if account not in {"google", "x"}:
+        raise ClientPlatformError("invalid_account_command")
+    return account
 
 
 def read_account_auth(*, account: str) -> dict[str, Any]:
-    """Read local file metadata and remembered checks only; no provider or refresh call."""
-    paths = _paths(account)
+    """Read the keychain's saved sign-in and remembered checks only; no provider or refresh call."""
+    _account(account)
     if account == "google":
-        configured = _google_credentials_path().is_file()
+        configured = account_tokens.google_client() is not None
     else:
         from row_bot.api_keys import get_key
         configured = bool(get_key("X_CLIENT_ID") and get_key("X_CLIENT_SECRET"))
-    states = [_stamp(path) for path in paths]
-    present = sum(value is not None for value in states)
-    if not configured:
-        state = "not_configured"
-    elif not present:
-        state = "not_authenticated"
-    elif present < len(paths):
-        state = "partial"
-    else:
-        found = {token_file_state(path) for path in paths}
-        state = next(item for item in _STATE_ORDER if item in found)
+    signed_in = account_tokens.digest(account)
+    state = "not_configured" if not configured else account_tokens.state(account)
     revision = hashlib.sha256(json.dumps({
-        "account": account, "configured": configured,
-        "credentials": _stamp(_google_credentials_path()) if account == "google" else None,
-        "tokens": states,
+        "account": account, "configured": configured, "token": signed_in,
+        "client": account_tokens.digest("google_client") if account == "google" else None,
     }, sort_keys=True).encode()).hexdigest()
     return {
         "schema_version": 1, "account": account, "revision": revision,
         "configured": configured, "state": state,
-        "token_files": present,
+        "token_files": int(bool(signed_in)),  # Saved sign-ins (in the keychain); the name predates that.
     }
-
-
-def _atomic_write(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "wb") as output:
-            output.write(data)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _install_google_credentials(raw: str) -> None:
@@ -117,8 +56,15 @@ def _install_google_credentials(raw: str) -> None:
             raise ValueError
         auth = urlparse(client["auth_uri"])
         token = urlparse(client["token_uri"])
-        if auth.scheme != "https" or auth.hostname != "accounts.google.com" or token.scheme != "https" or token.hostname != "oauth2.googleapis.com":
+        # Google's own hosts only; older client files name the token endpoint on accounts.google.com. No
+        # backslash, user or port: parsers disagree about where such an address goes.
+        if (auth.scheme != "https" or auth.hostname != "accounts.google.com" or token.scheme != "https"
+                or token.hostname not in {"oauth2.googleapis.com", "accounts.google.com"}
+                or any(ch in client[key] for key in ("auth_uri", "token_uri") for ch in ("\\", "@"))
+                or any(part.port is not None or part.username is not None for part in (auth, token))):
             raise ValueError
+        # What is saved names Google's current endpoints, whatever the file spelled.
+        client.update(auth_uri="https://accounts.google.com/o/oauth2/auth", token_uri="https://oauth2.googleapis.com/token")
         redirects = client.get("redirect_uris")
         if not isinstance(redirects, list) or not any(
             isinstance(value, str) and value in {"http://localhost", "http://127.0.0.1"}
@@ -127,11 +73,13 @@ def _install_google_credentials(raw: str) -> None:
             raise ValueError
     except (ValueError, TypeError, AttributeError):
         raise ClientPlatformError("account_credentials_invalid") from None
-    canonical = _root() / "gmail" / "credentials.json"
-    _atomic_write(canonical, json.dumps(parsed, separators=(",", ":")).encode())
+    try:
+        account_tokens.write("google_client", parsed)  # The client's secret too: keychain only.
+    except account_tokens.AccountTokenError:
+        raise ClientPlatformError("account_secure_storage_unavailable") from None
     from row_bot.tools import registry
-    registry.set_tool_config("gmail", "credentials_path", str(canonical))
-    registry.set_tool_config("calendar", "credentials_path", str(canonical))
+    registry.set_tool_config("gmail", "credentials_path", "")  # Saved by Row-Bot now, not a file of the person's.
+    registry.set_tool_config("calendar", "credentials_path", "")
 
 
 def _google_flow() -> bytes:
@@ -139,9 +87,10 @@ def _google_flow() -> bytes:
     from row_bot.tools.gmail_tool import GMAIL_SCOPES
     from row_bot.tools.calendar_tool import CALENDAR_SCOPES
 
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(_google_credentials_path()), GMAIL_SCOPES + CALENDAR_SCOPES,
-    )
+    client = account_tokens.google_client()
+    if client is None:
+        raise ClientPlatformError("account_credentials_required")
+    flow = InstalledAppFlow.from_client_config(client, GMAIL_SCOPES + CALENDAR_SCOPES)
     credentials = flow.run_local_server(host="127.0.0.1", port=0, timeout_seconds=180)
     return credentials.to_json().encode()
 
@@ -152,24 +101,6 @@ def _x_flow() -> bytes:
 
     token = _run_oauth_flow(get_key("X_CLIENT_ID"), get_key("X_CLIENT_SECRET"), persist=False)
     return json.dumps(token, separators=(",", ":")).encode()
-
-
-def _write_tokens(account: str, content: bytes) -> None:
-    paths = _paths(account)
-    originals = [path.read_bytes() if path.is_file() else None for path in paths]
-    written: list[int] = []
-    try:
-        for index, path in enumerate(paths):
-            _atomic_write(path, content)
-            written.append(index)
-    except OSError:
-        for index in reversed(written):
-            original = originals[index]
-            if original is None:
-                paths[index].unlink(missing_ok=True)
-            else:
-                _atomic_write(paths[index], original)
-        raise
 
 
 def _receipt(command_id: str, account: str, action: str, phase: str, message: str) -> dict[str, Any]:
@@ -193,10 +124,8 @@ def _finish_auth(job_key: str) -> None:
             cancelled = job["cancelled"]
             if not cancelled:
                 job["validate"]()
-                _write_tokens(account, content)
-                # The provider has just issued these tokens.
-                for path in _paths(account):
-                    record_token_check(path, "valid")
+                account_tokens.write(account, json.loads(content))  # Keychain only; a failure keeps the old sign-in.
+                account_tokens.record_check(account, "valid")  # The provider has just issued it.
         phase = "cancelled" if cancelled else "completed"
         message = "Authentication cancelled." if cancelled else "Account authorization saved."
     except Exception:
@@ -262,16 +191,13 @@ def execute_account_auth(
             phase, message = "completed", "Google credentials saved locally."
         elif action == "disconnect":
             validate()
-            for path in _paths(account):
-                path.unlink(missing_ok=True)
+            account_tokens.delete(account)
             phase, message = "completed", "Local account tokens removed. Provider authorization may still exist."
         else:
             validate()
             # Each check remembers its verdict for Settings › Accounts.
             if account == "google":
-                from row_bot.tools.gmail_tool import _check_google_token as gmail_check
-                from row_bot.tools.calendar_tool import _check_google_token as calendar_check
-                statuses = [gmail_check(str(_paths(account)[0]))[0], calendar_check(str(_paths(account)[1]))[0]]
+                statuses = [account_tokens.check_google()[0]]  # Gmail and Calendar share one sign-in.
             else:
                 from row_bot.tools.x_tool import XTool
                 statuses = [XTool().check_token_health()[0]]

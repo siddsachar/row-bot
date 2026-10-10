@@ -17,7 +17,7 @@ from row_bot.data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = get_row_bot_data_dir()
+DATA_DIR = get_row_bot_data_dir(create=False)
 _CACHE_PATH = DATA_DIR / "marketplace_cache.json"
 
 CACHE_TTL_SECONDS = 3600
@@ -239,6 +239,14 @@ def entry_source(entry: MarketplaceEntry) -> EntrySource:
     ))
 
 
+def github_folder(entry: MarketplaceEntry) -> str:
+    """A marketplace package's folder on GitHub, where Apps reads it at a pinned commit and checks it
+    against the checksum the marketplace publishes; '' when it lives elsewhere or can't be checked."""
+    origin = entry_source(entry)
+    found = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/archive/refs/heads/main\.zip", origin.archive_url)
+    return f"https://github.com/{found[1]}/tree/main/{origin.archive_path}" if found and origin.archive_path and not origin.problem else ""
+
+
 def _downloaded(entry: MarketplaceEntry, source: EntrySource) -> EntrySource:
     if _SHA256.fullmatch(entry.checksum.strip()):
         return source
@@ -269,30 +277,8 @@ def _local_index_root(source: str) -> pathlib.Path | None:
 
 
 def _https_host(url: str) -> str | None:
-    try:
-        parsed = urlsplit(url)
-    except ValueError:
-        return None
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        return None
-    return parsed.hostname
-
-
-def check_updates(installed_manifests: list) -> list[dict[str, str]]:
-    """Compare installed plugins against the marketplace index."""
-
-    index = fetch_index()
-    updates: list[dict[str, str]] = []
-    for manifest in installed_manifests:
-        entry = get_update_entry(manifest, index=index)
-        if entry:
-            updates.append({
-                "plugin_id": manifest.id,
-                "name": manifest.name,
-                "installed_version": manifest.version,
-                "latest_version": entry.version,
-            })
-    return updates
+    from row_bot.integrations.safe import public_url
+    return urlsplit(url).hostname if public_url(url) else None
 
 
 def get_cached_index(*, allow_stale: bool = True) -> MarketplaceIndex | None:
@@ -334,9 +320,7 @@ def get_update_entry(
 
 
 def _fetch_from_url(url: str) -> dict[str, Any]:
-    """Fetch JSON from a URL. Raises on error."""
-
-    import urllib.request
+    """Fetch a bounded JSON index from a local file or a public https URL. Raises on error."""
 
     local_path = _local_path_from_ref(url)
     if local_path is not None:
@@ -345,9 +329,8 @@ def _fetch_from_url(url: str) -> dict[str, Any]:
             raise ValueError(f"Expected JSON object, got {type(data).__name__}")
         return data
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-Plugin-Client"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    from row_bot.integrations.safe import fetch
+    data = json.loads(fetch(url, hosts=None, max_bytes=4 * 1024 * 1024, timeout=15, redirects=3))
     if not isinstance(data, dict):
         raise ValueError(f"Expected JSON object, got {type(data).__name__}")
     return data
@@ -379,10 +362,9 @@ def _read_disk_cache() -> dict[str, Any] | None:
 
 
 def _write_disk_cache(data: dict[str, Any]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    from row_bot.integrations.safe import write_atomic
     try:
-        with open(_CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        write_atomic(_CACHE_PATH, json.dumps(data, indent=2))
     except OSError:
         logger.warning("Failed to write marketplace cache", exc_info=True)
 

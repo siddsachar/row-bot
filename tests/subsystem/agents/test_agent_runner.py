@@ -4,7 +4,6 @@ import importlib
 import contextvars
 from functools import wraps
 import json
-import sys
 import threading
 import time
 from pathlib import Path
@@ -12,10 +11,9 @@ from pathlib import Path
 import pytest
 
 
-def _fresh_agent_runner_modules(tmp_path, monkeypatch):
+def _fresh_agent_runner_modules(tmp_path, monkeypatch, reload_for_data_dir):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     skills_activation = importlib.import_module("row_bot.skills_activation")
     monkeypatch.setattr(skills_activation, "DATA_DIR", data_dir)
     monkeypatch.setattr(
@@ -23,36 +21,20 @@ def _fresh_agent_runner_modules(tmp_path, monkeypatch):
         "STATE_PATH",
         data_dir / "skills_activation.json",
     )
-    # Keep package and dotted imports on one storage owner; isolate its paths
-    # without leaving a stale package attribute after sys.modules eviction.
     workspace_storage = importlib.import_module("row_bot.developer.storage")
     monkeypatch.setattr(workspace_storage, "DATA_DIR", data_dir)
     monkeypatch.setattr(workspace_storage, "DEVELOPER_DIR", data_dir / "developer")
     monkeypatch.setattr(workspace_storage, "WORKSPACES_PATH", data_dir / "developer" / "workspaces.json")
-    for name in (
+    _tasks, threads, _settings, agent_profiles, agent_runs, agent_context, agent_runner = reload_for_data_dir(
+        data_dir,
         "row_bot.tasks",
         "row_bot.threads",
-        "row_bot.agent_profiles",
         "row_bot.agent_settings",
+        "row_bot.agent_profiles",
         "row_bot.agent_runs",
         "row_bot.agent_context",
         "row_bot.agent_runner",
-    ):
-        sys.modules.pop(name, None)
-
-    import row_bot.tasks as tasks
-    import row_bot.threads as threads
-    import row_bot.agent_profiles as agent_profiles
-    import row_bot.agent_runs as agent_runs
-    import row_bot.agent_context as agent_context
-    import row_bot.agent_runner as agent_runner
-
-    tasks = importlib.reload(tasks)
-    threads = importlib.reload(threads)
-    agent_profiles = importlib.reload(agent_profiles)
-    agent_runs = importlib.reload(agent_runs)
-    agent_context = importlib.reload(agent_context)
-    agent_runner = importlib.reload(agent_runner)
+    )
     return agent_runner, agent_runs, agent_profiles, agent_context, threads
 
 
@@ -72,10 +54,11 @@ def _isolated_runtime_context(function):
     return isolated
 
 
-def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatch):
+def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread(
         "Parent",
@@ -133,12 +116,14 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
 def test_child_creation_rolls_back_when_parent_deletion_wins_the_race(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ) -> None:
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
-    cleanup = importlib.reload(importlib.import_module("row_bot.thread_cleanup"))
+    (cleanup,) = reload_for_data_dir(tmp_path / "data", "row_bot.thread_cleanup")
     parent_thread_id = threads.create_thread("Parent being deleted")
     deletion_token = ""
     original_create_agent_run = agent_runs.create_agent_run
@@ -180,9 +165,9 @@ def test_child_creation_rolls_back_when_parent_deletion_wins_the_race(
     assert threads._thread_exists(parent_thread_id) is False
 
 
-def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, monkeypatch):
+def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
-        tmp_path, monkeypatch
+        tmp_path, monkeypatch, reload_for_data_dir
     )
     from row_bot.agent_settings import AgentRuntimeSettings, save_agent_runtime_settings
 
@@ -207,6 +192,17 @@ def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, mo
         return "done"
 
     monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+    # The dispatcher says why a child waits from its own thread: wait for that, not for a fixed time.
+    waiting = threading.Event()
+    publish = agent_runs.update_agent_status
+
+    def recording(run_id, status, *args, **kwargs):
+        published = publish(run_id, status, *args, **kwargs)
+        if status == "queued" and "Queued for Agent capacity" in args:
+            waiting.set()
+        return published
+
+    monkeypatch.setattr(agent_runs, "update_agent_status", recording)
     first = agent_runner.spawn_agent_run("First", parent_thread_id=parent_thread_id)
     assert first_started.wait(2)
     first_live = agent_runs.get_agent_run(first["id"])
@@ -214,7 +210,8 @@ def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, mo
     assert first_live["status_message"] == ""
     second = agent_runner.spawn_agent_run("Second", parent_thread_id=parent_thread_id)
 
-    assert not second_started.wait(0.15)
+    assert waiting.wait(2)
+    assert not second_started.is_set()
     second_queued = agent_runs.get_agent_run(second["id"])
     assert second_queued["status"] == "queued"
     assert second_queued["status_message"] == "Queued for Agent capacity"
@@ -234,10 +231,12 @@ def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, mo
 def test_default_dispatcher_runs_cumulative_children_in_bounded_waves(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parents = [
         threads.create_thread(f"Wave parent {index}")
@@ -309,9 +308,9 @@ def test_default_dispatcher_runs_cumulative_children_in_bounded_waves(
     assert len(started) == 10
 
 
-def test_nested_depth_is_trusted_and_configurable_without_run_override(tmp_path, monkeypatch):
+def test_nested_depth_is_trusted_and_configurable_without_run_override(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
-        tmp_path, monkeypatch
+        tmp_path, monkeypatch, reload_for_data_dir
     )
     from row_bot.agent_settings import AgentRuntimeSettings, save_agent_runtime_settings
 
@@ -345,9 +344,9 @@ def test_nested_depth_is_trusted_and_configurable_without_run_override(tmp_path,
     assert child["settings_snapshot_json"]["max_spawn_depth"] == 2
 
 
-def test_budget_terminal_child_is_blocked_not_completed(tmp_path, monkeypatch):
+def test_budget_terminal_child_is_blocked_not_completed(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
-        tmp_path, monkeypatch
+        tmp_path, monkeypatch, reload_for_data_dir
     )
     parent_thread_id = threads.create_thread("Budget parent")
     monkeypatch.setattr(
@@ -371,9 +370,9 @@ def test_budget_terminal_child_is_blocked_not_completed(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
-def test_child_active_time_timeout_is_opt_in_and_terminal(tmp_path, monkeypatch):
+def test_child_active_time_timeout_is_opt_in_and_terminal(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
-        tmp_path, monkeypatch
+        tmp_path, monkeypatch, reload_for_data_dir
     )
     from row_bot.agent_settings import AgentRuntimeSettings, save_agent_runtime_settings
 
@@ -400,10 +399,12 @@ def test_child_active_time_timeout_is_opt_in_and_terminal(tmp_path, monkeypatch)
 def test_default_child_has_no_timeout_even_after_large_fake_clock_jump(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("No-timeout parent")
     timer_calls: list[float] = []
@@ -428,10 +429,11 @@ def test_default_child_has_no_timeout_even_after_large_fake_clock_jump(
     assert timer_calls == []
 
 
-def test_spawn_agent_run_marks_provider_error_text_failed(tmp_path, monkeypatch):
+def test_spawn_agent_run_marks_provider_error_text_failed(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
 
@@ -456,10 +458,11 @@ def test_spawn_agent_run_marks_provider_error_text_failed(tmp_path, monkeypatch)
     assert "turn.completed" not in event_types
 
 
-def test_builtin_profile_skills_flow_to_child_agent(tmp_path, monkeypatch):
+def test_builtin_profile_skills_flow_to_child_agent(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     captured = {}
@@ -514,10 +517,12 @@ def test_builtin_profile_skills_flow_to_child_agent(tmp_path, monkeypatch):
 def test_child_skill_snapshot_starts_profile_skills_and_loads_others_task_locally(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     _runner, _runs, _profiles, _context, _threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     import row_bot.agent as agent
     import row_bot.skill_discovery as discovery
@@ -656,10 +661,11 @@ def test_concurrent_child_contexts_keep_profile_provider_and_cache_metadata_isol
     agent.clear_agent_cache()
 
 
-def test_profile_tool_and_skill_policy_filters_child_context(tmp_path, monkeypatch):
+def test_profile_tool_and_skill_policy_filters_child_context(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     threads.set_thread_skills_override(parent_thread_id, ["release_notes"])
@@ -701,10 +707,11 @@ def test_profile_tool_and_skill_policy_filters_child_context(tmp_path, monkeypat
     assert threads.get_thread_skills_override(run["thread_id"]) == ["release_notes", "openapi"]
 
 
-def test_profile_external_tool_allowlist_passes_through_child_config(tmp_path, monkeypatch):
+def test_profile_external_tool_allowlist_passes_through_child_config(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     custom = profiles.save_agent_profile(
@@ -743,10 +750,11 @@ def test_profile_external_tool_allowlist_passes_through_child_config(tmp_path, m
     assert run["tools_override"] == ["filesystem", "plugin_lookup", "mcp_local_echo"]
 
 
-def test_profile_without_allowlist_preserves_default_child_tools(tmp_path, monkeypatch):
+def test_profile_without_allowlist_preserves_default_child_tools(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     captured = {}
@@ -771,10 +779,11 @@ def test_profile_without_allowlist_preserves_default_child_tools(tmp_path, monke
     assert run["tools_override"] == ["filesystem", "mcp"]
 
 
-def test_builtin_read_only_profile_does_not_inherit_write_heavy_tools(tmp_path, monkeypatch):
+def test_builtin_read_only_profile_does_not_inherit_write_heavy_tools(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     captured = {}
@@ -797,10 +806,11 @@ def test_builtin_read_only_profile_does_not_inherit_write_heavy_tools(tmp_path, 
     assert captured["tools"] == ["filesystem", "row_bot_status"]
 
 
-def test_spawn_agent_run_records_interrupt_resume_state(tmp_path, monkeypatch):
+def test_spawn_agent_run_records_interrupt_resume_state(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent", approval_mode="approve")
 
@@ -828,10 +838,11 @@ def test_spawn_agent_run_records_interrupt_resume_state(tmp_path, monkeypatch):
     assert "approval.requested" in event_types
 
 
-def test_approval_resume_state_preserves_profile_tool_allowlist(tmp_path, monkeypatch):
+def test_approval_resume_state_preserves_profile_tool_allowlist(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent", approval_mode="approve")
     custom = profiles.save_agent_profile(
@@ -869,10 +880,11 @@ def test_approval_resume_state_preserves_profile_tool_allowlist(tmp_path, monkey
     ]
 
 
-def test_stop_agent_run_sets_live_stop_event_and_durable_status(tmp_path, monkeypatch):
+def test_stop_agent_run_sets_live_stop_event_and_durable_status(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     started = threading.Event()
@@ -911,10 +923,11 @@ def test_stop_agent_run_sets_live_stop_event_and_durable_status(tmp_path, monkey
     assert agent_runner.list_active_agent_run_ids() == []
 
 
-def test_stop_agent_run_preserves_stop_when_invocation_returns_late_success(tmp_path, monkeypatch):
+def test_stop_agent_run_preserves_stop_when_invocation_returns_late_success(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
     started = threading.Event()
@@ -955,10 +968,12 @@ def test_stop_agent_run_preserves_stop_when_invocation_returns_late_success(tmp_
 def test_orchestration_guidance_is_applied_at_next_safe_boundary(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     from row_bot.agent_orchestrator import (
         create_or_get_orchestration,
@@ -1015,10 +1030,11 @@ def test_orchestration_guidance_is_applied_at_next_safe_boundary(
     assert delivered[0]["delivery_status"] == "delivered"
 
 
-def test_worktree_workspace_mode_allocates_child_workspace(tmp_path, monkeypatch):
+def test_worktree_workspace_mode_allocates_child_workspace(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     _workspace(tmp_path, "dev_parent", "parent")
     parent_thread_id = threads.create_thread(
@@ -1089,10 +1105,11 @@ def test_worktree_workspace_mode_allocates_child_workspace(tmp_path, monkeypatch
     assert worktree_event["payload_json"]["seeded_from_current_changes"] is True
 
 
-def test_two_worktree_child_agents_receive_distinct_workspaces(tmp_path, monkeypatch):
+def test_two_worktree_child_agents_receive_distinct_workspaces(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     _workspace(tmp_path, "dev_parent", "parent")
     parent_thread_id = threads.create_thread(
@@ -1154,10 +1171,12 @@ def test_two_worktree_child_agents_receive_distinct_workspaces(tmp_path, monkeyp
 def test_orchestrated_write_children_are_forced_into_distinct_worktrees(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     from row_bot.agent_orchestrator import create_or_get_orchestration
     _workspace(tmp_path, "dev_parent", "parent")
@@ -1229,10 +1248,12 @@ def test_orchestrated_write_children_are_forced_into_distinct_worktrees(
 def test_orchestrated_writer_keeps_single_writer_mode_for_non_git_workspace(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     from row_bot.agent_orchestrator import create_or_get_orchestration
     _workspace(tmp_path, "dev_folder", "folder")
@@ -1281,10 +1302,11 @@ def test_orchestrated_writer_keeps_single_writer_mode_for_non_git_workspace(
     assert threads._get_thread_developer_workspace(run["thread_id"]) == "dev_folder"
 
 
-def test_worktree_requires_developer_workspace(tmp_path, monkeypatch):
+def test_worktree_requires_developer_workspace(tmp_path, monkeypatch, reload_for_data_dir):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,
         monkeypatch,
+        reload_for_data_dir,
     )
     parent_thread_id = threads.create_thread("Parent")
 

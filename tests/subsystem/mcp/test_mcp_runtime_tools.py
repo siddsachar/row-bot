@@ -20,12 +20,14 @@ def clean_runtime_state():
         runtime._catalog.clear()
         runtime._servers.clear()
         runtime._statuses.clear()
+        runtime._issued.clear()
     yield
     runtime.shutdown()
     with runtime._runtime_lock:
         runtime._catalog.clear()
         runtime._servers.clear()
         runtime._statuses.clear()
+        runtime._issued.clear()
 
 
 @dataclass
@@ -346,3 +348,130 @@ def test_plugin_mcp_runtime_filters_tools_by_plugin_source(monkeypatch) -> None:
     assert destructive == {"mcp_plugin_office_plugin_office_delete_mail"}
     assert [record["plugin_id"] for record in records] == ["office-plugin", "office-plugin"]
     assert all(record["source"] == "mcp" for record in records)
+
+
+def test_a_step_names_its_app_and_tool_only_from_names_the_runtime_issued(monkeypatch) -> None:
+    """Which app and tool a chat step shows comes from the exact names the runtime gave the agent (or
+    discovered), with the tool's own title; a look-alike name belongs to no app."""
+    from row_bot.mcp_client import runtime
+
+    granola = {"enabled": True, "transport": "stdio", "tools": {"enabled": {"delete_page": True, "list_notes": True}}}
+    notion = {"enabled": True, "transport": "stdio", "tools": {"enabled": {"search": True}}}  # Resources stay off.
+    monkeypatch.setattr(runtime.mcp_config, "is_globally_enabled", lambda: True)
+    monkeypatch.setattr(runtime.mcp_config, "get_config",
+                        lambda: {"enabled": True, "servers": {"Granola MCP": granola, "Notion": notion}})
+    monkeypatch.setattr(runtime, "discover_enabled_servers", lambda: None)
+    with runtime._runtime_lock:
+        for name, cfg, tools in (
+                ("Granola MCP", granola, [{"name": "delete_page", "description": "Delete a page.", "inputSchema": {"type": "object"},
+                                           "annotations": {"title": "Delete a page", "destructiveHint": True}},
+                                          FakeMcpTool("list_notes", "List notes", {"type": "object"})]),
+                ("Notion", notion, [FakeMcpTool("search", "Search", {"type": "object"})])):
+            runtime._servers[name] = runtime.McpServerRuntime(name, {"tool_timeout": 1})
+            runtime._catalog[name] = runtime._normalize_tools(name, cfg, tools)
+
+    names = {tool.name for tool in runtime.get_langchain_tools(allow_names=["mcp"])}
+    assert {"mcp_granola_mcp_delete_page", "mcp_granola_mcp_list_notes", "mcp_notion_search"} <= names
+    assert runtime.server_for_tool("mcp_granola_mcp_delete_page") == "Granola MCP"
+    assert runtime.tool_title("mcp_granola_mcp_delete_page") == "Delete a page"  # The server's own title.
+    assert runtime.tool_title("mcp_granola_mcp_list_notes") == "List notes"  # Its own name, in words.
+    # Notion's resources are off, so nothing named like its resource helper is Notion's.
+    assert runtime.server_for_tool("mcp_notion_list_resources") is None
+    assert runtime.tool_title("mcp_notion_list_resources") == ""
+    assert runtime.server_for_tool("mcp_granola_delete_page") is None  # Close, but not a name it issued.
+
+
+def test_tools_that_ask_in_every_approval_mode_ask_even_when_allowed_to_run(monkeypatch):
+    """Destructive tools, tools of unknown effect, and tools recorded as always asking when accepted
+    (a broker's acting tools) ask in Ask and in Allow all, even set to run without asking; a reading tool
+    doesn't."""
+    from row_bot.application.capability_catalog_controls import capture_tested_catalog
+    from row_bot.mcp_client import runtime
+
+    tools = [{"name": name, "description": description, "inputSchema": {"type": "object"}}
+             for name, description in (("list_pages", "List pages."), ("delete_page", "Delete a page for good."),
+                                       ("frobnicate", "Frobnicate."), ("COMPOSIO_MULTI_EXECUTE_TOOL", "Search records."))]
+    cfg = {"enabled": True, "tools": {"enabled": {tool["name"]: True for tool in tools}}}
+    found = runtime._normalize_tools("Broker", cfg, tools)
+    recorded = capture_tested_catalog({"ok": True, "tools": [info.__dict__ for info in found.values()]})["tools"]
+    cfg["tools"].update(catalog={row["name"]: row for row in recorded}, accepted_names=[row["name"] for row in recorded],
+                        run_without_asking=[tool["name"] for tool in tools])
+    with runtime._runtime_lock:
+        runtime._catalog["Broker"] = runtime._normalize_tools("Broker", cfg, tools)
+    monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {"Broker": cfg}})
+    asking = runtime.get_destructive_tool_names()
+    assert "mcp_broker_list_pages" not in asking
+    assert {"mcp_broker_delete_page", "mcp_broker_frobnicate", "mcp_broker_composio_multi_execute_tool"} <= asking
+    assert all(info.enabled for info in runtime._catalog["Broker"].values())  # Recording it never unaccepts it.
+
+
+def test_a_recorded_code_running_tool_asks_whatever_its_server_hints(monkeypatch):
+    """A broker's workbench (it runs code) the person switched on by its own toggle, whose server calls it
+    read-only: it still asks before running, in Ask as under Allow all."""
+    from row_bot.mcp_client import runtime
+
+    tools = [{"name": "COMPOSIO_REMOTE_WORKBENCH", "description": "Workbench.", "inputSchema": {"type": "object"},
+              "annotations": {"readOnlyHint": True}}]
+    cfg = {"enabled": True, "tools": {"enabled": {"COMPOSIO_REMOTE_WORKBENCH": True}, "require_approval": [],
+                                      "catalog": {"COMPOSIO_REMOTE_WORKBENCH": {
+                                          "effect": "read_only", "requires_approval": True, "runs_code": True,
+                                          "description": "Workbench.", "input_schema": {"type": "object"}}}}}
+    with runtime._runtime_lock:
+        runtime._catalog["broker"] = runtime._normalize_tools("broker", cfg, tools)
+    monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {"broker": cfg}})
+    info = runtime.tool_info("broker", "COMPOSIO_REMOTE_WORKBENCH")
+    assert info.enabled and info.effect == "read_only" and info.requires_approval
+    assert runtime.get_destructive_tool_names() == {"mcp_broker_composio_remote_workbench"}
+
+
+def test_a_name_two_apps_share_names_neither_until_one_no_longer_has_it(monkeypatch) -> None:
+    """Connection "acme" with "files_delete" and connection "acme files" with "delete" both make
+    mcp_acme_files_delete: that name names neither app, so no card shows the wrong one. Once "acme"
+    rediscovers its tools without it, the name is "acme files"'s alone."""
+    from row_bot.mcp_client import runtime
+
+    class Tools:
+        def __init__(self, tools):
+            self.tools = tools
+
+        async def list_tools(self):
+            return type("ToolList", (), {"tools": self.tools})()
+
+    cfg = {"enabled": True, "tools": {"enabled": {"files_delete": True, "delete": True}}}
+    monkeypatch.setattr(runtime, "_get_effective_config",
+                        lambda: {"enabled": True, "servers": {"acme": cfg, "acme files": cfg}})
+    monkeypatch.setattr(runtime, "discover_enabled_servers", lambda: None)
+    acme, files = runtime.McpServerRuntime("acme", cfg), runtime.McpServerRuntime("acme files", cfg)
+    acme.session = Tools([FakeMcpTool("files_delete", "Delete files.", {"type": "object"})])
+    files.session = Tools([{"name": "delete", "description": "Delete everything.", "inputSchema": {"type": "object"},
+                            "_meta": {"ui": {"visibility": ["app"]}}}])  # Only its own view calls it.
+    with runtime._runtime_lock:
+        runtime._servers.update({"acme": acme, "acme files": files})
+    for server in (acme, files):
+        asyncio.run(server._discover_tools())
+    assert [tool.name for tool in runtime.get_langchain_tools(allow_names=["mcp"])] == ["mcp_acme_files_delete"]
+    assert runtime.server_for_tool("mcp_acme_files_delete") is None
+    assert runtime.tool_title("mcp_acme_files_delete") == ""
+    acme.session = Tools([])
+    asyncio.run(acme._discover_tools())
+    assert runtime.server_for_tool("mcp_acme_files_delete") == "acme files"
+    assert runtime.tool_title("mcp_acme_files_delete") == "Delete"
+
+
+def test_an_optional_argument_the_model_leaves_out_is_not_sent_to_the_app(monkeypatch) -> None:
+    """Found live with Notion's search: an omitted optional argument was sent as null, which apps that check
+    their own schema refuse."""
+    from row_bot.mcp_client import runtime
+
+    sent = []
+    schema = {"type": "object", "properties": {"query": {"type": "string"}, "page_url": {"type": "string"}},
+              "required": ["query"]}
+    info = runtime.McpToolInfo("fake", "search", "mcp_fake_search", "Search", schema, enabled=True, effect="read_only")
+    monkeypatch.setattr(runtime.mcp_config, "get_config", lambda: {"enabled": True, "servers": {"fake": {"enabled": True}}})
+    monkeypatch.setattr(runtime, "_catalog", {"fake": {"search": info}})
+    monkeypatch.setattr(runtime, "_sync_catalog_from_config", lambda cfg=None: None)
+    monkeypatch.setattr(runtime, "_bind_authority", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runtime, "_call_tool_sync", lambda server, tool, arguments, expected=None: sent.append(arguments) or "ok")
+    tool = next(tool for tool in runtime.get_langchain_tools(refresh=False) if tool.name == "mcp_fake_search")
+    assert tool.invoke({"query": "recent"}) == "ok"
+    assert sent == [{"query": "recent"}]

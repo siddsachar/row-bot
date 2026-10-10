@@ -34,21 +34,17 @@ SETUP_STEPS: dict[str, dict[str, str]] = {
         "title": "Developer",
         "description": "Connect code workspaces and create Custom Tools.",
     },
-    "channels": {
-        "title": "Channels",
-        "description": "Connect Telegram, WhatsApp, Discord, Slack, or SMS.",
+    "apps": {
+        "title": "Apps",
+        "description": "Connect the services you use: Gmail and Calendar, GitHub, Slack, Telegram and more.",
     },
-    "accounts": {
-        "title": "Accounts",
-        "description": "Connect Gmail, Calendar, X, and other accounts.",
+    "skills": {
+        "title": "Skills",
+        "description": "Add skills that teach Row-Bot how you like things done.",
     },
     "tools": {
-        "title": "Tools & Skills",
-        "description": "Review search, browser, shell, filesystem, and skills.",
-    },
-    "extensions": {
-        "title": "MCP & Plugins",
-        "description": "Add external tools through MCP servers and plugins.",
+        "title": "Tools",
+        "description": "Review search, browser, shell, and filesystem tools.",
     },
     "voice": {
         "title": "Voice",

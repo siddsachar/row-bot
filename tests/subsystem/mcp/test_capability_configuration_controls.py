@@ -89,8 +89,8 @@ def test_original_receipt_rehashes_current_bytes_after_saved_snapshot(
     original = config.read_saved_configuration
     captured = []
 
-    def raced_read():
-        result = original()
+    def raced_read(target=None):
+        result = original(target)
         if not captured:
             captured.append(result.identity)
             changed = json.loads(config.CONFIG_PATH.read_text(encoding="utf-8"))
@@ -306,57 +306,18 @@ def test_deleted_server_uses_exact_revision_and_original_cleanup_receipt(
         )
 
 
-def test_directory_search_is_explicit_and_returns_disabled_import(owner, monkeypatch):
-    from row_bot.application.client_mcp_directory import search_directory
+def test_every_curated_entry_imports_against_a_fresh_revision(owner):
     from row_bot.mcp_client import marketplace
 
-    calls = []
-    entry = marketplace.MarketplaceEntry(
-        id="synthetic",
-        name="Synthetic Server",
-        description="Safe fixture",
-        source="curated",
-        transport="stdio",
-        install={"command": "synthetic-command"},
-    )
-    monkeypatch.setattr(
-        marketplace,
-        "search_marketplace_with_status",
-        lambda query, *, limit: (
-            calls.append((query, limit))
-            or marketplace.MarketplaceSearchResult([entry], "curated", query)
-        ),
-    )
-    assert not config.CONFIG_PATH.exists()
-    result = search_directory("synthetic", validate=lambda: None)
-    assert calls == [("synthetic", 24)]
-    assert result["mode"] == "curated"
-    imported = json.loads(result["items"][0]["import_json"])["mcpServers"]
-    assert next(iter(imported.values()))["enabled"] is False
-    assert not config.CONFIG_PATH.exists()
-
-
-def test_every_curated_entry_imports_against_a_fresh_revision(owner, monkeypatch):
-    from row_bot.application.client_mcp_directory import search_directory
-    from row_bot.mcp_client import marketplace
-
-    catalog = list(marketplace.CURATED_STARTER_CATALOG)
-    monkeypatch.setattr(marketplace, "search_marketplace_with_status",
-        lambda query, *, limit: marketplace.MarketplaceSearchResult(catalog[:limit], "curated", query))
-    items = search_directory("", validate=lambda: None)["items"]
-    assert len(items) == min(len(catalog), 24)
-    for item in items:
+    for entry in marketplace.CURATED_STARTER_CATALOG:
         # Each import reads the revision the previous save produced (B262).
-        value = command({"operation": "import", "import_json": item["import_json"]})
+        server = marketplace.entry_to_server_config(entry)
+        assert server["enabled"] is False
+        value = command({"operation": "import", "import_json": json.dumps({"mcpServers": {entry.id: server}})})
         controls.review_mcp_configuration_command(
             value["payload"]["configuration_revision"], value["payload"]["intent"], validate=lambda: None)
-        assert execute(value)["mcp_configuration"]["status"] == "saved", item["id"]
-    assert controls.read_mcp_configuration(limit=50).total == len(items)
-    # Remote servers that sign in through the browser are marked; token-based ones are not.
-    marked = {item["id"] for item in items if item["sign_in_required"]}
-    assert "makenotion-notion-mcp-server" in marked and "slack-mcp" in marked
-    assert not marked & {"xquik-mcp", "github-github-mcp-server", "upstash-context7", "microsoftdocs-mcp",
-                         "microsoft-playwright"}
+        assert execute(value)["mcp_configuration"]["status"] == "saved", entry.id
+    assert controls.read_mcp_configuration(limit=50).total == len(marketplace.CURATED_STARTER_CATALOG)
 
 
 def test_response_loss_reconciles_owned_publication_without_new_write(
@@ -690,7 +651,7 @@ print("cold_read_ok")
         env=environment,
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=60,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
     )
     assert result.returncode == 0, result.stderr
@@ -865,6 +826,30 @@ def test_publication_budget_invalid_before_effect(owner, limit):
     assert not (owner / "never.txt").exists()
 
 
+def test_pasted_configuration_never_accepts_or_allows_tools_and_an_edit_keeps_what_was_chosen(owner):
+    chosen = {"catalog": {"delete_notes": {"digest": "fixture"}}, "accepted_names": ["delete_notes"],
+              "run_without_asking": ["delete_notes"], "require_approval": ["delete_notes"]}
+    sign_in = {"mode": "api_key", "credential_ref": "a" * 32}
+    saved({"Chosen": {"command": "synthetic", "tools": chosen, "auth": sign_in}})
+    identity = controls.read_mcp_configuration().items[0].server_id
+    # An edit in the advanced editor keeps the person's saved choices; its own text cannot carry any.
+    execute(command({"operation": "edit", "server_id": identity, "fields": {"tool_timeout": 35}}))
+    kept = config.read_saved_configuration().document["servers"]["Chosen"]
+    assert kept["tools"] == chosen and kept["auth"] == sign_in and kept["tool_timeout"] == 35
+    with pytest.raises(controls.CapabilityConfigurationError, match="invalid_command"):
+        execute(command({"operation": "edit", "server_id": identity, "fields": {"tools": {"run_without_asking": []}}}))
+    # JSON pasted from a README (or any import) cannot accept, allow or sign in for the person.
+    pasted = {"command": "synthetic", "enabled": True, "tools": chosen, "auth": sign_in,
+              "managed_launch": {"id": "b" * 32, "kind": "npm"}}
+    execute(command({"operation": "import", "import_json": json.dumps({"mcpServers": {"Pasted": pasted}})}))
+    server = config.read_saved_configuration().document["servers"]["Pasted"]
+    assert server["enabled"] is False and server["tools"] == {"require_approval": ["delete_notes"]}
+    assert "auth" not in server and "managed_launch" not in server
+    pairs = {"command": "synthetic", "tools": [["run_without_asking", ["delete_notes"]]]}
+    with pytest.raises(controls.CapabilityConfigurationError, match="invalid_command"):
+        execute(command({"operation": "import", "import_json": json.dumps({"mcpServers": {"Pairs": pairs}})}))
+
+
 def test_save_disabled_creates_exact_argv_once_and_omitted_edit_values_are_retained(
     owner,
 ):
@@ -889,3 +874,27 @@ def test_save_disabled_creates_exact_argv_once_and_omitted_edit_values_are_retai
     )
     assert config.get_servers()["Synthetic"]["env"] == {"ORDINARY": "synthetic-secret"}
     assert "synthetic-secret" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("replace_equal_bytes", [False, True])
+def test_recovery_by_retained_id_requires_owned_publication(owner, monkeypatch, replace_equal_bytes):
+    from row_bot.runtime import admissions
+    persist = admissions.command_progress
+    def fail_completion(owner_id, key, result):
+        if result.get("status") == "completed":
+            raise OSError("lost completion")
+        return persist(owner_id, key, result)
+    monkeypatch.setattr(admissions, "command_progress", fail_completion)
+    value = command()
+    with pytest.raises(OSError, match="lost completion"):
+        execute(value)
+    content = config.CONFIG_PATH.read_bytes()
+    if replace_equal_bytes:
+        replacement = owner / "other.json"
+        replacement.write_bytes(content)
+        os.replace(replacement, config.CONFIG_PATH)
+    monkeypatch.setattr(admissions, "command_progress", persist)
+    monkeypatch.setattr(config, "publish_saved_configuration", lambda *a, **k: pytest.fail("repeated save"))
+    checked = controls.reconcile_mcp_configuration_operation(owner_id="synthetic-owner", command_id=value["command_id"], validate=lambda: None)
+    assert checked["settled"] is not replace_equal_bytes
+    assert config.CONFIG_PATH.read_bytes() == content

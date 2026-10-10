@@ -1,0 +1,181 @@
+{
+  "$defs": {
+    "IconLicense": {
+      "additionalProperties": false,
+      "properties": {
+        "guidelines": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Guidelines",
+          "type": "string"
+        },
+        "license": {
+          "maxLength": 64,
+          "title": "License",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 512,
+          "title": "Source",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "license",
+        "source"
+      ],
+      "title": "IconLicense",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "auth": {
+      "enum": [
+        "",
+        "oauth",
+        "api_key",
+        "none",
+        "account",
+        "mixed"
+      ],
+      "title": "Auth",
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "productivity",
+        "developer",
+        "data",
+        "design",
+        "communication",
+        "finance",
+        "local_tools"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "docs_url": {
+      "maxLength": 512,
+      "title": "Docs Url",
+      "type": "string"
+    },
+    "example_prompts": {
+      "items": {
+        "maxLength": 160,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Example Prompts",
+      "type": "array"
+    },
+    "featured_rank": {
+      "anyOf": [
+        {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Featured Rank"
+    },
+    "icon": {
+      "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
+      "title": "Icon",
+      "type": "string"
+    },
+    "icon_license": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IconLicense"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "jobs": {
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Jobs",
+      "type": "array"
+    },
+    "key_url": {
+      "maxLength": 512,
+      "title": "Key Url",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 128,
+      "title": "Name",
+      "type": "string"
+    },
+    "publisher": {
+      "maxLength": 128,
+      "title": "Publisher",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 256,
+      "title": "Summary",
+      "type": "string"
+    },
+    "variants": {
+      "items": {
+        "enum": [
+          "hosted_mcp",
+          "local_mcp",
+          "package",
+          "account",
+          "channel",
+          "api_key_tool",
+          "broker"
+        ],
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Variants",
+      "type": "array"
+    },
+    "verified": {
+      "title": "Verified",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "publisher",
+    "category",
+    "icon",
+    "verified",
+    "summary",
+    "jobs",
+    "example_prompts",
+    "variants",
+    "auth",
+    "docs_url",
+    "key_url",
+    "icon_license"
+  ],
+  "title": "AppView",
+  "type": "object"
+}

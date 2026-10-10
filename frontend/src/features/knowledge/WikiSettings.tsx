@@ -180,6 +180,8 @@ interface State {
   error: string | null;
   authorizedFolder: string;
   openStatus: string;
+  /** When Check vault sync last read the vault, so a check always shows. */
+  checkedAt: string;
 }
 const initial = (): State => ({
   status: null,
@@ -196,6 +198,7 @@ const initial = (): State => ({
   error: null,
   authorizedFolder: '',
   openStatus: '',
+  checkedAt: '',
 });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -272,6 +275,13 @@ export class WikiSettingsSession {
         trimmed: false,
       });
     });
+  };
+  /** Check vault sync: read it again and say when, even if nothing changed. */
+  check = async () => {
+    if (this.state.pending || this.state.busy) return;
+    this.set({ checkedAt: '' });
+    await this.load();
+    if (!this.state.error) this.set({ checkedAt: new Date().toISOString() });
   };
   more = async () => {
     const page = this.state.page;
@@ -532,8 +542,8 @@ export default function WikiSettings({
           {!compact && <p className="eyebrow">Knowledge publishing</p>}
           <h2>Wiki vault</h2>
           <p>
-            Publish saved knowledge as Markdown. Opening articles and checking
-            sync do not import, rebuild, or call a provider.
+            Publishes your saved knowledge as Markdown files. Checking sync and
+            opening articles only read: they change nothing and use no model.
           </p>
         </div>
       </header>
@@ -558,16 +568,18 @@ export default function WikiSettings({
               />
             </label>
           )}
-          <Field label="Vault path" layout="row">
+          {/* Full width: a vault path is long, and a 280px box cut it off. */}
+          <Field label="Vault path">
             <Input
               aria-label="Vault path"
+              title={pathDraft}
               value={pathDraft}
               onChange={(event) => setPathDraft(event.target.value)}
             />
           </Field>
           {!pathAuthorized && (
             <p className="settings-help" role="status">
-              Browse to authorize this folder before applying it.
+              Choose this folder with Browse before using it.
             </p>
           )}
           <div className="actions settings-wiki-actions">
@@ -593,7 +605,7 @@ export default function WikiSettings({
         </>
       )}
       <div className="actions settings-wiki-actions">
-        <Button disabled={locked} onClick={() => void session.load()}>
+        <Button disabled={locked} onClick={() => void session.check()}>
           Check vault sync
         </Button>
         {!compact && session.canChooseVault() && (
@@ -635,13 +647,24 @@ export default function WikiSettings({
               ? `${state.result.status === 'completed' ? 'Finished' : 'Partial outcome'}: ${state.result.count} completed, ${state.result.conflicts} need review.`
               : state.status?.availability === 'available' &&
                   state.status.articles === null
-                ? 'Authorized folder selected. Use it as the wiki vault when ready.'
+                ? 'Folder chosen. Use it as the wiki vault when ready.'
                 : state.status?.availability === 'available'
                   ? `${state.status.articles} saved articles; ${state.status.edited} edits; ${state.status.conflicts} need review.`
                   : state.status?.availability === 'scope_required'
-                    ? 'Select an authorized vault to read or change its files.'
+                    ? session.canChooseVault()
+                      ? 'Choose the vault folder with Browse first.'
+                      : 'Checking the vault needs the Row-Bot desktop app, where you choose its folder.'
                     : 'Wiki status is unavailable.'}
       </p>
+      {state.checkedAt && !state.busy && (
+        <p className="settings-help" aria-live="polite">
+          Checked at{' '}
+          <time dateTime={state.checkedAt}>
+            {new Date(state.checkedAt).toLocaleTimeString()}
+          </time>
+          .
+        </p>
+      )}
       {state.pending && (
         <Button
           disabled={state.busy}

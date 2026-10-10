@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { GoalPage, GoalSummary } from '../../api/types';
 import ContextGoal, {
@@ -115,15 +116,47 @@ it('says Working only while a turn runs, never while idle (B123)', () => {
   expect(goalTurn({ ...goal, max_turns: 0 }, false)).toBe('Turn 3');
 });
 
-it('always shows the Goal section: "No goal" and Set a goal open the composer (B223)', async () => {
+it('spends no Goal row on a chat without a goal: a small Set a goal opens the composer', async () => {
   const api = io(page([]));
   const onCompose = vi.fn();
   show(api, { onCompose });
   await waitFor(() => expect(api.load).toHaveBeenCalledOnce());
-  expect(screen.getByText('Goal', { selector: 'summary' })).toBeVisible();
-  expect(screen.getByText('No goal')).toBeVisible();
+  expect(screen.queryByText('Goal', { selector: 'summary' })).toBeNull();
+  expect(screen.queryByText('No goal')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Set a goal' }));
   expect(onCompose).toHaveBeenCalledOnce();
+});
+
+it('moves focus into the goal form as it opens and back to Set a goal on Cancel', async () => {
+  const api = io(page([]));
+  function Owner() {
+    const [compose, setCompose] = useState(false);
+    return (
+      <ContextGoal
+        conversationId="conversation-a"
+        activity="a"
+        running={false}
+        ready
+        io={api}
+        compose={compose}
+        onCompose={() => setCompose(true)}
+        onComposeDone={() => setCompose(false)}
+      />
+    );
+  }
+  render(<Owner />);
+  await waitFor(() => expect(api.load).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole('button', { name: 'Set a goal' }));
+  // While it is set, the full Goal section shows with its form.
+  expect(screen.getByText('Goal', { selector: 'summary' })).toBeVisible();
+  expect(
+    screen.getByRole('textbox', {
+      name: 'What should this conversation achieve?',
+    }),
+  ).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByText('Goal', { selector: 'summary' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Set a goal' })).toHaveFocus();
 });
 
 it('waits for the conversation before a goal can be set', () => {
@@ -277,7 +310,10 @@ it('keeps earlier goals in the thread after the current one ends', async () => {
     current_revision: 'none',
   });
   show(api);
-  expect(await screen.findByText('No goal')).toBeVisible();
+  // The section stays for its history, with Set a goal and no "No goal".
+  expect(await screen.findByText('Earlier goals')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Set a goal' })).toBeVisible();
+  expect(screen.queryByText('No goal')).toBeNull();
   fireEvent.click(screen.getByText('Earlier goals'));
   expect(screen.getByText('Draft the launch checklist')).toBeVisible();
   expect(screen.getByText(/Done · 3 of 10 turns/)).toBeVisible();

@@ -5,6 +5,7 @@ import errno
 import importlib
 import io
 import ipaddress
+import json
 import os
 import pathlib
 import socket
@@ -84,6 +85,9 @@ DEFAULT_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("TMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("TEMP", str(DEFAULT_TEST_TMP_DIR))
+# pytest numbers its temporary folders per run under this root, so runs side by side
+# never delete each other's (a fixed --basetemp is wiped by every run that starts).
+os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("ROW_BOT_TEST_MODE", "1")
 # Test folders live under the checkout's .tmp: git run there by the code under test
 # must stop at .tmp instead of finding (and committing to) the checkout (B216).
@@ -312,6 +316,16 @@ def _reset_agent_runtime_context():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_builtin_ways():
+    # Apps keeps one snapshot of Row-Bot's own ways to connect per data folder; tests share a
+    # folder and fake its owners differently, so each one starts from its owners again.
+    changed = getattr(sys.modules.get("row_bot.integrations.builtin"), "changed", None)
+    if callable(changed):
+        changed()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _package_attributes_follow_sys_modules():
     # Older tests evict row_bot modules from sys.modules by hand and never
     # re-import them, so the package keeps the evicted module as an attribute.
@@ -333,6 +347,28 @@ def _package_attributes_follow_sys_modules():
 
 
 @pytest.fixture(autouse=True)
+def _channel_registry_restored():
+    # Row-Bot's own channels register themselves when imported. Tests that register fakes left them behind,
+    # so a later test on the worker listed the fakes and no Telegram channel at all.
+    registry = importlib.import_module("row_bot.channels.registry")
+    saved = dict(registry._channels), dict(registry._channel_sources)
+    yield
+    registry = sys.modules.get("row_bot.channels.registry", registry)
+    registry._channels.clear()
+    registry._channels.update(saved[0])
+    registry._channel_sources.clear()
+    registry._channel_sources.update(saved[1])
+
+
+@pytest.fixture(autouse=True)
+def _no_title_model(monkeypatch):
+    # A conversation's first finished turn asks its model for a title on a background
+    # thread. Tests that run turns script the agent, not that model: unscripted, the thread
+    # built a real provider client after the test had ended. The naming tests script it.
+    monkeypatch.setattr("row_bot.application.conversation_naming._ask", lambda *_args: "")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_desktop_notification_outputs(monkeypatch):
     # Exercise notification state/toasts normally while keeping deterministic
     # tests from showing OS alerts or playing sounds on the developer's desktop.
@@ -340,6 +376,24 @@ def _isolate_desktop_notification_outputs(monkeypatch):
 
     monkeypatch.setattr(notifications, "_desktop_notify", lambda *args, **kwargs: None)
     monkeypatch.setattr(notifications, "_play_sound", lambda *args, **kwargs: None)
+
+
+@pytest.fixture(scope="session")
+def _registry_fixture_snapshot(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    from row_bot.mcp_client import marketplace, registry_snapshot
+
+    envelope = json.loads((Path(__file__).parent / "fixtures/integrations/registry-v01.json").read_text(encoding="utf-8"))
+    path = tmp_path_factory.mktemp("registry") / "registry_snapshot.jsonl.xz"
+    path.write_bytes(registry_snapshot.build_snapshot(marketplace.registry_entries(envelope), captured_at=1790000000.0,
+                                                      watermark="2026-09-21T00:00:00Z"))
+    return path
+
+
+@pytest.fixture(autouse=True)
+def _small_registry_snapshot(_registry_fixture_snapshot: Path, monkeypatch: pytest.MonkeyPatch):
+    # The shipped Registry mirror holds tens of thousands of records. Deterministic tests
+    # index a one-record fixture instead; a test of the shipped snapshot sets SHIPPED itself.
+    monkeypatch.setattr("row_bot.mcp_client.registry_snapshot.SHIPPED", _registry_fixture_snapshot)
 
 
 @pytest.fixture
@@ -370,6 +424,10 @@ def reload_for_data_dir(monkeypatch: pytest.MonkeyPatch):
     yield reload
     threads = sys.modules.get("row_bot.threads")
     if threads is not None and ("row_bot.threads" in saved or "row_bot.threads" in first_imported):
+        # A background page refresh may still be reading the connection closed below.
+        settle = getattr(sys.modules.get("row_bot.application.client_platform"), "settle_background", None)
+        if callable(settle):
+            assert settle(10), "Test left background work running"
         try:
             threads.conn.close()  # the test's connection; the restored one stays open
         except Exception:

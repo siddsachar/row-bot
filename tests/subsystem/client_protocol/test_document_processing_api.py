@@ -343,3 +343,26 @@ def test_the_model_chosen_for_documents_wins_over_the_conversations(service, que
         chosen.unlink()
         review, _ = reviewed(client, headers, identifier, batch)
         assert review["chat"]["model_ref"] == "model:openai:gpt-4o"
+
+
+def test_settings_processes_without_a_conversation_with_the_default_model_and_ask(service, queue, providers):
+    from row_bot.application.document_processing import SETTINGS_PROCESSING_SCOPE
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
+    update_saved_model_settings(lambda current: {**current, "model": "model:openai:gpt-4o-mini"})
+    # Whichever chat was open last (here a blocked one) plays no part.
+    conversation(approval="block")
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        batch, _ = uploaded(client, headers)
+        review, command = reviewed(client, headers, SETTINGS_PROCESSING_SCOPE, batch)
+        assert review["conversation_id"] == SETTINGS_PROCESSING_SCOPE
+        assert review["chat"]["model_ref"] == "model:openai:gpt-4o-mini"
+        assert providers["factory"] == providers["start"] == []
+        forged = {**command, "payload": {**command["payload"], "review_id": "forged"}}
+        assert send(client, headers, SETTINGS_PROCESSING_SCOPE, forged).status_code in {403, 409}
+        result = send(client, headers, SETTINGS_PROCESSING_SCOPE, command)
+        assert result.status_code == 200 and result.json()["processing"] == "admitted", result.text
+        proof = queue.service.processing_admission(batch)
+        assert proof["conversation_id"] == SETTINGS_PROCESSING_SCOPE
+        # The worker resolves the same scope again for each stage.
+        assert queue.service.claim_next("synthetic-worker").status == "indexing"

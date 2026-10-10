@@ -67,7 +67,7 @@ it('keeps an admitting result reconcilable and never offers a duplicate create',
     screen.queryByRole('button', { name: 'Create Deck' }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByRole('button', { name: 'Start another resource' }),
+    screen.queryByRole('button', { name: 'Create another' }),
   ).not.toBeInTheDocument();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
@@ -277,6 +277,64 @@ it.each([
   },
 );
 
+it('switches to the canvas a template is made for, which Advanced can still change', async () => {
+  mock.controller.artifactSetup.mockResolvedValue({
+    mode: 'app_mockup',
+    templates: [
+      { id: 'blank_app_mockup', label: 'Blank App Mockup', canvas: 'phone' },
+      {
+        id: 'dashboard_desktop',
+        label: 'Dashboard — Desktop SaaS',
+        canvas: 'desktop',
+      },
+      { id: 'no_canvas', label: 'Any canvas', canvas: '' },
+    ],
+    canvases: [
+      { id: 'phone', label: 'Phone · 390×844' },
+      { id: 'desktop', label: 'Desktop · 1440×900' },
+    ],
+    default_template: 'blank_app_mockup',
+    default_canvas: 'phone',
+    default_name: 'Untitled App mockup',
+    default_brand: 'Default brand',
+  });
+  await act(async () => view());
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Design type'), {
+      target: { value: 'app_mockup' },
+    }),
+  );
+  expect(screen.getByLabelText('Canvas')).toHaveValue('phone');
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Template'), {
+      target: { value: 'dashboard_desktop' },
+    }),
+  );
+  expect(screen.getByLabelText('Canvas')).toHaveValue('desktop');
+  // A template without a canvas of its own keeps the one chosen.
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Template'), {
+      target: { value: 'no_canvas' },
+    }),
+  );
+  expect(screen.getByLabelText('Canvas')).toHaveValue('desktop');
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Template'), {
+      target: { value: 'dashboard_desktop' },
+    }),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Create App mockup' })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
+    artifact: {
+      mode: 'app_mockup',
+      template_id: 'dashboard_desktop',
+      aspect_ratio: 'desktop',
+    },
+  });
+});
+
 it('says the desktop app is reconnecting, not that it needs the desktop window (B231)', async () => {
   mock.platform.selectFolder.mockResolvedValue({
     status: 'unavailable',
@@ -420,7 +478,21 @@ it('continues an unregistered folder using renewed authority without an undefine
   expect(mock.controller.intent.mock.calls[0][2]).not.toHaveProperty(
     'expected_resource_revision',
   );
-  expect(screen.getByText('Resource ready')).toBeVisible();
+  expect(
+    screen.getByText(/^(Design ready|Code folder ready|Ready)$/),
+  ).toBeVisible();
+});
+
+it('says a created design is ready without listing internal stages', async () => {
+  const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a');
+  setupSessions.reserve(key, 'done-command');
+  mock.controller.receipt.mockResolvedValue(result('done-command'));
+  await act(async () => {
+    view();
+  });
+  expect(await screen.findByText('Design ready')).toBeVisible();
+  expect(screen.queryByText('associated')).toBeNull();
+  expect(screen.queryByText(/Resource deck-a/)).toBeNull();
 });
 
 it('retains loaded defaults when the selected design mode is selected again', async () => {
@@ -432,6 +504,16 @@ it('retains loaded defaults when the selected design mode is selected again', as
   );
   expect(screen.getByRole('button', { name: 'Create Deck' })).toBeEnabled();
   expect(mock.controller.deckSetup).toHaveBeenCalledTimes(1);
+});
+
+it('offers the design templates up front, not under Advanced', async () => {
+  await act(async () => view());
+  expect(screen.getByLabelText('Template')).toBeVisible();
+  expect(
+    screen.getByRole('option', { name: 'Blank Deck' }),
+  ).toBeInTheDocument();
+  // The canvas stays an advanced choice.
+  expect(screen.getByLabelText('Canvas')).not.toBeVisible();
 });
 
 it('opens the exact Home resource through canonical setup after refreshing its library identity', async () => {
@@ -727,10 +809,12 @@ it('reopens a lost setup response through its saved receipt without recreating t
     id,
     expect.any(AbortSignal),
   );
-  expect(screen.getByText('Resource ready')).toBeInTheDocument();
+  expect(
+    screen.getByText(/^(Design ready|Code folder ready|Ready)$/),
+  ).toBeInTheDocument();
   expect(mock.controller.intent).toHaveBeenCalledTimes(1);
   expect(
-    screen.getByRole('button', { name: 'Start another resource' }),
+    screen.getByRole('button', { name: 'Create another' }),
   ).toBeInTheDocument();
 });
 
@@ -1137,7 +1221,9 @@ it('recovers a lost separate-history response on remount without creating anothe
     id,
     expect.any(AbortSignal),
   );
-  expect(screen.getByText('Resource ready')).toBeVisible();
+  expect(
+    screen.getByText(/^(Design ready|Code folder ready|Ready)$/),
+  ).toBeVisible();
   expect(mock.controller.intent).toHaveBeenCalledTimes(1);
   expect(mock.navigate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open conversation' }));

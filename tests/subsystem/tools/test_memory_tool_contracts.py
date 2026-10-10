@@ -80,6 +80,63 @@ def test_memory_tool_save_list_update_delete_uses_isolated_memory_store(tmp_path
     assert memory_tool._list_memories("project") == "No memories in category 'project'."
 
 
+def test_memory_tool_saves_without_a_local_search_model_and_indexes_later(
+    tmp_path, monkeypatch, reload_for_data_dir
+) -> None:
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    from row_bot import embedding_config
+
+    kg, memory, _evolution, memory_tool, wiki_vault = reload_for_data_dir(
+        tmp_path / "row-bot-data",
+        "row_bot.knowledge_graph",
+        "row_bot.memory",
+        "row_bot.memory_evolution",
+        "row_bot.tools.memory_tool",
+        "row_bot.wiki_vault",
+    )
+    monkeypatch.setattr(kg, "_skip_reindex", False)
+    monkeypatch.setattr(wiki_vault, "is_enabled", lambda: False)
+    monkeypatch.setattr(memory_tool, "_check_contradiction", lambda *_args, **_kwargs: None)
+    fingerprint = {"version": 1, "provider": "fake", "model": "absent-v1", "dimension": 3, "normalize": True}
+    monkeypatch.setattr(embedding_config, "get_embedding_config", lambda: {"batch_size": 32})
+    monkeypatch.setattr(embedding_config, "active_embedding_metadata", lambda *_a, **_kw: dict(fingerprint))
+
+    def model_not_downloaded(**_kwargs):
+        # What a cache-only load raises when the model was never downloaded.
+        raise LocalEntryNotFoundError("Cannot find an appropriate cached snapshot folder on the local disk.")
+
+    monkeypatch.setattr(kg, "_get_embedding_model", model_not_downloaded)
+
+    saved = memory_tool._save_memory("preference", "Tea Tool", "The user prefers oolong tea.")
+    merged = memory_tool._save_memory("preference", "Tea Tool", "The user brews it at 90 degrees.")
+    memory_id = memory.find_by_subject("preference", "Tea Tool")["id"]
+    updated = memory_tool._update_memory(memory_id, "The user prefers oolong tea brewed at 90 degrees.")
+
+    assert saved.startswith("Memory saved successfully")
+    assert merged.startswith("Memory updated (merged with existing)")
+    assert updated.startswith("Memory updated successfully")
+    assert [row["id"] for row in memory.list_memories()] == [memory_id]
+    assert not kg.memory_vector_status()["ready"]
+    diagnostics: dict = {}
+    assert [row["id"] for row in kg.retrieve_memory_candidates("oolong", diagnostics=diagnostics)] == [memory_id]
+    assert diagnostics["semantic_status"] == "fallback"
+
+    class DownloadedModel:
+        def embed_documents(self, texts):
+            return [[float(len(text)), 1.0, 2.0] for text in texts]
+
+        def embed_query(self, text):
+            return [float(len(text)), 1.0, 2.0]
+
+    monkeypatch.setattr(kg, "_get_embedding_model", lambda **_kwargs: DownloadedModel())
+    assert kg.repair_projections()["complete"]
+    assert kg.memory_vector_status()["ready"]
+    diagnostics = {}
+    assert [row["id"] for row in kg.retrieve_memory_candidates("oolong", diagnostics=diagnostics)] == [memory_id]
+    assert diagnostics["semantic_status"] == "used"
+
+
 def test_memory_tool_search_formats_properties_and_graph_context(tmp_path, monkeypatch) -> None:
     stack = fresh_memory_stack(tmp_path, monkeypatch)
     memory_tool = stack["memory_tool"]

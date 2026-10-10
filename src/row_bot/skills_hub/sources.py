@@ -6,8 +6,6 @@ import hashlib
 import json
 import pathlib
 import re
-import urllib.parse
-import urllib.request
 from typing import Any
 
 import yaml
@@ -65,15 +63,18 @@ class SkillSource:
         return SourceHealth(source_id=self.id, online=False)
 
 
+# Reviewed skill catalog hosts: these stay on their own list and may use the system proxy.
+CATALOG_HOSTS = frozenset({"clawhub.ai", "api.github.com", "raw.githubusercontent.com", "codeload.github.com"})
+
+
 def fetch_bytes(url: str, *, headers: dict[str, str] | None = None, timeout: int = DEFAULT_TIMEOUT) -> bytes:
-    request_headers = dict(BROWSER_HEADERS)
-    request_headers.update(headers or {})
-    request = urllib.request.Request(url, headers=request_headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered public skill fetch
-        data = response.read(MAX_SOURCE_BYTES + 1)
-    if len(data) > MAX_SOURCE_BYTES:
-        raise ValueError(f"Source response is larger than {MAX_SOURCE_BYTES} bytes")
-    return data
+    """Public skill catalogs: reviewed catalog hosts, or any other public host reached directly;
+    every redirect rechecked; tokens never cross hosts."""
+    from urllib.parse import urlsplit
+    from row_bot.integrations.safe import fetch
+    hosts = CATALOG_HOSTS if urlsplit(url).hostname in CATALOG_HOSTS else None
+    return fetch(url, hosts=hosts, max_bytes=MAX_SOURCE_BYTES, timeout=timeout, headers={**BROWSER_HEADERS, **(headers or {})},
+        redirects=5, refused="skill_source_refused", too_large="skill_source_too_large")
 
 
 def fetch_text(url: str, *, headers: dict[str, str] | None = None, timeout: int = DEFAULT_TIMEOUT) -> str:
@@ -93,17 +94,6 @@ def parse_skill_markdown(text: str) -> tuple[dict[str, Any], str]:
         raise ValueError("SKILL.md frontmatter must be a mapping")
     instructions = text[match.end():].strip()
     return meta, instructions
-
-
-def looks_like_skill_markdown(text: str) -> bool:
-    value = text or ""
-    if FRONTMATTER_RE.match(value):
-        return True
-    lower = value.lower()
-    return value.lstrip().startswith("#") and any(
-        marker in lower
-        for marker in ("when to use", "instructions", "workflow", "steps", "skill")
-    )
 
 
 def markdown_with_frontmatter(text: str, *, name: str, description: str = "") -> str:
@@ -300,11 +290,3 @@ def score_entry(entry: SkillHubEntry, query: str) -> tuple[int, str]:
 
     return (-int(_score_entry(entry, query)), entry.name.lower())
 
-
-def source_url_from_entry(entry: SkillHubEntry) -> str:
-    if entry.url:
-        return entry.url
-    parsed = urllib.parse.urlparse(entry.install_ref)
-    if parsed.scheme in {"http", "https"}:
-        return entry.install_ref
-    return ""

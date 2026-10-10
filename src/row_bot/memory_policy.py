@@ -27,6 +27,8 @@ _RECALL_TRACE_MAX = 100
 _FALLBACK_NOTICE_MAX = 100
 _fallback_notices: dict[str, list[dict[str, str]]] = {}
 _fallback_notice_lock = threading.Lock()
+# Causes already shown to the person since semantic recall last worked: each is shown once, not every reply.
+_fallback_announced: set[str] = set()
 
 
 AUTO_RECALL_MAX_MEMORIES = 5
@@ -81,16 +83,26 @@ class MemoryRecallDecision:
 
 def _fallback_next_action(code: str) -> str:
     if code == "local_model_missing":
-        action = "Download model"
+        action = "under Search model files choose Download"
     elif code == "local_model_timeout":
-        action = "Retry local load"
-    elif code == "memory_index_missing":
-        action = "Rebuild memory index"
-    elif code == "memory_index_stale":
-        action = "Rebuild memory index"
+        action = "under Search model files choose Retry"
+    elif code in {"memory_index_missing", "memory_index_stale"}:
+        action = "under Memory index choose Rebuild"
     else:
-        action = "Repair local model"
-    return f"Open Settings -> Documents -> Embedding Engine, then choose {action}."
+        action = "under Search model files choose Repair"
+    return f"Open Settings › Documents › Advanced, then {action}."
+
+
+def _fallback_cause(code: str, detail: str) -> tuple[str, str]:
+    """The cause to fix first: a memory index can't be rebuilt while its search model isn't downloaded."""
+    if code in {"memory_index_missing", "memory_index_stale"}:
+        try:
+            from row_bot.embedding_providers import get_local_embedding_status
+            if get_local_embedding_status()["state"] == "missing":
+                return "local_model_missing", "The search model isn't downloaded on this computer."
+        except Exception:
+            logger.debug("Could not check the local search model", exc_info=True)
+    return code, detail
 
 
 def _publish_fallback_notice(
@@ -100,28 +112,27 @@ def _publish_fallback_notice(
     thread_id: str,
     generation_id: str,
 ) -> dict[str, str]:
+    code, detail = _fallback_cause(str(code or "semantic_unavailable"), str(detail or ""))
     notice = {
-        "code": str(code or "semantic_unavailable"),
-        "title": "Memory recall fallback",
-        "message": (
-            "Semantic memory recall was unavailable, so Row-Bot continued with "
-            "local lexical and graph recall."
-        ),
-        "detail": str(detail or "Semantic memory recall is unavailable."),
-        "action": _fallback_next_action(str(code or "semantic_unavailable")),
+        "code": code,
+        "title": "Memory search is limited",
+        "message": "Row-Bot matched your memories by their words, not their meaning, and continued.",
+        "detail": detail or "Searching memories by meaning isn't available right now.",
+        "action": _fallback_next_action(code),
         "thread_id": str(thread_id or ""),
         "generation_id": str(generation_id or ""),
     }
     should_notify = True
-    if generation_id:
-        with _fallback_notice_lock:
+    with _fallback_notice_lock:
+        if generation_id:  # Each reply keeps its notice (a workflow run records it).
             notices = _fallback_notices.setdefault(str(generation_id), [])
-            if any(existing.get("code") == notice["code"] for existing in notices):
-                should_notify = False
-            else:
+            if not any(existing.get("code") == notice["code"] for existing in notices):
                 notices.append(notice)
             while len(_fallback_notices) > _FALLBACK_NOTICE_MAX:
                 _fallback_notices.pop(next(iter(_fallback_notices)))
+        if code in _fallback_announced:  # Shown already: not again on every reply.
+            should_notify = False
+        _fallback_announced.add(code)
     if not should_notify:
         return notice
     try:
@@ -129,7 +140,7 @@ def _publish_fallback_notice(
 
         notify(
             notice["title"],
-            f"{notice['message']} Reason: {notice['detail']} Next: {notice['action']}",
+            f"{notice['message']} {notice['detail']} To fix it: {notice['action']}",
             sound="none",
             toast_type="warning",
             source="memory",
@@ -406,6 +417,9 @@ def build_auto_recall(
         )
         retrieve_ms = (perf_counter() - retrieve_started) * 1000.0
         trace.update(retrieval_diagnostics)
+        if retrieval_diagnostics.get("semantic_status") in {"used", "no_matches"}:
+            with _fallback_notice_lock:  # Working again: a later failure is news again.
+                _fallback_announced.clear()
         if retrieval_diagnostics.get("semantic_status") == "fallback":
             _publish_fallback_notice(
                 code=str(retrieval_diagnostics.get("semantic_fallback_code") or "semantic_unavailable"),

@@ -337,7 +337,7 @@ def _raw_conn() -> sqlite3.Connection:
         if not db_path.is_file():
             raise FileNotFoundError(db_path)
         conn = sqlite3.connect(
-            f"file:{db_path.as_posix()}?mode=ro",
+            f"{db_path.resolve().as_uri()}?mode=ro",
             uri=True,
             check_same_thread=False,
         )
@@ -2914,7 +2914,7 @@ def _update_run_progress(run_id: str, steps_done: int) -> None:
     _mirror_workflow_agent_run_progress(run_id, steps_done)
 
 
-_MEMORY_FALLBACK_STATUS_PREFIX = "Memory recall fallback"
+_MEMORY_FALLBACK_STATUS_PREFIX = "Memory search is limited"
 
 
 def _merge_memory_fallback_status(existing: str, status_message: str) -> str:
@@ -2948,9 +2948,8 @@ def _record_run_recall_notices(run_id: str, generation_id: str) -> None:
     lines = list(existing.splitlines()) if existing else []
     for notice in notices:
         line = (
-            f"{_MEMORY_FALLBACK_STATUS_PREFIX} ({notice.get('code') or 'unavailable'}): "
-            f"{notice.get('message') or ''} Reason: {notice.get('detail') or ''} "
-            f"Next: {notice.get('action') or ''}"
+            f"{_MEMORY_FALLBACK_STATUS_PREFIX}: {notice.get('message') or ''} {notice.get('detail') or ''} "
+            f"To fix it: {notice.get('action') or ''}"
         ).strip()
         if line not in lines:
             lines.append(line)
@@ -4282,6 +4281,7 @@ def run_task_background(
                             )
                             config["configurable"]["generation_id"] = generation_id
                             config["configurable"]["root_objective"] = prompt
+                            _use_step_apps(config, step)
                             try:
                                 result = invoke_agent(
                                     prompt,
@@ -4395,7 +4395,7 @@ def run_task_background(
                                     step_succeeded = True
                                     break
 
-                                if approval_mode == "allow_all":
+                                if approval_mode == "allow_all" and not _always_asks(interrupts):
                                     logger.info(
                                         "Task '%s' step %d: interrupt in allow_all mode — auto-approving",
                                         task["name"], step_index + 1,
@@ -6676,6 +6676,10 @@ def respond_to_approval(resume_token: str, approved: bool,
             resume_token=resume_token,
             approved=approved,
         )
+    elif str(r.get("resume_kind") or "") == "mcp_app":
+        from row_bot.integrations import views
+
+        views.decided(approval_id, approved)  # A tool call from an app's view waits for this.
     else:
         resume_pipeline(resume_token, approved=approved)
     return True
@@ -6891,6 +6895,10 @@ def _apply_approval_timeout(r: dict) -> None:
             resume_token=str(r.get("resume_token") or ""),
             approved=False,
         )
+    elif str(r.get("resume_kind") or "") == "mcp_app":
+        from row_bot.integrations import views
+
+        views.decided(str(r["id"]), False)
     elif str(r.get("resume_kind") or "") != "conversation":
         _resume_pipeline(r["resume_token"], approved=False)
     logger.info("Approval request %s timed out for task %s",
@@ -7043,8 +7051,8 @@ def _resume_graph_interrupted(
                 except Exception as exc2:
                     logger.error("Block-mode resume denial failed: %s", exc2)
                 # Fall through to success path
-            elif approval_mode == "allow_all":
-                # Allow_all — auto-approve the chained interrupt
+            elif approval_mode == "allow_all" and not _always_asks(interrupts):
+                # Allow_all — auto-approve the chained interrupt (an approval-locked app tool still asks)
                 logger.info(
                     "Task '%s' graph resume: chained interrupt in allow_all — auto-approving",
                     task["name"],
@@ -7420,6 +7428,7 @@ def _run_subtask_sync(
                 prompt = prompt.replace("{{parent_output}}", parent_output)
 
                 try:
+                    _use_step_apps(config, step)
                     result = invoke_agent(prompt, effective_tools, config,
                                          stop_event=stop_event)
                     if isinstance(result, dict) and result.get("type") == "terminal":
@@ -7434,7 +7443,7 @@ def _run_subtask_sync(
                     # agent triggered an interrupt(), handle it inline.
                     if isinstance(result, dict) and result.get("type") == "interrupt":
                         child_approval = get_task_approval_mode(child_task)
-                        if child_approval == "allow_all":
+                        if child_approval == "allow_all" and not _always_asks(result.get("interrupts") or []):
                             from row_bot.agent import resume_invoke_agent
                             _check_workflow_effect(validate)
                             result = resume_invoke_agent(
@@ -7825,6 +7834,24 @@ def _eval_llm_condition(prompt: str, context: dict) -> bool:
     except Exception as exc:
         logger.error("LLM condition evaluation failed: %s", exc)
     return False
+
+
+def _use_step_apps(config: dict, step: dict) -> None:
+    """A prompt step that names its apps uses only those, as an @mention would; its profile and every
+    approval still apply. A step that names none uses every app the workflow may."""
+    from row_bot.integrations.scope import step_scope
+    scope = step_scope(step.get("apps") if isinstance(step.get("apps"), list) else None)
+    if scope:
+        config["configurable"]["app_scope"] = scope
+    else:
+        config["configurable"].pop("app_scope", None)
+
+
+def _always_asks(interrupts: list) -> bool:
+    """An app tool asked that its access says must ask (a change without Full access, or a destructive,
+    high-impact or unknown one): it waits for the person even under Allow all, so a run pauses on it
+    rather than approving it unattended."""
+    return any(isinstance(item, dict) and item.get("always_ask") for item in interrupts)
 
 
 def _resolve_step_index(steps: list[dict], target: str) -> int | None:

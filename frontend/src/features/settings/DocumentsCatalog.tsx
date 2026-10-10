@@ -1,15 +1,19 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FileText, Trash2 } from 'lucide-react';
 import type { DocumentSummaryPage } from '../../api/types';
 import { IconButton, Select, type Tone } from '../../ui/primitives';
 import { absoluteTime, relativeTime } from '../../ui/format';
+import { documentFailure } from '../knowledge/document-words';
 import { SavedCatalog, type SavedLoader } from './KnowledgeCatalog';
 
+type DocumentSummary = DocumentSummaryPage['items'][number];
+
 const statuses: Record<string, string> = {
-  staging: 'Staging',
+  staging: 'Uploading',
   queued: 'Queued',
-  indexing: 'Indexing',
+  indexing: 'Reading',
   searchable: 'Searchable',
-  extracting: 'Extracting knowledge',
+  extracting: 'Finding knowledge',
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -27,44 +31,101 @@ const statusTones: Record<string, Tone> = {
   failed: 'danger',
 };
 const working = new Set(['staging', 'queued', 'indexing', 'extracting']);
-const recordStates: Record<string, string> = {
-  removed: 'Removed from search; ingestion history retained',
-  saved: 'Saved job and document record',
-  job_only: 'Saved job only',
-  record_only: 'Saved document record only',
-  partial: 'Partial — completion records disagree or are missing',
+const finishedUnsearchable = new Set([
+  'failed',
+  'cancelled',
+  'skipped_duplicate',
+]);
+/** Only the saved states a person can act on get a sentence. */
+const recordNotes: Record<string, string> = {
+  removed: 'Removed from search. Its history is kept.',
+  partial:
+    "Row-Bot couldn't confirm this file finished. Try it again, or remove it.",
 };
-const stages: Record<string, string> = {
-  upload: 'Upload',
-  parse: 'Parse',
-  embed: 'Embedding',
-  index_commit: 'Index commit',
-  knowledge_map: 'Knowledge mapping',
-  knowledge_reduce: 'Knowledge reduction',
-  knowledge_commit: 'Knowledge commit',
-  finalize: 'Finalization',
-  unknown: 'Unknown',
-};
-function progress(current: number | null, total: number | null) {
-  return `${current == null ? 'Unknown' : current.toLocaleString()} / ${total == null ? 'unknown' : total.toLocaleString()}`;
+/** How often the list reads itself again while documents are being added. */
+export const DOCUMENTS_POLL_MS = 3000;
+
+function progress(label: string, current: number | null, total: number | null) {
+  if (!total) return null;
+  return (
+    <>
+      <dt>{label}</dt>
+      <dd>
+        {(current ?? 0).toLocaleString()} of {total.toLocaleString()}
+      </dd>
+    </>
+  );
+}
+
+/** Never reached search: Remove only takes it off this list. */
+export function listOnlyDocument(item: DocumentSummary) {
+  return (
+    item.record_state === 'job_only' && finishedUnsearchable.has(item.status)
+  );
 }
 
 /**
  * Settings › Documents › Your documents (B258): one row per document with
- * its status as a dot and words, details on demand and Remove as an icon.
+ * its status as a dot and words, why it stopped when it did, details on
+ * demand and Remove as an icon. While documents are being added the list
+ * reads itself again, so their states move on without a refresh.
  */
 export default function DocumentsCatalog({
   load,
   onRemove,
 }: {
   load: SavedLoader<DocumentSummaryPage>;
-  onRemove?: (id: string, label: string) => void;
+  onRemove?: (
+    id: string,
+    label: string,
+    options: { listOnly: boolean },
+  ) => void;
 }) {
+  // Newer saved states for the rows on show, read while work is active.
+  const [fresh, setFresh] = useState<ReadonlyMap<string, DocumentSummary>>(
+    () => new Map(),
+  );
+  const [active, setActive] = useState(false);
+  const shown = useRef<{ query?: string; status?: string } | null>(null);
+  const observed = useCallback<SavedLoader<DocumentSummaryPage>>(
+    async (query, status, cursor, signal) => {
+      const page = await load(query, status, cursor, signal);
+      if (!cursor) {
+        shown.current = { query, status };
+        setFresh(new Map());
+        setActive(page.items.some((item) => working.has(item.status)));
+      }
+      return page;
+    },
+    [load],
+  );
+  useEffect(() => {
+    if (!active) return;
+    const abort = new AbortController();
+    const timer = setInterval(() => {
+      const filter = shown.current;
+      if (!filter) return;
+      load(filter.query, filter.status, undefined, abort.signal).then(
+        (page) => {
+          if (abort.signal.aborted) return;
+          setFresh(new Map(page.items.map((item) => [item.id, item])));
+          setActive(page.items.some((item) => working.has(item.status)));
+        },
+        () => {
+          if (!abort.signal.aborted) setActive(false);
+        },
+      );
+    }, DOCUMENTS_POLL_MS);
+    return () => {
+      clearInterval(timer);
+      abort.abort();
+    };
+  }, [active, load]);
   return (
     <SavedCatalog
       title="Your documents"
       noun="documents"
-      load={load}
+      load={observed}
       headless
       description="Saved document and ingestion records."
       filter={(selected, change) => (
@@ -83,78 +144,92 @@ export default function DocumentsCatalog({
       )}
       renderItems={(page) => (
         <ul className="settings-results settings-document-results">
-          {page.items.map((item) => (
-            <li
-              className="settings-document-result settings-divided"
-              key={item.id}
-            >
-              <span className="settings-row-icon" data-tone="1" aria-hidden>
-                <FileText size={16} aria-hidden />
-              </span>
-              <details>
-                <summary>
-                  <span className="settings-document-name">{item.name}</span>
-                  <span
-                    className="status-indicator"
-                    data-tone={statusTones[item.status]}
-                  >
+          {page.items.map((saved) => {
+            const item = fresh.get(saved.id) ?? saved;
+            const failure = documentFailure(item.status, item.error_code);
+            const note = recordNotes[item.record_state];
+            return (
+              <li
+                className="settings-document-result settings-divided"
+                key={item.id}
+              >
+                <span className="settings-row-icon" data-tone="1" aria-hidden>
+                  <FileText size={16} aria-hidden />
+                </span>
+                <details>
+                  <summary>
+                    <span className="settings-document-name">{item.name}</span>
                     <span
-                      className="status-indicator-dot"
-                      data-pulse={working.has(item.status) ? 'true' : undefined}
-                      aria-hidden
-                    />
-                    <span>{statuses[item.status] ?? 'Unknown'}</span>
-                  </span>
-                  {item.updated_at ? (
-                    <small>
-                      <time
-                        dateTime={item.updated_at}
-                        title={absoluteTime(item.updated_at)}
-                      >
-                        {relativeTime(item.updated_at)}
-                      </time>
-                    </small>
-                  ) : null}
-                </summary>
-                <div className="settings-document-detail">
-                  {item.truncated && (
-                    <p className="muted">This saved name is shortened.</p>
-                  )}
-                  <dl>
-                    <dt>Record state</dt>
-                    <dd>{recordStates[item.record_state] ?? 'Unknown'}</dd>
-                    <dt>Saved status</dt>
-                    <dd>{statuses[item.status] ?? 'Unknown'}</dd>
-                    <dt>Saved stage</dt>
-                    <dd>{stages[item.stage] ?? 'Unknown'}</dd>
-                    <dt>Saved indexing progress</dt>
-                    <dd>{progress(item.index_current, item.index_total)}</dd>
-                    <dt>Saved extraction progress</dt>
-                    <dd>
-                      {progress(item.extraction_current, item.extraction_total)}
-                    </dd>
-                    <dt>Current searchability</dt>
-                    <dd>Unknown</dd>
-                    <dt>Last saved update</dt>
-                    <dd>
-                      {item.updated_at
-                        ? absoluteTime(item.updated_at) || item.updated_at
-                        : 'Unknown'}
-                    </dd>
-                  </dl>
-                </div>
-              </details>
-              {onRemove && (
-                <IconButton
-                  size="sm"
-                  label={`Remove ${item.name}`}
-                  onClick={() => onRemove(item.id, item.name)}
-                >
-                  <Trash2 size={15} aria-hidden />
-                </IconButton>
-              )}
-            </li>
-          ))}
+                      className="status-indicator"
+                      data-tone={statusTones[item.status]}
+                    >
+                      <span
+                        className="status-indicator-dot"
+                        data-pulse={
+                          working.has(item.status) ? 'true' : undefined
+                        }
+                        aria-hidden
+                      />
+                      <span>{statuses[item.status] ?? 'Unknown'}</span>
+                    </span>
+                    {item.updated_at ? (
+                      <small>
+                        <time
+                          dateTime={item.updated_at}
+                          title={absoluteTime(item.updated_at)}
+                        >
+                          {relativeTime(item.updated_at)}
+                        </time>
+                      </small>
+                    ) : null}
+                    {failure && (
+                      <span className="settings-document-reason">
+                        {failure}
+                      </span>
+                    )}
+                  </summary>
+                  <div className="settings-document-detail">
+                    {item.truncated && (
+                      <p className="muted">This name is shortened.</p>
+                    )}
+                    {note && <p>{note}</p>}
+                    {listOnlyDocument(item) && (
+                      <p className="muted">
+                        It never reached search. Remove takes it off this list.
+                      </p>
+                    )}
+                    <dl>
+                      {progress('Read', item.index_current, item.index_total)}
+                      {progress(
+                        'Knowledge found',
+                        item.extraction_current,
+                        item.extraction_total,
+                      )}
+                      <dt>Updated</dt>
+                      <dd>
+                        {item.updated_at
+                          ? absoluteTime(item.updated_at) || item.updated_at
+                          : 'Unknown'}
+                      </dd>
+                    </dl>
+                  </div>
+                </details>
+                {onRemove && (
+                  <IconButton
+                    size="sm"
+                    label={`Remove ${item.name}`}
+                    onClick={() =>
+                      onRemove(item.id, item.name, {
+                        listOnly: listOnlyDocument(item),
+                      })
+                    }
+                  >
+                    <Trash2 size={15} aria-hidden />
+                  </IconButton>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     />

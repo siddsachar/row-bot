@@ -116,9 +116,63 @@ function remember(owner: object, reference: string, blob: Blob) {
     total -= value.size;
   }
 }
+// A result still downloading is shared too: a preview that mounts again in
+// the same update (the live row replaced by the saved one) waits for the same
+// download instead of starting another. Once no preview waits for it, it is
+// cancelled: at once when it has finished, else after that update.
+type Flight = {
+  result: Promise<Blob>;
+  waiting: number;
+  done: boolean;
+  stop: AbortController;
+};
+const flights = new WeakMap<object, Map<string, Flight>>();
+function sharedDownload(
+  owner: object,
+  key: string,
+  start: (signal: AbortSignal) => Promise<Blob>,
+  signal: AbortSignal,
+): Promise<Blob> {
+  let entries = flights.get(owner);
+  if (!entries) flights.set(owner, (entries = new Map()));
+  const live = entries;
+  let flight = live.get(key);
+  if (!flight) {
+    const stop = new AbortController();
+    const started: Flight = {
+      waiting: 0,
+      done: false,
+      stop,
+      result: start(stop.signal).finally(() => {
+        started.done = true;
+        if (live.get(key) === started) live.delete(key);
+      }),
+    };
+    live.set(key, started);
+    flight = started;
+  }
+  const current = flight;
+  current.waiting += 1;
+  signal.addEventListener(
+    'abort',
+    () => {
+      current.waiting -= 1;
+      const release = () => {
+        if (current.waiting > 0) return;
+        if (live.get(key) === current) live.delete(key);
+        current.stop.abort();
+      };
+      if (current.done) release();
+      else queueMicrotask(release);
+    },
+    { once: true },
+  );
+  return current.result;
+}
 /** Tests and sign-out: drop remembered results for a controller. */
 export function forgetMediaPreviews(owner: object) {
   recent.delete(owner);
+  flights.delete(owner);
 }
 
 async function isPdf(blob: Blob) {
@@ -189,7 +243,14 @@ export function MediaPreview({
     void (
       cached
         ? Promise.resolve(cached)
-        : controller.download(reference, abort.signal)
+        : attempt === 0
+          ? sharedDownload(
+              controller,
+              key,
+              (signal) => controller.download(reference, signal),
+              abort.signal,
+            )
+          : controller.download(reference, abort.signal)
     )
       .then(async (blob) => {
         if (abort.signal.aborted) return;

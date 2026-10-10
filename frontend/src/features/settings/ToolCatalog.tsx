@@ -23,20 +23,30 @@ const changedMessage =
   'The tool catalog changed. Reload cached tools to continue.';
 
 const friendlyToolLabels: Record<string, string> = {
+  arxiv: 'arXiv',
   duckduckgo: 'DuckDuckGo',
+  gmail: 'Gmail',
   mcp: 'MCP',
+  x: 'X',
+  youtube: 'YouTube',
   row_bot_status: 'Row-Bot Status',
   row_bot_updater: 'Row-Bot Updater',
   url_reader: 'URL Reader',
-  web_search: 'Web Search',
+  web_search: 'Tavily web search',
   wolfram_alpha: 'Wolfram Alpha',
 };
 
-function friendlyToolLabel(id: string, label: string) {
+function friendlyToolLabel(id: string, label: string, source?: Source) {
+  // Row-Bot's own tools go by the names the Tools page gives them ("Tavily web search").
+  if (source === 'core' && friendlyToolLabels[id])
+    return friendlyToolLabels[id];
   const value = label.trim() || id;
-  if (!/[_-]/.test(value)) return value;
   const normalized = value.toLowerCase();
   if (friendlyToolLabels[normalized]) return friendlyToolLabels[normalized];
+  // A bare id ("browser", "memory") reads as a name.
+  if (/^[a-z0-9]+$/.test(value))
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  if (!/[_-]/.test(value)) return value;
   return value
     .split(/[_-]+/)
     .filter(Boolean)
@@ -155,18 +165,18 @@ export default function ToolCatalog({
     >
       <summary>
         <span>
-          <strong>Cached tool catalogue</strong>
+          <strong>All tools</strong>
           <small>
             {page
-              ? `${page.total.toLocaleString()} recorded entries`
-              : 'Advanced saved inventory'}
+              ? `${page.total.toLocaleString()} as last saved`
+              : 'As last saved'}
           </small>
         </span>
       </summary>
       <div className="stack settings-supplemental-content">
         <p>
-          Browse cached tool information by source. Runtime readiness and
-          account access have not been checked.
+          Every tool Row-Bot knows about, as last saved. Opening this list
+          doesn’t check that each one works.
         </p>
         <form
           className="field-row"
@@ -271,22 +281,24 @@ export default function ToolCatalog({
                     <summary>
                       <span className="settings-catalog-row-main">
                         <strong>
-                          {friendlyToolLabel(tool.id, tool.label)} ·{' '}
-                          {sourceLabels[tool.source]}
+                          {friendlyToolLabel(tool.id, tool.label, tool.source)}{' '}
+                          · {sourceLabels[tool.source]}
                         </strong>
-                        <small>
-                          {tool.parent_id
-                            ? `Part of ${humanizeToken(tool.parent_id)}`
-                            : tool.plugin_id
-                              ? `From the ${humanizeToken(tool.plugin_id)} plugin`
-                              : tool.server_name
-                                ? `MCP server: ${tool.server_name}`
-                                : 'Saved catalog entry'}
-                        </small>
+                        {(tool.parent_id ||
+                          tool.plugin_id ||
+                          tool.server_name) && (
+                          <small>
+                            {tool.parent_id
+                              ? `Part of ${humanizeToken(tool.parent_id)}`
+                              : tool.plugin_id
+                                ? `From the ${humanizeToken(tool.plugin_id)} plugin`
+                                : `MCP server: ${tool.server_name}`}
+                          </small>
+                        )}
                       </span>
                       <span
                         className="settings-summary-strip settings-catalog-row-state"
-                        aria-label={`${friendlyToolLabel(tool.id, tool.label)} saved state`}
+                        aria-label={`${friendlyToolLabel(tool.id, tool.label, tool.source)} saved state`}
                       >
                         <span className="status-chip">
                           {tool.enabled == null

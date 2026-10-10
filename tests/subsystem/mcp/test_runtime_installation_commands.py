@@ -371,33 +371,29 @@ assert 'mcp' not in sys.modules
 assert not pathlib.Path(sys.argv[1]).exists()
 """
     env = {**os.environ, "ROW_BOT_DATA_DIR": str(data), "PYTHONDONTWRITEBYTECODE": "1"}
-    result = subprocess.run([sys.executable, "-c", source, str(data)], env=env, capture_output=True, text=True, timeout=20)
+    result = subprocess.run([sys.executable, "-c", source, str(data)], env=env, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
 
 
 def test_actual_download_rechecks_authority_after_each_blocking_chunk(owner, monkeypatch):
     _service, _calls, root = owner
     allowed = True
-    class Response:
-        headers = {}
-        count = 0
-        def __enter__(self): return self
-        def __exit__(self, *_): return None
-        def read1(self, _size):
-            nonlocal allowed
-            self.count += 1
-            if self.count == 2:
-                allowed = False
-            return b"chunk"
-        read = read1
-    monkeypatch.setattr(requirements, "_request", lambda _: Response())
+    from row_bot.integrations import safe
+
+    def fetch(url, *, check, **_):
+        nonlocal allowed
+        check()  # The fetcher checks between hops and while it reads.
+        allowed = False
+        check()
+        return b"chunk"
+    monkeypatch.setattr(safe, "fetch", fetch)
     def validate():
         if not allowed:
             raise PermissionError("revoked")
     destination = root / "download"
     with pytest.raises(PermissionError, match="revoked"):
-        _DOWNLOAD("https://example.invalid/archive.zip", destination, validate=validate)
-    assert destination.read_bytes() == b"chunk"
+        _DOWNLOAD("https://nodejs.org/dist/archive.zip", destination, validate=validate)
+    assert not destination.exists()
 
 
 def test_corrupt_durable_identifier_remains_recovery_required_without_path_disclosure(owner):

@@ -389,6 +389,10 @@ class AttachmentUploads:
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self.clock = clock
         self._lock = threading.RLock()
+        # Routes count transfers in and out on the event loop, while a worker may
+        # hold _lock across a commit that checks the session on that same loop:
+        # sharing _lock deadlocked them until the check's 5-second timeout (503).
+        self._transfer_lock = threading.Lock()
         self._uploads: dict[str, _Upload] = {}
         self._inflight: dict[str, int] = {}
 
@@ -453,13 +457,13 @@ class AttachmentUploads:
             self.enter_transfer(session_id)
 
     def enter_transfer(self, session_id: str) -> None:
-        with self._lock:
+        with self._transfer_lock:
             if self._inflight.get(session_id, 0) >= 4 or sum(self._inflight.values()) >= 32:
                 raise AttachmentError("rate_limited")
             self._inflight[session_id] = self._inflight.get(session_id, 0) + 1
 
     def leave_chunk(self, session_id: str) -> None:
-        with self._lock:
+        with self._transfer_lock:
             count = self._inflight.get(session_id, 0) - 1
             if count > 0:
                 self._inflight[session_id] = count
@@ -531,4 +535,5 @@ class AttachmentUploads:
             for upload in self._uploads.values():
                 upload.source.close()
             self._uploads.clear()
-            self._inflight.clear()
+            with self._transfer_lock:
+                self._inflight.clear()

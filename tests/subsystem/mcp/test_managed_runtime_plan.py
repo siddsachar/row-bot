@@ -48,7 +48,7 @@ def test_plan_is_passive_immutable_and_install_never_resolves_again(owner, monke
     with pytest.raises(FrozenInstanceError):
         plan.version = "changed"
     monkeypatch.setattr(runtime, "_latest_node_lts_version", lambda: pytest.fail("hidden latest resolution"))
-    monkeypatch.setattr(runtime, "_latest_uv_asset", lambda: pytest.fail("hidden latest resolution"))
+    monkeypatch.setattr(runtime, "_uv_release_asset", lambda: pytest.fail("hidden latest resolution"))
     assert runtime.install_runtime_plan(plan).ok
     assert calls == [plan.url]
     saved = runtime._read_manifest("synthetic")
@@ -223,23 +223,25 @@ def test_legacy_install_resolves_once_and_publishes_actual_platform_layout(tmp_p
     archive_url = (f"https://nodejs.org/dist/{version}/{asset_name}" if runtime_id == "node" else
         f"https://github.com/astral-sh/uv/releases/download/{version}/{asset_name}")
     calls = []
-    class Response(io.BytesIO):
-        headers = {"Content-Length": str(len(data))}
-    def request(url, *, method=None):
-        calls.append((url, method))
+    from row_bot.integrations import safe
+
+    def fetch(url, *, hosts, method="GET", meta=None, **_):
+        assert hosts == runtime._HOSTS  # Every runtime download goes through the reviewed hosts only.
+        calls.append((url, None if method == "GET" else method))
         if method == "HEAD":
             assert url == archive_url
-            return Response(b"")
+            meta.update(status=200, headers={"content-length": str(len(data))})
+            return b""
         if url == "https://nodejs.org/dist/index.json":
-            return Response(json.dumps([{"version":version,"lts":"Synthetic"}]).encode())
+            return json.dumps([{"version": version, "lts": "Synthetic"}]).encode()
         if url.endswith("SHASUMS256.txt"):
-            return Response(f"{digest}  {asset_name}\n".encode())
+            return f"{digest}  {asset_name}\n".encode()
         if url == "https://api.github.com/repos/astral-sh/uv/releases/latest":
-            return Response(json.dumps({"tag_name":version,"assets":[{"name":asset_name,
-                "browser_download_url":archive_url,"size":len(data),"digest":"sha256:"+digest}]}).encode())
+            return json.dumps({"tag_name": version, "assets": [{"name": asset_name,
+                "browser_download_url": archive_url, "size": len(data), "digest": "sha256:" + digest}]}).encode()
         assert url == archive_url
-        return Response(data)
-    monkeypatch.setattr(runtime, "_request", request)
+        return data
+    monkeypatch.setattr(safe, "fetch", fetch)
     result = runtime.install_managed_runtime(runtime_id)
     assert result.ok, result
     saved = runtime._read_manifest(runtime_id)
@@ -261,22 +263,28 @@ def test_missing_node_checksum_and_uv_digest_never_download(owner, monkeypatch):
     assert not calls
 
 
-def test_streaming_download_and_metadata_enforce_actual_byte_budgets(tmp_path, monkeypatch):
-    monkeypatch.setattr(runtime, "_request", lambda *_a, **_k: io.BytesIO(b"x" * 129))
+def test_downloads_keep_their_byte_budgets_and_never_leave_the_reviewed_hosts(tmp_path, monkeypatch):
+    from row_bot.integrations import safe
+    asked = []
+
+    def fetch(url, *, max_bytes, too_large, **kwargs):
+        asked.append((url, max_bytes, kwargs["timeout"]))
+        if max_bytes < 129:
+            raise ValueError(too_large)
+        return b"x" * 129
+    monkeypatch.setattr(safe, "fetch", fetch)
     monkeypatch.setattr(runtime, "ARCHIVE_BYTE_LIMIT", 128)
     with pytest.raises(RuntimeError, match="budget"):
-        runtime._download("https://example.invalid/runtime.zip", tmp_path / "download")
-    assert (tmp_path / "download").stat().st_size <= 128
+        runtime._download("https://nodejs.org/dist/v1/runtime.zip", tmp_path / "download")
+    assert not (tmp_path / "download").exists()  # Nothing is written past the budget.
     with pytest.raises(RuntimeError, match="budget"):
-        runtime._remote_bytes("https://example.invalid/metadata", maximum=128)
-
-
-def test_streaming_metadata_deadline_is_observed_between_received_chunks(monkeypatch):
-    ticks = iter((0, 31))
-    monkeypatch.setattr(runtime.time, "monotonic", lambda: next(ticks))
-    monkeypatch.setattr(runtime, "_request", lambda *_a, **_k: io.BytesIO(b"x"))
-    with pytest.raises(RuntimeError, match="budget"):
-        runtime._remote_bytes("https://example.invalid/metadata")
+        runtime._remote_bytes("https://nodejs.org/dist/index.json", maximum=128)
+    assert asked[0][2] * 6 <= 120  # One two-minute deadline for an archive, as before.
+    monkeypatch.undo()
+    with pytest.raises(RuntimeError, match="reviewed hosts"):  # Refused before any connection.
+        runtime._remote_bytes("https://downloads.example.test/node.zip")
+    with pytest.raises(RuntimeError, match="HTTPS"):
+        runtime._remote_bytes("http://nodejs.org/dist/index.json")
 
 
 @pytest.mark.parametrize("kind", ["entry", "expanded"])

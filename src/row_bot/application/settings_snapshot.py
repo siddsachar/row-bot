@@ -20,7 +20,7 @@ import sys
 import time
 from typing import Any
 
-from row_bot.account_token_checks import token_file_state
+from row_bot import account_tokens
 from row_bot.data_paths import get_row_bot_data_dir
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -39,7 +39,7 @@ _UTILITY_PRESENTATION = {
     "calculator": ("Calculator", "Evaluate calculations locally."),
     "weather": ("Weather", "Look up weather when explicitly requested."),
     "chart": ("Charts", "Create charts from supplied data."),
-    "system_info": ("System Info", "Read bounded host information."),
+    "system_info": ("System Info", "Reports this computer's system, memory, disk, network and battery."),
     "conversation_search": ("Conversation Search", "Search saved conversations."),
     "custom_tool_builder": ("Custom Tool Builder", "Build reviewed local tools."),
     # Without it a conversation's code folder can be read but never changed,
@@ -47,7 +47,7 @@ _UTILITY_PRESENTATION = {
     "developer": ("Developer", "Read, change and run code in a conversation's code folder."),
 }
 _SEARCH_TOOL_PRESENTATION = {
-    "web_search": "Web Search",
+    "web_search": "Tavily web search",
     "duckduckgo": "DuckDuckGo",
     "wolfram_alpha": "Wolfram Alpha",
     "arxiv": "arXiv",
@@ -603,7 +603,7 @@ def _mobile_access(root: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"availability": "missing", "active_devices": 0, "active_sessions": 0}
     try:
-        uri = f"file:{path.as_posix()}?mode=ro"
+        uri = f"{path.resolve().as_uri()}?mode=ro"
         connection = sqlite3.connect(uri, uri=True, timeout=1)
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -661,7 +661,7 @@ def _tracker(
         return result
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -703,6 +703,74 @@ def _tracker(
     return result
 
 
+_TRACKER_ENTRY_LIMIT = 50
+
+
+def read_tracker_entries(
+    tracker_id: str, *, validate: Callable[[], None] = lambda: None
+) -> dict[str, Any]:
+    """One saved tracker's newest entries: read-only, bounded, no paths."""
+
+    if not isinstance(tracker_id, str) or not 1 <= len(tracker_id) <= 128:
+        raise ValueError("not_found")
+    validate()
+    path = get_row_bot_data_dir(create=False).absolute() / "tracker" / "tracker.db"
+    if not path.is_file():
+        raise ValueError("not_found")
+    found = False
+    total = 0
+    rows: list[Any] = []
+    try:
+        connection = sqlite3.connect(
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
+        )
+        try:
+            connection.execute("PRAGMA query_only = ON")
+            found = (
+                connection.execute(
+                    "SELECT 1 FROM trackers WHERE id = ?", (tracker_id,)
+                ).fetchone()
+                is not None
+            )
+            if found:
+                total = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM entries WHERE tracker_id = ?",
+                        (tracker_id,),
+                    ).fetchone()[0]
+                )
+                rows = connection.execute(
+                    """
+                    SELECT timestamp, value, notes
+                      FROM entries
+                     WHERE tracker_id = ?
+                  ORDER BY timestamp DESC, rowid DESC
+                     LIMIT ?
+                    """,
+                    (tracker_id, _TRACKER_ENTRY_LIMIT),
+                ).fetchall()
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        raise ValueError("settings_unavailable") from None
+    if not found:
+        raise ValueError("not_found")
+    validate()
+    return {
+        "schema_version": 1,
+        "tracker_id": tracker_id,
+        "total": max(0, total),
+        "items": [
+            {
+                "at": _text(row[0], 80),
+                "value": _text(row[1], 256),
+                "note": _text(row[2], 1024) or None,
+            }
+            for row in rows
+        ],
+    }
+
+
 def _knowledge(
     root: Path,
     tools: Mapping[str, Any],
@@ -732,7 +800,7 @@ def _knowledge(
         return result
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -1042,7 +1110,7 @@ def _document_vector_status(root: Path, config: Mapping[str, Any]) -> dict[str, 
     if not corpus_exists and not legacy_exists:
         return {
             "state": "current",
-            "detail": "No saved document vectors conflict with the selected embedding setting.",
+            "detail": "Nothing is indexed with another search model.",
         }
     active = _active_embedding_metadata(config)
     stale = False
@@ -1099,16 +1167,16 @@ def _document_vector_status(root: Path, config: Mapping[str, Any]) -> dict[str, 
     if stale:
         return {
             "state": "stale",
-            "detail": "Document vectors were built with a different embedding setting.",
+            "detail": "Built with a different search model. Rebuild to search with the current one.",
         }
     if partial:
         return {
             "state": "partial",
-            "detail": "Saved document vector metadata needs repair or a rebuild.",
+            "detail": "Some documents were not fully indexed. Rebuild to repair it.",
         }
     return {
         "state": "current",
-        "detail": "Saved document vectors match the selected embedding setting.",
+        "detail": "Up to date with the current search model.",
     }
 
 
@@ -1178,7 +1246,7 @@ def _memory_index_status(path: Path) -> dict[str, str]:
         }
     try:
         connection = sqlite3.connect(
-            f"file:{path.as_posix()}?mode=ro", uri=True, timeout=1
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1
         )
         try:
             connection.execute("PRAGMA query_only = ON")
@@ -1361,12 +1429,9 @@ def _accounts(
     gmail = _mapping(tool_configs.get("gmail"))
     calendar = _mapping(tool_configs.get("calendar"))
     x_config = _mapping(tool_configs.get("x"))
-    gmail_path = _text(
-        gmail.get("credentials_path") or root / "gmail" / "credentials.json", 4096
-    )
-    calendar_path = _text(
-        calendar.get("credentials_path") or root / "gmail" / "credentials.json", 4096
-    )
+    # Gmail and Calendar share one Google client and sign-in, both in the system keychain.
+    google_client = account_tokens.google_client(str(gmail.get("credentials_path") or "")) is not None
+    google_state = account_tokens.state("google")
     x_id = _credential_status("X_CLIENT_ID")
     x_secret = _credential_status("X_CLIENT_SECRET")
     gmail_ops = _strings(gmail.get("selected_operations")) or list(
@@ -1392,15 +1457,15 @@ def _accounts(
         "gmail": _account(
             account_id="gmail",
             enabled=_enabled("gmail", tools, registered),
-            configured=_local_path_is_file(gmail_path),
-            authentication_state=token_file_state(root / "gmail" / "token.json"),
+            configured=google_client,
+            authentication_state=google_state,
             operations=gmail_ops,
         ),
         "calendar": _account(
             account_id="calendar",
             enabled=_enabled("calendar", tools, registered),
-            configured=_local_path_is_file(calendar_path),
-            authentication_state=token_file_state(root / "calendar" / "token.json"),
+            configured=google_client,
+            authentication_state=google_state,
             operations=calendar_ops,
         ),
         "x": _account(
@@ -1408,7 +1473,7 @@ def _accounts(
             enabled=_enabled("x", tools, registered),
             configured=x_id["configured"] and x_secret["configured"],
             authentication_state=(
-                token_file_state(root / "x" / "token.json")
+                account_tokens.state("x")
                 if x_id["configured"] and x_secret["configured"]
                 else "not_configured"
             ),
@@ -1636,4 +1701,4 @@ def read_settings_snapshot(
     }
 
 
-__all__ = ["SETTING_DEFAULTS", "read_settings_snapshot"]
+__all__ = ["SETTING_DEFAULTS", "read_settings_snapshot", "read_tracker_entries"]

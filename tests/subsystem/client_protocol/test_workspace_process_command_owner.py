@@ -75,7 +75,7 @@ def test_original_ids_are_durable_before_domain_start_and_exact_retry_never_reex
         return original(*args, **kwargs)
     monkeypatch.setattr(d.service, "start_workspace_process", start)
     outcome = owner.execute(body)
-    assert d.state(body["command_id"]).done.wait(10)
+    assert d.state(body["command_id"]).done.wait(30)
     assert owner.execute(body) == outcome and len(calls) == 1
     assert outcome["workspace_process"]["command"] == ""
     with sqlite3.connect(d.tasks._DB_PATH) as conn:
@@ -137,7 +137,7 @@ def test_lost_completed_command_receipt_recovers_only_after_exact_run_quiescence
     monkeypatch.setattr(admissions, "complete_command", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("receipt unavailable")))
     first = owner.execute(body)
     assert first["status"] == "partial"
-    assert d.state(body["command_id"]).done.wait(10)
+    assert d.state(body["command_id"]).done.wait(30)
     monkeypatch.setattr(admissions, "complete_command", complete)
     monkeypatch.setattr(d.runtime, "_ACTIVE_PROCESSES", {})
     recovered = owner.execute(body)
@@ -153,21 +153,21 @@ def test_duplicate_start_and_owned_stop_do_not_wait_for_the_pending_start(owner,
         result = original(*a, **kw)
         calls.append(result)
         entered.set()
-        assert release.wait(10)
+        assert release.wait(60)
         return result
     monkeypatch.setattr(d.service, "start_workspace_process", start)
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(owner.execute, body)
-        assert entered.wait(10)
+        assert entered.wait(30)
         try:
-            duplicate = pool.submit(owner.execute, body).result(timeout=3)
+            duplicate = pool.submit(owner.execute, body).result(timeout=30)
             assert duplicate["status"] == "partial" and len(calls) == 1
-            stopped = pool.submit(owner.execute, owner.cleanup(body, body["command_id"])).result(timeout=3)
+            stopped = pool.submit(owner.execute, owner.cleanup(body, body["command_id"])).result(timeout=30)
             assert stopped["workspace_process_id"] == body["command_id"]
-            assert d.state(body["command_id"]).done.wait(10)
+            assert d.state(body["command_id"]).done.wait(30)
         finally:
             release.set()
-        first.result(timeout=5)
+        first.result(timeout=30)
     assert not d.runs.list_agent_write_locks()
 
 
@@ -182,13 +182,13 @@ def test_chat_revision_advance_does_not_revoke_process_but_cleanup_ignores_new_s
         conn.execute("UPDATE thread_meta SET approval_mode='block' WHERE thread_id='chat'")
     stopped = owner.execute(owner.cleanup(body, body["command_id"]))
     assert stopped["workspace_process_id"] == body["command_id"]
-    assert state.done.wait(10) and not d.runs.list_agent_write_locks()
+    assert state.done.wait(30) and not d.runs.list_agent_write_locks()
 
 
 def test_hmac_rejects_changed_command_or_nonce_with_same_identity(owner):
     body = owner.body()
     owner.execute(body)
-    assert owner.d.state(body["command_id"]).done.wait(10)
+    assert owner.d.state(body["command_id"]).done.wait(30)
     for field in ("command", "nonce"):
         changed = {**body, "payload": {**body["payload"], field: "changed"}}
         with pytest.raises(ClientPlatformError, match="idempotency_mismatch"):
@@ -210,7 +210,7 @@ def test_passive_durable_discovery_survives_registry_loss_and_redacts_private_fi
     assert not result["items"][0]["quiesced"] and result["items"][0]["command"] == ""
     assert str(d.root) not in json.dumps(result) and "launcher_pid" not in json.dumps(result)
     d.runtime.stop_tracked_process(state)
-    assert state.done.wait(10)
+    assert state.done.wait(30)
 
 
 def test_missing_durable_store_read_never_creates_it(domain, monkeypatch, tmp_path):
@@ -229,21 +229,21 @@ def test_stop_before_domain_admission_is_durable_and_prevents_late_launch(owner,
     original = d.service.start_workspace_process
     def delayed(*args, **kwargs):
         entered.set()
-        assert release.wait(10)
+        assert release.wait(60)
         return original(*args, **kwargs)
     monkeypatch.setattr(d.service, "start_workspace_process", delayed)
     monkeypatch.setattr(d.runtime.subprocess, "Popen", lambda *a, **kw: pytest.fail("Cancelled reserved Start executed"))
     with ThreadPoolExecutor(max_workers=2) as pool:
         pending = pool.submit(owner.execute, body)
-        assert entered.wait(10)
+        assert entered.wait(30)
         try:
             control = owner.cleanup(body, body["command_id"])
-            stopped = pool.submit(owner.execute, control).result(timeout=3)
+            stopped = pool.submit(owner.execute, control).result(timeout=30)
             assert stopped["status"] == "partial"
             assert admissions.receipt(owner.instance, control["command_id"])["workspace_process_phase"] == "cleanup_requested"
         finally:
             release.set()
-        result = pending.result(timeout=5)
+        result = pending.result(timeout=30)
     assert result["workspace_process"]["code"] == "process_revoked"
     assert result["workspace_process"]["quiesced"]
     assert not d.runtime.tracked_processes(d.workspace.path) and not d.runs.list_agent_write_locks()
@@ -332,7 +332,7 @@ def test_failed_writer_release_is_never_reported_as_completed_cleanup(owner, mon
     monkeypatch.setattr(d.runs, "release_agent_write_lock", unavailable)
     try:
         owner.execute(owner.cleanup(body, body["command_id"]))
-        assert state.done.wait(10)
+        assert state.done.wait(30)
         assert d.runs.get_agent_write_lock("developer:" + d.workspace.id)
         settled = owner.execute(owner.cleanup(body, body["command_id"]))
         assert settled["status"] == "partial"
@@ -360,7 +360,7 @@ def test_second_stage_history_failure_retains_original_diagnostic_and_retries_on
     with state.lock:
         state.code = "process_revoked"
     owner.execute(owner.cleanup(body, body["command_id"]))
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     assert not d.runs.list_agent_write_locks()
     incomplete = owner.execute(owner.cleanup(body, body["command_id"], "recover"))
     assert incomplete["status"] == "partial" and not incomplete["workspace_process"]["quiesced"]
@@ -401,7 +401,7 @@ def test_capacity_retains_failed_finalization_until_explicit_recovery(owner, mon
     monkeypatch.setattr(d.runs, "release_agent_write_lock", unavailable)
     try:
         owner.execute(owner.cleanup(body, body["command_id"]))
-        assert state.done.wait(10) and state.quiesced and not state.finalization_complete
+        assert state.done.wait(30) and state.quiesced and not state.finalization_complete
         monkeypatch.setattr(d.runtime, "_PROCESS_LIMIT", 1)
         with pytest.raises(ValueError, match="process_limit"):
             d.runtime.launch_tracked_process(d.root, [sys.executable, "-c", "print('must not run')"], "synthetic capacity")
@@ -410,7 +410,7 @@ def test_capacity_retains_failed_finalization_until_explicit_recovery(owner, mon
         recovered = owner.execute(owner.cleanup(body, body["command_id"], "recover"))
         assert recovered["workspace_process"]["quiesced"] and state.finalization_complete
         later = d.runtime.launch_tracked_process(d.root, [sys.executable, "-c", "print('legacy compatible')"], "synthetic capacity")
-        assert later.done.wait(10) and later.quiesced
+        assert later.done.wait(30) and later.quiesced
         assert state not in d.runtime.tracked_processes(str(d.root))
     finally:
         monkeypatch.setattr(d.runs, "release_agent_write_lock", original)

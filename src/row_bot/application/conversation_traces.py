@@ -25,9 +25,9 @@ TraceStatus = Literal[
 ]
 TraceGroupKind = Literal["generic", "browser", "computer"]
 TraceSpecializationKind = Literal[
-    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps"
 ]
-CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed"})
+CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed", "connect_apps"})
 # A design or code folder a turn created, or a folder it brought in (B277).
 _RESOURCE_CARDS: dict[tuple[str, str], TraceSpecializationKind] = {
     ("create_design", "resource_created"): "resource_created",
@@ -121,6 +121,8 @@ class TraceSpecialization:
     binding_id: str = ""
     setup_target: str = ""
     settings_page: str = ""
+    # connect_apps: catalog apps the person may connect, re-read by id (never the model's words).
+    apps: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,8 @@ class TraceItem:
     summary_truncated: bool
     content_ref: str
     specialization: TraceSpecialization | None
+    # The app the tool belongs to ({item_id, name, icon}), or None for Row-Bot's own tools.
+    app: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -565,7 +569,13 @@ def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpec
             return None
         return TraceSpecialization(kind=card, display_name=display, resource_kind=kind,
                                    resource_id=resource, binding_id=binding)
-    if name == "request_connection" and payload.get("kind") == "setup_needed":
+    if name == "suggest_apps" and payload.get("kind") == "connect_apps" and isinstance(payload.get("apps"), list):
+        from row_bot.integrations.scope import MAX_SUGGESTIONS, app_card
+        allow = payload.get("allow") if isinstance(payload.get("allow"), list) else []
+        apps = tuple({**card, "allow_changes": True} if item in allow else card
+                     for item in payload["apps"][:MAX_SUGGESTIONS] if (card := app_card(item)) is not None)
+        return TraceSpecialization(kind="connect_apps", apps=apps) if apps else None
+    if name == "request_connection" and payload.get("kind") == "setup_needed":  # Chats from before Phase 5.
         target = _clean_text(payload.get("target"), 64)
         page = _CONNECTION_PAGES.get(target, "")
         display = _clean_text(payload.get("label"), 180)
@@ -604,6 +614,7 @@ def build_trace_item(
     external_outcome: str = "",
     content_ref: str = "",
     safe_input: str = "",
+    app: dict | None = None,
 ) -> TraceItem:
     """Build one bounded item while retaining caller-owned identity/order."""
 
@@ -634,7 +645,28 @@ def build_trace_item(
         summary_truncated=truncated,
         content_ref=_identifier(content_ref, "content_ref", required=False),
         specialization=specialize_tool_result(result),
+        app=app,
     )
+
+
+def app_of_tool(name: Any, args: Any = None, known: dict[str, dict | None] | None = None) -> dict | None:
+    """The app behind a tool call, by its runtime name (a discovered tool's own name); never fails a read.
+    ``known`` remembers answers across one read, so a transcript looks each tool up once."""
+    runtime = str(name or "")
+    if runtime == "tool_invoke" and isinstance(args, dict):
+        runtime = str(args.get("name") or "")
+    if not runtime:
+        return None
+    if known is not None and runtime in known:
+        return known[runtime]
+    try:
+        from row_bot.integrations.scope import app_for_tool
+        found = app_for_tool(runtime)
+    except Exception:
+        found = None
+    if known is not None:
+        known[runtime] = found
+    return found
 
 
 def _aggregate_status(items: tuple[TraceItem, ...]) -> TraceStatus:
@@ -700,6 +732,7 @@ def _public_specialization(
             "binding_id": specialization.binding_id,
             "setup_target": specialization.setup_target,
             "settings_page": specialization.settings_page,
+            "apps": [dict(app) for app in specialization.apps],
         }
         if specialization.kind in CARD_SPECIALIZATIONS
         else {}
@@ -757,6 +790,7 @@ def public_trace_group(group: TraceGroup) -> dict[str, Any]:
                 "summary_truncated": item.summary_truncated,
                 "content_ref": item.content_ref,
                 "specialization": _public_specialization(item.specialization),
+                **({"app": dict(item.app)} if item.app else {}),
             }
             for item in group.items
         ],
@@ -805,6 +839,7 @@ def project_assistant_row_traces(
     output: list[dict[str, Any]] = []
     calls: dict[str, dict[str, Any]] = {}
     parent_calls: dict[str, list[dict[str, Any]]] = {}
+    known_apps: dict[str, dict | None] = {}
 
     for record_index, record in enumerate(records):
         if not isinstance(record, dict) or not isinstance(record.get("row"), dict):
@@ -849,6 +884,7 @@ def project_assistant_row_traces(
                 "call_order": call_order,
                 "group_order": grouped_orders[group_key],
                 "tool_name": name,
+                "app": app_of_tool(raw_call.get("name"), raw_call.get("args"), known_apps),
                 "safe_input": safe_tool_input(raw_call.get("args")),
                 "parent_id": parent_id,
                 "parent_output_index": len(output) - 1,
@@ -912,6 +948,7 @@ def project_assistant_row_traces(
                     external_outcome=str(result_row.get("external_outcome") or ""),
                     content_ref=content_ref,
                     safe_input=call["safe_input"],
+                    app=call["app"],
                 )
             )
         parent_index = int(projected_calls[0]["parent_output_index"])

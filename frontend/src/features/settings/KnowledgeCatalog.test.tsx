@@ -35,10 +35,11 @@ it('does not regress rich saved document details', async () => {
   render(<DocumentsCatalog load={async () => documents()} />);
   fireEvent.click(await screen.findByText('report.txt'));
   const row = within(screen.getByText('report.txt').closest('li')!);
-  // The status shows on the row and again in its details.
-  expect(row.getAllByText('Completed')).toHaveLength(2);
-  expect(row.getByText(/Partial — completion records/)).toBeVisible();
-  expect(row.getByText('Current searchability')).toBeVisible();
+  // The status shows on the row; the details say what a person can act on.
+  expect(row.getByText('Completed')).toBeVisible();
+  expect(row.getByText(/couldn't confirm this file finished/)).toBeVisible();
+  expect(row.getByText('Knowledge found')).toBeVisible();
+  expect(row.queryByText(/Record state|searchability/)).toBeNull();
 });
 
 it('does not regress explicit saved document removal', async () => {
@@ -46,7 +47,9 @@ it('does not regress explicit saved document removal', async () => {
   render(<DocumentsCatalog load={async () => documents()} onRemove={remove} />);
   await screen.findByText('report.txt');
   fireEvent.click(screen.getByRole('button', { name: 'Remove report.txt' }));
-  expect(remove).toHaveBeenCalledWith('document', 'report.txt');
+  expect(remove).toHaveBeenCalledWith('document', 'report.txt', {
+    listOnly: false,
+  });
 });
 
 it('does not regress the saved document search contract', async () => {
@@ -72,4 +75,14 @@ it('does not regress the saved document search contract', async () => {
     undefined,
     expect.any(AbortSignal),
   );
+});
+
+it('says there is nothing yet, not that a search missed, before anything is added', async () => {
+  render(
+    <DocumentsCatalog
+      load={async () => ({ ...documents(), total: 0, items: [] })}
+    />,
+  );
+  expect(await screen.findByText('No documents yet')).toBeVisible();
+  expect(screen.queryByText(/Try another search/)).toBeNull();
 });

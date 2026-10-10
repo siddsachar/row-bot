@@ -457,6 +457,31 @@ it.each([
   },
 );
 
+it('shows no time for a step this client saw only as it finished, never "0.0s"', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(0);
+  const step = {
+    call_id: 'call-seen-finishing',
+    status: 'pending' as const,
+    safe_summary: '',
+  };
+  const view = render(
+    <TranscriptTrace conversation="conversation-a" groups={command(step)} />,
+  );
+  // Its start and its end arrived together, a frame apart.
+  vi.setSystemTime(16);
+  view.rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={command({ ...step, status: 'succeeded' })}
+    />,
+  );
+  openRow();
+  expect(view.container.querySelector('.activity-step-duration')).toBeNull();
+  expect(view.container.querySelector('.activity-duration')).toBeNull();
+  expect(screen.queryByText('0.0s')).toBeNull();
+});
+
 it('shows the approval apart from the result, and the wait apart from the run (B235)', () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(0);
@@ -661,6 +686,25 @@ it('gives a thought under a second no line of its own', () => {
     />,
   );
   expect(container).toBeEmptyDOMElement();
+});
+
+it('names the app a tool step belongs to, with its logo', () => {
+  const fromApp: TranscriptTraceGroup[] = [
+    {
+      ...groups[0],
+      items: [
+        {
+          ...groups[0].items[0],
+          canonical_name: 'mcp_notion_search',
+          specialization: null,
+          app: { item_id: 'mcp:notion', name: 'Notion', icon: 'letter:N' },
+        },
+      ],
+    },
+  ];
+  render(<TranscriptTrace conversation="conversation-a" groups={fromApp} />);
+  const named = screen.getByText('Notion', { selector: '.activity-step-app' });
+  expect(named.querySelector('.app-icon')).not.toBeNull();
 });
 
 it('says which tool call is being written while a long one streams', () => {

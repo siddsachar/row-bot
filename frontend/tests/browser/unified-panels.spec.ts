@@ -141,7 +141,7 @@ test('real artifact stays unchanged for sixty seconds and one hundred reopen cyc
     )
     .toBe(1);
   await expect(
-    setup.getByText('Resource ready', { exact: true }),
+    setup.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(

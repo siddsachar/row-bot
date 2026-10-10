@@ -23,10 +23,7 @@ const settingsRoutes = [
   ['tracker', 'Tracker'],
   ['tools', 'Tools'],
   ['skills', 'Skills'],
-  ['plugins', 'Plugins'],
-  ['mcp', 'MCP'],
-  ['accounts', 'Accounts'],
-  ['channels', 'Channels'],
+  ['apps', 'Apps'],
   ['system', 'System'],
   ['access', 'Devices & remote access'],
   ['updates', 'Updates'],
@@ -36,17 +33,23 @@ const settingsRoutes = [
 const firefoxPhoneRoutes = new Set([
   'providers',
   'system',
-  'mcp',
+  'apps',
   'preferences',
 ]);
 
 // Legacy ids and moved pages redirect to their new page (and row).
 const aliases = [
+  ['integrations', 'apps', 'Apps'],
+  ['plugins', 'apps', 'Apps'],
+  ['mcp', 'apps', 'Apps'],
   ['wiki', 'knowledge', 'Memory'],
   ['cloud', 'providers', 'Providers'],
-  ['google', 'accounts', 'Accounts'],
-  ['gmail', 'accounts', 'Accounts'],
-  ['calendar', 'accounts', 'Accounts'],
+  // Accounts and channels are apps: their old pages open the app.
+  ['google', 'apps/google', 'Apps'],
+  ['gmail', 'apps/google', 'Apps'],
+  ['calendar', 'apps/google', 'Apps'],
+  ['accounts', 'apps', 'Apps'],
+  ['channels', 'apps', 'Apps'],
   ['migration', 'data', 'Data'],
   ['search', 'tools', 'Tools'],
   ['utilities', 'tools', 'Tools'],
@@ -81,8 +84,9 @@ async function useLightBlueCompact(page: Page): Promise<void> {
 }
 
 async function waitForSettings(page: Page, label: string): Promise<void> {
+  // The shell comes first; an app page also has its own "Settings" group.
   await expect(
-    page.getByRole('region', { name: 'Settings', exact: true }),
+    page.getByRole('region', { name: 'Settings', exact: true }).first(),
   ).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }),
@@ -210,14 +214,21 @@ test('Settings groups list every page, and search finds pages and rows', async (
   const search = navigation.getByRole('searchbox', { name: 'Find a setting' });
   await expect(search).toBeFocused();
   await search.fill('gmail');
-  const accounts = navigation
-    .getByRole('list', { name: 'Matching pages', exact: true })
-    .getByRole('link', { name: 'Accounts', exact: true });
-  await expect(accounts).toBeVisible();
-  await accounts.focus();
+  const google = navigation
+    .getByRole('list', { name: 'Matching settings', exact: true })
+    .getByRole('link', { name: 'Google account', exact: true });
+  await expect(google).toBeVisible();
+  await google.focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('accounts')}$`));
-  await waitForSettings(page, 'Accounts');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('apps/google')}$`));
+  // The app page has its own "Settings" group, so look for the way itself.
+  await expect(
+    page.getByRole('heading', {
+      name: 'Google account',
+      exact: true,
+      level: 3,
+    }),
+  ).toBeVisible();
   await search.fill('dream');
   await navigation
     .getByRole('list', { name: 'Matching settings', exact: true })
@@ -315,7 +326,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
   // Agent profiles are the sidebar's Agents dialog: old links open it (B260).
   for (const old of ['profiles', 'agent-profiles']) {
     await navigateInApp(page, settingsPath(old));
-    const agents = page.getByRole('dialog', { name: 'Agent profiles' });
+    const agents = page.getByRole('dialog', { name: 'Agents', exact: true });
     await expect(agents).toBeVisible();
     await expect
       .poll(() => new URL(page.url()).pathname)
@@ -326,16 +337,16 @@ test('Settings shell preserves the exact owner order aliases history and reload'
 
   await page.goto(settingsPath('providers'));
   await page.goto(settingsPath('models'));
-  await page.goto(settingsPath('accounts'));
+  await page.goto(settingsPath('tracker'));
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
   await waitForSettings(page, 'Models');
   await page.goForward();
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('accounts')}$`));
-  await waitForSettings(page, 'Accounts');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('tracker')}$`));
+  await waitForSettings(page, 'Tracker');
   await page.reload();
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('accounts')}$`));
-  await waitForSettings(page, 'Accounts');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('tracker')}$`));
+  await waitForSettings(page, 'Tracker');
   await assertNoOverflow(page);
   await accessibility(page, info, 'settings-shell-navigation-axe');
   await screenshot(page, info, 'settings-shell-navigation');
@@ -347,11 +358,11 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     history: [
       'providers',
       'models',
-      'accounts',
+      'tracker',
       'back:models',
-      'forward:accounts',
+      'forward:tracker',
     ],
-    reload: 'accounts',
+    reload: 'tracker',
     browser: browserName,
   });
 });

@@ -14,11 +14,9 @@ import type { createProviderConfigurationOwner } from './features/settings/provi
 import type { createAuthenticatedEditorOwner } from './features/settings/authenticated-editor-owner';
 import type { DefaultModelSession } from './features/settings/DefaultModelSettings';
 import type { CapabilitySettingsSession } from './features/settings/CapabilitySettings';
-import type { McpFacadeSession } from './features/settings/McpFacadeControls';
 import type { SubscriptionAccountsSession } from './features/settings/SubscriptionAccounts';
 import type { SubscriptionProbesSession } from './features/settings/SubscriptionProbes';
 import type { SubscriptionOptionsSession } from './features/settings/SubscriptionOptions';
-import type { McpConnections } from './features/settings/McpConnections';
 import type { createRuntimeInstallations } from './features/mcp/RuntimeInstallations';
 import type { DocumentRemovals } from './features/knowledge/DocumentRemovals';
 import type { DocumentQueueOwner } from './features/knowledge/DocumentQueuePanel';
@@ -87,10 +85,6 @@ export const RuntimeContext = createContext<{
   capabilitySettingsOwner?: ReturnType<
     typeof createAuthenticatedEditorOwner<CapabilitySettingsSession>
   >;
-  /** "Enable in chat" for external MCP tools (B130). */
-  mcpChatOwner?: ReturnType<
-    typeof createAuthenticatedEditorOwner<McpFacadeSession>
-  >;
   buddyOwner?: ReturnType<
     typeof createAuthenticatedEditorOwner<
       ReturnType<typeof createBuddySessions>
@@ -104,9 +98,6 @@ export const RuntimeContext = createContext<{
   >;
   subscriptionOptionsOwner?: ReturnType<
     typeof createAuthenticatedEditorOwner<SubscriptionOptionsSession>
-  >;
-  mcpConnectionsOwner?: ReturnType<
-    typeof createAuthenticatedEditorOwner<McpConnections>
   >;
   runtimeInstallationsOwner?: ReturnType<
     typeof createAuthenticatedEditorOwner<

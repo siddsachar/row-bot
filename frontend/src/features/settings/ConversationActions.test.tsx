@@ -405,20 +405,14 @@ it('reads the conversation afresh each time it opens', async () => {
   expect(props.review.mock.calls[0][2]).toBe('9');
 });
 
-it('reviews and executes an initial pin request once, then uses the receipt', async () => {
+it('opens with the name ready to type over', async () => {
   const props = options();
-  renderActions(<ConversationActions {...props} initialPin />);
-  await screen.findByText('Pinned.');
-  expect(props.review).toHaveBeenCalledExactlyOnceWith(
-    'conversation-1',
-    'conversation.pin',
-    '4',
-    { pinned: true },
-    expect.any(AbortSignal),
+  renderActions(<ConversationActions {...props} />);
+  const name = await screen.findByDisplayValue('Saved conversation');
+  await waitFor(() => expect(name).toHaveFocus());
+  expect((name as HTMLInputElement).selectionEnd).toBe(
+    'Saved conversation'.length,
   );
-  expect(props.execute).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole('switch', { name: 'Pin' })).toBeChecked();
-  expect(props.session.getSnapshot().snapshot?.pinned).toBe(true);
 });
 
 it('retains an uncertain command across remount and checks the same identity', async () => {

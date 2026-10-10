@@ -70,7 +70,9 @@ def test_worker_provider_callback_rechecks_real_session_after_start_was_admitted
         assert len(callbacks) == 1 and isinstance(callbacks[0], CapturedMediaAuth)
 
 
-def test_media_revoked_after_owned_read_is_not_delivered(service, env, monkeypatch):
+@pytest.mark.parametrize("path", [BASE + "/packs/glyph/media/idle", "/api/v1/buddy/packs/glyph/media/idle"])
+def test_media_revoked_after_owned_read_is_refused_without_a_byte(service, env, monkeypatch, path):
+    """Found in the browser smoke: a session gone before the first chunk came back as a 500."""
     prepare(service, monkeypatch)
     security = ClientSecurity(instance_id=service.instance_id)
     secret = b"synthetic-private-media-bytes"
@@ -82,7 +84,8 @@ def test_media_revoked_after_owned_read_is_not_delivered(service, env, monkeypat
     app = create_client_platform_app(service, security=security, choices=lambda: {"models": [], "capabilities": []})
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345), raise_server_exceptions=False) as client:
         _, headers = bootstrap(client)
-        response = client.get(BASE + "/packs/glyph/media/idle?revision=revision", headers=headers)
+        response = client.get(path + "?revision=revision", headers=headers)
+        assert response.status_code == 401 and response.json()["code"] == "session_expired"
         assert secret not in response.content
 
 

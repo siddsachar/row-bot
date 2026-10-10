@@ -131,7 +131,7 @@ async function createResource(
       .click();
   }
   await expect(
-    dialog.getByText('Resource ready', { exact: true }),
+    dialog.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
   return (
@@ -168,8 +168,8 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
     await expect(context).toBeVisible();
   };
   await revealContext();
-  // The Goal section always shows; without a goal it offers Set a goal (B223).
-  await expect(context.getByText('No goal', { exact: true })).toBeVisible();
+  // Without a goal no Goal row shows, only a small Set a goal (B223).
+  await expect(context.getByText('No goal', { exact: true })).toHaveCount(0);
   await context
     .getByRole('button', { name: 'Set a goal', exact: true })
     .click();
@@ -235,13 +235,13 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
     .fill('Agent profiles');
   await page.keyboard.press('Enter');
   const owner = page
-    .getByRole('dialog', { name: 'Agent profiles', exact: true })
-    .getByRole('region', { name: 'Goals and Agent Profiles', exact: true });
+    .getByRole('dialog', { name: 'Agents', exact: true })
+    .getByRole('region', { name: 'Goals and agents', exact: true });
   const profiles = owner.getByRole('region', {
-    name: 'Agent Profiles',
+    name: 'Agents',
     exact: true,
   });
-  await expect(profiles.getByText(/reusable profiles/)).toBeVisible();
+  await expect(profiles.getByText(/^\d+ agents?\.$/)).toBeVisible();
   await profiles
     .getByRole('button', { name: 'Create profile', exact: true })
     .click();
@@ -307,11 +307,10 @@ test('retained settings expose real capability state without leaving the unified
     page.getByRole('region', { name: 'Talk', exact: true }),
   ).toBeVisible();
 
-  await openSettingThroughCommands(page, {
-    label: 'Accounts',
-    path: '/app-v2/settings/accounts',
-  });
-  // One row per account (B263): GitHub's setup is offered in place.
+  // Accounts are apps now: GitHub's account opens as GitHub's own settings, scoped to it.
+  await page.goto(
+    '/app-v2/settings/apps/item?id=builtin%3Aaccount%3Agithub&edit=1',
+  );
   await expect(
     page.getByRole('region', { name: 'Connect GitHub', exact: true }),
   ).toBeVisible();
@@ -322,7 +321,7 @@ test('retained settings expose real capability state without leaving the unified
     path: '/app-v2/settings/tracker',
   });
   await expect(
-    page.getByRole('heading', { name: 'Tracker Tool', exact: true }),
+    page.getByRole('heading', { name: 'Tracking', exact: true }),
   ).toBeVisible();
 
   // Utilities became Tools' built-in tools.
@@ -360,7 +359,7 @@ test('retained settings expose real capability state without leaving the unified
   ).toEqual([]);
   await writeEvidence(info, 'retained-settings-result.json', {
     conversation,
-    routes: ['voice', 'accounts', 'tracker', 'tools', 'system'],
+    routes: ['voice', 'apps/github', 'tracker', 'tools', 'system'],
     draft_retained: true,
     provider_calls: 0,
   });
@@ -465,6 +464,10 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
 }, info) => {
   test.setTimeout(240_000);
   page.setDefaultTimeout(10_000);
+  // A repository action reviews, runs and re-reads with Git (about 1.5 s a
+  // read on Windows), then the panel reads it again: its outcome can take
+  // more than 10 s to show.
+  const gitStep = { timeout: 30_000 };
   const conversation = await newConversation(page);
   await composer(page).fill('Retained Developer repository draft');
   const name = `phase4-repository-${conversation}`;
@@ -520,17 +523,22 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   await repository
     .getByRole('button', { name: 'Create branch', exact: true })
     .click();
-  await expect(repository.getByRole('status')).toHaveText('Branch created.');
+  await expect(repository.getByRole('status')).toHaveText(
+    'Branch created.',
+    gitStep,
+  );
   await expect(branchMenu).toContainText(branch);
 
   await openAdvanced(repository);
   await repository
     .getByLabel('Worktree objective', { exact: true })
-    .fill('Isolated browser worktree');
+    // The fixture checkout is deeply nested on Windows; keep this synthetic
+    // objective short so Git's fixed metadata path limit is not the test target.
+    .fill('Fixture');
   await repository
     .getByRole('button', { name: 'Create managed worktree', exact: true })
     .click();
-  await expect(repository.getByText(/active · preserve/)).toBeVisible();
+  await expect(repository.getByText(/active · preserve/)).toBeVisible(gitStep);
   await visualCheck(page, info, 'developer-worktree-created');
   await repository
     .getByLabel('Preservation reason', { exact: true })
@@ -541,7 +549,9 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
       exact: true,
     })
     .click();
-  await expect(repository.getByText(/preserved · preserve/)).toBeVisible();
+  await expect(repository.getByText(/preserved · preserve/)).toBeVisible(
+    gitStep,
+  );
   await repository
     .getByRole('combobox', { name: 'Execution mode', exact: true })
     .selectOption('docker');
@@ -556,13 +566,13 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     .click();
   await expect(
     repository.getByRole('combobox', { name: 'Execution mode' }),
-  ).toHaveValue('docker');
+  ).toHaveValue('docker', gitStep);
   await expect(
     repository.getByRole('button', {
       name: 'Rebuild sandbox',
       exact: true,
     }),
-  ).toBeEnabled();
+  ).toBeEnabled(gitStep);
 
   await page.reload();
   const reopened = await openGit();
@@ -635,7 +645,7 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     .getByRole('button', { name: 'Create Deck', exact: true })
     .click();
   await expect(
-    dialog.getByText('Resource ready', { exact: true }),
+    dialog.getByText(/^(Design ready|Code folder ready)$/),
   ).toBeVisible();
   await page.keyboard.press('Escape');
 
@@ -880,7 +890,7 @@ test('profile library manages profiles and starts a selected chat', async ({
   });
   await expect(entry).toBeVisible();
   await entry.click();
-  const dialog = page.getByRole('dialog', { name: 'Agent profiles' });
+  const dialog = page.getByRole('dialog', { name: 'Agents', exact: true });
   await expect(
     dialog.locator('summary').filter({ hasText: 'Everyday' }),
   ).toBeVisible();
@@ -921,6 +931,14 @@ test('profile library manages profiles and starts a selected chat', async ({
     dialog.getByRole('region', { name: 'Profile details' }),
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Close details' }).click();
+  // Focus returns to View, which shows its label; Escape dismisses the label
+  // first, then the dialog.
+  await expect(
+    dialog.getByRole('button', { name: 'View General Assistant' }),
+  ).toBeFocused();
+  await expect(page.getByRole('tooltip')).toHaveText('View General Assistant');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   if (page.viewportSize()!.width < 1024) {

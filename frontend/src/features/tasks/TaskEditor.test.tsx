@@ -134,7 +134,7 @@ it('shows schedule, delivery and policy in the rail of a new workflow with manua
   expect(app).toBeDisabled();
   expect(within(delivery).getAllByRole('checkbox')).toHaveLength(1);
   expect(
-    within(delivery).getByText(/Set up a channel in Settings › Channels/),
+    within(delivery).getByText(/Set up a channel in Settings › Apps/),
   ).toBeVisible();
   // New workflows are saved with the block policy, so the note says so.
   const policyNote = within(rail).getByText(/Change this after the first save/);
@@ -167,7 +167,7 @@ it('prefills the channel checklist from the defaults and keeps following them', 
   ).not.toBeChecked();
   expect(within(delivery).getByText('Following your defaults.')).toBeVisible();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   // Untouched, it keeps following the defaults (null), never a copy of them.
   expect(callbacks.create).toHaveBeenCalledWith(
@@ -188,7 +188,7 @@ it('retains a new draft and settles create after an actual unmount without creat
   const second = render(<TaskEditor {...callbacks} />);
   expect(screen.getByLabelText('Name')).toHaveValue('New workflow');
   expect(screen.getByLabelText('Prompt 1')).toHaveValue('Summarize fake data');
-  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save workflow' }));
   second.unmount();
   const third = render(<TaskEditor {...callbacks} />);
   expect(screen.getByLabelText('Name')).toBeDisabled();
@@ -204,7 +204,7 @@ it('retains a new draft and settles create after an actual unmount without creat
   expect(callbacks.create).toHaveBeenCalledOnce();
   expect(session.retained()).toBe(false);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).toHaveBeenCalledOnce();
   expect(callbacks.save).toHaveBeenCalledWith(
@@ -223,7 +223,7 @@ it('creates a disabled workflow using inherited delivery, without run controls',
     screen.queryByRole('button', { name: /^run/i }),
   ).not.toBeInTheDocument();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -245,7 +245,7 @@ it('saves [] for in-app only once the defaults are unticked', async () => {
   fireEvent.click(screen.getByRole('checkbox', { name: 'Telegram' }));
   expect(screen.getByText('Only in this app.')).toBeInTheDocument();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).toHaveBeenLastCalledWith(
     expect.objectContaining({ channels: [] }),
@@ -274,7 +274,7 @@ it('ticks channels for one workflow and goes back to the defaults as null', asyn
   expect(screen.getByText('Only for this workflow.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Telegram' }));
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -284,7 +284,7 @@ it('ticks channels for one workflow and goes back to the defaults as null', asyn
   fireEvent.click(screen.getByRole('button', { name: 'Use my defaults' }));
   expect(screen.getByText('Following your defaults.')).toBeInTheDocument();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -347,7 +347,7 @@ it('shows a saved channel that is no longer set up, so it can be unticked', asyn
   expect(gone).toBeChecked();
   fireEvent.click(gone);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -373,7 +373,7 @@ it('preserves prompt order and exact full-row revision on update', async () => {
   await screen.findByDisplayValue('Saved workflow');
   fireEvent.click(screen.getByRole('button', { name: 'Move prompt 2 up' }));
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenCalledWith(
     'task-a',
@@ -398,7 +398,7 @@ it('creates a reminder from a blank initial prompt without fabricating a workflo
     target: { value: 'Review synthetic result' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -484,15 +484,15 @@ it('retains user edits on conflict and requires reload before another save', asy
     target: { value: 'My unsaved name' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(screen.getByLabelText('Name')).toHaveValue('My unsaved name');
-  expect(screen.getByRole('button', { name: 'Save task' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save workflow' })).toBeDisabled();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Reload saved task' })),
   );
   expect(screen.getByLabelText('Name')).toHaveValue('Saved workflow');
-  expect(screen.getByRole('button', { name: 'Save task' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Save workflow' })).toBeEnabled();
 });
 
 it('does not reveal arbitrary errors and preserves the draft for recovery', async () => {
@@ -502,7 +502,7 @@ it('does not reveal arbitrary errors and preserves the draft for recovery', asyn
   render(<TaskEditor {...callbacks} />);
   fillNew();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(screen.getByRole('alert')).not.toHaveTextContent(
     'PRIVATE_PATH_SECRET',
@@ -539,7 +539,7 @@ it('preserves advanced graph and legacy destination settings as readonly', async
     ['Approvals', 'Block actions'],
   ]);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenCalledWith(
     'task-a',
@@ -561,7 +561,7 @@ it('saves a local one-shot date with no recurring schedule', async () => {
     target: { value: '2027-01-01T10:00' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).toHaveBeenCalledWith(
     expect.objectContaining({ at: '2027-01-01T10:00', schedule: null }),
@@ -575,7 +575,7 @@ it('requires a date before saving a one-shot schedule', async () => {
   fireEvent.click(screen.getByRole('radio', { name: 'Once' }));
   expect(screen.getByLabelText('Date and time')).toBeInvalid();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).not.toHaveBeenCalled();
 });
@@ -603,7 +603,7 @@ it('replaces a saved one-shot date with a recurring schedule, and clears both fo
     target: { value: '07:30' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -616,7 +616,7 @@ it('replaces a saved one-shot date with a recurring schedule, and clears both fo
   );
   fireEvent.click(screen.getByRole('radio', { name: 'Manually' }));
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -644,7 +644,7 @@ it('opens a saved recurring schedule in the builder and saves it untouched', asy
   );
   expect(screen.getByLabelText('Time')).toHaveValue('17:00');
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenCalledWith(
     'task-a',
@@ -677,7 +677,7 @@ it('keeps a saved schedule exactly as written until the schedule is edited', asy
     target: { value: 'Renamed' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -688,7 +688,7 @@ it('keeps a saved schedule exactly as written until the schedule is edited', asy
     target: { value: '45' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
@@ -748,7 +748,7 @@ it('adds, fills and removes prompt steps', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Remove prompt 3' }));
   expect(screen.queryByLabelText('Prompt 3')).not.toBeInTheDocument();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.create).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -808,7 +808,7 @@ it('reorders steps from the drag handle with the arrow keys and keeps focus on t
   fireEvent.keyDown(handle(2), { key: 'Enter' });
   expect(values()).toEqual(['Second', 'Third', 'First']);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).toHaveBeenCalledWith(
     'task-a',
@@ -904,7 +904,7 @@ it('refuses to switch on a one-off whose time has passed, before saving (B133)',
   const enabled = await screen.findByRole('switch', { name: 'Enabled' });
   await act(async () => fireEvent.click(enabled));
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
   );
   expect(callbacks.save).not.toHaveBeenCalled();
   expect(screen.getByRole('alert')).toHaveTextContent(

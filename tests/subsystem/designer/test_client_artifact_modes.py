@@ -68,6 +68,19 @@ def test_every_advertised_template_and_canvas_can_be_created(isolated, mode):
             assert rendered.html and not rendered.unchanged
 
 
+def test_a_template_made_for_another_canvas_brings_it_unless_one_is_chosen(isolated):
+    options = service.artifact_setup_options("app_mockup")
+    canvases = {choice.id: choice.canvas for choice in options.templates}
+    assert canvases["dashboard_desktop"] == "desktop" and canvases["blank_app_mockup"] == "phone"
+    assert {choice.id: choice.canvas for choice in service.artifact_setup_options("deck").templates}[
+        "social_media"] == "1:1"
+    own = service.create_artifact("dashboard", service.ArtifactSetup("app_mockup", "dashboard_desktop"))
+    assert (own.canvas_width, own.canvas_height) == ASPECT_RATIOS["desktop"]
+    chosen = service.create_artifact("dashboard-phone",
+                                     service.ArtifactSetup("app_mockup", "dashboard_desktop", "phone"))
+    assert chosen.aspect_ratio == "phone"
+
+
 @pytest.mark.parametrize("setup,code", [
     (service.ArtifactSetup(mode="app"), "artifact_type_unavailable"),
     (service.ArtifactSetup(mode="auto"), "artifact_type_unavailable"),

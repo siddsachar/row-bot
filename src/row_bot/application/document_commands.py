@@ -295,7 +295,8 @@ def _public_removal(result: dict) -> dict:
         "wiki_external_and_recovery_copies", "interrupted_source_copies", "legacy_index_created_after_request"}
     kinds = sorted({item.get("kind") for item in retained if isinstance(item, dict) and item.get("kind") in known_kinds})
     counts = {name: sum(value == name for value in stages.values()) for name in ("complete", "pending", "partial")}
-    known_stages = {"worker", "derived_snapshot", "index", "source", "raw_copy", "derived_knowledge", "markers", "record", "legacy_index", "bulk_removal"}
+    known_stages = {"worker", "derived_snapshot", "index", "source", "raw_copy", "derived_knowledge", "markers", "record",
+                    "legacy_index", "bulk_removal", "queue"}
     stage_rows = [{"stage": name, "status": value} for name, value in stages.items()
                   if name in known_stages and value in counts]
     codes = sorted({str(item.get("code")) for item in failures if isinstance(item, dict)

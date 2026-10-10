@@ -25,7 +25,7 @@ import re
 import sys
 from typing import Any
 
-from row_bot.mcp_client import config
+from row_bot.mcp_client import config, targets
 
 _PUBLIC_KEY = os.urandom(32)  # Restart expires public snapshots; no extra store.
 _WIRE_LIMIT = 128 * 1024
@@ -43,8 +43,13 @@ _FIELDS = {
     "connect_timeout",
     "tool_timeout",
     "output_limit",
+    "input_values",
 }
-_PRIVATE_FIELDS = ("command", "args", "cwd", "url", "env", "headers")
+_PRIVATE_FIELDS = ("command", "args", "cwd", "url", "env", "headers", "input_values")
+# The person's own choices (a sign-in, a reviewed package, which tools were accepted or run without
+# asking): never taken from imported text, as for a package's manifest.
+_CHOICES = {"auth", "managed_launch"}
+_TOOL_CHOICES = {"run_without_asking", "catalog", "accepted_names"}
 
 
 class CapabilityConfigurationError(ValueError):
@@ -119,9 +124,11 @@ def read_mcp_configuration(
     cursor: str | None = None,
     limit: int = 25,
     validate: Callable[[], None] = lambda: None,
+    target: dict | None = None,
 ) -> McpConfigurationPage:
     """Read a bounded page from the full saved library, with no cold runtime load."""
     validate()
+    target = targets.normalize(target)
     if (
         type(query) is not str
         or len(query) > 128
@@ -131,8 +138,8 @@ def read_mcp_configuration(
         raise CapabilityConfigurationError("invalid_query")
     query = query.strip().casefold()
     try:
-        saved = config.read_saved_configuration()
-        recovery_required = config.configuration_recovery_required()
+        saved = config.read_saved_configuration(target)
+        recovery_required = config.configuration_recovery_required(target=target)
     except config.McpConfigurationError:
         validate()
         if cursor is not None:
@@ -192,39 +199,7 @@ def read_mcp_configuration(
         tools = server.get("tools")
         catalog = tools.get("catalog") if type(tools) is dict else None
         status = statuses.get(name, {})
-        from row_bot.mcp_client.requirements import check_server_requirements
-
-        try:
-            checks = check_server_requirements(server)[:8]
-            requirements = tuple(
-                {
-                    "id": check.requirement.id
-                    if check.requirement.id in {"node", "uv", "playwright-chrome"}
-                    else "other",
-                    "label": check.requirement.label[:96]
-                    if check.requirement.id in {"node", "uv", "playwright-chrome"}
-                    else "Other runtime",
-                    "available": check.available,
-                    "managed": check.requirement.managed,
-                    "installable": check.installable
-                    and check.requirement.id in {"node", "uv"},
-                    "source": check.source
-                    if check.source in {"system", "managed", "environment", "missing"}
-                    else "unknown",
-                }
-                for check in checks
-            )
-        except (OSError, ValueError, RuntimeError):
-            requirements = (
-                {
-                    "id": "other",
-                    "label": "Requirements",
-                    "available": False,
-                    "managed": False,
-                    "installable": False,
-                    "source": "unknown",
-                },
-            )
+        requirements = requirement_summaries(server)
         items.append(
             McpServerSummary(
                 _server_id(name),
@@ -258,6 +233,30 @@ def read_mcp_configuration(
         if offset + len(items) < len(matches)
         else None,
     )
+
+
+_KNOWN_RUNTIMES = {"node", "uv", "playwright-chrome", "docker"}
+
+
+def requirement_summaries(server: dict) -> tuple[dict[str, Any], ...]:
+    """Public runtime requirement checks for one saved server (no private launch fields)."""
+    from row_bot.mcp_client.requirements import check_server_requirements
+
+    try:
+        return tuple(
+            {
+                "id": check.requirement.id if check.requirement.id in _KNOWN_RUNTIMES else "other",
+                "label": check.requirement.label[:96] if check.requirement.id in _KNOWN_RUNTIMES else "Other runtime",
+                "available": check.available,
+                "managed": check.requirement.managed,
+                "installable": check.installable and check.requirement.id in {"node", "uv"},
+                "source": check.source if check.source in {"system", "managed", "environment", "missing"} else "unknown",
+            }
+            for check in check_server_requirements(server)[:8]
+        )
+    except (OSError, ValueError, RuntimeError):
+        return ({"id": "other", "label": "Requirements", "available": False, "managed": False,
+                 "installable": False, "source": "unknown"},)
 
 
 def _text(value: Any, maximum: int = 16384, *, empty: bool = True) -> str:
@@ -303,7 +302,7 @@ def _fields(raw: Any) -> dict:
                 raise CapabilityConfigurationError("invalid_command")
             for item in value:
                 _text(item)
-        elif key in {"env", "headers"}:
+        elif key in {"env", "headers", "input_values"}:
             if type(value) is not dict or len(value) > 128:
                 raise CapabilityConfigurationError("invalid_command")
             for label, item in value.items():
@@ -335,6 +334,13 @@ def _server(base: dict, fields: dict, name: str) -> dict:
     if transport not in {"stdio", "streamable_http", "sse"}:
         raise CapabilityConfigurationError("invalid_command")
     result["transport"] = transport
+    try:  # Declared inputs keep their shape; plain values only for declared, non-secret inputs.
+        from row_bot.integrations import inputs
+        declared = {item["key"]: item for item in inputs.check(result.get("inputs"))}
+    except ValueError:
+        raise CapabilityConfigurationError("invalid_command") from None
+    if any(key not in declared or declared[key]["secret"] for key in result.get("input_values") or {}):
+        raise CapabilityConfigurationError("invalid_command")
     if transport == "stdio":
         _text(result.get("command"), empty=False)
     else:
@@ -351,7 +357,7 @@ def _server(base: dict, fields: dict, name: str) -> dict:
 
 
 def _next_document(
-    saved: config.SavedMcpConfiguration, intent: dict
+    saved: config.SavedMcpConfiguration, intent: dict, *, child: bool = False
 ) -> tuple[dict, tuple[str, ...]]:
     """Compute the complete proposed map before any file or receipt publication."""
     if type(intent) is not dict or set(intent) - {
@@ -359,6 +365,7 @@ def _next_document(
         "server_id",
         "fields",
         "import_json",
+        "delete_credentials",
     }:
         raise CapabilityConfigurationError("invalid_command")
     try:
@@ -396,13 +403,16 @@ def _next_document(
             _name(name)
             if name in servers:
                 raise CapabilityConfigurationError("mcp_server_collision")
-            if type(value) is not dict:
+            if type(value) is not dict or type(value.get("tools") or {}) is not dict:
                 raise CapabilityConfigurationError("invalid_command")
             fields = _fields({key: value[key] for key in value if key in _FIELDS})
-            servers[name] = _server(value, fields, name)
+            pasted = {key: item for key, item in value.items() if key not in _CHOICES}
+            if "tools" in value:
+                pasted["tools"] = {key: item for key, item in (value["tools"] or {}).items() if key not in _TOOL_CHOICES}
+            servers[name] = _server(pasted, fields, name)
             affected.append(name)
     elif operation == "delete":
-        if set(intent) != {"operation", "server_id"}:
+        if set(intent) - {"operation", "server_id", "delete_credentials"} or type(intent.get("delete_credentials", False)) is not bool:
             raise CapabilityConfigurationError("invalid_command")
         identity = intent["server_id"]
         if type(identity) is not str or not _IDENTITY.fullmatch(identity):
@@ -444,22 +454,26 @@ def _next_document(
         affected.append(name)
     else:
         raise CapabilityConfigurationError("invalid_command")
+    if child:
+        from row_bot.plugins.state import validate_mcp_child_change
+        validate_mcp_child_change(saved.document, document)
     return document, tuple(affected)
 
 
 def review_mcp_configuration_command(
-    configuration_revision: str, intent: dict, *, validate: Callable[[], None]
+    configuration_revision: str, intent: dict, *, validate: Callable[[], None], target: dict | None = None
 ) -> dict:
     """Review explicit local configuration only; never test a launch target."""
     from row_bot.runtime import admissions
 
     validate()
-    config.require_configuration_write_available()
-    saved = config.read_saved_configuration()
+    target = targets.normalize(target)
+    config.require_configuration_write_available(target=target)
+    saved = config.read_saved_configuration(target)
     current = _revision(saved)
     if configuration_revision != current:
         raise CapabilityConfigurationError("revision_conflict", current)
-    _document, affected = _next_document(saved, intent)
+    _document, affected = _next_document(saved, intent, child=target is not None)
     validate()
     return {
         "configuration_revision": current,
@@ -487,8 +501,8 @@ def _confirmed_publication(
     from row_bot.file_ownership import confirmed_edit_publication
 
     return saved.exists and confirmed_edit_publication(
-        config.CONFIG_PATH,
-        saved.digest,
+        saved.storage_path or config.CONFIG_PATH,
+        saved.storage_digest or saved.digest,
         saved.identity,
         publication,
         owner_id=owner_id,
@@ -505,8 +519,10 @@ def execute_mcp_configuration_command(
     command: dict,
     validate: Callable[[], None],
     validate_review: Callable[[dict], None],
+    target: dict | None = None,
 ) -> dict:
     """Save disabled once; retry reconciles exact proof and never blindly writes."""
+    command, target = targets.from_command(command, target)
     return _execute_saved_change(
         owner_id=owner_id,
         key=key,
@@ -514,9 +530,75 @@ def execute_mcp_configuration_command(
         validate=validate,
         validate_review=validate_review,
         command_type="mcp.configuration.save",
-        next_document=_next_document,
+        next_document=lambda saved, intent: _next_document(saved, intent, child=target is not None),
         saved_disabled=True,
+        target=target,
     )
+
+
+def _complete_saved_change(*, owner_id: str, key: str, progress: dict, intent: dict,
+        saved: config.SavedMcpConfiguration, ids: list[str], names: list[str],
+        saved_disabled: bool | None, validate: Callable[[], None], partial: Callable[[], dict]) -> dict:
+    """Finish the original proven publication and its exact owned cleanup."""
+    from row_bot.runtime import admissions
+    validate()
+    cleanup = "not_requested"
+    if intent.get("operation") == "delete":
+        from row_bot.mcp_client import runtime
+
+        if len(names) != 1 or len(ids) != 1 or _server_id(names[0]) != ids[0]:
+            return partial()
+        try:
+            lifecycle = runtime.get_server_lifecycle(names[0])
+            runtime_id = lifecycle.get("runtime_id")
+            if runtime_id:
+                stopped = runtime.stop_server_owned(names[0], runtime_id)
+                cleanup = (
+                    "stopped"
+                    if stopped["state"] == "stopped"
+                    else "cleanup_incomplete"
+                )
+            else:
+                cleanup = "not_running"
+        except (OSError, RuntimeError, ValueError):
+            cleanup = "cleanup_incomplete"
+        if cleanup != "cleanup_incomplete":
+            try:
+                from row_bot.mcp_client.auth import delete_bound_credentials
+                private = progress.get("_mcp_configuration", {})
+                if private.get("delete_credentials") is True:
+                    for ref, binding in private.get("credential_bindings", {}).items():
+                        delete_bound_credentials(ref, binding)
+            except Exception:
+                cleanup = "cleanup_incomplete"
+        if cleanup == "cleanup_incomplete":
+            progress = {
+                **progress,
+                "status": "partial",
+                "mcp_configuration": {
+                    "schema_version": 1,
+                    "status": "partial",
+                    "revision": _revision(saved),
+                    "server_ids": ids,
+                    "saved_disabled": True,
+                    "runtime_cleanup": cleanup,
+                    "code": "mcp_cleanup_incomplete",
+                },
+            }
+            admissions.command_progress(owner_id, key, progress)
+            return public_receipt(progress)
+    outcome = {
+        "schema_version": 1,
+        "status": "saved",
+        "revision": _revision(saved),
+        "server_ids": ids,
+        "saved_disabled": saved_disabled,
+        "runtime_cleanup": cleanup,
+        "code": None,
+    }
+    progress = {**progress, "status": "completed", "mcp_configuration": outcome}
+    admissions.command_progress(owner_id, key, progress)
+    return public_receipt(admissions.complete_command(owner_id, key, progress))
 
 
 def _execute_saved_change(
@@ -529,6 +611,7 @@ def _execute_saved_change(
     command_type: str,
     next_document: Callable,
     saved_disabled: bool | None,
+    target: dict | None = None,
 ) -> dict:
     """Shared MCP configuration publication; callers own explicit typed intents."""
     from uuid import UUID
@@ -596,64 +679,16 @@ def _execute_saved_change(
             pass  # Keep any earlier private proof; no false completion.
         return public_receipt(value)
 
-    def complete(
-        saved: config.SavedMcpConfiguration, ids: list[str], names: list[str]
-    ) -> dict:
-        nonlocal progress
-        validate()
-        cleanup = "not_requested"
-        if intent.get("operation") == "delete":
-            from row_bot.mcp_client import runtime
-
-            if len(names) != 1 or len(ids) != 1 or _server_id(names[0]) != ids[0]:
-                return partial()
-            try:
-                lifecycle = runtime.get_server_lifecycle(names[0])
-                runtime_id = lifecycle.get("runtime_id")
-                if runtime_id:
-                    stopped = runtime.stop_server_owned(names[0], runtime_id)
-                    cleanup = (
-                        "stopped"
-                        if stopped["state"] == "stopped"
-                        else "cleanup_incomplete"
-                    )
-                else:
-                    cleanup = "not_running"
-            except (OSError, RuntimeError, ValueError):
-                cleanup = "cleanup_incomplete"
-            if cleanup == "cleanup_incomplete":
-                progress = {
-                    **progress,
-                    "status": "partial",
-                    "mcp_configuration": {
-                        "schema_version": 1,
-                        "status": "partial",
-                        "revision": _revision(saved),
-                        "server_ids": ids,
-                        "saved_disabled": True,
-                        "runtime_cleanup": cleanup,
-                        "code": "mcp_cleanup_incomplete",
-                    },
-                }
-                admissions.command_progress(owner_id, key, progress)
-                return public_receipt(progress)
-        outcome = {
-            "schema_version": 1,
-            "status": "saved",
-            "revision": _revision(saved),
-            "server_ids": ids,
-            "saved_disabled": saved_disabled,
-            "runtime_cleanup": cleanup,
-            "code": None,
-        }
-        progress = {**progress, "status": "completed", "mcp_configuration": outcome}
-        admissions.command_progress(owner_id, key, progress)
-        return public_receipt(admissions.complete_command(owner_id, key, progress))
+    def complete(saved: config.SavedMcpConfiguration, ids: list[str], names: list[str]) -> dict:
+        return _complete_saved_change(owner_id=owner_id, key=key, progress=progress, intent=intent,
+            saved=saved, ids=ids, names=names, saved_disabled=saved_disabled, validate=validate, partial=partial)
 
     with config.configuration_transaction():
         validate()
+        if admissions.read_command_metadata(owner_id, key) is None:
+            config.require_configuration_write_available(excluding=(owner_id, key), target=target)
         try:
-            replay = admissions.claim_command(owner_id, key, mapped, "settings:mcp")
+            replay = admissions.claim_command(owner_id, key, mapped, targets.admission_target(target), exclusive_target=True)
         except admissions.AdmissionError as error:
             if str(error) != "operation_uncertain":
                 raise CapabilityConfigurationError(
@@ -675,7 +710,7 @@ def _execute_saved_change(
             publication = private.get("publication")
             ids = private.get("server_ids")
             try:
-                saved = config.read_saved_configuration()
+                saved = config.read_saved_configuration(target)
             except config.McpConfigurationError:
                 return partial()
             if (
@@ -701,12 +736,16 @@ def _execute_saved_change(
             validate()
             return public_receipt(replay)
         try:
-            config.require_configuration_write_available(excluding=(owner_id, key))
-            saved = config.read_saved_configuration()
+            config.require_configuration_write_available(excluding=(owner_id, key), target=target)
+            saved = config.read_saved_configuration(target)
             current = _revision(saved)
             if current != revision:
                 raise CapabilityConfigurationError("revision_conflict", current)
             document, names = next_document(saved, intent)
+            if intent.get("operation") == "import":
+                from row_bot.mcp_client.registry_snapshot import revalidate_configuration
+                for name in names:
+                    revalidate_configuration(document["servers"][name])
             ids = [_server_id(name) for name in names]
             authority()
         except (CapabilityConfigurationError, config.McpConfigurationError) as error:
@@ -717,7 +756,17 @@ def _execute_saved_change(
         except Exception:
             admissions.reject_command(owner_id, key, "action_denied")
             raise
-        private = {"server_ids": ids, "affected_names": list(names)}
+        import psutil
+        private = {"server_ids": ids, "affected_names": list(names), "operation": intent.get("operation"),
+            "target": target, "saved_disabled": saved_disabled,
+            "process": {"pid": os.getpid(), "birth": psutil.Process().create_time()}}
+        if intent.get("operation") == "delete":
+            from row_bot.mcp_client.auth import binding
+            private["delete_credentials"] = intent.get("delete_credentials", False)
+            private["credential_bindings"] = {saved.document["servers"][name]["auth"]["credential_ref"]: binding(name, saved.document["servers"][name])
+                for name in names if saved.document["servers"][name].get("auth", {}).get("credential_ref")}
+            private["credential_refs"] = [saved.document["servers"][name]["auth"]["credential_ref"]
+                for name in names if saved.document["servers"][name].get("auth", {}).get("credential_ref")]
         progress["_mcp_configuration"] = private
         admissions.command_progress(owner_id, key, progress)
         document["_client_publication"] = {
@@ -737,7 +786,50 @@ def _execute_saved_change(
                 command_id=command["command_id"],
                 persist_recovery=checkpoint,
                 validate=authority,
+                target=target,
             )
         except Exception:
             return partial()
         return complete(result, ids, list(names))
+
+
+def reconcile_mcp_configuration_operation(*, owner_id: str, command_id: str, validate: Callable[[], None]) -> dict:
+    """Explicitly settle exact publication proof, without repeating a save."""
+    from row_bot.runtime import admissions
+    import psutil
+    validate()
+    metadata = admissions.read_command_metadata(owner_id, command_id)
+    if metadata is None or metadata["type"] not in {"mcp.configuration.save", "mcp.configuration.control", "mcp.catalog.accept", "mcp.package.prepare"}:
+        raise CapabilityConfigurationError("not_found")
+    result = admissions.read_command_receipt(owner_id, command_id) or {}
+    pending = {"command_id": command_id, "settled": False,
+        "message": "The original configuration outcome is unconfirmed. No save or connection was repeated; keep the current files and inspect Advanced connection settings."}
+    if metadata["status"] in {"completed", "rejected"}:
+        return {**pending, "settled": True, "message": "The original operation is complete."}
+    private = result.get("_mcp_configuration", {})
+    process = private.get("process", {})
+    if not process:
+        return pending
+    if process.get("pid") != os.getpid():
+        try:
+            if psutil.Process(process["pid"]).create_time() == process["birth"]:
+                return {**pending, "message": "The original process is still running. Check again after it stops."}
+        except (KeyError, TypeError, psutil.Error):
+            pass
+    with config.configuration_transaction():
+        validate()
+        result = admissions.read_command_receipt(owner_id, command_id) or result
+        if result.get("status") in {"completed", "rejected"}:
+            return {**pending, "settled": True, "message": "The original operation is complete."}
+        try:
+            saved = config.read_saved_configuration(targets.normalize(private.get("target")))
+            if not _confirmed_publication(saved, private.get("publication", {}), owner_id, metadata["key"], command_id):
+                return pending
+        except (OSError, ValueError, KeyError, TypeError):
+            return pending
+        completed = _complete_saved_change(owner_id=owner_id, key=metadata["key"], progress=result,
+            intent={"operation": private.get("operation")}, saved=saved, ids=private["server_ids"],
+            names=private["affected_names"], saved_disabled=private.get("saved_disabled"), validate=validate,
+            partial=lambda: public_receipt(result))
+        return {**pending, "settled": completed.get("status") == "completed",
+            "message": "Original configuration publication checked. No save or connection was repeated."}

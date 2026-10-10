@@ -195,6 +195,8 @@ export type ChannelSettingsProps = {
   ) => Promise<ChannelReceipt>;
   /** The link code of a channel linked by scanning (owner on this computer). */
   loadLink?: (channelId: string, signal: AbortSignal) => Promise<ChannelLink>;
+  /** One channel only, open, as its app's settings (Apps › Telegram › Settings). */
+  only?: string;
 };
 
 const activityLabels: Record<ChannelStatus['activity'], string> = {
@@ -349,6 +351,7 @@ export default function ChannelSettings({
   review,
   execute,
   loadLink,
+  only,
 }: ChannelSettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   // Outward or unlinking actions ask first: a test message to the person's
@@ -728,7 +731,9 @@ export default function ChannelSettings({
     });
     return steps;
   };
-  const channels = ownerOrderedChannels(state.page?.items ?? []);
+  const channels = ownerOrderedChannels(state.page?.items ?? []).filter(
+    (channel) => !only || channel.channel_id === only,
+  );
   const passiveChannels = channels.filter(isPassiveCatalogChannel);
   const managedChannels = channels.filter(
     (channel) => !isPassiveCatalogChannel(channel),
@@ -736,7 +741,7 @@ export default function ChannelSettings({
   const runtimeKnown = channels.every((channel) => channel.running !== null);
   return (
     <section aria-label="Channels" className="stack settings-channel-page">
-      {state.page && (
+      {state.page && !only && (
         <>
           <SettingsSummary>
             <span
@@ -783,6 +788,7 @@ export default function ChannelSettings({
           {passiveChannels.map((channel) => (
             <details
               className="settings-account-panel"
+              open={only ? true : undefined}
               key={channel.channel_id}
             >
               <summary>
@@ -848,6 +854,7 @@ export default function ChannelSettings({
       {managedChannels.map((channel) => (
         <details
           className="settings-account-panel"
+          open={only ? true : undefined}
           aria-label={`${channel.display_name} channel`}
           data-setting-anchor={channel.channel_id}
           key={channel.channel_id}

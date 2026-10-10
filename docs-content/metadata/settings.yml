@@ -56,39 +56,24 @@ pages:
     docs_route: /docs/settings/tools
     screenshot_id: settings-tools
   skills:
-    description: Review installed skills and discover public skills.
+    description: Find, add, try and remove skills, and open the skill editor to create
+      or edit one.
     docs_route: /docs/settings/skills
-    screenshot_id: settings-skills
-  plugins:
-    description: Manage installed plugins and browse the plugin marketplace.
-    docs_route: /docs/settings/plugins
-    screenshot_id: settings-plugins
-    dependencies: Plugin-provided dependencies remain disabled until reviewed and
-      installed.
-    security: Review source, permissions, and provided capabilities before enabling.
-  mcp:
-    description: Add, browse, import, connect, and troubleshoot MCP servers and their
-      managed runtimes.
-    docs_route: /docs/settings/mcp
-    screenshot_id: settings-mcp
-    dependencies: The MCP extra and a compatible external server are required.
-    security: External servers can expose consequential tools; keep new servers
-      disabled until tested.
-  accounts:
-    description: Connect the GitHub, Google, and X accounts used by tools and setup
-      flows.
-    docs_route: /docs/settings/accounts
-    screenshot_id: settings-accounts
-    security: Connecting an account opens an external authorisation flow.
-  channels:
-    description: Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and
-      health checks.
-    docs_route: /docs/settings/channels
-    screenshot_id: settings-channels
-    dependencies: The matching channel extra and third-party account configuration are
-      required.
-    security: Starting an adapter can receive or deliver real messages; review targets
-      first.
+    security: Adding a skill turns it on; scripts inside a skill never run when it is
+      added.
+  apps:
+    description: Find and connect the services Row-Bot can work in, including the
+      GitHub, Google and X accounts, messaging channels and key-based tools built into
+      Row-Bot; choose what each app may do, change its settings, turn apps off or
+      remove them, and manage catalogs and custom connections.
+    docs_route: /docs/settings/apps
+    security: Nothing is fetched or run until you agree; deleting, sending, paying,
+      publishing, running code and unknown actions always ask first. Signing in to an
+      account opens an external authorisation flow, and a running channel can receive
+      or deliver real messages.
+    dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot
+      prepares after you agree. Channels need the matching channel extra and
+      third-party account configuration.
   system:
     description: Configure the workspace folder, what Row-Bot may do (commands, files,
       browser and Computer Use), and logging.

@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cursor"
+    },
+    "include_incompatible": {
+      "default": false,
+      "title": "Include Incompatible",
+      "type": "boolean"
+    },
+    "kind": {
+      "default": "all",
+      "enum": [
+        "all",
+        "app",
+        "skill",
+        "mcp",
+        "plugin"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "limit": {
+      "default": 50,
+      "maximum": 96,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "query": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Query",
+      "type": "string"
+    },
+    "refresh": {
+      "default": false,
+      "title": "Refresh",
+      "type": "boolean"
+    },
+    "sources": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[a-z0-9_]{1,40}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sources"
+    }
+  },
+  "title": "IntegrationSearchRequest",
+  "type": "object"
+}

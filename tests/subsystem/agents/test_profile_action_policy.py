@@ -640,3 +640,96 @@ def test_a_gated_structured_result_stays_data(runtime, monkeypatch):
     monkeypatch.setattr(runtime, "interrupt", lambda _request: True)
 
     assert tool.invoke({"path": "notes.txt"}) == '{"status": "success", "path": "notes.txt"}'
+
+
+def test_an_approval_names_what_was_given_not_every_unset_option(runtime, monkeypatch):
+    """An app tool with many optional fields (Linear's save_issue has twenty) shows the ones the call sets."""
+    asked = []
+
+    def save_issue(title: str, team: str, description: str | None = None, cycle: str | None = None) -> str:
+        return "saved"
+
+    tool = StructuredTool.from_function(func=save_issue, name="mcp_tracker_save_issue", description="Save an issue")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    tool.invoke({"title": "Approval check", "team": "RBTest", "description": None, "cycle": None})
+    assert "title='Approval check'" in asked[0]["description"] and "team='RBTest'" in asked[0]["description"]
+    assert "None" not in asked[0]["description"]
+
+
+def test_an_approval_reads_structured_arguments_in_words(runtime, monkeypatch):
+    """Found live: a shop's save approval showed ``orders=[{'sku': ...}]``. Lists and mappings read in words,
+    every value kept; plain values keep their quoted form."""
+    asked = []
+
+    def save_orders(orders: list[dict], note: str, rush: bool = False) -> str:
+        return "saved"
+
+    tool = StructuredTool.from_function(func=save_orders, name="mcp_shop_save_orders", description="Save orders")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    tool.invoke({"orders": [{"sku": "A1", "qty": 2, "ship_to": {"city": "Leeds"}}, {"sku": "B2", "qty": 1}],
+                 "note": "first batch", "rush": True})
+    assert asked[0]["description"] == ("mcp_shop_save_orders: orders='sku A1, qty 2, ship to (city Leeds); "
+                                       "sku B2, qty 1', note='first batch', rush=True")
+
+
+def test_an_approval_shows_an_empty_nested_value_and_keeps_list_items_apart(runtime, monkeypatch):
+    """A nested empty value is still sent (it can clear a field), so the approval says so; a list item holding a
+    comma stays one item."""
+    asked = []
+
+    def update_items(items: list[dict], tags: list[str]) -> str:
+        return "updated"
+
+    tool = StructuredTool.from_function(func=update_items, name="mcp_shop_update_items", description="Update items")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    tool.invoke({"items": [{"title": "Done", "status": None}], "tags": ["a, b", "c"]})
+    assert asked[0]["description"] == ("mcp_shop_update_items: items='title Done, status empty', "
+                                       "tags='\"a, b\", c'")
+
+
+def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypatch):
+    """Allow all lets routine actions run; an app tool that is destructive or of unknown effect still asks,
+    and says so, so an unattended run waits for the person instead of approving it."""
+    asked, deleted = [], []
+    tool = StructuredTool.from_function(func=lambda page: deleted.append(page) or "Deleted", name="mcp_notes_delete_page",
+                                        description="Delete a page")
+    runtime._wrap_with_interrupt_gate(tool, always_ask=True)
+    runtime._approval_mode_var.set("allow_all")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    assert tool.invoke({"page": "Plans"}).startswith("Approval: asked; denied by you")
+    assert deleted == [] and asked[0]["always_ask"] is True and asked[0]["tool"] == "mcp_notes_delete_page"
+    runtime._approval_mode_var.set("block")
+    assert tool.invoke({"page": "Plans"}).startswith("BLOCKED") and len(asked) == 1
+
+
+def test_a_workflow_reaches_app_tools_through_discovery_and_their_approvals_still_ask(runtime, monkeypatch):
+    """Workflows discover external tools as chats do: an app with many tools (Notion's 46) no longer sends every
+    schema with each model call of a step, and a tool that asks still asks."""
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
+
+    agent = _prepare_graph(monkeypatch)
+    agent._approval_mode_var.set("approve")
+    calls, approvals = [], []
+    original = StructuredTool.from_function(lambda page: calls.append(page) or "deleted", name="notes_delete_page",
+                                            description="Delete a page")
+    entry = {"tool": original, "source": "plugin:synthetic", "parent": "synthetic"}
+    monkeypatch.setattr(agent, "_collect_agent_tool_candidates", lambda *_: ([], [dict(entry)], {original.name}))
+    monkeypatch.setattr(agent.tool_registry, "get_external_tool_loading_mode", lambda: "auto")
+    monkeypatch.setattr(agent, "interrupt", lambda request: approvals.append(request) or False)
+    token = agent._background_workflow_var.set(True)
+    try:
+        graph = agent.get_agent_graph(["synthetic"])
+    finally:
+        agent._background_workflow_var.reset(token)
+    assert original.name not in graph.tools.tools_by_name and "tool_invoke" in graph.tools.tools_by_name
+    invoke = graph.tools.tools_by_name["tool_invoke"]
+    assert "read-only" in invoke.invoke({"name": original.name, "arguments": {"page": "p1"}})  # The profile first,
+    agent._current_agent_profile_snapshot_var.set({"tool_policy_json": {"capability": "write_capable"}})
+    invoke.invoke({"name": original.name, "arguments": {"page": "p1"}})
+    assert calls == [] and len(approvals) == 1  # then the approval: declined, nothing was deleted.  # It asked; declined, nothing was deleted.

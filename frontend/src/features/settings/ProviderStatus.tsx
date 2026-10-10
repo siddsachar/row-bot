@@ -52,18 +52,39 @@ const sourceLabels: Record<string, string> = {
   session: 'Using session key',
   api_keys: 'Saved API key',
   oauth_device: 'Signed in with ChatGPT',
-  oauth_pkce: 'Connected with Row-Bot OAuth',
-  external_cli: 'Using external CLI login',
-  external_cli_detected: 'External CLI login detected',
+  oauth_pkce: 'Signed in through Row-Bot',
   no_auth: 'No API key required',
-  local_daemon: 'Local daemon running',
+  local_daemon: 'Running on this computer',
   not_running: 'Not running',
 };
+/** The app whose sign-in a subscription can borrow. */
+const cliApps: Record<string, string> = {
+  codex: 'Codex',
+  claude_subscription: 'Claude Code',
+};
+function sourceLabel(card: ProviderLiveCard) {
+  const app = cliApps[card.provider_id] ?? 'its own app';
+  if (card.source === 'external_cli') return `Uses your ${app} sign-in`;
+  if (card.source === 'external_cli_detected')
+    return `${app} is signed in on this computer; not used yet`;
+  return sourceLabels[card.source];
+}
+/** One mark style for every provider: its initial on a tile. */
+function providerMark(card: ProviderLiveCard) {
+  const icon = card.icon.trim();
+  return /^[\p{L}\p{N}]{1,2}$/u.test(icon)
+    ? icon
+    : (card.display_name.trim().charAt(0) || '?').toUpperCase();
+}
+/** Whether a row has a model list worth refreshing on its own. */
+function hasModels(card: ProviderLiveCard) {
+  return card.configured || card.runtime_enabled || card.group === 'local';
+}
 function cardState(card: ProviderLiveCard) {
   if (card.configured && card.group === 'subscription' && !card.runtime_enabled)
     return { label: 'Reconnect', tone: 'warning' };
   if (card.configured && card.source === 'external_cli')
-    return { label: 'Referenced', tone: 'saved' };
+    return { label: 'Linked', tone: 'saved' };
   if (card.configured) return { label: 'Connected', tone: 'enabled' };
   if (card.source === 'external_cli_detected')
     return { label: 'Detected', tone: 'saved' };
@@ -101,15 +122,13 @@ function cardDetail(card: ProviderLiveCard) {
         : card.configured &&
             card.provider_id === 'xai_oauth' &&
             !card.runtime_enabled
-          ? 'Reconnect xAI Grok to use OAuth models in chat'
+          ? 'Reconnect xAI Grok to use its models in chat'
           : card.provider_id === 'xai_oauth' && !card.configured
             ? card.oauth_client_id_configured
-              ? 'OAuth client ID available; connect xAI Grok'
-              : 'Set an OAuth client ID override to connect xAI Grok'
-            : sourceLabels[card.source] ||
-              (card.configured
-                ? 'Connected'
-                : 'Add credentials to enable this provider');
+              ? 'Ready to sign in with your xAI account'
+              : 'Needs an xAI client ID first: ⋯ › Set up xAI sign-in'
+            : sourceLabel(card) ||
+              (card.configured ? 'Connected' : 'Needs an API key');
   const details = [source];
   if (card.plan_type) details.push(`${card.plan_type} plan`);
   if (card.model_count !== null)
@@ -117,11 +136,11 @@ function cardDetail(card: ProviderLiveCard) {
       `${card.model_count} ${card.model_count_source.includes('fallback') ? 'known models' : 'models'}`,
     );
   else if (card.configured || card.runtime_enabled)
-    details.push('catalog count unknown');
-  if (card.chat_count) details.push(`${card.chat_count} chat`);
-  if (card.media_count) details.push(`${card.media_count} media`);
+    details.push('model count not known yet');
   if (card.last_runtime_probe_ok != null)
-    details.push(card.last_runtime_probe_ok ? 'runtime ok' : 'runtime failed');
+    details.push(
+      card.last_runtime_probe_ok ? 'last test worked' : 'last test failed',
+    );
   if (card.group === 'api' && card.configured && card.fingerprint)
     details.push(`key ${maskedTail(card.fingerprint)}`);
   return details.join(' · ');
@@ -239,9 +258,10 @@ export default function ProviderStatus({
   }
   const cards = snapshot?.providers ?? [];
   const connected = cards.filter((card) => card.configured).length;
-  const renderRow = (card: ProviderLiveCard) => {
+  /** `folded`: a not-yet-connected API provider under "Connect…": its name and key button only. */
+  const renderRow = (card: ProviderLiveCard, folded = false) => {
     const state = cardState(card);
-    const detail = cardDetail(card);
+    const detail = folded ? '' : cardDetail(card);
     const menu: MenuAction[] = [];
     if (
       card.group === 'subscription' &&
@@ -259,7 +279,7 @@ export default function ProviderStatus({
       onSubscriptionOption
     )
       menu.push({
-        label: 'Configure xAI OAuth client ID',
+        label: 'Set up xAI sign-in',
         icon: <KeyRound size={16} />,
         onSelect: () => onSubscriptionOption(card.provider_id),
       });
@@ -271,7 +291,7 @@ export default function ProviderStatus({
       onSubscriptionOption
     )
       menu.push({
-        label: `Reference ${card.display_name} CLI login`,
+        label: `Use your ${cliApps[card.provider_id] ?? card.display_name} sign-in`,
         icon: <KeyRound size={16} />,
         onSelect: () => onSubscriptionOption(card.provider_id),
       });
@@ -298,18 +318,20 @@ export default function ProviderStatus({
     return (
       <li key={card.provider_id} className="settings-provider-row">
         <span className="settings-provider-mark" aria-hidden>
-          {card.icon}
+          {providerMark(card)}
         </span>
         <span className="settings-provider-copy">
           <span className="settings-provider-title">
             <strong>{card.display_name}</strong>
-            <StatusDot
-              tone={stateTones[state.tone] ?? 'neutral'}
-              label={state.label}
-              showLabel
-            />
+            {!folded && (
+              <StatusDot
+                tone={stateTones[state.tone] ?? 'neutral'}
+                label={state.label}
+                showLabel
+              />
+            )}
           </span>
-          <small title={detail}>{detail}</small>
+          {detail && <small title={detail}>{detail}</small>}
         </span>
         <span className="settings-provider-risk">
           {card.billing ? (
@@ -340,17 +362,21 @@ export default function ProviderStatus({
                 <LogIn size={16} aria-hidden />
               </CompactAction>
             )}
-          <CompactAction
-            label={`Refresh ${card.display_name} provider status and catalog`}
-            disabled={!!refreshing}
-            onClick={() => void refreshProvider(card)}
-          >
-            <RefreshCw
-              size={16}
-              aria-hidden
-              data-spinning={refreshing === card.provider_id || undefined}
-            />
-          </CompactAction>
+          {/* Nothing to refresh before it connects; the page's ↻ re-reads
+              every row. */}
+          {hasModels(card) && (
+            <CompactAction
+              label={`Refresh ${card.display_name} model list`}
+              disabled={!!refreshing}
+              onClick={() => void refreshProvider(card)}
+            >
+              <RefreshCw
+                size={16}
+                aria-hidden
+                data-spinning={refreshing === card.provider_id || undefined}
+              />
+            </CompactAction>
+          )}
           {menu.length > 0 && (
             <Menu
               label={`More actions for ${card.display_name}`}
@@ -382,9 +408,6 @@ export default function ProviderStatus({
           >
             <SummaryChip tone={connected ? 'success' : 'warning'}>
               {connected} connected
-            </SummaryChip>
-            <SummaryChip>
-              {cards.filter((card) => card.media_count > 0).length} with media
             </SummaryChip>
           </span>
         )}
@@ -436,7 +459,7 @@ export default function ProviderStatus({
                 </h3>
                 {shown.length > 0 && (
                   <ul className="settings-provider-list">
-                    {shown.map(renderRow)}
+                    {shown.map((card) => renderRow(card))}
                   </ul>
                 )}
                 {folded.length > 0 && (
@@ -451,7 +474,7 @@ export default function ProviderStatus({
                     defaultOpen={!shown.length && !connected}
                   >
                     <ul className="settings-provider-list">
-                      {folded.map(renderRow)}
+                      {folded.map((card) => renderRow(card, true))}
                     </ul>
                   </Disclosure>
                 )}

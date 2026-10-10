@@ -386,20 +386,23 @@ def test_complete_search_crosses_thousand_conversations_and_ten_thousand_message
 
 @pytest.mark.slow
 def test_search_continuation_rejects_changed_query_and_deleted_library_hit(service):
+    from langchain_core.messages import HumanMessage
     from row_bot import threads
     from row_bot.application.client_platform import ClientPlatformError
     from row_bot.application.conversation_search import search
 
-    for index in range(33):
+    # The hit is a message in the oldest conversation, read after 33 newer ones.
+    threads.create_thread("Ordinary history", thread_id="search-000", seed_default_skills=False)
+    assert threads.append_checkpoint_messages("search-000", [HumanMessage(id="hidden", content="Hidden library hit")])
+    for index in range(1, 34):
         threads.create_thread("Ordinary history", thread_id=f"search-{index:03d}", seed_default_skills=False)
-    threads.create_thread("Hidden library hit", thread_id="search-999", seed_default_skills=False)
     first = search(service, "Hidden library hit")
     assert not first["items"] and first["has_more"]
     with pytest.raises(ClientPlatformError, match="cursor_expired"):
         search(service, "different query", cursor=first["next_cursor"])
     with _client(service) as client:
         _, headers = bootstrap(client)
-        deleted = _command(client, headers, "conversation.delete", {}, target="search-999")
+        deleted = _command(client, headers, "conversation.delete", {}, target="search-000")
         assert deleted.status_code == 200, deleted.text
         assert deleted.json()["status"] == "DeleteCompleted"
     with pytest.raises(ClientPlatformError, match="cursor_expired"):

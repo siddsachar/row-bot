@@ -298,18 +298,22 @@ it('removes old Thinking content immediately after a model switch without sendin
 it('keeps approval, runtime and profile distinct in their compact menus', async () => {
   render(<ComposerControls onError={vi.fn()} />);
   const approvals = await menu('Approvals');
-  expect(approvals.getByRole('menuitem', { name: 'Ask' })).toHaveAttribute(
+  // Each choice says what it does.
+  expect(approvals.getByRole('menuitem', { name: /^Ask/ })).toHaveAttribute(
     'aria-current',
     'true',
   );
+  expect(
+    approvals.getByText('Asks before anything that makes changes'),
+  ).toBeVisible();
   await act(async () =>
-    fireEvent.click(approvals.getByRole('menuitem', { name: 'Block' })),
+    fireEvent.click(approvals.getByRole('menuitem', { name: /^Block/ })),
   );
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('block');
   const more = await menu('Add files and more');
-  const profiles = await submenu(more, /^Agent profile/);
+  const profiles = await submenu(more, /^Agent/);
   expect(
-    profiles.getByRole('menuitemradio', { name: 'Writer' }),
+    profiles.getByRole('menuitemradio', { name: /^Writer/ }),
   ).toHaveAttribute('aria-checked', 'true');
   await act(async () =>
     fireEvent.keyDown(screen.getAllByRole('menu').at(-1)!, {
@@ -328,6 +332,47 @@ it('keeps approval, runtime and profile distinct in their compact menus', async 
     'chat_only',
   );
   expect(mock.controller.intent.mock.calls[1][2].profile_id).toBe('writer');
+});
+
+it('says in one line under each agent what it is for', async () => {
+  mock.state.workspace = {
+    ...mock.state.workspace!,
+    profiles: [
+      {
+        id: 'builtin:row_bot_default',
+        label: 'Default',
+        description:
+          'Normal Row-Bot behavior for ordinary chats and channel conversations.',
+      },
+      {
+        id: 'writer',
+        label: 'Writer',
+        description:
+          'Draft, revise, summarize, polish, and turn notes into follow-ups.',
+      },
+      { id: 'custom', label: 'My helper', description: '' },
+    ],
+  };
+  render(<ComposerControls onError={vi.fn()} />);
+  const more = await menu('Add files and more');
+  const agents = await submenu(more, /^Agent/);
+  const writer = agents.getByRole('menuitemradio', { name: /^Writer/ });
+  expect(writer).toHaveAttribute('aria-checked', 'true');
+  const line = within(writer).getByText(
+    'Draft, revise, summarize, polish, and turn notes into follow-ups.',
+  );
+  expect(line.tagName).toBe('SMALL');
+  // Cut short on one line; the whole line shows on hover.
+  expect(line).toHaveStyle({ whiteSpace: 'nowrap', textOverflow: 'ellipsis' });
+  expect(line).toHaveAttribute('title', line.textContent);
+  expect(
+    within(agents.getByRole('menuitemradio', { name: /^Default/ })).getByText(
+      'Normal Row-Bot behavior for ordinary chats and channel conversations.',
+    ),
+  ).toBeVisible();
+  // No description, no empty line.
+  const custom = agents.getByRole('menuitemradio', { name: 'My helper' });
+  expect(custom.querySelector('small')).toBeNull();
 });
 
 it('blocks running and disconnected controls without removing their current values', () => {
@@ -427,12 +472,11 @@ it('folds the model, approvals and context usage into + on a one-line composer',
     'Exact effort model',
   );
   const approvals = await submenu(more, /^Approvals/);
-  expect(approvals.getByRole('menuitemradio', { name: 'Ask' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
+  expect(
+    approvals.getByRole('menuitemradio', { name: /^Ask/ }),
+  ).toHaveAttribute('aria-checked', 'true');
   await act(async () =>
-    fireEvent.click(approvals.getByRole('menuitemradio', { name: 'Auto' })),
+    fireEvent.click(approvals.getByRole('menuitemradio', { name: /^Auto/ })),
   );
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe(
     'allow_all',
@@ -450,4 +494,87 @@ it('hands Add resource the + trigger so focus can return to it', async () => {
   expect(onAddResource).toHaveBeenCalledWith(
     screen.getByRole('button', { name: 'Add files and more' }),
   );
+});
+
+it('switches a ready app on or off for this chat, shows why the profile leaves one out, and finds more', async () => {
+  const composer = {
+    schema_version: 1 as const,
+    conversation_id: 'conversation-a',
+    conversation_revision: '17',
+    composer_revision: 'composer-1',
+    library: { availability: 'available' as const, revision: 'library-1' },
+    smart_skills_off: false,
+    active_skills: [],
+    suggestions: [],
+    commands: [],
+    command_total: 0,
+    commands_truncated: false,
+    apps: [
+      {
+        item_id: 'mcp:linear',
+        app_id: 'linear',
+        name: 'Linear',
+        icon: 'letter:L',
+        on: true,
+        available: true,
+      },
+      {
+        item_id: 'mcp:notion',
+        app_id: 'notion',
+        name: 'Notion',
+        icon: 'letter:N',
+        on: false,
+        available: true,
+      },
+      {
+        item_id: 'mcp:figma',
+        app_id: 'figma',
+        name: 'Figma',
+        icon: 'letter:F',
+        on: true,
+        available: false,
+        reason: "This chat's agent profile doesn't use it.",
+      },
+      {
+        item_id: 'builtin:account:github',
+        app_id: 'github',
+        name: 'GitHub account',
+        icon: 'letter:G',
+        on: true,
+        available: true,
+        switchable: false,
+        reason: 'Used by skills and Developer, not by chat tools.',
+      },
+    ],
+  };
+  render(<ComposerControls composer={composer} onError={vi.fn()} />);
+  const more = await menu('Add files and more');
+  expect(more.getByRole('menuitem', { name: /^Apps.*1 on/ })).toBeVisible();
+  const apps = await submenu(more, /^Apps/);
+  expect(
+    apps.getByRole('menuitemcheckbox', { name: 'Linear' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(
+    apps.getByRole('menuitemcheckbox', { name: /^Figma/ }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  expect(apps.getByText(/agent profile doesn't use it/)).toBeVisible();
+  // Built in without chat tools: listed as in Your apps, with why it has no switch.
+  expect(
+    apps.getByRole('menuitem', { name: /^GitHub account/ }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  expect(apps.queryByRole('menuitemcheckbox', { name: /^GitHub/ })).toBeNull();
+  expect(apps.getByText(/not by chat tools/)).toBeVisible();
+  await act(async () =>
+    fireEvent.click(apps.getByRole('menuitemcheckbox', { name: 'Notion' })),
+  );
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.apps',
+    { item_id: 'mcp:notion', on: true },
+    '17',
+  );
+  await act(async () =>
+    fireEvent.click(apps.getByRole('menuitem', { name: 'Find more apps' })),
+  );
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/apps');
 });

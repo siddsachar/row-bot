@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from row_bot.api.v1.routes import create_client_platform_app
-from row_bot.api.v1.schemas import SettingsSnapshot
+from row_bot.api.v1.schemas import SettingsSnapshot, TrackerEntryPage
 from row_bot.api.v1.security import ClientSecurity
 from tests.subsystem.client_protocol.test_protocol_application import _isolated_service
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
@@ -466,9 +466,10 @@ def test_x_account_requires_saved_client_credentials_before_token_state(
 def test_account_snapshot_never_returns_google_credential_paths(tmp_path, monkeypatch):
     from row_bot.application import settings_snapshot
 
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))  # The person keeps the file elsewhere.
     private_path = tmp_path / "private" / "client-secret.json"
     private_path.parent.mkdir()
-    private_path.write_text("{}", encoding="utf-8")
+    private_path.write_text('{"installed": {"client_id": "fixture"}}', encoding="utf-8")
     credentials = {
         "GITHUB_TOKEN": {"configured": False, "source": "none", "fingerprint": ""},
         "X_CLIENT_ID": {"configured": False, "source": "none", "fingerprint": ""},
@@ -1525,3 +1526,139 @@ def test_the_x_callback_shown_in_settings_is_the_one_x_calls():
     from row_bot.tools import x_tool
 
     assert settings_snapshot.X_OAUTH_CALLBACK_URL == x_tool._OAUTH_REDIRECT_URI
+
+
+def test_one_tracker_is_deleted_with_its_entries_after_its_own_review(api):
+    client, headers, data, _ = api
+    path = _seed_tracker(data)
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "tracker",
+        "field": "delete_tracker",
+        "value": "water",
+    }
+    before = _tree(data)
+    review = _review(client, headers, request)
+    assert review["value_summary"] == (
+        "Delete the tracker “Water” and its 1 entry. This cannot be undone."
+    )
+    assert _tree(data) == before
+    command_id = str(uuid4())
+
+    response = _execute(client, headers, request, review, command_id)
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert [item["tracker_id"] for item in result["snapshot"]["tracker"]["items"]] == ["sleep"]
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT id FROM trackers").fetchall() == [("sleep",)]
+    assert connection.execute("SELECT id FROM entries").fetchall() == [("entry-2",)]
+    connection.close()
+    assert _execute(client, headers, request, review, command_id).json() == result
+
+
+def test_one_tracker_deletion_refuses_unknown_or_changed_trackers(api):
+    client, headers, data, _ = api
+    path = _seed_tracker(data)
+    snapshot = client.get(BASE, headers=headers).json()
+    unknown = client.post(BASE + "/review", headers=headers, json={
+        "settings_revision": snapshot["revision"], "page": "tracker",
+        "field": "delete_tracker", "value": "missing"})
+    assert unknown.status_code == 409 and unknown.json()["code"] == "settings_changed"
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "tracker",
+        "field": "delete_tracker",
+        "value": "water",
+    }
+    review = _review(client, headers, request)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?)",
+        ("entry-concurrent", "water", "2026-01-04T09:00:00", "1", None, "2026-01-04"),
+    )
+    connection.commit()
+    connection.close()
+
+    response = _execute(client, headers, request, review)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "settings_changed"
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT COUNT(*) FROM trackers").fetchone()[0] == 2
+    assert connection.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 3
+    connection.close()
+
+
+TRACKER_ENTRIES = "/api/v1/settings/tracker/{}/entries"
+
+
+def test_one_tracker_opens_to_its_newest_entries_bounded_and_read_only(api):
+    client, headers, data, _ = api
+    path = _seed_tracker(data)
+    connection = sqlite3.connect(path)
+    connection.executemany(
+        "INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (f"more-{day}", "water", f"2026-03-{day:02d}T08:00:00", str(day),
+             "after the run" if day == 28 else None, "2026-03-01")
+            for day in range(1, 29)
+        ]
+        + [
+            (f"older-{hour}", "water", f"2026-01-01T{hour:02d}:00:00", "2", "x" * 5000,
+             "2026-01-01")
+            for hour in range(24)
+        ],
+    )
+    connection.commit()
+    connection.close()
+    before = _tree(data)
+
+    response = client.get(TRACKER_ENTRIES.format("water"), headers=headers)
+
+    assert response.status_code == 200, response.text
+    page = TrackerEntryPage.model_validate(response.json())
+    assert page.tracker_id == "water"
+    assert page.total == 53
+    assert len(page.items) == 50
+    assert [item.at for item in page.items[:3]] == [
+        "2026-03-28T08:00:00", "2026-03-27T08:00:00", "2026-03-26T08:00:00"
+    ]
+    assert page.items[0].value == "28" and page.items[0].note == "after the run"
+    assert page.items[1].note is None
+    # Newest first, so the oldest of the 53 are the ones left out.
+    assert page.items[28].at == "2026-01-02T09:00:00"
+    assert page.items[-1].at == "2026-01-01T03:00:00"
+    assert all(len(item.note or "") <= 1024 for item in page.items)
+    # Only this tracker's entries, and nothing that names a local path.
+    assert "2026-01-03T09:00:00" not in response.text
+    assert "tracker.db" not in response.text and str(data) not in response.text
+    assert _tree(data) == before
+
+
+def test_tracker_entries_read_from_a_data_folder_whose_name_has_url_characters(tmp_path, monkeypatch):
+    """A profile folder such as "A#1" or "50%" is a path, not a URL: the read-only open escapes it."""
+    from row_bot.application.settings_snapshot import read_tracker_entries
+
+    data = tmp_path / "Sam #1 50%"
+    _seed_tracker(data)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    assert [item["at"] for item in read_tracker_entries("water")["items"]] == ["2026-01-02T09:00:00"]
+
+
+def test_tracker_entries_refuse_unknown_trackers_without_reading_others(api):
+    client, headers, data, _ = api
+    missing_store = client.get(TRACKER_ENTRIES.format("water"), headers=headers)
+    assert missing_store.status_code == 404
+    assert missing_store.json()["code"] == "not_found"
+    assert not (data / "tracker").exists()
+
+    _seed_tracker(data)
+    for tracker_id in ("missing", "water' OR '1'='1", "w" * 129):
+        response = client.get(TRACKER_ENTRIES.format(tracker_id), headers=headers)
+        assert response.status_code == 404, tracker_id
+        assert response.json()["code"] == "not_found"
+    known = client.get(TRACKER_ENTRIES.format("water"), headers=headers).json()
+    assert [item["at"] for item in known["items"]] == ["2026-01-02T09:00:00"]
+    assert client.get(TRACKER_ENTRIES.format("water")).status_code == 401

@@ -99,6 +99,8 @@ const mock = vi.hoisted(() => ({
   computerUseCommand: vi.fn(),
   delegatedPage: vi.fn(),
   delegatedRun: vi.fn(),
+  command: vi.fn(),
+  forgetConversation: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -152,6 +154,8 @@ vi.mock('../../runtime', () => {
         mock.delegatedPage(conversationId),
       delegatedRun: (conversationId: string, runId: string) =>
         mock.delegatedRun(conversationId, runId),
+      command: mock.command,
+      forgetConversation: mock.forgetConversation,
     },
     platform: {
       discover: mock.platformDiscover,
@@ -695,6 +699,85 @@ it('opens reviewed conversation management from the existing action menu', async
   });
 });
 
+it('publishes how far the composer reaches up from the bottom, so notices float above it', async () => {
+  let top = 600;
+  vi.spyOn(HTMLFormElement.prototype, 'getClientRects').mockImplementation(
+    () => [{}] as unknown as DOMRectList,
+  );
+  vi.spyOn(
+    HTMLFormElement.prototype,
+    'getBoundingClientRect',
+  ).mockImplementation(() => ({ top }) as DOMRect);
+  activeConversation();
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const root = document.documentElement;
+  const clearance = () => root.style.getPropertyValue('--composer-clearance');
+  expect(clearance()).toBe(`${window.innerHeight - 600}px`);
+  // It grows (a longer draft) or moves (the window, a bottom panel).
+  top = 480;
+  act(() => {
+    window.dispatchEvent(new Event('resize'));
+  });
+  expect(clearance()).toBe(`${window.innerHeight - 480}px`);
+  // Another composer on screen keeps it when this one goes.
+  let other!: ReturnType<typeof conversation>;
+  await act(async () => {
+    other = conversation();
+  });
+  view.unmount();
+  expect(clearance()).toBe(`${window.innerHeight - 480}px`);
+  other.unmount();
+  expect(clearance()).toBe('');
+});
+
+it('deletes from the details menu after confirmation: the chat closes at once and the delete waits for its Undo notice', async () => {
+  activeConversation();
+  const handshake = mock.state.handshake as { client_session_id?: string };
+  handshake.client_session_id = 'session-a';
+  try {
+    mock.command.mockResolvedValue({ status: 'DeleteCompleted' });
+    const user = userEvent.setup();
+    await act(async () => {
+      conversation();
+    });
+    await user.click(
+      screen.getByRole('button', { name: 'Conversation actions' }),
+    );
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete conversation' }),
+    );
+    const confirmation = mock.open.mock.lastCall?.[0];
+    expect(confirmation).toMatchObject({
+      kind: 'alert',
+      confirmLabel: 'Delete conversation',
+    });
+    expect(mock.navigate).not.toHaveBeenCalledWith('/');
+    act(() => confirmation.onConfirm());
+    expect(mock.navigate).toHaveBeenCalledWith('/');
+    expect(mock.forgetConversation).toHaveBeenCalledWith('conversation-a');
+    const [message, , undo] = mock.notify.mock.lastCall!;
+    expect(message).toBe("Deleted 'conversation-a'.");
+    expect(undo).toMatchObject({ label: 'Undo' });
+    // Nothing is deleted while Undo is on offer.
+    expect(mock.command).not.toHaveBeenCalled();
+    expect(mock.intent).not.toHaveBeenCalled();
+    await act(async () => undo.onEnd());
+    expect(mock.command).toHaveBeenCalledWith(
+      'conversation-a',
+      expect.objectContaining({
+        type: 'conversation.delete',
+        expected_revision: '1',
+      }),
+      expect.any(String),
+    );
+  } finally {
+    delete handshake.client_session_id;
+  }
+});
+
 it('keeps the context rail quiet: empty Working on and Agents sections stay hidden (B7)', async () => {
   idleConversation();
   await act(async () => conversation());
@@ -714,8 +797,14 @@ it('keeps the context rail quiet: empty Working on and Agents sections stay hidd
   expect(
     within(rail).getByText('Agents', { selector: 'summary' }),
   ).not.toBeVisible();
-  // The goal always shows; Find and the terminal live in the header (B223).
-  expect(within(rail).getByText('Goal', { selector: 'summary' })).toBeVisible();
+  // No goal: a small Set a goal, not a Goal row; Find and the terminal live
+  // in the header (B223).
+  expect(
+    within(rail).queryByText('Goal', { selector: 'summary' }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(rail).getByRole('button', { name: 'Set a goal' }),
+  ).toBeVisible();
   expect(
     within(rail).getByRole('button', { name: 'Add resource' }),
   ).toBeVisible();
@@ -893,9 +982,11 @@ it('follows media and pane size changes without moving older readers or acceptin
     view = conversation();
   });
   const log = screen.getByRole('log');
-  const first = observers.find(
-    (observer) => observer.observe.mock.calls.length === 2,
-  )!;
+  // The transcript's observer watches the log and its content.
+  const watchesTranscript = (observer: (typeof observers)[number]) =>
+    observer.observe.mock.calls.length === 2 &&
+    observer.observe.mock.calls.some(([target]) => target === log);
+  const first = observers.find(watchesTranscript)!;
   height(1200);
   act(() => first.callback());
   expect(log.scrollTop).toBe(1100);
@@ -912,9 +1003,7 @@ it('follows media and pane size changes without moving older readers or acceptin
   log.scrollTop = 123;
   act(() => first.callback());
   expect(log.scrollTop).toBe(123);
-  const latest = [...observers]
-    .reverse()
-    .find((observer) => observer.observe.mock.calls.length === 2)!;
+  const latest = [...observers].reverse().find(watchesTranscript)!;
   view.unmount();
   act(() => latest.callback());
   expect(latest.disconnect).toHaveBeenCalledOnce();
@@ -1183,6 +1272,37 @@ it('waits for a model change that is still saving, then sends with it (B109)', a
   );
 });
 
+it('keeps only what was typed after sending once the message is accepted', async () => {
+  // Found live: a follow-up typed while the send was confirmed joined the sent
+  // text, and the whole of it stayed in the composer to be sent again.
+  idleConversation();
+  let accept!: () => void;
+  mock.intent.mockImplementation(
+    (_conversation, _type, payload, _revision, commandId) =>
+      new Promise((resolve) => {
+        accept = () =>
+          resolve({
+            command_id: commandId,
+            conversation_id: 'conversation-a',
+            submission_id: payload.submission_id,
+            status: 'accepted',
+          });
+      }),
+  );
+  await act(async () => conversation());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+    target: { value: 'Original queued draft Which one is the oldest?' },
+  });
+  await act(async () => accept());
+  expect(mock.drafts.get('conversation-a')?.text).toBe(
+    'Which one is the oldest?',
+  );
+});
+
 it('sends the files again with Send again, not their names as text (B136)', async () => {
   idleConversation();
   mock.download.mockResolvedValue(new Blob(['notes'], { type: 'text/plain' }));
@@ -1234,6 +1354,8 @@ it('sends the files again with Send again, not their names as text (B136)', asyn
     expect.objectContaining({
       text: 'Summarise this file',
       attachment_refs: ['conversation-a:attachment-one'],
+      // Run again in place: the server sets the last turn aside, never a second copy of the message.
+      retry: true,
     }),
     '1',
     expect.any(String),
@@ -1300,6 +1422,94 @@ it('creates a conversation and submits a Home example through one user action', 
     write_targets: [],
   });
   expect(mock.drafts.get('first-chat')?.text).toBe('');
+});
+
+it('opens the chat New chat made and nobody used instead of making another', async () => {
+  idleConversation();
+  mock.state.selectedConversationId = null;
+  mock.state.conversation = null;
+  const listed = (id: string, title: string, updated_at = '2026-10-08') =>
+    ({
+      id,
+      title,
+      revision: '0',
+      pinned: false,
+      updated_at,
+    }) as ConversationRow;
+  let made = 0;
+  mock.intent.mockImplementation(
+    async (_target, _type, _payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: `made-${++made}`,
+      status: 'completed',
+    }),
+  );
+  const newChat = () =>
+    act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'New chat' })),
+    );
+  await act(async () => conversation());
+  await newChat();
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-1');
+  // An empty chat from before (it may hold a draft saved elsewhere) is left alone.
+  mock.state.conversations = [
+    listed('used', 'Trip plans'),
+    listed('made-1', 'New conversation', '2026-10-01'),
+    listed('from-before', 'New conversation', '2026-10-07'),
+  ];
+
+  await newChat();
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.selectConversation).toHaveBeenLastCalledWith('made-1');
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-1');
+
+  // A draft, or a first message, makes it used: New chat makes another.
+  mock.drafts.set('made-1', { text: 'Half a thought', attachments: [] });
+  await newChat();
+  expect(mock.intent).toHaveBeenCalledTimes(2);
+  expect(mock.intent.mock.calls[1][1]).toBe('conversation.create');
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-2');
+  mock.state.conversations = [
+    listed('made-1', 'Half a thought'),
+    listed('made-2', 'New conversation'),
+  ];
+  mock.state.selectedConversationId = 'made-2';
+  mock.state.projection = {
+    rows: [row('made-2-first', 'user', 'Hello')],
+  } as unknown as Snapshot;
+  await newChat();
+  expect(mock.intent).toHaveBeenCalledTimes(3);
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-3');
+});
+
+it('opens Find with Ctrl or Cmd+F, so the words meant for it never reach the composer', async () => {
+  idleConversation();
+  mock.drafts.set('conversation-a', { text: '', attachments: [] });
+  await act(async () => conversation());
+  const composer = screen.getByRole('textbox', { name: 'Message' });
+  composer.focus();
+  expect(fireEvent.keyDown(composer, { key: 'f', ctrlKey: true })).toBe(false);
+  expect(mock.open).toHaveBeenCalledWith(
+    expect.objectContaining({ title: 'Find in conversation' }),
+  );
+  expect(fireEvent.keyDown(document.body, { key: 'F', metaKey: true })).toBe(
+    false,
+  );
+  expect(mock.open).toHaveBeenCalledTimes(2);
+
+  // Another text field (a panel's editor) or a dialog keeps its own Ctrl+F.
+  const editor = document.createElement('textarea');
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  dialog.tabIndex = -1;
+  document.body.append(editor, dialog);
+  expect(fireEvent.keyDown(editor, { key: 'f', ctrlKey: true })).toBe(true);
+  expect(fireEvent.keyDown(dialog, { key: 'f', ctrlKey: true })).toBe(true);
+  editor.remove();
+  dialog.remove();
+  expect(mock.open).toHaveBeenCalledTimes(2);
+  expect(composer).toHaveValue('');
+  expect(mock.intent).not.toHaveBeenCalled();
 });
 
 it('starts a chat with a draft that waits in the composer and is never sent', async () => {
@@ -1501,7 +1711,7 @@ it('shows a failed compact approval save in the conversation without changing it
     }),
   );
   await act(async () =>
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Block' })),
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Block/ })),
   );
   expect(mock.intent.mock.calls[0][2].approval_mode).toBe('block');
   expect(screen.getByRole('alert')).toHaveTextContent(/review|changed|retry/i);

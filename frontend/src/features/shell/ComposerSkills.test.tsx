@@ -198,3 +198,44 @@ it('reports unavailable libraries truthfully', async () => {
     'The Skills library is unavailable.',
   );
 });
+
+it('leads to the Skills library to find more', async () => {
+  const findMore = vi.fn();
+  render(
+    <Anchored
+      composer={composer}
+      disabled={false}
+      action={vi.fn().mockResolvedValue(undefined)}
+      onFindMore={findMore}
+    />,
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Add files and more' })),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Find more skills' })),
+  );
+  expect(findMore).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('dialog', { name: 'Smart Skills' })).toBeNull();
+});
+
+it('says what a suggested skill does, never why it matched', () => {
+  render(
+    <ComposerSkillChips
+      composer={{
+        ...composer,
+        suggestions: [
+          {
+            ...composer.suggestions[0],
+            reason: 'matched heading terms check',
+          },
+        ],
+      }}
+      disabled={false}
+      action={vi.fn()}
+    />,
+  );
+  const suggestion = screen.getByRole('button', { name: /Use Clear writing/ });
+  expect(suggestion).toHaveAttribute('title', 'Write clearly.');
+  expect(document.body.innerHTML).not.toContain('matched heading terms');
+});

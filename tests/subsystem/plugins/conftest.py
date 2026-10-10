@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -30,7 +29,7 @@ class MemoryKeyring:
 
 
 @pytest.fixture
-def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, object]]:
+def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reload_for_data_dir) -> Iterator[dict[str, object]]:
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
 
     import row_bot.secret_store as secret_store
@@ -38,15 +37,8 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
     secret_store._set_backend_for_tests(MemoryKeyring())
 
-    modules = {
-        "state": importlib.reload(state),
-        "registry": importlib.reload(registry),
-        "loader": importlib.reload(loader),
-        "installer": importlib.reload(installer),
-        "marketplace": importlib.reload(marketplace),
-        "devtools": importlib.reload(devtools),
-        "webhooks": importlib.reload(webhooks),
-    }
+    names = ("state", "registry", "loader", "installer", "marketplace", "devtools", "webhooks")
+    modules = dict(zip(names, reload_for_data_dir(tmp_path / "data", *("row_bot.plugins." + name for name in names))))
     modules["registry"]._reset()
     modules["state"]._reset()
     modules["loader"]._reset()
@@ -93,6 +85,14 @@ def manifest_payload(plugin_id: str = "sample-plugin", **overrides: object) -> d
     }
     payload.update(overrides)
     return payload
+
+
+def accept_child(state, plugin_id: str, server_key: str) -> None:
+    """The person turned a package's server on with its tools accepted, as Apps' access step does."""
+    data = json.loads(state._STATE_PATH.read_text(encoding="utf-8")) if state._STATE_PATH.exists() else {}
+    data.setdefault(plugin_id, {}).setdefault("mcp", {})[server_key] = {"enabled": True, "tools": {"catalog": {}}}
+    state._STATE_PATH.write_text(json.dumps(data), encoding="utf-8")
+    state.reload()
 
 
 def write_plugin(

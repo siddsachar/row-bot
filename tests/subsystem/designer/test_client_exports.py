@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import zipfile
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
@@ -10,20 +11,19 @@ from uuid import uuid4
 
 import pytest
 
-from row_bot.designer import client_exports as client, client_service, export, storage
+from row_bot.designer import client_exports as client, client_service, export, fonts, storage
 from row_bot.designer.state import DESIGNER_MODES, DesignerPage
 from tests.subsystem.designer.test_client_artifact import isolated as _isolated
 
 isolated = _isolated
 pytestmark = pytest.mark.subsystem
+_real_font_css = fonts.get_font_css_embedded
 
 
 @pytest.fixture
 def project(isolated, monkeypatch):
-    import row_bot.designer.fonts as fonts
-
     monkeypatch.setattr(storage, 'DESIGNER_DIR', isolated / 'designer')
-    monkeypatch.setattr(fonts, 'get_font_css_embedded', lambda _family: '')
+    monkeypatch.setattr(fonts, 'get_font_css_embedded', lambda _family, **_kwargs: '')
     result = client_service.create_deck('exportable', client_service.DeckSetup())
     result.pages = [DesignerPage(route_id='first', title='First', html='<h1>One</h1>'),
                     DesignerPage(route_id='second', title='Second', html='<p>Two</p>', notes='Saved notes')]
@@ -43,7 +43,7 @@ def renderer(monkeypatch):
     writer, buffer = PdfWriter(), io.BytesIO()
     writer.add_blank_page(width=100, height=100)
     writer.write(buffer)
-    calls = {'contexts': [], 'html': [], 'routes': [], 'launches': 0}
+    calls = {'contexts': [], 'html': [], 'routes': [], 'launches': 0, 'screenshots': []}
 
     class Page:
         def set_content(self, html, **_kwargs):
@@ -52,7 +52,8 @@ def renderer(monkeypatch):
         def pdf(self, **_kwargs):
             return buffer.getvalue()
 
-        def screenshot(self, **_kwargs):
+        def screenshot(self, **kwargs):
+            calls['screenshots'].append(kwargs)
             return png
 
         def evaluate(self, _script):
@@ -143,6 +144,15 @@ def test_all_modes_use_real_export_owners_with_fake_offline_browser(project, ren
     assert len(renderer['contexts']) == len(renderer['routes'])
 
 
+@pytest.mark.parametrize(('mode', 'whole'), [('landing', True), ('deck', False), ('storyboard', False)])
+def test_a_landing_page_picture_is_all_of_it_and_a_fixed_canvas_is_its_canvas(project, renderer, mode, whole):
+    """Found live: a landing page's PNG stopped at its canvas, halfway through the pricing cards."""
+    project.mode = mode
+    storage.save_project(project)
+    create(project, format='png', pages='1')
+    assert [shot['full_page'] for shot in renderer['screenshots']] == [whole]
+
+
 def test_replay_and_single_page_png_do_not_repeat_render_or_change_scope(project, renderer):
     identity = str(uuid4())
     first = create(project, export_id=identity, format='png', pages='2')
@@ -211,6 +221,23 @@ def test_embedded_local_asset_is_preserved_without_external_warning(project):
         offline = export._offline_export_html(html, project)
     assert context.warnings == set()
     assert offline.count('data:image/png;base64,AAAA') == 2
+
+
+@pytest.mark.parametrize(('format', 'pptx_mode'), [('png', None), ('pdf', None), ('pptx', 'screenshot')])
+def test_a_template_page_carries_its_own_fonts_offline_without_a_web_warning(project, renderer, monkeypatch,
+                                                                             format, pptx_mode):
+    """Found live: a "Landing — Hero + Pricing" PNG said pictures from the web were left out; its fonts are Row-Bot's."""
+    monkeypatch.setattr(fonts, 'get_font_css_embedded', _real_font_css)
+    landing = client_service.create_artifact('landing-export', client_service.ArtifactSetup('landing', 'landing_hero'))
+    assert "url('/static/fonts/inter/inter-400.woff2')" in landing.pages[0].html
+    result = create(landing, format=format, pptx_mode=pptx_mode)
+    assert result.warnings == ()
+    [page] = renderer['html']
+    assert '/static/fonts/' not in page and '/_fonts/cache/' not in page
+    # The template's face and the brand's are the same family: embedded once, every weight, as data.
+    faces = re.findall(r"@font-face \{ font-family: '([^']+)'; font-style: normal; font-weight: (\d+); "
+                       r"font-display: swap; src: url\('data:font/woff2;base64,", page)
+    assert faces == [('Inter', '300'), ('Inter', '400'), ('Inter', '600'), ('Inter', '700')]
 
 
 def test_corrupt_payload_and_expired_output_never_download_or_delete_bytes(project, monkeypatch):

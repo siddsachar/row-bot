@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -102,17 +103,25 @@ it('shows provider counts first and loads 80-row pages only after a provider ope
     display_name: `Model ${index}`,
   }));
   const props = show(fixture(page(eighty, 'next')));
+  // 80 rows of two labelled icon buttons make whole-page queries costly in
+  // jsdom, and findBy repeats them on each poll; this overran 5 s under load.
+  // The fake reads resolve at once, so one act() flush settles each step;
+  // pressed: true leaves only the pin buttons for the costly name check.
+  const name = (text: string) => screen.getByText(text, { selector: 'strong' });
+  await act(async () => {});
   expect(
-    await screen.findByText('81 chat models · 80 ready · 1 pinned'),
+    screen.getByText('81 chat models · 80 ready · 1 pinned'),
   ).toBeVisible();
   expect(props.controller.modelCatalogPage).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open ChatGPT / Codex' }));
-  expect(await screen.findByText('Model 79')).toBeVisible();
-  expect(screen.getAllByRole('button', { name: /Unpin Model/ })).toHaveLength(
-    80,
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Show more models' }));
-  expect(await screen.findByText('GPT-5.5')).toBeVisible();
+  await act(async () => {});
+  expect(name('Model 79')).toBeVisible();
+  expect(
+    screen.getAllByRole('button', { name: /Unpin Model/, pressed: true }),
+  ).toHaveLength(80);
+  fireEvent.click(screen.getByText('Show more models', { selector: 'button' }));
+  await act(async () => {});
+  expect(name('GPT-5.5')).toBeVisible();
   expect(props.controller.modelCatalogPage).toHaveBeenCalledTimes(2);
 });
 

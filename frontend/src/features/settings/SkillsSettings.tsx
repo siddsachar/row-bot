@@ -5,14 +5,9 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import PublicSkillHub, { type PublicSkillHubIO } from './PublicSkillHub';
-import PublicSkillMaintenance, {
-  type PublicSkillMaintenanceIO,
-} from './PublicSkillMaintenance';
 import {
   ChevronRight,
   FileUp,
-  Globe2,
   MoreHorizontal,
   Pin,
   Plus,
@@ -122,7 +117,7 @@ export type SkillReview = {
 };
 export type SkillReceipt = {
   command_id: string;
-  status: 'completed' | 'partial';
+  status: 'completed' | 'partial' | 'rejected';
   action: SkillAction;
   skill_id: string | null;
   revision: string | null;
@@ -300,20 +295,15 @@ function skillSourceLabel(skill: SkillSummary) {
 }
 
 export default function SkillsSettings({
+  integrationId,
   session,
   io,
-  hub,
-  hubMaintenance,
-  ownerKey = '',
 }: {
+  integrationId?: string;
   session: SkillsSettingsSession;
   io: SkillsSettingsIO;
-  hub?: PublicSkillHubIO;
-  hubMaintenance?: PublicSkillMaintenanceIO;
-  ownerKey?: string;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const [hubReload, setHubReload] = useState(0);
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -413,6 +403,23 @@ export default function SkillsSettings({
       session.endRead(abort);
     }
   };
+
+  useEffect(() => {
+    if (
+      !integrationId ||
+      !state.page ||
+      state.busy ||
+      state.detail?.skill.id === integrationId
+    )
+      return;
+    if (integrationId === 'create') {
+      session.update({
+        editor: { mode: 'create', name: '', fields: blankFields() },
+        detail: null,
+      });
+    } else void open(integrationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integrationId, state.page]);
 
   const requestReview = async (
     action: SkillAction,
@@ -614,9 +621,8 @@ export default function SkillsSettings({
     (state.page?.items.length ?? 0) >= state.page.total;
   const shown = complete ? '' : ' shown';
 
-  const [tab, setTab] = useTabForAnchor<'installed' | 'discover'>('installed', {
+  const [tab, setTab] = useTabForAnchor<'installed'>('installed', {
     'skill-library': 'installed',
-    'public-skills': 'discover',
   });
   const [importOpen, setImportOpen] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -722,11 +728,6 @@ export default function SkillsSettings({
               label: 'Import a skill',
               icon: <FileUp size={16} />,
               onSelect: () => setImportOpen(true),
-            },
-            {
-              label: 'Browse public skills',
-              icon: <Globe2 size={16} />,
-              onSelect: () => setTab('discover'),
             },
           ]}
         >
@@ -851,14 +852,6 @@ export default function SkillsSettings({
           )}
         </>
       )}
-      {hubMaintenance && (
-        <PublicSkillMaintenance
-          io={hubMaintenance}
-          ownerKey={ownerKey}
-          reload={hubReload}
-          onChanged={() => void load()}
-        />
-      )}
       <SettingsAdvanced
         summary="Import a skill"
         meta="Inspect SKILL.md text before saving it locally"
@@ -907,76 +900,102 @@ export default function SkillsSettings({
       aria-label="Skills settings"
       aria-busy={Boolean(state.busy)}
     >
-      <SettingsSummary>
-        {state.page?.availability === 'available' && (
-          <span
-            className="settings-summary-group"
-            role="group"
-            aria-label="Displayed skill totals"
-          >
-            {narrowed ? (
-              <SummaryChip>{state.page.total ?? 'Some'} matching</SummaryChip>
-            ) : (
-              <>
-                <SummaryChip tone="success">
-                  {shownAvailable} available{shown}
-                </SummaryChip>
-                <SummaryChip>
-                  {shownPinned} pinned{shown}
-                </SummaryChip>
-                <SummaryChip>
-                  {shownCustom} custom{shown}
-                </SummaryChip>
-                {!complete && (
+      {!integrationId && (
+        <>
+          <SettingsSummary>
+            {state.page?.availability === 'available' && (
+              <span
+                className="settings-summary-group"
+                role="group"
+                aria-label="Displayed skill totals"
+              >
+                {narrowed ? (
                   <SummaryChip>
-                    {state.page.total ?? 'Unknown'} total
+                    {state.page.total ?? 'Some'} matching
                   </SummaryChip>
-                )}
-              </>
-            )}
-          </span>
-        )}
-      </SettingsSummary>
-      <SettingsTabs
-        label="Skills"
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          {
-            id: 'installed',
-            label: 'Installed',
-            meta: state.page?.total ?? undefined,
-            content: installed,
-          },
-          {
-            id: 'discover',
-            label: 'Discover',
-            content: (
-              <div data-setting-anchor="public-skills">
-                {hub ? (
-                  <PublicSkillHub
-                    io={hub}
-                    ownerKey={ownerKey}
-                    onInstalled={() => {
-                      void load();
-                      setHubReload((value) => value + 1);
-                    }}
-                  />
                 ) : (
-                  <p className="muted">Public skill sources are unavailable.</p>
+                  <>
+                    <SummaryChip tone="success">
+                      {shownAvailable} available{shown}
+                    </SummaryChip>
+                    <SummaryChip>
+                      {shownPinned} pinned{shown}
+                    </SummaryChip>
+                    <SummaryChip>
+                      {shownCustom} custom{shown}
+                    </SummaryChip>
+                    {!complete && (
+                      <SummaryChip>
+                        {state.page.total ?? 'Unknown'} total
+                      </SummaryChip>
+                    )}
+                  </>
                 )}
-              </div>
-            ),
-          },
-        ]}
-      />
-
+              </span>
+            )}
+          </SettingsSummary>
+          <SettingsTabs
+            label="Skills"
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              {
+                id: 'installed',
+                label: 'Installed',
+                meta: state.page?.total ?? undefined,
+                content: installed,
+              },
+            ]}
+          />
+        </>
+      )}
+      {integrationId && state.message && <p role="status">{state.message}</p>}
+      {integrationId && state.pending && (
+        <Button onClick={() => void recover()}>
+          Check original skill change
+        </Button>
+      )}
       {state.detail && (
         <Surface elevated>
           <h2>
             {state.detail.skill.icon} {state.detail.skill.display_name}
           </h2>
           <p>{state.detail.skill.description}</p>
+          {integrationId && (
+            <div className="button-row">
+              <Field label="Available in chats" layout="row">
+                <Toggle
+                  label="Available in chats"
+                  checked={state.detail.skill.available}
+                  disabled={locked || state.detail.skill.tool_guide}
+                  onChange={() =>
+                    void requestReview('skill.preference', {
+                      revision,
+                      name: state.detail!.skill.id,
+                      preference: 'availability',
+                      value: !state.detail!.skill.available,
+                    })
+                  }
+                />
+              </Field>
+              <Button
+                disabled={locked || state.detail.skill.tool_guide}
+                aria-pressed={state.detail.skill.pinned}
+                onClick={() =>
+                  void requestReview('skill.preference', {
+                    revision,
+                    name: state.detail!.skill.id,
+                    preference: 'pin_defaults',
+                    value: !state.detail!.skill.pinned,
+                  })
+                }
+              >
+                {state.detail.skill.pinned
+                  ? 'Unpin default'
+                  : 'Pin for new work'}
+              </Button>
+            </div>
+          )}
           <pre className="text-preview settings-skill-instructions">
             {state.detail.skill.instructions}
           </pre>

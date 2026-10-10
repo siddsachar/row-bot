@@ -15,6 +15,7 @@ import type {
   TaskSummaryPage,
 } from '../../api/types';
 import OverviewHome, { type OverviewHomeProps } from './OverviewHome';
+import { WorkspaceActionsContext } from '../shell/workspace-actions';
 import { clockTime, scheduleWords } from './home-format';
 
 const runtime = vi.hoisted(() => ({
@@ -1013,6 +1014,31 @@ it('rests the Agents card when nothing works and counts agents that finished tod
   expect(handlers.onOpenConversation).toHaveBeenCalledWith('child-a');
 });
 
+it('opens the Agents library from the Agents card when no agent is at work', () => {
+  const openAgentProfiles = vi.fn();
+  render(
+    <MemoryRouter>
+      <WorkspaceActionsContext.Provider
+        value={{ resetLayout: vi.fn(), openAgentProfiles }}
+      >
+        <OverviewHome
+          conversations={[]}
+          setup={null}
+          monitor={null}
+          now={now}
+          {...handlers}
+        />
+      </WorkspaceActionsContext.Provider>
+    </MemoryRouter>,
+  );
+  const agents = card(/^Agents/);
+  expect(agents).toHaveTextContent('No agents at work');
+  fireEvent.click(agents);
+  // Focus comes back to the card when the library closes.
+  expect(openAgentProfiles).toHaveBeenCalledWith(agents);
+  expect(handlers.onOpenConversation).not.toHaveBeenCalled();
+});
+
 it('counts down to the next workflow run and draws today’s runs in the Workflows card', async () => {
   const tasks = [
     task('later', 'Later', { next_run: at(27, 9) }),
@@ -1070,7 +1096,7 @@ it('says when no workflow is scheduled and when workflows could not be read', as
   ).toBeVisible();
 });
 
-it('shows how many memories there are and how many are new this week', async () => {
+it('shows how many memories there are and how many were saved this week', async () => {
   const loadMemory = memory(660);
   show({
     loadMemory,
@@ -1104,7 +1130,7 @@ it('shows how many memories there are and how many are new this week', async () 
   const memoryCard = await screen.findByRole('button', {
     name: /^Memory: 660 memories/,
   });
-  expect(memoryCard).toHaveTextContent('+12 this week');
+  expect(memoryCard).toHaveTextContent('12 updates this week'); // Saves include updates: never "+12" beside a smaller total.
   fireEvent.click(memoryCard);
   expect(handlers.onOpenTab).toHaveBeenCalledWith('knowledge');
   expect(loadMemory).toHaveBeenCalledOnce();
@@ -1399,7 +1425,7 @@ it('lists what Row-Bot learned this week as chips and the top insight as a card'
     }),
   });
   const learned = screen.getByRole('region', { name: 'Learned this week' });
-  expect(learned).toHaveTextContent('12 new memories from 2 conversations');
+  expect(learned).toHaveTextContent('12 memory updates from 2 conversations');
   const chips = within(learned).getByRole('list', {
     name: 'Memories added to this week',
   });
@@ -1569,6 +1595,72 @@ it('advances its own clock every minute when no time is supplied', () => {
   } finally {
     vi.useRealTimers();
   }
+});
+
+it('lists an app that is on but signed out or broken under Needs you, with its fix one click away', async () => {
+  const entry = (fields: Record<string, unknown>) => ({
+    kind: 'mcp',
+    parent_id: null,
+    description: '',
+    app: null,
+    icon: 'letter:A',
+    verified: false,
+    source: 'recommended',
+    publisher: '',
+    version: '',
+    installed: true,
+    enabled: true,
+    account_label: '',
+    compatibility: 'supported',
+    evidence: 'inspected',
+    tested_with_row_bot: false,
+    attributions: [],
+    children: [],
+    lifecycle: 'installed',
+    readiness: 'ready',
+    blockers: [],
+    next_action: { kind: 'try', label: 'Try it' },
+    ...fields,
+  });
+  const loadApps = vi.fn(async () => ({
+    schema_version: 1,
+    revision: 'r',
+    total: 3,
+    next_cursor: null,
+    sources: [],
+    items: [
+      entry({
+        id: 'mcp:notion',
+        name: 'Notion',
+        readiness: 'needs_sign_in',
+        blockers: [
+          {
+            code: 'expired',
+            severity: 'blocking',
+            message: 'The saved sign-in no longer works. Sign in again.',
+            subject: '',
+          },
+        ],
+        next_action: { kind: 'sign_in', label: 'Sign in again' },
+      }),
+      entry({ id: 'mcp:linear', name: 'Linear' }),
+      entry({
+        id: 'mcp:off',
+        name: 'Figma',
+        lifecycle: 'off',
+        readiness: 'attention',
+      }),
+    ],
+  }));
+  const onOpenApp = vi.fn();
+  show({ loadApps, onOpenApp } as unknown as Partial<OverviewHomeProps>);
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText('Sign in to Notion');
+  expect(needs).toHaveTextContent('The saved sign-in no longer works.');
+  expect(needs).not.toHaveTextContent('Linear'); // Ready apps and ones turned off don't need you.
+  expect(needs).not.toHaveTextContent('Figma');
+  fireEvent.click(within(needs).getByRole('button', { name: 'Sign in again' }));
+  expect(onOpenApp).toHaveBeenCalledWith('mcp:notion', true);
 });
 
 it('lists a goal waiting for your answer in Needs you', async () => {

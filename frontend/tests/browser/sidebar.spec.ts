@@ -326,16 +326,10 @@ test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', 
   await nav
     .getByRole('button', { name: 'Unpin A place for your ideas' })
     .click();
-  // The actions dialog is named after the conversation (B237); × closes it.
-  const actions = page.getByRole('dialog', { name: 'A place for your ideas' });
-  await expect(actions).toBeVisible();
-  await expect(actions.getByText('Unpinned.')).toBeVisible();
+  // Unpin is one tap: no dialog opens, and the pinned list empties.
   await expect(
-    actions.getByRole('switch', { name: 'Pin', exact: true }),
-  ).not.toBeChecked();
-  await actions.getByRole('button', { name: 'Close dialog' }).click();
-  if (info.project.use.viewport!.width < 1024 && !(await nav.isVisible()))
-    await page.getByRole('button', { name: 'Toggle navigation' }).click();
+    page.getByRole('dialog', { name: 'A place for your ideas' }),
+  ).toHaveCount(0);
   await expect(
     nav.getByRole('list', { name: 'Pinned conversations' }),
   ).toHaveCount(0);

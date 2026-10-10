@@ -393,13 +393,6 @@ def _resolve_dependencies(plugin_deps: list[str], environment: pathlib.Path) -> 
         return DepCheckResult(False, [code], []), None
 
 
-def check_dependencies(plugin_deps: list[str], *, environment: pathlib.Path | None = None) -> DepCheckResult:
-    """Explicit isolated compatibility check; never provision or probe the host."""
-    if environment is None:
-        return DepCheckResult(False, ["isolated_environment_required"], [])
-    return _resolve_dependencies(plugin_deps, environment)[0]
-
-
 def _installed_versions(environment: pathlib.Path) -> dict[str, str]:
     """Read distribution metadata without importing packages or running .pth code."""
     from importlib.metadata import distributions

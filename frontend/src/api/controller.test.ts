@@ -2505,6 +2505,40 @@ describe('deleted conversations', () => {
     expect(state.handshake).not.toBeNull();
   });
 
+  it('closes an open conversation deleted in another window, not asking its gone subscription again', async () => {
+    // As the server does: a deleted conversation's subscription and stream answer 404.
+    class RemoteDelete extends FixtureTransport {
+      gone = new Set<string>();
+      delete(id: string) {
+        this.deleteElsewhere(id).forEach((ended) => this.gone.add(ended));
+      }
+      override async *observe(
+        subscription: string,
+        cursor: string,
+        signal: AbortSignal,
+      ) {
+        if (this.gone.has(subscription))
+          throw clientError({ code: 'not_found' });
+        yield* super.observe(subscription, cursor, signal);
+        if (this.gone.has(subscription))
+          throw clientError({ code: 'not_found' });
+      }
+    }
+    const transport = new RemoteDelete({ conversationCount: 3 });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    expect(value.getSnapshot().projection).not.toBeNull();
+    transport.delete('conversation-a');
+    await flush();
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.status).toBe('ready');
+    expect(state.error).toBeNull();
+  });
+
   // Reading a conversation that is being deleted closes it; the app stays
   // connected (it went to "Connection interrupted" after a delete).
   class DeletingFixture extends FixtureTransport {

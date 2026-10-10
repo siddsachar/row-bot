@@ -484,26 +484,88 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
-    if "connect fixture" in text:
-        # The work needs an account: request_connection leaves a Connect card.
+    if "app view fixture" in text:
+        # An app with an interactive view (MCP Apps): the step calls the fixture counter, whose view then
+        # shows under it in its own sandboxed frame.
         from row_bot.threads import append_checkpoint_messages
-        from row_bot.tools.conversation_setup_tool import request_connection
+        call = predecessor._record("submit", config, "app-view")
+        thread = call["conversation_id"]
+        identity = f"app-view:{call['generation_id']}"
+        tool_id, result_id = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
+        result = '3\n\nSTRUCTURED_CONTENT:\n{"count": 3}'
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "mcp_counter_counter", "args": {"start": 3}}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": "MCP: counter (Counter)",
+                                "raw_name": "mcp_counter_counter", "runtime_name": "mcp_counter_counter", "args": {"start": 3}}
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name="mcp_counter_counter",
+                                                          content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "MCP: counter (Counter)",
+                                "raw_name": "mcp_counter_counter", "args": {"start": 3}, "content": result}
+            yield from _natural_final(call, thread, "Here is your counter.", "app-view")
+        finally:
+            call["quiesced"] = True
+        return
+    if "app tool fixture" in text or "connected now" in text:
+        # Apps in chat: a step through the connected synthetic app (its logo and name on the step), then
+        # one change that asks first (its approval names the app). What the turn left out is recorded.
+        from row_bot.mcp_client import runtime
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "app-tool")
+        call["app_scope"] = config["configurable"].get("app_scope")
+        thread = call["conversation_id"]
+        try:
+            if "connected now" in text:
+                yield from _natural_final(call, thread, "Continuing with what you asked.", "app-continue")
+                return
+            wanted = text.split("app tool fixture", 1)[1].strip().casefold()
+            with runtime._runtime_lock:
+                found = next(((info.prefixed_name, info.server_name) for tools in runtime._catalog.values()
+                              for info in tools.values() if info.name == "search_pages"
+                              and wanted in info.server_name.casefold()), None)
+            assert found, "app tool fixture needs a connected synthetic app"
+            identity = f"app-tool:{call['generation_id']}"
+            search_id, delete_id = fixture_id(identity + ":search"), fixture_id(identity + ":delete")
+            result_id = fixture_id(identity + ":result")
+            delete_name = found[0].removesuffix("search_pages") + "delete_page"
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": search_id, "name": found[0], "args": {"query": "roadmap"}}])])
+            yield "tool_call", {"tool_call_id": search_id, "message_id": result_id, "name": f"MCP: search_pages ({found[1]})",
+                                "raw_name": found[0], "runtime_name": found[0], "args": {"query": "roadmap"}}
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=search_id, name=found[0],
+                                                          content="Found the Roadmap page.")])
+            yield "tool_done", {"tool_call_id": search_id, "message_id": result_id, "name": f"MCP: search_pages ({found[1]})",
+                                "raw_name": found[0], "args": {"query": "roadmap"}, "content": "Found the Roadmap page."}
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":delete-call"), content="",
+                tool_calls=[{"id": delete_id, "name": delete_name, "args": {"page": "Old notes"}}])])
+            yield "tool_call", {"tool_call_id": delete_id, "name": f"MCP: delete_page ({found[1]})", "raw_name": delete_name,
+                                "runtime_name": delete_name, "args": {"page": "Old notes"}}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": delete_name,
+                                 "label": "Delete a page", "description": "Delete a page for good.",
+                                 "args": {"page": "Old notes"}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "connect fixture" in text:
+        # The work needs an app: suggest_apps leaves a Connect card with apps from the local catalog.
+        from row_bot.threads import append_checkpoint_messages
+        from row_bot.tools.conversation_setup_tool import suggest_apps
         call = predecessor._record("submit", config, "connect-card")
         thread = call["conversation_id"]
         identity = f"connect:{call['generation_id']}"
         tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
-        args = {"service": "google", "reason": "Reading your calendar needs Google."}
+        args = {"need": text.split("connect fixture", 1)[1].strip(" :") or "Notion"}
         try:
             append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
-                tool_calls=[{"id": tool_id, "name": "request_connection", "args": args}])])
+                tool_calls=[{"id": tool_id, "name": "suggest_apps", "args": args}])])
             yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message,
-                                "name": "request_connection", "args": args}
-            result = request_connection(**args)
+                                "name": "suggest_apps", "args": args}
+            result = suggest_apps(**args)
             append_checkpoint_messages(thread, [ToolMessage(id=tool_message, tool_call_id=tool_id,
-                                                          name="request_connection", content=result)])
+                                                          name="suggest_apps", content=result)])
             yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message,
-                                "name": "request_connection", "args": args, "content": result}
-            yield from _natural_final(call, thread, "Connect Google and I'll read the calendar.", "connect")
+                                "name": "suggest_apps", "args": args, "content": result}
+            yield from _natural_final(call, thread, f"Connect {args['need']} and I'll pick this up.", "connect")
         finally:
             call["quiesced"] = True
         return
@@ -642,8 +704,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
             caches.pending_video = {"path": save_generated_output(
                 thread_id, video_data, prefix="synthetic-browser", extension="mp4")}
         media = capture_generated_media(thread_id, caches)
+        # Saved on the tool message as the real tool wrapper saves it, so a transcript re-read keeps the image.
         append_checkpoint_messages(thread_id, [ToolMessage(id=tool_message, tool_call_id=tool_id,
-                                                          content="Synthetic image created.")])
+                                                          content="Synthetic image created.",
+                                                          additional_kwargs={"platform_media": media} if media else {})])
         yield "tool_done", {
             "tool_call_id": tool_id,
             "message_id": tool_message,
@@ -1293,6 +1357,10 @@ def p4_document_processing(x_fixture_token: str = Header(default="")) -> dict:
     def forbid(*args, **kwargs):
         raise AssertionError('Uncaptured provider construction is forbidden')
     runtime.create_chat_model = forbid
+    # Settings › Documents processes without a conversation, reading with the
+    # model picked for documents (as a person would pick it there).
+    (predecessor.DATA / 'document_processing.json').write_text(
+        json.dumps({'model': 'model:openai:gpt-4o'}), encoding='utf-8')
     identifier = threads.create_thread('Synthetic processing conversation', model_override='model:openai:gpt-4o',
         approval_mode='approve', seed_default_skills=False)
     threads.append_checkpoint_messages(identifier, [HumanMessage(content='Synthetic document processing conversation')])
@@ -2154,6 +2222,330 @@ def main() -> None:
 
     routes.problem = record_private_failure
     runpy.run_module("row_bot.app", run_name="__main__")
+
+
+@app.post("/__p4_fixture/integration-skills")
+def p4_integration_skills(x_fixture_token: str = Header(default="")) -> dict:
+    """Exercise full skill publication through a deterministic public source."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.application import client_skill_hub as hub
+    from row_bot.skills_hub.models import CatalogSearchResult, SkillHubEntry, SkillFile, SourceResult
+    from row_bot.skills_hub.sources import bundle_from_files
+    entry = SkillHubEntry(id="clawhub:browser-writing", name="Browser writing", description="Synthetic writing skill with resources",
+        source="clawhub", source_id="clawhub", install_ref="clawhub:fixture/browser-writing@1.0.0")
+    bundle = bundle_from_files(source="clawhub", install_ref=entry.install_ref, root_name="browser-writing", files=[
+        SkillFile.from_text("SKILL.md", "---\nname: browser-writing\ndescription: Synthetic writing instructions\n---\nRead references/checklist.txt before writing."),
+        SkillFile.from_text("references/checklist.txt", "Use clear sentences.\n")])
+    hub.catalog.search_skills = lambda *a, **k: CatalogSearchResult(entries=[entry], mode="cache", query="writing",
+        source_statuses=[SourceResult(entries=[entry], source_id="clawhub", status="cached")])
+    hub.catalog.inspect_entry = lambda *a, **k: bundle
+    hub.installer.fetch_bundle_for_record = lambda *a, **k: bundle
+    from row_bot.skills_hub import clawhub_source
+    clawhub_source.fetch_json = lambda url, **kwargs: (
+        {"version": {"version": "1.0.0"}} if "/versions/" in url else
+        {"owner": {"handle": "fixture"}, "skill": {"slug": "browser-writing"}})
+    return {"ready": True}
+
+
+@app.post("/__p5_fixture/apps")
+def p5_apps(x_fixture_token: str = Header(default=""), x_fixture_origin: str = Header(default="")) -> dict:
+    """Apps end to end on this machine only: synthetic servers, keychain and sign-in page."""
+    p4_provider_credentials(x_fixture_token)
+    import asyncio
+    import secrets
+    from types import SimpleNamespace
+    from row_bot.application import client_mcp_auth
+    from row_bot.mcp_client import auth, runtime
+    tools = [{'name': 'search_pages', 'description': 'Find pages by title or text.', 'inputSchema': {'type': 'object'}},
+             {'name': 'update_page', 'description': 'Change the text of a page.', 'inputSchema': {'type': 'object'}},
+             {'name': 'delete_page', 'description': 'Delete a page for good.', 'inputSchema': {'type': 'object'}}]
+
+    async def list_tools():
+        return SimpleNamespace(tools=tools)
+
+    async def connect(server):
+        server.session = SimpleNamespace(list_tools=list_tools)
+    runtime.sdk_available = lambda: True
+    runtime.McpServerRuntime._connect = connect
+    # Synthetic hosted apps never ask for a sign-in they don't declare; declared ones register a client.
+    auth.discover_sign_in = lambda url: {"required": False, "metadata": True, "dcr": True}
+
+    async def run_oauth(flow, label, client):
+        state = secrets.token_urlsafe(24)
+        with client_mcp_auth._LOCK:
+            flow.authorization_url, flow.oauth_state, flow.state = (
+                f"{x_fixture_origin}/__p5_fixture/oauth/approve?state={state}", state, "waiting")
+        client_mcp_auth._persist(flow)
+        await asyncio.to_thread(flow.event.wait, 120)
+        if not flow.code:
+            raise auth.McpAuthError("mcp_auth_denied")
+        auth.write_credentials(flow.ref, {"tokens": {"access_token": "synthetic-access", "token_type": "Bearer"}})
+        client_mcp_auth._publish(flow, {"mode": "oauth", "credential_ref": flow.ref, "binding": auth.binding(flow.name, flow.cfg),
+            "callback_uri": flow.callback_uri, "label": label, "operation_id": flow.command_id})
+    client_mcp_auth._run_oauth = run_oauth
+    return {'ready': True}
+
+
+_connect_anything = {"program_open": False}
+
+
+def _synthetic_tarball(files: dict) -> bytes:
+    import io
+    import tarfile
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as output:
+        for name, text in files.items():
+            data = text.encode()
+            info = tarfile.TarInfo("package/" + name)
+            info.size, info.mode = len(data), 0o644
+            output.addfile(info, io.BytesIO(data))
+    return stream.getvalue()
+
+
+def _synthetic_registry() -> dict:
+    """npm registry bytes for the packages these journeys install: a package with its own
+    shrinkwrap (so the review lists every dependency) and a self-contained one."""
+    def integrity(raw: bytes) -> str:
+        return "sha512-" + base64.b64encode(hashlib.sha512(raw).digest()).decode()
+    served, documents = {}, {}
+    deps = {name: _synthetic_tarball({"package.json": json.dumps({"name": name, "version": version}), "index.js": ""})
+            for name, version in (("zod", "3.25.76"), ("minimatch", "10.0.3"), ("diff", "8.0.2"))}
+    versions = {"zod": "3.25.76", "minimatch": "10.0.3", "diff": "8.0.2"}
+    for name, raw in deps.items():
+        url = f"https://registry.npmjs.org/{name}/-/{name}-{versions[name]}.tgz"
+        served[url] = raw
+    shrinkwrap = {"name": "@modelcontextprotocol/server-filesystem", "version": "2026.1.14", "lockfileVersion": 3, "packages": {
+        "": {"name": "@modelcontextprotocol/server-filesystem", "version": "2026.1.14"},
+        **{f"node_modules/{name}": {"version": versions[name], "resolved": f"https://registry.npmjs.org/{name}/-/{name}-{versions[name]}.tgz",
+                                    "integrity": integrity(raw)} for name, raw in deps.items()}}}
+    packages_ = {
+        "@modelcontextprotocol/server-filesystem": ("2026.1.14", {"package.json": json.dumps({
+            "name": "@modelcontextprotocol/server-filesystem", "version": "2026.1.14", "bin": "dist/index.js",
+            "dependencies": {name: "^" + version for name, version in versions.items()}}),
+            "dist/index.js": "", "npm-shrinkwrap.json": json.dumps(shrinkwrap)}, True),
+        "fixture-blender-bridge": ("1.0.0", {"package.json": json.dumps({"name": "fixture-blender-bridge", "version": "1.0.0",
+                                                                         "bin": "main.js"}), "main.js": ""}, False)}
+    for name, (version, files, shrinkwrapped) in packages_.items():
+        raw = _synthetic_tarball(files)
+        url = f"https://registry.npmjs.org/{name}/-/{name.rsplit('/', 1)[-1]}-{version}.tgz"
+        served[url] = raw
+        document = {"name": name, "version": version, "bin": json.loads(files["package.json"])["bin"],
+                    "dist": {"tarball": url, "integrity": integrity(raw)}}
+        if shrinkwrapped:
+            document.update(dependencies={n: "^" + v for n, v in versions.items()}, _hasShrinkwrap=True)
+        for tag in (version, "latest"):
+            documents[f"https://registry.npmjs.org/{name}/{tag}"] = document
+    return {"tarballs": served, "documents": documents}
+
+
+@app.post("/__p5_fixture/apps/sign-out")
+def p5_apps_sign_out(name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """The synthetic service ended a signed-in app's sign-in (``name`` in its server name): it needs you."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot.integrations import facts
+    from row_bot.mcp_client import config, runtime
+    names = [server for server, cfg in config.read_saved_configuration().document.get("servers", {}).items()
+             if (cfg.get("auth") or {}).get("mode") == "oauth" and name.casefold() in server.casefold()]
+    for name in names:
+        runtime._update_status(name, status="failed",
+                               last_error="unhandled errors | OAuthFlowError: No redirect handler provided for authorization code grant")
+    facts.invalidate()
+    return {"signed_out": names}
+
+
+@app.post("/__p5_fixture/connect-anything")
+def p5_connect_anything(x_fixture_token: str = Header(default=""), x_fixture_origin: str = Header(default="")) -> dict:
+    """Phase 4 on this machine only: a server that asks to sign in once tested, a package whose exact
+    versions are reviewed before installing (registry bytes are synthetic), a program that must be
+    open, and a bundle picked from disk. Nothing leaves this computer."""
+    p5_apps(x_fixture_token, x_fixture_origin)
+    from urllib.parse import unquote, urlsplit
+    from row_bot.integrations import apps, facts, plans
+    from row_bot.mcp_client import auth, config, packages, requirements
+    auth.discover_sign_in = lambda url: ({"required": True, "metadata": True, "dcr": False, "cimd": True}
+        if urlsplit(url).hostname == "signs-in.example.test" else {"required": False, "metadata": True, "dcr": True})
+    requirements.check_requirement = lambda requirement, env=None: requirements.RuntimeCheck(requirement=requirement, available=True)
+    registry = _synthetic_registry()
+
+    def fetch(url, **_):
+        found = registry["tarballs"].get(url)
+        if found is None:
+            found = registry["documents"].get(unquote(url))
+            found = None if found is None else json.dumps(found).encode()
+        if found is None:
+            raise ValueError("mcp_package_source_invalid")
+        return found
+    packages._fetch = fetch
+    # A synthetic bridge to Blender: an installed app that needs the program open on this computer.
+    match = apps.match
+    apps.match = lambda refs: apps.catalog()[0]["blender"] if "npm:fixture-blender-bridge" in refs else match(refs)
+    plans.local_app_open = lambda check: _connect_anything["program_open"]
+    _connect_anything["program_open"] = False
+    document = config.load_config()
+    document.setdefault("servers", {})["Blender bridge"] = {
+        "enabled": False, "transport": "stdio", "command": "npx", "args": ["-y", "fixture-blender-bridge@1.0.0"],
+        "environment_mode": "minimal", "source": {"marketplace": "custom"}}
+    config.save_config(document)
+    facts.invalidate()
+    return {"ready": True}
+
+
+@app.post("/__p5_fixture/connect-anything/program")
+def p5_connect_anything_program(x_fixture_token: str = Header(default="")) -> dict:
+    """The person opens the program: its check passes from now on."""
+    predecessor._authorize(x_fixture_token)
+    _connect_anything["program_open"] = True
+    return {"open": True}
+
+
+@app.get("/__p5_fixture/connect-anything/bundle")
+def p5_connect_anything_bundle(x_fixture_token: str = Header(default="")) -> dict:
+    """A synthetic, unsigned .mcpb for the file picker: a Node server with one key and one folder."""
+    predecessor._authorize(x_fixture_token)
+    import io
+    import zipfile
+    manifest = {"manifest_version": "0.3", "name": "field-notes", "display_name": "Field notes", "version": "1.2.0",
+        "description": "Search and read the notes in one folder.", "author": {"name": "Fixture Author"}, "license": "MIT",
+        "server": {"type": "node", "entry_point": "server/index.js", "mcp_config": {
+            "command": "node", "args": ["${__dirname}/server/index.js", "--root", "${user_config.folder}"],
+            "env": {"NOTES_TOKEN": "${user_config.api_key}"}}},
+        "user_config": {
+            "api_key": {"type": "string", "title": "Notes key", "description": "The key from your notes service.",
+                        "sensitive": True, "required": True},
+            "folder": {"type": "directory", "title": "Notes folder", "description": "Where your notes are.",
+                       "default": "notes"}}}
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as output:
+        output.writestr("manifest.json", json.dumps(manifest))
+        output.writestr("server/index.js", "// synthetic server; never run by this fixture")
+    return {"name": "field-notes.mcpb", "data": base64.b64encode(stream.getvalue()).decode()}
+
+
+@app.get("/__p5_fixture/oauth/approve")
+def p5_oauth_approve(state: str, allow: str = ""):
+    """The synthetic provider's consent page: Allow completes the sign-in; leaving it doesn't."""
+    from html import escape
+    from urllib.parse import quote
+    from fastapi.responses import HTMLResponse
+    from row_bot.application import client_mcp_auth
+    if not allow:
+        return HTMLResponse("<!doctype html><title>Synthetic sign-in</title><p>Allow Row-Bot to use this service?</p>"
+                            f'<a href="?state={escape(quote(state))}&allow=1">Allow</a>')
+    client_mcp_auth.accept_callback(state=state, code="synthetic-code")
+    return HTMLResponse("<!doctype html><title>Signed in</title><p>Signed in to the synthetic service.</p>")
+
+
+
+@app.post("/__p6_fixture/views")
+def p6_views(x_fixture_token: str = Header(default="")) -> dict:
+    """An app with an interactive view (MCP Apps) on this machine only: the fixture counter's own view and
+    tools, from a synthetic session; it is saved, accepted (its view included) and connected."""
+    p4_provider_credentials(x_fixture_token)
+    import runpy
+    from types import SimpleNamespace
+    from row_bot.application.capability_catalog_controls import capture_tested_catalog
+    from row_bot.integrations import facts
+    from row_bot.mcp_client import config, runtime
+    fixture = runpy.run_path(str(Path(__file__).resolve().parents[3] / "tests/fixtures/mcp_apps/counter_server.py"))
+    tools = [{"name": "counter", "description": "Show the counter, starting from a number.", "inputSchema": {"type": "object"},
+              "_meta": {"ui": {"resourceUri": fixture["VIEW_URI"]}}},
+             {"name": "increment", "description": "Add to the counter (its view's button).", "inputSchema": {"type": "object"},
+              "_meta": {"ui": {"resourceUri": fixture["VIEW_URI"], "visibility": ["app"]}}},
+             {"name": "reset", "description": "Set the counter back to zero.", "inputSchema": {"type": "object"},
+              "_meta": {"ui": {"visibility": ["model"]}}}]
+    count = {"value": 3}
+
+    class Session:
+        async def list_tools(self):
+            return SimpleNamespace(tools=tools)
+
+        async def read_resource(self, uri):
+            return SimpleNamespace(contents=[SimpleNamespace(uri=uri, mimeType=fixture["MEDIA_TYPE"], text=fixture["VIEW"],
+                                                             blob=None, meta={"ui": {"prefersBorder": True}})])
+
+        async def call_tool(self, name, arguments):
+            count["value"] = int(arguments.get("start", 0)) if name == "counter" else count["value"] + int(arguments.get("by", 1))
+            dumped = {"content": [{"type": "text", "text": str(count["value"])}], "structuredContent": {"count": count["value"]},
+                      "isError": False}
+            return SimpleNamespace(**dumped, model_dump=lambda **_: dumped)
+    cfg = {"transport": "stdio", "command": "python", "args": ["counter_server.py"], "enabled": True,
+           "source": {"marketplace": "custom"}, "tools": {"enabled": {tool["name"]: True for tool in tools}}}
+    normalized = runtime._normalize_tools("Counter", cfg, tools)
+    captured = capture_tested_catalog({"ok": True, "tools": [info.__dict__ for info in normalized.values()]})
+    cfg["tools"].update(catalog={row["name"]: row for row in captured["tools"]},
+                        accepted_names=[row["name"] for row in captured["tools"]])
+    document = config.read_saved_configuration().document
+    document = {**document, "enabled": True, "servers": {**document.get("servers", {}), "Counter": cfg}}
+    config.CONFIG_PATH.write_text(json.dumps(document), encoding="utf-8")
+    server = runtime.McpServerRuntime("Counter", cfg)
+    server.session = Session()
+    with runtime._runtime_lock:
+        runtime._servers["Counter"] = server
+        runtime._catalog["Counter"] = runtime._normalize_tools("Counter", cfg, tools)
+        runtime._statuses["Counter"] = runtime.McpServerStatus(name="Counter", enabled=True, status="connected",
+                                                                tool_count=3, enabled_tool_count=3)
+    runtime.get_langchain_tools(allow_names=["mcp"], refresh=False)  # As a turn binds them: their names are known.
+    facts.invalidate()
+    return {"ready": True}
+
+
+
+@app.post("/__p6_fixture/app-workflow")
+def p6_app_workflow(x_fixture_token: str = Header(default="")) -> dict:
+    """A switched-off, scheduled workflow whose prompt step uses the fixture Counter app (set up first)."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot import tasks
+    from row_bot.integrations import scope
+    item = next(item for item in scope._mcp_items() if item["server"] == "Counter")
+    task_id = tasks.create_task(
+        name="Counter morning digest", description="Every morning, the count and what changed.", icon="🔢",
+        schedule="daily:09:00", enabled=False, safety_mode="approve", apply_default_skills=False,
+        agent_profile_id=tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+        steps=[{"id": "read", "type": "prompt", "apps": [item["id"]],
+                "prompt": "Using Counter, show today's count and what changed since yesterday."}])
+    return {"task_id": task_id}
+
+
+_p6_search_was_on = False
+
+
+@app.post("/__p6_fixture/web-search-key")
+def p6_web_search_key(x_fixture_token: str = Header(default="")) -> dict:
+    """Row-Bot's own web search, set up with a synthetic key in the in-memory keychain: a ready built-in way."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot import api_keys
+    from row_bot.tools import registry
+    global _p6_search_was_on
+    _p6_search_was_on = registry.is_enabled("web_search")
+    registry.set_enabled("web_search", True)
+    api_keys.set_key("TAVILY_API_KEY", "synthetic-search-key")
+    return {"ready": True}
+
+
+@app.post("/__p6_fixture/views/remove")
+def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
+    """Take the fixture Counter app, its workflow and the synthetic search key away again, so later journeys
+    find Apps as they expect."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot import tasks
+    from row_bot.integrations import facts
+    from row_bot.mcp_client import config, runtime
+    document = config.read_saved_configuration().document
+    servers = {name: cfg for name, cfg in document.get("servers", {}).items() if name != "Counter"}
+    config.CONFIG_PATH.write_text(json.dumps({**document, "servers": servers}), encoding="utf-8")
+    with runtime._runtime_lock:
+        for registry in (runtime._servers, runtime._catalog, runtime._statuses):
+            registry.pop("Counter", None)
+    for task in tasks.list_tasks():
+        if task.get("name") == "Counter morning digest":
+            tasks.delete_task(task["id"])
+    from row_bot import api_keys
+    if api_keys.get_key("TAVILY_API_KEY") == "synthetic-search-key":
+        api_keys.delete_key("TAVILY_API_KEY")
+        from row_bot.tools import registry
+        registry.set_enabled("web_search", _p6_search_was_on)
+    facts.invalidate()
+    return {"removed": True}
 
 
 if __name__ == "__main__":

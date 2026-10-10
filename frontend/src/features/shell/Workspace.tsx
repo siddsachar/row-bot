@@ -48,6 +48,7 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  Hint,
   IconButton,
   Menu,
   Skeleton,
@@ -77,6 +78,7 @@ import {
   type PanelPlacement,
 } from '../panels/model';
 import { PanelSubscriptions } from '../panels/subscriptions';
+import { useDeletingConversations } from './delete-with-undo';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import CommandPalette, { type PaletteCommand } from './CommandPalette';
 import {
@@ -112,11 +114,15 @@ import {
   TerminalSlot,
   useTerminalDock,
 } from '../panels/terminal-dock';
-import { WorkspaceActionsContext } from './workspace-actions';
+import {
+  WorkspaceActionsContext,
+  type WorkspaceActions,
+} from './workspace-actions';
 import { openAgentProfiles } from './agent-profiles';
 import { useBackgroundNotices } from './background-notices';
 import { useApprovalNotices } from './InPlaceApproval';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
+import { rememberOutsideSettings } from '../settings/return-path';
 
 const subscriptions = new PanelSubscriptions();
 
@@ -328,6 +334,11 @@ export default function Workspace() {
   const homeOpen = location.pathname === '/';
   const routeOpen = !homeOpen && !routeConversation;
   const settingsOpen = location.pathname.startsWith('/settings');
+  // Close settings goes back to where the person was (a chat, Workflows), not always Home.
+  useEffect(() => {
+    if (!settingsOpen)
+      rememberOutsideSettings(location.pathname + location.search);
+  }, [settingsOpen, location.pathname, location.search]);
   const [layout, setLayout] = useWorkspaceLayout(
     state.handshake?.instance_id,
     conversationId ?? 'home',
@@ -396,9 +407,16 @@ export default function Workspace() {
       resources: readonly ResourceView[],
     ) => showPanel(panel, undefined, resources, { wide: true }),
   );
-  // A panel asked for another resource's panel (a design it duplicated).
+  // A panel asked for another resource's panel (a design it duplicated), or
+  // to close its own (a design it deleted).
   const openRequestedPanel = useEffectEvent((request: ResourcePanelRequest) => {
     if (request.conversationId !== conversationId) return;
+    if (request.close) {
+      setLayout((previous) =>
+        closeResourcePanels(previous, request.resourceRef),
+      );
+      return;
+    }
     void controller
       .workspaceFor(request.conversationId)
       .then((fresh) => {
@@ -535,6 +553,20 @@ export default function Workspace() {
     )
       void controller.selectConversation(decodeURIComponent(routeConversation));
   }, [controller, routeConversation]);
+  // The open conversation was deleted in another window (or found deleted): go Home and say so, rather than
+  // leave an empty chat with no composer on its address. Only the server saying so counts: a sign-in
+  // replaced after a restart also closes the chat for a moment, and reopens it.
+  const deletedConversation = useClientSelector(
+    (value) => value.deletedConversationId ?? null,
+  );
+  // One the person is deleting here already says so, with Undo.
+  const deletingHere = useDeletingConversations();
+  useEffect(() => {
+    if (!conversationId || deletedConversation !== conversationId) return;
+    navigate('/', { replace: true });
+    if (!deletingHere.has(conversationId))
+      overlay.notify('That conversation was deleted.');
+  }, [deletedConversation, conversationId, navigate, overlay, deletingHere]);
   const reconcileResources = useEffectEvent(() => {
     const workspace = state.workspace;
     if (
@@ -862,8 +894,8 @@ export default function Workspace() {
         ? [
             {
               id: 'agents',
-              label: 'Agent profiles',
-              keywords: 'agents profiles library',
+              label: 'Agents',
+              keywords: 'agents agent profiles library',
               icon: <Bot size={16} />,
               run: () =>
                 openAgentProfiles({
@@ -1471,17 +1503,47 @@ export default function Workspace() {
       </DockTabs.Root>
     );
   }
+  // The magnifier is where people look for search: its tooltip says so (the palette searches and runs commands).
   const commandsButton = (
-    <IconButton
-      size="sm"
-      label="Workspace commands"
-      shortcut="Mod+K"
-      onClick={() => openCommands()}
-    >
-      <Search size={16} aria-hidden />
-    </IconButton>
+    <Hint label="Search and commands" shortcut="Mod+K">
+      <IconButton
+        size="sm"
+        label="Workspace commands"
+        shortcut="Mod+K"
+        tooltip={false}
+        onClick={() => openCommands()}
+      >
+        <Search size={16} aria-hidden />
+      </IconButton>
+    </Hint>
   );
   const navigationToggle = navigationButton(false);
+  // What routed views and Home can ask of the workspace (Home's Agents card opens the library).
+  const workspaceActions: WorkspaceActions = {
+    resetLayout: () => update(resetLayout),
+    startProfileChat: (profile) => void creation.newChat('', profile),
+    newChat: (draft) =>
+      void creation.newChat(draft, undefined, {
+        send: false,
+      }),
+    openAgentProfiles: (returnFocusTo) => {
+      const session = goalProfileOwner?.get();
+      if (session)
+        openAgentProfiles({
+          overlay,
+          controller,
+          session,
+          returnFocusTo,
+          onStartProfileChat: (profile) => void creation.newChat('', profile),
+        });
+    },
+    compactControls: desktop
+      ? undefined
+      : {
+          navigation: navigationToggle,
+          commands: commandsButton,
+        },
+  };
   function navigationButton(back: boolean) {
     return (
       <IconButton
@@ -1491,6 +1553,9 @@ export default function Workspace() {
             ? 'Expand navigation'
             : 'Toggle navigation'
         }
+        // Desktop shows and hides the sidebar in place; smaller screens open it as a drawer.
+        aria-expanded={desktop ? !layout.navigation.collapsed : undefined}
+        aria-haspopup={desktop ? undefined : 'dialog'}
         onClick={() =>
           desktop
             ? update((previous) => toggleRegion(previous, 'navigation'))
@@ -1599,6 +1664,9 @@ export default function Workspace() {
       onNewChat={() => void creation.newChat()}
       onStartProfileChat={(profile) => void creation.newChat('', profile)}
       creatingChat={creation.creatingChat}
+      onPanel={(panel, options) =>
+        showPanel(panel, undefined, undefined, options)
+      }
       onOpenConversation={() =>
         update((previous) =>
           previous.widthClass !== 'desktop' && previous.activePanelId !== null
@@ -1622,9 +1690,12 @@ export default function Workspace() {
         className={`workspace ${layout.navigation.collapsed ? 'navigation-collapsed' : ''} ${layout.panels.length > 0 ? 'has-resource-panels' : ''}`}
         ref={workspaceRef}
       >
-        <a className="skip-link" href="#conversation">
-          Skip to conversation
-        </a>
+        {/* Settings has its own "Skip to settings"; the conversation is hidden there. */}
+        {!settingsOpen && (
+          <a className="skip-link" href="#conversation">
+            Skip to conversation
+          </a>
+        )}
         <div className="context-parking" ref={contextParking} hidden />
         {!desktop && !conversationVisible && !compact && !settingsOpen && (
           // Home and routed views: one 48px bar. A conversation and Settings
@@ -1846,15 +1917,19 @@ export default function Workspace() {
                         />
                       </section>
                       {homeOpen && (
-                        <Home
-                          onAsk={(text, options) =>
-                            void creation.newChat(text, undefined, options)
-                          }
-                          asking={creation.creatingChat}
-                          onPanel={(panel, options) =>
-                            showPanel(panel, undefined, undefined, options)
-                          }
-                        />
+                        <WorkspaceActionsContext.Provider
+                          value={workspaceActions}
+                        >
+                          <Home
+                            onAsk={(text, options) =>
+                              void creation.newChat(text, undefined, options)
+                            }
+                            asking={creation.creatingChat}
+                            onPanel={(panel, options) =>
+                              showPanel(panel, undefined, undefined, options)
+                            }
+                          />
+                        </WorkspaceActionsContext.Provider>
                       )}
                       {compact && !routeOpen && !terminalSheet && (
                         <section
@@ -1929,33 +2004,7 @@ export default function Workspace() {
                             fallback={<Skeleton label="Opening view" />}
                           >
                             <WorkspaceActionsContext.Provider
-                              value={{
-                                resetLayout: () => update(resetLayout),
-                                startProfileChat: (profile) =>
-                                  void creation.newChat('', profile),
-                                newChat: (draft) =>
-                                  void creation.newChat(draft, undefined, {
-                                    send: false,
-                                  }),
-                                openAgentProfiles: (returnFocusTo) => {
-                                  const session = goalProfileOwner?.get();
-                                  if (session)
-                                    openAgentProfiles({
-                                      overlay,
-                                      controller,
-                                      session,
-                                      returnFocusTo,
-                                      onStartProfileChat: (profile) =>
-                                        void creation.newChat('', profile),
-                                    });
-                                },
-                                compactControls: desktop
-                                  ? undefined
-                                  : {
-                                      navigation: navigationToggle,
-                                      commands: commandsButton,
-                                    },
-                              }}
+                              value={workspaceActions}
                             >
                               <Outlet />
                             </WorkspaceActionsContext.Provider>

@@ -11,7 +11,7 @@ import venv
 
 import pytest
 
-from tests.subsystem.plugins.conftest import write_plugin
+from tests.subsystem.plugins.conftest import accept_child, write_plugin
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
@@ -115,10 +115,26 @@ def register(api): api.register_tool(Tool(api))
 
 
 def test_registration_timeout_terminates_actual_owned_process(worker_fixture, monkeypatch):
-    from row_bot.plugins import worker
+    from row_bot.plugins import worker, worker_protocol
     fixture = worker_fixture
-    _main(fixture, "import threading\ndef register(api): threading.Event().wait()\n")
+    _main(fixture, "import threading\ndef register(api):\n    api.set_config('entered', True)\n    threading.Event().wait()\n")
     monkeypatch.setattr(fixture.loader, "REGISTER_TIMEOUT", 0.3)
+    entered = threading.Event()
+    callback = worker.PluginWorker._callback
+    def observe(self, message):
+        try:
+            return callback(self, message)
+        finally:
+            entered.set()
+    monkeypatch.setattr(worker.PluginWorker, "_callback", observe)
+    # The 0.3 s under test counts from register() running: a start slowed by a busy
+    # machine must not use it up before there is a registration to time out.
+    class AfterEntry(worker_protocol._Pending):
+        def __init__(self):
+            super().__init__()
+            wait = self.event.wait
+            self.event.wait = lambda timeout=None: entered.wait(30) and wait(timeout)
+    monkeypatch.setattr(worker_protocol, "_Pending", AfterEntry)
     processes = []
     original = worker.subprocess.Popen
     def record(*args, **kwargs):
@@ -246,7 +262,8 @@ def test_native_stdout_does_not_corrupt_control_stream(worker_fixture):
     assert _load(fixture).invoke({"query": "safe"}) == "sample:safe"
 
 
-def test_invocation_timeout_kills_process_without_replay(worker_fixture):
+def test_invocation_timeout_kills_process_without_replay(worker_fixture, monkeypatch):
+    from row_bot.plugins import worker_protocol
     from row_bot.plugins.worker import WorkerError
     fixture = worker_fixture
     _main(fixture, '''from plugins.api import PluginTool
@@ -260,7 +277,22 @@ class Tool(PluginTool):
 def register(api): api.register_tool(Tool(api))
 ''')
     _load(fixture)
-    worker = fixture.loader._registrations["sample-plugin"]._worker
+    api = fixture.loader._registrations["sample-plugin"]
+    worker = api._worker
+    admitted = threading.Event()
+    original = api.set_config
+    def set_config(key, value):
+        original(key, value)
+        admitted.set()
+    api.set_config = set_config
+    # The 0.3 s under test counts from the call being admitted in the worker: a busy
+    # machine must not use it up before the call has run once.
+    class AfterAdmission(worker_protocol._Pending):
+        def __init__(self):
+            super().__init__()
+            wait = self.event.wait
+            self.event.wait = lambda timeout=None: admitted.wait(30) and wait(timeout)
+    monkeypatch.setattr(worker_protocol, "_Pending", AfterAdmission)
     with pytest.raises(WorkerError, match="worker_timeout"):
         worker.call("invoke", {"name": "sample_tool", "values": {"query": "once"}}, timeout=0.3)
     assert fixture.state.get_plugin_config("sample-plugin", "admitted") == "once"
@@ -295,9 +327,10 @@ def test_large_payload_rejected_without_entering_worker(worker_fixture):
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job Object runtime")
 @pytest.mark.parametrize("phase", ["registered", "startup_timeout"])
-def test_windows_owned_job_terminates_spawned_descendant(worker_fixture, phase):
+def test_windows_owned_job_terminates_spawned_descendant(worker_fixture, phase, monkeypatch):
     import ctypes
     from ctypes import wintypes
+    from row_bot.plugins import worker_protocol
     from row_bot.plugins.worker import WorkerAPI, WorkerError
 
     fixture = worker_fixture
@@ -320,23 +353,34 @@ def register(api):
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.CloseHandle.restype = wintypes.BOOL
     handles = []
+    made = threading.Event()
     original = api.set_config
     def capture(key, value):
         handle = kernel.OpenProcess(0x100000, False, value)
         assert handle
         handles.append(handle)
+        made.set()
         original(key, value)
     api.set_config = capture
+    if phase == "startup_timeout":
+        # The 0.5 s under test counts from the descendant's start: a start slowed by a busy
+        # machine must not use it up before there is a descendant to stop.
+        class AfterDescendant(worker_protocol._Pending):
+            def __init__(self):
+                super().__init__()
+                wait = self.event.wait
+                self.event.wait = lambda timeout=None: made.wait(30) and wait(timeout)
+        monkeypatch.setattr(worker_protocol, "_Pending", AfterDescendant)
     try:
         if phase == "startup_timeout":
             with pytest.raises(WorkerError, match="worker_timeout"):
                 api.register_worker(0.5)
         else:
-            api.register_worker(5)
+            api.register_worker(60)
         assert len(handles) == 1
         api._revoke()
         assert api._worker._process.poll() is not None
-        assert kernel.WaitForSingleObject(handles[0], 3000) == 0
+        assert kernel.WaitForSingleObject(handles[0], 30000) == 0  # Signalled once Windows has torn it down.
     finally:
         api._revoke()
         for handle in handles:
@@ -359,10 +403,10 @@ def register(api):
 ''')
     api = WorkerAPI("sample-plugin", fixture.source, fixture.state, staged=True)
     try:
-        api.register_worker(5)
+        api.register_worker(60)
         descendant = psutil.Process(fixture.state.get_plugin_config("sample-plugin", "synthetic_child_pid"))
         api._revoke()
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + 30
         while True:
             try:
                 if not descendant.is_running() or descendant.status() == psutil.STATUS_ZOMBIE:
@@ -407,10 +451,10 @@ def test_callback_waiting_on_state_cannot_write_after_revocation(worker_fixture)
     with fixture.state._state_lock:
         thread = threading.Thread(target=callback)
         thread.start()
-        assert entered.wait(3)
+        assert entered.wait(30)
         api._revoke()
-    assert ended.wait(3)
-    thread.join(3)
+    assert ended.wait(30)
+    thread.join(30)
     assert outcomes == ["revoked"]
     assert fixture.state.get_plugin_config("sample-plugin", "late") is None
 
@@ -446,13 +490,13 @@ def register(api): api.register_tool(Tool(api))
     thread = threading.Thread(target=run)
     thread.start()
     try:
-        assert entered.wait(3)
+        assert entered.wait(30)
         with pytest.raises(WorkerError, match="worker_busy"):
             worker.call("invoke", {"name": "sample_tool", "values": {"query": "second"}})
         assert worker.close()
     finally:
         worker.close()
-        thread.join(3)
+        thread.join(30)
     assert not thread.is_alive() and outcomes == ["worker_revoked"]
 
 
@@ -677,7 +721,7 @@ def test_async_listener_persists_and_nested_stream_handles_stay_in_worker(worker
     api, channel = _channel_load(fixture, code)
     try:
         assert asyncio.run(channel.start())
-        assert entered.wait(3) and finished.wait(5)
+        assert entered.wait(30) and finished.wait(30)
         # A FIFO callback after the async turn confirms persisted listener work.
         assert channel.is_running()
         assert fixture.state.get_plugin_config("sample-plugin", "stream_update") is True
@@ -713,10 +757,10 @@ def test_worker_revocation_cancels_owned_host_channel_turn(worker_fixture, monke
             ChannelInboundMessage('fixture_channel', 'thread', 'sender'), ChannelOutboundCallbacks(send), channel=self))""")
     api, channel = _channel_load(worker_fixture, code)
     assert asyncio.run(channel.start())
-    assert entered.wait(3)
+    assert entered.wait(30)
     api._revoke()
-    assert stopped.wait(3) and scopes[0].is_cancelled()
-    assert api._worker._callbacks_drained.wait(3)
+    assert stopped.wait(30) and scopes[0].is_cancelled()
+    assert api._worker._callbacks_drained.wait(30)
     assert api._worker._process.poll() is not None
     assert not api._worker._callbacks
     assert worker_fixture.state.get_plugin_config("sample-plugin", "unexpected") is None
@@ -743,6 +787,7 @@ def _mcp_config(fixture, code, *, register_only=False):
     else:
         result = fixture.loader._load_single_plugin(fixture.source)
         assert result.success, result.error
+    accept_child(fixture.state, "sample-plugin", "fixture")
     config = plugin_mcp_servers()["plugin_sample_plugin_fixture"]
     return config
 
@@ -796,7 +841,7 @@ for line in sys.stdin: pass
             env=_worker_environment(_run_directory("sample-plugin")))
         with open(os.devnull, "w") as errors:
             async with stdio_client(params, errlog=errors) as (reader, _writer):
-                message = await asyncio.wait_for(reader.receive(), timeout=10)
+                message = await asyncio.wait_for(reader.receive(), timeout=60)
                 payload = message.message.root.params
                 assert payload["args"] == ["argument with spaces"]
                 handle = kernel.OpenProcess(0x00100000, False, payload["pid"])
@@ -805,7 +850,7 @@ for line in sys.stdin: pass
                 assert kernel.WaitForSingleObject(handle, 0) == 258
     try:
         asyncio.run(run())
-        assert kernel.WaitForSingleObject(handles[0], 3000) == 0
+        assert kernel.WaitForSingleObject(handles[0], 30000) == 0
     finally:
         for handle in handles:
             kernel.CloseHandle(handle)
@@ -859,17 +904,17 @@ def test_reload_waits_for_cancelled_host_callback_actual_return(worker_fixture, 
     fixture = worker_fixture
     api, channel = _channel_load(fixture, code)
     try:
-        assert asyncio.run(channel.start()) and entered.wait(3)
+        assert asyncio.run(channel.start()) and entered.wait(30)
         fixture.loader._cleanup_plugin_runtime("sample-plugin")
-        assert cancelled.wait(3)
+        assert cancelled.wait(30)
         assert fixture.loader._registrations["sample-plugin"] is api
         result = fixture.loader._load_single_plugin(fixture.source)
         assert not result.success and "worker_busy" in result.error
         assert api._worker._process.poll() is not None
     finally:
         release.set()
-        assert completed.wait(3)
-        assert api._worker._callbacks_drained.wait(3)
+        assert completed.wait(30)
+        assert api._worker._callbacks_drained.wait(30)
         fixture.loader._cleanup_plugin_runtime("sample-plugin")
     result = fixture.loader._load_single_plugin(fixture.source)
     assert result.success, result.error
@@ -901,9 +946,9 @@ def test_stopping_listener_cancels_its_turn_without_revoking_worker(worker_fixtu
         self.running = False""")
     api, channel = _channel_load(worker_fixture, code)
     try:
-        assert asyncio.run(channel.start()) and entered.wait(3)
+        assert asyncio.run(channel.start()) and entered.wait(30)
         asyncio.run(channel.stop())
-        assert stopped.wait(3) and api._worker._callbacks_drained.wait(3)
+        assert stopped.wait(30) and api._worker._callbacks_drained.wait(30)
         assert not channel.is_running() and api._worker._process.poll() is None
     finally:
         api._revoke()

@@ -359,7 +359,7 @@ assert 'row_bot.api_keys' not in sys.modules
 assert not Path(os.environ['ROW_BOT_DATA_DIR']).exists()
 """
     child = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(tmp_path / "cold-probes")},
-        capture_output=True, text=True, timeout=20)
+        capture_output=True, text=True, timeout=60)
     assert child.returncode == 0, child.stderr
 
 

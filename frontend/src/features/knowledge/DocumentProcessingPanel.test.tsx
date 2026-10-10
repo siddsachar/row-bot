@@ -4,6 +4,7 @@ import type { ClientController } from '../../api/controller';
 import {
   createDocumentProcessingSession,
   DocumentProcessingPanel,
+  SETTINGS_PROCESSING_SCOPE,
   type DocumentProcessingController,
   type DocumentProcessingReceipt,
   type DocumentProcessingReview,
@@ -92,13 +93,22 @@ function fixture() {
   };
 }
 
-it('starts processing in one click with the exact reviewed full scope', async () => {
+it('shows where the content goes before it starts, then starts in one click with the reviewed scope', async () => {
   const f = fixture();
   const admitted = vi.fn();
   render(<DocumentProcessingPanel owner={f.owner} onAdmitted={admitted} />);
-  expect(f.controller.reviewDocumentProcessing).not.toHaveBeenCalled();
+  // Choosing a batch checks it at once (no provider work): the cloud note
+  // shows before anything starts.
+  expect(
+    await screen.findByText(
+      /sends the content of these documents to the cloud/,
+    ),
+  ).toBeVisible();
+  expect(f.controller.reviewDocumentProcessing).toHaveBeenCalledTimes(1);
+  expect(f.controller.executeDocumentProcessing).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Start processing' }));
   await screen.findByText(/Processing started. Documents may still/);
+  expect(f.controller.reviewDocumentProcessing).toHaveBeenCalledTimes(1);
   expect(f.controller.executeDocumentProcessing).toHaveBeenCalledWith('chat', {
     command_id: 'command-1',
     type: 'document.batch.process',
@@ -328,6 +338,38 @@ it('offers processing only for eligible paused client batches without dispatchin
   const select = vi.fn();
   render(<DocumentJobs session={session} onProcess={select} />);
   expect(screen.getAllByRole('button', { name: /^Process / })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Process client_batch' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Process Upload' }));
   expect(select).toHaveBeenCalledWith(item);
+});
+
+it('processes from Settings without any conversation and says a refusal in words', async () => {
+  const f = fixture();
+  f.owner.select(
+    SETTINGS_PROCESSING_SCOPE,
+    'client_settings',
+    'row-revision',
+    'Quarterly report.pdf and 2 more',
+  );
+  f.controller.reviewDocumentProcessing.mockRejectedValueOnce({
+    code: 'document_processing_search_model_missing',
+  });
+  render(<DocumentProcessingPanel owner={f.owner} />);
+  expect(
+    await screen.findByText(/need the search model on this computer/),
+  ).toBeVisible();
+  expect(f.controller.reviewDocumentProcessing).toHaveBeenCalledWith(
+    SETTINGS_PROCESSING_SCOPE,
+    'client_settings',
+    'row-revision',
+  );
+  expect(screen.queryByText(/^Conversation:/)).not.toBeInTheDocument();
+  expect(
+    screen.getByText('Documents: Quarterly report.pdf and 2 more'),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+  expect(
+    await screen.findByRole('button', { name: 'Start processing' }),
+  ).toBeVisible();
+  expect(screen.getByText(/runs on this device|cloud models/)).toBeVisible();
+  f.owner.dispose();
 });

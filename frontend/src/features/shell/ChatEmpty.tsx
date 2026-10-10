@@ -1,27 +1,40 @@
 import { useState } from 'react';
 import {
-  BookOpen,
   Brain,
   CalendarDays,
   FileText,
   Globe,
+  LayoutTemplate,
+  ListChecks,
   MessageSquare,
   Palette,
+  PenLine,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
 import type { ConversationView } from '../../api/types';
 import { relativeTime } from '../../ui/format';
-import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
+import { neverUsed } from './new-chat';
+import {
+  DESIGN_LABELS,
+  DESIGN_PROMPTS,
+  EXAMPLE_LABELS,
+  EXAMPLE_PROMPTS,
+} from './welcome-prompts';
 
-const ICONS: LucideIcon[] = [
-  FileText,
-  Zap,
-  Palette,
-  Brain,
-  Globe,
-  CalendarDays,
-];
+type Suggestion = { label: string; prompt: string; Icon: LucideIcon };
+
+const GENERAL: Suggestion[] = EXAMPLE_PROMPTS.map((prompt, index) => ({
+  prompt,
+  label: EXAMPLE_LABELS[index],
+  Icon: [FileText, Zap, Palette, Brain, Globe, CalendarDays][index],
+}));
+/** A chat working on a design suggests work on that design. */
+const DESIGN: Suggestion[] = DESIGN_PROMPTS.map((prompt, index) => ({
+  prompt,
+  label: DESIGN_LABELS[index],
+  Icon: [PenLine, LayoutTemplate, ListChecks, Palette][index],
+}));
 
 function greeting(now = new Date()) {
   const hour = now.getHours();
@@ -32,29 +45,28 @@ function greeting(now = new Date()) {
 }
 
 function Prompt({
-  index,
+  suggestion: { label, prompt, Icon },
   disabled,
   onChoose,
 }: {
-  index: number;
+  suggestion: Suggestion;
   disabled: boolean;
   onChoose: (prompt: string) => void;
 }) {
-  const Icon = ICONS[index] ?? BookOpen;
   return (
     <button
       type="button"
       className="chat-empty-prompt"
       disabled={disabled}
-      aria-label={EXAMPLE_LABELS[index]}
-      onClick={() => onChoose(EXAMPLE_PROMPTS[index])}
+      aria-label={label}
+      onClick={() => onChoose(prompt)}
     >
       <Icon className="chat-empty-prompt-icon" aria-hidden />
       <span className="chat-empty-prompt-label" aria-hidden>
-        {EXAMPLE_LABELS[index]}
+        {label}
       </span>
       <span className="chat-empty-prompt-text" aria-hidden>
-        {EXAMPLE_PROMPTS[index]}
+        {prompt}
       </span>
     </button>
   );
@@ -63,7 +75,8 @@ function Prompt({
 /**
  * A new chat: a greeting, four prompt suggestions (two more on request) and
  * the most recent threads. A prompt fills the composer to edit and send
- * (U17); recent threads open.
+ * (U17); recent threads open. A chat working on a design suggests work on
+ * the design instead.
  */
 export default function ChatEmpty({
   conversationId,
@@ -71,12 +84,15 @@ export default function ChatEmpty({
   onChoose,
   recent,
   onOpen,
+  design = false,
 }: {
   conversationId: string | null;
   disabled: boolean;
   onChoose: (prompt: string) => void;
   recent: ConversationView[];
   onOpen: (id: string) => void;
+  /** The chat has a design in Working on. */
+  design?: boolean;
 }) {
   const [more, setMore] = useState(false);
   if (!conversationId)
@@ -94,9 +110,13 @@ export default function ChatEmpty({
         </p>
       </div>
     );
+  // Never-used chats stay out, as in the sidebar and on Home.
   const threads = recent
-    .filter((item) => item.id !== conversationId && item.title)
+    .filter(
+      (item) => item.id !== conversationId && item.title && !neverUsed(item),
+    )
     .slice(0, 3);
+  const suggestions = design ? DESIGN : GENERAL;
   return (
     <div className="chat-empty">
       <p className="chat-empty-eyebrow">{greeting()}</p>
@@ -106,25 +126,16 @@ export default function ChatEmpty({
         role="group"
         aria-label="Example prompts"
       >
-        {[0, 1, 2, 3].map((index) => (
+        {suggestions.slice(0, more ? undefined : 4).map((suggestion) => (
           <Prompt
-            key={index}
-            index={index}
+            key={suggestion.label}
+            suggestion={suggestion}
             disabled={disabled}
             onChoose={onChoose}
           />
         ))}
-        {more &&
-          [4, 5].map((index) => (
-            <Prompt
-              key={index}
-              index={index}
-              disabled={disabled}
-              onChoose={onChoose}
-            />
-          ))}
       </div>
-      {!more && EXAMPLE_PROMPTS.length > 4 && (
+      {!more && suggestions.length > 4 && (
         <button
           type="button"
           className="chat-empty-more"

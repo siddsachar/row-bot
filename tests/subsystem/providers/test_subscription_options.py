@@ -149,7 +149,7 @@ def test_linked_reference_is_not_followed(reference):
     provider, path, _ = reference
     if os.name == "nt":
         linked = path.parent.with_name("linked-cli")
-        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(linked), str(path.parent)], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(linked), str(path.parent)], capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stderr
         with pytest.raises(config.ProviderConfigError, match="subscription_reference_unavailable"):
             controls._capture_file(linked / path.name)
@@ -252,5 +252,5 @@ assert len(read_options().references) == 2
 assert 'row_bot.api_keys' not in sys.modules
 assert not Path(os.environ['ROW_BOT_DATA_DIR']).exists()
 """
-    result = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(cold)}, capture_output=True, text=True, timeout=20)
+    result = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(cold)}, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr

@@ -43,7 +43,8 @@ function setup() {
         schema_version: 1 as const,
         action,
         entity_id: payload.entity_id as string | null,
-        revision: payload.revision as string,
+        // A new entry is reviewed at the store's revision, as the server does.
+        revision: (payload.revision as string) || 'c'.repeat(64),
         fields_digest: 'fields-one',
         reuse_entity_id: null,
         review_id: 'review-one',
@@ -125,4 +126,20 @@ it('a completed save tells the page its knowledge changed before any reload', as
   fireEvent.click(screen.getByRole('button', { name: 'Save knowledge' }));
   await screen.findByText(/Knowledge saved\./);
   expect(onMutation).toHaveBeenCalledTimes(1);
+});
+
+it('Add memory closes once the memory is saved', async () => {
+  const owner = setup();
+  render(
+    <>
+      <button onClick={() => owner.open(null)}>Add memory</button>
+      <KnowledgeEditorDialog owner={owner} />
+    </>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add memory' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Subject' }), {
+    target: { value: 'Favourite fruit is kiwi' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save knowledge' }));
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });

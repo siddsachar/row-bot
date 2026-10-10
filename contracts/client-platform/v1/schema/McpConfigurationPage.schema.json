@@ -12,6 +12,7 @@
             "node",
             "uv",
             "playwright-chrome",
+            "docker",
             "other"
           ],
           "title": "Id",

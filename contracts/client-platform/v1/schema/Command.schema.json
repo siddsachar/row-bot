@@ -2036,6 +2036,65 @@
       "title": "CloneWorkspaceSetupPayload",
       "type": "object"
     },
+    "ConversationAppPayload": {
+      "additionalProperties": false,
+      "description": "Switch one ready app on or off for this chat; turns only ever narrow what the profile allows.",
+      "properties": {
+        "item_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "on"
+      ],
+      "title": "ConversationAppPayload",
+      "type": "object"
+    },
+    "ConversationAppsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationAppPayload"
+        },
+        "type": {
+          "const": "conversation.apps",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationAppsCommand",
+      "type": "object"
+    },
     "ConversationBindCommand": {
       "additionalProperties": false,
       "properties": {
@@ -4684,77 +4743,6 @@
       "title": "KnowledgeWritePayload",
       "type": "object"
     },
-    "McpCatalogAcceptCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/McpCatalogPayload"
-        },
-        "type": {
-          "const": "mcp.catalog.accept",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "McpCatalogAcceptCommand",
-      "type": "object"
-    },
-    "McpCatalogPayload": {
-      "additionalProperties": false,
-      "properties": {
-        "configuration_revision": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Configuration Revision",
-          "type": "string"
-        },
-        "nonce": {
-          "maxLength": 128,
-          "minLength": 1,
-          "title": "Nonce",
-          "type": "string"
-        },
-        "server_id": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Server Id",
-          "type": "string"
-        },
-        "test_command_id": {
-          "format": "uuid",
-          "title": "Test Command Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "configuration_revision",
-        "server_id",
-        "test_command_id",
-        "nonce"
-      ],
-      "title": "McpCatalogPayload",
-      "type": "object"
-    },
     "McpChatPayload": {
       "additionalProperties": false,
       "properties": {
@@ -5013,6 +5001,11 @@
     "McpConfigurationIntent": {
       "additionalProperties": false,
       "properties": {
+        "delete_credentials": {
+          "default": false,
+          "title": "Delete Credentials",
+          "type": "boolean"
+        },
         "fields": {
           "anyOf": [
             {
@@ -5084,6 +5077,21 @@
           "minLength": 1,
           "title": "Nonce",
           "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpStandaloneTarget"
+            },
+            {
+              "$ref": "#/$defs/McpPluginTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
         }
       },
       "required": [
@@ -5188,6 +5196,34 @@
       "title": "McpGlobalPolicyIntent",
       "type": "object"
     },
+    "McpPluginTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "plugin",
+          "title": "Kind",
+          "type": "string"
+        },
+        "plugin_id": {
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "server_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Server Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "plugin_id",
+        "server_key"
+      ],
+      "title": "McpPluginTarget",
+      "type": "object"
+    },
     "McpPolicyPayload": {
       "additionalProperties": false,
       "properties": {
@@ -5218,6 +5254,21 @@
           "minLength": 1,
           "title": "Nonce",
           "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpStandaloneTarget"
+            },
+            {
+              "$ref": "#/$defs/McpPluginTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
         }
       },
       "required": [
@@ -5378,6 +5429,21 @@
           "pattern": "^[0-9a-f]{64}$",
           "title": "Server Id",
           "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpStandaloneTarget"
+            },
+            {
+              "$ref": "#/$defs/McpPluginTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
         }
       },
       "required": [
@@ -5451,6 +5517,21 @@
         "enabled"
       ],
       "title": "McpServerPolicyIntent",
+      "type": "object"
+    },
+    "McpStandaloneTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "standalone",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "McpStandaloneTarget",
       "type": "object"
     },
     "McpToolPolicyIntent": {
@@ -7468,6 +7549,68 @@
       "title": "ResourceContinueCommand",
       "type": "object"
     },
+    "ResourceDeleteCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResourceDeletePayload"
+        },
+        "type": {
+          "const": "resource.delete",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceDeleteCommand",
+      "type": "object"
+    },
+    "ResourceDeletePayload": {
+      "additionalProperties": false,
+      "description": "Delete a bound design for good, as the person confirmed it.\n\nIt leaves every conversation using it, then its pages, versions and files\ngo; conversations keep their messages.",
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "expected_resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Expected Resource Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "expected_resource_revision"
+      ],
+      "title": "ResourceDeletePayload",
+      "type": "object"
+    },
     "ResourceDiscardCommand": {
       "additionalProperties": false,
       "properties": {
@@ -8637,6 +8780,11 @@
         "model_selection": {
           "$ref": "#/$defs/ModelSelection"
         },
+        "retry": {
+          "default": false,
+          "title": "Retry",
+          "type": "boolean"
+        },
         "submission_id": {
           "format": "uuid",
           "title": "Submission Id",
@@ -9268,6 +9416,24 @@
     "TaskGraphFields": {
       "additionalProperties": false,
       "properties": {
+        "apps": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 512,
+                "minLength": 3,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Apps"
+        },
         "channel": {
           "anyOf": [
             {
@@ -11090,6 +11256,7 @@
       "buddy.remove": "#/$defs/BuddyRemoveCommand",
       "buddy.update": "#/$defs/BuddyUpdateCommand",
       "channel.control": "#/$defs/ChannelControlCommand",
+      "conversation.apps": "#/$defs/ConversationAppsCommand",
       "conversation.bind": "#/$defs/ConversationBindCommand",
       "conversation.controls": "#/$defs/ConversationControlsCommand",
       "conversation.create": "#/$defs/ConversationCreateCommand",
@@ -11134,7 +11301,6 @@
       "knowledge.resolve": "#/$defs/KnowledgeResolveCommand",
       "knowledge.restore": "#/$defs/KnowledgeRestoreCommand",
       "knowledge.supersede": "#/$defs/KnowledgeSupersedeCommand",
-      "mcp.catalog.accept": "#/$defs/McpCatalogAcceptCommand",
       "mcp.configuration.control": "#/$defs/McpConfigurationControlCommand",
       "mcp.configuration.save": "#/$defs/McpConfigurationSaveCommand",
       "mcp.facade.control": "#/$defs/McpFacadeControlCommand",
@@ -11174,6 +11340,7 @@
       "provider.subscription.start": "#/$defs/ProviderSubscriptionStartCommand",
       "provider.subscription.submit": "#/$defs/ProviderSubscriptionSubmitCommand",
       "resource.continue": "#/$defs/ResourceContinueCommand",
+      "resource.delete": "#/$defs/ResourceDeleteCommand",
       "resource.discard": "#/$defs/ResourceDiscardCommand",
       "resource.forget": "#/$defs/ResourceForgetCommand",
       "resource.rename": "#/$defs/ResourceRenameCommand",
@@ -11264,6 +11431,9 @@
       "$ref": "#/$defs/ConversationSkillsCommand"
     },
     {
+      "$ref": "#/$defs/ConversationAppsCommand"
+    },
+    {
       "$ref": "#/$defs/ResourceSetupCommand"
     },
     {
@@ -11277,6 +11447,9 @@
     },
     {
       "$ref": "#/$defs/ResourceForgetCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceDeleteCommand"
     },
     {
       "$ref": "#/$defs/AgentStopCommand"
@@ -11532,9 +11705,6 @@
     },
     {
       "$ref": "#/$defs/BrowserEndCommand"
-    },
-    {
-      "$ref": "#/$defs/McpCatalogAcceptCommand"
     },
     {
       "$ref": "#/$defs/McpFacadeControlCommand"

@@ -223,6 +223,13 @@
     min-width: 44px;
   }
 }
+/* New chat ▾ (a portalled menu): an agent's description is one muted line,
+   cut short, so the menu stays compact. */
+.menu-item-rich:has(.agent-avatar) > .menu-item-label small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 .navigation .nav-row {
   display: flex;
@@ -338,9 +345,38 @@
 .nav-agents-body[hidden] {
   display: none;
 }
+/* Favourites fill their own row, each face with its name under it; All
+   agents follows on the next line. */
 .nav-agent-favourites {
   display: flex;
+  flex: 1 1 100%;
   gap: 2px;
+  min-width: 0;
+}
+.navigation .button.nav-agent-favourite {
+  flex: 1 1 0;
+  max-width: 25%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 4px 2px 3px;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: var(--weight-medium);
+}
+.navigation .button.nav-agent-favourite:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+.nav-agent-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .navigation .button.nav-all-agents {
   gap: 4px;
@@ -2320,21 +2356,22 @@ button.agent-row-main:focus-visible {
   gap: 6px;
   min-width: 0;
 }
-/* No goal: one line and a small Set a goal (B223). */
-.context-goal-empty {
+/* No goal: no Goal section, only a small Set a goal on one line (inside the
+   section when earlier goals show). It never runs under the card's actions. */
+.context-goal-empty,
+.context-goal-compact {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   min-height: 28px;
-  color: var(--text-secondary);
-  font-size: var(--text-13);
-  line-height: var(--leading-13);
+}
+.context-rail-body > [data-first] > .context-goal-slot > .context-goal-compact {
+  margin-inline-end: calc(2 * var(--control-size) + 4px);
 }
 .button.context-goal-set {
   gap: 6px;
   min-height: 28px;
-  padding: 3px 10px;
+  padding: 3px 8px;
+  color: var(--text-secondary);
   font-size: var(--text-12);
   line-height: var(--leading-12);
 }
@@ -2477,7 +2514,7 @@ button.agent-row-main:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 4px 6px;
+  margin: 6px 4px 2px;
   padding: 6px 10px;
   border-radius: var(--radius-control);
   background: var(--status-warning-background);

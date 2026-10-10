@@ -836,3 +836,27 @@ def test_oversized_sqlite_value_returns_unavailable(saved):
         and result.total is None
         and not result.items
     )
+
+
+def test_failed_documents_carry_a_safe_reason_code_and_never_the_message(
+    document_store,
+):
+    service, jobs = document_store
+    with sqlite3.connect(service.db_path) as conn:
+        conn.execute(
+            "UPDATE document_jobs SET status='failed',stage='parse',error_code='parse_failed',"
+            "error_message='Cannot read /private/folder/report-1.txt' WHERE id=?",
+            (jobs[1].id,),
+        )
+        conn.execute(
+            "UPDATE document_jobs SET status='cancelled',error_code='Not a code!' WHERE id=?",
+            (jobs[2].id,),
+        )
+    by_id = {item.id: item for item in views.list_saved_documents(limit=100).items}
+    assert by_id[jobs[1].id].error_code == "parse_failed"
+    assert by_id[jobs[2].id].error_code == "document_failed"
+    assert by_id[jobs[0].id].error_code is None
+    assert by_id["orphan"].error_code is None
+    assert "private" not in json.dumps(
+        [asdict(item) for item in by_id.values()]
+    )

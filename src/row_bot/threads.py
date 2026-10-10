@@ -50,6 +50,8 @@ _THREAD_META_COLUMNS = {
     "resource_revision": "INTEGER NOT NULL DEFAULT 0",
     "client_revision": "INTEGER NOT NULL DEFAULT 0",
     "client_runtime_mode": "TEXT NOT NULL DEFAULT 'agent'",
+    # Apps switched off in this chat (item ids); every other ready app stays on, as before.
+    "apps_off_json": "TEXT NOT NULL DEFAULT ''",
 }
 
 THREAD_NAME_SOURCE_AUTO = "auto"
@@ -1106,6 +1108,37 @@ def get_thread_composer_context(thread_id: str) -> dict:
     }
 
 
+def get_thread_apps_off(thread_id: str) -> list[str]:
+    """The apps (item ids) switched off in one chat; unknown or unreadable means none."""
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        row = conn.execute("SELECT apps_off_json FROM thread_meta WHERE thread_id = ?", (thread_id,)).fetchone()
+    try:
+        value = json.loads(row[0]) if row and row[0] else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [item for item in value if isinstance(item, str)][:256] if isinstance(value, list) else []
+
+
+def set_thread_app(thread_id: str, item_id: str, on: bool) -> int:
+    """Switch one app on or off for one chat; returns the chat's new client revision."""
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT apps_off_json, client_revision FROM thread_meta WHERE thread_id = ?",
+                           (thread_id,)).fetchone()
+        if row is None:
+            raise ValueError("conversation_missing")
+        try:
+            off = [item for item in json.loads(row[0] or "[]") if isinstance(item, str)]
+        except (json.JSONDecodeError, TypeError):
+            off = []
+        off = [item for item in off if item != item_id] + ([] if on else [item_id])
+        conn.execute("UPDATE thread_meta SET apps_off_json = ?, updated_at = ?, client_revision = client_revision + 1 "
+                     "WHERE thread_id = ?", (json.dumps(off[-256:]), datetime.now().isoformat(), thread_id))
+        return int(row[1] or 0) + 1
+
+
 def set_thread_skills_override(thread_id: str, skill_names: list[str] | None) -> None:
     """Set or clear the per-thread skills override. Pass None to revert to global."""
     _ensure_thread_db()
@@ -1822,10 +1855,13 @@ def migrate_checkpoint_message_ids(thread_id: str) -> str:
         return revision
 
 
-def append_checkpoint_messages(thread_id: str, messages: list) -> bool:
-    """Append simple chat messages to checkpoint storage without constructing a graph."""
+def append_checkpoint_messages(thread_id: str, messages: list, *, retry_text: str = "") -> bool:
+    """Append simple chat messages to checkpoint storage without constructing a graph.
+
+    With ``retry_text``, a retry runs in place: the last turn is replaced in the same write when the person's
+    last message is that text and it ran no tool (``_retried_turn``); otherwise the messages are appended."""
     with checkpoint_mutation(thread_id):
-        return _append_checkpoint_messages_locked(thread_id, messages)
+        return _append_checkpoint_messages_locked(thread_id, messages, retry_text=retry_text)
 
 
 def answer_open_tool_calls(thread_id: str, reason: str, then: list | None = None) -> bool:
@@ -1906,7 +1942,7 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
     return {}
 
 
-def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
+def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_text: str = "") -> bool:
     if not thread_id or not messages or _thread_write_blocked(thread_id):
         return False
     try:
@@ -1921,6 +1957,9 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
         existing = channel_values.get("messages", [])
         if not isinstance(existing, list):
             existing = []
+        retried = _retried_turn(existing, retry_text) if retry_text else None
+        if retried is not None:
+            existing = existing[:retried]
         by_id = {str(message.id): message for message in existing if getattr(message, "id", None)}
         accepted = []
         for message in messages:
@@ -1953,7 +1992,8 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
         checkpointer.put(
             put_config,
             next_checkpoint,
-            {"source": "chat_only", "step": _version_to_int(next_version), "writes": {"messages": len(messages)}},
+            {"source": "retry" if retried is not None else "chat_only", "step": _version_to_int(next_version),
+             "writes": {"messages": len(messages)}},
             {"messages": next_version},
         )
         logger.debug("Appended %d checkpoint message(s) for thread %s", len(messages), str(thread_id)[:8])
@@ -2051,6 +2091,33 @@ def remove_latest_checkpoint_ai_message(thread_id: str, expected_text: str) -> b
             exc_info=True,
         )
         return False
+
+
+def _message_text(message) -> str:
+    """What the person wrote: an admitted message keeps it beside the prepared text (attachment context)."""
+    public = (getattr(message, "additional_kwargs", None) or {}).get("platform_public_content")
+    content = public if isinstance(public, str) else getattr(message, "content", "")
+    if isinstance(content, list):
+        content = "\n".join(
+            str(item.get("text") or "") if isinstance(item, dict) else str(item)
+            for item in content
+            if not isinstance(item, dict) or item.get("type", "text") == "text"
+        )
+    return str(content or "").strip()
+
+
+def _retried_turn(existing: list, text: str) -> int | None:
+    """Where the turn a retry replaces starts: the person's last message, when it is ``text`` and nothing after
+    it called a tool. A step that already ran stays on record (the person can check what changed, the model
+    knows it ran), so that retry is sent as a new message instead."""
+    human = next((index for index in range(len(existing) - 1, -1, -1)
+                  if str(getattr(existing[index], "type", "") or "") == "human"), None)
+    if human is None or not text.strip() or _message_text(existing[human]) != text.strip():
+        return None
+    if any(getattr(message, "type", "") == "tool" or getattr(message, "tool_calls", None)
+           for message in existing[human + 1:]):
+        return None
+    return human
 
 
 def pick_or_create_thread() -> dict:

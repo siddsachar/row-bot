@@ -630,3 +630,64 @@ def test_bulk_default_resumes_after_reload_then_allows_fresh_clear(stack, monkey
     assert new_clear["status"] == "complete" and new_clear["derived_entities_removed"] == 1
     assert not fresh["live"].exists()
     assert docs.clear_documents_details(removal_id=resumed["removal_id"]) == resumed
+
+
+def never_searchable(stack, name="broken.pdf", status="failed", *, siblings=0):
+    service = stack["service"]
+    batch = service.create_batch()
+    job = service.create_staging_job(batch, 0, name)
+    content = f"Synthetic unreadable {name} {job.id}".encode()
+    path = Path(job.staged_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    service.complete_staging(job.id, hashlib.sha256(content).hexdigest(), len(content), path)
+    others = [service.create_staging_job(batch, index + 1, f"other-{index}.txt") for index in range(siblings)]
+    if not siblings:
+        service.finish_batch_staging(batch)
+    if status == "failed":
+        service.transition_job(job.id, "indexing")
+        service.mark_failed(job.id, "parse_failed", "Synthetic parse failure", stage="parse")
+    else:
+        service.transition_job(job.id, "cancelled")
+    return batch, service.get_job(job.id), path, others
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled"])
+def test_removing_a_document_that_never_reached_search_takes_it_off_the_list(stack, status):
+    docs, service = stack["docs"], stack["service"]
+    batch, job, staged, _ = never_searchable(stack, status=status)
+    result = docs.remove_document_details(job.id)
+    assert result["status"] == "complete" and result["removed"]
+    assert result["stages"] == {"worker": "complete", "queue": "complete"}
+    with pytest.raises(KeyError):
+        service.get_job(job.id)
+    assert all(row.id != batch for row in service.list_batches())
+    # Like Clear finished, only the queue row goes: the staged bytes remain.
+    assert staged.is_file()
+    assert docs.remove_document_details(job.id) == result
+
+
+def test_removing_one_failed_document_keeps_the_rest_of_its_batch(stack):
+    docs, service = stack["docs"], stack["service"]
+    batch, job, _, others = never_searchable(stack, siblings=1)
+    assert docs.remove_document_details(job.id)["removed"]
+    assert [row.id for row in service.list_jobs(batch)] == [others[0].id]
+
+
+def test_only_never_searchable_queue_rows_can_be_forgotten(stack):
+    service = stack["service"]
+    _, job, _, _ = never_searchable(stack)
+    service.retry_failed(job.id)
+    with pytest.raises(stack["jobs"].DocumentJobError):
+        service.forget_unfinished_job(job.id)
+    saved = document(stack)
+    with pytest.raises(stack["jobs"].DocumentJobError):
+        service.forget_unfinished_job(saved["job"].id)
+    assert service.get_job(job.id) and service.get_job(saved["job"].id)
+
+
+def test_bulk_clear_never_forgets_finished_queue_rows(stack):
+    _, job, _, _ = never_searchable(stack)
+    result = stack["docs"].clear_documents_details()
+    assert result["status"] == "complete"
+    assert stack["service"].get_job(job.id).status == "failed"

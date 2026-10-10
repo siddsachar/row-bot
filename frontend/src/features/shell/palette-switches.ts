@@ -96,9 +96,15 @@ const SWITCHES: readonly SwitchDefinition[] = [
   },
   {
     id: 'tracker',
-    label: 'Habit tracker',
+    label: 'Tracking',
     verb: 'is',
-    phrases: ['habit tracker', 'tracker', 'habits'],
+    phrases: [
+      'tracking',
+      'track in chat',
+      'habit tracker',
+      'tracker',
+      'habits',
+    ],
     href: '/settings/tracker#tracker.enabled',
     page: 'tracker',
     field: 'enabled',

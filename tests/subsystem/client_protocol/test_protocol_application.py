@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import threading
 from uuid import uuid4
 
 import pytest
@@ -28,6 +29,7 @@ def _isolated_service():
 @pytest.fixture
 def service(tmp_path, monkeypatch):
     from row_bot import threads, tasks, agent_profiles
+    from row_bot.application.client_platform import settle_background
     from row_bot.tools import registry as tools
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
@@ -42,10 +44,18 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setattr(threads, "checkpointer", threads._DeletionAwareSqliteSaver(connection))
     monkeypatch.setattr(tools, "get_enabled_tools", lambda: [])
     result = _isolated_service()
+    before = set(threading.enumerate())
     yield result
     result.registry.shutdown()
     for handle in result.registry.active():
         assert handle.producer_done.wait(5)
+    # A finished turn's page refresh can still be reading this connection.
+    assert settle_background(10), "Fixture left background work running"
+    # Nor does a turn's own thread (a queued follow-up's too) outlive the test into the next data folder.
+    for thread in set(threading.enumerate()) - before:
+        if thread.name.startswith("row-bot-"):
+            thread.join(10)
+            assert not thread.is_alive(), f"{thread.name} outlived its test"
     connection.close()
 
 
@@ -191,6 +201,42 @@ def test_upload_idle_expiry_restart_batch_and_inflight_limits(service):
             staging.status("fixture-session", identifiers[0])
         assert not staging._uploads
     finally:
+        staging.close()
+
+
+def test_counting_a_transfer_never_waits_for_a_commit_checking_its_session(service):
+    """Routes count transfers on the event loop, and a commit checks its session on that loop: counting
+    waiting for the commit stalled both until the check timed out, a 503 for the upload."""
+    import threading
+    from row_bot import threads
+    from row_bot.application.attachments import AttachmentUploads
+    conversation = str(uuid4())
+    threads._save_thread_meta(conversation, "Fixture")
+    data = b"fixture attachment"
+    staging = AttachmentUploads()
+    upload = staging.create("fixture-session", conversation_id=conversation, batch_id=str(uuid4()),
+                            name="fixture.txt", size_bytes=len(data),
+                            sha256=hashlib.sha256(data).hexdigest())["upload_id"]
+    staging.write("fixture-session", upload, 0, data)
+    committing, counted, results = threading.Event(), threading.Event(), []
+
+    def commit(**kwargs):
+        committing.set()
+        # The session check: it needs the event loop, which is counting another transfer.
+        return {"checked": counted.wait(5), "data": kwargs["data"]}
+
+    worker = threading.Thread(target=lambda: results.append(staging.complete("fixture-session", upload, commit)))
+    worker.start()
+    try:
+        assert committing.wait(5)
+        staging.enter_transfer("other-session")
+        staging.leave_chunk("other-session")
+        counted.set()
+        worker.join(5)
+        assert results == [{"checked": True, "data": data}]
+    finally:
+        counted.set()
+        worker.join(5)
         staging.close()
 
 

@@ -56,7 +56,12 @@ def _readable(service: Any, conversation_id: str) -> bool:
 
 def search(service: Any, query: str, *, conversation_id: str | None = None,
            cursor: str | None = None, limit: int = 25) -> dict:
-    """Search all public history, returning bounded results and scan continuation."""
+    """Search all public history, returning bounded results and scan continuation.
+
+    Titles are library metadata, already read whole for the revision, so every
+    title is matched at once; messages are read newest first, bounded per page.
+    A page lists its hits in the Library's order (pinned, then newest), each
+    conversation's title before its messages."""
     from row_bot import threads
     from row_bot.runtime.checkpoint_reader import open_checkpoint
     query = query.strip()
@@ -69,49 +74,66 @@ def search(service: Any, query: str, *, conversation_id: str | None = None,
     with closing(sqlite3.connect(threads.DB_PATH)) as conn:
         revision = _library_revision(conn)
         signature = hashlib.sha256(json.dumps([query.casefold(), conversation_id, revision]).encode()).hexdigest()
-        after, offset, checkpoint = "", -1, ""
+        phase, after, offset, checkpoint = "title", "", 0, ""
         if cursor:
             values = _decode(cursor)
-            if len(values) != 5 or values[0] != signature:
+            if len(values) != 6 or values[0] != signature:
                 raise ClientPlatformError("cursor_expired")
-            _, after, offset, checkpoint, _version = values
-            if not isinstance(after, str) or not isinstance(offset, int) or offset < -1 or _version != 1:
+            _, phase, after, offset, checkpoint, _version = values
+            if (phase not in {"title", "message"} or not isinstance(after, str) or not isinstance(offset, int)
+                    or offset < 0 or not isinstance(checkpoint, str) or _version != 2):
                 raise ClientPlatformError("cursor_expired")
+        # The pinned revision fixes this order for every page of one search.
         rows = conn.execute(
-            "SELECT thread_id,name FROM thread_meta WHERE thread_id>=? "
-            + ("AND thread_id=? " if conversation_id else "") + "ORDER BY thread_id LIMIT 33",
-            (after, conversation_id) if conversation_id else (after,),
+            "SELECT thread_id,name FROM thread_meta " + ("WHERE thread_id=? " if conversation_id else "")
+            + "ORDER BY CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END DESC,"
+            "COALESCE(updated_at,'') DESC,thread_id DESC",
+            (conversation_id,) if conversation_id else (),
         ).fetchall()
+    order = [identity for identity, _title in rows]
+    if after and after not in order:
+        raise ClientPlatformError("cursor_expired")
+    position = order.index(after) if after else 0
     items: list[dict] = []
     scanned = 0
     continuation = None
     needle = query.casefold()
-    for row_number, (identity, title) in enumerate(rows):
-        if row_number >= 32:
-            continuation = _cursor([signature, identity, -1, "", 1])
-            break
-        if not _readable(service, identity):
-            continue
-        start = offset if identity == after else -1
-        if start == -1 and needle in str(title).casefold():
+    if phase == "title":
+        for identity, title in rows[position:]:
+            if needle not in str(title).casefold() or not _readable(service, identity):
+                continue
+            if len(items) >= limit:
+                continuation = _cursor([signature, "title", identity, 0, "", 2])
+                break
             items.append({"conversation_id": identity, "title": title,
                           "message_id": None, "row_id": None, "excerpt": title[:400],
                           "checkpoint_revision": ""})
-            if len(items) >= limit:
-                continuation = _cursor([signature, identity, 0, "", 1])
-                break
+        after, position = "", 0  # Every title is matched: messages next, from the first conversation.
+    # At most 32 conversations' messages a page; none once the page is full of titles.
+    window = [] if continuation else rows[position:position + 33]
+    for row_number, (identity, title) in enumerate(window):
+        if row_number >= 32:
+            continuation = _cursor([signature, "message", identity, 0, "", 2])
+            break
+        if not _readable(service, identity):
+            continue
+        start = offset if identity == after else 0
         threads.migrate_checkpoint_message_ids(identity)
         with open_checkpoint(identity) as reader:
             if reader:
                 if identity == after and checkpoint and checkpoint != reader.revision:
                     raise ClientPlatformError("cursor_expired")
-                for index, record in reader.records(start=max(0, start)):
+                for index, record in reader.records(start=start):
                     # Work is bounded even for a zero-hit page. Complete traversal
                     # remains available to callers through its continuation.
                     if scanned >= 500 or len(items) >= limit:
-                        continuation = _cursor([signature, identity, index, reader.revision, 1])
+                        continuation = _cursor([signature, "message", identity, index, reader.revision, 2])
                         break
                     scanned += 1
+                    if record["role"] == "tool":
+                        # A tool's raw result (often JSON) is folded inside its step, never a
+                        # message the person wrote or read, so it is not a search hit.
+                        continue
                     hit = _find_public_text(reader, record, needle)
                     if hit is not None:
                         public = reader.public_row(record, maximum=1024)
@@ -124,6 +146,8 @@ def search(service: Any, query: str, *, conversation_id: str | None = None,
     if conversation_id:
         _require_readable(service, conversation_id)
     items = [item for item in items if _readable(service, item["conversation_id"])]
+    rank = {identity: index for index, identity in enumerate(order)}
+    items.sort(key=lambda item: (rank[item["conversation_id"]], item["message_id"] is not None))
     with closing(sqlite3.connect(threads.DB_PATH)) as conn:
         if revision != _library_revision(conn):
             raise ClientPlatformError("cursor_expired")
@@ -145,6 +169,18 @@ def _find_public_text(reader: Any, record: dict, needle: str) -> str | None:
     return None
 
 
+def _plain(text: str) -> str:
+    """An excerpt as a person reads it: the scanned text is JSON-escaped, so its escapes (a newline, an
+    escaped angle bracket) become what they stand for, and markdown marks (**, `, #) go."""
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
+    text = re.sub(r"\\[nrt]", " ", text).replace('\\"', '"').replace("\\\\", "\\")
+    # The marker the runtime adds to a stopped reply, which the chat shows as "Stopped" beside it.
+    text = re.sub(r"\s*(?:⏹️?\s*)?\*\[(?:Stopped|Browser task stopped|Computer task stopped"
+                  r"|Browser automation paused for takeover)\]\*", "", text)
+    text = re.sub(r"\*\*|__|`+|^#+ |(?<=\s)#+ ", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _excerpt(text: str, at: int, length: int) -> str:
     """The match with some words either side, cut between words, with an
     ellipsis where text was left out ("…hardened container modules…")."""
@@ -157,7 +193,7 @@ def _excerpt(text: str, at: int, length: int) -> str:
         spaces = list(re.finditer(r"\s", text[at + length:end]))
         if spaces:
             end = at + length + spaces[-1].start()
-    return ("…" if start > 0 else "") + text[start:end].strip()[:398] + ("…" if end < len(text) else "")
+    return ("…" if start > 0 else "") + _plain(text[start:end])[:398] + ("…" if end < len(text) else "")
 
 
 def history_window(service: Any, conversation_id: str, *, message_id: str | None = None,

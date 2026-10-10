@@ -63,24 +63,58 @@ def _export_collection_size(parts) -> None:
             raise RuntimeError('export_size_limit')
 
 
+# The faces fonts.py writes for a bundled or cached family point at Row-Bot's own files, never the web.
+_FONT_FACE_RE = re.compile(r'@font-face\s*\{([^}]*)\}', re.IGNORECASE)
+_FONT_FAMILY_RE = re.compile(r'font-family\s*:\s*([\'"]?)([^\'";]+)\1', re.IGNORECASE)
+_LOCAL_FONT_URL_RE = re.compile(r'\s*([\'"]?)/(?:static/fonts|_fonts/cache)/[a-z0-9-]+/[\w.-]+\.woff2\1\s*',
+                                re.IGNORECASE)
+# As many families as a preview fingerprints: a page cannot make each page carry every installed font.
+_MAX_PAGE_FONT_FAMILIES = 8
+
+
+def _without_local_font_faces(html: str, families: list[str]) -> str:
+    """Drop faces on Row-Bot's own font files that the strict reader can embed, adding their families."""
+    from row_bot.designer.fonts import available_offline
+
+    def local(match: re.Match[str]) -> str:
+        family = _FONT_FAMILY_RE.search(match.group(1))
+        urls = re.findall(r'url\((.*?)\)', match.group(1), re.IGNORECASE | re.DOTALL)
+        if not family or not urls or not all(_LOCAL_FONT_URL_RE.fullmatch(url) for url in urls):
+            return match.group(0)
+        name = family.group(2).strip()
+        if name not in families:
+            if len(families) >= _MAX_PAGE_FONT_FAMILIES or not available_offline(name):
+                return match.group(0)
+            families.append(name)
+        return ''
+
+    return _FONT_FACE_RE.sub(local, html)
+
+
 def _offline_export_html(html: str, project: DesignerProject) -> str:
     state = _STRICT_EXPORT.get()
     if state is None:
         return html
     from bs4 import BeautifulSoup
+    from row_bot.designer.fonts import available_offline
     from row_bot.designer.preview import isolate_preview_html
 
     if len(html.encode('utf-8')) > 2 * 1024 * 1024:
         raise RuntimeError('export_page_size_limit')
+    brand = project.brand
+    families = [family for family in dict.fromkeys((brand.heading_font, brand.body_font) if brand else ())
+                if available_offline(family)]
+    # Bundled and cached faces are embedded below from the files, so they are not web assets.
+    checked = _without_local_font_faces(html, families)
     soup = BeautifulSoup(html, 'html.parser')
     if (soup.find('link', href=True)
             or any(str(tag.get(attr, '')).strip() and not str(tag.get(attr, '')).startswith('data:')
                    for tag in soup.find_all(True) for attr in ('src', 'poster', 'srcset'))
             or re.search(r'@import\b', html, re.IGNORECASE)
             or any(not value.strip().strip('\"\x27').startswith('data:')
-                   for value in re.findall(r'url\((.*?)\)', html, re.IGNORECASE | re.DOTALL))):
+                   for value in re.findall(r'url\((.*?)\)', checked, re.IGNORECASE | re.DOTALL))):
         state.warnings.add('external_assets_unavailable')
-    return isolate_preview_html(html, brand=project.brand)
+    return isolate_preview_html(html, strict_fonts=True, font_families=tuple(families))
 
 
 def _render_export_html(project: DesignerProject, html: str, *, page_index: int) -> str:
@@ -559,6 +593,7 @@ def build_html_export(project: DesignerProject, pages: Optional[str] = None) -> 
             f'sandbox="allow-same-origin"></iframe>\n'
             f'</div>\n</section>'
         )
+        _export_collection_size(sections)
 
     indices = _parse_page_range(pages, len(project.pages))
     nav_links = " ".join(
@@ -669,7 +704,8 @@ def _render_png_screenshots(project: DesignerProject, pages: Optional[str] = Non
             )
             pg = ctx.new_page()
             pg.set_content(html, wait_until="load")
-            png_bytes = pg.screenshot(full_page=False, type="png")
+            # A landing page runs on below its canvas, as it does in the preview: the image is all of it.
+            png_bytes = pg.screenshot(full_page=project.mode == "landing", type="png")
             safe_title = _sanitize_name(page.title, max_len=40)
             screenshots.append((f"page_{i + 1}_{safe_title}.png", png_bytes))
             _export_collection_size(data for _name, data in screenshots)

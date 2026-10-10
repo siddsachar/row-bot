@@ -523,7 +523,7 @@ export default function BuddyOverlay({
   }`;
   const announcement =
     phase === 'approval'
-      ? `Approval needed: ${approvalQuestion(approval?.action_label || hint?.action_label || '')}`
+      ? `Approval needed: ${approvalQuestion(approval?.action_label || hint?.action_label || '', approval?.app)}`
       : phase === 'streaming'
         ? 'Row-Bot is responding.'
         : phase === 'failed'
@@ -694,13 +694,13 @@ export default function BuddyOverlay({
           <span
             className="buddy-overlay-approval-text"
             title={[
-              approvalQuestion(actionLabel),
+              approvalQuestion(actionLabel, approval?.app),
               argument || approval?.reason || hint?.reason,
             ]
               .filter(Boolean)
               .join(' · ')}
           >
-            <strong>{approvalQuestion(actionLabel)}</strong>
+            <strong>{approvalQuestion(actionLabel, approval?.app)}</strong>
             {(argument || approval?.reason || hint?.reason) && (
               <span> {argument || approval?.reason || hint?.reason}</span>
             )}

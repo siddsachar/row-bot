@@ -45,9 +45,14 @@ browsers, phones and server mode.
   sandbox.
 - **Workflows** - scheduled, webhook and chained runs with approvals, delivery
   to channels and run history.
-- **Tools and extensions** - web search, files, shell, managed browser,
-  opt-in Computer Use on Windows and macOS, Gmail and Calendar, image and video
-  generation, skills, plugins, MCP servers and custom tools.
+- **Apps and skills** - connect services such as GitHub, Notion, Linear or
+  Stripe from one catalog in about a minute (sign in, paste a key, or run a
+  program on this computer), choose what each may do, and switch apps per chat
+  with + › Apps or an @mention; add skills from featured catalogs and use them
+  with their /name.
+- **Tools** - web search, files, shell, managed browser, opt-in Computer Use
+  on Windows and macOS, Gmail and Calendar, image and video generation, and
+  custom tools.
 - **Channels and voice** - Telegram, WhatsApp, Discord, Slack and SMS;
   dictation, Talk and read-aloud with local Whisper and Kokoro.
 - **Monitor with fixes** - health checks that run by themselves, with one
@@ -98,6 +103,10 @@ docker compose -f deploy/docker/compose.yaml exec row-bot \
 
 Read [Docker and VPS operations](https://row-bot.ai/docs/operations/docker)
 before exposing it beyond loopback.
+
+Upgrading from 5.0? Your MCP servers, plugins, skills, accounts and channels
+carry over to Settings › Apps and Skills; the
+[v5.1.0 release notes](RELEASE_NOTES.md) say what moved.
 
 Upgrading from 4.x? Read the [v5.0.0 release notes](RELEASE_NOTES.md) first:
 the old NiceGUI interface is gone and several places moved. Users still on

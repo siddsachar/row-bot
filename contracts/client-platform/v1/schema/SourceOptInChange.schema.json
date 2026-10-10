@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "on": {
+      "title": "On",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "on"
+  ],
+  "title": "SourceOptInChange",
+  "type": "object"
+}

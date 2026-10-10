@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cleanup": {
+      "default": false,
+      "title": "Cleanup",
+      "type": "boolean"
+    },
+    "intent": {
+      "anyOf": [
+        {
+          "enum": [
+            "connect",
+            "add",
+            "turn_on",
+            "fix",
+            "access",
+            "settings",
+            "turn_off",
+            "remove",
+            "update"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "",
+          "type": "string"
+        }
+      ],
+      "default": "",
+      "title": "Intent"
+    },
+    "item_id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Item Id",
+      "type": "string"
+    },
+    "revision": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id"
+  ],
+  "title": "PlanReviewRequest",
+  "type": "object"
+}

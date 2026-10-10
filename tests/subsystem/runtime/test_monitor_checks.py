@@ -253,9 +253,9 @@ def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
     fixes = {check["id"]: check["fix"] for check in client_diagnosis.run_system_diagnosis()["checks"]}
 
     assert fixes == {
-        "channel:telegram": {"kind": "restart_channel", "href": "/settings/channels#telegram",
+        "channel:telegram": {"kind": "restart_channel", "href": "/settings/apps/telegram",
                              "target": "telegram", "name": "Telegram"},
-        "channel:slack": {"kind": "open", "href": "/settings/channels#slack", "target": None, "name": "Slack"},
+        "channel:slack": {"kind": "open", "href": "/settings/apps/slack", "target": None, "name": "Slack"},
         "channel:discord": None,
         "model": {"kind": "choose_model", "href": "/settings/models#default-model", "target": None,
                   "name": "Default model"},
@@ -264,7 +264,7 @@ def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
                        "name": "Wiki vault"},
         "disk": {"kind": "check_again", "href": None, "target": None, "name": "Disk"},
         "tools": None,
-        "gmail-oauth": {"kind": "reconnect_account", "href": "/settings/accounts#google", "target": "google",
+        "gmail-oauth": {"kind": "reconnect_account", "href": "/settings/apps/google", "target": "google",
                         "name": "Google"},
         "ollama": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"},
     }

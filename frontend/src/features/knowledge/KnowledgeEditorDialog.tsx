@@ -21,20 +21,31 @@ function EditorDialogBody({
   const relations = owner.relations();
   const priorRevision = useRef<string | null>(null);
   const revision = state.saved?.entity?.revision ?? null;
+  const savedHere = state.receipt?.revision;
   useEffect(() => {
-    if (priorRevision.current && revision && priorRevision.current !== revision)
+    // Changed by a reload (elsewhere); a save made here is told once, by its receipt below.
+    if (
+      priorRevision.current &&
+      revision &&
+      priorRevision.current !== revision &&
+      revision !== savedHere
+    )
       onMutation?.();
     priorRevision.current = revision;
-  }, [revision, onMutation]);
+  }, [revision, savedHere, onMutation]);
   // A completed save changed the memory even before the saved entry is
   // reloaded: what shows it elsewhere reads it again.
   const receipt = state.receipt;
   const seenReceipt = useRef(receipt);
+  // Adding a memory is done once it is saved: the dialog closes, rather than turning into its editor.
+  const adding = useRef(!session.getTarget());
   useEffect(() => {
     if (receipt === seenReceipt.current) return;
     seenReceipt.current = receipt;
-    if (receipt?.status === 'completed') onMutation?.();
-  }, [receipt, onMutation]);
+    if (receipt?.status !== 'completed') return;
+    onMutation?.();
+    if (adding.current) owner.close();
+  }, [receipt, onMutation, owner]);
   return (
     <div className="stack">
       <KnowledgeEditor session={session} heading={false} />

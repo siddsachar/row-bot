@@ -2,3 +2,7 @@ Row-Bot
 Copyright 2026 Row-Bot Contributors
 
 Licensed under the Apache License, Version 2.0.
+
+This product includes the Public Suffix List (https://publicsuffix.org/), used under the
+Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/); see
+src/row_bot/integrations/public_suffix_list.dat.xz.

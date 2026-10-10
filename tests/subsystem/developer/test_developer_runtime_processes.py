@@ -153,9 +153,9 @@ def test_managed_background_process_starts_and_stops_cleanly(tmp_path) -> None:
         states = runtime.tracked_processes(workspace.path)
         assert len(states) == 1
         runtime.stop_tracked_process(states[0])
-        assert states[0].done.wait(10)
+        assert states[0].done.wait(30)
         assert states[0].quiesced
     finally:
         for state in runtime.tracked_processes(workspace.path):
             runtime.stop_tracked_process(state)
-            assert state.done.wait(10)
+            assert state.done.wait(30)

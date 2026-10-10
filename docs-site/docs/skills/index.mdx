@@ -1,34 +1,32 @@
 ---
-title: "Skills Hub"
-description: "Browse, enable, pin, create, edit, and troubleshoot Row-Bot skills."
+title: "Skills"
+description: "Find, add, use, turn off, remove, create and troubleshoot Row-Bot skills, and how Row-Bot picks them automatically."
 ---
 
-import Screenshot from '@site/src/components/Screenshot';
 
-# Skills Hub
+# Skills
 
-Skills are instruction packs that teach Row-Bot how to approach a category of work. **Settings › Skills** is where you browse installed skills, inspect details, enable or disable them, pin useful ones, create or edit local skills, and find public skills to install (the command palette's "install a skill" goes there). Enabled skills can also be discovered and loaded progressively when a task clearly matches their purpose.
+Skills are instruction packs that teach Row-Bot how to approach a category of work. **Settings › Skills** is where you find skills, add them, try them, and create or edit your own (the command palette's **Add a skill** goes there). Skills you have added can also be discovered and loaded progressively when a task clearly matches their purpose.
 
-<Screenshot id="settings-skills" alt="Row-Bot Skills settings and Skills Hub entry points." caption="Skills settings expose installed skills, browse/search entry points, enablement, and pinning controls." />
-
-<Screenshot id="skills-hub" alt="Row-Bot Browse Public Skills marketplace with two fictional skills." caption="Browse Public Skills shows source and review status before a skill is brought into the local library." />
+See [Settings: Skills](/docs/settings/skills) for the page itself.
 
 ## UI Walkthrough
 
-- **Browse/search** finds bundled, installed, local, and external-source skills.
-- **Filters** narrow by source, installed state, or task type.
-- **Skill detail** explains purpose, instructions, source, and status.
-- **Enable/disable** decides whether Row-Bot may use the skill.
-- **Pin** keeps an important skill easy to reach.
-- **Create/edit** lets you maintain a local skill for your own workflow.
+- **Search** finds skills in the library on this computer; **Search online catalogs** asks catalogs such as ClawHub.
+- **Your skills** lists the skills you have added, built-in and your own.
+- **A skill's page** shows its slash command (**Use it in chat with /_name_**), whether chats use it and which agent profiles include it, and **What's inside**: its files and scripts.
+- **Add** adds the skill and turns it on. Scripts inside it never run when it is added.
+- **Try it** opens a new chat with a draft that uses the skill; nothing is sent until you send it.
+- **⋯ › Turn off** stops chats using it, and **⋯ › Remove…** deletes a skill you added or created.
+- **⋯ › Advanced settings** opens the skill editor, where you edit and pin the skill and review proposed changes.
 
 ## Creating A Skill
 
-1. Decide what task the skill should help with.
-2. Write concise instructions, examples, and boundaries.
-3. Include when the skill should and should not be used.
-4. Save it locally.
-5. Enable it and test with a small prompt.
+1. Choose **Create a skill** in Settings › Skills.
+2. Decide what task the skill should help with.
+3. Write concise instructions, examples, and boundaries, including when the skill should and should not be used.
+4. Save it.
+5. Test it with **Try it** or a small prompt.
 6. Revise if Row-Bot overuses or misunderstands it.
 
 ## What Skills Change
@@ -43,12 +41,12 @@ When progressive discovery is available, Row-Bot can search enabled skills and l
 - Reopening a task restores its selected skills.
 - Parent tasks and sibling children do not share automatic activation state.
 - Up to five automatically selected skills are retained per task; pinned skills remain separate.
-- Loading an already active skill does not add a duplicate receipt.
+- Loading an already active skill does not show a second **Using _skill_** notice.
 
 Automatic selection changes instructions only. It cannot add a denied tool, alter credentials, bypass approvals, expand a workspace, or change an Agent Profile. Read [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills) for the complete tool and skill flow.
 
 ## Troubleshooting
 
-- If a skill is not used, make your prompt match its purpose and confirm it is enabled.
-- If a skill is too aggressive, disable or rewrite it with clearer boundaries.
-- If an external skill is unfamiliar, inspect it before enabling.
+- If a skill is not used, make your prompt match its purpose, confirm it is in **Your skills**, or call it with its slash command. The command on its own turns the skill on for the chat; inside a longer message it focuses just that turn on the skill. See [Mention an app or a skill](/docs/chat/#mention-an-app-or-a-skill).
+- If a skill is too aggressive, rewrite it with clearer boundaries or remove it.
+- If a skill from a catalog is unfamiliar, open **What's inside** before adding it.

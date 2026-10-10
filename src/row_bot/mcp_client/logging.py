@@ -52,3 +52,12 @@ def log_event(event: str, level: int = logging.INFO, **fields: Any) -> None:
     except Exception:
         rendered = f"{event} {payload!r}"
     logger.log(level, rendered)
+
+
+def redact(text: str, values: list[str] | tuple = ()) -> str:
+    """``text`` with each secret value, as given or as an address carries it, replaced by ``…``."""
+    from urllib.parse import quote
+    for value in sorted(set(values), key=len, reverse=True):
+        for form in {value, quote(value, safe=""), quote(value, safe="-._~")}:
+            text = text.replace(form, "…")
+    return text

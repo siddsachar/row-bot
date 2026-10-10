@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -43,6 +44,7 @@ import TaskRun from './TaskRun';
 import { taskRuns } from './task-runs';
 import { taskEdits, taskMutation, type TaskCommandOwner } from './task-edits';
 import TaskGraphEditor from './TaskGraphEditor';
+import AppTemplates from './AppTemplates';
 import TaskSettingsEditor from './TaskSettingsEditor';
 import { webhookReach } from './webhook-reach';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -1081,6 +1083,29 @@ export default function TaskLibrary() {
     ReadonlyArray<{ id: string; label: string }>
   >([]);
   const execution = useMemo(() => taskRuns(controller), [controller]);
+  // The apps set up here (every page), for a prompt step to name the ones it uses (Apps owns them).
+  const loadApps = useCallback(
+    async (signal?: AbortSignal) => {
+      const found: { id: string; name: string; icon: string }[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await controller.integrationItems(
+          { scope: 'installed', kind: 'app', cursor },
+          signal,
+        );
+        found.push(
+          ...page.items.map((app) => ({
+            id: app.id,
+            name: app.app?.name ?? app.name, // As the composer names it.
+            icon: app.app?.icon ?? app.icon,
+          })),
+        );
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor && found.length < 1000);
+      return found;
+    },
+    [controller],
+  );
   const quickEdits = useMemo(() => taskEdits(controller), [controller]);
   const deleteOwner = useRef<TaskCommandOwner<void>>({ pending: null });
   const duplicateOwner = useRef<TaskCommandOwner<string>>({ pending: null });
@@ -1287,6 +1312,7 @@ export default function TaskLibrary() {
           session={selected.session}
           taskId={selected.session.taskId}
           load={controller.taskGraph}
+          loadApps={loadApps}
           save={selected.graph}
           onSaved={saved}
           onCancel={close}
@@ -1452,6 +1478,11 @@ export default function TaskLibrary() {
         onSetDeliveryDefaults={saveDeliveryDefaults}
         onGraph={(id, name) => taskEditSessions.open('graph', id, name)}
         onSettings={(id, name) => taskEditSessions.open('settings', id, name)}
+      />
+      <AppTemplates
+        load={controller.workflowTemplates}
+        create={controller.createFromWorkflowTemplate}
+        onCreated={() => setReload((value) => value + 1)}
       />
       <Drawer
         open={runsFor !== null}

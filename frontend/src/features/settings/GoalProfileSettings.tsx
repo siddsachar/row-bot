@@ -4,6 +4,7 @@ import {
   useState,
   useSyncExternalStore,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import {
   BadgeCheck,
@@ -37,6 +38,7 @@ import {
 import {
   Button,
   Field,
+  Hint,
   IconButton,
   Input,
   Menu,
@@ -265,6 +267,14 @@ function profilePolicy(profile: ProfileSummary) {
         ]
       : []),
   ].join(' · ');
+}
+/** Names a profile's tools or skills: "Memory, Web search and 3 more". */
+function namedList(ids: readonly string[], shown = 20) {
+  const names = ids.map(humanizeToken);
+  const rest = names.length - shown;
+  return rest > 0
+    ? `${names.slice(0, shown).join(', ')} and ${rest} more`
+    : names.join(', ');
 }
 
 type GoalAttempt = { kind: 'goal'; command: GoalCommand; review: GoalReview };
@@ -1492,12 +1502,110 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     </fieldset>
   );
 
+  // A profile's details, and its edit or copy form, open under its own row
+  // rather than after a long list.
+  const openUnder = (profile: ProfileSummary) =>
+    state.selectedProfile?.id === profile.id && Boolean(state.profileMode);
+  const selectedListed = Boolean(
+    state.selectedProfile &&
+    state.profilePage?.items.some(
+      (profile) => profile.id === state.selectedProfile!.id,
+    ),
+  );
+  const profileDetails = (profile: ProfileSummary) => (
+    <section
+      ref={profileDetailsRef}
+      tabIndex={-1}
+      className="surface stack profile-library-details"
+      aria-label="Profile details"
+    >
+      <h3>{profile.display_name}</h3>
+      <p>{profile.description}</p>
+      <p>{profile.when_to_use}</p>
+      <p>
+        {CAPABILITIES[profile.capability] ??
+          profile.capability.replaceAll('_', ' ')}{' '}
+        · {CONTEXT_MODES[profile.context_mode] ?? profile.context_mode} context
+      </p>
+      <dl className="profile-library-uses">
+        <dt>Tools</dt>
+        <dd>
+          {profile.allow_tools.length
+            ? namedList(profile.allow_tools)
+            : 'Every enabled tool'}
+        </dd>
+        {profile.skills.length > 0 && (
+          <>
+            <dt>Skills</dt>
+            <dd>{namedList(profile.skills)}</dd>
+          </>
+        )}
+      </dl>
+      <p>
+        Workspace:{' '}
+        {WORKSPACE_MODES[profile.workspace_mode] ?? profile.workspace_mode} ·
+        Approvals:{' '}
+        {APPROVAL_MODES[profile.approval_mode] ?? profile.approval_mode}
+      </p>
+      {savedInstructions(profile, false)}
+      <div className="button-row">
+        {profile.enabled && onStartProfileChat && (
+          <Button
+            variant="primary"
+            disabled={locked}
+            onClick={() => onStartProfileChat(profile)}
+          >
+            <MessageSquare size={14} aria-hidden />
+            Start chat
+          </Button>
+        )}
+        <Button
+          onClick={() =>
+            session.update({ profileMode: '', selectedProfile: null })
+          }
+        >
+          Close details
+        </Button>
+      </div>
+    </section>
+  );
+  /** A row's icon action, named by its tooltip as well as for assistive tech. */
+  const rowAction = ({
+    label,
+    icon,
+    onClick,
+    pressed,
+    disabled = locked,
+  }: {
+    label: string;
+    icon: ReactNode;
+    onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+    pressed?: boolean;
+    disabled?: boolean;
+  }) => (
+    <Hint label={label}>
+      <Button
+        variant="ghost"
+        iconOnly
+        disabled={disabled}
+        aria-label={label}
+        aria-pressed={pressed}
+        onClick={onClick}
+      >
+        {icon}
+      </Button>
+    </Hint>
+  );
+
   const profileRow = (profile: ProfileSummary) => {
     const Icon =
       profileIcons[profile.icon ?? ''] ??
       groupIcons[profileGroup(profile)] ??
       BadgeCheck;
     const pinned = favourites.includes(profile.id);
+    const remember = (event: MouseEvent<HTMLButtonElement>) => {
+      profileReturnFocus.current = event.currentTarget;
+    };
     return (
       <li className="profile-library-row" key={profile.id}>
         <Icon size={16} aria-hidden />
@@ -1513,101 +1621,79 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           {profile.enabled && onStartProfileChat && (
             <>
               {/* A pinned profile is a favourite in the sidebar (B268). */}
-              <Button
-                variant="ghost"
-                iconOnly
-                aria-label={
-                  pinned
-                    ? `Unpin ${profile.display_name} from the sidebar`
-                    : `Pin ${profile.display_name} to the sidebar`
-                }
-                aria-pressed={pinned}
-                onClick={() => toggleAgentFavourite(profile.id)}
-              >
-                <Pin
-                  size={14}
-                  fill={pinned ? 'currentColor' : 'none'}
-                  aria-hidden
-                />
-              </Button>
-              <Button
-                variant="ghost"
-                iconOnly
-                disabled={locked}
-                aria-label={`Start chat with ${profile.display_name}`}
-                onClick={() => onStartProfileChat(profile)}
-              >
-                <MessageSquare size={14} aria-hidden />
-              </Button>
+              {rowAction({
+                label: pinned
+                  ? `Unpin ${profile.display_name} from the sidebar`
+                  : `Pin ${profile.display_name} to the sidebar`,
+                pressed: pinned,
+                disabled: false,
+                icon: (
+                  <Pin
+                    size={14}
+                    fill={pinned ? 'currentColor' : 'none'}
+                    aria-hidden
+                  />
+                ),
+                onClick: () => toggleAgentFavourite(profile.id),
+              })}
+              {rowAction({
+                label: `Start chat with ${profile.display_name}`,
+                icon: <MessageSquare size={14} aria-hidden />,
+                onClick: () => onStartProfileChat(profile),
+              })}
             </>
           )}
-          <Button
-            variant="ghost"
-            iconOnly
-            disabled={locked}
-            aria-label={`View ${profile.display_name}`}
-            onClick={(event) => {
-              profileReturnFocus.current = event.currentTarget;
+          {rowAction({
+            label: `View ${profile.display_name}`,
+            icon: <Eye size={14} aria-hidden />,
+            onClick: (event) => {
+              remember(event);
               void beginProfile(profile, 'view');
-            }}
-          >
-            <Eye size={14} aria-hidden />
-          </Button>
-          <Button
-            variant="ghost"
-            iconOnly
-            disabled={locked}
-            aria-label={`Duplicate ${profile.display_name}`}
-            onClick={(event) => {
-              profileReturnFocus.current = event.currentTarget;
+            },
+          })}
+          {rowAction({
+            label: `Duplicate ${profile.display_name}`,
+            icon: <Copy size={14} aria-hidden />,
+            onClick: (event) => {
+              remember(event);
               void beginProfile(profile, 'duplicate');
-            }}
-          >
-            <Copy size={14} aria-hidden />
-          </Button>
+            },
+          })}
           {profile.editable && (
             <>
-              <Button
-                variant="ghost"
-                iconOnly
-                disabled={locked}
-                aria-label={`Edit ${profile.display_name}`}
-                onClick={(event) => {
-                  profileReturnFocus.current = event.currentTarget;
+              {rowAction({
+                label: `Edit ${profile.display_name}`,
+                icon: <Pencil size={14} aria-hidden />,
+                onClick: (event) => {
+                  remember(event);
                   void beginProfile(profile, 'edit');
-                }}
-              >
-                <Pencil size={14} aria-hidden />
-              </Button>
-              <Button
-                variant="ghost"
-                iconOnly
-                disabled={locked}
-                aria-label={`${profile.enabled ? 'Disable' : 'Enable'} ${profile.display_name}`}
-                onClick={() => {
+                },
+              })}
+              {rowAction({
+                label: `${profile.enabled ? 'Disable' : 'Enable'} ${profile.display_name}`,
+                icon: <Power size={14} aria-hidden />,
+                onClick: () => {
                   session.update({ selectedProfile: profile });
                   void requestProfileReview(
                     profile.enabled ? 'disable' : 'enable',
                   );
-                }}
-              >
-                <Power size={14} aria-hidden />
-              </Button>
-              <Button
-                variant="ghost"
-                iconOnly
-                disabled={locked}
-                aria-label={`Delete ${profile.display_name}`}
-                onClick={() => {
+                },
+              })}
+              {rowAction({
+                label: `Delete ${profile.display_name}`,
+                icon: <Trash2 size={14} aria-hidden />,
+                onClick: () => {
                   session.update({ selectedProfile: profile });
                   void requestProfileReview('delete');
-                }}
-              >
-                <Trash2 size={14} aria-hidden />
-              </Button>
+                },
+              })}
             </>
           )}
         </div>
+        {openUnder(profile) &&
+          (state.profileMode === 'view'
+            ? profileDetails(state.selectedProfile!)
+            : profileEditor)}
       </li>
     );
   };
@@ -1625,7 +1711,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   // with no card inside the dialog.
   const sectionClass = profilesOnly ? 'stack' : 'settings-section stack';
   const profiles = (
-    <section aria-label="Agent Profiles" className={sectionClass}>
+    <section aria-label="Agents" className={sectionClass}>
       {!profilesOnly && (
         <>
           <h2>Agent Profiles</h2>
@@ -1722,7 +1808,10 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         </div>
       )}
       {state.profilePage && (
-        <p role="status">{state.profilePage.total} reusable profiles.</p>
+        <p role="status">
+          {state.profilePage.total}{' '}
+          {state.profilePage.total === 1 ? 'agent' : 'agents'}.
+        </p>
       )}
       {state.profilePage &&
         profileGroups.map((group) => {
@@ -1757,41 +1846,16 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           Load more profiles
         </Button>
       )}
-      {state.profileMode === 'view' && state.selectedProfile && (
-        <section
-          ref={profileDetailsRef}
-          tabIndex={-1}
-          className="surface stack"
-          aria-label="Profile details"
-        >
-          <h3>{state.selectedProfile.display_name}</h3>
-          <p>{state.selectedProfile.description}</p>
-          <p>{state.selectedProfile.when_to_use}</p>
-          <p>{profilePolicy(state.selectedProfile)}</p>
-          <p>
-            Workspace:{' '}
-            {WORKSPACE_MODES[state.selectedProfile.workspace_mode] ??
-              state.selectedProfile.workspace_mode}{' '}
-            · Approvals:{' '}
-            {APPROVAL_MODES[state.selectedProfile.approval_mode] ??
-              state.selectedProfile.approval_mode}
-          </p>
-          {savedInstructions(state.selectedProfile, false)}
-          <Button
-            onClick={() =>
-              session.update({ profileMode: '', selectedProfile: null })
-            }
-          >
-            Close details
-          </Button>
-        </section>
-      )}
-      {profileEditor}
+      {/* A new profile's form, or a profile no longer listed here. */}
+      {!selectedListed &&
+        (state.profileMode === 'view' && state.selectedProfile
+          ? profileDetails(state.selectedProfile)
+          : profileEditor)}
     </section>
   );
 
   return (
-    <section aria-label="Goals and Agent Profiles" className={sectionClass}>
+    <section aria-label="Goals and agents" className={sectionClass}>
       {profilesOnly ? (
         profiles
       ) : (
@@ -1807,7 +1871,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           }
           items={[
             { id: 'goals', label: 'Goals', content: goals },
-            { id: 'profiles', label: 'Agent Profiles', content: profiles },
+            { id: 'profiles', label: 'Agents', content: profiles },
           ]}
         />
       )}

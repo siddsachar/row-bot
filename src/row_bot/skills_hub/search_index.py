@@ -56,24 +56,13 @@ def entry_search_text(entry: SkillHubEntry) -> str:
 
 
 def canonical_entry_key(entry: SkillHubEntry) -> str:
-    for value in (
-        entry.metadata.get("canonical_url"),
-        entry.metadata.get("skill_url"),
-        entry.metadata.get("raw_url"),
-        entry.install_ref,
-        entry.url,
-    ):
-        text = str(value or "").strip().lower()
-        if text:
-            return re.sub(r"#.*$", "", text)
-    repo = str(entry.metadata.get("repository") or "").strip().lower()
-    path = str(entry.metadata.get("path") or "").strip().lower().strip("/")
-    if repo:
-        return f"github:{repo}:{path}"
-    content_hash = str(entry.metadata.get("content_hash") or "").strip().lower()
-    if content_hash:
-        return f"hash:{content_hash}"
-    return f"{entry.source}:{entry.source_id}:{normalize_text(entry.name)}"
+    """Only a full artifact reference proves identity; names never do."""
+    import json
+    reference = entry.install_ref.strip() or entry.url.strip()
+    if reference:
+        return json.dumps([reference, entry.metadata.get("path", ""),
+            entry.metadata.get("version", ""), entry.metadata.get("ref", "")], sort_keys=True)
+    return json.dumps([entry.source, entry.source_id, entry.id], sort_keys=True)
 
 
 def dedupe_entries(entries: Iterable[SkillHubEntry]) -> list[SkillHubEntry]:

@@ -28,10 +28,6 @@ import type {
   MigrationScanRequest,
   MigrationApplyReviewRequest,
   MigrationApplyCommand,
-  SkillHubSearchRequest,
-  SkillHubPreviewRequest,
-  SkillHubInstallCommand,
-  SkillHubMaintenanceCommand,
   GitHubAccessCommand,
   AccountAuthCommand,
 } from './types';
@@ -1133,6 +1129,7 @@ export class ClientController {
       conversations,
       typedConversations,
       selectedConversationId: null,
+      deletedConversationId: id,
       conversation: null,
       projection: null,
       workspace: null,
@@ -1156,6 +1153,7 @@ export class ClientController {
         this.transcriptCursor = undefined;
         this.update({
           selectedConversationId: id,
+          deletedConversationId: null,
           conversation: null,
           projection: null,
           earlier: [],
@@ -1176,6 +1174,7 @@ export class ClientController {
     this.transcriptRequest = false;
     this.update({
       selectedConversationId: id,
+      deletedConversationId: null,
       conversation: null,
       projection: null,
       workspace: null,
@@ -1744,6 +1743,16 @@ export class ClientController {
             this.forgetConversation(id);
             return;
           }
+          // Its subscription is gone (deleted in another window, or the server let it go): subscribe
+          // again at once, which says which, instead of asking a dead one until "Disconnected".
+          if (subscription && safe.code === 'not_found') {
+            if (++resetsWithoutProgress > 3)
+              throw new Error('protocol_incompatible', { cause: error });
+            if (this.activeSubscription === subscription.subscription_id)
+              this.activeSubscription = null;
+            subscription = null;
+            continue;
+          }
           failures += 1;
           streamFailures += 1;
           if (failures > DELAYS.length) {
@@ -2278,13 +2287,117 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.testLiveProviderRuntime(provider, signal);
     });
-  mcpConfiguration = (query: string, cursor?: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.mcpConfiguration?.(query, cursor, signal));
-  searchMcpDirectory = (query: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.searchMcpDirectory?.(query, signal));
+  integrationSources = (signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationSources?.(signal));
+  updateIntegrationSource = (source: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.updateIntegrationSource?.(source, signal));
+  workflowTemplates = (signal?: AbortSignal) =>
+    this.query(() => this.transport.workflowTemplates?.(signal));
+  createFromWorkflowTemplate = (template: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.useWorkflowTemplate?.(template, signal));
+  setIntegrationSourceOptIn = (
+    source: string,
+    on: boolean,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.setIntegrationSourceOptIn?.(source, on, signal),
+    );
+  catalogSchedule = (signal?: AbortSignal) =>
+    this.query(() => this.transport.catalogSchedule?.(signal));
+  setCatalogSchedule = (
+    body: import('./types').CatalogSchedule,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.setCatalogSchedule?.(body, signal));
+  integrationApps = (query = '', signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationApps?.(query, signal));
+  integrationIcons = (icons: string[], signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationIcons?.(icons, signal));
+  /** One finished step's app view (MCP Apps): its frame address and what to send it. */
+  renderAppView = (
+    conversation: string,
+    callId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.renderAppView?.(conversation, callId, signal),
+    );
+  /** A view calling its own app: Row-Bot applies the app's access and the chat's approvals. */
+  callAppViewTool = (
+    render: string,
+    body: import('./types').AppViewToolCall,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.callAppViewTool?.(render, body, signal));
+  appViewSettings = (signal?: AbortSignal) =>
+    this.query(() => this.transport.appViewSettings?.(signal));
+  setAppViewSettings = (
+    body: import('./types').AppViewSettings,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.setAppViewSettings?.(body, signal));
+  setAppViewAppSetting = (
+    body: import('./types').AppViewAppSetting,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.setAppViewAppSetting?.(body, signal));
+  integrationItems = (
+    options: {
+      query?: string;
+      kind?: string;
+      scope?: 'installed' | 'catalog';
+      cursor?: string;
+      all?: 'true';
+    },
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.integrationItems?.(options, signal));
+  searchIntegrationItems = (
+    body: import('./types').IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.searchIntegrationItems?.(body, signal));
+  resolveIntegration = (
+    body: import('./types').IntegrationResolveRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.resolveIntegration?.(body, signal));
+  /** Retry on an unfinished change; it is checked again, never sent again. */
+  settleIntegration = (
+    body: import('./types').IntegrationSettleRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.settleIntegration?.(body, signal));
+  uploadIntegration = (file: Blob, name: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.uploadIntegration?.(file, name, signal));
+  integrationDetail = (
+    options: { item_id: string; revision?: string },
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.integrationDetail?.(options, signal));
+  reviewInstallPlan = (
+    body: import('./types').PlanReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewInstallPlan?.(body, signal));
+  startInstallPlan = (
+    body: import('./types').PlanStartRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.startInstallPlan?.(body, signal));
+  installPlan = (plan: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.installPlan?.(plan, signal));
+  continueInstallPlan = (
+    plan: string,
+    body: import('./types').PlanContinueRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.continueInstallPlan?.(plan, body, signal));
+  cancelInstallPlan = (plan: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.cancelInstallPlan?.(plan, signal));
+  mcpConfiguration = (
+    query: string,
+    cursor?: string,
+    signal?: AbortSignal,
+    target?: import('./types').McpTarget,
+  ) =>
+    this.query(() =>
+      this.transport.mcpConfiguration?.(query, cursor, signal, target),
+    );
   mcpPolicy = (
     query: { server_id: string | null; query: string; cursor?: string },
     signal?: AbortSignal,
+    target?: import('./types').McpTarget,
   ) =>
     this.query(() =>
       this.transport.mcpPolicy?.(
@@ -2292,6 +2405,7 @@ export class ClientController {
         query.query,
         query.cursor,
         signal,
+        target,
       ),
     );
   /** "Enable in chat" for external MCP tools (B130). */
@@ -2337,31 +2451,6 @@ export class ClientController {
     );
     return this.query(() => this.transport.reviewMcpPolicy?.(input, signal));
   };
-  mcpTestedCatalog = (
-    query: {
-      server_id: string;
-      test_command_id: string;
-      query: string;
-      cursor?: string;
-    },
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.mcpTestedCatalog?.(
-        query.server_id,
-        query.test_command_id,
-        query.query,
-        query.cursor,
-        signal,
-      ),
-    );
-  reviewMcpCatalog = (body: unknown, signal?: AbortSignal) => {
-    const input = validateWire<import('./types').McpCatalogRequest>(
-      'McpCatalogRequest',
-      body,
-    );
-    return this.query(() => this.transport.reviewMcpCatalog?.(input, signal));
-  };
   reviewMcpConfiguration = (body: unknown, signal?: AbortSignal) => {
     const input = validateWire<import('./types').McpConfigurationReviewRequest>(
       'McpConfigurationReviewRequest',
@@ -2374,13 +2463,12 @@ export class ClientController {
   executeMcpConfiguration = async (
     original: {
       command_id: string;
-      type:
-        | 'mcp.configuration.save'
-        | 'mcp.configuration.control'
-        | 'mcp.catalog.accept';
-      payload:
-        | { configuration_revision: string; intent: unknown }
-        | import('./types').McpCatalogRequest;
+      type: 'mcp.configuration.save' | 'mcp.configuration.control';
+      payload: {
+        configuration_revision: string;
+        intent: unknown;
+        target?: import('./types').McpTarget;
+      };
     },
     review: { nonce?: string },
   ) => {
@@ -2452,26 +2540,6 @@ export class ClientController {
     this.query(() => this.transport.migrationSources?.(signal));
   scanMigration = (request: MigrationScanRequest, signal?: AbortSignal) =>
     this.query(() => this.transport.scanMigration?.(request, signal));
-  searchSkillHub = (request: SkillHubSearchRequest, signal?: AbortSignal) =>
-    this.query(() => this.transport.searchSkillHub?.(request, signal));
-  previewSkillHub = (request: SkillHubPreviewRequest, signal?: AbortSignal) =>
-    this.query(() => this.transport.previewSkillHub?.(request, signal));
-  installSkillHub = (command: SkillHubInstallCommand, signal?: AbortSignal) =>
-    this.query(() => this.transport.installSkillHub?.(command, signal));
-  skillHubInstallReceipt = (commandId: string, signal?: AbortSignal) =>
-    this.query(() =>
-      this.transport.skillHubInstallReceipt?.(commandId, signal),
-    );
-  skillHubInstalled = (signal?: AbortSignal) =>
-    this.query(() => this.transport.skillHubInstalled?.(signal));
-  skillHubMaintenance = (
-    command: SkillHubMaintenanceCommand,
-    signal?: AbortSignal,
-  ) => this.query(() => this.transport.skillHubMaintenance?.(command, signal));
-  skillHubMaintenanceReceipt = (commandId: string, signal?: AbortSignal) =>
-    this.query(() =>
-      this.transport.skillHubMaintenanceReceipt?.(commandId, signal),
-    );
   reviewMigration = (
     request: MigrationApplyReviewRequest,
     signal?: AbortSignal,
@@ -2802,8 +2870,6 @@ export class ClientController {
       this.transport.reviewPlugin?.(plugin, body, signal),
     );
   };
-  pluginReceipt = (plugin: string, command: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.pluginReceipt?.(plugin, command, signal));
   executePlugin = async (
     plugin: string,
     original: {
@@ -2824,42 +2890,6 @@ export class ClientController {
       if (!this.transport.executePlugin)
         throw clientError({ code: 'unsupported_command' });
       return this.transport.executePlugin(plugin, command, signal);
-    });
-    if (result.command_id !== original.command_id)
-      throw clientError({ code: 'protocol_incompatible' });
-    return result;
-  };
-  reviewPluginLifecycle = (
-    action: import('./types').PluginLifecycleReviewRequest['action'],
-    pluginId = '',
-    signal?: AbortSignal,
-  ) => {
-    const body = validateWire<import('./types').PluginLifecycleReviewRequest>(
-      'PluginLifecycleReviewRequest',
-      { action, plugin_id: pluginId },
-    );
-    return this.query(() =>
-      this.transport.reviewPluginLifecycle?.(body, signal),
-    );
-  };
-  pluginLifecycleReceipt = (command: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.pluginLifecycleReceipt?.(command, signal));
-  executePluginLifecycle = async (
-    original: Omit<
-      import('./types').PluginLifecycleCommand,
-      'client_session_id'
-    >,
-  ) => {
-    const handshake = this.state.handshake;
-    if (!handshake) throw clientError({ code: 'authentication_required' });
-    const command = validateWire<import('./types').PluginLifecycleCommand>(
-      'PluginLifecycleCommand',
-      { ...original, client_session_id: handshake.client_session_id },
-    );
-    const result = await this.authenticatedResult((signal) => {
-      if (!this.transport.executePluginLifecycle)
-        throw clientError({ code: 'unsupported_command' });
-      return this.transport.executePluginLifecycle(command, signal);
     });
     if (result.command_id !== original.command_id)
       throw clientError({ code: 'protocol_incompatible' });
@@ -3346,8 +3376,6 @@ export class ClientController {
     });
     return this.documentProcessingResult(result, original.command_id);
   };
-  mcpRuntime = (server: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.mcpRuntime?.(server, signal));
   documentQueue = (
     options: { kind: 'batches' | 'jobs'; batch_id?: string; cursor?: string },
     signal?: AbortSignal,
@@ -3476,42 +3504,6 @@ export class ClientController {
     )
       throw clientError({ code: 'protocol_incompatible' });
     return { ...result, code: result.code ?? undefined };
-  };
-  reviewMcpRuntime = (body: unknown, signal?: AbortSignal) => {
-    const request = validateWire<import('./types').McpRuntimeReviewRequest>(
-      'McpRuntimeReviewRequest',
-      body,
-    );
-    return this.query(() => this.transport.reviewMcpRuntime?.(request, signal));
-  };
-  executeMcpRuntime = async (
-    original: {
-      command_id: string;
-      type: 'mcp.runtime.control';
-      payload: import('./types').McpRuntimeReviewRequest;
-    },
-    review: { nonce?: string },
-  ) => {
-    const handshake = this.state.handshake;
-    if (!handshake || !review.nonce)
-      throw clientError({ code: 'approval_expired' });
-    const command = {
-      ...original,
-      client_session_id: handshake.client_session_id,
-      expected_revision: '0',
-      payload: { ...original.payload, nonce: review.nonce },
-    };
-    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
-    const result = await this.authenticatedResult((signal) =>
-      this.transport.command(null, command, original.command_id, signal),
-    );
-    if (result.command_id !== original.command_id)
-      throw clientError({ code: 'protocol_incompatible' });
-    return {
-      command_id: result.command_id,
-      status: result.status,
-      mcp_runtime: result.mcp_runtime ?? undefined,
-    };
   };
   subscriptionAccounts = (signal?: AbortSignal) =>
     this.query(() => this.transport.subscriptionAccounts?.(signal));
@@ -4741,6 +4733,9 @@ export class ClientController {
     });
   settingsSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.settingsSnapshot?.(signal));
+  /** One tracker's newest entries (Settings › Tracker), read-only. */
+  trackerEntries = (trackerId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.trackerEntries?.(trackerId, signal));
   reviewSettingsMutation = (
     body: import('./types').SettingsMutationRequest,
     signal?: AbortSignal,

@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { SettingsSnapshot } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import {
-  AccountsSnapshotPanel,
   SystemSnapshotPanel,
   TrackerSnapshotPanel,
   UtilitiesSnapshotPanel,
@@ -12,7 +11,7 @@ import {
 } from './SettingsSnapshotPanels';
 
 export type Phase4RetainedSetting =
-  'voice' | 'accounts' | 'tracker' | 'utilities' | 'system' | 'access';
+  'voice' | 'tracker' | 'utilities' | 'system' | 'access';
 
 export default function Phase4RetainedSettings({
   setting,
@@ -20,7 +19,6 @@ export default function Phase4RetainedSettings({
   mutation,
   selectedConversationId,
   pickFolder,
-  showAccountActions = false,
   writeClipboard,
   accessNetwork,
 }: {
@@ -29,7 +27,6 @@ export default function Phase4RetainedSettings({
   mutation: SettingsMutationIO;
   selectedConversationId: string | null;
   pickFolder?: SettingsFolderPicker;
-  showAccountActions?: boolean;
   writeClipboard?: ClientPlatform['writeClipboard'];
   /** Access › Advanced › Network: the live network controls. */
   accessNetwork?: ReactNode;
@@ -40,14 +37,6 @@ export default function Phase4RetainedSettings({
         snapshot={snapshot.voice}
         conversationId={selectedConversationId}
         mutation={mutation}
-      />
-    );
-  if (setting === 'accounts')
-    return (
-      <AccountsSnapshotPanel
-        snapshot={snapshot.accounts}
-        mutation={mutation}
-        showActions={showAccountActions}
       />
     );
   if (setting === 'tracker')

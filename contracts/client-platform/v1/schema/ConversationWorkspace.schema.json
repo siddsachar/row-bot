@@ -40,6 +40,61 @@
       "title": "ActionReadiness",
       "type": "object"
     },
+    "ComposerApp": {
+      "additionalProperties": false,
+      "description": "A ready app this chat can use: its switch here, and whether the agent profile allows it. A way\nwith no chat tools (``switchable`` false) is listed so the menu matches Your apps, with why.",
+      "properties": {
+        "app_id": {
+          "maxLength": 64,
+          "title": "App Id",
+          "type": "string"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "icon": {
+          "maxLength": 128,
+          "title": "Icon",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 512,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Reason",
+          "type": "string"
+        },
+        "switchable": {
+          "default": true,
+          "title": "Switchable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "app_id",
+        "name",
+        "icon",
+        "on",
+        "available"
+      ],
+      "title": "ComposerApp",
+      "type": "object"
+    },
     "ComposerLibrary": {
       "additionalProperties": false,
       "properties": {
@@ -340,6 +395,14 @@
           "title": "Active Skills",
           "type": "array"
         },
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/ComposerApp"
+          },
+          "maxItems": 64,
+          "title": "Apps",
+          "type": "array"
+        },
         "command_total": {
           "maximum": 4096,
           "minimum": 0,
@@ -599,6 +662,12 @@
     "ProfileChoice": {
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
         "id": {
           "maxLength": 128,
           "minLength": 1,

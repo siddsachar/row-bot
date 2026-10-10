@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "enabled": true,
+  "marketplace": {
+    "enabled": true,
+    "sources": [
+      "official",
+      "pulsemcp",
+      "smithery",
+      "glama"
+    ]
+  },
+  "servers": {
+    "Fixture Notes": {
+      "name": "Fixture Notes",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "fixture-notes-server.mjs"
+      ],
+      "cwd": null,
+      "env": {
+        "NOTES_HOME": "fixture-notes"
+      },
+      "url": "",
+      "headers": {},
+      "connect_timeout": 30.0,
+      "tool_timeout": 120.0,
+      "output_limit": 24000,
+      "trust_level": "standard",
+      "requirements": [],
+      "tools": {
+        "enabled": {
+          "search_notes": true,
+          "summarize_notes": true,
+          "list_tags": false,
+          "create_note": true,
+          "delete_note": false
+        },
+        "require_approval": [
+          "create_note",
+          "delete_note",
+          "summarize_notes"
+        ],
+        "include": [],
+        "exclude": [],
+        "resources_enabled": false,
+        "prompts_enabled": false,
+        "catalog": {
+          "create_note": {
+            "name": "create_note",
+            "description": "Create a note.",
+            "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
+            "destructive": false,
+            "requires_approval": true,
+            "effect": "unknown"
+          },
+          "delete_note": {
+            "name": "delete_note",
+            "description": "Delete a note.",
+            "input_schema": {"type": "object", "properties": {"id": {"type": "string"}}},
+            "destructive": true,
+            "requires_approval": true,
+            "effect": "mutation"
+          },
+          "list_tags": {
+            "name": "list_tags",
+            "description": "List note tags.",
+            "input_schema": {"type": "object", "properties": {}},
+            "destructive": false,
+            "requires_approval": false,
+            "effect": "read_only"
+          },
+          "search_notes": {
+            "name": "search_notes",
+            "description": "Search notes.",
+            "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+            "destructive": false,
+            "requires_approval": false,
+            "effect": "read_only"
+          },
+          "summarize_notes": {
+            "name": "summarize_notes",
+            "description": "Summarize notes.",
+            "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+            "destructive": false,
+            "requires_approval": false,
+            "effect": "read_only"
+          }
+        }
+      },
+      "source": {}
+    },
+    "Fixture Docs": {
+      "name": "Fixture Docs",
+      "enabled": true,
+      "transport": "streamable_http",
+      "command": "",
+      "args": [],
+      "cwd": null,
+      "env": {},
+      "url": "https://docs.fixture.example/mcp",
+      "headers": {
+        "Authorization": "Bearer fixture-header-secret"
+      },
+      "connect_timeout": 30.0,
+      "tool_timeout": 120.0,
+      "output_limit": 24000,
+      "trust_level": "standard",
+      "requirements": [],
+      "tools": {
+        "enabled": {
+          "search_docs": true
+        },
+        "require_approval": [],
+        "include": [],
+        "exclude": [],
+        "resources_enabled": false,
+        "prompts_enabled": false,
+        "catalog": {
+          "search_docs": {
+            "name": "search_docs",
+            "description": "Search the documentation.",
+            "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+            "destructive": false,
+            "requires_approval": false,
+            "effect": "read_only"
+          }
+        }
+      },
+      "source": {}
+    },
+    "Playwright MCP": {
+      "name": "Playwright MCP",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp"
+      ],
+      "cwd": null,
+      "env": {},
+      "url": "",
+      "headers": {},
+      "connect_timeout": 30.0,
+      "tool_timeout": 120.0,
+      "output_limit": 24000,
+      "trust_level": "official_vendor",
+      "requirements": [],
+      "tools": {
+        "enabled": {
+          "browser_snapshot": true,
+          "browser_click": false
+        },
+        "require_approval": [
+          "browser_click"
+        ],
+        "include": [],
+        "exclude": [],
+        "resources_enabled": false,
+        "prompts_enabled": false,
+        "catalog": {
+          "browser_click": {
+            "name": "browser_click",
+            "description": "Click an element.",
+            "input_schema": {"type": "object", "properties": {"ref": {"type": "string"}}},
+            "destructive": false,
+            "requires_approval": true,
+            "effect": "interaction"
+          },
+          "browser_snapshot": {
+            "name": "browser_snapshot",
+            "description": "Capture an accessibility snapshot of the page.",
+            "input_schema": {"type": "object", "properties": {}},
+            "destructive": false,
+            "requires_approval": false,
+            "effect": "read_only"
+          }
+        }
+      },
+      "source": {
+        "marketplace": "curated",
+        "id": "microsoft-playwright",
+        "name": "Playwright MCP",
+        "url": "https://github.com/microsoft/playwright-mcp",
+        "publisher": "Microsoft",
+        "classification": "official",
+        "category": "Browser & Testing",
+        "trust_tier": "official_vendor",
+        "risk_level": "medium",
+        "action_scope": "read_write",
+        "requires_auth": false,
+        "recommended": true,
+        "capabilities": ["browser", "testing", "screenshots", "automation"],
+        "overlaps_native": ["browser"],
+        "requirements": [],
+        "conflicts": [],
+        "not_verified_by_row_bot": true
+      }
+    },
+    "Old Tool": {
+      "name": "Old Tool",
+      "enabled": false,
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "fixture-old-tool"
+      ],
+      "cwd": null,
+      "env": {},
+      "url": "",
+      "headers": {},
+      "connect_timeout": 30.0,
+      "tool_timeout": 120.0,
+      "output_limit": 24000,
+      "trust_level": "standard",
+      "requirements": [],
+      "tools": {
+        "enabled": {},
+        "require_approval": [],
+        "include": [],
+        "exclude": [],
+        "resources_enabled": false,
+        "prompts_enabled": false
+      },
+      "source": {}
+    }
+  },
+  "_client_publication": {
+    "owner_id": "mcp:legacy-settings",
+    "key": "6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d",
+    "command_id": "6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d"
+  }
+}

@@ -8,6 +8,7 @@ configuration.  They are owned by plugin enablement and are not persisted into
 from __future__ import annotations
 
 import copy
+import hashlib
 from dataclasses import dataclass
 import re
 from pathlib import Path
@@ -15,7 +16,10 @@ from typing import Any
 
 
 def plugin_mcp_server_name(plugin_id: str, server_id: str) -> str:
-    return f"plugin_{_safe_part(plugin_id)}_{_safe_part(server_id)}"[:96].rstrip("_")
+    value = f"plugin_{_safe_part(plugin_id)}_{_safe_part(server_id)}"
+    if len(value) > 96 or not re.fullmatch(r"[A-Za-z0-9_-]+", server_id):
+        value = value[:78] + "_" + hashlib.sha256((plugin_id + "\0" + server_id).encode()).hexdigest()[:16]
+    return value
 
 
 def plugin_mcp_servers() -> dict[str, dict[str, Any]]:
@@ -81,7 +85,9 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
         "output_limit": int(entry.get("output_limit", 24000) or 24000),
         "trust_level": str(entry.get("trust_level") or "standard"),
         "requirements": [],
-        "tools": dict(entry.get("tools") or {}),
+        # What runs without asking, and which tools were accepted, are the user's choices, never a manifest's.
+        "tools": {key: value for key, value in dict(entry.get("tools") or {}).items()
+                  if key not in {"run_without_asking", "catalog", "accepted_names"}},
         "source": {
             "kind": "plugin",
             "plugin_id": plugin_id,
@@ -89,7 +95,28 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
             "server_id": server_id,
         },
     }
-    if _python_entry(entry):
+    if entry.get("portable"):
+        from row_bot.data_paths import get_row_bot_data_dir
+        from row_bot.package_files import contained_path
+        from row_bot.plugins.portable import expand
+
+        data = contained_path(get_row_bot_data_dir(create=False), "plugin_data/" + plugin_id)
+        cfg["env"] = {key: expand(value, root=plugin_path, data=data) for key, value in entry.get("env", {}).items()}
+        cfg["env"].update(PLUGIN_ROOT=str(plugin_path.resolve()), PLUGIN_DATA=str(data.resolve()))
+        cfg["args"] = [expand(arg, root=plugin_path, data=data) for arg in entry.get("args", [])]
+        command = str(entry.get("command", ""))
+        cfg["command"] = str(contained_path(plugin_path, command[2:])) if command.startswith("./") else command
+        cwd = expand(str(entry.get("cwd", "${PLUGIN_ROOT}")), root=plugin_path, data=data)
+        cfg["cwd"] = str(contained_path(plugin_path, cwd[2:])) if cwd.startswith("./") else cwd
+        # Remote values are literal. Native setting:/secret: substitution is
+        # intentionally not part of the portable format.
+        cfg["url"] = entry.get("url", "")
+        cfg["headers"] = dict(entry.get("headers", {}))
+        if entry.get("inputs"):  # Filled in only when connecting: plain values here, keys in the keychain.
+            cfg["inputs"] = copy.deepcopy(entry["inputs"])
+        cfg["environment_mode"] = "minimal"
+        cfg["plugin_data"] = str(data)
+    if _python_entry(entry) and not entry.get("portable"):
         try:
             prepared = _prepared_python(manifest, entry)
             cfg.update(command=prepared.command, args=list(prepared.args), cwd=prepared.cwd)
@@ -103,7 +130,30 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
     cfg["tools"].setdefault("require_approval", [])
     cfg["tools"].setdefault("include", [])
     cfg["tools"].setdefault("exclude", [])
+    from row_bot.plugins.state import get_mcp_child_overrides
+    overrides = get_mcp_child_overrides(plugin_id, server_id)
+    for key in ("enabled", "tools", "auth", "label", "managed_launch", "input_values"):
+        if key in overrides:
+            cfg[key] = copy.deepcopy(overrides[key])
+    for key in ("env", "headers"):
+        cfg[key].update(overrides.get(key, {}))
+    # A package's server runs only once the person has turned it on with its tools accepted, never on the
+    # package's word alone.
+    cfg["enabled"] = cfg["enabled"] and overrides.get("enabled") is True and isinstance(cfg["tools"].get("catalog"), dict)
     return cfg
+
+
+def read_plugin_mcp_child(plugin_id: str, server_key: str) -> dict:
+    """Read an installed declaration for setup even while its parent is off."""
+    from row_bot.plugins.installer import _source_for_preparation
+    from row_bot.plugins.manifest import parse_manifest
+    manifest = parse_manifest(_source_for_preparation(plugin_id))
+    if manifest.id != plugin_id:
+        raise ValueError("plugin_identity_changed")
+    entry = next((s for s in manifest.provides.mcp_servers if s["id"] == server_key), None)
+    if entry is None:
+        raise ValueError("plugin_child_unavailable")
+    return _server_config_from_entry(manifest, entry, server_key)
 
 
 def _resolve_mapping(plugin_id: str, raw: Any) -> dict[str, str]:
@@ -183,7 +233,7 @@ def _prepared_python(manifest, entry: dict) -> PreparedPluginMcpLaunch:
         prepared.source_revision, prepared.environment_revision)
 
 
-def resolve_prepared_plugin_mcp_launch(server_name: str, config: dict) -> PreparedPluginMcpLaunch | None:
+def resolve_prepared_plugin_mcp_launch(server_name: str, config: dict, *, for_setup: bool = False) -> PreparedPluginMcpLaunch | None:
     """Validate a canonical enabled Python contribution at launch/dispatch.
 
     Config markers never establish ownership. A forged or retired plugin marker
@@ -191,6 +241,17 @@ def resolve_prepared_plugin_mcp_launch(server_name: str, config: dict) -> Prepar
     """
     from row_bot.plugins import registry, state
     from row_bot.plugins.worker import WorkerError
+    if for_setup and config.get("source", {}).get("kind") == "plugin":
+        source = config["source"]
+        expected = read_plugin_mcp_child(source["plugin_id"], source["server_id"])
+        from row_bot.mcp_client.config import normalize_server_config
+        if server_name != expected["name"] or normalize_server_config(server_name, expected) != config:
+            raise WorkerError("worker_source_changed")
+        from row_bot.plugins.installer import _source_for_preparation
+        from row_bot.plugins.manifest import parse_manifest
+        manifest = parse_manifest(_source_for_preparation(source["plugin_id"]))
+        entry = next(s for s in manifest.provides.mcp_servers if s["id"] == source["server_id"])
+        return _prepared_python(manifest, entry) if _python_entry(entry) and not entry.get("portable") else None
     matches = []
     for manifest in registry.get_loaded_manifests():
         for entry in manifest.provides.mcp_servers:
@@ -205,7 +266,7 @@ def resolve_prepared_plugin_mcp_launch(server_name: str, config: dict) -> Prepar
     manifest, entry = matches[0]
     if not state.is_plugin_enabled(str(manifest.id)):
         raise WorkerError("worker_revoked")
-    if not _python_entry(entry):
+    if entry.get("portable") or not _python_entry(entry):
         return None
     launch = _prepared_python(manifest, entry)
     expected = _server_config_from_entry(manifest, entry, str(entry["id"]))

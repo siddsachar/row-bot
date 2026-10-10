@@ -8,6 +8,7 @@ import {
   Calculator,
   CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Cloud,
   Download,
   CloudSun,
@@ -33,9 +34,11 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  SquarePen,
   SquareTerminal,
   Square,
   Play,
+  Trash2,
   Unlink,
   Volume2,
   Wrench,
@@ -43,6 +46,7 @@ import {
 import {
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
@@ -69,7 +73,9 @@ import type {
   SettingsMutationRequest,
   SettingsMutationReview,
   SettingsSnapshot,
+  TrackerEntryPage,
 } from '../../api/types';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 import {
   Button,
   Disclosure,
@@ -353,7 +359,8 @@ const utilityPresentation: Record<
   chart: { label: 'Charts', description: 'Create charts from supplied data.' },
   system_info: {
     label: 'System Info',
-    description: 'Read bounded host information.',
+    description:
+      'Reports this computer’s system, memory, disk, network and battery.',
   },
   conversation_search: {
     label: 'Conversation Search',
@@ -1640,8 +1647,9 @@ function whisperOptionLabel(label: string) {
   return match ? `${match[1]} · ${match[2]}` : label;
 }
 
-const SPEECH_MODEL_HINT =
-  'local-whisper, or local-funasr-sensevoice once SenseVoice is installed.';
+/** The engines that listen on this computer, by their saved ids. */
+const WHISPER_ENGINE = 'local-whisper';
+const SENSEVOICE_ENGINE = 'local-funasr-sensevoice';
 
 type VoiceTestPlayback = {
   abort: AbortController;
@@ -1761,20 +1769,31 @@ export function VoiceSnapshotPanel({
     snapshot.whisper_options,
     snapshot.local.whisper_model,
   );
+  const speechEngines = [
+    { value: WHISPER_ENGINE, label: 'Whisper' },
+    ...(snapshot.local.sensevoice_path_configured
+      ? [{ value: SENSEVOICE_ENGINE, label: 'SenseVoice' }]
+      : []),
+  ];
+  // Listening on this computer needs the speech model: until it is downloaded, the header says so.
+  const missingSpeech =
+    (!realtime || localDictation) && !snapshot.local.whisper_installed;
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
-        tone="success"
+        tone={missingSpeech ? 'warning' : 'success'}
         more={[
           realtime && localDictation ? 'dictation on this computer' : '',
           readAloudOn ? 'read aloud on' : 'read aloud off',
         ]}
       >
-        {realtime
-          ? 'Realtime Talk online'
-          : localDictation
-            ? 'Talk and dictation on this computer'
-            : 'Talk on this computer'}
+        {missingSpeech
+          ? 'Download the speech model to talk on this computer'
+          : realtime
+            ? 'Realtime Talk online'
+            : localDictation
+              ? 'Talk and dictation on this computer'
+              : 'Talk on this computer'}
       </SettingsStatus>
       <SettingsGroup
         title="Talk"
@@ -1970,28 +1989,48 @@ export function VoiceSnapshotPanel({
             />
           </SettingsGroup>
         )}
-        <SettingsGroup title="Speech models">
-          <TextSetting
-            mutation={mutation}
-            field="runtime.talk_model"
-            label="Talk model"
-            hint={realtime ? undefined : SPEECH_MODEL_HINT}
-            value={snapshot.runtime.talk_model}
-          />
-          <TextSetting
-            mutation={mutation}
-            field="runtime.dictation_model"
-            label="Dictation model"
-            hint={SPEECH_MODEL_HINT}
-            value={snapshot.runtime.dictation_model}
-          />
-          <TextSetting
-            mutation={mutation}
-            field="runtime.speech_output_model"
-            label="Read-aloud model"
-            value={snapshot.runtime.speech_output_model}
-          />
-        </SettingsGroup>
+        {/* Realtime Talk's own model: the saved talk model names it while
+            Realtime Talk is on (anything else uses the default). */}
+        {realtime && (
+          <SettingsGroup title="Realtime">
+            <TextSetting
+              mutation={mutation}
+              field="runtime.talk_model"
+              label="Realtime model"
+              hint="Leave as gpt-realtime-2 unless you need another gpt-realtime model."
+              value={
+                snapshot.runtime.talk_model.startsWith('gpt-realtime')
+                  ? snapshot.runtime.talk_model
+                  : 'gpt-realtime-2'
+              }
+            />
+          </SettingsGroup>
+        )}
+        {/* Whisper or SenseVoice, for listening on this computer: a choice
+            only once SenseVoice is installed. Read aloud always uses
+            Kokoro, so it has no choice here. */}
+        {speechEngines.length > 1 && (!realtime || localDictation) && (
+          <SettingsGroup title="Speech engine">
+            {!realtime && (
+              <SelectSetting
+                mutation={mutation}
+                field="runtime.talk_model"
+                label="Talk listens with"
+                value={snapshot.runtime.talk_model}
+                options={speechEngines}
+              />
+            )}
+            {localDictation && (
+              <SelectSetting
+                mutation={mutation}
+                field="runtime.dictation_model"
+                label="Dictation listens with"
+                value={snapshot.runtime.dictation_model}
+                options={speechEngines}
+              />
+            )}
+          </SettingsGroup>
+        )}
         <SettingsGroup
           title="Voice models"
           meta={
@@ -2460,7 +2499,7 @@ export function SystemSnapshotPanel({
                 mutation={mutation}
                 field="logging.open"
                 label="Open log folder"
-                description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
+                description="Opens the folder on this computer where Row-Bot keeps its logs."
                 presentation="icon"
                 icon={<FolderOpen size={16} aria-hidden />}
               />
@@ -2474,8 +2513,8 @@ export function SystemSnapshotPanel({
             <TextSetting
               mutation={mutation}
               field="shell.blocked_patterns"
-              label="Additional blocked patterns (comma-separated)"
-              hint="Commands matching these are never run."
+              label="Blocked commands"
+              hint="Commands that contain any of these never run. Separate them with commas."
               value={snapshot.shell.blocked_patterns}
             />
           )}
@@ -3018,7 +3057,7 @@ function WorkspaceFolderSetting({
       mutation={mutation}
       field="workspace.folder_grant"
       label="Workspace folder"
-      hint="Row-Bot’s file tools only work inside this folder. The full local path is never sent to the renderer."
+      hint="Row-Bot’s file tools only work inside this folder. Settings shows its name, never its full path."
       value=""
       savedMessage={() => 'Workspace folder changed'}
       row={{
@@ -3093,11 +3132,16 @@ const trackerKinds: Record<string, string> = {
   boolean: 'Yes or no',
   duration: 'Duration',
   count: 'Count',
+  counter: 'Count',
   numeric: 'Number',
   number: 'Number',
   scale: 'Scale',
+  categorical: 'Category',
   text: 'Note',
 };
+
+/** Trackers are made in chat: this waits in a new chat's composer, unsent. */
+const START_TRACKING_DRAFT = 'Start tracking ';
 
 export function TrackerSnapshotPanel({
   snapshot,
@@ -3108,6 +3152,9 @@ export function TrackerSnapshotPanel({
   mutation: SettingsMutationIO;
   showDanger?: boolean;
 }) {
+  const newChat = useWorkspaceActions()?.newChat;
+  const tracking = snapshot.tool_available && snapshot.enabled === true;
+  const empty = snapshot.items.length === 0;
   return (
     <div className="stack settings-snapshot-page">
       <SettingsSummary>
@@ -3123,8 +3170,8 @@ export function TrackerSnapshotPanel({
         </SummaryChip>
       </SettingsSummary>
       <Section
-        title="Tracker Tool"
-        description="Lets the assistant log and review habits, symptoms and health events."
+        title="Tracking"
+        description="Row-Bot logs habits, symptoms and health events when you tell it in a chat, and answers questions about them."
         icon={ListChecks}
         anchor="tracker.enabled"
       >
@@ -3132,57 +3179,53 @@ export function TrackerSnapshotPanel({
           <SwitchSetting
             mutation={mutation}
             field="enabled"
-            label="Enable Habit Tracker"
+            label="Track in chat"
             value={snapshot.enabled}
+            savedMessage={(next) =>
+              `Tracking in chat ${next ? 'turned on' : 'turned off'}`
+            }
           />
         ) : (
-          <StateChip warning>Tracker tool not found</StateChip>
+          <StateChip warning>Tracking isn’t available</StateChip>
         )}
       </Section>
       <Section
         title="Trackers"
-        description="Stored on this device."
+        description={
+          empty
+            ? 'Kept on this device.'
+            : 'Kept on this device. Open one to see its latest entries.'
+        }
         icon={CalendarClock}
         anchor="trackers"
       >
-        {snapshot.items.length ? (
+        {!empty && (
           <ul className="settings-row-list" aria-label="Saved trackers">
             {snapshot.items.map((tracker) => (
-              <li key={tracker.tracker_id}>
-                <span className="settings-row-list-icon" aria-hidden>
-                  {tracker.icon || <Activity size={15} aria-hidden />}
-                </span>
-                <div className="settings-row-list-text">
-                  <strong>{tracker.name}</strong>
-                  <small>
-                    {trackerKinds[tracker.kind] ?? humanizeToken(tracker.kind)}
-                    {tracker.unit ? ` · ${tracker.unit}` : ''}
-                    {tracker.last_event_at ? (
-                      <>
-                        {' · Last '}
-                        <time
-                          dateTime={tracker.last_event_at}
-                          title={absoluteTime(tracker.last_event_at)}
-                        >
-                          {relativeTime(tracker.last_event_at)}
-                        </time>
-                      </>
-                    ) : (
-                      ' · No entries yet'
-                    )}
-                  </small>
-                </div>
-                <span className="settings-row-list-meta">
-                  {tracker.entry_count === 1
-                    ? '1 entry'
-                    : `${tracker.entry_count} entries`}
-                </span>
-              </li>
+              <TrackerRow
+                key={tracker.tracker_id}
+                tracker={tracker}
+                mutation={mutation}
+              />
             ))}
           </ul>
-        ) : (
-          <p className="muted">No trackers yet.</p>
         )}
+        <div className="settings-tracker-add">
+          <p className="muted">
+            {empty ? 'No trackers yet. ' : ''}
+            {tracking
+              ? `To ${empty ? 'start one' : 'add a tracker or log an entry'}, ask Row-Bot in a chat, like “Track my water, 8 glasses a day” or “Log my sleep every morning”.`
+              : snapshot.tool_available
+                ? 'Turn on “Track in chat” above, then ask Row-Bot in a chat to add a tracker, like “Track my water, 8 glasses a day”.'
+                : 'Trackers are added by asking Row-Bot in a chat.'}
+          </p>
+          {tracking && newChat && (
+            <Button onClick={() => newChat(START_TRACKING_DRAFT)}>
+              <SquarePen size={15} aria-hidden />
+              Start a tracker in chat
+            </Button>
+          )}
+        </div>
       </Section>
       {showDanger && snapshot.items.length > 0 && (
         <SettingsDangerZone>
@@ -3201,15 +3244,25 @@ export function TrackerDangerAction({
 }) {
   return (
     <DangerAction
-      title="Delete all tracker data"
-      description="Removes every habit and health tracker and all their entries. This cannot be undone."
+      title="Delete all trackers"
+      description="Removes every tracker and all their entries. This cannot be undone."
     >
       <TrackerDeleteAll mutation={mutation} />
     </DangerAction>
   );
 }
 
-function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
+type SavedTracker = SettingsSnapshot['tracker']['items'][number];
+
+/**
+ * A reviewed tracker deletion: every tracker, or one with its entries.
+ * Review first, confirm second; an unconfirmed outcome is only re-read.
+ */
+function useTrackerDeletion(
+  mutation: SettingsMutationIO,
+  tracker?: Pick<SavedTracker, 'tracker_id' | 'name'>,
+) {
+  const notify = useNotify();
   const [review, setReview] = useState<SettingsMutationReview | null>(null);
   const [request, setRequest] = useState<SettingsMutationRequest | null>(null);
   const [pendingCommand, setPendingCommand] = useState('');
@@ -3217,6 +3270,9 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const abort = useRef<AbortController | null>(null);
+  // One tracker's row goes once it is deleted: say so where it stays seen.
+  const deleted = (message: string) =>
+    tracker ? notify(`${tracker.name} deleted.`) : setNotice(message);
 
   useEffect(() => {
     if (review && review.settings_revision !== mutation.revision) {
@@ -3229,12 +3285,19 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
 
   async function reviewDeletion() {
     if (busy || pendingCommand) return;
-    const next: SettingsMutationRequest = {
-      settings_revision: mutation.revision,
-      page: 'tracker',
-      field: 'delete_all',
-      value: true,
-    };
+    const next: SettingsMutationRequest = tracker
+      ? {
+          settings_revision: mutation.revision,
+          page: 'tracker',
+          field: 'delete_tracker',
+          value: tracker.tracker_id,
+        }
+      : {
+          settings_revision: mutation.revision,
+          page: 'tracker',
+          field: 'delete_all',
+          value: true,
+        };
     abort.current?.abort();
     abort.current = new AbortController();
     setBusy('review');
@@ -3258,7 +3321,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
     }
   }
 
-  async function deleteAll() {
+  async function confirmDeletion() {
     if (!review || !request || busy) return;
     const commandId = crypto.randomUUID();
     const approvedReview = review;
@@ -3278,7 +3341,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
       if (receipt.status === 'completed' && receipt.snapshot) {
         setPendingCommand('');
         mutation.onSnapshot(receipt.snapshot);
-        setNotice('All tracker data deleted.');
+        deleted('All tracker data deleted.');
       } else if (receipt.status === 'partial') {
         setNotice(
           "Row-Bot couldn't confirm the deletion. Check again before retrying.",
@@ -3295,6 +3358,12 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
     } finally {
       setBusy('');
     }
+  }
+
+  function cancelDeletion() {
+    setReview(null);
+    setRequest(null);
+    setNotice('Deletion cancelled. No tracker data was changed.');
   }
 
   async function checkReceipt() {
@@ -3315,7 +3384,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
       setPendingCommand('');
       if (receipt.status === 'completed' && receipt.snapshot) {
         mutation.onSnapshot(receipt.snapshot);
-        setNotice('All tracker data deletion confirmed.');
+        deleted('All tracker data deletion confirmed.');
       } else {
         setError('The original reviewed deletion was rejected.');
       }
@@ -3326,6 +3395,256 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
     }
   }
 
+  return {
+    review,
+    pendingCommand,
+    busy,
+    error,
+    notice,
+    reviewDeletion,
+    confirmDeletion,
+    cancelDeletion,
+    checkReceipt,
+  };
+}
+
+/** One saved tracker: what it counts, its last entry and its own Delete. */
+function TrackerRow({
+  tracker,
+  mutation,
+}: {
+  tracker: SavedTracker;
+  mutation: SettingsMutationIO;
+}) {
+  const deletion = useTrackerDeletion(mutation, tracker);
+  const { review, pendingCommand, busy, error, notice } = deletion;
+  const [open, setOpen] = useState(false);
+  const entriesId = useId();
+  return (
+    <li>
+      <span className="settings-row-list-icon" aria-hidden>
+        {tracker.icon || <Activity size={15} aria-hidden />}
+      </span>
+      <button
+        type="button"
+        className="settings-row-list-text settings-tracker-open"
+        aria-expanded={open}
+        aria-controls={open ? entriesId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <strong>
+          {tracker.name}
+          <ChevronRight
+            className="settings-tracker-chevron"
+            size={14}
+            aria-hidden
+          />
+        </strong>
+        <small>
+          {trackerKinds[tracker.kind] ?? humanizeToken(tracker.kind)}
+          {tracker.unit ? ` · ${tracker.unit}` : ''}
+          {tracker.last_event_at ? (
+            <>
+              {' · Last '}
+              {/^\d{4}-\d{2}-\d{2}$/.test(tracker.last_event_at) ? (
+                // A day without a time (sleep is dated by its morning): the
+                // day, as the entries show it, never "7 hours ago".
+                <time dateTime={tracker.last_event_at}>
+                  {trackerEntryTime(tracker.last_event_at)}
+                </time>
+              ) : (
+                <time
+                  dateTime={tracker.last_event_at}
+                  title={absoluteTime(tracker.last_event_at)}
+                >
+                  {relativeTime(tracker.last_event_at)}
+                </time>
+              )}
+            </>
+          ) : (
+            ' · No entries yet'
+          )}
+        </small>
+      </button>
+      <span className="settings-row-list-meta settings-tracker-meta">
+        {tracker.entry_count === 1
+          ? '1 entry'
+          : `${tracker.entry_count} entries`}
+        <IconButton
+          size="sm"
+          label={`Delete ${tracker.name}`}
+          disabled={!!busy || !!review || !!pendingCommand}
+          onClick={() => void deletion.reviewDeletion()}
+        >
+          <Trash2 size={15} aria-hidden />
+        </IconButton>
+      </span>
+      {(review || pendingCommand || error || notice) && (
+        <div
+          className="settings-row-list-confirm"
+          role="group"
+          aria-label={`Delete ${tracker.name}`}
+          aria-busy={!!busy}
+        >
+          {review && (
+            <>
+              <p role="status">{review.value_summary}</p>
+              <div className="settings-control-actions">
+                <Button
+                  variant="danger"
+                  disabled={!!busy}
+                  onClick={() => void deletion.confirmDeletion()}
+                >
+                  Delete tracker
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={!!busy}
+                  onClick={deletion.cancelDeletion}
+                >
+                  Keep it
+                </Button>
+              </div>
+            </>
+          )}
+          {pendingCommand && (
+            <Button
+              disabled={!!busy}
+              onClick={() => void deletion.checkReceipt()}
+            >
+              {busy === 'delete' ? 'Checking…' : 'Check again'}
+            </Button>
+          )}
+          {error && <p role="alert">{error}</p>}
+          {notice && !review && <p role="status">{notice}</p>}
+        </div>
+      )}
+      {open && <TrackerEntries id={entriesId} tracker={tracker} />}
+    </li>
+  );
+}
+
+/** A saved value in plain words: Yes or No, Started or Ended, “8 glasses”. */
+function trackerEntryValue(value: string, unit: string | null) {
+  const text = value.trim();
+  const word = text.toLowerCase();
+  if (word === 'true' || word === 'yes') return 'Yes';
+  if (word === 'false' || word === 'no') return 'No';
+  if (word === 'started' || word === 'ended') return humanizeToken(word);
+  if (!unit || !/^-?\d+(?:\.\d+)?$/.test(text)) return text;
+  const range = /^\d+\s*[-–]\s*(\d+)$/.exec(unit.trim());
+  return range ? `${text} / ${range[1]}` : `${text} ${unit}`;
+}
+
+/** A date-only entry is that local day, not midnight UTC. */
+function trackerEntryTime(at: string) {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(at);
+  if (!day) return absoluteTime(at) || at;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
+    new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])),
+  );
+}
+
+/**
+ * One tracker's latest entries, newest first and read-only: read again when
+ * the saved tracker changes. Entries are added or changed by asking in chat.
+ */
+function TrackerEntries({
+  id,
+  tracker,
+}: {
+  id: string;
+  tracker: SavedTracker;
+}) {
+  const controller = useContext(RuntimeContext)?.controller;
+  const [page, setPage] = useState<TrackerEntryPage | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const abort = new AbortController();
+    const read = controller
+      ? controller.trackerEntries(tracker.tracker_id, abort.signal)
+      : Promise.reject({ code: 'capability_unavailable' });
+    read.then(
+      (value) => {
+        if (abort.signal.aborted) return;
+        setPage(value);
+        setError('');
+      },
+      (cause) => {
+        if (!abort.signal.aborted) setError(clientError(cause).message);
+      },
+    );
+    return () => abort.abort();
+  }, [
+    controller,
+    tracker.tracker_id,
+    tracker.entry_count,
+    tracker.last_event_at,
+    attempt,
+  ]);
+  const shown = page?.items.length ?? 0;
+  return (
+    <div
+      id={id}
+      className="settings-tracker-entries"
+      role="region"
+      aria-label={`${tracker.name} entries`}
+      aria-busy={!page && !error}
+    >
+      {error ? (
+        <>
+          <p role="alert">{error}</p>
+          <Button
+            onClick={() => {
+              setError('');
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Try again
+          </Button>
+        </>
+      ) : !page ? (
+        <p className="muted">Loading entries…</p>
+      ) : !shown ? (
+        <p className="muted">No entries yet.</p>
+      ) : (
+        <>
+          <p className="muted">
+            {page.total > shown
+              ? `Latest ${shown} of ${page.total.toLocaleString()} entries`
+              : page.total === 1
+                ? '1 entry'
+                : `${page.total} entries`}
+          </p>
+          <ol className="settings-tracker-entry-list">
+            {page.items.map((entry, index) => (
+              <li key={index}>
+                <time dateTime={entry.at}>{trackerEntryTime(entry.at)}</time>
+                <span>{trackerEntryValue(entry.value, tracker.unit)}</span>
+                {entry.note && <small>{entry.note}</small>}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
+  const {
+    review,
+    pendingCommand,
+    busy,
+    error,
+    notice,
+    reviewDeletion,
+    confirmDeletion: deleteAll,
+    cancelDeletion,
+    checkReceipt,
+  } = useTrackerDeletion(mutation);
+
   return (
     <div className="settings-saved-control" aria-busy={!!busy}>
       {!review && !pendingCommand && (
@@ -3334,9 +3653,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
           disabled={!!busy}
           onClick={() => void reviewDeletion()}
         >
-          {busy === 'review'
-            ? 'Reviewing deletion…'
-            : 'Delete All Tracker Data'}
+          {busy === 'review' ? 'Reviewing deletion…' : 'Delete all trackers'}
         </Button>
       )}
       {review && (
@@ -3348,17 +3665,9 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
               disabled={!!busy}
               onClick={() => void deleteAll()}
             >
-              Confirm Delete All Tracker Data
+              Confirm permanent deletion
             </Button>
-            <Button
-              variant="ghost"
-              disabled={!!busy}
-              onClick={() => {
-                setReview(null);
-                setRequest(null);
-                setNotice('Deletion cancelled. No tracker data was changed.');
-              }}
-            >
+            <Button variant="ghost" disabled={!!busy} onClick={cancelDeletion}>
               Cancel
             </Button>
           </div>
@@ -3805,33 +4114,49 @@ function GoogleAccount({
       feedback={auth?.feedback}
       guide={[
         {
-          id: 'apis',
-          text: 'In Google Cloud, create a project and turn on the Gmail API and the Google Calendar API.',
+          id: 'project',
+          text: 'Sign in to Google Cloud and create a project for Row-Bot. Any name works.',
           link: {
-            href: ACCOUNT_LINKS.googleLibrary,
-            label: 'Open the API library',
+            href: ACCOUNT_LINKS.googleProject,
+            label: 'Create a project',
           },
         },
         {
-          id: 'consent',
-          text: 'Set up the OAuth consent screen and add yourself as a test user.',
+          id: 'apis',
+          text: 'Turn on the Gmail and Google Calendar APIs for that project, in one step.',
           link: {
-            href: ACCOUNT_LINKS.googleConsent,
-            label: 'Open the consent screen',
+            href: ACCOUNT_LINKS.googleApis,
+            label: 'Turn on both APIs',
+          },
+        },
+        {
+          id: 'branding',
+          text: 'Give your sign-in a name, such as “My Row-Bot”, and your email address.',
+          link: {
+            href: ACCOUNT_LINKS.googleBranding,
+            label: 'Open Branding',
+          },
+        },
+        {
+          id: 'audience',
+          text: 'Choose External, then add your own Google address as a test user.',
+          link: {
+            href: ACCOUNT_LINKS.googleAudience,
+            label: 'Open Audience',
           },
         },
         {
           id: 'client',
-          text: 'Create an OAuth client ID of type Desktop app, download its file and choose it under Google sign-in file.',
+          text: 'Create a client of type Desktop app and download its file straight away: Google shows its secret only then. Choose that file under Google sign-in file; any file name works.',
           link: {
-            href: ACCOUNT_LINKS.googleCredentials,
-            label: 'Open credentials',
+            href: ACCOUNT_LINKS.googleClient,
+            label: 'Create the client',
           },
           done: configured,
         },
         {
           id: 'authenticate',
-          text: 'Sign in to Google in your browser.',
+          text: 'Sign in to Google in your browser. While your Google app is in Testing, Google asks you to sign in again every 7 days; publishing it in Audience stops that, and Google then warns that the app is unverified, which is fine for your own use.',
           done: signedIn(state),
           children: usable && (
             <div className="action-cluster">
@@ -4072,10 +4397,13 @@ export function AccountsSnapshotPanel({
   snapshot,
   mutation,
   showActions = false,
+  only,
 }: {
   snapshot: SettingsSnapshot['accounts'];
   mutation: SettingsMutationIO;
   showActions?: boolean;
+  /** One account only, as its app's settings (Apps › Google › Settings). */
+  only?: 'github' | 'google' | 'x';
 }) {
   if (snapshot.availability !== 'available')
     return (
@@ -4095,22 +4423,28 @@ export function AccountsSnapshotPanel({
   const count = (state: AccountState) =>
     states.filter((item) => item === state).length;
   const changed = () => reloadAccounts(mutation);
+  const shown = (account: 'github' | 'google' | 'x') =>
+    !only || only === account;
   return (
     <div className="stack settings-snapshot-page settings-accounts-page">
-      <SettingsStatus
-        tone={count('connected') ? 'success' : 'neutral'}
-        more={[
-          count('reconnect') ? `${count('reconnect')} needs reconnecting` : '',
-          count('unchecked') ? `${count('unchecked')} not checked yet` : '',
-          count('not_connected')
-            ? `${count('not_connected')} not connected`
-            : '',
-        ]}
-      >
-        {count('connected')} connected
-      </SettingsStatus>
+      {!only && (
+        <SettingsStatus
+          tone={count('connected') ? 'success' : 'neutral'}
+          more={[
+            count('reconnect')
+              ? `${count('reconnect')} needs reconnecting`
+              : '',
+            count('unchecked') ? `${count('unchecked')} not checked yet` : '',
+            count('not_connected')
+              ? `${count('not_connected')} not connected`
+              : '',
+          ]}
+        >
+          {count('connected')} connected
+        </SettingsStatus>
+      )}
       <SettingsGroup label="Accounts" className="settings-accounts">
-        {showActions ? (
+        {!shown('github') ? null : showActions ? (
           <ConnectedGitHubAccess onChanged={changed}>
             {(access) => (
               <GitHubAccount
@@ -4127,7 +4461,7 @@ export function AccountsSnapshotPanel({
             access={null}
           />
         )}
-        {showActions ? (
+        {!shown('google') ? null : showActions ? (
           <ConnectedAccountAuth account="google" onChanged={changed}>
             {(auth) => (
               <GoogleAccount
@@ -4146,7 +4480,7 @@ export function AccountsSnapshotPanel({
             auth={null}
           />
         )}
-        {showActions ? (
+        {!shown('x') ? null : showActions ? (
           <ConnectedAccountAuth account="x" onChanged={changed}>
             {(auth) => (
               <XAccount account={snapshot.x} mutation={mutation} auth={auth} />
@@ -4198,7 +4532,7 @@ export function UtilitiesSnapshotPanel({
   return (
     <Section
       title="Built-in tools"
-      description={`Small tools for everyday tasks · ${utilities.filter((item) => item.enabled).length} of ${availableUtilities.length} on.`}
+      description={`Small tools for everyday tasks · ${utilities.filter((item) => item.enabled).length} of ${utilities.length} on.`}
       icon={Wrench}
       anchor="built-in-tools"
     >
@@ -4254,7 +4588,7 @@ export function DocumentModelSetting({
       mutation={mutation}
       field="processing_model"
       label="Read documents with"
-      hint="Saves what each document says to your knowledge. The conversation’s model is used when none is picked."
+      hint="Saves what each document says to your knowledge. Your default model is used when none is picked."
       value={current}
       savedMessage={(next) =>
         next
@@ -4262,10 +4596,10 @@ export function DocumentModelSetting({
               models.find((model) => model.model_ref === next)?.label ??
               String(next)
             }`
-          : 'Documents are read with the conversation’s model'
+          : 'Documents are read with your default model'
       }
       options={[
-        { value: '', label: "Conversation's model" },
+        { value: '', label: 'Default model' },
         ...models
           .filter((model) => model.available || model.model_ref === current)
           .map((model) => ({
@@ -4338,10 +4672,16 @@ export function DocumentEmbeddingSnapshot({
     detail: 'Saved memory index state is unavailable.',
   };
   const local = provider === 'local';
+  // Searching needs the search model on this computer: until it is downloaded the header says so.
+  const modelMissing = localRuntime.state === 'missing';
   return (
     <>
       <SettingsStatus
-        tone={vectors.state === 'current' ? 'success' : 'warning'}
+        tone={
+          vectors.state === 'current' && !(local && modelMissing)
+            ? 'success'
+            : 'warning'
+        }
         more={[
           vectors.state === 'current'
             ? ''
@@ -4349,9 +4689,11 @@ export function DocumentEmbeddingSnapshot({
           local ? 'search runs on this computer' : 'search runs in the cloud',
         ]}
       >
-        {snapshot.indexed_documents == null
-          ? 'Indexed count unavailable'
-          : `${snapshot.indexed_documents.toLocaleString()} searchable`}
+        {local && modelMissing
+          ? 'Download the search model to search documents (Advanced › Search model files)'
+          : snapshot.indexed_documents == null
+            ? 'Indexed count unavailable'
+            : `${snapshot.indexed_documents.toLocaleString()} searchable`}
       </SettingsStatus>
       <SettingsGroup title="Search" anchor="embedding">
         <SegmentedSetting
@@ -4429,29 +4771,29 @@ export function DocumentEmbeddingSnapshot({
           <NumberSetting
             mutation={mutation}
             field="embedding.dimension"
-            label="Dimension override"
-            hint="Leave it on Automatic unless a model needs a fixed size."
+            label="Index size"
+            hint="Leave it on Automatic unless the search model needs a fixed number of dimensions."
             value={embedding.dimension}
             min={1}
             max={65536}
             optional
           />
           <SettingsItem
-            label="Document vectors"
+            label="Document index"
             help={vectors.detail}
             bind={false}
             status={
               <StatusLine tone={healthTone(vectors.state)}>
-                Document vectors: {vectors.state}
+                Document index: {vectors.state}
               </StatusLine>
             }
             control={
               <ReviewedSettingsAction
                 mutation={mutation}
                 field="vectors.rebuild"
-                label="rebuild document vectors"
+                label="Rebuild document index"
                 text="Rebuild"
-                description="Recreate document search vectors from the documents already added."
+                description="Indexes the documents already added again, with the current search model."
                 presentation="button"
               />
             }
@@ -4528,9 +4870,12 @@ export function DocumentEmbeddingSnapshot({
 export function ToolConfigurationSnapshot({
   snapshot,
   mutation,
+  only,
 }: {
   snapshot: SettingsSnapshot['tools'];
   mutation: SettingsMutationIO;
+  /** One tool's switch and key only, as its app's settings (Apps › Tavily › Settings). */
+  only?: string;
 }) {
   const toolPresentation: Record<
     string,
@@ -4546,10 +4891,11 @@ export function ToolConfigurationSnapshot({
       order: 1,
       description: 'Search the current web without an API key.',
     },
+    // Row-Bot's own search with a Tavily key: the same switch as Apps › Tavily, named the same there.
     web_search: {
-      label: 'Web Search',
+      label: 'Tavily web search',
       order: 2,
-      description: 'Search the live web with Tavily.',
+      description: 'Search the live web with your own Tavily key.',
       setupUrl: 'https://app.tavily.com/',
     },
     wikipedia: {
@@ -4582,10 +4928,11 @@ export function ToolConfigurationSnapshot({
     }))
     .filter(
       (tool) =>
-        !normalizedQuery ||
-        `${tool.displayLabel} ${tool.description}`
-          .toLocaleLowerCase()
-          .includes(normalizedQuery),
+        (!only || tool.tool_id === only) &&
+        (!normalizedQuery ||
+          `${tool.displayLabel} ${tool.description}`
+            .toLocaleLowerCase()
+            .includes(normalizedQuery)),
     )
     .sort(
       (left, right) =>
@@ -4593,6 +4940,96 @@ export function ToolConfigurationSnapshot({
           (toolPresentation[right.tool_id]?.order ?? Number.MAX_SAFE_INTEGER) ||
         left.displayLabel.localeCompare(right.displayLabel),
     );
+  const toolList = (expanded = false) => (
+    <ul className="settings-toggle-list settings-row-list">
+      {tools.map((tool) => {
+        // A tool that needs a key says so before it is turned on (U50).
+        const missingKey =
+          tool.credentials.length > 0 &&
+          tool.credentials.some((credential) => !credential.configured);
+        return (
+          <li key={tool.tool_id}>
+            <div className="settings-row-list-text">
+              <strong>{tool.displayLabel}</strong>
+              <small>
+                {tool.description}
+                {!tool.available ? ' · Unavailable' : ''}
+                {tool.configured_fields.length
+                  ? ` · ${tool.configured_fields.length} configured fields`
+                  : ''}
+              </small>
+              {missingKey && (
+                <small className="settings-tool-needs-key">
+                  {tool.enabled
+                    ? 'On, but it has no key yet: it fails until you add one below.'
+                    : 'Needs its key first: add it under Credentials & setup.'}
+                </small>
+              )}
+            </div>
+            {tool.available && tool.enabled != null ? (
+              <SwitchSetting
+                mutation={mutation}
+                field={`${tool.tool_id}.enabled`}
+                label={`Enable ${tool.displayLabel}`}
+                value={tool.enabled}
+                bare
+              />
+            ) : (
+              <StateChip warning>Unavailable</StateChip>
+            )}
+            {(tool.credentials.length > 0 || tool.setupUrl) && (
+              <details
+                className="settings-snapshot-disclosure settings-tool-detail"
+                open={expanded || missingKey || undefined}
+              >
+                <summary>Credentials &amp; setup</summary>
+                {tool.setupUrl && (
+                  <p className="settings-help">
+                    Get a key at{' '}
+                    <a href={tool.setupUrl} target="_blank" rel="noreferrer">
+                      {new URL(tool.setupUrl).hostname}
+                    </a>
+                    , then add it below. A saved key is never shown in full
+                    again.
+                  </p>
+                )}
+                {tool.credentials.map((credential) =>
+                  tool.tool_id === 'web_search' ||
+                  tool.tool_id === 'wolfram_alpha' ? (
+                    <SecretSetting
+                      key={credential.name}
+                      mutation={mutation}
+                      field={`${tool.tool_id}.credential`}
+                      label={credential.label}
+                      configured={credential.configured}
+                      source={credential.source}
+                      fingerprint={credential.fingerprint}
+                    />
+                  ) : (
+                    <div
+                      className="settings-secret-summary"
+                      key={credential.name}
+                    >
+                      <div className="settings-secret-text">
+                        <span className="settings-secret-label">
+                          {credential.label}
+                        </span>
+                        <span className="settings-secret-state">
+                          {credential.configured
+                            ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
+                            : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </details>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
   if (snapshot.availability !== 'available')
     return (
       <Section
@@ -4602,6 +5039,18 @@ export function ToolConfigurationSnapshot({
       >
         <StateChip warning>Tool settings unavailable</StateChip>
       </Section>
+    );
+  if (only)
+    return (
+      <div className="stack settings-snapshot-page">
+        <Section
+          title={tools[0]?.displayLabel ?? 'Tool'}
+          description="Turn it on, and save the key it uses. Keys stay in your system keychain."
+          icon={BookOpen}
+        >
+          {toolList(true)}
+        </Section>
+      </div>
     );
   return (
     <div className="stack settings-snapshot-page">
@@ -4615,49 +5064,49 @@ export function ToolConfigurationSnapshot({
         </SummaryChip>
       </SettingsSummary>
       <Section
-        title="Capability loading"
-        description="Choose how enabled external capabilities are exposed to the model."
+        title="How tools are offered"
+        description="How tools from your apps and plugins reach the model."
         icon={SlidersHorizontal}
         anchor="capability-loading"
       >
         <RadioSetting
           mutation={mutation}
           field="external_loading_mode"
-          label="External tool loading"
+          label="Tools from apps and plugins"
           value={snapshot.external_loading_mode}
           options={[
             {
               value: 'auto',
-              label: 'Auto-select external tools (recommended)',
+              label: 'Only the ones a request needs (recommended)',
             },
-            { value: 'eager', label: 'Load all external tools' },
+            { value: 'eager', label: 'All of them, every time' },
           ]}
         />
         <p className="settings-help">
-          Core tools stay available. Enabled external tools are selected when
-          needed unless compatibility mode loads them all.
+          Built-in tools are always offered. Offering every tool at once can
+          slow replies when many apps are connected.
         </p>
       </Section>
       <Section
-        title="Retrieval compression"
-        description="Controls how search results are filtered before reaching the model."
+        title="Trim search results"
+        description="Keep only the parts of search results that matter before the model reads them."
         icon={Search}
         anchor="retrieval-compression"
       >
         <SelectSetting
           mutation={mutation}
           field="compression_mode"
-          label="Compression mode"
+          label="Trimming"
           value={snapshot.compression_mode}
           options={[
             { value: 'off', label: 'Off (default)' },
-            { value: 'deep', label: 'Deep' },
+            { value: 'deep', label: 'On: slower, uses extra model calls' },
           ]}
         />
       </Section>
       <Section
         title="Search & Knowledge Tools"
-        description="Research tools the assistant can use, with masked credentials."
+        description="Research tools the assistant can use. Some need a key."
         icon={BookOpen}
         anchor="search-tools"
       >
@@ -4671,98 +5120,7 @@ export function ToolConfigurationSnapshot({
             placeholder="Filter by name or purpose"
           />
         </label>
-        <ul className="settings-toggle-list settings-row-list">
-          {tools.map((tool) => {
-            // A tool that needs a key says so before it is turned on (U50).
-            const missingKey =
-              tool.credentials.length > 0 &&
-              tool.credentials.some((credential) => !credential.configured);
-            return (
-              <li key={tool.tool_id}>
-                <div className="settings-row-list-text">
-                  <strong>{tool.displayLabel}</strong>
-                  <small>
-                    {tool.description}
-                    {!tool.available ? ' · Unavailable' : ''}
-                    {tool.configured_fields.length
-                      ? ` · ${tool.configured_fields.length} configured fields`
-                      : ''}
-                  </small>
-                  {missingKey && (
-                    <small className="settings-tool-needs-key">
-                      {tool.enabled
-                        ? 'On, but it has no key yet: it fails until you add one below.'
-                        : 'Needs its key first: add it under Credentials & setup.'}
-                    </small>
-                  )}
-                </div>
-                {tool.available && tool.enabled != null ? (
-                  <SwitchSetting
-                    mutation={mutation}
-                    field={`${tool.tool_id}.enabled`}
-                    label={`Enable ${tool.displayLabel}`}
-                    value={tool.enabled}
-                    bare
-                  />
-                ) : (
-                  <StateChip warning>Unavailable</StateChip>
-                )}
-                {(tool.credentials.length > 0 || tool.setupUrl) && (
-                  <details
-                    className="settings-snapshot-disclosure settings-tool-detail"
-                    open={missingKey || undefined}
-                  >
-                    <summary>Credentials &amp; setup</summary>
-                    {tool.setupUrl && (
-                      <p className="settings-help">
-                        Create the provider credential at{' '}
-                        <a
-                          href={tool.setupUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {new URL(tool.setupUrl).hostname}
-                        </a>
-                        , then save it below. Credentials remain write-only and
-                        masked.
-                      </p>
-                    )}
-                    {tool.credentials.map((credential) =>
-                      tool.tool_id === 'web_search' ||
-                      tool.tool_id === 'wolfram_alpha' ? (
-                        <SecretSetting
-                          key={credential.name}
-                          mutation={mutation}
-                          field={`${tool.tool_id}.credential`}
-                          label={credential.label}
-                          configured={credential.configured}
-                          source={credential.source}
-                          fingerprint={credential.fingerprint}
-                        />
-                      ) : (
-                        <div
-                          className="settings-secret-summary"
-                          key={credential.name}
-                        >
-                          <div className="settings-secret-text">
-                            <span className="settings-secret-label">
-                              {credential.label}
-                            </span>
-                            <span className="settings-secret-state">
-                              {credential.configured
-                                ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
-                                : 'Not set'}
-                            </span>
-                          </div>
-                        </div>
-                      ),
-                    )}
-                  </details>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        {toolList()}
         {!tools.length && (
           <p className="settings-help">No research tools match this search.</p>
         )}
@@ -4867,20 +5225,24 @@ export function PreferencesSnapshotPanel({
         )}
         <Section
           title="Import from another assistant"
-          description="Scan and select data from Hermes Agent or OpenClaw. Nothing is written until you confirm."
+          description="Bring your data over from another assistant. Nothing is written until you confirm."
           icon={Import}
           anchor="migration"
         >
-          <div className="settings-inline-row">
-            <div>
-              <strong>Works with</strong>
-              <p>
-                {snapshot.migration.available
-                  ? snapshot.migration.sources.join(' and ')
-                  : 'Migration is unavailable on this installation.'}
-              </p>
+          {/* The import form names the apps it reads from; this line is
+              for when there is no form. */}
+          {(!showUpdateControls || !snapshot.migration.available) && (
+            <div className="settings-inline-row">
+              <div>
+                <strong>Works with</strong>
+                <p>
+                  {snapshot.migration.available
+                    ? snapshot.migration.sources.join(' and ')
+                    : 'Migration is unavailable on this installation.'}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
           {showUpdateControls && <ConnectedMigrationControls />}
         </Section>
       </div>

@@ -11,8 +11,8 @@ import json
 import re
 
 from row_bot.application import capability_configuration_controls as configuration
-from row_bot.mcp_client import config
-from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool
+from row_bot.mcp_client import config, targets
+from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool, saved_hints
 
 Error = configuration.CapabilityConfigurationError
 _TOOL_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_. -]{0,127}\Z")
@@ -68,11 +68,13 @@ def _server(saved, server_id):
 
 
 def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
+    from row_bot.integrations import presets
     enabled, catalog = tools.get("enabled", {}), tools.get("catalog", {})
-    approvals, included, excluded = (tools.get(field, []) for field in ("require_approval", "include", "exclude"))
+    approvals, included, excluded, allowed = (tools.get(field, []) for field in ("require_approval", "include", "exclude",
+                                                                               "run_without_asking"))
     if (type(enabled) is not dict or type(catalog) is not dict or any(type(values) is not list or
             len(values) > 10000 or any(type(name) is not str for name in values)
-            for values in (approvals, included, excluded))):
+            for values in (approvals, included, excluded, allowed))):
         raise Error("mcp_policy_unavailable")
     names = set(enabled) | set(catalog) | set(approvals) | set(included) | set(excluded)
     if len(names) > 10000 or any(type(name) is not str or not name or len(name) > 512 for name in names):
@@ -88,15 +90,19 @@ def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
             description = metadata.get("description", "")
             destructive = _boolean(metadata.get("destructive", False))
             declared = _boolean(metadata.get("requires_approval", False))
-            if type(description) is not str or len(description) > 16384:
+            readable = (type(description) is str and len(description) <= 16384
+                        and saved_hints(metadata.get("annotations", {})) is not None)
+            if not readable:
                 destructive = None
-            elif is_destructive_tool(name, description):
+            elif is_destructive_tool(name, description, metadata):
                 destructive = True
-            if type(description) is str and len(description) <= 16384:
-                effect = classify_tool_effect(name, description)
-        locked = destructive is not False or declared is not False or effect == "unknown"
-        required = True if destructive is True or declared is True or name in approvals or effect == "unknown" else None if locked else False
-        default_enabled = None if destructive is None else not (destructive or effect == "unknown")
+            if readable:
+                effect = classify_tool_effect(name, description, metadata)  # With its saved hints (B307).
+        locked = destructive is None or declared is None or presets.locked(
+            {"destructive": destructive, "requires_approval": declared, "effect": effect})
+        asks = locked or name in approvals or (effect == "mutation" and name not in allowed)
+        required = True if asks and destructive is not None else None if locked else False
+        default_enabled = None if destructive is None else not (destructive or effect in {"unknown", "mutation"})
         identity, label = _tool_id(server_id, name), _label(name)
         if label == "MCP tool" and label != name:
             label = f"MCP tool ({identity[:12]})"
@@ -107,17 +113,19 @@ def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
 
 
 def read_mcp_policy(*, server_id: str | None = None, query: str = "", cursor: str | None = None,
-                    limit: int = 25, validate: Callable[[], None] = lambda: None) -> McpPolicyPage:
+                    limit: int = 25, validate: Callable[[], None] = lambda: None,
+                    target: dict | None = None) -> McpPolicyPage:
     """Read the whole saved tool scope before returning one bounded safe page."""
     validate()
+    target = targets.normalize(target)
     if server_id is not None:
         _identity(server_id)
     if type(query) is not str or len(query) > 128 or type(limit) is not int or not 1 <= limit <= 50:
         raise Error("invalid_query")
     query = query.strip().casefold()
     try:
-        saved = config.read_saved_configuration()
-        recovery = config.configuration_recovery_required()
+        saved = config.read_saved_configuration(target)
+        recovery = config.configuration_recovery_required(target=target)
     except config.McpConfigurationError:
         if cursor is not None:
             raise Error("cursor_expired") from None
@@ -169,7 +177,7 @@ def read_mcp_policy(*, server_id: str | None = None, query: str = "", cursor: st
         items, len(matches), next_cursor)
 
 
-def _next_policy_document(saved, intent):
+def _next_policy_document(saved, intent, *, child: bool = False):
     if type(intent) is not dict or type(intent.get("operation")) is not str:
         raise Error("invalid_command")
     operation = intent["operation"]
@@ -180,11 +188,16 @@ def _next_policy_document(saved, intent):
         fields.add("tool_id")
     if operation == "utility_enabled":
         fields.add("utility")
-    if (operation not in {"global_enabled", "server_enabled", "tool_enabled", "tool_approval", "utility_enabled"}
-            or set(intent) != fields or type(intent.get("enabled")) is not bool):
+    if operation == "preset":
+        fields = {"operation", "server_id", "preset", "overrides"} if "overrides" in intent else {"operation", "server_id", "preset"}
+    if (operation not in {"global_enabled", "server_enabled", "tool_enabled", "tool_approval", "utility_enabled", "preset"}
+            or set(intent) != fields or (operation != "preset" and type(intent.get("enabled")) is not bool)
+            or type(intent.get("overrides", {})) is not dict or len(intent.get("overrides", {})) > 256):
         raise Error("invalid_command")
     document = copy.deepcopy(saved.document)
     if operation == "global_enabled":
+        if child:
+            raise Error("plugin_child_parent_owned")
         document["enabled"] = intent["enabled"]
         return document, ()
     _identity(intent["server_id"])
@@ -198,7 +211,19 @@ def _next_policy_document(saved, intent):
     tools = target.setdefault("tools", {})
     if type(tools) is not dict:
         raise Error("mcp_policy_unavailable")
-    if operation == "utility_enabled":
+    if operation == "preset":
+        from row_bot.integrations import presets
+        if intent["preset"] not in presets.PRESETS or type(tools.get("catalog")) is not dict:
+            raise Error("invalid_command")
+        overrides = intent.get("overrides") or {}
+        _tool_policies(intent["server_id"], tools)  # Retain strict existing safety shapes.
+        if set(overrides) - set(tools.get("accepted_names") or tools["catalog"]):
+            raise Error("invalid_command")
+        try:
+            presets.apply(tools, intent["preset"], None, overrides)
+        except ValueError:
+            raise Error("approval_required") from None
+    elif operation == "utility_enabled":
         if type(intent["utility"]) is not str or intent["utility"] not in {"resources", "prompts"}:
             raise Error("invalid_command")
         tools[intent["utility"] + "_enabled"] = intent["enabled"]
@@ -219,25 +244,29 @@ def _next_policy_document(saved, intent):
         else:
             if not intent["enabled"] and rows[tool].approval_locked:
                 raise Error("approval_required")
-            approved = set(tools.get("require_approval", []))
+            approved, allowed = set(tools.get("require_approval", [])), set(tools.get("run_without_asking", []))
             if intent["enabled"]:
                 approved.add(tool)
-            else:
+                allowed.discard(tool)
+            else:  # Stopping a routine change from asking is an explicit allowance for that one tool.
                 approved.discard(tool)
-            tools["require_approval"] = sorted(approved)
+                allowed.add(tool)
+            tools["require_approval"], tools["run_without_asking"] = sorted(approved), sorted(allowed)
     return document, (name,)
 
 
-def review_mcp_policy_command(configuration_revision: str, intent: dict, *, validate: Callable[[], None]) -> dict:
+def review_mcp_policy_command(configuration_revision: str, intent: dict, *, validate: Callable[[], None],
+                              target: dict | None = None) -> dict:
     from row_bot.runtime import admissions
     validate()
+    target = targets.normalize(target)
     _identity(configuration_revision)
-    config.require_configuration_write_available()
-    saved = config.read_saved_configuration()
+    config.require_configuration_write_available(target=target)
+    saved = config.read_saved_configuration(target)
     current = configuration._revision(saved)
     if configuration_revision != current:
         raise Error("revision_conflict", current)
-    _document, names = _next_policy_document(saved, intent)
+    _document, names = _next_policy_document(saved, intent, child=target is not None)
     validate()
     return {"configuration_revision": current, "operation": intent["operation"],
         "action_digest": admissions.keyed_digest({"revision": current, "intent": intent}),
@@ -245,11 +274,13 @@ def review_mcp_policy_command(configuration_revision: str, intent: dict, *, vali
 
 
 def execute_mcp_policy_command(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],
-                               validate_review: Callable[[dict], None]) -> dict:
+                               validate_review: Callable[[dict], None], target: dict | None = None) -> dict:
     """Save authorization only; original retries reuse the existing proof owner."""
+    command, target = targets.from_command(command, target)
     return configuration._execute_saved_change(owner_id=owner_id, key=key, command=command, validate=validate,
         validate_review=validate_review, command_type="mcp.configuration.control",
-        next_document=_next_policy_document, saved_disabled=None)
+        next_document=lambda saved, intent: _next_policy_document(saved, intent, child=target is not None),
+        saved_disabled=None, target=target)
 
 
 public_receipt = configuration.public_receipt

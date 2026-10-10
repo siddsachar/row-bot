@@ -52,10 +52,15 @@ def _revision(config: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+# Setup steps that became Apps (accounts and channels are apps now) keep what was done.
+_RENAMED_STEPS = {"accounts": "apps", "channels": "apps", "extensions": "apps"}
+
+
 def _clean(values: object, allowed: dict[str, object]) -> list[str]:
     if not isinstance(values, list):
         return []
-    return list(dict.fromkeys(value for value in values if isinstance(value, str) and value in allowed))
+    renamed = (_RENAMED_STEPS.get(value, value) if allowed is SETUP_STEPS else value for value in values)
+    return list(dict.fromkeys(value for value in renamed if isinstance(value, str) and value in allowed))
 
 
 def _missing_starter_workflows() -> int:

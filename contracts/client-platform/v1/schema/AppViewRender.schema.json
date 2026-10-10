@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "AppViewTool": {
+      "additionalProperties": false,
+      "description": "The step's tool as MCP defines one: a view's SDK checks it (an inputSchema is required) before it starts.",
+      "properties": {
+        "description": {
+          "default": "",
+          "maxLength": 4096,
+          "title": "Description",
+          "type": "string"
+        },
+        "inputSchema": {
+          "additionalProperties": true,
+          "title": "Inputschema",
+          "type": "object"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "title": "AppViewTool",
+      "type": "object"
+    },
+    "TraceAppRef": {
+      "additionalProperties": false,
+      "description": "An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,\nre-read from local data, and for a step the tool's readable title in that app (\"Delete page\").",
+      "properties": {
+        "allow_changes": {
+          "default": false,
+          "title": "Allow Changes",
+          "type": "boolean"
+        },
+        "icon": {
+          "maxLength": 128,
+          "title": "Icon",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "tool": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Tool",
+          "type": "string"
+        },
+        "view": {
+          "default": false,
+          "title": "View",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "name",
+        "icon"
+      ],
+      "title": "TraceAppRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One step's view: the frame address it loads once, what it was called with and its result.",
+  "properties": {
+    "app": {
+      "$ref": "#/$defs/TraceAppRef"
+    },
+    "domains": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Domains",
+      "type": "array"
+    },
+    "frame_url": {
+      "maxLength": 128,
+      "title": "Frame Url",
+      "type": "string"
+    },
+    "input": {
+      "additionalProperties": true,
+      "title": "Input",
+      "type": "object"
+    },
+    "prefers_border": {
+      "default": true,
+      "title": "Prefers Border",
+      "type": "boolean"
+    },
+    "render_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Render Id",
+      "type": "string"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Result"
+    },
+    "tool": {
+      "$ref": "#/$defs/AppViewTool"
+    }
+  },
+  "required": [
+    "render_id",
+    "frame_url",
+    "app",
+    "tool"
+  ],
+  "title": "AppViewRender",
+  "type": "object"
+}

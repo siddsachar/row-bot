@@ -103,8 +103,12 @@ export const START_NOTES: Record<string, string> = {
 export const ACCOUNT_LINKS = {
   githubToken: 'https://github.com/settings/personal-access-tokens/new',
   githubCli: 'https://cli.github.com/',
-  googleLibrary: 'https://console.cloud.google.com/apis/library',
-  googleConsent: 'https://console.cloud.google.com/apis/credentials/consent',
-  googleCredentials: 'https://console.cloud.google.com/apis/credentials',
+  // Google's own setup pages, in the order the guide uses them (checked 2026-10-05).
+  googleProject: 'https://console.cloud.google.com/projectcreate',
+  googleApis:
+    'https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com',
+  googleBranding: 'https://console.cloud.google.com/auth/branding',
+  googleAudience: 'https://console.cloud.google.com/auth/audience',
+  googleClient: 'https://console.cloud.google.com/auth/clients/create',
   xPortal: 'https://developer.x.com/en/portal/dashboard',
 };

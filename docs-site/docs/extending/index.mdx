@@ -1,6 +1,6 @@
 ---
 title: "Extend Row-Bot"
-description: "Choose between built-in tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts."
+description: "Choose between built-in tools, Skills, Custom Tools, packages, apps, channels, and accounts, and how Row-Bot sets apps and skills up."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -14,29 +14,66 @@ For the conceptual differences between tools, Skills, plugins, MCP, channels, an
 | Extension | Use It For | Review Boundary |
 | --- | --- | --- |
 | Built-in tool | A capability already shipped and maintained with Row-Bot. | Enable only the tools a profile needs; consequential operations still use approval policy. |
-| Skill | Reusable instructions and workflow knowledge. | Read the full skill and bundled files before enabling or pinning it. |
+| Skill | Reusable instructions and workflow knowledge. | Open **What's inside** before adding it; adding turns it on, and its scripts never run when added. |
 | Custom Tool | A reviewed local command or repo-specific helper made from a folder in Settings › Tools or a code folder's Developer panel. | Inspect its source, command classification, dependencies, and workspace scope. |
-| Plugin | A packaged bundle that can provide tools, skills, channels, MCP configuration, or UI. | Review manifest, source, permissions, dependencies, and update path before enabling. |
-| MCP server | Tools exposed by an external local or remote process. | Add disabled, inspect overlap and risk labels, test, then enable only trusted tools. |
+| Plugin (package) | A packaged bundle that can provide tools, skills, apps, configuration, or UI. | Review its page, publisher, **Included** items, and downloads before adding it. |
+| App | Tools from a hosted service, or from a program that runs on this computer. | Review where requests go and choose **Read only** or **Ask before changes** until you trust it. |
 | Channel | A messaging adapter for receiving or delivering work. | Verify account, recipients, pairing, tunnel, and delivery defaults before starting. |
 | Account | Authorisation for GitHub, Google, X, or another service used by tools. | Review requested scopes and disconnect unused accounts. |
 
-<Screenshot id="skills-hub" alt="Offline Row-Bot Public Skills Hub with two fictional skills." caption="Skills import into the local library off by default so you can inspect them before enabling." />
-
-<Screenshot id="plugin-marketplace" alt="Offline Row-Bot Plugin Marketplace with fictional entries." caption="Marketplace cards expose publisher, verification, capabilities, permissions, and install review before any plugin is added." />
-
-<Screenshot id="mcp-add-server" alt="Row-Bot Add MCP Server dialog." caption="New MCP servers start as explicit configurations; keep them disabled until transport, command or URL, environment, and tool risk are understood." />
-
-<Screenshot id="mcp-marketplace" alt="Row-Bot Browse MCP Servers marketplace with bundled starter servers." caption="The MCP browser makes source, overlap, authentication, transport, and risk visible before you import a disabled server definition." />
-
 ## Safe Evaluation Sequence
 
-1. Read the extension description and source.
-2. Check requested permissions, credentials, network destinations, commands, and install steps.
-3. Install into the local data directory only from a source you trust.
-4. Keep it disabled while you inspect configuration and provided capabilities.
-5. Test with fictional data and a non-consequential task.
-6. Enable the minimum capabilities and keep approval mode at **Ask** until behaviour is familiar.
-7. Disable or remove extensions that are no longer maintained or needed.
+1. Read the extension's page: what it does, who publishes it, and its source.
+2. Check where requests go, what it needs (a sign-in, a key, downloads), and what it includes. Nothing is fetched or run until you agree.
+3. Add it only from a source you trust.
+4. Choose **Read only** or **Ask before changes** for an app until you trust it.
+5. Test with fictional data and a non-consequential task; **Try it** prepares a draft without sending it.
+6. Keep the conversation's approval mode at **Ask** until behaviour is familiar.
+7. Turn off or remove extensions that are no longer maintained or needed.
 
 Third-party dependency telemetry is not Row-Bot telemetry. Review and accept any dependency behaviour before installation, and never allow it to receive Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the explicit feature you chose.
+
+Connect apps and packages in [Settings › Apps](/docs/settings/apps), where your accounts and channels are apps too, and add skills in [Settings › Skills](/docs/settings/skills). Open an item's page, read what will happen, and agree; Row-Bot then does the setup and asks what the app may do. Raw settings for one item stay under its **⋯ › Advanced settings**.
+
+## How Apps And Skills Are Set Up
+
+This section is for developers working on Row-Bot or building against its local API. Five guides go further:
+
+- [Catalog Source Adapters](/docs/extending/source-adapters): add a catalog, and the passive-read rules.
+- [Contribute To The App Catalog](/docs/extending/app-catalog): app records, verified vendors, icons, featured skills and coverage.
+- [MCP Bundles (.mcpb)](/docs/extending/mcp-bundles): what Row-Bot reads, checks and runs in a bundle.
+- [Sign-In And Client Metadata](/docs/extending/sign-in-and-client-metadata): CIMD, dynamic registration and your own OAuth app.
+- [Hosting MCP Apps Views](/docs/extending/mcp-apps): the sandboxed frame, its bridge and its limits.
+
+**Plans.** For each action on an item, the server computes an install plan: an ordered list of typed steps (`consent`, `inputs`, `runtime`, `local_app_check`, `sign_in`, `test`, `access`, `enable`). `POST /api/v1/integrations/plans/review` returns the plan with a consent token bound to the session and the plan's digest. `POST /api/v1/integrations/plans` starts it with that token; the server runs it in the background, and the client polls `GET /api/v1/integrations/plans/{id}`. A plan paused for input resumes with `POST …/plans/{id}/continue` and stops with `POST …/plans/{id}/cancel`, keeping completed steps. A paused plan expires after 30 minutes. When the outcome of a step is uncertain, the plan reports it rather than re-running it.
+
+**Intents.** `connect`, `add`, `turn_on`, `fix`, `access`, `settings` (change a connected MCP app's declared inputs: one `inputs` step with every setting, then `test`, `access`, which pauses only when the tools changed, and `enable`, which reconnects only if it was on), `turn_off`, `remove` (with `cleanup` to also delete saved keys and data, bound to the consent) and `update`.
+
+**Built-in ways.** `integrations/builtin.py` lists Row-Bot's own accounts, channels and key tools as items (`builtin:account:<id>`, `builtin:channel:<id>`, `builtin:tool:<id>`) with their status read from their owners. They have no plan: their page opens the owner's settings scoped to that item (`?edit=1`). Each keeps its owner's credentials; an account's token is never another app's key.
+
+**Endpoints.** All under `/api/v1/integrations/`: `sources` (with `sources/{id}/update` and, for a broker, `sources/{id}/opt-in`), `apps`, `icons` (a batch of logos as data URIs), `items`, `items/search`, `items/resolve`, `items/settle`, `uploads`, `detail`, `plans/review`, `plans`, `plans/{id}`, `plans/{id}/continue`, `plans/{id}/cancel`, `catalog-schedule`, `views` (with `views/apps`) and `workflow-templates` (with `workflow-templates/{id}/use`). `items` reads installed items or the local catalog index (by `scope`); `items/search` with `refresh` is the explicit **Search online catalogs**; `items/resolve` identifies a pasted link without fetching it (an app link with a query string is refused, since keys belong in the keychain); `uploads` stages a picked file and is limited to Row-Bot on this computer; `items/settle` is the **Retry** on an unfinished change: it checks that item's unfinished owner commands again and settles each only when its owner proves how it ended, never re-sending one. The old `/settings/integrations` API routes are removed.
+
+**Tool access.** Each MCP tool is classified by effect:
+
+- High-impact tools always ask: those with `destructiveHint`, or whose name or description has a verb such as delete, send, post, publish, deploy, merge, push, commit, run, execute, pay, transfer, upload, comment, share, invite, permission, reset or overwrite. A routine verb on a sensitive noun (release, message, email, script, password, role, member, collaborator, token, secret, key, admin, owner, webhook, pull request, user, visibility, membership, file, repository) is high-impact too. A tool whose change shows only in its description is unknown and always asks.
+- Routine changes (create, add, update, edit, write, set, rename, move and similar; tag, label, archive, link or copy only as the name's leading verb) ask unless the tool is listed in the server's `tools.run_without_asking`, which **Full access** or a per-tool **Use without asking** sets.
+- Unknown effects always ask.
+- Annotations only make a tool stricter; `readOnlyHint` is the one exception and never outweighs a change verb in the name.
+
+Policies saved before `run_without_asking` existed have no entries in it, so their routine changes keep asking. A server that overlaps a native capability gets `PlanAccess.note` ("Row-Bot also has its own … tools."); presets apply as usual. See [MCP](/docs/integrations/mcp) for the user-facing description.
+
+**Search.** The local index (`integrations/index.py`) ranks vendor-verified and featured entries first, never lets a Registry namespace word (`io`, `github`, `com`) match unless the query is the namespace, and hides low-quality listings (template titles, staging copies, empty descriptions, duplicate title and description) behind `all=true`, reporting how many as `hidden`. `sources.rank` merges one deployment listed twice and groups one card per app; `IntegrationAbout.ways` lists an app's other ways to connect.
+
+**Declared inputs.** What a connection needs from the person is declared once, whatever the source (a Registry header, URL variable, environment variable or argument; a plugin's `mcp.json` `${VAR}`; a Hermes recipe's keys; a bundle's `user_config`). The saved configuration keeps the template (`"Authorization": "Bearer {token}"`, `https://{tenant}.example.com/mcp`, `"--region", "{region}"`) with the declarations in `inputs` (`key`, `label`, `description`, `secret`, `required`, `target`, `name`, `default`, `choices`, `help_url`, `format`, `flag`). Plain values go to `input_values`; secrets go to one keychain credential with `input` bindings. Values are filled in only at connection time (`integrations/inputs.resolve`). A URL variable may fill a path segment, a query value or a subdomain label under a fixed registrable domain, never the host; variables that change what runs (`PATH`, `NODE_OPTIONS`, `LD_PRELOAD` and similar) are never declared. A bare token typed for an `Authorization` header is sent as `Bearer`.
+
+**Sign-in.** The `test` step detects a sign-in (a 401 with protected-resource and authorization-server metadata) and turns `sign_in` on. Row-Bot then uses the person's own client, its Client ID Metadata Document, dynamic client registration, or a pause for the person's own client ID and secret. A refresh that fails marks the app **Sign in needed**. See [Sign-In And Client Metadata](/docs/extending/sign-in-and-client-metadata).
+
+**Runtimes and locks.** A local server's package is resolved into a lock before it installs: `npm` (the registry's shrinkwrap, a managed `npm install --package-lock-only --ignore-scripts`, or a self-contained package's own metadata), `pypi` (managed uv: `uv pip compile --generate-hashes --only-binary :all:`), `oci` (`docker pull`, then the image's repository digest) or `mcpb`. Each lock lists every item with its version and integrity and has its own digest. The `runtime` step pauses `digest_changed` with that review, and continues only with `review_digest` equal to it; a plan whose saved recipe changed under it fails `plan_changed`. Installs go into a private folder per server (npm tarballs checked against their `sha512`, wheels installed with `--require-hashes --no-deps`), install scripts never run, and the launch is the reviewed one. Docker runs `run -i --rm --pull=never` on the locked digest, with no mounts, published ports, privileges or network changes. Nothing runs before consent.
+
+**MCP bundles.** `mcp_client/bundles.py` reads and checks a `.mcpb` without running it; a bundle is locked by its file's digest, and `{bundle}` in its launch is its extracted folder. See [MCP Bundles (.mcpb)](/docs/extending/mcp-bundles).
+
+**Local apps.** An app in `apps.json` may declare `local_check` (`{"port": 9876}` or a process name). The `local_app_check` step connects only to `127.0.0.1` on that port or looks for that exact process, and pauses with **Check again** until it is there.
+
+**Hermes catalog.** Updating the Hermes source also reads each new pin's `plugin.json` (manifest only, never code); a package without an Agent Plugins manifest is native to Hermes and listed as unavailable. Hermes MCP recipes are read at their pin after consent, shown for review (`digest_changed`) and then set up with the steps above.
+
+**Live checks.** `tests/e2e/test_github_live.py` (`e2e`, `live_provider`) checks a GitHub connection made in the UI against an isolated data folder, without ever handling its token: run it with `ROW_BOT_TEST_MODE=0`, `ROW_BOT_GITHUB_LIVE_DATA` set to that folder (the suite gives every test its own folder, so the live one is named separately) and `ROW_BOT_GITHUB_LIVE=connected`, then `removed` after removing the app. Mark a recipe `tested_with_row_bot` only after its live check passes.

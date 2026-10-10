@@ -1,49 +1,13 @@
 ---
 title: "Settings: Accounts"
-description: "Connect account-level integrations used by tools, setup flows, and channels."
+description: "Settings no longer has an Accounts page; the GitHub, Google and X accounts are apps in Settings › Apps."
+unlisted: true
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Accounts
 
-Accounts are service logins Row-Bot can use for tools such as email, calendar, or provider-specific subscription flows. They are separate from ordinary API keys and separate from Row-Bot itself, which does not require a Row-Bot account.
+Settings no longer has an Accounts page. Your GitHub, Google and X accounts are apps now: open **Settings › Apps** and choose **GitHub**, **Google** or **X**. On the app's page the account is a **Built in** way to connect, and **Set up** (or **Open** once it is set up) opens that one account's own settings: its setup guide, **Check**, **Reconnect** and **Disconnect**, and what Row-Bot may do with it.
 
-<Screenshot id="settings-accounts" alt="Settings: Accounts in Row-Bot." caption="The Accounts page lists GitHub, Google and X with their status and sign-in actions, without exposing private tokens." />
+Read [Settings: Apps](/docs/settings/apps#built-in-ways-to-connect) and [Accounts And Authorisation](/docs/integrations/accounts).
 
-## Where To Find It
-
-Open **Settings**, then choose **Accounts** in the **Connections** group, or search for it with **Find a setting**.
-
-## Controls
-
-- **GitHub** lets tools and code folders use your GitHub access, such as opening pull requests. **Check** confirms what Row-Bot can reach; public sources use anonymous access when needed.
-- **Google** connects Gmail and Calendar. Add your Google sign-in file, then sign in in the browser window that opens.
-- **X** connects your X account for posting and reading.
-- Each section shows whether the account is connected or needs attention, the result of its last check, and its sign-in, check and disconnect actions. Disconnecting removes Row-Bot's local access to that account.
-- If a sign-in expires, Monitor and Overview offer **Reconnect** for it.
-
-## Common Workflow
-
-1. Connect only the accounts needed for the tasks you plan to run.
-2. Finish the provider sign-in flow in the browser when prompted.
-3. Return to Row-Bot and confirm the account shows connected.
-4. Review tools and approvals before asking Row-Bot to act through that account.
-
-## What Is Saved
-
-Account tokens are stored in the operating system key store when available. Row-Bot keeps local metadata so it can show connection status.
-
-## Privacy And Safety
-
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
-
-## Control-Level Reference
-
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#accounts-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
-
-## Troubleshooting
-
-- If sign-in loops, disconnect and reconnect the account.
-- If an account tool is unavailable, confirm the account is connected and the related tool is enabled.
-- If secure storage is unavailable, you may need to sign in again after restart.
+Old Accounts links open the matching app in Row-Bot.

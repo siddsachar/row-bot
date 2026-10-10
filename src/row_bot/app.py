@@ -130,7 +130,7 @@ if not is_docs_real_data_capture():
         logger.debug("Startup diagnostics failed", exc_info=True)
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from row_bot.app_port import get_app_host, get_app_port
 from row_bot.server import app, on_shutdown, on_startup
 
@@ -290,12 +290,12 @@ async def _auto_start_channel_background(channel) -> None:
                 logger.debug("Channel notification reconciliation failed", exc_info=True)
         else:
             _startup_warning(
-                f"{display_name} didn't start. Check it in Settings › Channels.",
+                f"{display_name} didn't start. Check it in Settings › Apps.",
                 source="channels",
             )
     except Exception as exc:
         _startup_warning(
-            f"{display_name} didn't start. Check it in Settings › Channels.",
+            f"{display_name} didn't start. Check it in Settings › Apps.",
             source="channels",
         )
         logger.warning("Channel auto-start failed for %s: %s", channel_name, exc)
@@ -394,6 +394,14 @@ async def _prewarm_local_embeddings_background() -> None:
             load_status.get("state"),
             load_status.get("model_key"),
         )
+
+
+async def _prewarm_apps_background() -> None:
+    """Read Row-Bot's own ways to connect once (accounts, channels, key tools), so Apps, the catalog
+    and the composer open without waiting for the keychain or the GitHub CLI."""
+    with _startup_phase("apps_prewarm", background=True):
+        from row_bot.integrations import builtin
+        await asyncio.to_thread(builtin.rows)
 
 
 def _schedule_local_embedding_prewarm():
@@ -676,6 +684,15 @@ async def _run_startup_sequence():
             source="workflow",
         )
 
+    # Apps & Skills: build the local Registry mirror when it is missing or a release
+    # shipped a newer snapshot (local work; searching never builds it), and schedule
+    # catalog updates only if the user turned that on.
+    try:
+        from row_bot.integrations import catalogs
+        _schedule_background_task(asyncio.to_thread(catalogs.start), name="integration-catalogs")
+    except Exception as exc:
+        logger.warning("Catalog start-up skipped (non-fatal): %s", exc)
+
     _set("Recovering Agent runs...")
     try:
         from row_bot.agent_runs import recover_stale_agent_runs
@@ -716,6 +733,27 @@ async def _run_startup_sequence():
         logger.warning("Plugin loading failed (non-fatal): %s", exc)
 
     _set("🔌 Starting MCP servers…")
+    # Keys that 5.0.0 kept in a server's headers or variables move into the system keychain before any
+    # server starts; each keeps its plaintext until its keychain copy reads back the same.
+    try:
+        from row_bot.mcp_client.secret_migration import migrate as migrate_app_keys
+        with _startup_phase("mcp_secret_migration"):
+            moved = await asyncio.to_thread(migrate_app_keys)
+        if moved["migrated"]:
+            _safe_console_print(f"[startup] 🔐 Moved the keys of {moved['migrated']} app(s) into the system keychain")
+        if moved["kept"]:
+            logger.warning("%s app(s) keep their keys in their settings until the system keychain can keep them",
+                           moved["kept"])
+    except Exception as exc:
+        logger.warning("App key migration skipped; keys stay in their settings (%s)", type(exc).__name__)
+    # A run that crashed may have left local app programs running: stop only the ones it recorded as its
+    # own (pid and creation time), before any new one starts.
+    try:
+        from row_bot.mcp_client.runtime import cleanup_app_processes
+        with _startup_phase("owned_app_process_cleanup"):
+            await asyncio.to_thread(cleanup_app_processes)
+    except Exception as exc:
+        logger.warning("Owned app process cleanup skipped (non-fatal): %s", exc)
     try:
         from row_bot.mcp_client.runtime import discover_enabled_servers
         with _startup_phase("mcp_discovery"):
@@ -729,6 +767,7 @@ async def _run_startup_sequence():
     # Ensure channel modules are imported so they self-register.
     with _startup_phase("channel_module_import"):
         skipped_channels = _load_channel_modules()
+    _schedule_background_task(_prewarm_apps_background(), name="row-bot-apps-prewarm")
     for skipped_channel in skipped_channels:
         _startup_warning(
             f"Channel adapter unavailable: {skipped_channel}. "
@@ -757,6 +796,19 @@ async def _run_startup_sequence():
             "Channel credential migration skipped; legacy fallback remains active: %s",
             exc,
         )
+    # Google and X sign-ins that earlier versions kept in files move into the system keychain; each file
+    # goes only once its copy reads back the same.
+    try:
+        from row_bot import account_tokens
+        with _startup_phase("account_token_migration"):
+            moved = await asyncio.to_thread(account_tokens.migrate)
+        if moved["migrated"]:
+            _safe_console_print(f"[startup] 🔐 Moved {moved['migrated']} account sign-in(s) into the system keychain")
+        if moved["kept"]:
+            logger.warning("%s account sign-in(s) stay in their old files until the system keychain can keep them",
+                           moved["kept"])
+    except Exception as exc:
+        logger.warning("Account sign-in migration skipped; old files stay in use: %s", exc)
     auto_start_channels = []
     with _startup_phase("channel_auto_start_plan"):
         for _ch in _ch_registry.all_channels():
@@ -956,6 +1008,16 @@ async def _startup_state_handler(request: Request) -> JSONResponse:  # noqa: ARG
     })
 
 
+async def _app_view_handler(request: Request) -> Response:
+    """An app's view (MCP Apps), served once to the sandboxed frame its render created, under its own CSP."""
+    from row_bot.integrations import views
+    try:
+        html, headers = views.frame(str(request.path_params.get("render_id") or ""))
+    except views.ViewError:
+        return Response("Not found", status_code=404, media_type="text/plain", headers={"Cache-Control": "no-store"})
+    return Response(html, media_type="text/html; charset=utf-8", headers=headers)
+
+
 async def _health_handler(request: Request) -> JSONResponse:  # noqa: ARG001
     """Expose process liveness without provider, route, or user details."""
     return JSONResponse(
@@ -1089,6 +1151,7 @@ app.add_route("/api/launcher-ping", _launcher_ping_handler, methods=["GET"])
 app.add_route("/api/startup-state", _startup_state_handler, methods=["GET"])
 app.add_route("/api/launcher-shutdown", _launcher_shutdown_handler, methods=["POST"])
 app.add_route("/api/webhook/{task_id}", _webhook_handler, methods=["POST"])
+app.add_route("/app-views/{render_id}", _app_view_handler, methods=["GET"])
 app.add_route("/", _root_handler, methods=["GET"])
 app.add_route("/favicon.ico", _favicon_handler, methods=["GET"])
 app.add_route("/healthz", _health_handler, methods=["GET"])

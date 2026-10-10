@@ -54,6 +54,15 @@ export interface TaskSettingsEditorProps {
   };
 }
 
+/** What the saved approvals let this workflow do, in words. */
+function approvalWords(mode: string | null) {
+  return mode === 'block'
+    ? 'Approvals: Block. This workflow can only read; anything that would change something is refused.'
+    : mode === 'approve'
+      ? 'Approvals: Ask. This workflow asks you before anything that changes something.'
+      : 'Approvals: Auto. This workflow makes changes without asking, except where an app always asks.';
+}
+
 export default function TaskSettingsEditor({
   taskId,
   load,
@@ -452,7 +461,7 @@ export default function TaskSettingsEditor({
               htmlFor={`${inputId}-approval`}
               description={
                 fields.approval_mode === 'allow_all'
-                  ? 'Auto permits actions without asking when the selected profile allows them. Existing sandbox limits still apply.'
+                  ? 'Auto permits actions without asking when the selected profile allows them; apps still ask when their access says to. Existing sandbox limits still apply.'
                   : 'What happens when a run wants to act.'
               }
             >
@@ -501,13 +510,13 @@ export default function TaskSettingsEditor({
               />
             </SettingRow>
             <SettingRow
-              label="Concurrency group"
+              label="Queue name"
               htmlFor={`${inputId}-group`}
-              description="Runs in the same group wait for each other. Empty keeps the automatic behaviour."
+              description="Workflows with the same queue name run one at a time; the next waits. Leave it empty to let Row-Bot decide."
             >
               <Input
                 id={`${inputId}-group`}
-                aria-label="Concurrency group"
+                aria-label="Queue name"
                 maxLength={128}
                 value={fields.concurrency_group ?? ''}
                 onChange={(event) =>
@@ -561,7 +570,7 @@ export default function TaskSettingsEditor({
           {reviewed && (
             <p role="status" className="home-caption">
               {reviewed.profile_available
-                ? `Reviewed effective approval policy: ${reviewed.effective_approval_mode === 'block' ? 'Block' : reviewed.effective_approval_mode === 'approve' ? 'Ask' : 'Auto'}.`
+                ? approvalWords(reviewed.effective_approval_mode)
                 : 'The saved profile is unavailable. Choose an enabled profile and review again.'}
             </p>
           )}

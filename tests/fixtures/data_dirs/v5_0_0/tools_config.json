@@ -1,0 +1,18 @@
+{
+  "tools": {
+    "web_search": true,
+    "wolfram_alpha": false,
+    "gmail": true,
+    "calendar": true,
+    "x": true
+  },
+  "tool_configs": {
+    "gmail": {
+      "credentials_path": "{{DATA_DIR}}/gmail/credentials.json",
+      "selected_operations": ["search_gmail", "get_gmail_message", "get_gmail_thread", "create_gmail_draft"]
+    },
+    "calendar": {
+      "credentials_path": "{{DATA_DIR}}/gmail/credentials.json"
+    }
+  }
+}

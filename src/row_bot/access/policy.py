@@ -54,7 +54,7 @@ PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
 # Twilio signs every inbound SMS, and each plugin webhook handler checks its
 # service's own credentials. The plugin id and name follow plugins.webhooks.
 ROUTE_AUTHENTICATED_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {("POST", "/sms")}
+    {("POST", "/sms"), ("GET", "/api/v1/settings/mcp/auth/callback")}
 )
 PLUGIN_WEBHOOK_PATH = re.compile(
     r"/plugin-webhooks/[a-z][a-z0-9\-]{1,63}/[a-z0-9][a-z0-9_-]{0,63}"

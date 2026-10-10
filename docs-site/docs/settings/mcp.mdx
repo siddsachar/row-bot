@@ -1,66 +1,11 @@
 ---
 title: "Settings: MCP"
-description: "Add, browse, import, connect, test and troubleshoot MCP servers and their runtimes in Settings › MCP."
+description: "Settings no longer has an MCP page; connections are apps in Settings › Apps."
+unlisted: true
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: MCP
 
-MCP, the Model Context Protocol, lets Row-Bot use tools provided by another program on this computer or a server online. Treat MCP servers like extensions: only connect servers you trust and understand.
+Settings no longer has an MCP page. MCP connections are apps in **Settings › Apps**; catalogs, runtimes, **Apps in chats** and **Add a custom connection** are under **Apps › Advanced**. Read [Settings: Apps](/docs/settings/apps) and [MCP](/docs/integrations/mcp).
 
-<Screenshot id="settings-mcp" alt="Settings: MCP in Row-Bot." caption="The MCP page puts the MCP switches and runtimes first, then your saved servers with their status and Connect or Disconnect." />
-
-## Where To Find It
-
-Open **Settings**, then choose **MCP** in the **Capabilities** group, or search for it with **Find a setting**.
-
-## Switches And Runtimes
-
-- **Use MCP servers** is the overall switch for MCP.
-- **Offer MCP tools in chats** decides whether conversations can use MCP tools.
-- **Runtimes (Node.js, uv)** shows whether the runtimes many servers need are installed, and installs a managed copy when you ask.
-
-## Your Servers
-
-Each saved server shows where it runs (on this computer or online) and its status: **Connected**, **Couldn't connect**, or **On · not connected**. Its main button does the next sensible thing: **Connect**, **Turn on & connect**, or **Disconnect**. Its **⋯** menu offers:
-
-- **Details**, a drawer with the server's connection, its tools and their permissions;
-- **Test connection**;
-- **Edit settings…** and **Rename…**;
-- **Remove server…**, which deletes its settings and saved keys and stops its connection.
-
-## Add A Server
-
-**Add a server** opens three ways to add one:
-
-- **Browse** searches a directory of servers and fills in the details for you.
-- **Manual** asks for the name, the type (a command on this computer, or a URL), the command and arguments or the address, and any headers or keys.
-- **Paste JSON** imports a configuration from another app.
-
-A new server stays turned off until you connect it, so you can check it first.
-
-## Common Workflow
-
-1. Add or import a trusted server; it is saved turned off.
-2. Install a runtime if the server needs one.
-3. Choose **Connect**, then open **Details** to review its tools and permissions.
-4. Leave the server off, or remove it, if its tools can reach more than you want.
-
-## What Is Saved
-
-MCP server definitions are local settings, and their keys use secret storage. A server may still access files, accounts, or networks according to its own implementation, so review its command or URL.
-
-## Privacy And Safety
-
-An MCP tool call sends the data that call needs to that server, which may be online. Consequential MCP tools still ask for approval.
-
-## Control-Level Reference
-
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#mcp-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
-
-## Troubleshooting
-
-- If a server shows **Couldn't connect**, use **Test connection**, then check its command, arguments, URL and runtime.
-- If tools do not appear in chats, check **Use MCP servers**, **Offer MCP tools in chats** and the server's own status.
-- If a tool asks for risky access, deny the approval and review the server's **Details**.
+Old MCP links open the matching place in Row-Bot.

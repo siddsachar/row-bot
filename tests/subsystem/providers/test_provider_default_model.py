@@ -71,7 +71,7 @@ assert read_model_catalog_cache(allow_runtime_bootstrap=False, max_bytes=1024).i
 assert 'row_bot.models' not in sys.modules and 'row_bot.tasks' not in sys.modules
 assert not Path(os.environ['ROW_BOT_DATA_DIR']).exists()
 """
-    result = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(cold)}, capture_output=True, text=True, timeout=20)
+    result = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ROW_BOT_DATA_DIR": str(cold)}, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert not cold.exists()
 

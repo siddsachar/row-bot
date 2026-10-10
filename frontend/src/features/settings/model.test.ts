@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_PROFILE_SETTINGS,
+  legacyIntegrationHref,
   resolveSetting,
   searchSettings,
   searchSettingsRows,
@@ -40,10 +41,7 @@ describe('settings navigation metadata', () => {
       'Tracker',
       'Tools',
       'Skills',
-      'Plugins',
-      'MCP',
-      'Accounts',
-      'Channels',
+      'Apps',
       'System',
       'Devices & remote access',
       'Updates',
@@ -70,8 +68,6 @@ describe('settings navigation metadata', () => {
       'documents',
       'tools',
       'skills',
-      'accounts',
-      'channels',
       'utilities',
       'mcp',
       'plugins',
@@ -83,9 +79,6 @@ describe('settings navigation metadata', () => {
   it('redirects legacy ids and moved pages to their new home and row', () => {
     for (const [alias, target] of [
       ['Cloud', 'providers'],
-      ['Google', 'accounts'],
-      ['Gmail', 'accounts'],
-      ['Calendar', 'accounts'],
       ['Wiki', 'knowledge'],
       ['Migration', 'data'],
       ['Search', 'tools'],
@@ -95,16 +88,45 @@ describe('settings navigation metadata', () => {
     expect(settingsHref('utilities')).toBe('/settings/tools#built-in-tools');
     expect(settingsHref('migration')).toBe('/settings/data#migration');
     expect(settingsHref('wiki')).toBe('/settings/knowledge#wiki-vault');
+    expect(settingsHref('skills', 'public-skills')).toBe(
+      '/settings/skills#public-skills',
+    );
+    expect(settingsHref('plugins')).toBe('/settings/apps');
+    expect(settingsHref('mcp', 'mcp-runtimes')).toBe(
+      '/settings/apps?view=advanced',
+    );
+    expect(
+      legacyIntegrationHref(
+        new URLSearchParams('tab=my&type=skill&selected=skill:pdf'),
+      ),
+    ).toBe('/settings/skills/pdf');
+    expect(
+      legacyIntegrationHref(new URLSearchParams('type=mcp&selected=mcp:abc')),
+    ).toBe('/settings/apps/item?id=mcp%3Aabc');
+    expect(legacyIntegrationHref(new URLSearchParams('type=skill'))).toBe(
+      '/settings/skills',
+    );
+    expect(
+      legacyIntegrationHref(new URLSearchParams('type=mcp&view=catalogs')),
+    ).toBe('/settings/apps?view=advanced');
     expect(settingsHref('providers')).toBe('/settings/providers');
+    // Accounts and channels are apps: their old pages and rows open the app.
+    expect(settingsHref('accounts', 'google')).toBe('/settings/apps/google');
+    expect(settingsHref('gmail')).toBe('/settings/apps/google');
+    expect(settingsHref('channels', '#telegram')).toBe(
+      '/settings/apps/telegram',
+    );
+    expect(settingsHref('accounts')).toBe('/settings/apps');
+    expect(settingsHref('channels')).toBe(
+      '/settings/apps?category=communication',
+    );
     expect(resolveSetting('unknown')).toBeUndefined();
     for (const redirect of Object.values(settingsRedirects))
       expect(resolveSetting(redirect.leaf)?.id).toBe(redirect.leaf);
   });
 
   it('searches pages by name, group, keyword and alias', () => {
-    expect(searchSettings('gmail').map((leaf) => leaf.id)).toEqual([
-      'accounts',
-    ]);
+    expect(searchSettings('gmail').map((leaf) => leaf.id)).toEqual(['apps']);
     expect(searchSettings('theme').map((leaf) => leaf.id)).toEqual([
       'appearance',
     ]);
@@ -126,16 +148,49 @@ describe('settings navigation metadata', () => {
     ).toEqual(['default-model']);
     expect(searchSettingsRows('')).toEqual([]);
     // A page name narrows a row search but never lists a whole page.
-    expect(searchSettingsRows('mcp runtime').map(settingsRowHref)).toEqual([
-      '/settings/mcp#mcp-runtimes',
+    expect(searchSettingsRows('runtimes').map(settingsRowHref)).toEqual([
+      '/settings/apps?view=advanced#runtimes',
     ]);
-    expect(searchSettingsRows('mcp').map((row) => row.anchor)).toEqual([
-      'mcp-servers',
+    // The skills library lands on its installed list.
+    expect(searchSettingsRows('find skills').map(settingsRowHref)).toEqual([
+      '/settings/skills#skill-library',
     ]);
     expect(searchSettingsRows('logging').map(settingsRowHref)).toEqual([
       '/settings/system#logging.level',
     ]);
     for (const row of settingsRows)
       expect(resolveSetting(row.leaf)?.id).toBe(row.leaf);
+  });
+
+  it('finds settings by the words people use, not only their names', () => {
+    const found = (query: string) =>
+      searchSettingsRows(query).map((row) => row.label);
+    expect(found('camera')).toEqual(['Vision model']);
+    expect(found('claude')).toEqual(['Subscriptions', 'API providers']);
+    expect(found('steps')).toEqual(['Limits for long work']);
+    expect(found('reading limit')).toEqual(['Reading limit']);
+    expect(found('blocked')).toEqual(['Blocked commands']);
+    expect(found('api key')).toEqual([
+      'API providers',
+      'Tavily API key',
+      'Wolfram Alpha App ID',
+    ]);
+    for (const query of ['camera', 'claude', 'steps', 'blocked'])
+      expect(searchSettings(query)).not.toEqual([]);
+  });
+
+  it('names rows as their pages do and keeps the old names findable', () => {
+    for (const [old, label] of [
+      ['accent', 'Colour theme'],
+      ['embedding', 'Search model'],
+      ['whisper', 'Speech model'],
+      ['log level', 'Log detail'],
+      ['shell', 'Run commands'],
+      ['memory graph', 'Graph health'],
+    ])
+      expect(
+        searchSettingsRows(old).map((row) => row.label),
+        old,
+      ).toContain(label);
   });
 });

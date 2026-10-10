@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "inputs": {
+      "additionalProperties": {
+        "maxLength": 16384,
+        "type": "string"
+      },
+      "maxProperties": 16,
+      "propertyNames": {
+        "maxLength": 128
+      },
+      "title": "Inputs",
+      "type": "object"
+    },
+    "overrides": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "enum": [
+              "use",
+              "ask",
+              "off"
+            ],
+            "type": "string"
+          },
+          "maxProperties": 256,
+          "propertyNames": {
+            "maxLength": 512,
+            "minLength": 1
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Overrides"
+    },
+    "preset": {
+      "anyOf": [
+        {
+          "enum": [
+            "read_only",
+            "ask",
+            "full"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "",
+          "type": "string"
+        }
+      ],
+      "default": "",
+      "title": "Preset"
+    },
+    "review_digest": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Review Digest",
+      "type": "string"
+    },
+    "tools_digest": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Tools Digest",
+      "type": "string"
+    }
+  },
+  "title": "PlanContinueRequest",
+  "type": "object"
+}

@@ -52,8 +52,17 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert any(page["path"] == "index.mdx" for page in inventory["docs_pages"])
     controls = inventory["settings_controls"]
     assert {row["page_id"] for row in controls} <= {page["id"] for page in inventory["settings"]}
+
+    def opens_its_row(row: dict) -> bool:
+        route = urlsplit(row["app_route"])
+        page = f"/app-v2/settings/{row['page_id']}"
+        # A row that is its own page (an app such as Google) opens that page.
+        return (route.path == page and route.fragment == row["anchor"]) or (
+            route.path.startswith(page + "/") and not route.fragment
+        )
+
     assert all(
-        row["app_route"] == f"/app-v2/settings/{row['page_id']}#{row['anchor']}"
+        opens_its_row(row)
         and row["source"] == f"frontend/src/features/settings/model.ts#{row['anchor']}"
         for row in controls
     )
@@ -209,8 +218,8 @@ def test_progressive_tools_and_skills_are_documented_at_public_entry_points() ->
     ).read_text(encoding="utf-8")
 
     for phrase in (
-        "Auto-select external tools",
-        "Load all external tools",
+        "Only the ones a request needs",
+        "All of them, every time",
         "MCP servers, plugins, Custom Tools, and channels",
         "Up to five automatically selected skills",
         "cannot grant a tool that its profile denies",
@@ -221,7 +230,7 @@ def test_progressive_tools_and_skills_are_documented_at_public_entry_points() ->
     assert "parent task or child Agent" in skills
     assert "/docs/guides/progressive-tools-and-skills" in docs_index
     assert "Progressive external tools" in marketing
-    assert "| Capability loading | external tools | `/app-v2/settings/tools#capability-loading` |" in generated_controls
+    assert "| How tools are offered | capability loading external tools apps plugins | `/app-v2/settings/tools#capability-loading` |" in generated_controls
 
 
 def test_reasoning_controls_are_documented_at_public_entry_points() -> None:

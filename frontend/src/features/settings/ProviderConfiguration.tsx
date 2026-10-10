@@ -582,6 +582,7 @@ export default function ProviderConfiguration(
         className="stack settings-provider-endpoints"
         aria-label="Custom / Self-Hosted Endpoints"
         aria-busy={!!state.busy}
+        data-setting-anchor="custom-endpoints"
       >
         <h3 className="settings-provider-group-heading">Custom endpoints</h3>
         {state.busy === 'load' && <Skeleton label="Loading custom endpoints" />}

@@ -21,6 +21,7 @@ from typing import Any
 from uuid import UUID
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.integrations.safe import public_url
 from row_bot.runtime import admissions
 
 _ID = re.compile(r"[a-z][a-z0-9-]{1,63}")
@@ -101,7 +102,32 @@ def _read_json(path: Path, maximum: int, *, missing: object = None) -> object:
 
 
 def _state_documents(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    state_value = _read_json(root / "plugin_state.json", _MAX_JSON, missing={})
+    path = root / "plugin_state.json"
+    try:
+        linked = path.lstat().st_nlink != 1
+    except FileNotFoundError:
+        linked = False
+    if linked:
+        # MCP child publication retains a candidate hardlink as crash proof.
+        # Permit only that exact admission-owned publication, not arbitrary links.
+        from row_bot.mcp_client.config import read_saved_document
+        from row_bot.runtime import admissions
+        from row_bot.file_ownership import confirmed_edit_publication
+        saved = read_saved_document(path, configuration=False)
+        marker = saved.document.get("_client_publication", {})
+        if type(marker) is not dict:
+            raise _error("plugin_catalog_unavailable")
+        owner, key, command_id = (marker.get(field) for field in ("owner_id", "key", "command_id"))
+        if path.lstat().st_nlink != 2 or not all(type(value) is str and value for value in (owner, key, command_id)):
+            raise _error("plugin_catalog_unavailable")
+        receipt = admissions.read_command_receipt(owner, key) or {}
+        proof = (receipt.get("_mcp_configuration") or receipt.get("_mcp_auth") or {}).get("publication", {})
+        if not confirmed_edit_publication(path, saved.digest, saved.identity, proof,
+                owner_id=owner, key=key, command_id=command_id, max_bytes=8 * 1024 * 1024):
+            raise _error("plugin_catalog_unavailable")
+        state_value = saved.document
+    else:
+        state_value = _read_json(path, _MAX_JSON, missing={})
     secret_value = _read_json(root / "plugin_secrets.json", _MAX_JSON, missing={})
     if type(state_value) is not dict or type(secret_value) is not dict:
         raise _error("plugin_catalog_unavailable")
@@ -164,9 +190,9 @@ def _manifest(path: Path) -> tuple[object, dict[str, Any], str]:
     if type(raw) is not dict:
         raise _error("plugin_catalog_unavailable")
     try:
-        from row_bot.plugins.manifest import _validate
+        from row_bot.plugins.manifest import parse_manifest
 
-        manifest = _validate(raw, path)
+        manifest = parse_manifest(path)
     except Exception:
         raise _error("plugin_catalog_unavailable") from None
     revision = hashlib.sha256(
@@ -255,22 +281,9 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
                 for key, value in (provides.items() if type(provides) is dict else [])
                 if key in {"native_tools", "mcp_servers", "channels", "skills"}
             },
-            "changelog_url": _https_url(entry.get("changelog_url")),
+            "changelog_url": public_url(entry.get("changelog_url")) or None,
         }
     return result
-
-
-def _https_url(value: object) -> str | None:
-    text = str(value or "").strip()
-    if not text or len(text) > 2048:
-        return None
-    try:
-        parsed = urlsplit(text)
-    except ValueError:
-        return None
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        return None
-    return text
 
 
 def _plugin_guide(plugin_id: str) -> str:
@@ -410,6 +423,9 @@ def environment_needed(plugin_id: str) -> bool:
         from row_bot.plugins import installer, state as plugin_state
 
         source = installer._source_for_preparation(plugin_id)
+        from row_bot.plugins.manifest import parse_manifest
+        if parse_manifest(source).package_format != "row-bot-v2":
+            return False
         if not (source / "plugin_main.py").is_file():
             return False
         records = plugin_state.get_plugin_environment_state(plugin_id)
@@ -506,6 +522,10 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
                 source_problem=market["source_problem"] if market else None,
             ),
         }
+        from row_bot.plugins.hermes_catalog import activation_block
+        if activation_block(record):
+            for action in ("enable", "test"):
+                item["capabilities"][action] = {"available": False, "code": "package_source_removed"}
         item["capabilities"]["prepare"] = _prepare_capability(manifest.id)
         items.append(item)
     for plugin_id, market in cached.items():
@@ -607,6 +627,54 @@ def read_plugin_catalog(
     }
 
 
+def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
+    """Passive ownership/provenance projection of installed packages, for Apps & Skills."""
+    from row_bot.plugins.mcp import plugin_mcp_server_name
+    from row_bot.application.capability_configuration_controls import _server_id
+
+    rows, _ = _catalog(validate)
+    root = _root()
+    state, _secrets = _state_documents(root) if root.exists() else ({}, {})
+    manifests = {item[0].id: item[0] for item in _installed(root)}
+    for row in rows:
+        manifest = manifests.get(row["plugin_id"])
+        record = state.get(row["plugin_id"], {})
+        package = record.get("package", {})
+        source = str(package.get("source_identity", ""))
+        if not source and (record.get("installed") or {}).get("source") == "marketplace":  # Added by 5.0.0.
+            from row_bot.plugins import marketplace
+            index = marketplace.get_cached_index()
+            entry = marketplace.get_entry(row["plugin_id"], index) if index else None
+            source = marketplace.github_folder(entry) if entry else ""
+        if urlsplit(source).hostname == "github.com" and "#" in source:
+            source = source.replace("#", "/tree/HEAD/", 1)
+        source = public_url(source)
+        row.update(package_format=getattr(manifest, "package_format", "row-bot-v2"),
+            publisher=manifest.author.name if manifest else "", license=manifest.license if manifest else "",
+            source_url=source, source_identity=str(package.get("source_identity", ""))[:1024],
+            pin=str(package.get("pin", "")), diagnostics=getattr(manifest, "diagnostics", []),
+            publication_pending=bool(package.get("pending")), children=[])
+        from row_bot.plugins.hermes_catalog import activation_block
+        blocked = activation_block(record)
+        if blocked:
+            row["diagnostics"] = [*row["diagnostics"], {"component": "source", "reason": blocked}]
+        if manifest:
+            row["children"] = [{"kind": "skill", "owner_ref": s["name"], "name": str(s.get("display_name") or s["name"]),
+                "server_key": None, "optional": s.get("optional") is True} for s in manifest.provides.skills]
+            row["children"] += [{"kind": "mcp", "owner_ref": _server_id(plugin_mcp_server_name(manifest.id, s["id"])),
+                "name": s["id"], "server_key": s["id"], "optional": s.get("optional") is True} for s in manifest.provides.mcp_servers]
+    for plugin_id, record in state.items():
+        if not _ID.fullmatch(plugin_id) or not isinstance(record, dict):
+            continue
+        package = record.get("package", {})
+        if package.get("removed") and package.get("retained_data") and plugin_id not in manifests:
+            rows.append({"plugin_id": plugin_id, "name": str(package.get("upstream_name", plugin_id)), "description": "Package removed; saved data and credentials retained.",
+                "installed": False, "retained": True, "enabled": False, "version": str(package.get("version", "")),
+                "package_format": str(package.get("format", "row-bot-v2")), "capabilities": {"purge": {"available": True}}, "children": [], "diagnostics": []})
+    validate()
+    return rows
+
+
 def read_plugin_detail(
     plugin_id: str, *, validate: Callable[[], None]
 ) -> dict[str, Any]:
@@ -700,6 +768,10 @@ def read_plugin_detail(
         "sign_in": _sign_in(getattr(manifest, "auth", {})),
         "changelog_url": (_marketplace(root).get(plugin_id) or {}).get("changelog_url"),
     }
+    from row_bot.plugins.hermes_catalog import activation_block
+    if activation_block(record):
+        for action in ("enable", "test"):
+            detail["capabilities"][action] = {"available": False, "code": "package_source_removed"}
     validate()
     return detail
 
@@ -978,7 +1050,7 @@ def execute_plugin_command(
             validate()
             from row_bot.plugins import loader
 
-            loaded = loader.refresh_plugin_runtime("reviewed plugin enablement")
+            loaded = loader.refresh_plugin_runtime("reviewed plugin enablement", plugin_id=plugin_id)
             if enabled and not any(
                 item.plugin_id == plugin_id and item.success for item in loaded
             ):

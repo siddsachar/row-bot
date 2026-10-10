@@ -47,11 +47,14 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
-import type { ConversationView } from '../../api/types';
+import type { ConversationView, PanelDescriptor } from '../../api/types';
 import ConversationActions, {
   conversationActionsDialog,
+  runConversationAction,
 } from '../settings/ConversationActions';
-import { deleteOneConversation } from './ConversationLibrary';
+import { deleteWithUndo, useDeletingConversations } from './delete-with-undo';
+import { neverUsed } from './new-chat';
+import ResourceSetup from './ResourceSetup';
 import type {
   GoalProfileSettingsSession,
   ProfileSummary,
@@ -209,8 +212,8 @@ function useProfiles(
 
 /**
  * Favourite agents (B268): the pinned profiles, in pin order. Until one is
- * pinned, the library's first five stand in (the Default profile is plain
- * New chat, so it never stands in).
+ * pinned, the library's everyday agents stand in, else its first five (the
+ * Default profile is plain New chat, so it never stands in).
  */
 function favouriteProfiles(
   profiles: readonly ProfileSummary[],
@@ -220,11 +223,12 @@ function favouriteProfiles(
   const chosen = pinned.flatMap(
     (id) => enabled.find((profile) => profile.id === id) ?? [],
   );
-  return chosen.length
-    ? chosen
-    : enabled
-        .filter((profile) => profile.id !== DEFAULT_PROFILE_ID)
-        .slice(0, FAVOURITE_COUNT);
+  if (chosen.length) return chosen;
+  const others = enabled.filter((profile) => profile.id !== DEFAULT_PROFILE_ID);
+  const everyday = others.filter(
+    (profile) => profile.source === 'builtin' && profile.group === 'Everyday',
+  );
+  return (everyday.length ? everyday : others).slice(0, FAVOURITE_COUNT);
 }
 
 function allAgentsLabel(profiles: readonly ProfileSummary[] | null): string {
@@ -289,6 +293,7 @@ export default function Navigation({
   onOpenConversation,
   onNewChat,
   onStartProfileChat,
+  onPanel,
   creatingChat = false,
   showBuddy = true,
   headerActions,
@@ -296,6 +301,8 @@ export default function Navigation({
   onOpenConversation?: () => void;
   onNewChat?: () => void;
   onStartProfileChat?: (profile: ProfileSummary) => void;
+  /** Show a resource's panel: the Designs filter's New design opens there. */
+  onPanel?: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   creatingChat?: boolean;
   showBuddy?: boolean;
   /** Desktop header icon actions after Home (commands, collapse). */
@@ -395,7 +402,16 @@ export default function Navigation({
     (state.conversation?.id === state.selectedConversationId
       ? state.conversation
       : null);
-  const topLevel = listing.rows.filter((row) => !row.parent_conversation_id);
+  const deleting = useDeletingConversations();
+  // A chat started and never used has nothing to go back to, as on Home;
+  // the open one stays, so a fresh New chat shows as selected. One deleted
+  // with Undo on offer is gone already.
+  const topLevel = listing.rows.filter(
+    (row) =>
+      !row.parent_conversation_id &&
+      !deleting.has(row.id) &&
+      (row.id === state.selectedConversationId || !neverUsed(row)),
+  );
   const allPinned = topLevel.filter((row) => row.pinned);
   const allRecent = topLevel.filter((row) => !row.pinned);
   const previewPinned = allPinned.slice(
@@ -420,6 +436,7 @@ export default function Navigation({
   const rows =
     activeTopLevel &&
     matchesType(activeTopLevel, type) &&
+    !deleting.has(activeTopLevel.id) &&
     !visible.some(({ id }) => id === activeTopLevel.id)
       ? withRetainedRow(visible, activeTopLevel)
       : visible;
@@ -478,7 +495,6 @@ export default function Navigation({
   }, [activeRowKey, controller, state.status]);
   function openActions(
     conversation: ConversationView,
-    initialPin?: boolean,
     initialExport: false | 'markdown' | 'pdf' = false,
   ) {
     const session = conversationActionsOwner?.get()?.get(conversation.id);
@@ -499,7 +515,6 @@ export default function Navigation({
           review={controller.reviewConversationAction}
           execute={controller.executeConversationAction}
           save={platform.save}
-          initialPin={initialPin}
           initialExport={initialExport}
           onChanged={() => {
             void controller.loadMoreConversations(true);
@@ -524,6 +539,46 @@ export default function Navigation({
         />,
       ),
     );
+  }
+  /** Home's New design: a deck, document or page, set up in a new chat. */
+  function openNewDesign() {
+    if (!onPanel) return;
+    // Focus returns to this button, or from the compact drawer (which this
+    // replaces) to the drawer's opener.
+    overlay.open({
+      title: 'New design',
+      description: 'Row-Bot opens it in a new chat.',
+      content: (
+        <ResourceSetup
+          conversationId={null}
+          onPanel={onPanel}
+          initialEntry={{ kind: 'artifact', mode: 'create' }}
+        />
+      ),
+    });
+  }
+  /** Pin and Unpin are one tap: the reviewed command without the dialog, and the open chat stays as it is. */
+  async function togglePin(conversation: ConversationView) {
+    const pinned = !conversation.pinned;
+    const outcome = await runConversationAction(
+      {
+        load: controller.conversationActions,
+        review: controller.reviewConversationAction,
+        execute: controller.executeConversationAction,
+      },
+      conversation.id,
+      'conversation.pin',
+      { pinned },
+      new AbortController().signal,
+    );
+    if (outcome.status === 'completed')
+      void controller.loadMoreConversations(true);
+    else
+      overlay.notify(
+        outcome.status === 'uncertain'
+          ? "Row-Bot couldn't confirm that. Check the list before trying again."
+          : `Couldn't ${pinned ? 'pin' : 'unpin'} it. Try again.`,
+      );
   }
   const now = new Date();
   function conversationRow(conversation: ConversationView, heading?: string) {
@@ -607,7 +662,7 @@ export default function Navigation({
               className={`nav-pin ${conversation.pinned ? 'is-pinned' : ''}`}
               aria-label={`${conversation.pinned ? 'Unpin' : 'Pin'} ${title}`}
               aria-pressed={conversation.pinned}
-              onClick={() => openActions(conversation, !conversation.pinned)}
+              onClick={() => void togglePin(conversation)}
             >
               <Pin
                 size={14}
@@ -625,7 +680,7 @@ export default function Navigation({
               {
                 label: conversation.pinned ? 'Unpin' : 'Pin',
                 icon: <Pin size={16} />,
-                onSelect: () => openActions(conversation, !conversation.pinned),
+                onSelect: () => void togglePin(conversation),
               },
               {
                 label: 'Rename',
@@ -635,13 +690,12 @@ export default function Navigation({
               {
                 label: 'Export as Markdown',
                 icon: <Upload size={16} />,
-                onSelect: () =>
-                  openActions(conversation, undefined, 'markdown'),
+                onSelect: () => openActions(conversation, 'markdown'),
               },
               {
                 label: 'Export as PDF',
                 icon: <FileText size={16} />,
-                onSelect: () => openActions(conversation, undefined, 'pdf'),
+                onSelect: () => openActions(conversation, 'pdf'),
               },
               {
                 label: 'Delete…',
@@ -688,7 +742,8 @@ export default function Navigation({
     });
   }
   // One conversation is one confirmation; bulk deletion lives in the Library.
-  // From the actions dialog, confirming closes the dialog too (B237).
+  // From the actions dialog, confirming closes the dialog too (B237). The
+  // confirmed conversation goes at once, with Undo while its notice shows.
   function openDelete(
     conversation: ConversationView,
     opener?: HTMLElement | null,
@@ -704,18 +759,9 @@ export default function Navigation({
       returnFocusTo: opener,
       onConfirm: () => {
         closeActions?.();
-        void deleteOneConversation(controller, conversation).then((outcome) => {
-          if (outcome.status === 'deleted') {
-            if (state.selectedConversationId === conversation.id) navigate('/');
-            controller.forgetConversation(conversation.id);
-            overlay.notify(
-              outcome.notice
-                ? `Deleted '${title}'. ${outcome.notice}`
-                : `Deleted '${title}'.`,
-            );
-          } else overlay.notify(outcome.message);
-          void controller.loadMoreConversations(true);
-        });
+        if (controller.getSnapshot().selectedConversationId === conversation.id)
+          navigate('/');
+        deleteWithUndo(controller, overlay.notify, conversation);
       },
     });
   }
@@ -778,8 +824,11 @@ export default function Navigation({
             variant="ghost"
             className="nav-new-chat-more"
             actions={[
+              // Each agent says what it is for in one short line, so the
+              // Design agent (visual ideas) is not taken for New design.
               ...favourites.map((profile) => ({
                 label: profile.display_name,
+                description: profile.description || undefined,
                 icon: (
                   <AgentAvatar
                     seed={agentSeed(profile.id, profile.id)}
@@ -801,6 +850,13 @@ export default function Navigation({
           </Menu>
         )}
       </div>
+      {/* What needs the person (an approval, a problem, an update) sits up here: in the footer it grew the
+          sticky footer over the last rows of the list. */}
+      <AttentionIndicator
+        load={controller.attention}
+        loadApprovals={controller.pendingApprovals}
+        onNavigate={openRoute}
+      />
       <div className="nav-section-header">
         <Button
           id={sectionHeadingId}
@@ -874,7 +930,19 @@ export default function Navigation({
             (listing.loading || (listing.hasMore && !listing.error)) ? (
               <Skeleton label="Loading conversations" />
             ) : rows.length === 0 ? (
-              <p className="muted nav-empty">{EMPTY_LABELS[type]}</p>
+              <>
+                <p className="muted nav-empty">{EMPTY_LABELS[type]}</p>
+                {type === 'designer' && onPanel && (
+                  <Button
+                    variant="ghost"
+                    className="nav-more nav-new-design"
+                    onClick={openNewDesign}
+                  >
+                    <Palette size={14} aria-hidden />
+                    New design
+                  </Button>
+                )}
+              </>
             ) : (
               <>
                 {pinnedRows.length > 0 && (
@@ -1000,18 +1068,29 @@ export default function Navigation({
                     role="group"
                     aria-label="Favourite agents"
                   >
+                    {/* Each face carries its name; the tooltip says what a
+                        click does and holds a name cut short. */}
                     {favourites.slice(0, FAVOURITE_COUNT).map((profile) => (
-                      <IconButton
+                      <Hint
                         key={profile.id}
                         label={`New chat with ${profile.display_name}`}
-                        disabled={profileChatDisabled}
-                        onClick={() => startProfileChat(profile)}
                       >
-                        <AgentAvatar
-                          seed={agentSeed(profile.id, profile.id)}
-                          size={22}
-                        />
-                      </IconButton>
+                        <Button
+                          variant="ghost"
+                          className="nav-agent-favourite"
+                          aria-label={`New chat with ${profile.display_name}`}
+                          disabled={profileChatDisabled}
+                          onClick={() => startProfileChat(profile)}
+                        >
+                          <AgentAvatar
+                            seed={agentSeed(profile.id, profile.id)}
+                            size={22}
+                          />
+                          <span className="nav-agent-name">
+                            {profile.display_name}
+                          </span>
+                        </Button>
+                      </Hint>
                     ))}
                   </div>
                 )}
@@ -1035,11 +1114,6 @@ export default function Navigation({
         </section>
       )}
       <footer className="nav-footer" aria-label="Workspace destinations">
-        <AttentionIndicator
-          load={controller.attention}
-          loadApprovals={controller.pendingApprovals}
-          onNavigate={openRoute}
-        />
         {showBuddy && <BuddySurface />}
         {/* Settings is its own row under Buddy's large avatar (B225). */}
         <Link

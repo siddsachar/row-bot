@@ -29,8 +29,9 @@ Row-Bot keeps the last result of every check, with its time, so the tiles stay c
 
 | Problem | Fix |
 | --- | --- |
-| A channel stopped | **Restart** the channel, the same reviewed start as its Settings row. |
+| A channel stopped | **Restart** the channel, the same reviewed start as its own settings in Settings › Apps. |
 | An account sign-in expired | **Reconnect** Google or X. |
+| Another channel, account or app problem | **Open … settings** opens its page in Settings › Apps. |
 | No default model | **Choose a model**. |
 | A setting needs a change | **Open … settings** at the exact row, such as the public link in Devices & remote access. |
 | Disk, network or Ollama | **Check … again**. |
@@ -39,7 +40,7 @@ Failed workflows offer **Run … again** on Overview.
 
 ## Health Tiles
 
-Six tiles summarise the areas Row-Bot depends on: **Model runtime**, **Channels**, **MCP and tools**, **Scheduler**, **Knowledge** and **System**. Each shows its worst check and that check's fix. Open a tile for every check in it, when each was last checked, and each problem's fix.
+Six tiles summarise the areas Row-Bot depends on: **Model runtime**, **Apps**, **Skills and tools**, **Scheduler**, **Knowledge** and **System**. Each shows its worst check and that check's fix. Open a tile for every check in it, when each was last checked, and each problem's fix.
 
 **Run diagnosis** runs every check now. **Copy diagnosis report** copies a plain summary you can paste into a support request. **Start-up warnings** lists anything Row-Bot reported when it started.
 
@@ -70,4 +71,4 @@ Check results, logs and maintenance history are local Row-Bot data. Logs may inc
 - If a tile shows **Checking…**, the first checks are still running.
 - If a connection check is old, choose **Run diagnosis** or turn on **Check connections every hour**.
 - If Dream Cycle never runs, turn it on in **Settings › Preferences › Overnight tidy-up**.
-- If a channel keeps stopping, open **Settings › Channels** and check its credentials before restarting it.
+- If a channel keeps stopping, open its app in **Settings › Apps** (such as **Apps › Telegram**), choose **Open**, and check its credentials before restarting it.

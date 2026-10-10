@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup, Tag
 from row_bot.designer.critique import (
     _HEX_RE,
     _resolve_color,
+    _contrast_minimum,
     _contrast_ratio,
     _parse_style,
     _extract_css_variables,
@@ -206,15 +207,17 @@ def _lint_contrast(root: Tag | BeautifulSoup, variables: dict[str, str],
         if fg_rgb is None or bg_rgb is None:
             continue
         ratio = _contrast_ratio(fg_rgb, bg_rgb)
-        if ratio >= 4.5:
+        minimum = _contrast_minimum(tag)
+        if ratio >= minimum:
             continue
         severity = "high" if ratio < 3.0 else "medium"
         _add(findings,
              category="contrast", severity=severity,
              message=(f"Text has {ratio:.2f}:1 contrast against its background "
-                      f"(WCAG AA requires 4.5:1 for body copy)."),
-             suggested_fix=("Darken the text or lighten the background. "
-                            "Run designer_apply_repairs with categories=['contrast']."),
+                      + ("(WCAG AA requires 3:1 for large text)." if minimum < 4.5
+                         else "(WCAG AA requires 4.5:1 for body copy).")),
+             suggested_fix=("Darken the text or lighten the background, "
+                            "or use Fix to raise the contrast."),
              page_index=page_index, tag=tag)
         seen += 1
 
@@ -229,18 +232,38 @@ def _collect_page_hexes(html: str) -> list[str]:
     return out
 
 
+def _page_palette(variables: dict[str, str]) -> set[str]:
+    """Colors the page names as its own CSS variables (a template's palette)."""
+    out: set[str] = set()
+    for value in variables.values():
+        for h in _collect_page_hexes(value):
+            out.add(h)
+    return out
+
+
+def _is_neutral(h: str) -> bool:
+    """Grays and slates carry no brand color; they are never off-palette."""
+    try:
+        channels = [int(h[i:i + 2], 16) for i in (1, 3, 5)]
+    except ValueError:
+        return False
+    return max(channels) - min(channels) <= 40
+
+
 def _lint_off_palette(page_html: str, brand_hexes: set[str],
-                      findings: list[LintFinding], page_index: int) -> None:
+                      findings: list[LintFinding], page_index: int,
+                      page_palette: set[str] | None = None) -> None:
     if not brand_hexes:
         return
+    allowed = brand_hexes | (page_palette or set())
     found = {}
     for h in _collect_page_hexes(page_html):
-        if h in _NEUTRAL_HEXES or h in {"#000000", "#ffffff"}:
+        if h in _NEUTRAL_HEXES or h in {"#000000", "#ffffff"} or _is_neutral(h):
             continue
-        if h in brand_hexes:
+        if h in allowed:
             continue
-        # Within tolerance of any brand color? Skip.
-        if any(_channel_delta(h, b) < 6 for b in brand_hexes):
+        # Within tolerance of any brand or page color? Skip.
+        if any(_channel_delta(h, b) < 6 for b in allowed):
             continue
         found[h] = found.get(h, 0) + 1
     for h, count in list(found.items())[:5]:
@@ -248,35 +271,50 @@ def _lint_off_palette(page_html: str, brand_hexes: set[str],
              category="off_palette", severity="low",
              message=(f"Color {h} appears {count}x but is not part of the "
                       f"brand palette."),
-             suggested_fix=("Replace with primary/secondary/accent/bg/text "
-                            "from the brand, or add it to the palette via "
-                            "designer_set_brand."),
+             suggested_fix=("Use one of the brand colors instead, or add "
+                            "this color to the brand in the Brand panel."),
              page_index=page_index)
 
 
 _FONT_FAMILY_RE = re.compile(r"font-family\s*:\s*([^;}\"]+)", re.IGNORECASE)
 
 
+_FONT_VAR_RE = re.compile(r"^var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*(.+))?\)$")
+
+
+def _font_stack(stack: str, variables: dict[str, str]) -> str:
+    """A font-family value with the page's own font variables filled in."""
+    value = stack.strip()
+    for _ in range(4):  # var(--a) may name var(--b); stop on a cycle.
+        match = _FONT_VAR_RE.match(value)
+        if not match:
+            break
+        value = (variables.get(match.group(1)) or match.group(2) or "").strip()
+    return value
+
+
 def _lint_fonts(page_html: str, brand_fonts: set[str],
-                findings: list[LintFinding], page_index: int) -> None:
+                findings: list[LintFinding], page_index: int,
+                variables: dict[str, str] | None = None) -> None:
     allowed = set(brand_fonts) | _SAFE_FONTS
     seen: set[str] = set()
     for m in _FONT_FAMILY_RE.finditer(page_html or ""):
-        stack = m.group(1)
-        for part in stack.split(","):
-            name = part.strip().strip("\"'").lower()
-            if not name or name in allowed or name in seen:
-                continue
-            seen.add(name)
-            _add(findings,
-                 category="font", severity="low",
-                 message=(f"Font family \"{part.strip()}\" is not part of the "
-                          f"brand typography."),
-                 suggested_fix=("Use heading_font or body_font from the brand, "
-                                "or add it via designer_set_brand."),
-                 page_index=page_index)
-            if len(seen) >= 5:
-                return
+        stack = _font_stack(m.group(1), variables or {})
+        # The first family is the choice; the rest are fallbacks for it.
+        part = stack.split(",")[0]
+        name = part.strip().strip("\"'").lower()
+        if not name or name.startswith("var(") or name in allowed or name in seen:
+            continue
+        seen.add(name)
+        _add(findings,
+             category="font", severity="low",
+             message=(f"Font family \"{part.strip()}\" is not part of the "
+                      f"brand typography."),
+             suggested_fix=("Use the brand's heading or body font, or add this "
+                            "font to the brand in the Brand panel."),
+             page_index=page_index)
+        if len(seen) >= 5:
+            return
 
 
 def _lint_missing_alt(root: Tag | BeautifulSoup,
@@ -372,8 +410,9 @@ def lint_page(page_html: str, *, brand, page_index: int = 0) -> list[LintFinding
 
     findings: list[LintFinding] = []
     _lint_contrast(root, variables, body_color, body_bg, findings, page_index)
-    _lint_off_palette(page_html, _brand_hexes(brand), findings, page_index)
-    _lint_fonts(page_html, _brand_fonts(brand), findings, page_index)
+    _lint_off_palette(page_html, _brand_hexes(brand), findings, page_index,
+                      _page_palette(variables))
+    _lint_fonts(page_html, _brand_fonts(brand), findings, page_index, variables)
     _lint_missing_alt(root, findings, page_index)
     _lint_logo_safe_zone(root, brand, findings, page_index)
     return findings

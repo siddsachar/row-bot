@@ -1,0 +1,225 @@
+import { useEffect, useState } from 'react';
+import type {
+  AccessPresetView,
+  PlanAccess,
+  PlanContinueRequest,
+  PlanTool,
+} from '../../api/types';
+
+type AccessPresetId = AccessPresetView['id'];
+import { Button, Disclosure, Select } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
+
+const PRESETS: [AccessPresetId, string, string][] = [
+  ['read_only', 'Read only', 'Looks things up. Cannot change anything.'],
+  [
+    'ask',
+    'Ask before changes',
+    'Looks things up. Asks you before every change.',
+  ],
+  [
+    'full',
+    'Full access',
+    'Makes routine changes without asking. Risky actions still ask.',
+  ],
+];
+
+/** Which group a tool belongs to; the groups do not depend on the preset. */
+function groupOf(tool: PlanTool) {
+  if (tool.always_asks) return 'Always asks first';
+  return tool.effect === 'read_only' ? 'Looks things up' : 'Makes changes';
+}
+
+function readable(tool: PlanTool) {
+  return tool.title || tool.name;
+}
+
+export function ToolGroups({ tools }: { tools: PlanTool[] }) {
+  return (
+    <div className="access-groups">
+      {['Looks things up', 'Makes changes', 'Always asks first'].map(
+        (group) => {
+          const members = tools.filter((tool) => groupOf(tool) === group);
+          return members.length ? (
+            <Disclosure
+              key={group}
+              summary={group}
+              meta={String(members.length)}
+            >
+              <ul className="access-tools">
+                {members.map((tool) => (
+                  <li key={tool.name}>
+                    <strong>{readable(tool)}</strong>
+                    {tool.description && <small>{tool.description}</small>}
+                  </li>
+                ))}
+              </ul>
+            </Disclosure>
+          ) : null;
+        },
+      )}
+    </div>
+  );
+}
+
+/** "Here's what {app} can do": a preset, readable tools, and optional per-tool choices. */
+export default function AccessSheet({
+  open,
+  name,
+  access,
+  change,
+  chosen = false,
+  busy,
+  onAllow,
+  onCancel,
+}: {
+  open: boolean;
+  name: string;
+  access: PlanAccess | null;
+  change: boolean;
+  /** Chosen when connecting (look things up, or make changes too): shown, not asked again. */
+  chosen?: boolean;
+  busy: boolean;
+  onAllow: (choice: PlanContinueRequest) => void;
+  onCancel: () => void;
+}) {
+  const [preset, setPreset] = useState<AccessPresetId>('ask');
+  const [overrides, setOverrides] = useState<
+    Record<string, 'use' | 'ask' | 'off'>
+  >({});
+  useEffect(() => {
+    if (open && access) {
+      setPreset(access.preset === 'custom' ? 'ask' : access.preset);
+      // A custom policy stays as it is until the person changes a tool.
+      setOverrides(
+        access.preset === 'custom'
+          ? Object.fromEntries(
+              access.tools.map((tool) => [tool.name, tool.state]),
+            )
+          : {},
+      );
+    }
+  }, [open, access]);
+  const tools = access?.tools ?? [];
+  // Signed in to look things up only: changes are allowed later, from its Access, with one more sign-in.
+  const readsOnly = Boolean(access?.limited) && !change;
+  // Presets differ only in how changes are made: none to make, none allowed, or already chosen: nothing to ask.
+  const changes = tools.some((tool) => tool.effect !== 'read_only');
+  const choosing = changes && !readsOnly && !(chosen && !change);
+  const title = change
+    ? `Change what ${name} can do`
+    : `Here's what ${name} can do`;
+  return (
+    <ModalTask
+      open={open}
+      title={title}
+      description={
+        choosing
+          ? 'Choose how much it can do on its own. You can change this later.'
+          : !changes
+            ? 'It only looks things up: it cannot change anything.'
+            : readsOnly || access?.preset === 'read_only'
+              ? 'It looks things up only, as you chose. Its Access can allow changes later.'
+              : 'It asks you before every change, as you chose. You can change this later.'
+      }
+      onOpenChange={(value) => {
+        if (!value) onCancel();
+      }}
+    >
+      <div className="stack">
+        {choosing && (
+          <fieldset className="access-presets">
+            <legend className="visually-hidden">Access</legend>
+            {PRESETS.map(([id, label, description]) => (
+              <label
+                key={id}
+                className="access-preset"
+                data-selected={preset === id}
+              >
+                <input
+                  type="radio"
+                  name="access-preset"
+                  value={id}
+                  checked={preset === id}
+                  disabled={readsOnly && id !== 'read_only'}
+                  onChange={() => {
+                    // Picking a preset sets every tool from it; Customise can then adjust single tools.
+                    setPreset(id);
+                    setOverrides({});
+                  }}
+                  data-initial-focus={preset === id ? true : undefined}
+                />
+                <span>
+                  <strong>{label}</strong>
+                  <small>{description}</small>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {access?.note && <p className="settings-help">{access.note}</p>}
+        {tools.length ? (
+          <ToolGroups tools={tools} />
+        ) : (
+          <p className="settings-help">It has no tools to choose yet.</p>
+        )}
+        {tools.length > 0 && (
+          <Disclosure summary="Customise">
+            <ul className="access-tools">
+              {tools.map((tool) => (
+                <li key={tool.name} className="access-tool-choice">
+                  <span>
+                    <strong>{readable(tool)}</strong>
+                    <small>{groupOf(tool)}</small>
+                  </span>
+                  <Select
+                    aria-label={`What ${readable(tool)} may do`}
+                    value={overrides[tool.name] ?? ''}
+                    onChange={(event) => {
+                      const value = event.target.value as
+                        'use' | 'ask' | 'off' | '';
+                      const next = { ...overrides };
+                      if (value) next[tool.name] = value;
+                      else delete next[tool.name];
+                      setOverrides(next);
+                    }}
+                  >
+                    <option value="">As chosen above</option>
+                    {!tool.always_asks && (
+                      <option
+                        value="use"
+                        disabled={readsOnly && tool.effect !== 'read_only'}
+                      >
+                        Use without asking
+                      </option>
+                    )}
+                    <option
+                      value="ask"
+                      disabled={readsOnly && tool.effect !== 'read_only'}
+                    >
+                      Ask first
+                    </option>
+                    <option value="off">Off</option>
+                  </Select>
+                </li>
+              ))}
+            </ul>
+          </Disclosure>
+        )}
+        <div className="app-dialog-actions">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button
+            variant="primary"
+            disabled={busy || !access}
+            onClick={() =>
+              access &&
+              onAllow({ preset, overrides, tools_digest: access.tools_digest })
+            }
+          >
+            {change ? 'Save' : 'Allow'}
+          </Button>
+        </div>
+      </div>
+    </ModalTask>
+  );
+}

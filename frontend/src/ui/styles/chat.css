@@ -226,6 +226,10 @@
   flex: 1 1 200px;
   min-height: 72px;
   overflow-y: auto;
+  /* Its width never changes when it starts or stops scrolling: the composer
+     follows it (B221), and a narrower composer is shorter, which could stop
+     the scrolling again, round and round (found live in an empty chat). */
+  scrollbar-gutter: stable;
   overflow-anchor: none;
   overscroll-behavior: contain;
   padding: 8px 0 32px;
@@ -3019,8 +3023,11 @@ button.attachment-tile-face:hover {
   flex: none;
   color: var(--text-muted);
 }
-.menu .menu-item[role='menuitemradio'] > span:last-child {
-  margin-inline-start: auto;
+/* A choice's name fills its row, so every name starts at the left whether
+   or not it carries the check. */
+.menu .menu-item[role='menuitemradio'] > .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .menu-item-meta {
   margin-inline-start: auto;

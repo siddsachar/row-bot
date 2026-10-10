@@ -1,15 +1,15 @@
 ---
 title: "Settings: Tracker"
-description: "Configure recurring activity, habit, symptom, and health tracking surfaces."
+description: "Turn tracking on or off, open a tracker to see its entries, start one in chat, and delete trackers."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Tracker
 
-Tracker is for structured personal logs such as recurring activities, habits, symptoms, or health events. It gives Row-Bot a more organized way to store and review repeated observations than free-form chat alone.
+Tracking keeps structured personal logs, such as habits, symptoms, moods or health events, that you ask Row-Bot to record in a chat ("I drank 8 glasses of water", "Log a headache, 6 out of 10"). Row-Bot keeps each kind of record as a tracker.
 
-<Screenshot id="settings-tracker" alt="Settings: Tracker in Row-Bot." caption="The Tracker page manages personal tracking categories, views, charts, and logged data." />
+<Screenshot id="settings-tracker" alt="Settings: Tracker in Row-Bot." caption="The Tracker page lists your trackers; open one to see its latest entries." />
 
 ## Where To Find It
 
@@ -17,17 +17,17 @@ Open **Settings**, then choose **Tracker** in the **Knowledge** group, or search
 
 ## Controls
 
-- Category controls decide what kinds of events can be logged.
-- View and chart options change how tracker history is summarized.
-- Import or cleanup actions manage existing tracker data.
-- Privacy-oriented status text explains that tracker records stay in local app data unless you ask a provider or channel to use them.
+- **Track in chat** turns tracking on or off. While it is off, Row-Bot doesn't record or read trackers.
+- **Trackers** lists each tracker with its kind and how many entries it has. Choose a tracker's name to see its latest entries (the newest 50, with the total); nothing there changes an entry. Its delete button deletes that one tracker and its entries, after you confirm.
+- **Start a tracker in chat** opens a new chat with "Start tracking " ready in the message box, so you can say what to track. Trackers are added by asking Row-Bot in a chat.
+- **Danger zone › Delete all trackers** deletes every tracker and entry, after you confirm.
 
 ## Common Workflow
 
-1. Choose the categories you actually want to track.
-2. Log events consistently from Chat or tracker-aware workflows.
-3. Review trends in the tracker view before asking Row-Bot to summarize them.
-4. Remove categories you no longer use to keep prompts focused.
+1. Choose **Start a tracker in chat** and say what you want to track.
+2. Keep logging in any chat ("Log 30 minutes of running").
+3. Open the tracker here to check its latest entries, or ask Row-Bot to summarise them.
+4. Delete a tracker you no longer use.
 
 ## What Is Saved
 
@@ -43,6 +43,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If a chart is empty, confirm there are saved events in that category.
-- If a summary seems wrong, inspect the raw tracker entries first.
+- If a tracker is missing, check that **Track in chat** is on, then ask Row-Bot in a chat to start it.
+- If a summary seems wrong, open the tracker here and check its latest entries.
 - If privacy matters, do not include tracker details in prompts sent to hosted providers.

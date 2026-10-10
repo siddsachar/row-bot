@@ -1,0 +1,58 @@
+---
+title: "Sign-In And Client Metadata"
+description: "For developers: how Row-Bot signs in to a hosted app, using its published OAuth client metadata document (CIMD), dynamic client registration or the person's own OAuth app, with a loopback redirect."
+---
+
+# Sign-In And Client Metadata
+
+This page is for developers running an MCP server behind OAuth who want Row-Bot to sign in to it, and for anyone reviewing how Row-Bot does it. The code is in `src/row_bot/mcp_client/auth.py`, `application/client_mcp_auth.py` and the `sign_in` step of `integrations/plans.py`.
+
+## Row-Bot's Client Metadata Document
+
+Row-Bot has no client secret and no hosted service. Its OAuth client ID is the address of a static Client ID Metadata Document (CIMD), `https://row-bot.ai/oauth/client-metadata.json`, published from `docs-site/static/oauth/client-metadata.json`:
+
+```json
+{
+  "client_id": "https://row-bot.ai/oauth/client-metadata.json",
+  "client_name": "Row-Bot",
+  "client_uri": "https://row-bot.ai",
+  "logo_uri": "https://row-bot.ai/img/brand/row_bot_glyph_256.png",
+  "application_type": "native",
+  "redirect_uris": [
+    "http://127.0.0.1/api/v1/settings/mcp/auth/callback",
+    "http://127.0.0.1:8080/api/v1/settings/mcp/auth/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+It names only loopback redirects, so a sign-in made with it can only return to the computer that started it. It holds no secret or key.
+
+## How Row-Bot Finds Out A Sign-In Is Needed
+
+During an agreed setup, the `test` step sends one unauthenticated `initialize` request. A 401 or 403 makes Row-Bot read the server's protected-resource metadata (RFC 9728) and then its authorization server's metadata (RFC 8414), and turns the plan's `sign_in` step on. So a hosted app whose catalog listing says nothing about sign-in can still sign in. These reads are limited to public https addresses and 64 KiB, and happen only inside a setup the person agreed to.
+
+## Which Client Row-Bot Uses
+
+1. **The person's own OAuth app**, when they gave one for this connection before, or when a reviewed recipe says the service needs one (GitHub's OAuth-app way, for example).
+2. **CIMD**, when the authorization server's metadata says `client_id_metadata_document_supported` and the sign-in returns to this computer's loopback address. CIMD is preferred when the server supports both.
+3. **Dynamic client registration**, when the server has a `registration_endpoint`. Row-Bot registers as a public client named Row-Bot with only its callback address.
+4. **Otherwise the setup pauses** at **Add your OAuth app** for a client ID and an optional client secret. The help gives the callback address to register. With a secret, Row-Bot authenticates with `client_secret_post`.
+
+The authorization request uses PKCE with S256. A reviewed recipe may set `oauth_scope` to ask for less than everything the server lists. During sign-in Row-Bot checks that the issuer is the expected one, refuses HTTP redirects, contacts public https addresses only, and sends the access token only to the app's own server.
+
+## The Redirect
+
+When Row-Bot runs on this computer, the callback is `http://127.0.0.1:<port>/api/v1/settings/mcp/auth/callback` on the port Row-Bot is using (8080 by default), and the person's browser opens on the same computer. The client metadata lists the address both without a port and with 8080; an authorization server that follows RFC 8252 §7.3 accepts any port on a loopback redirect. When Row-Bot is reached through an approved public https address, the callback uses that address, and CIMD isn't used: dynamic registration or the person's own app is.
+
+For your own OAuth app, register `http://127.0.0.1/api/v1/settings/mcp/auth/callback` (with a port if your service requires one).
+
+## Tokens
+
+Tokens, the client registration and the person's own client secret are saved together for that one connection in Row-Bot's secret store (the system keychain, or Row-Bot's encrypted store where there is none), never in settings files, logs or API responses. They are bound to the connection's name, address and launch; if those change, the person signs in again. When a refresh fails or a token stops working, the app shows **Sign in needed**, and its main action is **Sign in again**.
+
+## Testing
+
+`tests/subsystem/integrations/test_sign_in.py` covers discovery, CIMD before dynamic registration, the person's own app, scopes, the expired-sign-in state and the published document. The live GitHub check, `tests/e2e/test_github_live.py`, is opt-in; see [Extend Row-Bot](/docs/extending/#how-apps-and-skills-are-set-up).

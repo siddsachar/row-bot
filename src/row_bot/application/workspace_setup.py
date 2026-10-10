@@ -511,7 +511,10 @@ def _people_facing_profiles(current: str) -> list[dict]:
         ui = profile.get("ui_json") if isinstance(profile.get("ui_json"), dict) else {}
         if str(ui.get("group") or "") == "Advanced/Internal" and profile["id"] != current:
             continue
-        profiles.append({"id": profile["id"], "label": profile["display_name"]})
+        # One line under the name in the + menu's Agent list.
+        description = " ".join(str(profile.get("description") or "").split())
+        profiles.append({"id": profile["id"], "label": profile["display_name"],
+                         "description": description[:509] + "…" if len(description) > 512 else description})
     return profiles[:256]
 
 

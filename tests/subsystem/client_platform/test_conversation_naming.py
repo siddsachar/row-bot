@@ -12,6 +12,7 @@ import threading
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import pytest
 
+from row_bot.application.conversation_naming import _ask as title_call
 from tests.contracts.client_platform.test_headless_lifecycle import command, platform  # noqa: F401
 from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier, fixture_id
 
@@ -63,9 +64,11 @@ class _Request:
 @pytest.fixture
 def naming(platform, monkeypatch):  # noqa: F811
     from row_bot import models
+    from row_bot.application import conversation_naming
     from row_bot.providers import reasoning
 
     model = TitleModel()
+    monkeypatch.setattr(conversation_naming, "_ask", title_call)  # tests elsewhere have no title call
     monkeypatch.setattr(models, "get_llm_for", model.get_llm_for)
     monkeypatch.setattr(reasoning, "resolve_reasoning_capabilities_for_ref", lambda ref: model.capabilities)
     yield model
