@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import os
 
 import pytest
 
-from row_bot.designer import fonts
-from tests.subsystem.designer.test_client_exports import project as _project, isolated as _isolated
+from row_bot.designer import fonts, storage
+from tests.subsystem.designer.test_client_exports import (
+    create, project as _project, isolated as _isolated, renderer as _renderer,
+)
 
-project, isolated = _project, _isolated
+project, isolated, renderer = _project, _isolated, _renderer
 
 pytestmark = pytest.mark.subsystem
 _real_embedded = fonts.get_font_css_embedded
@@ -156,6 +159,58 @@ def test_static_preview_is_exact_inert_page_and_has_separate_revision(project, f
     unchanged = client_service.read_preview(project.id, page_id='second', static_page=True,
                                            known_revision=static.preview_revision)
     assert unchanged.unchanged and unchanged.html is None
+
+
+@pytest.fixture
+def page_with_faces(font_dir):
+    """A saved page whose fonts are a bundled and a cached family, as templates bake them."""
+    cached = fonts._CACHE_DIR / 'cached-font'
+    cached.mkdir(parents=True)
+    (cached / 'cached-font-400.woff2').write_bytes(woff(b'cached'))
+    return lambda extra='': (
+        f"<!DOCTYPE html><html><head><style>{fonts.get_all_fonts_css(['Synthetic Font', 'Cached Font'])}\n"
+        "h1 { font-family: 'Synthetic Font'; } p { font-family: 'Cached Font'; }</style></head>"
+        f"<body><h1>Bundled</h1><p>Cached</p>{extra}</body></html>")
+
+
+def embedded_face(family, data):
+    return (f"font-family: '{family}'; font-style: normal; font-weight: 400; font-display: swap; "
+            f"src: url('data:font/woff2;base64,{base64.b64encode(data).decode()}')")
+
+
+@pytest.mark.parametrize(('format', 'pptx_mode'), [('png', None), ('pdf', None), ('pptx', 'structured')])
+def test_strict_export_embeds_a_pages_bundled_and_cached_faces_without_a_web_warning(
+        project, renderer, page_with_faces, format, pptx_mode):
+    project.brand = None  # Only the page's own faces name these families.
+    project.pages[0].html = page_with_faces()
+    storage.save_project(project)
+    assert "url('/static/fonts/synthetic-font/synthetic-400.woff2')" in project.pages[0].html
+    assert "url('/_fonts/cache/cached-font/cached-font-400.woff2')" in project.pages[0].html
+    result = create(project, format=format, pptx_mode=pptx_mode, pages='1')
+    assert result.warnings == ()
+    page = renderer['html'][0]
+    assert '/static/fonts/' not in page and '/_fonts/cache/' not in page
+    assert page.count(embedded_face('Synthetic Font', woff())) == 1
+    assert page.count(embedded_face('Cached Font', woff(b'cached'))) == 1
+
+
+@pytest.mark.parametrize('external', [
+    '<img src="https://example.invalid/hero.png">',
+    '<div style="background:url(https://example.invalid/hero.png)">Hero</div>',
+    '<style>@import url(https://example.invalid/site.css);</style>',
+    '<link rel="stylesheet" href="https://example.invalid/site.css">',
+    "<style>@font-face { font-family: 'Synthetic Font'; src: url('https://example.invalid/s.woff2'); }</style>",
+    "<style>@font-face { font-family: 'Missing Font'; src: url('/static/fonts/missing-font/m-400.woff2'); }</style>",
+])
+def test_strict_export_still_warns_for_what_it_cannot_carry_offline(project, renderer, page_with_faces, external):
+    project.brand = None
+    project.pages[0].html = page_with_faces(external)
+    storage.save_project(project)
+    result = create(project, format='png', pages='1')
+    assert result.warnings == ('external_assets_unavailable',)
+    [page] = renderer['html']
+    assert 'example.invalid' not in page and '/static/fonts/' not in page
+    assert page.count(embedded_face('Synthetic Font', woff())) == 1
 
 
 def test_static_preview_cannot_become_an_authoring_channel(project):

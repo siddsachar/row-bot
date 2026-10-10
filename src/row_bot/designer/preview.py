@@ -196,11 +196,13 @@ def render_page_html(
 
 
 def isolate_preview_html(html: str, *, scripts: bool = False,
-                         brand: BrandConfig | None = None, strict_fonts: bool = False) -> str:
+                         brand: BrandConfig | None = None, strict_fonts: bool = False,
+                         font_families: tuple[str, ...] = ()) -> str:
     """Apply a network-free document policy inside an opaque sandboxed frame.
 
     Call after trusted bridge injection. This is an extra restriction, never a
     replacement for the host's sandbox attribute and validated message source.
+    ``font_families`` are embedded as the brand's fonts are (a strict export's page faces).
     """
     from bs4 import BeautifulSoup
     import re
@@ -221,11 +223,12 @@ def isolate_preview_html(html: str, *, scripts: bool = False,
         css = re.sub(r"@font-face\s*\{[^}]*\}", "", css, flags=re.IGNORECASE)
         css = re.sub(r"url\((.*?)\)", offline_url, css, flags=re.IGNORECASE | re.DOTALL)
         style.string = css
-    if brand:
+    families = [*((brand.heading_font, brand.body_font) if brand else ()), *font_families]
+    if families:
         from row_bot.designer.fonts import get_font_css_embedded, is_font_available_offline
 
         fonts = []
-        for family in dict.fromkeys([brand.heading_font, brand.body_font]):
+        for family in dict.fromkeys(families):
             if strict_fonts:
                 fonts.append(get_font_css_embedded(family, strict=True))
             elif family and re.fullmatch(r"[A-Za-z0-9 _-]{1,100}", family) and is_font_available_offline(family):
