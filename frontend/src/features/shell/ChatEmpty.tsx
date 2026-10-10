@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { ConversationView } from '../../api/types';
 import { relativeTime } from '../../ui/format';
+import { neverUsed } from './new-chat';
 import {
   DESIGN_LABELS,
   DESIGN_PROMPTS,
@@ -109,8 +110,11 @@ export default function ChatEmpty({
         </p>
       </div>
     );
+  // Never-used chats stay out, as in the sidebar and on Home.
   const threads = recent
-    .filter((item) => item.id !== conversationId && item.title)
+    .filter(
+      (item) => item.id !== conversationId && item.title && !neverUsed(item),
+    )
     .slice(0, 3);
   const suggestions = design ? DESIGN : GENERAL;
   return (

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import type { ConversationView } from '../../api/types';
 import ChatEmpty from './ChatEmpty';
 
 const suggestions = () =>
@@ -31,6 +32,33 @@ it('suggests work on the design in a chat working on one', () => {
   expect(onChoose).toHaveBeenCalledWith(
     'Check the design review and fix what it finds',
   );
+});
+
+it('lists recent chats without the never-used ones', () => {
+  // Found live: three empty "New conversation" chats filled the list.
+  const row = (id: string, title: string) =>
+    ({ id, title, updated_at: '2026-10-10T07:00:00Z' }) as ConversationView;
+  render(
+    <ChatEmpty
+      conversationId="chat"
+      disabled={false}
+      onChoose={vi.fn()}
+      recent={[
+        row('empty-1', 'New conversation'),
+        row('tea', 'Your Favourite Tea Is Jasmine'),
+        row('empty-2', 'New conversation'),
+        row('desk', 'Three Tips for a Tidy Desk'),
+      ]}
+      onOpen={vi.fn()}
+    />,
+  );
+  expect(
+    within(screen.getByRole('navigation', { name: 'Recent conversations' }))
+      .getAllByRole('link')
+      .map(
+        (link) => link.querySelector('.chat-empty-recent-title')?.textContent,
+      ),
+  ).toEqual(['Your Favourite Tea Is Jasmine', 'Three Tips for a Tidy Desk']);
 });
 
 it('keeps the general suggestions, and two more on request, elsewhere', () => {
