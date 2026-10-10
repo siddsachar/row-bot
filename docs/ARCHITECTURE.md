@@ -8,8 +8,10 @@ principle for the system: **Reason. Orchestrate. Work.** The architecture keeps
 those concerns separate: reasoning lives in provider-aware agent/runtime paths,
 orchestration lives in the durable parent/child runtime plus tools, workflows,
 channels, skills, plugins, and MCP, and work lives in local data stores owned by
-the user. Progressive capability catalogs keep extension scale out of ordinary
-prompts, the managed Browser and native Computer Use engines keep visible
+the user. Apps & Skills puts MCP servers, packages, skills, accounts, and
+channels behind one local catalog and reviewed install-plan model without
+replacing their owners. Progressive capability catalogs keep extension scale
+out of ordinary prompts, the managed Browser and native Computer Use engines keep visible
 automation explicit and separately owned, the Buddy overlay projects one
 selected local thread, and centralized deletion coordinates storage owners
 without weakening their boundaries. One capacity-aware preparation pipeline
@@ -53,6 +55,7 @@ keeps long Agent and Chat Only conversations bounded and recoverable.
 - [Skills Hub & Skill Activation](#skills-hub--skill-activation)
 - [Image Generation](#image-generation)
 - [Video Generation](#video-generation)
+- [Apps & Skills](#apps--skills)
 - [MCP Client & External Tools](#mcp-client--external-tools)
 - [Migration Wizard](#migration-wizard)
 - [Legacy Thoth Upgrade Policy](#legacy-thoth-upgrade-policy)
@@ -623,11 +626,13 @@ Claude Subscription's Settings card includes a runtime diagnostic that exercises
 - **Provider-aware reasoning** — exact catalog/model metadata determines valid reasoning choices, per-thread selections are converted into native provider request fields, returned reasoning stays separate from answer text, and a rejected explicit value can fall back once to Provider default before output
 - **Capacity-aware context management** — complete-input accounting and rolling compaction use native/catalog/observed capacity when available, local Ollama Auto targets 64K, custom endpoints require detected or declared capacity, exact advanced values are preserved, and an unknown non-custom remote model's 128K value is disclosed application authority rather than provider metadata
 - **Local catalog accuracy** — installed Ollama chat models remain visible even when their family is newer than Row-Bot's curated tool/vision heuristics, while embedding-like local models are kept out of chat choices and Vision support is only inferred from known metadata/families
-- **Native Ollama tool metadata** — `providers/ollama.py` gives an explicit
-  `tool_calling` boolean first priority, otherwise consumes the daemon's
-  `capabilities` list when present and treats `tools` as authoritative positive
-  or negative evidence; curated family detection is used only when native
-  metadata is absent
+- **Native Ollama capability metadata** — `providers/ollama.py` gives an explicit
+  `tool_calling` boolean first priority, otherwise consumes the `capabilities`
+  list from Ollama's `/api/show` when present and treats `tools`, `vision`, and
+  `thinking` as authoritative positive or negative evidence (a reported
+  `thinking` model gets the Ollama reasoning control); curated family
+  detection is used only when Ollama reports no capabilities, and then can
+  only add Vision, never remove it
 - **Ollama Cloud paths** — direct Ollama Cloud API keys and local daemon `:cloud` models are represented separately while sharing catalog normalization and display metadata; direct API errors are normalized into user-facing provider messages
 - **Tool-support validation** — unsupported or uncertain local/custom models are warned about, can be probed with a real tool round-trip, and route to agent, chat-only, or blocked mode based on the result
 - **Custom endpoint compatibility profiles** — OpenAI-compatible endpoints can use oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or generic profiles to normalize message content, tool history, unsupported parameters, streaming behavior, reasoning replay, and bounded extra request JSON
@@ -707,6 +712,7 @@ installed FunASR/SenseVoice runtime, from cache only.
 - **Safe commands run instantly** — read-only operations like `ls`, `pwd`, `cat`, `git status`, or `pip list` execute without interruption
 - **Dangerous commands require approval** — destructive or system-modifying commands trigger an interrupt so you can accept or reject them
 - **Blocked by default** — high-risk commands like `shutdown`, `reboot`, or `mkfs` are rejected outright
+- **Private data folder** — a command that names Row-Bot's data folder (its path in any common spelling, `~`/`$HOME`/`%USERPROFILE%` forms, a `.row-bot` segment, or `ROW_BOT_DATA_DIR`) is refused in every approval mode without asking, and the file tools refuse paths inside it; **Settings › System › Advanced** can let the agent read it, and then each such command asks, even in Auto (Block still refuses it)
 - **Background safety integration** — safe commands always execute; moderate commands are blocked by default in workflows but can be allowlisted per workflow; dangerous commands remain blocked
 - **Inline terminal panel** — command output appears in a collapsible terminal panel in the chat UI with clear and history controls
 - **History persistence** — shell history is saved per thread in `~/.row-bot/shell_history.json`
@@ -791,7 +797,7 @@ non-thread-safe discovery clients when an agent or ToolNode fans out operations
 within one turn.
 
 - **Request-scoped services** — every search, create, update, move, delete, or bulk-create invocation constructs an independent Calendar service from the current credential snapshot
-- **Single-flight token refresh** — concurrent callers coordinate one OAuth refresh and persist the refreshed token atomically before building their request-scoped services
+- **Single-flight token refresh** — concurrent callers coordinate one OAuth refresh and save the refreshed token before building their request-scoped services; Gmail and Calendar share one Google sign-in kept only in the system keychain (`account_tokens.py`)
 - **Mutation serialization** — writes are ordered inside the process so same-turn fan-out cannot race duplicate checks or issue overlapping mutations through shared state
 - **Native bulk create** — `create_calendar_events` accepts ordered event inputs, performs duplicate-safe creation, preserves result order, and returns structured success or partial-failure records
 - **Ambiguous timeout reconciliation** — create operations derive a stable correlation marker and search for a backend-committed event after a timeout before deciding whether to retry, preventing duplicate calendar entries
@@ -824,7 +830,7 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 
 - **Unified workflow engine** — named multi-step workflows run sequentially in a fresh or persistent thread and are scheduled through APScheduler
 - **SQLite schema recovery** — `tasks.py` validates the workflow database schema before use, repairs partial schemas in place, backs up and recreates corrupt DBs, and retries schema-related operations once after repair
-- **7 schedule types** — `daily`, `weekly`, `weekdays`, `weekends`, `interval`, `cron`, and one-shot `delay_minutes`
+- **7 schedule types** — `daily`, `weekly`, `weekdays`, `weekends`, `interval`, `cron`, and one-shot `delay_minutes`; `task_create` and `task_update` also take `run_at`, one future local date and time stored as a one-off run
 - **Template variables** — prompts can use `{{date}}`, `{{day}}`, `{{time}}`, `{{month}}`, `{{year}}`, `{{task_id}}`, and `{{step.X.output}}`
 - **Per-workflow model/profile override** — each workflow can force a different model or Agent Profile, then restore the default after completion
 - **Skills and tools overrides** — workflows can narrow the skill set globally and the tool set per step; promoted Agent-run workflows preserve the originating profile and safety context for review before enablement
@@ -864,7 +870,7 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 ### Existing Features
 
 - **Always-background execution** — workflows run without blocking the main chat UI
-- **Pre-built templates** — seeds five disabled starter workflows across simple and advanced examples; nothing is scheduled or run until the user enables it
+- **Pre-built templates** — seeds five disabled starter workflows across simple and advanced examples; nothing is scheduled or run until the user enables it. The Workflows library's **Start from a template** (`integrations/workflow_templates.py`) creates a scheduled workflow switched off, in Ask approval mode, scoped to the apps the template names (or Row-Bot's own tools), and offers Connect when such an app is not connected yet
 - **Home screen dashboard** — Workflows and Activity tabs show tiles, upcoming runs, run history, channel status, pending approvals, extraction journal, and dream journal
 - **Persistent run history** — execution history survives workflow deletion for auditability
 - **Monitoring / polling** — interval schedules plus condition steps support ongoing monitors like price checks or release watchers
@@ -897,20 +903,21 @@ Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-
 ### Project Model & Storage
 
 - **Multi-page / multi-screen projects** — each project stores a page list, canvas dimensions, aspect ratio, mode, title metadata, notes, brand settings, and (for app mockups) a route map
-- **Home gallery** — the Home screen includes a dedicated **Designer** tab with recent projects, new-project flows, and quick reopen actions
+- **Saved designs** — a conversation creates a design through Add resource (or the agent's `create_design`), and **Add resource › Open saved** reopens an existing one in any conversation
 - **Canvas presets and resizing** — projects can be resized after creation; mode-appropriate presets are offered up front
 - **Reference storage** — uploaded briefs, screenshots, and source material are stored as reusable references so future designer sessions can reopen them without reuploading
 - **Asset-backed media** — project HTML stores media as `asset://<asset-id>` references rather than brittle placeholder tokens; `designer/render_assets.py` normalizes legacy refs, preserves `data-asset-id`, and hydrates assets for preview, presentation, export, and published output
 - **Persistent asset storage** — designer assets live on disk under `~/.row-bot/designer/assets/`; projects and references are stored separately
 - **Windows-safe writes** — `designer/storage.py` uses temp-file + replace semantics with retry logic to avoid broken saves on Windows file locks
 - **Ownership-aware deletion** — deleting a Designer conversation clears only
-  its thread binding and cached session while retaining the project; deleting a
-  project removes its project JSON, assets, references, history, published HTML,
-  cached session, and every linked conversation through the centralized cleanup
-  service
-- **Responsive gallery cleanup** — single and bulk design deletion share
-  confirmation copy, checkbox binding, and an off-UI-thread persistent progress
-  dialog so large project cleanup does not freeze the Home surface
+  its thread binding and cached session while retaining the project. The
+  design panel's **Delete design…** (`application/conversation_resource_commands.py`)
+  is refused while a conversation using the design is running; otherwise the
+  design first leaves every conversation that uses it, then its project JSON,
+  pages, versions, assets, references, published HTML, and cached session go.
+  No conversation is deleted, and if some files remain the design stays in
+  Open saved so deleting it again finishes. Undo on the "Created design" card
+  removes only a design this conversation created and nothing else uses
 
 ### Editor & Authoring
 
@@ -973,7 +980,10 @@ Developer Studio is Row-Bot's code-workspace subsystem. It is not a full IDE; it
 ### Approval Modes & Tooling
 
 - **Mode-specific policy** — read-only, ask-before-changes, auto-edit, and agent-run modes control file writes, shell commands, Git operations, commits, pushes, and PR preparation
-- **Native Developer tools** — `tools/developer_tool.py` exposes workspace-scoped operations for repo info, file listing, reads, search, git status, diffs, todos, detected tests, shell commands, patch preview/apply, file writes, branch create/switch, commit, push, fast-forward merge, sandbox imports, and safe revert of agent-owned changes
+- **Native Developer tools** — `tools/developer_tool.py` exposes workspace-scoped operations for repo info, file listing, reads, search, git status, diffs, todos, detected tests, shell commands, patch preview/apply, file writes, branch create/switch, commit, push, pull request creation, fast-forward merge, sandbox imports, and safe revert of agent-owned changes
+- **Command classification** — `developer/runtime.py` lets only known read-only commands (git status/log/diff/show, branch listing, `ls`, `cat`, `rg`, `grep`, version checks) run without approval; anything else that runs code (`python script.py`, `node`, `npm test`) is a `run_command` action that asks in Ask, runs in Auto, and is refused in Block, and substitutions inside quotes no longer hide code. Install, network, delete, commit, push, and PR actions keep their own classes, and detected test commands run without asking only in the Docker sandbox
+- **Approve the rest** — `application/approval_grants.py` lets one answer on an approval card cover later actions of the same reviewed, local, repeatable kind (sandbox imports, edits, branch, commit, detected tests, ordinary Developer commands) until the turn ends; pushes, pull requests, merges, reverts, deletes, installs, network access, the Shell tool and the Custom Tool Builder ask every time, the button is offered only on a normal chat's approvals, and grants live only in memory for one conversation
+- **Check results** — `developer/check_results.py` keeps the last result of each detected test/lint/typecheck command the agent ran this session, so the Checks view reflects agent runs as well as reviewed processes
 - **Shell remains available** — Developer-native tools are preferred for repo work, but shell is still available for legitimate project commands and follows Developer approval policy
 - **Shared checkpointed work budget** — Developer turns use the application-wide model-iteration setting and preserve workspace state, todos, and diffs when a budget or fallback framework guard ends the turn, so the user can continue from the current checkpoint
 - **Tool guide and skills** — the Developer tool guide plus Developer coding/review/PR/custom-tool skills are injected for Developer context without bloating normal chat by default
@@ -991,7 +1001,7 @@ Developer Studio is Row-Bot's code-workspace subsystem. It is not a full IDE; it
 
 - **Execution modes** — Local runs commands in the selected repo folder; Docker Sandbox runs commands in an isolated shadow copy
 - **Persistent sandbox container** — `developer/sandbox_runtime.py` manages a per-workspace container and shadow workspace so repeated commands share sandbox state until rebuilt or cleaned
-- **Import-gated edits** — sandbox changes become pending patches and only modify the real repo after explicit import
+- **Import-gated edits** — sandbox changes become pending patches and only modify the real repo after explicit import; `developer_import_sandbox_changes` applies all of a conversation's pending changes together, oldest first, after one **Apply the sandbox changes?** approval
 - **Network policy** — Docker Sandbox supports network off, ask, or on. Network/package-install attempts are blocked early when network is off and approval-gated when policy requires it
 - **Image selection** — workspaces can choose a Docker image; changing the image cleans the sandbox copy before the next Docker command
 - **Local fallback** — users who do not want Docker keep using local execution under the same Developer approval model
@@ -1001,7 +1011,7 @@ Developer Studio is Row-Bot's code-workspace subsystem. It is not a full IDE; it
 ### GitHub & PR Flow
 
 - **GitHub CLI detection** — `developer/github.py` and `developer/executables.py` locate `gh` from common install paths, especially on Windows where PATH can differ between the app and a shell
-- **PR helpers** — branch, commit, push, and PR-prep tools are approval-gated and operate inside the selected workspace
+- **PR helpers** — branch, commit, push, and PR-prep tools are approval-gated and operate inside the selected workspace; `developer_create_pull_request` opens a pull request for the pushed branch with the GitHub CLI on this computer (never in the sandbox), by the thread's approval mode, as a draft by default, with a title and body built from the branch's own commits and files
 - **No hidden remotes** — cloning asks for an explicit destination, and push/PR operations are visible through the active approval mode
 
 ---
@@ -1025,7 +1035,7 @@ Custom Tools let users convert a GitHub repo, local folder, or current Developer
 - **Draft management** — the builder stores draft IDs so users can review and refine proposed commands across turns before creating the tool
 - **Command classification** — commands are tagged by locality/risk and validated for dangerous shell patterns, unreviewed network behavior, write operations, missing placeholders, and malformed command templates
 - **Environment validation** — generated commands are smoke-tested against the selected source tree and virtualenv/runtime assumptions before promotion, with failure details preserved for review
-- **One-time tests** — local/read-only tests can run directly; network or riskier tests route through the normal approval mechanism
+- **One-time tests** — local/read-only tests can run directly; network or riskier tests route through the normal approval mechanism. Because a tool's commands run on this computer, the conversational builder asks by the approval mode, with the exact commands on the card, before it tests, sets up, creates, turns on, or offers a tool in chats
 - **Promotion** — promoted Custom Tools register as synthetic plugin-style tools, inherit normal tool enablement, and can be disabled or removed without deleting the source repo
 
 ### Trust Boundaries
@@ -1045,7 +1055,7 @@ Row-Bot now has a formal self-inspection and self-management surface: a tool for
 - **`row_bot_status` tool** — read-only introspection across `overview`, `version`, `model`, `agents`, `channels`, `memory`, `skills`, `tools`, `mcp`, `providers`, `insights`, `evolution`, `api_keys`, `identity`, `tasks`, `vision`, `image_gen`, `video_gen`, `voice`, `config`, `logs`, `errors`, `updates`, and `designer`
 - **Live runtime visibility** — the tool can report current model/provider, catalog/cache status, provider readiness, active goals, Agent Profiles, child-agent runs, delegation capacity and work-round progress, active channels, knowledge graph counts, enabled, pinned, and task-loaded skills, globally configured versus child-bound tool groups, configured APIs, task state, voice/image/video settings, and designer project counts
 - **Diagnostics access** — recent warnings, provider/runtime probe failures, status-tray findings, errors, and tracebacks can be summarized without opening log files manually
-- **Home health checks** — `status_checks.py` and Home › Monitor expose compact health checks for Ollama, active model, cloud API, tunnel, OAuth accounts, workflows, goals, agents, knowledge, wiki vault, documents, search, skills, tracker, Buddy, MCP, plugins, Computer Use, network, tools, disk, threads DB, FAISS, Dream Cycle, TTS, and logging
+- **Home health checks** — `status_checks.py` and Home › Monitor expose compact health checks for Ollama, active model, cloud API, tunnel, OAuth accounts, workflows, goals, agents, knowledge, wiki vault, documents, search, skills, tracker, Buddy, MCP, plugins, Computer Use, network, tools, disk, threads DB, FAISS, Dream Cycle, TTS, and logging; in a development checkout, **Client build** warns when the served React client is older than its source
 
 ### Controlled Self-Management
 
@@ -1178,8 +1188,8 @@ Row-Bot integrates with X API v2 through a native httpx-based client, grouped in
 - **OAuth 2.0 PKCE** — browser-based auth flow with a local callback server and refresh-token support
 - **Rate-limit tracking** — per-endpoint rate information is recorded and surfaced in structured error responses
 - **Tier discovery** — X tier information is persisted and reused for rate-limit expectations
-- **Local token storage** — auth state lives in `~/.row-bot/x/`
-- **Settings UI** — connect, disconnect, and inspect X auth from Accounts settings
+- **Keychain token storage** — the X sign-in is kept only in the system keychain (`account_tokens.py`, which moves an earlier `x/token.json` there at start); `~/.row-bot/x/` keeps only tier metadata
+- **Settings UI** — connect, disconnect, and inspect X auth from Settings › Apps › X
 
 ---
 
@@ -1337,21 +1347,54 @@ Row-Bot can generate short video clips from text prompts or reference images thr
 
 ---
 
+## Apps & Skills
+
+Settings › Apps and Settings › Skills (`frontend/src/features/apps/`) are the
+one place to find, connect and manage what Row-Bot can use: MCP servers, Agent
+Plugins and native plugin packages, skills, and Row-Bot's own accounts,
+channels and key-based tools. The 5.0 Plugins, MCP, Accounts and Channels pages
+redirect there. `integrations/` is a domain model over the existing owners
+(skills, MCP, plugins, accounts, channels), not a second integration database,
+and `application/client_integrations.py` serves it as the typed
+`/api/v1/integrations` API. Implementation and author guidance is in
+[`INTEGRATIONS.md`](INTEGRATIONS.md); catalog contracts, the Registry mirror
+and the network rules are in [`INTEGRATION_SOURCES.md`](INTEGRATION_SOURCES.md).
+
+- **App identities** — `integrations/apps.py` and `apps.json` hold 104 curated apps (98 featured and ranked) with jobs, synonyms, links and vendor domains. A record attaches to an app only through a reviewed reference, and the vendor badge comes only from rules, never from a name
+- **Catalog sources** — `integrations/sources.py` has one adapter per catalog with server-side eligibility and one ranking key: vendor recipes, the Official MCP Registry mirror, Hermes MCP recipes and packages, featured skills, ClawHub and GitHub skills, built-in ways, Windows connectors, the Composio broker, the Row-Bot marketplace and explicit examples. Glama, PulseMCP, Smithery, skills.sh and other unavailable catalogs are listed with their reasons but never contacted
+- **Local search first** — the shipped `mcp_client/registry_snapshot.jsonl.xz` (every latest Registry record) is indexed at start into a SQLite FTS5 mirror under `catalogs/`. The library searches local data as you type; only **Search online catalogs**, an explicit catalog **Update** in Apps › Advanced › Catalogs, or a schedule the person turns on (off by default) contacts a catalog
+- **Built-in ways** — `integrations/builtin.py` lists Google, GitHub, X, the channels and key-based tools as ways to connect an app, read from their owners without contacting a service or starting a program; each opens its owner's page, and an account's token is never another app's key
+- **Owner facts and status** — `integrations/facts.py` projects the owners into typed facts with a lifecycle, a readiness, blockers and exactly one next action; unfinished owner commands are reconciled on read, never repeated
+- **Install plans** — `integrations/plans.py` computes typed steps (consent, runtimes and packages, inputs, sign-in, connection test, access, enable) and runs them server-side through the existing owner commands, only after a consent token bound to the plan's digest. Each owner command is recorded before it is sent, plans are kept as admission receipts in `tasks.db`, and anything that puts code on this computer (plugin and MCP packages, Hermes recipes, Registry bundles) needs the owner at this computer
+- **Declared inputs** — `integrations/inputs.py` gives every source one way to ask for a key, tenant or folder: templates stay in the saved configuration and values are filled in only when Row-Bot connects, secrets from the system keychain
+- **Access presets** — `integrations/presets.py` applies Read only, Ask before changes (default) or Full access on the per-tool policy. Destructive, high-impact and unknown-effect tools are approval-locked in every preset, a routine change runs without asking only under Full access or a per-tool Use, and tools discovered later wait to be accepted
+- **Apps in chats** — `integrations/scope.py` narrows a turn: an app switched off in the composer's + › Apps, or left out because the message @mentions other apps, loses its tools, and delegated children never regain them. The agent profile's tool rules stay the ceiling and approvals are unchanged. When work needs an app, `suggest_apps` searches only local data and leaves a Connect card that runs the app's consent and plan in the chat
+- **App views (MCP Apps)** — `integrations/views.py` shows a tool's declared view only when the person's switch and the app's are on: at most 1 MiB read from the app's own connection, served once at `/app-views/{id}` under a CSP admitting only the app's declared https domains, in a `sandbox="allow-scripts"` frame with an opaque origin. A view's calls reach only its own app's tools that allow it, at most 20 a minute, through the chat's profile, the app's access and the chat's approvals
+- **Hosted broker** — `integrations/brokers.py` adds Composio, a third-party service that connects many apps through one Composio account. It is off until the person turns it on in Apps › Advanced › Catalogs after its disclosure; its remote code tools start off and its acting tools ask every time
+- **Windows connectors** — on Windows builds with the On-device Agent Registry, `integrations/windows_connectors.py` lists connectors only when the person updates that catalog and connects one through the normal plan; Row-Bot never adds, removes or configures a connector
+- **Picked files** — `integrations/uploads.py` stages a skill or package archive or an `.mcpb` bundle privately; nothing in it runs, and a bundle is unpacked only after its review
+- **One fetch path** — `integrations/safe.py` is the bounded fetcher for catalogs, skill and plugin sources, npm metadata, runtime downloads, Registry bundles and icons: https on port 443 only, every redirect hop rechecked, credentials never sent to another host, identity encoding, size caps and one deadline. A reviewed host uses the system proxy when one is set; otherwise a connection goes directly to a checked public address, and an address that cannot be connected to gives way to the host's next checked address
+
+---
+
 ## MCP Client & External Tools
 
 Row-Bot includes a guarded Model Context Protocol client that can connect external MCP servers and expose their tools to the ReAct agent without making external servers part of Row-Bot's trusted core.
 
 ### Runtime Model
 
-- **Dedicated package** — `mcp_client/` owns persistent config, marketplace search, dependency checks, safety classification, runtime sessions, logging, result normalization, and curated starter metadata
+- **Dedicated package** — `mcp_client/` owns persistent config, catalog records (curated recipes and the shipped Registry snapshot), sign-in, locked package preparation, dependency checks, safety classification, runtime sessions, logging, result normalization, and configuration targets (`targets.py`: a standalone server or one plugin's child, always passed explicitly)
 - **Separate config file** — MCP state is stored in `~/.row-bot/mcp_servers.json`, separate from native tool toggles, so malformed or broken MCP config falls back to an empty disabled config instead of damaging normal tool settings
-- **Global enable switch** — `enabled` in MCP config is the top-level kill switch. Turning it off stops active sessions, clears the discovered catalog, removes dynamic MCP tools from the agent, and keeps saved server definitions for later
+- **Keys only in the keychain** — header and variable secrets and sign-in tokens live in the system keychain behind each server's credential binding (`mcp_client/auth.py`); the config holds only references. At start, before any server launches, `secret_migration.py` moves keys that 5.0.0 saved in a server's headers or variables into the keychain, removing the plaintext only after the keychain copy reads back the same
+- **Global enable switch** — `enabled` in MCP config is the top-level kill switch (Apps › Advanced › **Use apps**). Turning it off stops active sessions, clears the discovered catalog, removes dynamic MCP tools from the agent, and keeps saved server definitions for later
 - **Per-server runtime** — each enabled server gets its own `McpServerRuntime` session tracked by status (`connecting`, `connected`, `failed`, `dependency_missing`, `stopped`, `global_disabled`), tool counts, timestamps, transport, and last error
-- **Transport support** — stdio, Streamable HTTP, and SSE are supported through the Python MCP SDK. Each server can set command, args, cwd, env, URL, headers, connect timeout, tool timeout, and output limit
+- **Transport support** — stdio, Streamable HTTP, and SSE are supported through the Python MCP SDK. Each server can set command, args, cwd, env, URL, headers, connect timeout, tool timeout, and output limit; declared inputs are filled into headers, variables, arguments, or the URL only at launch
+- **Sign-in** — hosted servers sign in with OAuth through MCP SDK 1.29 (PKCE, issuer and endpoint checks, public-address-only discovery per RFC 9728/RFC 8414). The client is the person's own OAuth app when they give one; otherwise Row-Bot's published client ID metadata document (`https://row-bot.ai/oauth/client-metadata.json`, loopback redirects, no secret) when the authorization server supports it, else dynamic client registration for that connection. The callback `GET /api/v1/settings/mcp/auth/callback` needs no session: a one-time state binds it to the waiting flow, and its query is kept out of access logs. A read-only connection asks only for the read scopes a server lists
+- **Locked packages** — `mcp_client/packages.py` resolves an exact lock for review without running package code: npm (registry tarballs with SHA-512 integrity, from the publisher's shrinkwrap or a lock-only `--ignore-scripts` resolution), PyPI (prebuilt wheels only, installed by uv with `--require-hashes`), container images (pulled once and run by digest with no folders, ports, or host network), and MCP bundles (`bundles.py`: manifest, paths, and signature checked, unpacked into a private folder). The reviewed tree under `mcp_packages/` is bound to the connection, a changed tree is refused at launch, install scripts never run, and nothing is installed globally
 - **Non-blocking startup** — `app.py` discovers enabled servers during startup in a guarded path. Exceptions are logged as warnings and do not stop Row-Bot from launching
 - **Failed-until-refresh state** — a failed enabled server is not restarted on every discovery pass; it remains failed until the user explicitly refreshes it or changes configuration
 - **Generation-aware waits** — probe and tool-call futures poll the active cancellation scope so Stop cancels the pending future and normalizes the result instead of leaving a generation blocked
-- **Shutdown cleanup** — app shutdown calls MCP runtime shutdown to close child sessions and stop external stdio processes
+- **Shutdown cleanup** — app shutdown calls MCP runtime shutdown to close child sessions and stop external stdio processes. Local app programs are recorded with their creation time in `runtime/app-processes.json` (`owned_processes.py`), so the next start stops, with their process trees, only the ones a crashed Row-Bot provably started
 
 ### Dynamic Tool Catalog & Injection
 
@@ -1370,19 +1413,19 @@ Row-Bot includes a guarded Model Context Protocol client that can connect extern
 - **External output is untrusted** — the MCP tool guide tells the agent not to follow instructions found inside MCP results unless they are clearly part of the user's request
 - **Catalog metadata is untrusted** — progressive discovery sanitizes MCP names/descriptions, omits instruction-like descriptions, bounds the manifest, rejects ambiguous external names, and does not treat a search result as authorization
 - **Native tools stay preferred** — Row-Bot Memory, Browser, Computer Use, filesystem, document, search, channel, and Designer capabilities remain canonical for Row-Bot-owned behavior; overlapping MCP servers are treated as external alternatives
-- **Destructive classification** — tool names, descriptions, and MCP annotations are inspected for write/send/delete/run/deploy/payment-style behavior. Destructive tools require approval and are not enabled by default after discovery
+- **Effect classification** — `mcp_client/safety.py` classifies each tool as read-only, a routine change, high impact, browser interaction, or unknown, trusting a `destructiveHint` first, then the tool's name, then a `readOnlyHint`, then a read verb, and only last its description; a read whose description says it changes something asks. High-impact tools require approval and are not enabled by default after discovery, and unknown ones always ask
+- **Access presets** — an app's access preset and per-tool choices (Off, Ask first, Use) are saved on the server's tool policy; a routine change runs without asking only when the person allowed it (`run_without_asking`), and no choice lets a high-impact or unknown tool run without asking
 - **Approval synchronization** — destructive MCP wrapper names are included in the parent tool's `destructive_tool_names`, so they flow through the existing interrupt approval mechanism
-- **Background workflow rules** — MCP destructive tools follow workflow safety mode: approval-required modes interrupt, while explicit allow-all mode can run enabled destructive MCP tools
+- **Allow all still asks for app tools** — Block removes destructive tools and Ask wraps them in the interrupt gate; under Allow all, interactive or background, an app tool whose access says ask (a routine change without Full access, or a high-impact or unknown tool) still asks, and a workflow run pauses on it instead of approving it unattended
 - **Capability overlap detection** — `mcp_client/conflicts.py` labels MCP servers that overlap native memory, browser, documents, web search, URL reading, channels, or Designer capabilities and forces manual tool selection for overlap/high-risk imports
 - **Secret masking** — diagnostics use masked config output so headers, tokens, and environment values are not displayed raw
 
-### Settings UI & Marketplace
+### Settings UI & Catalogs
 
-- **Settings → MCP** — the React Settings › MCP page provides the user-facing MCP control surface: global enable switch, add server, import config, browse MCP servers, diagnostics, test, refresh, edit, delete, and per-tool controls
-- **Disabled-until-tested imports** — manual JSON imports and marketplace entries are saved disabled. Users test the server before enabling it
+- **Settings › Apps** — MCP servers are apps (see [Apps & Skills](#apps--skills)): the library, each app's page and its setup plan, with the global **Use apps** switch, catalogs, runtimes, and **Your own connection** under Apps › Advanced. An app's **Advanced settings** opens the retained MCP editor scoped to that server: import config, diagnostics, test, refresh, edit, delete, and per-tool controls
+- **Disabled-until-tested imports** — manual JSON imports and catalog entries are saved disabled; a plan tests the connection and the person accepts its tools before it is turned on
 - **Tool review rows** — after a successful probe, each tool shows name, description, input schema summary, enabled state, destructive badge, approval state, and whether it comes only from saved config or live catalog
-- **Catalog sources** — `integrations/sources.py` holds one small adapter per catalog (curated starters, the bundled Registry snapshot, Hermes, ClawHub, GitHub skills, the Row-Bot marketplace) and serves the list at `GET /api/v1/integrations/sources`; Glama, PulseMCP, Smithery and other unavailable catalogs are listed with their reasons but never contacted
-- **Apps & Skills model** — `integrations/` projects skills, MCP servers and packages as typed owner facts with status v2 (lifecycle, readiness, blockers, one next action), attaches them to curated app identities, and runs install plans server-side through the existing owner commands; see `docs/INTEGRATIONS.md`
+- **Catalog sources** — `integrations/sources.py` serves the catalog list at `GET /api/v1/integrations/sources`; Glama, PulseMCP, Smithery and other unavailable catalogs are listed with their reasons but never contacted
 - **Starter metadata** — curated entries preserve trust tier, risk level, auth requirement, native overlap, requirements, notes, and install recipe metadata
 - **Xquik starter** — the curated Xquik streamable-HTTP entry documents its `x-api-key` header, X/Twitter search/extraction/monitoring capabilities, and high-risk generic executor; private reads, writes, persistent monitors/webhooks, and metered actions remain approval-gated
 - **Marketplace edit preservation** — editing an installed catalog server retains its source/catalog metadata while updating runtime fields, so origin, risk, and install context do not disappear after local configuration changes
@@ -1399,7 +1442,7 @@ Row-Bot includes a guarded Model Context Protocol client that can connect extern
 
 ### Testing & Release Checks
 
-- **Offline regression suite** — `tests/subsystem/mcp/test_mcp_client.py` covers config fallback, secret masking, safety classification, marketplace fallback/filtering, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling
+- **Offline regression suite** — `tests/subsystem/mcp/test_mcp_client.py` covers config fallback, secret masking, safety classification, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling; the rest of `tests/subsystem/mcp/` covers sign-in, transports, effect classification, bundles, locked packages, the Registry snapshot and declarations, app views, and owned app processes, and `tests/subsystem/integrations/` covers sources, the catalog index and updates, facts, plans, presets, suggestions, brokers, built-in ways, and the safe fetch path (apps in chats are covered by `tests/subsystem/agents/test_app_scope.py`)
 - **Opt-in live E2E** — `scripts/mcp_real_world_e2e.py` and `tests/e2e/test_mcp_real_world_e2e.py` connect to public MCP servers outside normal CI to validate import, probe, manual tool enablement, dynamic wrapper invocation, and read-only approval classification
 - **Maintainer workflow** — MCP-heavy releases run the offline suite first, then the live public E2E check from the repo root
 
@@ -1430,7 +1473,7 @@ Row-Bot includes a one-time migration wizard for moving selected data from Herme
 - **Backups first** — existing target files are backed up before overwrite/append/update. Multiple writes to the same target preserve the pre-migration original once per run, and newly created files are not backed up later in the same run
 - **Redacted report** — each run writes redacted `plan.json`, `result.json`, `backup_manifest.json`, and `summary.md` under `migration-reports/<timestamp>/`
 - **Archive redaction** — JSON and key/value archive snapshots are redacted before being copied into reports; binary or unsupported files are represented by a placeholder instead of raw content
-- **MCP import safety** — migrated MCP servers are written disabled. They must be reviewed and enabled from Settings → MCP before any external tools become available to the agent
+- **MCP import safety** — migrated MCP servers are written disabled. They must be reviewed and enabled from Settings › Apps before any external tools become available to the agent
 - **Credential import** — API keys and tokens are off by default and require explicit selection. Reports hide their values; selected keys route through target-profile secure storage via `api_keys.set_key_for_data_dir`, so normal imports use the OS credential store with metadata-only local files when keyring is available
 
 ### Testing
@@ -1467,13 +1510,14 @@ modifying the core codebase.
 - **State persistence** — enablement and non-secret config are stored under `~/.row-bot/plugin_state.json`; plugin API-key secrets use the shared secret store (OS keyring on desktop, encrypted persistent server records when explicitly configured) with metadata-only `plugin_secrets.json` state and session-only fallback when no secure backend is available
 - **Hot reload** — Settings can reload plugins without restarting the app; agent caches are cleared automatically
 - **Skill auto-discovery** — plugin `skills/` directories are scanned for `SKILL.md` definitions only while the owning plugin is enabled; permitted records join the unified skill snapshot and can be pinned/selected or progressively loaded for the current task without granting the plugin's tools
+- **Portable packages** — `plugins/portable.py` adapts Agent Plugins 1.0.0 packages (declarative skills and `mcp.json` servers only; foreign entry points are never imported), and `plugins/hermes_catalog.py` and `hermes_mcp.py` inspect pinned Hermes catalog packages and optional-MCP recipes without running them. Each package gets its own `plugin_data/<id>` folder, and its MCP children are configured through the MCP owners with the package as their target. A first-party `local-text-tools` example ships under `plugins/bundled/`; see [`INTEGRATIONS.md`](INTEGRATIONS.md)
 
 ### Marketplace
 
 - **Marketplace index** — v2 plugin catalog fetched from GitHub-hosted JSON or a local fixture index, with caching, stale-cache fallback, checksums, source metadata, and update checks
-- **Browse dialog** — search, inspect, review permissions, and install plugins from within the app
+- **Browse in Apps** — plugins are searched, reviewed, and installed from Settings › Apps through the same install plans as other apps; adding, updating, or removing a package needs the owner at this computer
 - **Install / update / uninstall** — plugins are validated before install, installed and kept off by default, checksum-verified when catalog data provides a `sha256:` value, and reloaded immediately afterward
-- **Native Plugin Center** — one Row-Bot-owned UI renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
+- **Native Plugin Center** — one Row-Bot-owned UI (a plugin's **Advanced settings** in Apps) renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
 - **Custom Tool bridge** — promoted Custom Tools are registered through the plugin/tool surface as synthetic local tools so normal chat can use them without adding a separate extension mechanism
 - **Public channel API** — channel plugins receive public inbound/outbound dataclasses, attachment helpers, approval resume helpers, pairing/allowlist helpers, and generated webhook URLs through `plugins.api`
 - **Plugin webhooks** — `plugins/webhooks.py` registers namespaced webhook routes under `/plugin-webhooks/{plugin_id}/{name}` and disables them when the owning plugin is disabled, unloaded, uninstalled, or fails load; the routes need no Row-Bot session, so each handler authenticates its caller
@@ -1635,8 +1679,9 @@ initial presentation.
 - **Route policy** — public health/connect assets remain minimal, authenticated
   owner routes share one policy, access mutations require same origin, webhooks
   retain route-owned secrets (task webhooks their secret, `POST /sms` Twilio's
-  signature, `/plugin-webhooks/…` the plugin handler's own check; none needs a
-  session), and launcher operations remain direct-loopback only behind a
+  signature, `/plugin-webhooks/…` the plugin handler's own check, the MCP
+  sign-in callback its one-time OAuth state; none needs a session), and
+  launcher operations remain direct-loopback only behind a
   separate ephemeral control secret
 - **Neutral connect flow** — unauthenticated pages disclose no instance name,
   route inventory, device list, or configured providers; successful claims
@@ -1766,7 +1811,7 @@ the full desktop layout.
 - **Responsive composer** — safe-area-aware left/right/bottom padding, bounded Model and Thinking controls, a contained action row, and non-shrinking send button keep narrow mobile layouts usable
 - **Activity surface** — tool approvals, orchestration/child approvals, active chat generations, running/stoppable workflows, and recent workflow history are combined into a compact operational view
 - **Safe workflow editing** — the simple mobile editor can create and update prompt workflows while detecting and preserving advanced graph workflows that require desktop controls
-- **Settings adapters** — provider cards expose display-safe connection and credential summaries; installed skills can be enabled or pinned; installed plugins can be enabled or disabled when setup is complete; Skills Hub and Plugin Marketplace install/configure/update flows remain desktop-only
+- **Settings adapters** — provider cards expose display-safe connection and credential summaries; installed skills can be enabled or pinned; installed plugins can be enabled or disabled when setup is complete; Apps & Skills works in the compact layout, but adding, updating, or removing anything that puts code on the host (plugin packages, MCP packages and bundles, Hermes recipes) is refused from any session other than the owner at that computer
 - **PWA boundary** — `mobile/routes.py` serves the manifest, service worker, icon metadata, and offline page; the service worker caches only public shell assets and explicitly avoids authenticated/private application routes
 
 ### Access & Presentation Integration
@@ -1801,7 +1846,7 @@ the full desktop layout.
 ### Mobile Limitations
 
 - **Host required** — the desktop/server process must remain running and reachable; mobile is not an offline replica even though the PWA provides an offline status page
-- **Desktop-oriented rich editors** — the compact presentation exposes full owner Settings and state, but Developer Studio, Designer Studio, Skills Hub browsing/install/create, Plugin Marketplace setup/update/uninstall, and advanced workflow graph editing remain optimized for the full desktop layout
+- **Desktop-oriented rich editors** — the compact presentation exposes full owner Settings and state, but Developer Studio, Designer Studio, skill creation, and advanced workflow graph editing remain optimized for the full desktop layout, and installing code on the host stays with the owner at that computer
 - **No native Computer Use** — mobile, channel, scheduled, workflow, child-agent, and headless/server turns cannot acquire the native desktop-control lease; Computer Use is restricted to the interactive local desktop UI
 - **No hidden network enablement** — Row-Bot does not automatically broaden its bind host, install/sign in to Tailscale, enable Funnel, overwrite another Serve route, or trust a reverse proxy. LAN and owned Tailscale changes require explicit reviewed owner actions
 
@@ -1931,7 +1976,7 @@ Row-Bot includes a stability layer for the kinds of failures that are hard to ca
 - **`stability.py`** — centralizes crash reporting, asyncio exception handling, thread/unraisable hooks, memory snapshots, and event-loop lag logging
 - **Launcher diagnostics** — `launcher.py` writes structured launch timing, splash/picker helper failures, server readiness, window-open decisions, and shutdown/update handoff events to `launcher.log`
 - **Settings diagnostics** — model settings collection/render phases log timings and memory snapshots, while cached model catalogs and short-lived provider-status caches keep large provider refreshes and OAuth health checks off the critical UI path
-- **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, deferred orchestration/Agent Run repair, document supervisor recovery, MCP, plugins, channel migration/autostart, registered tunnel startup, and knowledge graph load without invoking providers during recovery
+- **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, deferred orchestration/Agent Run repair, document supervisor recovery, the background Registry index build, plugins, MCP (keys moved into the keychain and orphaned app programs stopped before any server starts), channel migration/autostart, account sign-ins moved into the keychain, registered tunnel startup, and knowledge graph load without invoking providers during recovery
 - **Channel and tunnel degradation** — Telegram partial starts are cleaned before
   retry or user action, command-menu registration cannot take polling offline,
   manual channel failures log only channel identity and exception type, and
@@ -2015,7 +2060,8 @@ merge to `main`.
   installation-guide actions. This runs only on the public website; application
   runtime, prompts, files, memories, tool arguments, and channels are outside
   the website event contract
-- **Deterministic publication sync** — `sync_github_pages.py` refreshes only `docs/assets`, `docs/docs`, `docs/img`, `docs/pagefind`, `docs/search`, and selected machine-readable files; it preserves `docs/index.html`, feature/contact/architecture pages, analytics, contact handling, and shared marketing assets
+- **Deterministic publication sync** — `sync_github_pages.py` refreshes only `docs/assets`, `docs/docs`, `docs/img`, `docs/oauth`, `docs/pagefind`, `docs/search`, and selected machine-readable files; it preserves `docs/index.html`, feature/contact/architecture pages, analytics, contact handling, and shared marketing assets
+- **OAuth client metadata** — `docs-site/static/oauth/client-metadata.json` is published at `https://row-bot.ai/oauth/client-metadata.json` as Row-Bot's client ID for MCP sign-in: loopback redirect addresses only and no secret. A docs test checks that the published copy matches its source and names its own address
 - **CI verification** — `.github/workflows/docs.yml` uses a pinned build environment, collects inventory, checks generated references, regenerates LLM files before Docusaurus, validates screenshots and source, builds a review report, runs `tests/docs`, builds Docusaurus/Pagefind, normalizes line endings, and verifies the committed Pages artifact structurally
 - **Review posture** — documentation generation and publication remain source-controlled and reviewable, do not call live providers/channels/MCP servers during deterministic CI, and remain distinct from installer/release artifact generation
 
@@ -2028,7 +2074,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | File | Purpose |
 |------|---------|
 | **`server.py`** + **`app.py`** | The FastAPI app run by uvicorn: start-up and shutdown hooks, `add_late_route` for the SMS and plugin webhooks, routes, middleware (GZip outside access; the event stream is never compressed or buffered), static mounts, the `/` redirect to `/app-v2/`, and the start-up sequence |
-| **`frontend/`** (repository root) | The React client, the only UI, served at `/app-v2/`: conversation, Home, Settings, design and code panels, and the Buddy overlay |
+| **`frontend/`** (repository root) | The React client, the only UI, served at `/app-v2/`: conversation, Home, Settings (with Apps & Skills in `src/features/apps/`), design and code panels, and the Buddy overlay |
 | **`access/`** | Single-owner deployment/request policy, HTTP/WebSocket middleware, invitations, devices, sessions, cookies, assigned-interface and trusted-origin routes, live runtime-policy mutation, managed-policy precedence, CLI/doctor, Tailscale Serve ownership, launcher control, access service/store, and authorization |
 | **`mobile/`** | Access-store and access-gate compatibility adapters, owner-session cookies, pairing and session routes, and PWA endpoints |
 | **`brand.py`** + **`runtime_paths.py`** | Row-Bot product identity, public naming constants, runtime path detection, and packaged/source checkout path helpers |
@@ -2062,7 +2108,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`embedding_config.py`** + **`embedding_providers.py`** | Embedding provider selection, strict cache-only local loading with download-matching snapshot filters, explicit download/repair, shared asynchronous provider state, structured recall fallback, local/cloud backends, vector metadata, and stale-index detection |
 | **`documents.py`** | Document loading/chunking facade, bounded shard build/publication, retrieval compatibility, document records, source retirement, per-document cleanup, and vector reset/rebuild |
 | **`voice/__init__.py`** | Classic local microphone state machine, faster-whisper and selected SenseVoice dispatch, explicit local model loading, and persisted local voice settings |
-| **`voice/`** | Realtime voice runtime, provider contracts, OpenAI realtime client, browser-local Whisper decoding/transcription/session output, Talk and Dictation transports, verified FunASR/SenseVoice installation and CPU provider, action dispatch, agent bridge, and speech policy |
+| **`voice/`** | Realtime voice runtime, provider contracts, OpenAI realtime client, per-request speech provider resolution (`voice/providers.py`), browser-local decoding/transcription/session output, Talk and Dictation transports, verified FunASR/SenseVoice installation and CPU provider, action dispatch, agent bridge, and speech policy |
 | **`tts.py`** | Kokoro text-to-speech integration, voice catalog, and streaming playback |
 | **`vision.py`** | Camera capture, screen capture, and workspace image analysis via local or provider vision models |
 | **`computer_use/`** + **`tools/computer_use_tool.py`** | Pinned Cua 0.20.0 manifest/private platform-profile client, versioned disclosure/install/readiness, action policy, exclusive target-window service, opaque generation-bound apps/elements, selected/document-aware projection, semantic filtering, function-first editing, bounded delivery/verification/focus recovery, macOS permission recovery, and the live-control state the React card shows |
@@ -2073,7 +2119,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`update_handoff.py`** | Detached Windows update handoff helper that waits for Row-Bot processes/ports to exit before starting the installer |
 | **`stability.py`** | Asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
-| **`api_keys.py`** + **`secret_store.py`** | API key storage/retrieval, OS-keyring backend, metadata-only local files, legacy plaintext migration, allowlisted read-only server secret files, encrypted persistent server records keyed from a separate mount, and session-only fallback when no secure backend is configured |
+| **`api_keys.py`** + **`secret_store.py`** + **`account_tokens.py`** | API key storage/retrieval, Google and X sign-ins kept only in the keychain (moved from earlier token files after a verified read-back), OS-keyring backend, metadata-only local files, legacy plaintext migration, allowlisted read-only server secret files, encrypted persistent server records keyed from a separate mount, and session-only fallback when no secure backend is configured |
 | **`identity.py`** | Assistant name, personality, and self-improvement preference storage with sanitization |
 | **`self_knowledge.py`** | Capability manifest, identity-line builder, live runtime state builder, and prompt-time self-knowledge assembly |
 | **`insights.py`** | Structured insight store with dedup, pruning, pin/dismiss/apply state, and last-analysis tracking |
@@ -2087,14 +2133,15 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`tasks.py`** | Workflow engine, SQLite persistence, schema validation/repair, APScheduler scheduling, profile-first workflow migration, pipeline execution, run history, safety mode, delivery routing, thread-owned live-state cleanup with retained audit scrubbing, and shared storage connection used by Agent Profiles/Runs/Goals/Developer worktrees |
 | **`notifications.py`** | Unified desktop, sound, and toast notification system |
 | **`channels/`** | Channel ABC, registry, shared streaming/finalization engine, orchestration-aware delivery, durable thread notifications, checkpoint persistence, media helpers, auth/secret-file helpers, approval routing, command handling, tool generation, plugin-channel bridge integration, and bundled channel adapters |
-| **`tunnel.py`** | Tunnel provider abstraction, ngrok integration, registered-origin runtime policy, exact owned-origin cleanup, and lifecycle manager; Tailscale Serve remains in `access/tailscale.py` |
+| **`tunnel.py`** + **`owned_processes.py`** | Tunnel provider abstraction, ngrok integration, registered-origin runtime policy, exact owned-origin cleanup, and lifecycle manager; Tailscale Serve remains in `access/tailscale.py`. `owned_processes.py` records the ngrok agents and local app programs Row-Bot starts so a later start stops only those a crashed run provably owned |
 | **`tools/agent_tool.py`** + **`tools/goal_tool.py`** | Child-agent delegation/status/wait/stop/profile/promotion tools plus Goal Mode progress/status tools |
 | **`tools/row_bot_status_tool.py`** | Self-introspection and controlled self-management tool, including provider/media diagnostics, agent/goal reporting, skill pinning, and controlled self-evolution proposal operations |
 | **`tools/developer_tool.py`** + **`tools/custom_tool_builder_tool.py`** | Developer workspace operations plus hardened conversational Custom Tool creation/testing/promotion surface |
 | **`tools/calendar_tool.py`** | Request-scoped Google Calendar services, single-flight OAuth refresh, serialized mutations, bulk create, transient retry, timeout reconciliation, and typed Calendar operations |
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, persisted external loading mode, immutable external capability records, bounded/sanitized manifests, schema-validating search/invoke bridges, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
-| **`plugins/`** | Plugin System v2 runtime, marketplace client, manifest validation, security scanner, health checks, public API, channel runtime bridge, webhooks, Bot Framework auth helpers, MCP bridge, devtools, templates, and settings integration |
-| **`mcp_client/`** | External Model Context Protocol client plus managed runtime requirements: config, runtime sessions, marketplace search, Node/uv installation, verified Playwright-matched Browser runtime reuse, safety classification, diagnostics, result normalization, and wrappers that enter progressive or eager external loading; private Cua transport remains outside the external MCP registry |
+| **`plugins/`** | Plugin System v2 runtime, marketplace client, manifest validation, security scanner, health checks, public API, channel runtime bridge, webhooks, Bot Framework auth helpers, MCP bridge, Agent Plugins 1.0.0 portable adapter, pinned Hermes catalog inspection, lifecycle review, devtools, templates, and settings integration |
+| **`mcp_client/`** | External Model Context Protocol client plus managed runtime requirements: config and explicit targets, runtime sessions, curated recipes and the shipped Registry snapshot, OAuth sign-in and keychain credentials, 5.0 key migration, locked npm/PyPI/container/MCPB package preparation, Node/uv installation, verified Playwright-matched Browser runtime reuse, safety classification, diagnostics, result normalization, and wrappers that enter progressive or eager external loading; private Cua transport remains outside the external MCP registry |
+| **`integrations/`** + **`application/client_integrations.py`** | Apps & Skills: app identities, catalog sources and the local Registry index, explicit catalog updates and schedule, icons, owner facts and status, install plans, access presets, declared inputs, apps in chats and suggestions, MCP Apps views, built-in ways, the Composio broker, Windows connectors, picked files, workflow templates, and the one safe fetch path, served as `/api/v1/integrations`; `application/client_mcp_auth.py` runs MCP sign-in |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, guarded apply/report generation, and migration tests |
 | **`deploy/docker/`** + **`deploy/reverse-proxy/`** + **`deploy/systemd/`** | Official hardened server image, Compose release/source/VPS/secret variants, persistent credential-key initialization, Caddy proxy, systemd lifecycle, and operator runbook |
 | **`.github/workflows/container.yml`** + **`scripts/smoke_docker_server.py`** | Native amd64/arm64 image verification, release identity checks, owned-resource smoke testing with stable readiness, functional deadlines, GET-only transient retry and bounded redacted diagnostics, GHCR version/latest manifest publication, and secret-safe failure handling |
@@ -2110,9 +2157,9 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 
 ```text
 ~/.row-bot/
-├── threads.db                     # Conversation history, LangGraph checkpoints, per-model reasoning choices, context usage/summary state, and presentation-only thread events
+├── threads.db                     # Conversation history, LangGraph checkpoints, per-model reasoning choices, per-chat app switches, context usage/summary state, and presentation-only thread events
 ├── media/                         # Per-thread media files and sidecar metadata
-├── tasks.db                       # Workflows, schedules, retained run audits, Agent Profiles/Runs/orchestrations, thread goals, Developer worktree/recovery ownership, write locks, approvals, and durable channel notification intents
+├── tasks.db                       # Workflows, schedules, retained run audits, Agent Profiles/Runs/orchestrations, thread goals, Developer worktree/recovery ownership, write locks, approvals, durable channel notification intents, and client command admissions (including Apps install plans)
 ├── memory.db                      # Knowledge graph entities and relations
 ├── memory_vectors/                # FAISS vectors for semantic memory recall
 ├── memory_recall_trace.json       # Recent auto-recall decisions, semantic fallback/timing, and include/reject diagnostics
@@ -2164,8 +2211,12 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 ├── skills_config.json             # Manual skill enable/disable state
 ├── skills_activation.json         # Per-task pinned/manual/disabled/dismissed and capped automatically loaded skill state
 ├── skills/                        # User-installed skills; .hub/ stores Skills Hub lockfile, audit log, and quarantine
-├── mcp_servers.json               # External MCP server config, global switch, tool enablement, approvals
-├── mcp_marketplace_cache.json     # Cached MCP directory search results
+├── mcp_servers.json               # External MCP server config, global switch, tool enablement, approvals, access presets, declared inputs, and credential references (keys and sign-ins live in the system keychain)
+├── mcp_packages/                  # Reviewed, integrity-checked npm/PyPI/MCPB package trees bound to their connections
+├── catalogs/                      # Local Registry FTS5 index generations and pointer, catalog update state and schedule, Apps settings, cached Registry icons, Windows connectors list
+├── integration_uploads/           # Privately staged skill/package archives and .mcpb bundles picked in Apps & Skills
+├── plugin_data/                   # One data folder per installed portable package
+├── runtime/                       # Ledgers of ngrok agents and local app programs Row-Bot started, for crash cleanup
 ├── migration-reports/             # Redacted migration plans, results, summaries, and archive snapshots
 ├── migration-backups/             # Pre-migration backups of overwritten target files
 ├── runtimes/                      # Explicitly installed user-space runtimes for Browser/MCP helpers and Computer Use
@@ -2188,10 +2239,10 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 │   └── exports/                   # CSV exports for tracker charts
 ├── vector_store/                  # Legacy monolithic document vectors retained for compatible read/migration
 │   └── embedding_metadata.json     # Legacy embedding provider/dimension metadata for stale-index detection
-├── gmail/                         # Gmail OAuth tokens
-├── calendar/                      # Calendar OAuth tokens
+├── gmail/                         # Earlier Google sign-in and client files, moved into the system keychain at start
+├── calendar/                      # Earlier Calendar sign-in file, removed once the keychain holds the same grant
 ├── wiki/                          # Obsidian-compatible markdown vault export
-├── x/                             # X OAuth tokens and tier metadata
+├── x/                             # X API tier metadata (the sign-in lives in the system keychain)
 ├── installed_plugins/             # Marketplace-installed plugins
 ├── plugin_state.json              # Plugin config, marketplace metadata, health, settings, and enablement state
 ├── plugin_secrets.json            # Plugin API-key metadata only; raw key values live in the OS credential store when available

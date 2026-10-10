@@ -51,8 +51,11 @@ limits. Verified bytes remain immutable in memory; later path changes cannot
 serve different bytes under the old digest.
 
 Shell CSP limits scripts to local assets and exact hashes of the build's
-inline bootstrap. Frames and objects are forbidden; styles permit inline
-geometry needed by accessible overlay primitives. `nosniff`, frame denial and
+inline bootstrap. Objects are forbidden, and frames are limited to this origin
+(an MCP Apps view at `/app-views/{id}` carries its own CSP and loads in an
+`allow-scripts`-only sandbox), verified PDF blobs and YouTube's no-cookie
+embeds; styles permit inline geometry needed by accessible overlay primitives.
+`nosniff`, frame denial and
 no-referrer headers apply. Unknown asset paths return 404 instead of HTML.
 History fallback requires extensionless `Accept: text/html` navigation. There
 is no service worker, external font, runtime CDN or authenticated-response cache

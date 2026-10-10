@@ -11,17 +11,20 @@ may add only these surfaces:
 Plugins must not add arbitrary app panels, custom UI code, JavaScript, provider
 runtimes, memory providers, workflow triggers, general hooks, or custom settings
 tabs. The loader refuses plugins that import UI frameworks such as `nicegui`,
-`streamlit`, `gradio`, or `webview`. Row-Bot owns one native Plugin Center that
-renders plugin metadata, permissions, settings, secrets, auth, health checks,
-tools, channels, skills, logs, updates, and enablement.
+`streamlit`, `gradio`, or `webview`. Row-Bot owns one native Plugin Center (a
+plugin's Advanced settings in Settings › Apps) that renders plugin metadata,
+permissions, settings, secrets, auth, health checks, tools, channels, skills,
+logs, updates, and enablement.
 
 ## Integrations and portable packages
 
-The common surface is Settings → Integrations. Native v2 remains supported without
-relaxing its manifest or import gates. Agent Plugins 1.0.0 uses a separate declarative
-skills/MCP adapter; foreign host code is never imported. See [Integrations author
-guidance](INTEGRATIONS.md) for source pins, stable child identities, protected MCP
-authentication, scoped overrides, update publication and one-version recovery.
+The common surface is Settings › Apps, where plugins are found, reviewed, installed
+and set up through the same install plans as other apps; adding, updating or removing
+a package needs Row-Bot on the computer it runs on. Native v2 remains supported
+without relaxing its manifest or import gates. Agent Plugins 1.0.0 uses a separate
+declarative skills/MCP adapter; foreign host code is never imported. See [Integrations
+author guidance](INTEGRATIONS.md) for source pins, stable child identities, protected
+MCP authentication, scoped overrides, update publication and one-version recovery.
 
 ## Manifest v2
 

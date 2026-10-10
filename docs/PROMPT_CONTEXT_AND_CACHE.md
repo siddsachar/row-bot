@@ -28,7 +28,8 @@ Ephemeral sections:
 
 - `turn.date_time`: current date/time line.
 - `turn.runtime_mode`: active runtime mode, approval mode, and enabled tool
-  names for this turn.
+  names for this turn, plus setup guidance: tools that are off, and apps turned
+  off everywhere or switched off in this chat.
 - `turn.conversation_summary`: checkpoint summary merged for context trimming.
 - `turn.memory_recall`: auto-recalled long-term memory block.
 - `self_knowledge.dynamic_state`: current provider/model, channels, MCP,

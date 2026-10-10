@@ -25,6 +25,16 @@ Upload/download call the injected authenticated `ClientController` methods;
 the platform does not create a fetch/event connection or store session secrets.
 An unavailable native operation never silently runs on a different computer.
 
+Browsers give `crypto.randomUUID` and `crypto.subtle` only to secure pages
+(HTTPS, `localhost`, `127.0.0.1`), so a plain-HTTP network address would lose
+both. `platform/random-uuid` is the first import of every page entry point and
+adds a standard version 4 `randomUUID` built from `crypto.getRandomValues` where
+the page lacks one. `platform/crypto`'s `sha256Hex` uses `crypto.subtle` when the
+page has it and a plain SHA-256 otherwise; command verification, attachment and
+design-upload checksums and export downloads hash through it, and the generated
+wire client takes the digest from its caller. `scripts/check-boundaries.mjs`
+rejects `crypto.subtle` outside `src/platform`.
+
 `createFakePlatform` has the same public methods with deterministic scripted
 results and operation-name counters. `createPyWebViewPlatform` calls only a
 typed `NativeEndpoint.dispatch`, validates returned references and rejects

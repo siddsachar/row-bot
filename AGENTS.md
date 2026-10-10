@@ -165,6 +165,8 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 - Channels: `tests/contracts/test_channel_contract.py` and
   `tests/subsystem/channels/`.
 - MCP: `tests/contracts/test_mcp_contract.py` and `tests/subsystem/mcp/`.
+- Apps & Skills (catalogs, plans, access, the safe fetcher, apps in chats):
+  `tests/subsystem/integrations/`.
 - Agents, approvals, goals: `tests/subsystem/agents/`.
 - Workflows/tasks/approvals: `tests/subsystem/workflows/`.
 - Memory, knowledge graph, wiki vault, documents, Dream Cycle:

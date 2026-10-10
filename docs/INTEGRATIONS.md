@@ -35,10 +35,16 @@ exception to exact upstream bytes for standalone `SKILL.md` headers.
 
 Use contained relative paths, no symlinks/junctions or case-colliding filenames,
 and explicit requirements. Dependency-free Node MCP servers can use the existing
-managed Node runtime. Imported npm commands require exact SHA-512-pinned artifacts;
-dependencies require a complete shrinkwrap and must have no install scripts.
-This deliberately bounded subset avoids a new resolver, arbitrary bootstrap or
-ambient global package execution. Other commands remain an explicit advanced
+managed Node runtime. Package launches (`npx`, `uvx`, `docker run`, or an `.mcpb`
+bundle) are prepared by `mcp_client/packages.py` from a lock the person reviews:
+npm registry tarballs with SHA-512 integrity, taken from the publisher's
+shrinkwrap or a lock-only `npm install --ignore-scripts` resolution in Row-Bot's
+own cache; prebuilt PyPI wheels installed by uv with `--require-hashes` into a
+private environment; container images pulled once and run by digest with no
+folders, ports or host network; and bundles whose manifest, paths and signature
+are checked before they are unpacked privately. Install scripts never run (a
+package that declares one is named in the review as possibly not working), and
+nothing is installed globally. Other commands remain an explicit advanced
 configuration responsibility. Package processes are not OS-sandboxed.
 
 ## Authority and recovery
@@ -54,6 +60,10 @@ backup system. Rollback covers package files, not arbitrary persistent-data migr
 
 MCP OAuth uses SDK 1.29 from the existing lock, guarded public HTTPS discovery,
 PKCE, state/session/revision validation and a transport-proven callback origin.
+The client is the person's own OAuth app when they give one; otherwise Row-Bot's
+published client ID metadata document (`https://row-bot.ai/oauth/client-metadata.json`,
+from `docs-site/static/oauth/`, loopback redirects only, no secret) when the
+authorization server supports it, else dynamic registration for that connection.
 Credentials stage under a private reference and publish only after successful
 authorization. Refresh revalidates endpoint and credential ownership. The protected
 store publishes a generation pointer after bounded chunks, preserving an existing
@@ -62,7 +72,7 @@ working generation if a write fails. General Accounts credentials are never reus
 ## Source and recommendation evidence
 
 See [current discovery contracts](INTEGRATION_SOURCES.md) for eligibility, snapshot
-delivery, combined-search fields and unresolved production refresh distribution.
+delivery, combined-search fields and catalog updates.
 
 - Official MCP Registry v0.1: nested server metadata, lifecycle status and bounded
   cursor pagination; exact source IDs are preserved rather than deduplicating by name.
@@ -83,29 +93,35 @@ delivery, combined-search fields and unresolved production refresh distribution.
   be repaired by an explicit refresh.
   Optional-MCP manifests are fetched individually from a captured repository pin.
   Recipes with install/bootstrap or foreign OAuth-client requirements are unavailable.
-- Default vendor recommendations: hosted Notion MCP and Linear MCP, with dated
-  setup-documentation evidence and live-account validation pending. Local text tools
-  1.0.0 and Hello Tool 0.1.0 remain explicit developer examples/imports.
+- Vendor recommendations: `recommended_servers.json` recipes carry dated evidence.
+  GitHub's two hosted ways, Notion, Linear, Sentry, Supabase, Stripe and Context7
+  were validated live with Row-Bot on Windows and are marked tested; the others
+  rest on vendor documentation. Local text tools 1.0.0 (shipped under
+  `plugins/bundled/`) and Hello Tool 0.1.0 remain explicit developer examples/imports.
 - The Hermes Snyk candidate at `2a41a07f81e45125bf82a19af1b13396ace4b81f`
   declares analytics off, but npm `snyk@1.1306.0` has a postinstall bootstrap and
   unpinned transitive dependencies. It is not a starter or an automatically prepared
   dependency. No private repository scans or third-party installs were performed.
 
-The hub is type-first: Apps & tools (MCP), Skills and Plugins each have Discover
-and Installed. One explicit Search fans out to eligible catalogs; typing, passive
-navigation and Installed filtering stay local. Official Registry search always
-uses its local dated snapshot. Catalog refresh is a separate development action.
-Category and disabled catalog IDs are device-local browser preferences; server
-eligibility remains authoritative. Source/publisher and every merged attribution
-remain visible; unknown compatibility is not readiness. The normal journey uses
-full-width details and focused owner controls, with legacy editors in Advanced.
+Settings › Apps (MCP servers, packages and the built-in accounts and channels,
+one card per app) and Settings › Skills each list the person's own items first,
+then featured ones, then everything, searched locally as they type. Only an
+explicit **Search online catalogs** fans out to eligible catalogs. Official
+Registry search always uses the local mirror; a catalog **Update** (Apps ›
+Advanced › Catalogs, or the optional schedule) is the only other time a catalog
+is contacted. Server eligibility remains authoritative. Source/publisher and
+every merged attribution remain visible; unknown compatibility is not readiness.
+The normal journey uses full-width item pages and server-run plans, with each
+owner's retained editor under an item's Advanced settings.
 
 MCP setup follows declared auth/runtime requirements, then tested tool acceptance
 and existing policy. Skills review complete bounded files/scripts and availability;
 packages review contents and required/optional child setup. Credentials configured,
 authenticated, enabled, connected and successful tool use remain distinct facts.
-Try in chat passively checks the current chat/profile/model and canonical dispatch
-policy, then adds only a draft; it never sends or changes the profile/model.
+In a chat, the composer's + › Apps switches and @mentions only narrow which apps a
+turn may use (`scope.py`), and the agent's `suggest_apps` leaves a Connect card
+that runs the app's normal consent and plan; neither changes the profile, model
+or approvals.
 
 Conflicting controls share the retained owner operation guard, including package
 children. Rejected skill preferences use the canonical session-owned skill receipt;
@@ -122,11 +138,16 @@ from deterministic Windows verification. See the user guide for recovery limits.
 
 ## Deliberate boundaries
 
-No cloud marketplace, background discovery/update, foreign SDK emulation, arbitrary
-bootstrap runner, cross-plugin dependency resolver, Docker orchestration, hosted
-OAuth broker, payments/ratings, automatic code translation or UI extensions were
-added. The reviewed dependency subset and first-party portable starter replace an
-unsafe one-click Snyk pilot while retaining the required skill/MCP bundle lifecycle.
+No cloud marketplace, foreign SDK emulation, arbitrary bootstrap runner,
+cross-plugin dependency resolver, Docker orchestration, Row-Bot-hosted OAuth
+service, payments/ratings, automatic code translation or plugin UI extensions were
+added. Catalogs update in the background only when the person turns the schedule
+on (off by default). The published client ID metadata document is a static file
+with no secret. Composio is a third-party hosted broker the person must turn on
+after its disclosure. MCP Apps views are the only third-party UI, shown in a
+sandboxed opaque-origin frame (`views.py`). The reviewed dependency subset and
+first-party portable starter replace an unsafe one-click Snyk pilot while
+retaining the required skill/MCP bundle lifecycle.
 
 
 ## Continuation validation boundaries
@@ -139,32 +160,36 @@ previews, uncertain install recovery, and stable subdirectory update identities.
 Existing lifecycle suites remain responsible for authentication, tool review,
 profile policy, parent/child ownership, updates, restore, disabling and removal.
 
-Remaining live validation requires a disposable Notion workspace and explicit user
-authorization to sign in, refresh credentials, discover/review tools and disconnect.
-Any real tool write requires separate approval. An external Hermes package needs a
+Live connections (sign-in where needed, a read, and the lifecycle steps each
+recipe's evidence records) have since been validated on Windows for the recipes
+marked `tested_with_row_bot` (see Source and recommendation evidence); every other
+recipe still needs its own live account check with explicit user authorization. Any
+real tool write requires separate approval. An external Hermes package needs a
 recorded catalog SHA, complete content/prerequisite/data-disclosure review, and its
-actual supported OS/runtime; catalog metadata alone is insufficient. Windows native
-browser/callback behavior, macOS desktop behavior and Linux server callback behavior
-need their respective hosts. Installer, signing, notarization and release checks are
-outside this continuation. Landing media refresh remains with the landing task.
+actual supported OS/runtime; catalog metadata alone is insufficient. macOS desktop
+and Linux server sign-in callback behavior need their respective hosts. Installer,
+signing, notarization and release checks are outside this continuation. Landing
+media refresh remains with the landing task.
 
 ## Apps & Skills model (row_bot.integrations)
 
 The domain package composes the owners above; it never replaces them.
 
-- `apps.py` and `apps.json`: curated app identities (98 featured, ranked), each with
-  jobs, synonyms, example prompts, links, auth, vendor domains and GitHub orgs, and
-  the vendor documentation that confirmed it. A record attaches only through a
-  reviewed reference (curated recipe, Registry namespace or exact server, endpoint
-  host, package or repository). Anything else is a community entry. The vendor badge
-  comes only from rules: a Registry namespace that is a vendor domain reversed or
-  `io.github.<vendor org>`, or a vendor endpoint. Shared hosting domains can never be
-  vendor domains. To add an app, add one record.
+- `apps.py` and `apps.json`: curated app identities (104, 98 of them featured and
+  ranked), each with jobs, synonyms, example prompts, links, auth, vendor domains
+  and GitHub orgs, and the vendor documentation that confirmed it. A record attaches
+  only through a reviewed reference (curated recipe, Registry namespace or exact
+  server, endpoint host, package or repository, or a first-party account or
+  channel). Anything else is a community entry. The vendor badge comes only from
+  rules: a Registry namespace that is a vendor domain reversed or
+  `io.github.<vendor org>`, or a vendor endpoint. Shared hosting domains can never
+  be vendor domains. To add an app, add one record.
 - `index.py`: the local Registry mirror, a SQLite FTS5 index in `catalogs/` under the
   data folder. Start-up builds it from the shipped snapshot; an update builds a new
   generation and swaps one pointer. Searching only reads it.
 - `catalogs.py`: explicit catalog updates (one background job per source that
-  declares `network: explicit`) and the optional schedule, off by default.
+  declares `network: explicit`) and the optional schedule, off by default, kept in
+  `catalogs/state.json` with the Apps settings for views and brokers.
 - `icons.py`: bundled marks (`icons.json`, licence per mark), letter avatars, and
   Registry rasters cached only during an update (re-encoded PNG; SVG refused).
 - `sources.py`: one adapter per catalog with server-side eligibility, the ranking key
@@ -187,30 +212,58 @@ The domain package composes the owners above; it never replaces them.
     wake other connections that are marked on.
   - Changing access only applies a preset; it never turns a connection on. Servers
     whose tools must be chosen one by one cannot take a preset.
-  - Preparing an npm package needs Row-Bot on this computer, as on its own route.
+  - Anything that puts code on this computer (adding, updating or removing a plugin
+    package, an npm, PyPI, container or bundle package, a Hermes recipe or a Registry
+    bundle) needs the owner at this computer (`owner_local_only`).
   - The runner records each owner command before sending it, so a retry replays or
     reconciles it.
-  - A plan pauses only for a browser sign-in, a missing key, access to newly
-    discovered tools, or a finished background step. A plan whose launch recipe
+  - A plan pauses only for a browser sign-in, a missing input, access to newly
+    discovered tools, a reviewed package lock, or a finished background step; a pause
+    left for 30 minutes expires, keeping what was done. A plan whose launch recipe
     changed while it waited fails with `plan_changed` instead of continuing.
   - The access review binds the chosen preset, so tools reviewed under one preset are
     never saved under another.
   - An item's unfinished plan is returned with its detail and review, so it can
     always be continued or cancelled. Each owner has its own plan per item.
 - `presets.py`: Read only, Ask before changes (default) and Full access on the
-  existing per-tool policy. Destructive, approval-declaring and unknown-effect tools
-  stay approval-locked under every preset. Because the effect classifier treats every
-  recognised change as destructive, Full access currently differs from Ask before
-  changes only for browser-interaction tools. Approvals at invocation are unchanged.
-- `safe.py`: the one catalog fetcher, link cleaner, preview cache and file writer.
-  - Fetches are https only. Reviewed hosts use the system or environment proxy when
-    one is set; every other host connects directly, never through a proxy.
-  - A direct connection is made only to a checked public address. Through a proxy the
-    address cannot be checked, so the reviewed host list is the guard.
+  existing per-tool policy (Off, Ask first, Use). Destructive, high-impact,
+  approval-declaring and unknown-effect tools, and a broker's tools that run code or
+  act for other apps, stay approval-locked under every preset. A routine change runs
+  without asking only under Full access or a per-tool Use (`run_without_asking`).
+  An app tool whose access says ask still asks under the Allow all approval mode.
+  Tools discovered later wait to be accepted.
+- `safe.py`: the one fetcher (catalogs, skill and plugin sources, npm metadata,
+  runtime downloads, Registry bundles and icons), link cleaner, preview cache and
+  file writer.
+  - Fetches are https on port 443 only. Reviewed hosts use the system or environment
+    proxy when one is set; every other host connects directly, never through a proxy.
+  - A direct connection is made only to a checked public address. An address that
+    cannot be connected to gives way to the host's next checked address (the last one
+    gets the whole connect timeout), and is tried last for ten minutes. Through a
+    proxy the address cannot be checked, so the reviewed host list is the guard.
   - Every redirect hop is rechecked, and credentials never cross hosts.
   - Responses are size-capped, never decompressed, and the whole fetch has a
     deadline. NAT64 and IPv4-compatible forms of private addresses are refused.
   - Files are written readable only by this account.
+- `builtin.py`: Row-Bot's own accounts, channels and key-based tools as ways to
+  connect an app, read from their owners (no service contact, no program started);
+  each opens its owner's page.
+- `inputs.py`: declared inputs (a key, a tenant, a folder) for every source; the
+  template stays in the saved configuration and values are filled only at connect
+  time, secrets from the keychain, never in a template, log or response.
+- `scope.py`: which apps a chat turn may use (+ › Apps switches, @mentions) under the
+  agent profile's ceiling, which app a tool belongs to, and `suggest_apps` results
+  from local data only.
+- `views.py`: MCP Apps views in chat, served once at `/app-views/{id}` under a CSP of
+  the app's declared https domains, in an `allow-scripts`-only sandbox; a view's
+  calls go through the chat's profile, the app's access and approvals.
+- `brokers.py` and `broker_apps.json`: the Composio hosted broker, off until the
+  person turns it on after its disclosure; found by Row-Bot's own list of app names.
+- `windows_connectors.py`: On-device Agent Registry connectors, listed only on an
+  explicit update and connected through the normal plan.
+- `uploads.py`: privately staged skill or package archives and `.mcpb` bundles;
+  nothing in them runs.
+- `workflow_templates.py`: workflow templates, created switched off in Ask mode.
 
 MCP owner functions take an explicit `target` (standalone or one package child);
 there is no ambient target.

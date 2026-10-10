@@ -94,8 +94,11 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    scripts copy), Windows `installer/row_bot_setup.iss`, macOS
    `installer/build_mac_app.sh`, Linux `installer/build_linux_app.sh`, the Linux
    bootstrapper `installer/install-linux.sh`, and the payload notes in
-   `installer/README.md`. The source-layout and payload contract is summarized
-   in [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md). For server or deployment
+   `installer/README.md`. Non-Python data under `src/row_bot` (catalog JSON, the
+   MCP Registry snapshot) also needs a `[tool.setuptools.package-data]` entry in
+   `pyproject.toml` for the wheel the Docker image installs. The source-layout
+   and payload contract is summarized in
+   [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md). For server or deployment
    changes, also review `deploy/docker/Dockerfile`,
    `deploy/docker/compose.yaml`, the reverse-proxy and systemd examples under
    `deploy/`, `.dockerignore`, and `.github/workflows/container.yml`. For

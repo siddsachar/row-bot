@@ -42,6 +42,12 @@ backs off from 2 to 30 seconds while idle. A valid poll page may contain 4096
 events; processing yields between slices of at most 256. Authentication and
 compatibility failures halt observation and clear protected views. Raw response
 titles, exception messages, paths and tracebacks are never displayed.
+Only a recorded transport failure reads as `network_unavailable` (Disconnected,
+with Reconnect): `api/network-failure.ts` wraps the controller's transport once
+and marks every TypeError it throws, rejects with or raises part way through the
+event stream, together with the controller's own offline and stream-lost
+signals. Any other TypeError is a client fault (`client_error`), not a reason to
+reconnect.
 
 `setVisible(false)` releases content observation; return obtains a fresh cut.
 `setOnline(false)` suspends all network reads/retries and fences pending results

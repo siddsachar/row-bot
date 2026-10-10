@@ -90,9 +90,9 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
 - **Fewer approvals** - one "Apply the sandbox changes?" card applies every
   pending sandbox change, oldest first, and "Approve the rest" covers later
   actions of the same kind until the reply ends, for local code-folder work
-  only (edits, branches, commits, detected checks and plain commands). Push,
-  pull requests, merges, reverts, deletes, installs, network actions and the
-  Shell tool always ask.
+  only (edits, branches, commits, detected checks and plain commands). It
+  never covers pushes, pull requests, merges, reverts, deletes, installs,
+  network actions or the Shell tool.
 - **Pull requests from the conversation** - Row-Bot can open a pull request
   for a code folder's branch with the GitHub CLI on this computer, as a draft
   by default and by the conversation's approval mode, with suggested text that
@@ -118,9 +118,12 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
 ### Conversations, Goals And Agents
 
 - **Retry in place** - Retry and Send again run the last message again in place
-  instead of adding a second copy of it.
-- **Delete with Undo** - deleting a conversation asks, then offers Undo for a
-  few seconds; New chat reuses an empty conversation instead of making
+  of its answer instead of adding a second copy, when that turn used no tools
+  and nothing is waiting for an approval; a turn that used tools stays on
+  record and its retry is sent as a new message.
+- **Delete with Undo** - deleting one conversation asks, then offers Undo for a
+  few seconds (deleting a selection in the Library still asks once, with no
+  Undo); New chat reuses the empty conversation it just made instead of making
   another, and never-used conversations stay out of the sidebar, Home and
   Recent.
 - **Follow-ups** - a message typed while the previous one is being confirmed
@@ -131,9 +134,11 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
 - **Agents** - each agent describes itself in the + menu and the New chat menu;
   agent profile details read in words, with Show instructions (an owner-only
   read), editing a copy, and starter templates.
-- **Long work** - long tool calls show progress, a provider that cuts a reply
-  off is retried once, and provider streams check their limits once a second
-  instead of on every chunk.
+- **Long work** - with a ChatGPT subscription, a long tool call shows its
+  progress ("Writing 🎨 Designer · 12 KB…") instead of "Thinking…"; a goal
+  whose provider cuts a reply off tries the step once more, then waits for
+  you; and provider streams check their time limit once a second instead of
+  on every token, so long local replies no longer overrun it.
 
 ### Designs
 
@@ -143,13 +148,14 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
 - **Templates that pass their own Review** - every template passes Review on
   its canvas and opens on the canvas it was made for; storyboard shots and
   phone screens fill their canvas; design chats suggest design work.
-- **Fonts** - designs use the fonts bundled with Row-Bot, previews substitute a
-  bundled face with a notice, and offline exports carry the design's own fonts
-  instead of falling back to system fonts (and no longer warn about "pictures
-  from the web" for them).
+- **Fonts** - designs use the 25 font families bundled with Row-Bot (a brand
+  taken from a website maps to the nearest one), a preview names any font it
+  had to substitute, and offline exports embed the design's bundled fonts
+  instead of falling back to system fonts, without the false "pictures from
+  the web" warning.
 - **Export** - a landing page's PNG is the whole page; exported file names keep
   the design's punctuation; the Export panel collapses after saving; exporting
-  without Browser Automation says so and links to its setup.
+  without Browser Automation says so and links to Settings › System.
 - **Writing designs** - `designer_set_brand` checks every value before saving,
   long pages can be written in parts, and approvals for design and workflow
   actions read in words.
@@ -169,9 +175,10 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
 - **Tracker** - Settings › Tracker opens a tracker's latest entries, deletes one
   tracker on its own, starts a tracker in a conversation, and logs several
   entries at once; an entry dated by its day reads as that day.
-- **Search** - Library search follows your typing, finds today's conversations
-  first and every title at once, and shows plain-text excerpts; Ctrl/Cmd+F
-  finds within a conversation.
+- **Search** - Library search follows your typing, matches every title at
+  once in the Library's order (pinned, then newest), reads messages newest
+  first with plain-text excerpts, and offers Continue search for older
+  history; Ctrl/Cmd+F finds within a conversation.
 
 ### Tools, Models And Voice
 
@@ -179,11 +186,13 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
   `read_url` reads PDFs; reminders can be set for an exact time.
 - **Ollama** - Ollama's own capability report decides whether a model gets
   tools, vision and thinking.
-- **Browser voice uses your models** - Talk and Dictation use the speech-to-text
-  model chosen for each (Whisper or SenseVoice), a saved Whisper size,
-  SenseVoice path or Kokoro voice and speed applies without a restart, a model
-  that isn't ready says so, and Test voice plays in the browser instead of on
-  the host's speaker.
+- **Browser voice uses your models** - Talk and Dictation in the browser use
+  the speech engine chosen for each (Whisper or SenseVoice, under Voice ›
+  Advanced › Speech engine once SenseVoice is installed); a saved Whisper size,
+  a SenseVoice install, or a Kokoro voice and speed applies without a restart;
+  a SenseVoice or Whisper model that isn't ready says so and links to Voice
+  settings; and Test voice plays in the browser instead of on the host's
+  speaker.
 
 ### Settings, Home And Monitor
 
@@ -308,6 +317,12 @@ channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
   the Library).
 - A design with a brand on a system font (such as Georgia) still warns about
   web assets when exported offline.
+- Row-Bot's own feature guide, which it reads to answer "where is…" questions,
+  still names the 5.0 Settings › Accounts, Channels, Plugins and MCP pages;
+  they are in Settings › Apps now (old links open the right page).
+- Browser voice: a missing Kokoro voice model reads "Part of Row-Bot isn't
+  responding." instead of naming it, and Talk without a Whisper model is told
+  to set one up "before using Dictate". Install them from Settings › Voice.
 
 ---
 
