@@ -3,8 +3,9 @@
 The card the assistant shows after ``create_design`` / ``create_code_folder``
 offers Undo and Rename. Undo removes only what this conversation created and
 nothing else uses: a design whose owning conversation is this one, or a code
-folder inside the configured Drafts folder that this conversation created.
-Anything else is left alone (``resource_not_discardable``); it can still be
+folder inside the configured Drafts folder that this conversation created and
+that is still empty. Anything else is left alone (``resource_not_discardable``,
+or ``resource_not_empty`` once the folder holds files); it can still be
 removed from the conversation in Context. Rename changes the design's name or
 the code folder's display name; the folder on disk keeps its name.
 
@@ -16,10 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import shutil
 import sqlite3
-import stat
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -82,16 +80,21 @@ def _created_draft(conversation_id: str, resource_id: str) -> Path | None:
     return resolved if resolved.parent == drafts else None
 
 
-def _remove_tree(folder: Path) -> None:
-    def writable(function: Any, path: str, _error: Any) -> None:
-        os.chmod(path, stat.S_IWRITE)
-        function(path)
-
-    shutil.rmtree(folder, onexc=writable)
+def _holds_anything(folder: Path) -> bool:
+    """Setup made the folder empty, so anything in it now is someone's work."""
+    try:
+        return next(folder.iterdir(), None) is not None
+    except OSError:
+        return True
 
 
 def discard(service: Any, conversation_id: str, binding_id: str, *, expected_revision: str) -> dict:
-    """Undo a design or code folder this conversation created."""
+    """Undo a design or code folder this conversation created.
+
+    A code folder goes only while it is still empty: Undo never deletes files
+    added after setup (``resource_not_empty``), and its removal is never
+    recursive, so a file that arrives meanwhile stays with its folder.
+    """
     from row_bot.application.client_platform import ClientPlatformError
     from row_bot.conversation_resources import ResourceError, unbind
 
@@ -106,6 +109,9 @@ def discard(service: Any, conversation_id: str, binding_id: str, *, expected_rev
         allowed = folder is not None
     if not allowed or _bound_elsewhere(conversation_id, binding.resource_id):
         raise ClientPlatformError("resource_not_discardable")
+    if folder is not None and _holds_anything(folder):
+        _LOG.info("Undo kept code folder %s: it has files in it now", binding.resource_id)
+        raise ClientPlatformError("resource_not_empty")
     try:
         resources = unbind(conversation_id, binding_id, expected_revision=int(expected_revision))
     except ResourceError as exc:
@@ -117,11 +123,15 @@ def discard(service: Any, conversation_id: str, binding_id: str, *, expected_rev
     else:
         from row_bot.developer.storage import delete_workspace_record
 
-        delete_workspace_record(binding.resource_id)
         try:
-            _remove_tree(folder)  # type: ignore[arg-type]
+            folder.rmdir()  # type: ignore[union-attr]  # Only an empty folder; the OS refuses otherwise.
         except OSError:
-            _LOG.warning("Undo left the draft folder in place", exc_info=True)
+            # Still on disk (something arrived, or it is locked): it stays a
+            # saved code folder, so it can be opened again.
+            _LOG.warning("Undo left code folder %s in place", binding.resource_id, exc_info=True)
+        else:
+            delete_workspace_record(binding.resource_id)
+            _LOG.info("Undo removed empty code folder %s", binding.resource_id)
     from row_bot.application.conversation_followups import discard as discard_followup
 
     discard_followup(conversation_id, "resource")

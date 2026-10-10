@@ -487,6 +487,7 @@
     "resource_binding_revoked": 403,
     "resource_limit": 413,
     "resource_not_discardable": 409,
+    "resource_not_empty": 409,
     "resource_revision_conflict": 409,
     "resource_setup_partial": 409,
     "resource_state_invalid": 503,

@@ -13,7 +13,12 @@ import { buildTranscript } from './transcript-model';
 
 vi.mock('../../api/errors', () => ({
   clientError: (cause: { code?: string }) => ({
-    message: cause?.code === 'resource_not_discardable' ? 'Not yours.' : 'x',
+    message:
+      cause?.code === 'resource_not_discardable'
+        ? 'Not yours.'
+        : cause?.code === 'resource_not_empty'
+          ? 'It has files now.'
+          : 'x',
   }),
 }));
 
@@ -105,6 +110,35 @@ it('says why an Undo was refused', async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   });
   expect(screen.getByRole('alert')).toHaveTextContent('Not yours.');
+});
+
+it('a created code folder’s Undo deletes it only while empty, and says when it kept the files', async () => {
+  const folder: TranscriptCard = {
+    kind: 'resource',
+    resourceKind: 'code',
+    name: 'tour-test-math',
+    bindingId: 'binding-c',
+    resourceId: 'workspace-c',
+  };
+  const value = actions({ ...view, title: 'tour-test-math' });
+  value.undo = vi.fn(async () => {
+    throw { code: 'resource_not_empty' };
+  });
+  renderCards(value, [folder]);
+  const undo = screen.getByRole('button', { name: 'Undo' });
+  expect(undo).toHaveAttribute(
+    'title',
+    'Delete this code folder while it is still empty; files added to it are never deleted',
+  );
+  await act(async () => {
+    fireEvent.click(undo);
+  });
+  expect(value.undo).toHaveBeenCalledWith('binding-c');
+  expect(screen.getByRole('alert')).toHaveTextContent('It has files now.');
+  expect(
+    screen.getByRole('group', { name: 'Created code folder tour-test-math' }),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
 });
 
 it('reads as removed once the binding is gone, but not while it is live', () => {

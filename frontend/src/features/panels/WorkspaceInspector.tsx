@@ -914,9 +914,10 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
                         item.path,
                         changedItems.find((change) => change.path === item.path)
                           ?.status ??
-                          (item.action === 'created'
+                          // The change ledger's words: create, update, delete.
+                          (item.action === 'create'
                             ? 'A'
-                            : item.action === 'deleted'
+                            : item.action === 'delete'
                               ? 'D'
                               : 'M'),
                         `${set.id}:${item.action}:${item.path}`,

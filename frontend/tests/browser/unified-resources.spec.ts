@@ -87,9 +87,20 @@ test('a coding request gets a code folder from the assistant, then work continue
   );
 });
 
-test('a created code folder can be renamed and undone from its card', async ({
+test('a created code folder can be renamed, and Undo never deletes the work added to it', async ({
   page,
-}) => {
+}, testInfo) => {
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature:
+        'Failed to load resource: the server responded with a status of 409 (Conflict)',
+      count: 1,
+      owner: 'resources code-folder Undo',
+      fixture:
+        'The fixture turn writes index.html into the new folder, so Undo is refused (resource_not_empty)',
+    }),
+  });
   const conversation = await newConversation(page);
   await composer(page).fill('Build a landing page natural code fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -109,26 +120,21 @@ test('a created code folder can be renamed and undone from its card', async ({
   await field.press('Enter');
   card = page.getByRole('group', { name: 'Created code folder Fixture site' });
   await expect(card).toBeVisible();
-  // Undo closes a panel showing what it removed, never "Resource unavailable" (B159).
-  const sidePanels = page.getByRole('region', { name: 'Side panels' });
-  const beside = (page.viewportSize()?.width ?? 0) >= 1024;
-  if (beside) {
-    await card.getByRole('button', { name: 'Open', exact: true }).click();
-    await expect(sidePanels).toBeVisible();
-  }
+  // The follow-up turn wrote index.html, so Undo would delete work: it says
+  // so and leaves the folder, its file and the conversation's use of it.
   await card.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(
-    page.getByRole('group', { name: 'Removed code folder Fixture site' }),
-  ).toBeVisible();
-  if (beside) await expect(sidePanels).toHaveCount(0);
+  await expect(card.getByRole('alert')).toHaveText(
+    'This code folder has files in it now, and Undo would delete them, so Row-Bot left it as it is. You can still remove it from this conversation in Context; its files stay.',
+  );
+  await expect(card).toBeVisible();
   await expect(page.getByText('Resource unavailable')).toHaveCount(0);
-  await expect
-    .poll(
-      async () =>
-        (await conversationState(page, conversation)).conversation
-          .resource_bindings.length,
-    )
-    .toBe(0);
+  expect(
+    (await conversationState(page, conversation)).conversation.resource_bindings
+      .length,
+  ).toBe(1);
+  expect((await naturalResourceResult(page, conversation)).bindings).toEqual([
+    expect.objectContaining({ kind: 'workspace', file_exists: true }),
+  ]);
 });
 
 test('React Context and detail remain usable across desktop, narrow, mobile, light and dark', async ({

@@ -259,7 +259,7 @@ function ResourceCard({
               ? 'Stop using this folder in this conversation; its files stay'
               : card.resourceKind === 'design'
                 ? 'Delete this design'
-                : 'Delete this code folder and its files'
+                : 'Delete this code folder while it is still empty; files added to it are never deleted'
           }
           onClick={() =>
             actions &&

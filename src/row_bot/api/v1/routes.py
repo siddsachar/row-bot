@@ -105,6 +105,7 @@ _STATUS.update(
         "resource_binding_revoked": 403,
         "resource_setup_partial": 409,
         "resource_not_discardable": 409,
+        "resource_not_empty": 409,
         "agent_run_finished": 409,
         "agent_work_not_resumable": 409,
         "agent_resume_unavailable": 409,

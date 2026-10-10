@@ -122,7 +122,6 @@ def test_undo_removes_what_the_conversation_created_and_keeps_the_conversation(c
     with _in(conversation):
         folder = json.loads(create_code_folder("Tiny date app"))
         design = json.loads(create_design("deck", "Harbour cleanup deck"))
-    (root / "Drafts" / "Tiny date app" / "index.html").write_text("<p>date</p>", encoding="utf-8")
     for created in (folder, design):
         receipt = _command(service, conversation, "resource.discard", {"binding_id": created["binding_id"]})
         assert receipt["status"] == "completed"
@@ -131,6 +130,52 @@ def test_undo_removes_what_the_conversation_created_and_keeps_the_conversation(c
     assert not (root / "Drafts" / "Tiny date app").exists()
     assert load_project(design["resource_id"]) is None
     assert service._metadata(conversation)["thread_id"] == conversation, "the conversation stays"
+
+
+@pytest.mark.parametrize("added", ["two.py", "src/app/main.py"])
+def test_undo_never_deletes_files_added_to_the_code_folder_after_it_was_created(creation, added):  # noqa: F811
+    from row_bot.application.client_platform import ClientPlatformError
+    from row_bot.conversation_resources import list_bindings
+    from row_bot.developer.storage import get_workspace
+    from row_bot.tools.conversation_setup_tool import create_code_folder
+
+    service, conversation, root = creation
+    with _in(conversation):
+        folder = json.loads(create_code_folder("tour-test-math"))
+    work = root / "Drafts" / "tour-test-math" / added
+    work.parent.mkdir(parents=True, exist_ok=True)
+    work.write_text("print(1 + 1)\n", encoding="utf-8")
+    with pytest.raises(ClientPlatformError, match="resource_not_empty"):
+        _command(service, conversation, "resource.discard", {"binding_id": folder["binding_id"]})
+    assert work.read_text(encoding="utf-8") == "print(1 + 1)\n"
+    # Nothing changed: still in this conversation and still a saved code folder.
+    assert [item.binding_id for item in list_bindings(conversation).bindings] == [folder["binding_id"]]
+    assert get_workspace(folder["resource_id"]) is not None
+
+
+def test_undo_keeps_a_file_that_arrives_while_the_empty_folder_is_being_removed(creation, monkeypatch):  # noqa: F811
+    from row_bot import conversation_resources
+    from row_bot.conversation_resources import list_bindings
+    from row_bot.developer.storage import get_workspace
+    from row_bot.tools.conversation_setup_tool import create_code_folder
+
+    service, conversation, root = creation
+    with _in(conversation):
+        folder = json.loads(create_code_folder("tour-test-math"))
+    late = root / "Drafts" / "tour-test-math" / "two.py"
+    unbind = conversation_resources.unbind
+
+    def unbind_then_a_late_write(*args, **kwargs):
+        snapshot = unbind(*args, **kwargs)
+        late.write_text("print(2)\n", encoding="utf-8")
+        return snapshot
+
+    monkeypatch.setattr(conversation_resources, "unbind", unbind_then_a_late_write)
+    _command(service, conversation, "resource.discard", {"binding_id": folder["binding_id"]})
+    assert late.read_text(encoding="utf-8") == "print(2)\n"
+    assert list_bindings(conversation).bindings == ()
+    # The folder is still on disk, so it stays a saved code folder to reopen.
+    assert get_workspace(folder["resource_id"]) is not None
 
 
 def test_undo_never_touches_a_folder_or_design_it_did_not_create(creation, tmp_path):  # noqa: F811

@@ -1857,6 +1857,10 @@ const CATALOG: Record<string, Entry> = {
     'Row-Bot can only undo a design or code folder it created in this conversation and nothing else uses. You can still remove it from this conversation in Context.',
     'none',
   ],
+  resource_not_empty: [
+    'This code folder has files in it now, and Undo would delete them, so Row-Bot left it as it is. You can still remove it from this conversation in Context; its files stay.',
+    'none',
+  ],
   resource_state_invalid: [
     'The design or code folder is in an unexpected state. Try again.',
     'retry',
