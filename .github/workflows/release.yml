@@ -43,7 +43,7 @@ on:
       version:
         description: Version to build. Must match src/row_bot/version.py and installer/row_bot_setup.iss.
         type: string
-        default: "5.0.0"
+        default: "5.1.0"
       build_windows:
         description: Build the Windows installer
         type: boolean
@@ -71,7 +71,7 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
-  ROW_BOT_VERSION: ${{ inputs.version || '5.0.0' }}
+  ROW_BOT_VERSION: ${{ inputs.version || '5.1.0' }}
   WINDOWS_PYTHON_VERSION: "3.13.2"
 
 jobs:
@@ -111,7 +111,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_VERSION: ${{ inputs.version || '5.0.0' }}
+          RELEASE_VERSION: ${{ inputs.version || '5.1.0' }}
         run: python scripts/release_gate.py --version "$RELEASE_VERSION" --sha "$GITHUB_SHA"
 
   # ---------------------------------------------------------------------------

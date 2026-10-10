@@ -2,6 +2,156 @@
 
 ---
 
+## v5.1.0 - Apps & Skills: Connect A Service, Choose What It Does, Use It In Chat
+
+This release brings every way Row-Bot reaches another service into one place.
+Settings › Apps and Settings › Skills replace Integrations, MCP, Plugins,
+Accounts and Channels: a catalog worth browsing, one card per app with its ways
+to connect, a guided setup that asks once, and a clear choice of what each app
+may do. Apps then work where you do: switch them per chat, mention them, get a
+Connect card when the work needs one, see each app's logo on its steps and
+approvals, and use them in workflows. Keys stay in your system keychain, local
+apps install from reviewed locks, and every catalog fetch goes through one safe
+path. A round of fixes from testing the real desktop app as a person would
+comes with it. Your apps, skills, packages, sign-ins and channels carry over
+from 5.0.
+
+### Apps And Skills In One Place
+
+- **One catalog** - featured apps from their vendors first (about 100, such as
+  GitHub, Notion, Linear, Atlassian, Stripe, Sentry, Supabase and Figma), then
+  the whole official MCP Registry (about 40,000 records), mirrored on this
+  computer so search is instant and works offline. Catalogs update only when
+  you ask, in the background, and fail safe.
+- **Find by the job** - search for an app or for a job ("send email"); browse
+  by category; vendors come before the community, and one card stands for
+  each app with all its ways to connect.
+- **Ways to connect** - sign in (Row-Bot signs in the way the service
+  supports: its published client document, registration, or your own OAuth
+  app), paste a key, run a program on this computer, or use a way built into
+  Row-Bot. A link or a downloaded bundle can be added too.
+- **Ask once** - one consent sheet says what will happen, where requests go and
+  what is saved, then "What can this app do?": Look things up (where the
+  service offers it, Row-Bot asks for read access only) or Look things up and
+  make changes. Changes
+  always ask first unless you choose Full access, and each tool can be set on
+  its own.
+- **Your apps** - Home and Settings › Apps show what is connected and what needs
+  you (sign in again, finish setup, turn on); Turn off stops an app's
+  connection at once, Remove can also delete its saved keys and data, and one
+  Use apps switch stops every app.
+- **Skills** - featured skills from official and maintainer repositories, added
+  from their source after a look at what they contain (scripts never run when
+  added). A skill made for an app says "Works with GitHub" and whether that
+  app is connected, and an app's page lists its skills.
+- **Accounts, channels and key tools are apps** - Google (with a step-by-step
+  guide that links to each page it needs), X, Telegram, Slack and the other
+  channels, web search and Wolfram Alpha are built-in ways to connect, edited
+  in their own pages. Setup Center offers Apps and Skills.
+
+### Apps Where You Work
+
+- **Per chat** - + › Apps switches an app on or off for one chat; @app keeps a
+  turn to the apps you name; /skill loads a skill for the turn. All stay
+  within the chat's agent profile.
+- **Suggested in place** - when the work needs an app you have not connected,
+  the chat shows a Connect card from the local catalog (never a download
+  suggested by a web page). An app you added but turned off offers Turn on; one
+  that only looks things up offers Allow changes when the work is a change.
+- **Named on every step** - tool steps and approvals show the app's name and
+  logo, and approvals read their arguments in words.
+- **Interactive app views** - apps that offer MCP Apps views can show them in
+  the chat, in a sandboxed frame, behind the same approvals.
+- **Workflows with apps** - workflow steps name the apps they use, an app's
+  locked tools always ask, and templates such as a GitHub pull-request digest
+  and a daily brief from the web start from Workflows.
+- **Windows connectors** - on Windows builds with the On-device Agent
+  Registry, its connectors appear as a catalog.
+- **Composio (optional)** - a separate hosted service that connects many apps
+  through one Composio account. It is off until you read its disclosure and
+  turn it on in Apps › Advanced.
+
+### Safe By Design
+
+- **Keys only in the keychain** - keys and tokens are kept in the system
+  keychain, never on command lines, in responses or in pasted settings; keys
+  typed into a 5.0 server's headers or environment move into the keychain on
+  upgrade, with no plaintext copy left.
+- **Reviewed local installs** - local apps run from reviewed locks (npm, Python
+  and containers pinned by digest); desktop apps are checked first; bundles
+  download only after consent and a matching SHA-256, and unpack privately.
+- **One safe fetch path** - catalog traffic, logos, previews and downloads
+  reach only checked public addresses, honour the system proxy for reviewed
+  hosts, never follow redirects to other hosts with credentials, and now fall
+  back to a host's next checked address when one does not answer.
+- **Access that holds** - packages cannot grant themselves access, pasted
+  configuration cannot pre-approve tools, Auto never overrides an app's
+  access, delegated agents keep the chat's apps, and separate Google sign-ins
+  are never merged. Row-Bot adds no telemetry.
+
+### Fixes From Testing The Real App
+
+- **Retry and Send again** run the last message again in place instead of
+  adding a second copy; a follow-up typed while a message is being confirmed
+  is no longer merged into it.
+- **Deleting a chat** asks, then offers Undo for a few seconds; New chat reuses
+  an unused chat, and never-used chats stay out of the sidebar, Home and
+  Recent.
+- **Undo on a created code folder** removes it only while it is still empty and
+  never deletes files added to it; Undo on a created design asks first, and
+  designs can be deleted from their panel.
+- **Notices** sit at the bottom centre, above the composer, the on-screen
+  keyboard and the install offer, never over a page header.
+- **Memory** saves without the local search model (recall matches words until
+  the model is downloaded) and second saves no longer fail; documents explain
+  what they need; the tracker opens each tracker's entries and logs several
+  entries at once.
+- **Search** - Library search finds today's chats first and every title at
+  once; Settings search lands on the setting.
+- **Designs** - templates pass their own Review, storyboard shots and phone
+  screens fill their canvas, a landing page exports whole as PNG, and offline
+  exports carry the design's own fonts.
+- **Plainer words** across settings, setup, approvals and errors; agents say
+  what they do in menus; a skill whose source can't be reached says so.
+- **Composer** no longer flickers in an empty chat beside the details panel on
+  Windows.
+
+### Reliability And Testing
+
+- The test suite no longer stalls; flaky tests were fixed at their cause.
+- New deterministic coverage for catalogs, plans, access, the safe fetcher,
+  apps in chat, app views and upgrades from 5.0.0, plus browser journeys for
+  apps and skills that run nightly.
+- Live checks with real accounts: Notion, Linear, Atlassian, Sentry, Stripe
+  (sandbox), Supabase, Context7, Playwright, GitHub and Composio connect, read,
+  refresh, turn off, disconnect and remove cleanly.
+
+### Upgrade Notes
+
+- **Places that moved** - Settings › Integrations, MCP, Plugins, Accounts and
+  Channels are now Settings › Apps and Settings › Skills. Old links, including
+  5.0.0's, open the matching page.
+- **Everything carries over** - MCP servers, plugins and packages, skills,
+  sign-ins and channels from 5.0 appear in Apps and Skills, with their
+  settings and access.
+- **Access you set stays** - a connection saved before this release keeps any
+  tool it recorded as asking first. To use 5.1's finer read classification
+  for an app, remove it and connect it again.
+- **Composio is off** until you turn it on.
+
+### Known Limitations
+
+- The Slack app (search and read Slack from a chat) connects only through your
+  own Slack app; the Slack channel for talking to Row-Bot is unchanged.
+- Composio keeps its grant after you remove it in Row-Bot; revoke it in your
+  Composio account.
+- Windows connectors need a Windows build that includes the On-device Agent
+  Registry.
+- Deleting a chat is sent when its Undo notice ends; closing the window first
+  keeps the chat.
+
+---
+
 ## v5.0.0 - New React App, Conversation-First Workspace & One-Click Fixes
 
 This major release replaces Row-Bot's NiceGUI interface with one React app
