@@ -1302,9 +1302,11 @@ def _upsert_index(entity_id: str) -> None:
         return
     try:
         _publish_vector_projection(entity_ids={entity_id}, max_embeddings=1)
-    except Exception:
+    except Exception as exc:
+        # The row is saved and its work stays queued for repair_projections once a
+        # search model is available; recall matches it by its words until then.
         _persist_projection_failure("upsert_incomplete")
-        raise
+        logger.info("Memory search index update deferred: %s", exc)
 
 
 def _remove_from_index(entity_id: str, *, cancelled: Callable[[], bool] | None = None) -> None:
