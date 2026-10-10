@@ -1,4 +1,7 @@
 """Skills discovery quality: featured library, fork dedup, plain summaries and publisher signals (fakes only)."""
+from uuid import uuid4
+
+import httpx
 import pytest
 
 from row_bot.application import client_integrations as api
@@ -122,6 +125,36 @@ def test_featured_skills_open_discover_and_are_added_from_their_pinned_source_af
     assert seen[0]["install_ref"].startswith("github:anthropics/skills/skills/skill-creator?ref=")
     assert all(len(s["commit"]) == 40 and s["license"] in {"MIT", "Apache-2.0", "MPL-2.0"}
                for s in sources.featured_skills().values())
+
+
+class Unreachable:
+    """GitHub, when the skill's files never arrive."""
+    id, display_name = "github", "GitHub"
+
+    def __init__(self, error):
+        self.error = error
+
+    def inspect(self, entry):
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [
+    source_registry.SkillSourceTimeout("GitHub"),  # No answer within the check's time limit.
+    httpx.ConnectTimeout("timed out"),  # The source's own connection timed out first.
+    httpx.ConnectError("getaddrinfo failed"),  # No connection at all.
+])
+def test_a_featured_skill_whose_source_cannot_be_reached_says_so(skills, reload_for_data_dir, tmp_path, error):
+    """Live: adding Brainstorming failed after 20 s with "This step could not finish. Retry, or open its
+    settings." GitHub hadn't answered, and a skill has no settings to open."""
+    reload_for_data_dir(tmp_path, "row_bot.tasks")
+    skills(Unreachable(error))
+    item_id = "skill:featured:superpowers-brainstorming"
+    _, plan = api.read_item(owner_id="owner", item_id=item_id)
+    failed = api.start_plan(plans.Context("owner", "owner", lambda: None), plan_id=str(uuid4()), item_id=item_id,
+                            digest=plan["digest"])
+    said = "Row-Bot couldn't reach GitHub. Check your connection and try again."
+    assert failed["state"] == "failed" and failed["message"] == said
+    assert next(step for step in failed["steps"] if step["type"] == "test")["message"] == said
 
 
 def test_a_skill_made_for_an_app_is_found_by_the_apps_name_and_never_reads_as_the_apps_own(skills):

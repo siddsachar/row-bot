@@ -7,6 +7,7 @@ import json
 import logging
 import os
 
+import httpx
 import psutil
 import threading
 from dataclasses import replace
@@ -20,7 +21,7 @@ from row_bot.skills_hub.models import SkillBundle, SkillHubEntry
 from row_bot.skills_hub import provenance
 from row_bot.skills_hub.models import SkillInstallRecord
 from row_bot.skills_hub.scanner import scan_bundle
-from row_bot.skills_hub.source_registry import SkillSourceTimeout
+from row_bot.skills_hub.source_registry import SkillSourceTimeout, default_registry
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,22 @@ MAX_RESULTS = 96
 
 
 class SkillHubCommandError(ValueError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, message: str = "") -> None:
         super().__init__(code)
-        self.code = code
+        self.code, self.message = code, message  # A plan step shows the message, when there is one.
+
+
+# The source didn't answer in time (its own limit or the registry's) or couldn't be connected to.
+_TIMED_OUT = (TimeoutError, httpx.TimeoutException)
+_UNREACHABLE = (*_TIMED_OUT, ConnectionError, httpx.NetworkError, httpx.ProxyError)
+
+
+def _unreachable(error: BaseException, entry: SkillHubEntry) -> SkillHubCommandError:
+    """Name the source that couldn't be reached, and what to do about it."""
+    name = (getattr(error, "source_name", "") or getattr(default_registry().source(entry.source), "display_name", "")
+            or "the skill's source")
+    return SkillHubCommandError("skill_source_timeout" if isinstance(error, _TIMED_OUT) else "skill_preview_unavailable",
+                                f"Row-Bot couldn't reach {name}. Check your connection and try again.")
 
 
 def _entry_public(entry: SkillHubEntry) -> dict[str, Any]:
@@ -141,8 +155,8 @@ def preview_public_skill(
     entry = listed[entry_id]
     try:
         bundle = catalog.inspect_entry(entry)
-    except SkillSourceTimeout as exc:
-        raise SkillHubCommandError("skill_source_timeout") from exc
+    except _UNREACHABLE as exc:
+        raise _unreachable(exc, entry) from exc
     except Exception as exc:
         logger.warning("Skill preview from %s failed: %s", entry.source, type(exc).__name__)
         raise SkillHubCommandError("skill_preview_unavailable") from exc
@@ -163,8 +177,8 @@ def preview_skill_reference(*, owner_id: str, install_ref: str, name: str, publi
                           metadata={"repository": parsed.repo_full_name, "path": parsed.path, "ref": parsed.ref})
     try:
         bundle = catalog.inspect_entry(entry)
-    except SkillSourceTimeout as exc:
-        raise SkillHubCommandError("skill_source_timeout") from exc
+    except _UNREACHABLE as exc:
+        raise _unreachable(exc, entry) from exc
     except Exception as exc:
         logger.warning("Featured skill preview failed: %s", type(exc).__name__)
         raise SkillHubCommandError("skill_preview_unavailable") from exc
