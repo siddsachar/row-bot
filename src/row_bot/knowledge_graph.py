@@ -1147,8 +1147,9 @@ def _build_vector_projection(*, cancelled=None, allow_embedding: bool = True,
             return
 
         generation = uuid.uuid4().hex
+        # Created exclusively with its first file: a build that fails earlier
+        # (no local search model) leaves no unregistered folder behind.
         directory = _VECTOR_DIR / "generations" / generation
-        directory.mkdir(parents=True, exist_ok=False)
         segment_rows = min(2000, (MAX_VECTOR_BYTES - 64) // (dimension * 4))
         segments = []
         index = faiss.IndexFlatIP(dimension)
@@ -1179,6 +1180,8 @@ def _build_vector_projection(*, cancelled=None, allow_embedding: bool = True,
             nonlocal index
             if not index.ntotal:
                 return
+            if not segments:
+                directory.mkdir(parents=True, exist_ok=False)
             name = f"segment-{len(segments):06d}.faiss"
             faiss.write_index(index, str(directory / name))
             data = _projection_file(directory, name, MAX_VECTOR_BYTES)
@@ -1256,6 +1259,8 @@ def _build_vector_projection(*, cancelled=None, allow_embedding: bool = True,
         encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True).encode("utf-8")
         if len(encoded) > _PROJECTION_METADATA_BYTES:
             raise ValueError("Knowledge metadata exceeds publication budget")
+        if not segments:
+            directory.mkdir(parents=True, exist_ok=False)
         with (directory / "manifest.json").open("xb") as handle:
             handle.write(encoded)
             handle.flush()

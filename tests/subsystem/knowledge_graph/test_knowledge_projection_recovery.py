@@ -87,6 +87,30 @@ def test_generation_write_failure_preserves_selected_bytes(projection_stack, mon
     assert not kg.memory_vector_status()["ready"]
 
 
+def test_build_without_a_local_search_model_leaves_no_generation_folder(projection_stack, monkeypatch):
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    kg, embedding, _fingerprint, _config = projection_stack
+    generations = kg._VECTOR_DIR / "generations"
+
+    def model_not_downloaded(**_kwargs):
+        raise LocalEntryNotFoundError("Cannot find an appropriate cached snapshot folder on the local disk.")
+
+    monkeypatch.setattr(kg, "_get_embedding_model", model_not_downloaded)
+    monkeypatch.setattr(kg, "_skip_reindex", False)
+    first = add(kg, "First deferred fact")
+    add(kg, "Second deferred fact")
+    with pytest.raises(LocalEntryNotFoundError):
+        kg.rebuild_index()
+    assert kg.get_entity(first["id"])["subject"] == "First deferred fact"
+    assert list(generations.glob("*")) == []
+
+    monkeypatch.setattr(kg, "_get_embedding_model", lambda **_kw: embedding)
+    assert kg.repair_projections()["complete"]
+    assert kg.memory_vector_status()["ready"]
+    assert [path.name for path in generations.iterdir()] == [kg._projection_state()["generation"]]
+
+
 def test_source_edit_during_embedding_cannot_publish_as_current(projection_stack, monkeypatch):
     kg, embedding, _fingerprint, _config = projection_stack
     entity = add(kg)
