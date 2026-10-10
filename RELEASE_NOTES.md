@@ -88,6 +88,10 @@ from 5.0.
   configuration cannot pre-approve tools, Auto never overrides an app's
   access, delegated agents keep the chat's apps, and separate Google sign-ins
   are never merged. Row-Bot adds no telemetry.
+- **Dependency security updates** - hydra-core 1.3.7 (GHSA-mwj6-rfh8-7qf4,
+  GHSA-rqx7-p7vv-w7hr, GHSA-c3wx-c55w-pxjq; thanks to @katsugtgz),
+  langgraph-sdk 0.4.6 (GHSA-fvww-7h3r-vfhp) and multidict 6.9.1
+  (GHSA-54p9-h82j-f925).
 
 ### Fixes From Testing The Real App
 
