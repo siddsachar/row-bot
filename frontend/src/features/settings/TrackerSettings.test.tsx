@@ -27,7 +27,7 @@ const water = {
   unit: 'glasses',
   icon: null,
   entry_count: 4,
-  last_event_at: null,
+  last_event_at: null as string | null,
 };
 const sleep = { ...water, tracker_id: 'sleep', name: 'Sleep', entry_count: 1 };
 const tracker = (items: (typeof water)[], enabled = true): Tracker => ({
