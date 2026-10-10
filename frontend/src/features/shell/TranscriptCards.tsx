@@ -7,6 +7,7 @@ import type {
   TranscriptTraceGroup,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { useOverlay } from '../../ui/overlays';
 import { Button, Input } from '../../ui/primitives';
 import ChatConnect from '../apps/ChatConnect';
 import AppViewFrame from '../apps/AppViewFrame';
@@ -144,6 +145,7 @@ function ResourceCard({
   live: boolean;
 }) {
   const actions = useContext(CardActionsContext);
+  const overlay = useOverlay();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -261,12 +263,25 @@ function ResourceCard({
                 ? 'Delete this design'
                 : 'Delete this code folder while it is still empty; files added to it are never deleted'
           }
-          onClick={() =>
-            actions &&
-            void run(() =>
-              (card.bound ? actions.remove : actions.undo)(card.bindingId),
-            )
-          }
+          onClick={(event) => {
+            if (!actions) return;
+            const undo = () =>
+              void run(() =>
+                (card.bound ? actions.remove : actions.undo)(card.bindingId),
+              );
+            // Undo deletes a design with whatever was made in it since, so it
+            // asks first, as Delete design does.
+            if (card.bound || card.resourceKind !== 'design') undo();
+            else
+              overlay.open({
+                kind: 'alert',
+                returnFocusTo: event.currentTarget,
+                title: 'Delete design?',
+                description: `“${title}” will be deleted for good, with its pages, saved versions and files, including changes made since it was created.`,
+                confirmLabel: 'Delete design',
+                onConfirm: undo,
+              });
+          }}
         >
           Undo
         </Button>

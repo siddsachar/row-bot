@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { EventRecord, ResourceView } from '../../api/types';
 import {
@@ -9,6 +9,7 @@ import {
   type CardActions,
   type TranscriptCard,
 } from './TranscriptCards';
+import { OverlayProvider } from '../../ui/overlays';
 import { buildTranscript } from './transcript-model';
 
 vi.mock('../../api/errors', () => ({
@@ -59,9 +60,11 @@ function actions(resource: ResourceView | null = view): CardActions {
 
 function renderCards(value: CardActions, cards = [design], live = false) {
   return render(
-    <CardActionsContext.Provider value={value}>
-      <TranscriptCards cards={cards} live={live} />
-    </CardActionsContext.Provider>,
+    <OverlayProvider>
+      <CardActionsContext.Provider value={value}>
+        <TranscriptCards cards={cards} live={live} />
+      </CardActionsContext.Provider>
+    </OverlayProvider>,
   );
 }
 
@@ -74,9 +77,24 @@ it('shows a created design with Open, Rename and Undo', async () => {
   expect(card).toHaveTextContent('Created design Harbour cleanup deck');
   fireEvent.click(screen.getByRole('button', { name: 'Open' }));
   expect(value.open).toHaveBeenCalledWith(view);
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  // Undo deletes the design with whatever was made in it since: it asks first.
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  let dialog = await screen.findByRole('alertdialog', {
+    name: 'Delete design?',
   });
+  expect(dialog).toHaveTextContent(
+    'including changes made since it was created',
+  );
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(value.undo).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  dialog = await screen.findByRole('alertdialog', { name: 'Delete design?' });
+  await act(async () => {
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete design' }),
+    );
+  });
+  expect(value.undo).toHaveBeenCalledOnce();
   expect(value.undo).toHaveBeenCalledWith('binding-a');
 });
 
@@ -106,8 +124,14 @@ it('says why an Undo was refused', async () => {
     throw { code: 'resource_not_discardable' };
   });
   renderCards(value);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Delete design?',
+  });
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete design' }),
+    );
   });
   expect(screen.getByRole('alert')).toHaveTextContent('Not yours.');
 });
@@ -168,9 +192,11 @@ it('a renamed card that is undone reads removed under the new name', () => {
   ).toBeVisible();
   renamed.resource = vi.fn(() => undefined);
   shown.rerender(
-    <CardActionsContext.Provider value={{ ...renamed }}>
-      <TranscriptCards cards={[design]} live={false} />
-    </CardActionsContext.Provider>,
+    <OverlayProvider>
+      <CardActionsContext.Provider value={{ ...renamed }}>
+        <TranscriptCards cards={[design]} live={false} />
+      </CardActionsContext.Provider>
+    </OverlayProvider>,
   );
   expect(
     screen.getByRole('group', { name: 'Removed design Tides deck' }),
@@ -204,9 +230,11 @@ it('a folder the person had reads Using, and Undo only takes it out of the chat 
   expect(value.undo).not.toHaveBeenCalled();
   value.resource = vi.fn(() => undefined);
   shown.rerender(
-    <CardActionsContext.Provider value={{ ...value }}>
-      <TranscriptCards cards={[folder]} />
-    </CardActionsContext.Provider>,
+    <OverlayProvider>
+      <CardActionsContext.Provider value={{ ...value }}>
+        <TranscriptCards cards={[folder]} />
+      </CardActionsContext.Provider>
+    </OverlayProvider>,
   );
   expect(
     screen.getByRole('group', { name: 'No longer using code folder tide-app' }),
