@@ -264,6 +264,20 @@ for (const [mode, label] of [
       await expect(
         frame.contentFrame().locator('[data-row-bot-route-active]'),
       ).toHaveCount(1);
+      if (mode !== 'landing')
+        // A storyboard shot or a phone screen fills its canvas, as its page
+        // does alone (found live: both ended about halfway down).
+        expect(
+          await frame
+            .contentFrame()
+            .locator('[data-row-bot-route-active]')
+            .evaluate((host) =>
+              Math.round(
+                (host.firstElementChild?.getBoundingClientRect().height ?? 0) -
+                  document.body.getBoundingClientRect().height,
+              ),
+            ),
+        ).toBe(0);
       info.annotations.push({
         type: 'expected-console-error',
         description: JSON.stringify({

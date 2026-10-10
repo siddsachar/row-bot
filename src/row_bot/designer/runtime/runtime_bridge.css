@@ -10,8 +10,11 @@
     opacity: 0;
     transition: opacity 220ms ease;
 }
+/* As tall as the page's body, as when the page renders alone: a shot or screen
+   that fills its canvas with height:100% would otherwise end halfway down. */
 [data-row-bot-route-host][data-row-bot-route-active] {
     display: block;
+    height: 100%;
     opacity: 1;
 }
 
