@@ -1375,10 +1375,26 @@ export default function Conversation({
         if (
           captured?.commandId === claim.commandId &&
           captured.conversation === target &&
-          controller.getSnapshot().handshake?.instance_id === instance &&
-          controller.getDraft(target) === captured.value
-        )
-          controller.setDraft(target, { text: '', attachments: [] });
+          controller.getSnapshot().handshake?.instance_id === instance
+        ) {
+          // What was sent leaves the composer; anything typed after it stays
+          // (found live: a quick follow-up joined the sent text, which then
+          // waited there to be sent a second time).
+          const now = controller.getDraft(target);
+          if (now === captured.value)
+            controller.setDraft(target, { text: '', attachments: [] });
+          else if (now.text.startsWith(captured.value.text)) {
+            const sent = new Set(
+              captured.value.attachments.map((a) => a.attachment_ref),
+            );
+            controller.setDraft(target, {
+              text: now.text.slice(captured.value.text.length).trimStart(),
+              attachments: now.attachments.filter(
+                (a) => !sent.has(a.attachment_ref),
+              ),
+            });
+          }
+        }
         if (current()) {
           setUnknown(null);
           setMissingReceipt(null);

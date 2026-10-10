@@ -1272,6 +1272,37 @@ it('waits for a model change that is still saving, then sends with it (B109)', a
   );
 });
 
+it('keeps only what was typed after sending once the message is accepted', async () => {
+  // Found live: a follow-up typed while the send was confirmed joined the sent
+  // text, and the whole of it stayed in the composer to be sent again.
+  idleConversation();
+  let accept!: () => void;
+  mock.intent.mockImplementation(
+    (_conversation, _type, payload, _revision, commandId) =>
+      new Promise((resolve) => {
+        accept = () =>
+          resolve({
+            command_id: commandId,
+            conversation_id: 'conversation-a',
+            submission_id: payload.submission_id,
+            status: 'accepted',
+          });
+      }),
+  );
+  await act(async () => conversation());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
+    target: { value: 'Original queued draft Which one is the oldest?' },
+  });
+  await act(async () => accept());
+  expect(mock.drafts.get('conversation-a')?.text).toBe(
+    'Which one is the oldest?',
+  );
+});
+
 it('sends the files again with Send again, not their names as text (B136)', async () => {
   idleConversation();
   mock.download.mockResolvedValue(new Blob(['notes'], { type: 'text/plain' }));
