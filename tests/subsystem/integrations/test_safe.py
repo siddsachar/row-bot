@@ -24,7 +24,9 @@ def reached(request: httpx.Request) -> str:
 
 @pytest.fixture(autouse=True)
 def no_system_proxy(monkeypatch):
-    """Tests see only the proxy environment they set, never this machine's settings."""
+    """Tests see only the proxy environment they set, never this machine's settings, and no address
+    another test found unreachable."""
+    monkeypatch.setattr(safe, "_UNREACHABLE", {})
     import urllib.request
     for name in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "all_proxy", "no_proxy"):
         monkeypatch.delenv(name, raising=False)
@@ -139,6 +141,10 @@ def test_an_address_that_cannot_be_connected_to_gives_way_to_the_next_checked_on
     assert [request.url.host for request in sent] == ["93.184.216.34", "93.184.216.36"]
     assert {reached(request) for request in sent} == {"https://catalog.example/a.json"}
     assert sent.resolved == ["catalog.example"]  # Resolved once: the same checked answer.
+    # A skill is several files: the next fetch tries the address that answered first, not the dead one.
+    sent.clear()
+    assert safe.fetch("https://catalog.example/b.json", hosts=ALLOWED, max_bytes=10) == b"ok"
+    assert [request.url.host for request in sent] == ["93.184.216.36"]
 
 
 def test_a_request_that_reached_an_address_is_never_sent_again(http):

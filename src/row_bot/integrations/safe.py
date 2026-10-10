@@ -96,6 +96,12 @@ def proxy_for(host: str) -> str | None:
     return proxy if parts.scheme in {"http", "https"} and parts.hostname else None
 
 
+# Addresses that couldn't be connected to lately go last, so a dead one costs one wait, not one per fetch.
+_UNREACHABLE: dict[str, float] = {}
+_UNREACHABLE_FOR = 600.0
+_UNREACHABLE_LOCK = threading.Lock()
+
+
 class _Pinned(httpx.HTTPTransport):
     """Connect to a checked address while TLS and Host keep the reviewed name. One that can't be connected
     to (found live: one of a host's four addresses never answered) gives way to the next, until the fetch's
@@ -108,13 +114,21 @@ class _Pinned(httpx.HTTPTransport):
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         if request.url.host != self.host:
             raise httpx.ConnectError("unreviewed host")
-        for number, address in enumerate(self.addresses):
+        with _UNREACHABLE_LOCK:
+            now = time.monotonic()
+            for address, failed in list(_UNREACHABLE.items()):
+                if now - failed >= _UNREACHABLE_FOR:
+                    del _UNREACHABLE[address]
+            addresses = sorted(self.addresses, key=lambda address: address in _UNREACHABLE)
+        for number, address in enumerate(addresses):
             pinned = httpx.Request(request.method, request.url.copy_with(host=address), headers=request.headers,
                 stream=request.stream, extensions={**request.extensions, "sni_hostname": self.host})
             try:
                 return super().handle_request(pinned)
             except (httpx.ConnectError, httpx.ConnectTimeout):
-                if number == len(self.addresses) - 1 or time.monotonic() > self.deadline:
+                with _UNREACHABLE_LOCK:
+                    _UNREACHABLE[address] = time.monotonic()
+                if number == len(addresses) - 1 or time.monotonic() > self.deadline:
                     raise
         raise httpx.ConnectError("no address")
 
