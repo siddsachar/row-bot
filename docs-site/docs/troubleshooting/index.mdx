@@ -67,7 +67,7 @@ An app that isn't ready shows one status and one fix: the main action on its pag
 - **Install Docker Desktop, then try again**, or **Docker Desktop isn't running on this computer**: the app runs as a container image. Install or open Docker Desktop, or choose another way to connect on the app's page.
 - **_App_ needs your own OAuth app to sign in**: the service accepts only an OAuth app you create. Create one at the service, register the callback address the step shows, and paste its **Client ID** (and **Client secret (optional)**, if it has one).
 - If Google asks you to sign in every 7 days, your Google app is still in **Testing**; see [Google sign-ins in Testing last 7 days](/docs/integrations/accounts#google-sign-ins-in-testing-last-7-days).
-- If an app's tools never appear in chat, check that it is **Ready**, that it is checked in the chat's **+ › Apps**, that the chat's agent profile allows it, and that **Apps › Advanced › Apps in chats** has **Use apps** on and offers app tools.
+- If an app's tools never appear in chat, check that it is **Ready**, that it is checked in the chat's **+ › Apps**, that the chat's agent profile allows it, and that **Use apps** is on in **Apps › Advanced**.
 - Channels and accounts are apps too (for example **Apps › Telegram** or **Apps › Google**); **Open** on the app's page opens their own settings. A stopped channel shows **Restart** in Monitor, and an account whose sign-in expired shows **Reconnect** there.
 - Skills need to be in **Your skills** in **Settings › Skills**, turned on, and relevant to the prompt; you can also call one with its slash command.
 
@@ -90,6 +90,7 @@ An app that isn't ready shows one status and one fix: the main action on its pag
 - If a code cannot be used, create it for the exact scheme, host, and port currently used by that browser. Expired, used and stale-route codes must be recreated.
 - If Tailscale reports a conflict, Funnel, or an unowned route, inspect that configuration manually. Row-Bot deliberately refuses to reset or overwrite it.
 - If a remote microphone is unavailable, use `localhost` or HTTPS, grant browser permission, and install the local voice model explicitly.
+- "Disconnected. What you last saw is kept." means the browser lost its connection to Row-Bot: check that Row-Bot is running and the network is up, then **Reconnect**. "Something went wrong. Try again. Details: client_error" is a fault in the app, not the connection; reload the page, and report the details if it happens again.
 - Run `row-bot access doctor` for a secret-free server and route safety report.
 
 The full route, authentication, Docker, proxy, and recovery guidance is in [Remote Access And Server Mode](/docs/operations/remote-access).

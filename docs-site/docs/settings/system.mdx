@@ -37,6 +37,8 @@ Risky actions still ask first, as each conversation's **Approvals** setting deci
 
 Additional blocked command patterns, app availability for Computer Use, and removing the managed Computer Use runtime live under **Advanced system settings**.
 
+**Let the agent read Row-Bot's data folder** is there too, off by default. Row-Bot's data folder holds your conversations, settings and keys, so shell commands that name it are refused. When it is on, such commands ask you every time instead. File tools never read or change that folder.
+
 ## What Moved
 
 - Connecting a phone or another computer, signed-in devices, network access and the public link (tunnel) are on **Settings › Devices & remote access**. See [Remote Access And Server Mode](/docs/operations/remote-access).

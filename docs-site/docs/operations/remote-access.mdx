@@ -100,7 +100,7 @@ After Tailscale reports **Active Owned**, create the invitation for its verified
 
 Use **Allow local-network connections** only on a network you trust. The launcher restarts Row-Bot after the durable listen setting changes.
 
-Anyone who can reach the port can see the neutral connection page, but cannot use the application without a valid session. LAN HTTP is unencrypted. Prefer Tailscale or an operator-managed HTTPS origin on shared, guest, workplace, or otherwise untrusted networks. Row-Bot does not change the host firewall.
+Anyone who can reach the port can see the neutral connection page, but cannot use the application without a valid session. Over LAN HTTP a signed-in browser can send messages and make changes as it can on this computer; only the microphone needs `localhost` or HTTPS. LAN HTTP is unencrypted. Prefer Tailscale or an operator-managed HTTPS origin on shared, guest, workplace, or otherwise untrusted networks. Row-Bot does not change the host firewall.
 
 ## SSH Tunnel
 

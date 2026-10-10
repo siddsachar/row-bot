@@ -30,7 +30,7 @@ browsers, phones and server mode.
 
 - **Conversations that do the work** - ask for a deck, an app or a report and
   Row-Bot creates the design or code folder and keeps working in it; setup
-  cards turn on a missing tool or connect an account in place.
+  cards turn on a missing tool or connect an app in place.
 - **Goals and agents** - goals that keep going until done and pause when they
   stop making progress; delegated agents with their own conversations, Stop
   and Message; reusable agent profiles.
@@ -41,8 +41,8 @@ browsers, phones and server mode.
   Dream Cycle refinement, documents, and an Obsidian-compatible wiki vault.
 - **Design and code panels** - decks, documents and mockups with Present,
   Review, export (PDF, HTML, PNG, PPTX) and publish; code folders with
-  changes, files, Git, checks, an interactive terminal and an optional Docker
-  sandbox.
+  changes, files, Git, pull requests, checks, an interactive terminal and an
+  optional Docker sandbox.
 - **Workflows** - scheduled, webhook and chained runs with approvals, delivery
   to channels and run history.
 - **Apps and skills** - connect services such as GitHub, Notion, Linear or
@@ -54,7 +54,7 @@ browsers, phones and server mode.
   on Windows and macOS, Gmail and Calendar, image and video generation, and
   custom tools.
 - **Channels and voice** - Telegram, WhatsApp, Discord, Slack and SMS;
-  dictation, Talk and read-aloud with local Whisper and Kokoro.
+  dictation, Talk and read-aloud with local Whisper or SenseVoice and Kokoro.
 - **Monitor with fixes** - health checks that run by themselves, with one
   fix per problem, and Insights that suggest improvements.
 - **Devices and remote access** - connect a phone or another computer with a
@@ -154,8 +154,8 @@ Dependency changes go through `pyproject.toml` and `uv.lock`; never edit
 3. Press **Ctrl+K** (**⌘K** on macOS) to find conversations, commands and
    settings by plain words, such as "connect telegram" or "dark mode".
 4. **Setup Center** (Continue setup on Overview, or search for it with
-   Ctrl+K) walks through the rest: knowledge, workflows, channels, accounts,
-   tools and voice.
+   Ctrl+K) walks through the rest: knowledge, workflows, designs, code, apps,
+   skills, tools and voice.
 
 The [first launch guide](https://row-bot.ai/docs/getting-started/first-launch)
 covers each path.

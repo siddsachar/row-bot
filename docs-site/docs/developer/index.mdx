@@ -37,10 +37,10 @@ The Agents tool can also assign a child directly to an existing local folder. Ro
 
 ## The Developer Panel
 
-- **Changes** lists changed files with their diffs (unified or split), and the agent's own change sets, each marked reviewed or not reviewed, with **Undo** or **Ask Row-Bot to undo** in its **⋯** menu.
+- **Changes** lists changed files with their diffs (unified or split), and the agent's own change sets, each marked reviewed or not reviewed, with **Undo** or **Ask Row-Bot to undo** in its **⋯** menu. **Earlier agent changes** open their saved diffs.
 - **Files** browses the folder and previews files.
-- **Run** lists the checks Row-Bot detected (such as tests and linters) with their last result, runs a command you type (such as `npm test`) as a reviewed command, shows running processes with their output, and stops them. Sandbox changes waiting to be imported appear here too.
-- **Git** switches or creates branches, commits with a suggested message, pushes (which asks first), opens a pull request through the GitHub command-line tool, and creates a separate worktree for this conversation.
+- **Run** lists the checks Row-Bot detected (such as tests and linters) with their last result, runs a command you type (such as `npm test`) as a reviewed command, shows running processes with their output, and stops them. Sandbox changes waiting to be imported appear here too, each with its file count and when it was saved; commands Row-Bot runs for you show in the chat.
+- **Git** switches or creates branches, commits with a suggested message, pushes (which asks first), opens a pull request through the GitHub command-line tool, and creates a separate worktree for this conversation. **Suggest pull request text** describes the branch from its commits and files. Confirmations and results appear beside the button that asked. Row-Bot can open a pull request from the conversation too, as a draft by default; see [What asks in a code folder](/docs/chat/tools-approvals-and-terminal#what-asks-in-a-code-folder).
 - **Safety boundaries** shows what is allowed, what asks first and what is blocked here, where commands run, and whether the sandbox has network access.
 - **Custom tools** turns the folder's commands into a reusable tool with the Custom Tool Builder. Your custom tools are also listed in **Settings › Tools › Custom tools**.
 
@@ -72,5 +72,6 @@ For a host installation, start with Local mode on a disposable branch. Use Docke
 - If Row-Bot can't see your code, check that the folder is listed under **Working on** in the conversation's details card.
 - If choosing a folder does nothing, use the Row-Bot desktop app; a browser can't open folders on this computer.
 - If an Agent folder assignment is rejected, confirm that the directory already exists and pass either that folder or an existing workspace ID, not both.
-- If a command asks for approval, read the exact command and folder before approving.
+- If a command asks for approval, read the exact command and folder before approving. Only read-only commands such as `git status` run without asking in **Ask** mode.
+- Undo on a **Created code folder** card in the chat removes the folder only while it is still empty; once files are added, it keeps them and says so.
 - If Docker sandbox import is offered, review the patch before importing it into the real project.

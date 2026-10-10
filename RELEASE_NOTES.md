@@ -2,133 +2,277 @@
 
 ---
 
-## v5.1.0 - Apps & Skills: Connect A Service, Choose What It Does, Use It In Chat
+## v5.1.0 - Apps & Skills, Fewer Approvals & Fixes From Real Use
 
 This release brings every way Row-Bot reaches another service into one place.
 Settings › Apps and Settings › Skills replace Integrations, MCP, Plugins,
 Accounts and Channels: a catalog worth browsing, one card per app with its ways
-to connect, a guided setup that asks once, and a clear choice of what each app
-may do. Apps then work where you do: switch them per chat, mention them, get a
-Connect card when the work needs one, see each app's logo on its steps and
-approvals, and use them in workflows. Keys stay in your system keychain, local
-apps install from reviewed locks, and every catalog fetch goes through one safe
-path. A round of fixes from testing the real desktop app as a person would
-comes with it. Your apps, skills, packages, sign-ins and channels carry over
-from 5.0.
+to connect, one consent, and a clear choice of what each app may do. Apps then
+work where you do: switch them per conversation, mention them, connect one from
+a card when the work needs it, see each app's name and logo on its steps and
+approvals, and use apps in workflows. The Developer panel asks for fewer
+approvals without asking for less, shell commands can no longer touch Row-Bot's
+own data, and browser voice uses the speech models you chose. A long round of
+fixes from recording demos and from using the desktop app as a person would
+comes with it: retry in place, delete with Undo, plainer words, and many broken
+or confusing moments made right. Your apps, skills, packages, sign-ins and
+channels carry over from 5.0. Read **Upgrade Notes** below before upgrading.
 
 ### Apps And Skills In One Place
 
-- **One catalog** - featured apps from their vendors first (about 100, such as
-  GitHub, Notion, Linear, Atlassian, Stripe, Sentry, Supabase and Figma), then
-  the whole official MCP Registry (about 40,000 records), mirrored on this
-  computer so search is instant and works offline. Catalogs update only when
-  you ask, in the background, and fail safe.
-- **Find by the job** - search for an app or for a job ("send email"); browse
-  by category; vendors come before the community, and one card stands for
-  each app with all its ways to connect.
-- **Ways to connect** - sign in (Row-Bot signs in the way the service
-  supports: its published client document, registration, or your own OAuth
-  app), paste a key, run a program on this computer, or use a way built into
-  Row-Bot. A link or a downloaded bundle can be added too.
-- **Ask once** - one consent sheet says what will happen, where requests go and
-  what is saved, then "What can this app do?": Look things up (where the
-  service offers it, Row-Bot asks for read access only) or Look things up and
-  make changes. Changes
-  always ask first unless you choose Full access, and each tool can be set on
-  its own.
-- **Your apps** - Home and Settings › Apps show what is connected and what needs
-  you (sign in again, finish setup, turn on); Turn off stops an app's
-  connection at once, Remove can also delete its saved keys and data, and one
-  Use apps switch stops every app.
-- **Skills** - featured skills from official and maintainer repositories, added
-  from their source after a look at what they contain (scripts never run when
-  added). A skill made for an app says "Works with GitHub" and whether that
-  app is connected, and an app's page lists its skills.
+- **One catalog** - Settings › Apps opens on your apps, then featured apps from
+  their vendors (about 100, such as GitHub, Notion, Linear, Atlassian, Stripe,
+  Sentry, Supabase and Figma), then the whole official MCP Registry (about
+  40,000 records), mirrored on this computer so search is instant and works
+  offline. Catalogs update only when you ask, in the background, and a failed
+  update keeps the last good copy.
+- **Find by the job** - search for an app or for what you want done ("send
+  email"), or browse by category. Vendors come before the community, and one
+  card stands for each app with all its ways to connect.
+- **Ways to connect** - sign in, paste a key, run a program on this computer,
+  or use a way built into Row-Bot. Sign-in follows what the service supports:
+  Row-Bot's published client document, registration, or your own OAuth app. A
+  link or a downloaded bundle can be added from "Add from link or file".
+- **One consent** - one sheet says what will happen, where requests go and
+  what is saved. An app you sign in to then asks what it can do: Look things
+  up (where the service offers it, Row-Bot asks for read access only) or Look
+  things up and make changes; other apps choose Read only, Ask before changes
+  or Full access. Changes always ask first unless you choose Full access, and
+  each tool can be set on its own. A read stays a read: a tool whose name says
+  it reads is never treated as a change because of its description.
+- **Your apps** - Settings › Apps shows what is connected and what needs you
+  (sign in again, add a key, finish setup, turn on), and Home's Needs you lists
+  apps waiting on a sign-in, a key or a fix. Turn off stops an app's
+  connection at once, Remove can also delete its saved keys and data, a change
+  left unfinished can be found and settled, and one Use apps switch stops every
+  app everywhere.
+- **Skills** - Settings › Skills lists your skills and featured skills from
+  official and maintainer repositories, added from their source after a look at
+  what they contain (scripts never run when a skill is added). A skill made for
+  an app says "Works with GitHub" and whether that app is connected, and an
+  app's page lists its skills. Skills go by their own names.
 - **Accounts, channels and key tools are apps** - Google (with a step-by-step
-  guide that links to each page it needs), X, Telegram, Slack and the other
-  channels, web search and Wolfram Alpha are built-in ways to connect, edited
-  in their own pages. Setup Center offers Apps and Skills.
+  guide that links to each page it needs), X, Telegram, WhatsApp, Discord,
+  Slack and SMS, web search and Wolfram Alpha are built-in ways to connect,
+  edited in their own pages. Setup Center offers Apps and Skills.
+- **Packages** - Hermes recipes and Row-Bot marketplace packages are reviewed
+  before they connect, show what they run and may do before they are added,
+  and can't grant themselves access.
 
-### Apps Where You Work
+### Apps In Conversations
 
-- **Per chat** - + › Apps switches an app on or off for one chat; @app keeps a
-  turn to the apps you name; /skill loads a skill for the turn. All stay
-  within the chat's agent profile.
-- **Suggested in place** - when the work needs an app you have not connected,
-  the chat shows a Connect card from the local catalog (never a download
-  suggested by a web page). An app you added but turned off offers Turn on; one
-  that only looks things up offers Allow changes when the work is a change.
+- **Choose per conversation** - + › Apps switches an app on or off for one
+  conversation; @app keeps a turn to the apps you name; /skill loads a skill
+  for the turn. All stay within the conversation's agent profile.
+- **Suggested in place** - when the work needs an app you haven't connected,
+  the conversation shows a Connect card from Row-Bot's own catalog, never a
+  download suggested by a web page. An app you added but turned off offers Turn
+  on; one that only looks things up offers Allow changes when the work is a
+  change; an app switched off in the conversation is named as off instead of
+  worked around.
 - **Named on every step** - tool steps and approvals show the app's name and
   logo, and approvals read their arguments in words.
 - **Interactive app views** - apps that offer MCP Apps views can show them in
-  the chat, in a sandboxed frame, behind the same approvals.
-- **Workflows with apps** - workflow steps name the apps they use, an app's
-  locked tools always ask, and templates such as a GitHub pull-request digest
-  and a daily brief from the web start from Workflows.
-- **Windows connectors** - on Windows builds with the On-device Agent
-  Registry, its connectors appear as a catalog.
+  the conversation, in a sandboxed frame, behind the same approvals, following
+  the page's theme.
+- **Workflows with apps** - workflow steps name the apps they use and discover
+  app tools as conversations do; an app's locked tools always ask; templates
+  such as a GitHub pull-request digest and a daily brief from the web start
+  from Workflows.
+- **Windows connectors** - on Windows builds with the On-device Agent Registry,
+  its connectors appear as a catalog.
 - **Composio (optional)** - a separate hosted service that connects many apps
   through one Composio account. It is off until you read its disclosure and
   turn it on in Apps › Advanced.
 
-### Safe By Design
+### Developer, Shell And Approvals
 
-- **Keys only in the keychain** - keys and tokens are kept in the system
-  keychain, never on command lines, in responses or in pasted settings; keys
-  typed into a 5.0 server's headers or environment move into the keychain on
-  upgrade, with no plaintext copy left.
-- **Reviewed local installs** - local apps run from reviewed locks (npm, Python
-  and containers pinned by digest); desktop apps are checked first; bundles
-  download only after consent and a matching SHA-256, and unpack privately.
+- **Fewer approvals** - one "Apply the sandbox changes?" card applies every
+  pending sandbox change, oldest first, and "Approve the rest" covers later
+  actions of the same kind until the reply ends, for local code-folder work
+  only (edits, branches, commits, detected checks and plain commands). Push,
+  pull requests, merges, reverts, deletes, installs, network actions and the
+  Shell tool always ask.
+- **Pull requests from the conversation** - Row-Bot can open a pull request
+  for a code folder's branch with the GitHub CLI on this computer, as a draft
+  by default and by the conversation's approval mode, with suggested text that
+  describes the branch.
+- **Commands are what they do** - a Developer command that isn't on a
+  read-only list counts as running a command (Ask asks, Auto runs, Block
+  refuses), and quoted code no longer hides what a command does. The Custom
+  Tool Builder asks before it tests, sets up, creates, enables or promotes a
+  tool.
+- **Row-Bot's own data stays out of reach** - shell commands that name
+  Row-Bot's data folder are refused, and file tools refuse paths inside it.
+  "Let the agent read Row-Bot's data folder" in Settings › System makes such
+  commands ask every time instead.
+- **Developer panel** - confirmations appear beside the button that asked,
+  earlier changes open their diff, sandbox changes import oldest first, change
+  times read in words, counts agree, the panel refreshes after an agent run,
+  new files read as added in Changes, and the Run tab says where commands
+  Row-Bot runs for you appear.
+- **Undo never deletes work** - Undo on a "Created code folder" card removes
+  the folder only while it is still empty; once files are added it keeps them
+  and says so. Undo on a "Created design" card asks first.
+
+### Conversations, Goals And Agents
+
+- **Retry in place** - Retry and Send again run the last message again in place
+  instead of adding a second copy of it.
+- **Delete with Undo** - deleting a conversation asks, then offers Undo for a
+  few seconds; New chat reuses an empty conversation instead of making
+  another, and never-used conversations stay out of the sidebar, Home and
+  Recent.
+- **Follow-ups** - a message typed while the previous one is being confirmed
+  stays in the composer on its own instead of joining the sent text.
+- **Goals** - answering a goal's question resumes the goal, Needs you lists
+  goals waiting on you, goals name their conversation, and a goal shows as a
+  small Set a goal until there is one.
+- **Agents** - each agent describes itself in the + menu and the New chat menu;
+  agent profile details read in words, with Show instructions (an owner-only
+  read), editing a copy, and starter templates.
+- **Long work** - long tool calls show progress, a provider that cuts a reply
+  off is retried once, and provider streams check their limits once a second
+  instead of on every chunk.
+
+### Designs
+
+- **Delete a design** - More design actions › Delete design… asks first and
+  never deletes a conversation; conversations that used it keep their
+  messages.
+- **Templates that pass their own Review** - every template passes Review on
+  its canvas and opens on the canvas it was made for; storyboard shots and
+  phone screens fill their canvas; design chats suggest design work.
+- **Fonts** - designs use the fonts bundled with Row-Bot, previews substitute a
+  bundled face with a notice, and offline exports carry the design's own fonts
+  instead of falling back to system fonts (and no longer warn about "pictures
+  from the web" for them).
+- **Export** - a landing page's PNG is the whole page; exported file names keep
+  the design's punctuation; the Export panel collapses after saving; exporting
+  without Browser Automation says so and links to its setup.
+- **Writing designs** - `designer_set_brand` checks every value before saving,
+  long pages can be written in parts, and approvals for design and workflow
+  actions read in words.
+
+### Knowledge, Memory, Documents And Tracker
+
+- **Memory without the search model** - saving a memory works on a computer
+  without the local search model; recall matches words until the model is
+  downloaded and the index is built then. A second save of the same memory no
+  longer fails, and adding a memory closes once saved.
+- **Documents** - processing works on a fresh profile and from Settings without
+  a conversation; a document that can't be processed says why and what to do;
+  batches show their size and finish with errors you can clear.
+- **Knowledge graph** - small graphs label every memory, graph labels stay
+  clear of the toolbar, and expanded charts show the whole figure with
+  readable tooltips.
+- **Tracker** - Settings › Tracker opens a tracker's latest entries, deletes one
+  tracker on its own, starts a tracker in a conversation, and logs several
+  entries at once; an entry dated by its day reads as that day.
+- **Search** - Library search follows your typing, finds today's conversations
+  first and every title at once, and shows plain-text excerpts; Ctrl/Cmd+F
+  finds within a conversation.
+
+### Tools, Models And Voice
+
+- **Tools** - `calculate` answers dates, weekdays, durations and text length;
+  `read_url` reads PDFs; reminders can be set for an exact time.
+- **Ollama** - Ollama's own capability report decides whether a model gets
+  tools, vision and thinking.
+- **Browser voice uses your models** - Talk and Dictation use the speech-to-text
+  model chosen for each (Whisper or SenseVoice), a saved Whisper size,
+  SenseVoice path or Kokoro voice and speed applies without a restart, a model
+  that isn't ready says so, and Test voice plays in the browser instead of on
+  the host's speaker.
+
+### Settings, Home And Monitor
+
+- **Plainer words** - settings, setup, search, approvals and errors use plain
+  words; each approval mode says what it does; Home reads memory saves as
+  updates.
+- **Settings search** - lands on the setting, works from the keyboard, and
+  finds settings by more names (for example API keys).
+- **Home** - the health tile follows your actual setup (channels you didn't
+  start, the first-run model), and the agents card opens the library when there
+  is no agent to show.
+- **Monitor** - warns when a development checkout serves a client older than
+  its source.
+- **Notices** - floating notices sit at the bottom centre, above the composer,
+  the on-screen keyboard and the install or update notice, never over a page
+  header.
+
+### Devices, Browsers And Connections
+
+- **Plain-HTTP network access works again** - a computer that opens Row-Bot at
+  a plain `http://` network address can send messages and make changes again,
+  not only read.
+- **"Disconnected" means disconnected** - only a lost connection reads
+  "Disconnected"; a fault in the app reads "Something went wrong", with
+  details.
+- **Install, update and offline notices** - no longer cover the composer, and
+  Firefox and Safari no longer offer a false "Update and reload" on a first
+  visit.
+- **New windows aren't locked out** - after many sign-ins, the least recently
+  used session gives way instead of refusing new windows.
+- **Conversations deleted elsewhere** - a conversation deleted in another
+  window goes Home with one notice; pinning is one tap; Close in Settings goes
+  back to where you were.
+
+### Reliability, Security And Privacy
+
+- **Keys only in the keychain** - app keys and tokens, and Google and X
+  sign-ins, are kept in the system keychain, never on command lines, in
+  responses or in pasted settings; keys typed into a 5.0 server's headers or
+  environment move into the keychain on upgrade, with no plaintext copy left.
+- **Reviewed local installs** - local apps run from reviewed locks (npm without
+  scripts, Python with hashed wheels, containers by digest, MCP bundles);
+  desktop apps are checked first; bundles download only after consent and a
+  matching SHA-256, and unpack privately; a restart stops orphaned app
+  programs.
 - **One safe fetch path** - catalog traffic, logos, previews and downloads
   reach only checked public addresses, honour the system proxy for reviewed
-  hosts, never follow redirects to other hosts with credentials, and now fall
-  back to a host's next checked address when one does not answer.
-- **Access that holds** - packages cannot grant themselves access, pasted
-  configuration cannot pre-approve tools, Auto never overrides an app's
-  access, delegated agents keep the chat's apps, and separate Google sign-ins
-  are never merged. Row-Bot adds no telemetry.
-- **Dependency security updates** - hydra-core 1.3.7 (GHSA-mwj6-rfh8-7qf4,
-  GHSA-rqx7-p7vv-w7hr, GHSA-c3wx-c55w-pxjq; thanks to @katsugtgz),
-  langgraph-sdk 0.4.6 (GHSA-fvww-7h3r-vfhp) and multidict 6.9.1
-  (GHSA-54p9-h82j-f925).
+  hosts, never carry credentials to another host, and fall back to a host's
+  next checked address when one doesn't answer.
+- **Access that holds** - pasted configuration can't pre-approve tools, Auto
+  never overrides an app's access, delegated agents keep the conversation's
+  apps, and separate Google sign-ins are never merged. Row-Bot adds no
+  telemetry.
+- **Backups** - leave out upload staging files and name any file they couldn't
+  read instead of failing.
+- **Windows** - two uploads at once no longer deadlock, and skills, runtimes and
+  settings retry while Windows briefly holds a file.
+- **Dependency security updates** - pypdf 6.19.0 (eight advisories),
+  hydra-core 1.3.7 (GHSA-mwj6-rfh8-7qf4, GHSA-rqx7-p7vv-w7hr,
+  GHSA-c3wx-c55w-pxjq; thanks to @katsugtgz), langgraph-sdk 0.4.6
+  (GHSA-fvww-7h3r-vfhp) and multidict 6.9.1 (GHSA-54p9-h82j-f925); in the
+  WhatsApp bridge, music-metadata 11.16.1 and sharp 0.35.5.
 
-### Fixes From Testing The Real App
+### Testing, CI And Release Pipeline
 
-- **Retry and Send again** run the last message again in place instead of
-  adding a second copy; a follow-up typed while a message is being confirmed
-  is no longer merged into it.
-- **Deleting a chat** asks, then offers Undo for a few seconds; New chat reuses
-  an unused chat, and never-used chats stay out of the sidebar, Home and
-  Recent.
-- **Undo on a created code folder** removes it only while it is still empty and
-  never deletes files added to it; Undo on a created design asks first, and
-  designs can be deleted from their panel.
-- **Notices** sit at the bottom centre, above the composer, the on-screen
-  keyboard and the install offer, never over a page header.
-- **Memory** saves without the local search model (recall matches words until
-  the model is downloaded) and second saves no longer fail; documents explain
-  what they need; the tracker opens each tracker's entries and logs several
-  entries at once.
-- **Search** - Library search finds today's chats first and every title at
-  once; Settings search lands on the setting.
-- **Designs** - templates pass their own Review, storyboard shots and phone
-  screens fill their canvas, a landing page exports whole as PNG, and offline
-  exports carry the design's own fonts.
-- **Plainer words** across settings, setup, approvals and errors; agents say
-  what they do in menus; a skill whose source can't be reached says so.
-- **Composer** no longer flickers in an empty chat beside the details panel on
-  Windows.
+- **No more stalls** - the test suite no longer stalls; flaky tests were fixed
+  at their cause, and the few that couldn't be were removed with their
+  coverage kept elsewhere.
+- **All three browser engines** - the weekly Firefox and WebKit runs pass, and
+  the apps and app-view journeys run nightly on their own server.
+- **Live checks** - Notion, Linear, Atlassian, Sentry, Stripe (sandbox),
+  Supabase, Context7, Playwright, GitHub and Composio were connected with real
+  accounts and checked to read, refresh, turn off, disconnect and remove
+  cleanly.
+- **Clean security scan** - the OSV scan of every lock file passes, with narrow,
+  dated exceptions only for docs-site build tools that have no compatible fix.
 
-### Reliability And Testing
+### Documentation And Website
 
-- The test suite no longer stalls; flaky tests were fixed at their cause.
-- New deterministic coverage for catalogs, plans, access, the safe fetcher,
-  apps in chat, app views and upgrades from 5.0.0, plus browser journeys for
-  apps and skills that run nightly.
-- Live checks with real accounts: Notion, Linear, Atlassian, Sentry, Stripe
-  (sandbox), Supabase, Context7, Playwright, GitHub and Composio connect, read,
-  refresh, turn off, disconnect and remove cleanly.
+- **User guide** - the Apps and Skills guides, apps in conversations, built-in
+  ways to connect, Google setup, Windows connectors, Composio and workflows with
+  apps.
+- **Sign-in document** - Row-Bot's sign-in client document is published at
+  `row-bot.ai/oauth/client-metadata.json`.
+- **row-bot.ai** - the landing page's story shows the Row-Bot 5 React app, and
+  Buddy is transparent on Safari, iPhone and iPad.
+- **The assistant knows where things are** - Row-Bot's own feature guide points
+  to 5.0's places (the Design panel, Home's tabs, the Settings pages) instead of
+  the retired Studios and tabs.
 
 ### Upgrade Notes
 
@@ -136,23 +280,34 @@ from 5.0.
   Channels are now Settings › Apps and Settings › Skills. Old links, including
   5.0.0's, open the matching page.
 - **Everything carries over** - MCP servers, plugins and packages, skills,
-  sign-ins and channels from 5.0 appear in Apps and Skills, with their
-  settings and access.
+  sign-ins and channels from 5.0 appear in Apps and Skills with their settings
+  and access.
 - **Access you set stays** - a connection saved before this release keeps any
-  tool it recorded as asking first. To use 5.1's finer read classification
-  for an app, remove it and connect it again.
+  tool it recorded as asking first. To use 5.1's finer read classification for
+  an app, remove it and connect it again.
+- **Shell commands and the data folder** - commands that name Row-Bot's data
+  folder are now refused; turn on "Let the agent read Row-Bot's data folder" in
+  Settings › System if a workflow relied on it (they then ask every time).
+- **Developer commands ask more honestly** - commands that aren't on the
+  read-only list now ask in Ask mode and are refused in Block mode.
 - **Composio is off** until you turn it on.
 
-### Known Limitations
+### Known Issues And Deferred Work
 
-- The Slack app (search and read Slack from a chat) connects only through your
-  own Slack app; the Slack channel for talking to Row-Bot is unchanged.
+- The Slack app (search and read Slack from a conversation) connects only
+  through your own Slack app; the Slack channel for talking to Row-Bot is
+  unchanged.
 - Composio keeps its grant after you remove it in Row-Bot; revoke it in your
   Composio account.
 - Windows connectors need a Windows build that includes the On-device Agent
   Registry.
-- Deleting a chat is sent when its Undo notice ends; closing the window first
-  keeps the chat.
+- Deleting a conversation is sent when its Undo notice ends; closing the window
+  first keeps the conversation.
+- A conversation counts as never used by its title, so one whose first message
+  is exactly "New conversation" is left out of the sidebar and Home (it stays in
+  the Library).
+- A design with a brand on a system font (such as Georgia) still warns about
+  web assets when exported offline.
 
 ---
 
