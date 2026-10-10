@@ -716,6 +716,32 @@ def test_github_source_uses_public_safe_headers(monkeypatch):
     assert calls == ["Row-Bot-Skills-Hub/1.0"]
 
 
+def test_a_skill_folder_reads_the_github_account_once(monkeypatch):
+    """Found live: each file asked the GitHub account again (about a second each), and a featured skill of
+    eight files ran past its source's time limit."""
+    from row_bot.skills_hub import github_source
+
+    asked: list[str] = []
+    monkeypatch.setattr(github_source.github_account, "github_public_api_headers",
+                        lambda **kwargs: asked.append(kwargs["user_agent"]) or {"User-Agent": "test"})
+    listings = {
+        "skills/demo": [{"type": "file", "path": "skills/demo/SKILL.md", "download_url": "https://raw.example/SKILL.md"},
+                        {"type": "dir", "path": "skills/demo/scripts"}],
+        "skills/demo/scripts": [{"type": "file", "path": "skills/demo/scripts/a.py", "download_url": "https://raw.example/a.py"},
+                                {"type": "file", "path": "skills/demo/scripts/b.py", "download_url": "https://raw.example/b.py"}],
+    }
+    monkeypatch.setattr(github_source, "fetch_json",
+                        lambda url, headers=None: listings[url.split("/contents/", 1)[1].split("?", 1)[0]])
+    monkeypatch.setattr(github_source, "fetch_bytes",
+                        lambda url, headers=None: b"---\nname: demo\ndescription: Demo\n---\nUse it." if url.endswith(".md") else b"print(1)\n")
+
+    files = GitHubSource()._fetch_folder_files(github_source.parse_github_install_ref("github:o/r/skills/demo"),
+                                               "skills/demo")
+
+    assert sorted(file.path for file in files) == ["SKILL.md", "scripts/a.py", "scripts/b.py"]
+    assert len(asked) == 1
+
+
 def test_github_source_reports_anonymous_fallback_status(monkeypatch):
     import row_bot.github_account as github_account
 

@@ -327,9 +327,11 @@ class GitHubSource(SkillSource):
     def _fetch_folder_files(self, parsed: GitHubInstallRef, folder_path: str) -> list[SkillFile]:
         folder_path = folder_path.strip("/")
         files: list[SkillFile] = []
+        # Read once: each read asks the GitHub account again (about a second), and a skill is many files.
+        headers = self._headers()
 
         def visit(path: str) -> None:
-            listing = fetch_json(self._api_url(parsed, path), headers=self._headers())
+            listing = fetch_json(self._api_url(parsed, path), headers=headers)
             if isinstance(listing, dict):
                 listing_items = [listing]
             elif isinstance(listing, list):
@@ -354,7 +356,7 @@ class GitHubSource(SkillSource):
                 download_url = str(item.get("download_url") or "")
                 if not download_url:
                     continue
-                content = fetch_bytes(download_url, headers=self._headers())
+                content = fetch_bytes(download_url, headers=headers)
                 rel_path = normalize_bundle_path(rel or pathlib.PurePosixPath(item_path).name)
                 files.append(SkillFile.from_bytes(
                     rel_path,

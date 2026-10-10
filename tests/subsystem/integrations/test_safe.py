@@ -139,6 +139,8 @@ def test_an_address_that_cannot_be_connected_to_gives_way_to_the_next_checked_on
     sent = http(handler, {"catalog.example": ["93.184.216.34", "93.184.216.36"]})
     assert safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10) == b"ok"
     assert [request.url.host for request in sent] == ["93.184.216.34", "93.184.216.36"]
+    # A dead address costs a short wait while another could answer; the last one gets the whole timeout.
+    assert [request.extensions["timeout"]["connect"] for request in sent] == [5.0, 20]
     assert {reached(request) for request in sent} == {"https://catalog.example/a.json"}
     assert sent.resolved == ["catalog.example"]  # Resolved once: the same checked answer.
     # A skill is several files: the next fetch tries the address that answered first, not the dead one.
