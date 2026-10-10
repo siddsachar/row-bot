@@ -21,14 +21,13 @@ WORKFLOWS = sorted(Path(".github/workflows").glob("*.yml"))
 ACTIONS = sorted(Path(".github/actions").glob("*/action.yml"))
 EVENT_TRIGGERS = {"pull_request", "push", "schedule", "release", "workflow_run"}
 # Jobs allowed to read secrets: signing, notarization, publishing, and the
-# workflow token for labels, release notes and the update manifest.
+# workflow token for labels and the update manifest.
 SECRET_READERS = {
     ("container.yml", "release-image"),
     ("container.yml", "release-manifest"),
     ("labels.yml", "sync"),
     ("notarize-check.yml", "check"),
     ("notarize-submit.yml", "submit"),
-    ("release-drafter.yml", "update_release_draft"),
     ("release.yml", "build-macos"),
     ("update-manifest.yml", "manifest"),
 }
