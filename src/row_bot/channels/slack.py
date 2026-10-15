@@ -202,6 +202,8 @@ def _conversation(
         default_thread_id=_make_thread_id(channel_id, thread_ts),
         name=name,
         target=target,
+        # A thread in a channel (or a group DM) is shared with the people there.
+        shared=bool(thread_ts) or not _is_dm_channel(channel_id),
     )
 
 

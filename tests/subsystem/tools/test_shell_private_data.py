@@ -53,20 +53,22 @@ def test_unrelated_paths_are_unaffected(shell, command, expected):
 
 
 def test_reading_the_data_folder_is_refused_in_every_mode_without_asking(shell, monkeypatch):
+    """The setting is a hard limit: with it off, not even Hands-off reads the folder, nor asks."""
     shell_tool, _registry, _home = shell
     monkeypatch.setattr("langgraph.types.interrupt", lambda _payload: pytest.fail("must not ask"))
-    for mode in ("block", "approve", "allow_all"):
+    monkeypatch.setattr("row_bot.approval_review.review", lambda *_a, **_k: pytest.fail("must not review"))
+    for mode in ("block", "approve", "auto", "full"):
         monkeypatch.setattr(shell_tool.approval_gate, "current_approval_mode", lambda mode=mode: mode)
         output = shell_tool.ShellTool().execute("cat ~/.row-bot/settings.json")
         assert output.startswith("BLOCKED: this command reads Row-Bot's private data folder")
 
 
-def test_with_the_setting_on_it_asks_with_a_warning_even_in_auto(shell, monkeypatch):
+def test_with_the_setting_on_ask_asks_with_a_warning(shell, monkeypatch):
     shell_tool, registry, _home = shell
     registry.set_tool_config("shell", "allow_data_folder", True)
     asked: list[dict] = []
     monkeypatch.setattr("langgraph.types.interrupt", lambda payload: asked.append(payload) or False)
-    monkeypatch.setattr(shell_tool.approval_gate, "current_approval_mode", lambda: "allow_all")
+    monkeypatch.setattr(shell_tool.approval_gate, "current_approval_mode", lambda: "approve")
 
     output = shell_tool.ShellTool().execute("cat ~/.row-bot/settings.json")
 
@@ -75,6 +77,43 @@ def test_with_the_setting_on_it_asks_with_a_warning_even_in_auto(shell, monkeypa
     monkeypatch.setattr(shell_tool.approval_gate, "current_approval_mode", lambda: "block")
     assert shell_tool.ShellTool().execute("cat ~/.row-bot/settings.json").startswith("BLOCKED")
     assert len(asked) == 1
+
+
+@pytest.mark.parametrize(("decision", "asks"), [("ask", True), ("approve", False)])
+def test_with_the_setting_on_auto_shows_it_to_the_reviewer_as_private_data(shell, monkeypatch, decision, asks):
+    """Under Auto the reviewer decides (A0 decision 2): it may approve a read the person clearly asked for."""
+    from row_bot.approval_review import ReviewVerdict
+
+    shell_tool, registry, _home = shell
+    registry.set_tool_config("shell", "allow_data_folder", True)
+    asked, reviewed = [], []
+    monkeypatch.setattr("langgraph.types.interrupt", lambda payload: asked.append(payload) or False)
+    monkeypatch.setattr("row_bot.approval_review.review", lambda payload, *, risks=(), **_kw: reviewed.append(
+        tuple(risks)) or ReviewVerdict(decision, "You asked to read the settings file."))
+    monkeypatch.setattr(shell_tool.approval_gate, "current_approval_mode", lambda: "auto")
+    monkeypatch.setattr(shell_tool._session_manager, "get_session", lambda *_a: type("S", (), {
+        "run_command": lambda self, command: {"output": "{}", "exit_code": 0, "duration": 0.01, "cwd": "."}})())
+
+    output = shell_tool.ShellTool().execute("cat ~/.row-bot/settings.json")
+
+    assert any("private data" in risk for risk in reviewed[0])
+    assert bool(asked) is asks
+    if asks:
+        assert "denied by you" in output and "The reviewer asked you" in output
+    else:
+        assert output.startswith("Approval: approved by the reviewer: You asked to read the settings file")
+
+
+def test_with_the_setting_on_full_autonomy_reads_it_without_asking(shell, monkeypatch):
+    shell_tool, registry, _home = shell
+    registry.set_tool_config("shell", "allow_data_folder", True)
+    monkeypatch.setattr("langgraph.types.interrupt", lambda _payload: pytest.fail("must not ask"))
+    monkeypatch.setattr(shell_tool.approval_gate, "current_approval_mode", lambda: "full")
+    monkeypatch.setattr(shell_tool._session_manager, "get_session", lambda *_a: type("S", (), {
+        "run_command": lambda self, command: {"output": "{}", "exit_code": 0, "duration": 0.01, "cwd": "."}})())
+
+    assert shell_tool.ShellTool().execute("cat ~/.row-bot/settings.json").startswith(
+        "Approval: allowed by Hands-off")
 
 
 def test_file_tools_refuse_paths_inside_the_data_folder(shell, reload_for_data_dir):

@@ -1111,6 +1111,17 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* Under Auto: why the reviewer asked. Visible but quiet. */
+.approval-card-reviewer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+.approval-card-reviewer svg {
+  flex: none;
+  align-self: center;
+}
 .approval-card-actions,
 .turn-notice-actions {
   display: flex;
@@ -2579,11 +2590,47 @@ button.attachment-tile-face:hover {
   border-color: transparent;
   color: var(--text-muted);
 }
-.composer-shield svg[data-mode='allow_all'] {
-  color: var(--status-warning-text);
-}
 .composer-shield svg[data-mode='block'] {
   color: var(--text-secondary);
+}
+/* Hands-off is unmistakable while on: the level in words, in the warning tone. */
+.composer-shield.composer-shield-full.button {
+  width: auto;
+  gap: 6px;
+  padding: 0 8px 0 7px;
+  border-color: var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.composer-shield.composer-shield-full.button:hover {
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+}
+.composer-full-autonomy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.full-autonomy-notice p {
+  margin: 0;
+}
+.full-autonomy-notice ul {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  display: grid;
+  gap: 4px;
 }
 .composer-voice {
   display: inline-flex;

@@ -339,7 +339,7 @@ def start_workspace_process(resource_id: str, conversation_id: str, command: str
         action = runtime.classify_command_action(command)
         if action in {"run_safe_command", "run_command"}:
             action = "start_server"
-        decision = decide_action(mode, action)
+        decision = decide_action(mode, action, by_person=True)  # The person starts it in the Run tab.
         decision = runtime._apply_docker_network_policy(workspace, action, decision)
         if decision.requires_approval and confirmed:
             decision = ApprovalDecision("allow", "Server confirmed this exact process command.")

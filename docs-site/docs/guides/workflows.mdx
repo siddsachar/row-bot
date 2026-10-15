@@ -21,7 +21,7 @@ Choose **Home**, then the **Workflows** tab. Overview's **New workflow** quick s
 
 ## The Workflow List
 
-- Each row shows the workflow's name, when it runs next, its last runs, and small tags for its steps, profile and approvals. **Auto approvals** stands out.
+- Each row shows the workflow's name, when it runs next, its last runs, and small tags for its steps, profile and approvals. **Hands-off** stands out.
 - **Run** starts the workflow at once, in one click. The row then shows its live state and **Stop**.
 - **Enable** or **Disable** turns the workflow's schedule on or off.
 - **Edit** opens the workflow editor.
@@ -48,7 +48,7 @@ Choose **Home**, then the **Workflows** tab. Overview's **New workflow** quick s
 
 - **Start from a template**, below the workflow list, offers workflows that use apps: **GitHub pull-request digest**, **Linear triage** and **Notion weekly summary**. Each is created switched off, with a schedule and **Ask before actions** approvals; turn it on when it suits you. A template whose app isn't connected shows **Connect** instead. Templates never add a webhook or change how Row-Bot can be reached.
 - In the step editor, a prompt step's **Apps this step uses** limits that step to the apps you choose, as mentioning an app in chat does. With none chosen, the step can use every app the workflow may. The workflow's Agent profile and approvals still apply.
-- An app's tools ask whenever its access says to, even when a workflow uses **Auto** approvals: its changes unless you gave it **Full access**, and always its high-impact tools and tools whose effect is unknown. The run waits for you on them.
+- On **Auto**, a reviewer approves what matches the workflow's own steps; anything else, including an app action its access asks about that the reviewer isn't sure of, pauses the run and waits for you. On **Hands-off**, which you turn on in the workflow's settings, nothing pauses for approval.
 
 ## Approvals In Workflows
 

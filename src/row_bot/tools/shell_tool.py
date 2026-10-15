@@ -44,10 +44,9 @@ from row_bot.tools import registry
 from row_bot.tools import approval_gate
 from row_bot.tools.approval_gate import (
     APPROVAL_DENIED,
-    APPROVAL_GIVEN,
     APPROVAL_NOT_NEEDED_SAFE,
     approval_check,
-    resolve_approval,
+    resolve_approval_line,
     with_approval,
 )
 
@@ -773,10 +772,12 @@ class ShellTool(BaseTool):
         if classification == "private_data":
             if self.get_config("allow_data_folder", False) is not True:
                 return PRIVATE_DATA_REFUSAL
-            if normalize_approval_mode(approval_gate.current_approval_mode()) == "block":
+            mode = normalize_approval_mode(approval_gate.current_approval_mode())
+            if mode == "block":
                 return f"BLOCKED: this command reads Row-Bot's private data folder: {command}"
-            # Never allowed without asking, even in Auto.
-            outcome = resolve_approval(
+            # Asked under Ask; under Auto the reviewer approves it only when the person clearly asked
+            # for it; Hands-off allows it (the setting above still has to be on).
+            outcome, approval = resolve_approval_line(
                 {
                     "tool": "run_command",
                     "label": "Read Row-Bot's private data?",
@@ -787,14 +788,14 @@ class ShellTool(BaseTool):
                     "approval_reason": approval_reason,
                     "args": {"command": command},
                 },
-                approval_mode="approve",
+                approval_mode=mode,
+                risks=("reads Row-Bot's private data folder (conversations, settings, keys)",),
             )
             if outcome != "allow":
-                return with_approval(APPROVAL_DENIED, "Command cancelled by user.")
-            approval = APPROVAL_GIVEN
+                return with_approval(approval or APPROVAL_DENIED, "Command cancelled by user.")
         if classification == "needs_approval":
             # Determine execution context for background-audit compatibility.
-            # approval_check() below handles block / approve / allow_all.
+            # approval_check() below resolves it by the approval level.
             try:
                 from row_bot.agent import is_background_workflow
 
@@ -810,6 +811,7 @@ class ShellTool(BaseTool):
                     "approval_reason": approval_reason,
                     "args": {"command": command},
                 },
+                risks=("runs a command that can change things on this computer",),
                 blocked_message=(
                     f"BLOCKED: This command requires approval and cannot run "
                     f"in Block approval mode: {command}"

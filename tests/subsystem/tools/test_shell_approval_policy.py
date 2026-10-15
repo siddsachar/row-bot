@@ -52,12 +52,24 @@ def test_shell_ask_policy_includes_reason_in_interrupt_payload(tmp_path, monkeyp
     assert captured["args"]["command"] == "python -c \"print('hi')\""
 
 
-def test_shell_auto_policy_runs_without_interrupt(tmp_path, monkeypatch, reload_for_data_dir):
+def _reviewer(monkeypatch, decision: str):
+    from row_bot.approval_review import ReviewVerdict
+
+    seen: list[dict] = []
+    monkeypatch.setattr("row_bot.approval_review.review",
+                        lambda payload, **_kw: seen.append(payload) or ReviewVerdict(decision, "You asked to run it."))
+    return seen
+
+
+@pytest.mark.parametrize("mode", ["full", "auto"])
+def test_shell_full_autonomy_and_an_approving_reviewer_run_without_asking(tmp_path, monkeypatch, mode,
+                                                                          reload_for_data_dir):
     approval_gate, shell_tool = _fresh_shell_modules(tmp_path, reload_for_data_dir)
-    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "allow_all")
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: mode)
+    reviewed = _reviewer(monkeypatch, "approve")
 
     def fail_interrupt(_payload):
-        raise AssertionError("allow_all policy should not ask for approval")
+        raise AssertionError("this level must not ask the person")
 
     monkeypatch.setattr("langgraph.types.interrupt", fail_interrupt)
     seen: list[str] = []
@@ -86,6 +98,22 @@ def test_shell_auto_policy_runs_without_interrupt(tmp_path, monkeypatch, reload_
     assert seen == ["python -c \"print('hi')\""]
     assert "$ python -c \"print('hi')\"" in output
     assert "ran" in output
+    assert [payload["tool"] for payload in reviewed] == (["run_command"] if mode == "auto" else [])
+
+
+def test_a_blocked_command_stays_blocked_under_full_autonomy(tmp_path, monkeypatch, reload_for_data_dir):
+    """A hard limit, not an approval: no level runs a blocked command, nor asks about it."""
+    approval_gate, shell_tool = _fresh_shell_modules(tmp_path, reload_for_data_dir)
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "full")
+    monkeypatch.setattr("langgraph.types.interrupt", lambda _payload: pytest.fail("must not ask"))
+    monkeypatch.setattr(shell_tool._session_manager, "get_session",
+                        lambda *_a: pytest.fail("a blocked command never runs"))
+    for command in ("rm -rf /", "mkfs /dev/sda1"):
+        assert shell_tool.ShellTool().execute(command).startswith("🚫 BLOCKED")
+    tool = shell_tool.ShellTool()
+    monkeypatch.setattr(tool, "get_config", lambda key, default=None: "deploy-prod" if key == "blocked_commands"
+                        else default)
+    assert tool.execute("deploy-prod --now").startswith("🚫 BLOCKED")
 
 
 @pytest.mark.parametrize(
@@ -93,7 +121,8 @@ def test_shell_auto_policy_runs_without_interrupt(tmp_path, monkeypatch, reload_
     [
         ("git status", "approve", None, "Approval: not needed (safe command)"),
         ("New-Item notes.txt", "approve", True, "Approval: asked; approved by you"),
-        ("New-Item notes.txt", "allow_all", None, "Approval: not needed (Auto approval mode)"),
+        ("New-Item notes.txt", "full", None, "Approval: allowed by Hands-off"),
+        ("New-Item notes.txt", "auto", None, "Approval: approved by the reviewer: You asked to run it"),
     ],
 )
 def test_shell_results_say_whether_approval_was_needed_and_given(
@@ -102,6 +131,7 @@ def test_shell_results_say_whether_approval_was_needed_and_given(
     """The model can tell what happened instead of guessing (B235)."""
     approval_gate, shell_tool = _fresh_shell_modules(tmp_path, reload_for_data_dir)
     monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: mode)
+    _reviewer(monkeypatch, "approve")
 
     def interrupt(_payload):
         if answer is None:

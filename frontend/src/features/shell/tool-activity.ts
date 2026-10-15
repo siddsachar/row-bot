@@ -325,6 +325,17 @@ export function splitApproval(text: string): {
   };
 }
 
+/**
+ * Who let a step run without the person (A0): the Auto reviewer, or Full
+ * autonomy. Its approval line says so ("Approved by the reviewer: …",
+ * "Allowed by Hands-off"); the step's row shows a quiet tag for it.
+ */
+export function approvedWithoutYou(approval: string): string | null {
+  if (/^approved by the reviewer\b/i.test(approval)) return 'Reviewer approved';
+  if (/^allowed by hands-off\b/i.test(approval)) return 'Hands-off';
+  return null;
+}
+
 /** "Frobnicate widget" reads "frobnicate widget" mid-sentence; "MCP" stays. */
 function midSentence(label: string) {
   return /^\p{Lu}\p{Ll}/u.test(label)

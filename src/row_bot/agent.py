@@ -4864,31 +4864,30 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
 
 
 def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
-    """Keep sync and async targets behind the same current approval decision. ``always_ask``: an app tool
-    its app's access says to ask about (a routine change without Full access, or a high-impact one) asks even
-    under Allow all."""
+    """Keep sync and async targets behind the same current approval decision, resolved by the approval level
+    (``approval_gate``): the person under Ask, the reviewer first under Auto, the level itself under Hands-off.
+    ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
+    high-impact one); the reviewer is told so, and decides as for any other action."""
     from functools import wraps
-    from row_bot.tools.approval_gate import (
-        APPROVAL_DENIED, APPROVAL_GIVEN, APPROVAL_NOT_NEEDED_AUTO, with_approval,
-    )
+    from row_bot.tools.approval_gate import resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
+    risks = ("changes or deletes something",) + (
+        ("its app's access says to ask first (a high-impact change, or one without Full access)",)
+        if always_ask else ())
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()
 
     def refusal(args, kwargs) -> tuple[str | None, str]:
         """The refusal (None when the call may run) and its result's approval line."""
-        decision = decision_for_action(get_approval_mode())
-        if always_ask and decision == "allow":
-            decision = "ask"
+        mode = get_approval_mode()
+        decision = decision_for_action(mode)
         if decision == "block":
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
                     "and move on."), ""
-        if decision == "allow":
-            return None, APPROVAL_NOT_NEEDED_AUTO
         # What the person reads names what was given: an option left unset (None) is not part of the action.
         given = {key: value for key, value in kwargs.items() if value is not None}
         if tool.name.startswith("mcp_"):
@@ -4913,15 +4912,20 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
             external_discovery_active = is_external_discovery_invocation()
         except Exception:
             external_discovery_active = False
-        approval = interrupt({
-            "tool": tool.name, "label": label, "description": description,
-            "args": kwargs or (args[0] if args else {}),
-            "external_discovery_active": external_discovery_active,
-            **({"always_ask": True} if always_ask else {}),
-        })
-        if approval:
-            return None, APPROVAL_GIVEN
-        return with_approval(APPROVAL_DENIED, "Action cancelled by user."), ""
+        outcome, line = resolve_approval_line(
+            {
+                "tool": tool.name, "label": label, "description": description,
+                "args": kwargs or (args[0] if args else {}),
+                "external_discovery_active": external_discovery_active,
+            },
+            approval_mode=mode,
+            risks=risks,
+            # This module's own name, so a test can stand in for the person.
+            approval_callback=lambda payload: interrupt(payload),
+        )
+        if outcome == "allow":
+            return None, line
+        return with_approval(line, "Action cancelled by user."), ""
 
     sync_target = getattr(original, "func", None) or original._run
     async_target = getattr(original, "coroutine", None) or original._arun
@@ -5492,18 +5496,29 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
         except Exception:
             return 'BLOCKED: The selected Agent Profile policy is unavailable.'
 
+    from row_bot.tools.approval_gate import collect_decisions, with_decisions
+
     def sync(function):
         @wraps(function)
         def guarded(*args, **kwargs):
             blocked = refusal(function, args, kwargs)
-            return blocked if blocked is not None else function(*args, **kwargs)
+            if blocked is not None:
+                return blocked
+            # Every approval decided while it runs is recorded on its result (the activity shows it).
+            with collect_decisions() as decisions:
+                result = function(*args, **kwargs)
+            return with_decisions(decisions, result)
         return guarded
 
     def asynchronous(function):
         @wraps(function)
         async def guarded(*args, **kwargs):
             blocked = refusal(function, args, kwargs)
-            return blocked if blocked is not None else await function(*args, **kwargs)
+            if blocked is not None:
+                return blocked
+            with collect_decisions() as decisions:
+                result = await function(*args, **kwargs)
+            return with_decisions(decisions, result)
         return guarded
 
     updates = {}
@@ -5640,13 +5655,12 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     # when called (_turn_scope_refusal), so the tool list is the same on every turn (WP A5).
     app_scope = _current_app_scope_var.get(None) or {}
     eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
-    # App tools that ask even under Allow all: each one its app's access says to ask about (a routine change
-    # unless the app has Full access or that tool may run without asking; high-impact and unknown ones always).
+    # App tools their app's access says to ask about (a routine change unless the app has Full access or that
+    # tool may run without asking; high-impact and unknown ones always): the reviewer is told so under Auto.
     # Standalone connections ("mcp") and those a plugin brings ("plugin:<id>:mcp:<server>") alike.
     app_entries = [entry for entry in eager_core_entries + external_entries
                    if entry["source"] == "mcp" or ":mcp:" in str(entry["source"])]
-    app_asks = ({str(getattr(entry["tool"], "name", "") or "") for entry in app_entries} & destructive_names
-                if approval_mode == "allow_all" else set())
+    app_asks = {str(getattr(entry["tool"], "name", "") or "") for entry in app_entries} & destructive_names
     # Which built-in tool each chat tool came from, so its app is named later without building any tool.
     from row_bot.integrations.builtin import remember_tools
     remember_tools({str(getattr(entry["tool"], "name", "") or ""): str(entry["parent"])
@@ -5767,37 +5781,17 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             lc_tools = eager_core_tools + external_tools
 
             # Append tools from enabled plugins (totally separate registry)
-            if is_background:
-                # BG gating: block=strip destructive tools; approve=wrap
-                # via interrupt() for pause-and-approve; allow_all=keep
-                # everything, but app tools whose access says ask still ask.
-                # run_command self-gates at runtime via classify_command.
-                if approval_mode == "block":
-                    lc_tools = [t for t in lc_tools
-                                if t.name not in destructive_names]
-                elif approval_mode == "approve":
-                    for t in lc_tools:
-                        if t.name in destructive_names:
-                            _wrap_with_interrupt_gate(t)
-                else:
-                    for t in lc_tools:
-                        if t.name in app_asks:
-                            _wrap_with_interrupt_gate(t, always_ask=True)
+            # Workflows and chats gate alike: block=strip destructive tools; every other level wraps them,
+            # and the gate resolves each call by the level (the person under Ask, the reviewer first under
+            # Auto, the level itself under Hands-off). A workflow run pauses when the person is asked.
+            # run_command self-gates at runtime via classify_command.
+            if approval_mode == "block":
+                lc_tools = [t for t in lc_tools
+                            if t.name not in destructive_names]
             else:
-                # Interactive sessions use the same app-wide approval mode:
-                # block=hide destructive tools; approve=wrap with interrupt();
-                # allow_all=keep everything; app tools whose access says ask still ask.
-                if approval_mode == "block":
-                    lc_tools = [t for t in lc_tools
-                                if t.name not in destructive_names]
-                elif approval_mode == "approve":
-                    for t in lc_tools:
-                        if t.name in destructive_names:
-                            _wrap_with_interrupt_gate(t)
-                else:
-                    for t in lc_tools:
-                        if t.name in app_asks:
-                            _wrap_with_interrupt_gate(t, always_ask=True)
+                for t in lc_tools:
+                    if t.name in destructive_names:
+                        _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,
@@ -6032,10 +6026,25 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     return _agent_cache[cache_key]
 
 
+def _paused_at_a_question(state: Any) -> bool:
+    """Whether a LangGraph state is paused at a question (an ``interrupt()``).
+
+    ``state.next`` alone misses a tool that asks again once answered: LangGraph
+    counts the answers it keeps for that tool call as writes, and leaves the
+    call out of ``next`` although it is waiting.
+    """
+
+    if not state:
+        return False
+    if getattr(state, "next", None):
+        return True
+    return any(getattr(task, "interrupts", None) for task in getattr(state, "tasks", ()) or ())
+
+
 def _graph_interrupt_result(state: Any) -> dict[str, Any] | None:
     """Return normalized interrupt data from a paused LangGraph state."""
 
-    if not state or not getattr(state, "next", None):
+    if not _paused_at_a_question(state):
         return None
     all_interrupts: list[dict[str, Any]] = []
     for task in getattr(state, "tasks", ()) or ():
@@ -7606,7 +7615,8 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
     approval).
 
     Chained interrupts are handled after ``Command(resume=...)`` by checking
-    ``state.next`` and returning ``{"type": "interrupt", ...}``.
+    whether the graph is paused at a question (``_paused_at_a_question``) and
+    returning ``{"type": "interrupt", ...}``.
     """
     config = _normalize_agent_config(config)
     configurable = config.get("configurable") or {}
@@ -7684,7 +7694,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
 
     # Check for another interrupt (agent may call a second dangerous tool)
     state = agent.get_state(config)
-    if state and state.next:
+    if _paused_at_a_question(state):
         all_interrupts: list[dict] = []
         for task in state.tasks:
             if hasattr(task, "interrupts") and task.interrupts:
@@ -8631,7 +8641,7 @@ def _stream_graph(agent, input_data, config: dict,
 
     # Check if the graph paused due to an interrupt (destructive tool gate)
     state = agent.get_state(config)
-    if state and state.next:
+    if _paused_at_a_question(state):
         _log_stream_completion(
             config=config,
             answer_chars=_answer_chars,

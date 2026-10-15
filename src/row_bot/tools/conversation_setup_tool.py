@@ -109,15 +109,19 @@ def _turn_on(group: str, label: str, why: str) -> bool:
     """Ask to turn on a tool group through the standard approval (a setup card)."""
     if registry.is_enabled(group):
         return True
-    from langgraph.types import interrupt
+    from row_bot.tools.approval_gate import request_approval
 
-    approved = interrupt({
-        "tool": "row_bot_update_setting",
-        "label": f"Turn on {label}",
-        "description": why,
-        "args": {"setting": "tool_toggle", "value": f"{group}:on"},
-        "setup": {"kind": "tool", "label": label},
-    })
+    # By the approval level: the person under Ask (and Block), the reviewer first under Auto, Hands-off.
+    approved = request_approval(
+        {
+            "tool": "row_bot_update_setting",
+            "label": f"Turn on {label}",
+            "description": why,
+            "args": {"setting": "tool_toggle", "value": f"{group}:on"},
+            "setup": {"kind": "tool", "label": label},
+        },
+        risks=("turns on a tool group in Settings",),
+    )
     if not approved:
         return False
     registry.set_enabled(group, True)

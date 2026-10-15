@@ -150,7 +150,7 @@ it('asks to turn on a tool the work needs as a setup card (decision 12)', async 
   expect(card).toHaveTextContent('Row-Bot needs Web Search for this.');
   await screen.findByRole('button', { name: 'Turn on' });
   expect(
-    screen.queryByRole('button', { name: 'Always allow in this chat' }),
+    screen.queryByRole('button', { name: 'Use Auto in this chat' }),
   ).toBeNull();
   expect(screen.queryByRole('button', { name: 'Details' })).toBeNull();
   await act(async () => {
@@ -280,5 +280,43 @@ it('offers approving the rest of the reply only for a repeatable action (F21)', 
       { decision: 'approve', nonce: 'nonce-a', scope: 'turn' },
       '3',
     ),
+  );
+});
+
+it('says quietly why the Auto reviewer asked, on the card and in its details (A0)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    reviewer_reason: 'You asked to tidy the folder, not to delete files.',
+  });
+  await renderCard();
+  expect(
+    screen.getByText(
+      'The reviewer asked you: You asked to tidy the folder, not to delete files.',
+    ),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  expect(
+    screen.getByText(
+      'Asked you: You asked to tidy the folder, not to delete files.',
+    ),
+  ).toBeVisible();
+});
+
+it('offers reviewed Auto for this chat under Ask, and approves', async () => {
+  const onAllowInChat = vi.fn(async () => undefined);
+  render(<ApprovalCard id="approval-a" onAllowInChat={onAllowInChat} />);
+  const auto = await screen.findByRole('button', {
+    name: 'Use Auto in this chat',
+  });
+  await waitFor(() => expect(auto).toBeEnabled());
+  expect(screen.queryByText(/The reviewer asked you/)).toBeNull();
+  await act(async () => fireEvent.click(auto));
+  expect(onAllowInChat).toHaveBeenCalledOnce();
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-a' },
+    '3',
   );
 });

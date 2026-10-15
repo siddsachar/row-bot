@@ -35,7 +35,7 @@ test('a tool the work needs asks to be turned on, in the chat', async ({
   await expect(card).toContainText('Turn on Web Search?');
   await expect(card).toContainText('Row-Bot needs Web Search for this.');
   await expect(
-    card.getByRole('button', { name: 'Always allow in this chat' }),
+    card.getByRole('button', { name: 'Use Auto in this chat' }),
   ).toHaveCount(0);
   await screenshot(page, testInfo, 'setup-card');
   await card.getByRole('button', { name: 'Turn on', exact: true }).click();

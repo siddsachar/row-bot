@@ -222,6 +222,12 @@
           "title": "Requesting Trace Id",
           "type": "string"
         },
+        "reviewer_reason": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Reviewer Reason",
+          "type": "string"
+        },
         "risk_class": {
           "default": "unknown",
           "enum": [

@@ -1025,6 +1025,16 @@ class ClientPlatformService:
                 raise ClientPlatformError("model_selection_mismatch")
             from row_bot.agent_profiles import require_agent_profile
             profile = require_agent_profile(payload["profile_id"], enabled_only=True) if payload.get("profile_id") else None
+            from row_bot import full_autonomy
+            from row_bot.approval_policy import normalize_approval_mode
+            if payload["approval_mode"] == "full" and normalize_approval_mode(row.get("approval_mode")) != "full":
+                # Only for the person's own chats, and after its one-time dialog on this install.
+                if full_autonomy.is_shared_conversation(target):
+                    raise ClientPlatformError("full_autonomy_shared_conversation")
+                try:
+                    full_autonomy.require_choice("full", confirmed=bool(payload.get("confirm_full_autonomy")))
+                except full_autonomy.FullAutonomyError as exc:
+                    raise ClientPlatformError(exc.code) from exc
             from row_bot.application.reasoning_controls import validated_control, merged_selection
             reasoning_control = payload.get("reasoning")
             reasoning_selection = validated_control(model, reasoning_control) if reasoning_control is not None else None
@@ -1203,6 +1213,7 @@ class ClientPlatformService:
             raise ClientPlatformError("model_selection_mismatch")
         model_ref = model_choice_value(model_ref, provider_id=provider_id)
         from row_bot.approval_policy import normalize_approval_mode
+        from row_bot.full_autonomy import cap_for_conversation
         row = self._metadata(conversation_id)
         if frozen_context is not None:
             row = {**row, "approval_mode": frozen_config.get("approval_mode"),
@@ -1274,7 +1285,8 @@ class ClientPlatformService:
             raise ClientPlatformError("invalid_command")
         config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,
-                  "approval_mode": normalize_approval_mode(row.get("approval_mode")),
+                  # A conversation other people share runs on Auto at most, never Hands-off.
+                  "approval_mode": cap_for_conversation(conversation_id, normalize_approval_mode(row.get("approval_mode"))),
                   "agent_profile_id": row.get("agent_profile_id") or "",
                   "platform_submission_id": submission_id,
                   "platform_command_id": command_id,

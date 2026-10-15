@@ -2641,7 +2641,7 @@ export default function Conversation({
   }
   async function updateControls(patch: {
     profile_id?: string;
-    approval_mode?: 'allow_all';
+    approval_mode?: 'auto';
   }) {
     if (!id || !controls || !state.workspace) return;
     await controller.intent(
@@ -2657,7 +2657,7 @@ export default function Conversation({
       state.workspace.revision,
     );
   }
-  const allowInChat = () => updateControls({ approval_mode: 'allow_all' });
+  const allowInChat = () => updateControls({ approval_mode: 'auto' });
   // A delegated agent's own thread (it has a parent conversation).
   const childThread = Boolean(
     state.conversation?.id === id && state.conversation.parent_conversation_id,
@@ -3199,8 +3199,10 @@ export default function Conversation({
                                   ? approvalEvent.event.payload
                                   : undefined
                               }
+                              // Offered under Ask only: Auto and Hands-off
+                              // already decide without the person.
                               onAllowInChat={
-                                controls?.approval_mode === 'allow_all' ||
+                                controls?.approval_mode !== 'approve' ||
                                 childThread
                                   ? undefined
                                   : allowInChat

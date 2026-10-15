@@ -356,6 +356,16 @@ def resources(x_fixture_token: str = Header(default="")) -> dict:
             "git_present": (folder / ".git").exists()}
 
 
+@app.post("/__a0_fixture/full-autonomy/reset")
+def reset_full_autonomy(x_fixture_token: str = Header(default="")) -> dict:
+    """Forget that Hands-off was turned on, so its one-time dialog shows again (A0)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.full_autonomy import _settings_path
+
+    _settings_path().unlink(missing_ok=True)
+    return {"reset": True}
+
+
 @app.get("/__p3_fixture/calls")
 def phase3_calls(x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)
@@ -460,6 +470,55 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                                  "description": "Row-Bot needs Web Search for this. You can turn it off "
                                                 "again in Settings › Tools.",
                                  "args": args, "setup": {"kind": "tool", "label": "Web Search"}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "reviewer asked fixture" in text:
+        # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "reviewer-asked")
+        thread = call["conversation_id"]
+        identity = f"reviewer-asked:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        args = {"file_path": "notes/old-draft.md"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "workspace_file_delete", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "workspace_file_delete", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "workspace_file_delete", "label": "Delete file",
+                                 "description": "Delete file: notes/old-draft.md", "args": args,
+                                 "review": {"decision": "ask",
+                                            "reason": "You asked to tidy the notes, not to delete any."}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "decided without asking fixture" in text:
+        # Auto and Hands-off (A0): steps that ran without asking say who let them run.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "decided-without-asking")
+        thread = call["conversation_id"]
+        identity = f"decided:{call['generation_id']}"
+        steps = (
+            ("workspace_write_file", {"file_path": "notes/summary.md"},
+             "Approval: approved by the reviewer: You asked to save the summary to your notes\n"
+             "Wrote notes/summary.md"),
+            ("run_command", {"command": "git commit -am \"Tidy notes\""},
+             "Approval: allowed by Hands-off\n$ git commit -am \"Tidy notes\"\n\n"
+             "[Exit code: 0 | Duration: 0.21s]"),
+        )
+        try:
+            for index, (name, args, result) in enumerate(steps):
+                tool_id = fixture_id(f"{identity}:{index}:tool")
+                result_id = fixture_id(f"{identity}:{index}:result")
+                append_checkpoint_messages(thread, [AIMessage(id=fixture_id(f"{identity}:{index}:call"), content="",
+                    tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+                yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+                append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                                                              content=result)])
+                yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                    "content": result}
+            yield from _natural_final(call, thread, "Saved the summary and committed the tidy-up.", "decided")
         finally:
             call["quiesced"] = True
         return

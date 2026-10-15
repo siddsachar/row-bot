@@ -54,6 +54,8 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
         or item.get("__interrupt_id"),
         256,
     )
+    from row_bot.approval_messages import reviewer_reason
+
     projected: dict[str, Any] = {
         "action_label": action_label,
         "reason": reason,
@@ -62,6 +64,9 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
         "safe_argument_summary": safe_tool_input(item.get("args")),
         "requesting_trace_id": requesting_trace_id,
     }
+    asked = reviewer_reason(item)
+    if asked:  # Under Auto: why the reviewer asked the person rather than approving.
+        projected["reviewer_reason"] = _text(asked, 240)
     # Turning on a tool the work needs reads as a setup card ("Turn on …"),
     # and a code folder to use or a repository to clone as a folder card
     # where the person picks the folder (B277).

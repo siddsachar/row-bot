@@ -9931,6 +9931,7 @@ def create_router(
                 "setup",
                 "app",
                 "repeatable",
+                "reviewer_reason",
                 "policy_revision",
             )
             if k in view

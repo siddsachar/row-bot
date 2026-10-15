@@ -542,6 +542,26 @@
       "title": "ContextUsageView",
       "type": "object"
     },
+    "ConversationApprovalView": {
+      "additionalProperties": false,
+      "description": "What the chat's approval control needs to offer Hands-off.",
+      "properties": {
+        "full_autonomy_available": {
+          "title": "Full Autonomy Available",
+          "type": "boolean"
+        },
+        "full_autonomy_confirmed": {
+          "title": "Full Autonomy Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "full_autonomy_confirmed",
+        "full_autonomy_available"
+      ],
+      "title": "ConversationApprovalView",
+      "type": "object"
+    },
     "ConversationComposer": {
       "additionalProperties": false,
       "properties": {
@@ -642,7 +662,8 @@
           "enum": [
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "title": "Approval Mode",
           "type": "string"
@@ -920,6 +941,17 @@
           "maxItems": 6,
           "title": "Actions",
           "type": "array"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationApprovalView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "composer": {
           "anyOf": [

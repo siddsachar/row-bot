@@ -31,6 +31,22 @@ def sanitize_approval_reason(value: object, *, max_chars: int = 180) -> str:
     return _truncate(_redact(value), max_chars)
 
 
+def reviewer_reason(item: object) -> str:
+    """Under Auto, the reviewer's reason for asking the person about one interrupt (empty otherwise)."""
+
+    review = item.get("review") if isinstance(item, Mapping) else None
+    if not isinstance(review, Mapping) or review.get("decision") != "ask":
+        return ""
+    return sanitize_approval_reason(review.get("reason"), max_chars=200)
+
+
+def reviewer_note(item: object) -> str:
+    """"The reviewer asked you: …" for an interrupt the Auto reviewer handed to the person."""
+
+    reason = reviewer_reason(item)
+    return f"The reviewer asked you: {reason}" if reason else ""
+
+
 def _first_mapping(value: object) -> Mapping[str, Any]:
     if isinstance(value, Mapping):
         return value
@@ -146,6 +162,7 @@ def normalize_interrupts(
         "source_label": source,
         "title": title,
         "reason": reason,
+        "reviewer_note": reviewer_note(first),
         "tool": tool,
         "action_label": label,
         "raw_action": raw_action,
@@ -187,6 +204,9 @@ def compact_message(payload: Mapping[str, Any] | None, *, max_chars: int = 420) 
     parts = [title]
     if reason and reason.lower() not in title.lower():
         parts.append(f"Reason: {reason}")
+    note = sanitize_approval_reason(data.get("reviewer_note"), max_chars=220)
+    if note:
+        parts.append(note)
     if raw_action:
         tool = str(data.get("tool") or "").strip()
         label = "Command" if tool in {"run_command", "developer_run_command", "shell"} else "Action"

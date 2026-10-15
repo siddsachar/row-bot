@@ -116,7 +116,7 @@ def developer(data_dir, tmp_path, monkeypatch):
     workspace = SimpleNamespace(id="ws-1", name="repo", path=str(root))
     monkeypatch.setattr(developer_tool, "_active_workspace", lambda write=False: (workspace, root.resolve()))
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-paging")
-    monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "allow_all")
+    monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "full")
     return developer_tool, root
 
 

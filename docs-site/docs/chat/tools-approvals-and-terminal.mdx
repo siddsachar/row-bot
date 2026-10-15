@@ -25,9 +25,24 @@ When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what ca
 
 <Screenshot id="chat-approval" alt="Row-Bot approval card for a file change with Approve and Deny." caption="An approval card names the action and what it affects; Approve and Deny decide it in place." />
 
-Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the mode for the conversation: **Ask**, **Block** or **Auto**.
+Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the level for the conversation.
 
-An app's tools also follow the access you chose for it in [Settings › Apps](/docs/settings/apps): **Read only**, **Ask before changes** or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions ask first whichever access you choose. An approval card for an app's action shows the app's logo and name above the question, with **Details**, **Deny** and **Approve**. Turning an app on or off for a chat, or mentioning it, never skips an approval; see [Apps in a chat](/docs/chat/#apps-in-a-chat).
+### Approval Levels
+
+| Level | What happens to an action that needs approval |
+| --- | --- |
+| **Ask** (the default) | You approve each one on its card. |
+| **Auto** | A reviewer approves what clearly matches what you asked for in this conversation; anything else, and anything it isn't sure of, asks you. |
+| **Hands-off** | Every action runs without asking, and each one is recorded. |
+| **Block** | Anything that would change something is refused. |
+
+**Auto's reviewer** is one short call to the conversation's own model at its lowest effort, made just before the action. It sees only your own recent messages in the conversation (or a workflow's saved steps), the folder in play and the action as its card describes it, never tool results, web pages, files or app output, so text an action picked up can't talk it into approving. It asks you when an action goes beyond your request, reaches other people, moves money, grants access, deletes outside the folder in play, or when it can't decide: an error, no answer within 10 seconds or no model available all mean it asks. When it asks, the card says why ("The reviewer asked you: …"). Actions it approved show **Reviewer approved** in the conversation's tool steps, with its reason in the step's details. Read-only actions never reach it.
+
+**Hands-off** skips every approval, including screen and camera captures, high-impact app actions and reading Row-Bot's own data when that setting is on, and workflows don't pause for approval. The first time you choose it, a dialog lists what it skips; after **Turn on** it doesn't ask again on this computer. While it's on, the Approvals control reads **Hands-off** in a warning colour, and Buddy says so while work runs. Each action that would have asked shows **Hands-off** in the tool steps. A conversation other people share (a Slack or Discord channel thread, or a group chat) runs on **Auto** at most, and Hands-off can only be turned on in the app, not with a channel command.
+
+No level changes these limits: blocked commands, **Block**, capabilities switched off in Settings (such as the data-folder setting, or an app turned off in the chat), plugin isolation, the Developer sandbox's checks and network setting, a read-only helper's refusals, and secrets never being shown. Conversations, profiles and workflows saved with the old **Auto** use the reviewed Auto; nothing moves to Hands-off unless you choose it.
+
+An app's tools also follow the access you chose for it in [Settings › Apps](/docs/settings/apps): **Read only**, **Ask before changes** or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions ask first whichever access you choose. An approval card for an app's action shows the app's logo and name above the question, with **Details**, **Deny** and **Approve**. Under **Auto**, these go to the reviewer, which is told the app's access says to ask. Turning an app on or off for a chat, or mentioning it, never skips an approval; see [Apps in a chat](/docs/chat/#apps-in-a-chat).
 
 **Approvals wait until you answer.** They no longer expire after a set time; a workflow step that sets its own time limit still honours it. Each one shows how long it has been waiting.
 
@@ -54,18 +69,18 @@ Approving lets Row-Bot continue that action. Denying stops that action and retur
 An approval card offers **Details**, **Deny** and **Approve** (⌘/Ctrl+Enter), and in a chat also:
 
 - **Approve the rest**: approves this and later actions of the same kind until this reply ends. It is offered only for code-folder work that stays on this computer: applying sandbox changes, editing files, creating or switching branches, committing, running detected checks and plain commands. Pushing, opening a pull request, merging, reverting, installing, deleting, network actions, the Shell tool and the Custom Tool Builder ask every time.
-- **Always allow in this chat**: approves this and switches the chat to **Auto**. Apps still ask when their access says to.
+- **Use Auto in this chat** (under **Ask**): approves this and switches the chat to reviewed **Auto**.
 
 ### What Asks In A Code Folder
 
-- A Developer command that isn't on the read-only list (such as `ls`, `git status`, `git diff` or `node --version`) counts as running a command: **Ask** asks ("Run a command?"), **Auto** runs it, **Block** refuses it. Installs, deletes, network use, Git commits and pushes, and starting a server keep their own checks.
+- A Developer command that isn't on the read-only list (such as `ls`, `git status`, `git diff` or `node --version`) counts as running a command: **Ask** asks ("Run a command?"), **Auto**'s reviewer decides or asks, **Hands-off** runs it, **Block** refuses it. Installs, deletes, network use, Git commits and pushes, and starting a server keep their own checks.
 - **Apply the sandbox changes?** applies every sandbox change waiting in this conversation, oldest first, with one approval.
 - **Open a pull request?** opens one with the GitHub command-line tool (`gh`) on this computer, as a draft unless you ask otherwise. It follows the conversation's approvals, and needs `gh` installed and signed in.
 - The Custom Tool Builder asks before it tests, installs dependencies for, creates, turns on or offers a custom tool in chats, and the card lists the commands it will run on this computer.
 
 ### Row-Bot's Own Data Folder
 
-Row-Bot's data folder holds your conversations, settings and keys, so the Shell tool refuses commands that name it, and file tools refuse paths inside it. To let the agent read it, turn on **Let the agent read Row-Bot's data folder** in [Settings › System](/docs/settings/system) › Advanced; such commands then ask you every time, even under **Auto**, and **Block** still refuses them.
+Row-Bot's data folder holds your conversations, settings and keys, so the Shell tool refuses commands that name it, and file tools refuse paths inside it. To let the agent read it, turn on **Let the agent read Row-Bot's data folder** in [Settings › System](/docs/settings/system) › Advanced; such commands then ask you under **Ask**; under **Auto** the reviewer approves one only when you clearly asked for it, **Hands-off** runs them, and **Block** still refuses them. With the setting off, no level reads the folder.
 
 ## Interactive Terminal
 

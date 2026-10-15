@@ -49,7 +49,8 @@ DETERMINISTIC = "not live_provider and not e2e"
 APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 
 # One PR browser pass: boot, first run, shell, overlays, a turn's lifecycle, chat,
-# providers, restart recovery, the desktop Buddy window and the UI primitives.
+# providers, restart recovery, the desktop Buddy window, the UI primitives and the
+# approval levels (Hands-off's one-time dialog, the reviewer's notes).
 BROWSER_SMOKE_SPECS = (
     "bootstrap",
     "setup-first-run",
@@ -62,6 +63,7 @@ BROWSER_SMOKE_SPECS = (
     "buddy-overlay",
     "polish-foundation",
     "apps-and-skills",
+    "conversation-approvals",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

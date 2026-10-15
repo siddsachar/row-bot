@@ -139,7 +139,8 @@ def execute_task_command(*, owner_id: str, key: str, command: dict,
             else:
                 update_saved_task_settings(task_id, TaskSettingsFields(**payload["fields"]),
                     expected_revision=payload["task_revision"], expected_profile_revision=payload["profile_revision"],
-                    validate=validate, record_commit=record_commit)
+                    validate=validate, record_commit=record_commit,
+                    confirm_full_autonomy=bool(payload.get("confirm_full_autonomy")))
         elif not previous and graph:
             steps = tuple(TaskGraphStepEdit(step["id"], step["type"], TaskGraphFields(**{
                 **step["fields"], "run_ids": None if step["fields"].get("run_ids") is None

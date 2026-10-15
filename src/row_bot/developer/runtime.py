@@ -1101,8 +1101,12 @@ def start_workspace_process(
     *,
     workspace_id: str = "",
     thread_id: str = "",
+    confirmed: bool = False,
 ) -> CommandResult:
     """Start a tracked long-running process for later cleanup.
+
+    ``confirmed``: the approval it needs was given (by the person, or by the level through
+    ``tools.approval_gate``).
 
     This is intentionally small for the first Developer phase. The UI does not
     expose arbitrary server starts yet, but this gives future preview/server
@@ -1115,6 +1119,8 @@ def start_workspace_process(
     if action in {"run_safe_command", "run_command"}:
         action = "start_server"
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
+    if decision.requires_approval and confirmed:
+        decision = ApprovalDecision("allow", "User explicitly approved this server command.")
     if decision.decision != "allow":
         return CommandResult(command=command, cwd=str(root), returncode=None, stderr=decision.reason, decision=decision)
 
