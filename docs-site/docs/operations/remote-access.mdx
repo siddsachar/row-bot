@@ -157,6 +157,16 @@ Use the address that actually connects from the proxy to Row-Bot. Do not trust e
 
 The deprecated `row-bot --server --no-open` form remains compatible, but new scripts and services should use `row-bot serve`.
 
+### Cloudflare Tunnel
+
+A Cloudflare Tunnel is an HTTPS reverse proxy: Cloudflare serves your hostname and `cloudflared` passes each request on to Row-Bot. Row-Bot does not install `cloudflared` or set up the tunnel, DNS, or Cloudflare Access.
+
+1. Point the tunnel at Row-Bot's loopback address, such as `http://127.0.0.1:8080`, rather than `localhost`, so requests come from one known address. Do not set the tunnel's HTTP Host Header to another name; Row-Bot checks the public hostname.
+2. Trust only the address `cloudflared` connects from. When it runs on the same computer, set `ROW_BOT_TRUSTED_PROXY_CIDRS=127.0.0.1/32` before Row-Bot starts, or pass `--trusted-proxy 127.0.0.1/32` to `row-bot serve`.
+3. Add the public origin, such as `https://row-bot.example.com`, as **Another address** in the app (or with `--public-url` and `--allowed-host`), and create the invitation for it.
+
+Cloudflare sends `CF-Connecting-IP` beside `X-Forwarded-For` and `X-Forwarded-Proto`. Row-Bot accepts it and takes the client address from `X-Forwarded-For`. Leave Cloudflare's **Remove visitor IP headers** managed transform off, because Row-Bot needs `X-Forwarded-For`, and leave **Add "True-Client-IP" header** off, because Row-Bot refuses that header.
+
 ## Docker
 
 The supplied Docker image contains the complete supported server feature set: all canonical Python extras, matching headless Playwright Chromium, native media libraries, `uv`/`uvx`, and pinned Node.js with `node`/`npm`/`npx`. It does not contain invitations, sessions, credentials, downloaded voice models, arbitrary MCP servers, or Tailscale.
@@ -205,6 +215,8 @@ If every owner session is lost, create a new owner invitation from a trusted ter
 ## Troubleshooting
 
 - **`untrusted_forwarding_headers`**: a proxy supplied forwarding headers from an address Row-Bot does not trust. For a Row-Bot-owned Tailscale route, restart once if the UI reports that restart is required. For an operator proxy, set only its exact connecting address in `ROW_BOT_TRUSTED_PROXY_CIDRS`. Do not fix this by trusting a broad network.
+- **`unsupported_forwarding_headers`**: a trusted proxy sent a client-address header Row-Bot does not use, such as `X-Real-IP`, `True-Client-IP`, or `X-Forwarded-Server`. Have the proxy send `Forwarded`, or `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), and remove the others. Cloudflare's `CF-Connecting-IP` is accepted beside `X-Forwarded-For`; see [Cloudflare Tunnel](#cloudflare-tunnel). Do not fix this by trusting a broad network.
+- **`missing_x_forwarded_for`**: a trusted proxy sent `X-Forwarded-Proto` or `X-Forwarded-Host` without `X-Forwarded-For`, for example with Cloudflare's **Remove visitor IP headers** on. Have the proxy send `X-Forwarded-For`.
 - **`unexpected_host`**: on a desktop launch, open **Settings › Devices & remote access**, add the exact browser-facing origin (as **Another address** when connecting a device, or under **Advanced › Network › Allowed addresses**), and retry without restarting. In a managed deployment, the host may instead be missing from `ROW_BOT_ALLOWED_HOSTS`, or the proxy may have forwarded a different host.
 - **Origin or invitation mismatch**: create the invitation for the exact browser-facing scheme, host, and port. Do not reuse an invitation after changing routes.
 - **Tailscale conflict or unowned route**: inspect the existing Serve configuration. Row-Bot will not reset or overwrite it.
