@@ -112,8 +112,10 @@ def test_ask_requires_original_confirmation_at_every_provider_boundary(env):
     assert len(env.calls) == 3
 
 
-def test_auto_never_creates_another_confirmation(env):
-    env.context["approval_mode"] = "allow_all"
+@pytest.mark.parametrize("mode", ["auto", "full", "allow_all"])
+def test_auto_and_full_autonomy_never_create_another_confirmation(env, mode):
+    """The person asks Buddy for it in the app themselves: nothing more to approve under Auto or Full."""
+    env.context["approval_mode"] = mode
     captured = env.policy.capture_provider_policy("motion")
     env.policy.validate_provider("motion", captured["video_model"], captured)
     assert not env.calls

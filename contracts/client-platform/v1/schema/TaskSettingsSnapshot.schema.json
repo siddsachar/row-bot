@@ -13,7 +13,8 @@
           "enum": [
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "title": "Approval Mode",
           "type": "string"
@@ -103,7 +104,8 @@
           "enum": [
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "type": "string"
         },
@@ -115,6 +117,11 @@
     },
     "fields": {
       "$ref": "#/$defs/TaskSettingsFields"
+    },
+    "full_autonomy_confirmed": {
+      "default": false,
+      "title": "Full Autonomy Confirmed",
+      "type": "boolean"
     },
     "profile_available": {
       "title": "Profile Available",

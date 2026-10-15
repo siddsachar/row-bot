@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "description": "A code to enter on the service's own page, on any device (RFC 8628).",
+  "properties": {
+    "user_code": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "User Code",
+      "type": "string"
+    },
+    "verification_uri": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Verification Uri",
+      "type": "string"
+    },
+    "verification_uri_complete": {
+      "default": "",
+      "maxLength": 2048,
+      "title": "Verification Uri Complete",
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_code",
+    "verification_uri"
+  ],
+  "title": "PlanDeviceCode",
+  "type": "object"
+}

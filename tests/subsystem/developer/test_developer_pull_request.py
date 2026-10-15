@@ -95,7 +95,7 @@ def test_a_denied_approval_opens_nothing(branch) -> None:
     assert pr_creates(gh) == []
 
 
-def test_block_mode_refuses_without_asking_and_auto_opens_without_asking(branch) -> None:
+def test_block_mode_refuses_without_asking_and_full_autonomy_opens_without_asking(branch) -> None:
     developer_tool, gh, approvals, _answer, mode = branch
     mode("block")
     refused = json.loads(developer_tool._create_pull_request(title="Ready"))
@@ -103,7 +103,7 @@ def test_block_mode_refuses_without_asking_and_auto_opens_without_asking(branch)
     assert "blocks attempts to open a pull request" in refused["error"]
     assert pr_creates(gh) == []
 
-    mode("allow_all")
+    mode("full")
     opened = json.loads(developer_tool._create_pull_request(title="Ready", body="Line one\nLine two", draft=False))
     assert opened["url"] == PR_URL
     assert approvals == []
@@ -112,9 +112,28 @@ def test_block_mode_refuses_without_asking_and_auto_opens_without_asking(branch)
     assert "--draft" not in call
 
 
+@pytest.mark.parametrize(("decision", "asked"), [("approve", 0), ("ask", 1)])
+def test_auto_shows_the_pull_request_to_the_reviewer_first(branch, monkeypatch, decision, asked) -> None:
+    from row_bot.approval_review import ReviewVerdict
+
+    developer_tool, gh, approvals, _answer, mode = branch
+    reviewed: list[tuple] = []
+    monkeypatch.setattr("row_bot.approval_review.review", lambda payload, *, risks=(), **_kw: reviewed.append(
+        (payload["tool"], tuple(risks))) or ReviewVerdict(decision, "You asked for a pull request."))
+    mode("auto")
+
+    opened = json.loads(developer_tool._create_pull_request(title="Ready"))
+
+    assert opened["url"] == PR_URL
+    assert len(approvals) == asked
+    [(tool, risks)] = reviewed
+    assert tool == "developer_create_pull_request"
+    assert any("other people can see" in risk for risk in risks)
+
+
 def test_a_branch_with_nothing_new_has_nothing_to_open(branch, tmp_path) -> None:
     developer_tool, gh, approvals, _answer, mode = branch
-    mode("allow_all")
+    mode("full")
     git(tmp_path / "shop", "switch", "main")
 
     assert "adds no commits" in developer_tool._create_pull_request()
@@ -134,7 +153,7 @@ def git_tab(developer_tool, monkeypatch):
 def test_the_git_tab_shows_the_pull_request_the_agent_opened(branch, monkeypatch, tmp_path) -> None:
     """B336: the Git tab showed an empty new-pull-request form after the agent opened one."""
     developer_tool, gh, _approvals, _answer, mode = branch
-    mode("allow_all")
+    mode("full")
     assert git_tab(developer_tool, monkeypatch)["open_pull_request"] is None
 
     developer_tool._create_pull_request()
@@ -151,7 +170,7 @@ def test_the_git_tab_shows_the_pull_request_the_agent_opened(branch, monkeypatch
 
 def test_a_branch_that_already_has_a_pull_request_shows_that_one(tmp_path, monkeypatch, branch) -> None:
     developer_tool, _gh, _approvals, _answer, mode = branch
-    mode("allow_all")
+    mode("full")
     earlier = "https://github.com/example/shop/pull/9"
     gh = install_fake_gh(tmp_path / "existing", monkeypatch, existing={
         "number": 9, "title": "Quote CSV fields", "url": earlier, "isDraft": False, "state": "OPEN"})

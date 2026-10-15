@@ -258,3 +258,37 @@ def test_another_device_adds_a_package_file_and_a_signed_out_one_cannot(monkeypa
     # Every device is the owner's one principal for Apps & Skills.
     assert received == [("fixture-instance", "notes.skill", b"fixture")]
     assert signed_out.status_code == 401
+
+
+@pytest.mark.parametrize("remote", [False, True])
+def test_a_pasted_sign_in_address_needs_a_session_and_says_which_device_sent_it(monkeypatch, remote):
+    """F27: the address another device's browser ended on is sent back by a signed-in session only; the plan
+    learns whether the desktop app here or another device sent it, and a refusal keeps its plain code."""
+    from row_bot.integrations import plans
+    from row_bot.mcp_client.auth import McpAuthError
+    from tests.subsystem.client_protocol.test_protocol_security import client_app
+
+    seen = []
+
+    def finish(ctx, plan_id, address):
+        seen.append((ctx.remote, plan_id, address))
+        raise McpAuthError("mcp_auth_address_other" if "other" in address else "mcp_auth_address_invalid")
+    monkeypatch.setattr(plans, "finish_sign_in", finish)
+    client, _service, active = client_app(remote=remote)
+    plan_id = str(uuid4())
+    with client:
+        _, headers = bootstrap(client)
+        other = client.post(f"/api/v1/integrations/plans/{plan_id}/sign-in", headers=headers,
+                            json={"address": "http://127.0.0.1/api/v1/settings/mcp/auth/callback?state=other"})
+        invalid = client.post(f"/api/v1/integrations/plans/{plan_id}/sign-in", headers=headers, json={"address": "nope"})
+        empty = client.post(f"/api/v1/integrations/plans/{plan_id}/sign-in", headers=headers, json={"address": ""})
+        if remote:
+            active["value"] = False
+            signed_out = client.post(f"/api/v1/integrations/plans/{plan_id}/sign-in", headers=headers,
+                                     json={"address": "http://127.0.0.1/"})
+            assert signed_out.status_code == 401
+    assert (other.status_code, other.json()["code"]) == (409, "mcp_auth_address_other")
+    assert (invalid.status_code, invalid.json()["code"]) == (422, "mcp_auth_address_invalid")
+    assert empty.status_code == 422 and len(seen) == 2  # An empty address never reaches the plan.
+    assert {flag for flag, _, _ in seen} == {remote} and all(item == plan_id for _, item, _ in seen)
+    assert "state=other" not in other.text  # The address is never echoed back.

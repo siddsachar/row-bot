@@ -116,6 +116,38 @@ def _active_approval_mode() -> str:
         return DEFAULT_APPROVAL_MODE
 
 
+# Developer actions that reach other people or can't be taken back, for the Auto reviewer.
+_DEVELOPER_RISKS = {
+    "developer_push_current_branch": "pushes commits to a shared remote other people can see",
+    "developer_create_pull_request": "opens a pull request other people can see",
+    "developer_revert_change_set": "restores files, undoing earlier changes",
+    "developer_import_sandbox_changes": "applies sandbox changes to the real code folder",
+    "developer_prepare_sandbox": "turns the sandbox network on while it downloads and installs packages from the "
+                                 "internet into the sandbox",
+}
+
+
+def _ask(payload: dict) -> object:
+    """The approval a Developer action needs, by the conversation's approval level.
+
+    The person under Ask; the reviewer first under Auto (the person when it asks); the level
+    itself under Hands-off. Returns what ``interrupt()`` would: True when approved.
+    """
+    from row_bot.tools.approval_gate import request_approval
+
+    tool = str(payload.get("tool") or "")
+    risks = [f"a Developer action in the conversation's code folder: {payload.get('label') or tool}"]
+    if tool in _DEVELOPER_RISKS:
+        risks.append(_DEVELOPER_RISKS[tool])
+    return request_approval(
+        payload,
+        approval_mode=_active_approval_mode(),
+        risks=risks,
+        # This module's own name, so a test can stand in for the person.
+        approval_callback=lambda request: interrupt(request),
+    )
+
+
 class _ListFilesInput(BaseModel):
     path: str = Field(default=".", description="Workspace-relative folder to list.")
     limit: int = Field(default=80, description="Maximum entries to return.")
@@ -302,7 +334,7 @@ def _run_detected(command: str) -> str:
 
     result = run(False)
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_run_detected_test",
             "label": "Run project command",
             "description": f"Run in {workspace.name}: {chosen.command}",
@@ -335,6 +367,15 @@ def _command_text(result, *, tool_name: str) -> str:
         lines.append("changed files: " + ", ".join(result.changed_files))
     if result.sandbox_pending_change_id:
         lines.append(f"sandbox pending change: {result.sandbox_pending_change_id}")
+    if result.execution_mode == "docker" and result.returncode not in (None, 0):
+        from row_bot.developer.sandbox_prepare import UNPREPARED_LINE, missing_tools
+
+        # A test run that failed for want of its tools (F18): the chat offers Prepare sandbox.
+        why = missing_tools(f"{result.stdout}\n{result.stderr}")
+        if why:
+            lines.append(f"{UNPREPARED_LINE}{why}. Offer to prepare it: developer_prepare_sandbox installs "
+                         "the project's test dependencies with the sandbox network on for the install only, "
+                         "then off again (it asks the person first).")
     output = []
     if result.stdout:
         output.append("stdout:\n" + result.stdout.rstrip("\n"))
@@ -366,7 +407,7 @@ def _run_command(command: str, timeout: int = 120, approval_reason: str = "") ->
         confirmed=False,
     )
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_run_command",
             "label": "Run Developer shell command",
             "description": f"Run in {workspace.name}: {command}",
@@ -387,6 +428,46 @@ def _run_command(command: str, timeout: int = 120, approval_reason: str = "") ->
     return _command_text(result, tool_name="developer_run_command")
 
 
+def _prepare_sandbox() -> str:
+    """Prepare the Docker sandbox for tests (F18): asks, then installs with the network on for that only."""
+    from row_bot.developer import sandbox_prepare
+
+    workspace, _root = _active_workspace(write=True)
+    if workspace.execution_mode != "docker":
+        return ("This code folder runs commands on this computer, not in the Docker sandbox, so there is no "
+                "sandbox to prepare. To install test tools here, use developer_run_command (it asks first).")
+    running = sandbox_prepare.active_for(workspace.id)
+    if running is not None:
+        sandbox_prepare.wait(running, 120)
+        return sandbox_prepare.summary(running)
+    plan = sandbox_prepare.plan_for(workspace.path)
+    if plan is None:
+        return ("Row-Bot found nothing to install: the code folder has no pyproject.toml, requirements*.txt "
+                "or package.json. Ask the person what the tests need.")
+    decision = decide_action(_active_approval_mode(), "run_install")
+    if decision.decision == "block":
+        return ("Approvals are set to Block in this conversation, so Row-Bot can't prepare the sandbox. Tell the "
+                "person; they can change Approvals, or use Prepare sandbox in the code folder's Sandbox settings.")
+    installs = "; ".join(plan.commands)
+    approval = _ask({
+        "tool": "developer_prepare_sandbox",
+        "label": "Prepare sandbox",
+        "question": "Prepare the sandbox for tests?",
+        "description": (f"Turns the sandbox network on for the install only, installs {plan.summary} (from "
+                        f"{', '.join(plan.sources)}) in {workspace.name}'s sandbox, then turns the network off "
+                        "again."),
+        "args": {"workspace": workspace.name, "installs": installs},
+    })
+    if not approval:
+        return "Prepare sandbox cancelled by the person: nothing was installed and the sandbox network stayed off."
+    try:
+        job = sandbox_prepare.start(workspace, get_thread_id(), by="agent")
+    except sandbox_prepare.PrepareError as exc:
+        return f"Prepare sandbox couldn't start: {exc}"
+    sandbox_prepare.wait(job, 120)
+    return sandbox_prepare.summary(job)
+
+
 class _GitBranchInput(BaseModel):
     branch_name: str = Field(description="Git branch name.")
 
@@ -395,7 +476,7 @@ def _create_branch(branch_name: str) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_create_branch",
             "label": "Create Developer branch",
             "description": f"Create branch {branch_name} in {workspace.name}",
@@ -411,7 +492,7 @@ def _switch_branch(branch_name: str) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_switch_branch",
             "label": "Switch Developer branch",
             "description": f"Switch to branch {branch_name} in {workspace.name}",
@@ -432,7 +513,7 @@ def _commit_changes(message: str, paths: list[str] | None = None) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_commit")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_commit_changes",
             "label": "Create Developer commit",
             "description": f"Commit changes in {workspace.name}: {message}",
@@ -449,7 +530,7 @@ def _push_current_branch() -> str:
     workspace, _root = _active_workspace(write=True)
     result = push_current_branch(workspace.path, _active_approval_mode(), confirmed=False)
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_push_current_branch",
             "label": "Push Developer branch",
             "description": f"Push the current branch from {workspace.name} to origin",
@@ -481,7 +562,7 @@ def _create_pull_request(title: str = "", body: str = "", draft: bool = True) ->
     branch = get_git_status(workspace.path).branch or ""
     result = create_pull_request(workspace.path, _active_approval_mode(), title=title, body=body, draft=draft)
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_create_pull_request",
             "label": "Open pull request",
             "description": f"Open a {'draft ' if draft else ''}pull request from {workspace.name}: {title}",
@@ -520,7 +601,7 @@ def _fast_forward_merge(branch_name: str) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_fast_forward_merge",
             "label": "Fast-forward merge",
             "description": f"Fast-forward merge {branch_name} into the current branch in {workspace.name}",
@@ -565,7 +646,7 @@ def _import_sandbox_changes(pending_change_id: str = "", summary: str = "") -> s
     confirmed = False
     if decision.requires_approval:
         sets = f" ({len(batch)} sandbox changes)" if len(batch) > 1 else ""
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_import_sandbox_changes",
             "label": "Apply these changes",
             "description": summary or f"Apply {len(files)} changed file(s) from Docker Sandbox to {workspace.name}{sets}",
@@ -668,7 +749,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
         if decision.decision == "block":
             return decision.reason
         if decision.requires_approval:
-            approval = interrupt({
+            approval = _ask({
                 "tool": "developer_apply_patch",
                 "label": "Apply Developer patch in Docker Sandbox",
                 "description": summary or "Apply a patch inside the Docker Sandbox shadow workspace",
@@ -700,7 +781,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
         confirmed=False,
     )
     if decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_apply_patch",
             "label": "Apply Developer patch",
             "description": summary or "Apply a patch inside the active Developer workspace",
@@ -745,7 +826,7 @@ def _import_media(media_ref: str, path: str) -> str:
         path=path, approval_mode=_active_approval_mode(),
     )
     if decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_import_media",
             "label": "Import generated media",
             "description": f"Copy one conversation output to {path} in {workspace.name}",
@@ -770,7 +851,7 @@ def _write_file(path: str, content: str, summary: str = "", expected_sha256: str
         if decision.decision == "block":
             return decision.reason
         if decision.requires_approval:
-            approval = interrupt({
+            approval = _ask({
                 "tool": "developer_write_file",
                 "label": "Write Developer file in Docker Sandbox",
                 "description": summary or f"Write {path} inside the Docker Sandbox shadow workspace",
@@ -803,7 +884,7 @@ def _write_file(path: str, content: str, summary: str = "", expected_sha256: str
         expected_sha256=expected_sha256,
     )
     if decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_write_file",
             "label": "Write Developer file",
             "description": summary or f"Write {path} inside the active Developer workspace",
@@ -853,7 +934,7 @@ def _revert_change_set(change_set_id: str) -> str:
             return "Undo is blocked by the current workspace policy."
         client_undo.reserve_retained_undo_review(review, command_id, validate=validate)
         if review.approval_required:
-            approved = interrupt({"tool": "developer_revert_change_set", "label": "Undo imported workspace changes",
+            approved = _ask({"tool": "developer_revert_change_set", "label": "Undo imported workspace changes",
                 "description": "Restore the exact retained original files. Created directories will remain.",
                 "args": {"change_set_id": change_set_id, "files": list(review.files),
                     "directories_retained": list(review.directories_retained), "action_digest": review.action_digest}})
@@ -948,6 +1029,7 @@ class DeveloperTool(BaseTool):
             StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread. Keep it current: mark an item in_progress when you start it and completed when it is done, including work a helper agent finished, before you end your turn.", args_schema=_TodoInput),
             StructuredTool.from_function(func=changes(_run_detected), name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),
             StructuredTool.from_function(func=changes(_run_command), name="developer_run_command", description="Run a shell command in the active Developer workspace after policy checks and record file side effects.", args_schema=_RunCommandInput),
+            StructuredTool.from_function(func=_prepare_sandbox, name="developer_prepare_sandbox", description="Prepare the Docker sandbox for tests when a test run failed because pytest or the project's packages are missing: installs the test dependencies from pyproject.toml, requirements*.txt or package.json with the sandbox network on for the install only, then off again. Asks the person first."),
             StructuredTool.from_function(func=changes(_import_sandbox_changes), name="developer_import_sandbox_changes", description="Import this conversation's pending Docker Sandbox changes into the real workspace, all together and oldest first, after one approval. Call it once when the work is ready, not once per change.", args_schema=_ImportSandboxInput),
             StructuredTool.from_function(func=_preview_patch, name="developer_preview_patch", description="Validate and preview a unified diff patch without writing files.", args_schema=_PatchInput),
             StructuredTool.from_function(func=changes(_apply_patch), name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),

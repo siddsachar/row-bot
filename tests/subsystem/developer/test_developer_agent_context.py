@@ -16,13 +16,13 @@ def test_developer_agent_context_is_compact_and_policy_aware(tmp_path, reload_fo
     (repo / "node_modules").mkdir()
     (repo / "src").mkdir()
     workspace = storage.add_or_update_local_workspace(str(repo))
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "auto_edit")  # A legacy value: reviewed Auto now.
 
     context = agent_context.build_developer_agent_context(workspace.id)
 
     assert "[Developer Studio context]" in context
     assert f"Path: {repo.resolve()}" in context
-    assert "Approval mode: allow_all" in context
+    assert "Approval mode: auto" in context  # The legacy value is reviewed Auto.
     assert "explicit destination" in context
     assert "- app.py" in context
     assert "- src/" in context

@@ -158,7 +158,7 @@ def test_background_refusal_allows_one_foreground_type_without_focus(
         OWNER,
         element_token=observed.elements[0].token,
         text="query",
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     calls = fake_transport.calls[calls_before:]
@@ -188,7 +188,7 @@ def test_foreground_focus_refusal_changes_no_text_and_has_no_third_rung(
             OWNER,
             element_token=observed.elements[0].token,
             text=" must not appear",
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert refused.value.code == "focus_refused"

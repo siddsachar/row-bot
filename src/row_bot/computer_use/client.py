@@ -43,6 +43,9 @@ MODEL_ACTION_TO_CUA = {
 
 INTERNAL_TOOLS = frozenset({"set_config", "health_report", "check_permissions", "start_session", "end_session"})
 ALLOWED_CUA_TOOLS = frozenset(MODEL_ACTION_TO_CUA.values()) | INTERNAL_TOOLS | {"hotkey"}
+# Screen recording (F2) runs only through ``CuaClient.call_recording`` on a client of
+# its own; the model's actions and the generic paths still refuse the family.
+RECORDING_TOOLS = frozenset({"start_recording", "stop_recording", "get_recording_state"})
 FORBIDDEN_TOOL_FAMILIES = frozenset({
     "page", "get_desktop_state", "start_recording", "stop_recording",
     "get_recording_state", "check_for_update", "install_ffmpeg", "kill_app",
@@ -236,8 +239,14 @@ def _normalized_mutation_response(response: CuaResponse) -> CuaResponse:
     )
 
 
-def build_cua_environment(session_id: str, environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Return the deliberately small child environment for Cua."""
+def build_cua_environment(
+    session_id: str, environ: dict[str, str] | None = None, *, path_prefix: str = "",
+) -> dict[str, str]:
+    """Return the deliberately small child environment for Cua.
+
+    ``path_prefix`` puts one folder first on PATH: the folder holding only the ffmpeg Row-Bot
+    downloaded, which Cua's screen recording needs on Windows (F3).
+    """
 
     source = dict(os.environ if environ is None else environ)
     common = {"PATH", "Path", "HOME", "USERPROFILE", "TMP", "TEMP", "TMPDIR", "LANG", "LC_ALL"}
@@ -252,6 +261,9 @@ def build_cua_environment(session_id: str, environ: dict[str, str] | None = None
     result.pop("CUA_DRIVER_HOST_BUNDLE_ID", None)
     result.pop("CUA_DRIVER_RS_TELEMETRY_ENABLED", None)
     result.pop("CUA_DRIVER_RS_TELEMETRY_DEBUG", None)
+    if path_prefix:
+        key = next((name for name in ("PATH", "Path") if name in result), "PATH")
+        result[key] = path_prefix + (os.pathsep + result[key] if result.get(key) else "")
     return result
 
 
@@ -485,6 +497,8 @@ class CuaClient:
         self.capabilities = frozenset(capabilities or ())
         self._transport: CuaTransport | None = None
         self.connection_generation = 0
+        # A folder to put first on Cua's PATH (the screen recording's ffmpeg); empty for every other client.
+        self.path_prefix = ""
 
     def _default_transport(
         self,
@@ -508,7 +522,7 @@ class CuaClient:
         transport = self._transport_factory(
             self.executable,
             self.session_id,
-            build_cua_environment(self.session_id),
+            build_cua_environment(self.session_id, path_prefix=self.path_prefix),
         )
         transport.open()
         self._transport = transport
@@ -578,3 +592,31 @@ class CuaClient:
 
     def supports_capability(self, name: str) -> bool:
         return str(name) in self.capabilities
+
+    def call_recording(self, tool_name: str, arguments: dict[str, Any] | None = None) -> CuaResponse:
+        """Service-only screen recording (F2), on a client of its own.
+
+        Never reachable from the model's action schema or the generic paths, which
+        keep refusing the recording family. Starting always records video into one
+        folder the recording service chose; stopping and reading the state take no
+        arguments.
+        """
+
+        if tool_name not in RECORDING_TOOLS:
+            raise PermissionError(f"Cua recording tool is not approved: {tool_name}")
+        if tool_name == "start_recording":
+            args = dict(arguments or {})
+            output_dir = args.get("output_dir")
+            if (
+                set(args) != {"output_dir"}
+                or not isinstance(output_dir, str)
+                or not Path(output_dir).is_absolute()
+            ):
+                raise PermissionError("Cua recording needs exactly one absolute output folder")
+            safe: dict[str, Any] = {"output_dir": output_dir, "record_video": True}
+        else:
+            safe = {}
+        if self._transport is None:
+            self.start()
+        assert self._transport is not None
+        return parse_cua_result(self._transport.call_raw(tool_name, safe))

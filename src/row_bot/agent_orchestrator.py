@@ -3273,14 +3273,38 @@ def _default_synthesis_executor(
 
     from row_bot.providers.background import invoke_background
 
+    messages = [SystemMessage(content=_synthesis_system_prompt()), HumanMessage(content=prompt)]
     text = invoke_background(
         "synthesis",
-        [SystemMessage(content=_synthesis_system_prompt()), HumanMessage(content=prompt)],
+        messages,
         thread_model=str(orchestration.get("model_ref") or ""),
         thread_id=str(orchestration.get("parent_thread_id") or ""),
         generation_id=f"{orchestration.get('parent_generation_id') or orchestration['id']}:synthesis",
     )
+    _learning_synthesis(orchestration, messages, str(text or ""))
     return str(text or "").strip()
+
+
+def _learning_synthesis(orchestration: dict[str, Any], messages: list, text: str) -> None:
+    """Learning (preview): the consolidated answer is the person's too. Only its text comes back
+    from the background call, so it is recorded as partial (off: one check)."""
+    from row_bot import learning
+
+    if not learning.is_enabled():
+        return
+    try:
+        from langchain_core.messages import AIMessage
+
+        from row_bot.learning import capture
+
+        turn = capture.begin_turn(thread_id=str(orchestration.get("parent_thread_id") or ""),
+                                  generation_id=str(orchestration.get("parent_generation_id") or ""),
+                                  surface="orchestration", standalone=True)
+        capture.model_call(turn, messages=messages, kept=AIMessage(content=text), purpose="synthesis",
+                           model_ref=str(orchestration.get("model_ref") or ""), partial=True)
+        capture.end_turn(turn, "completed")
+    except Exception as exc:
+        logger.debug("Learning did not capture a synthesis (%s)", type(exc).__name__)
 
 
 def _default_delivery_executor(

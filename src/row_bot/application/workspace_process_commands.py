@@ -137,7 +137,7 @@ def get_workspace_process_review(resource_id: str, conversation_id: str, command
     action = runtime.classify_command_action(command)
     if action in {"run_safe_command", "run_command"}:
         action = "start_server"
-    decision = runtime._apply_docker_network_policy(workspace, action, decide_action(mode, action))
+    decision = runtime._apply_docker_network_policy(workspace, action, decide_action(mode, action, by_person=True))
     policy = {"mode": mode, "execution_mode": workspace.execution_mode,
               "sandbox_network": workspace.sandbox_network, "sandbox_image": workspace.sandbox_image,
               "action": action, "decision": decision.decision}

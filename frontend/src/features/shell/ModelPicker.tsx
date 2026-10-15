@@ -16,7 +16,7 @@ import {
   Select,
   StatusDot,
 } from '../../ui/primitives';
-import ModelList from './ModelList';
+import ModelList, { type VisibilityAction } from './ModelList';
 import {
   isLocalProvider,
   modelRefName,
@@ -49,6 +49,7 @@ export default function ModelPicker({
   onReconnect,
   onManage,
   onSetup,
+  onVisibility,
   anchor,
   returnFocusTo,
 }: {
@@ -72,6 +73,8 @@ export default function ModelPicker({
   onManage: () => void;
   /** Open Setup when no model can be chosen yet (a fresh profile). */
   onSetup?: () => void;
+  /** Favourite or hide a model from its row (F10). */
+  onVisibility?: (model: ModelChoice, action: VisibilityAction) => void;
   /**
    * Open over this element instead of from the pill: a one-line composer
    * keeps the model in its + menu, so the picker opens above the field.
@@ -218,6 +221,7 @@ export default function ModelPicker({
               onOpenChange(false);
               onConnect();
             }}
+            onVisibility={onVisibility}
           />
           <div className="model-picker-footer">
             {reasoning?.available && (

@@ -1,6 +1,6 @@
 ---
 title: "Sign-In And Client Metadata"
-description: "For developers: how Row-Bot signs in to a hosted app, using its published OAuth client metadata document (CIMD), dynamic client registration or the person's own OAuth app, with a loopback redirect."
+description: "For developers: how Row-Bot signs in to a hosted app, using its published OAuth client metadata document (CIMD), dynamic client registration or the person's own OAuth app, and how a sign-in finishes on another device."
 ---
 
 # Sign-In And Client Metadata
@@ -28,7 +28,7 @@ Row-Bot has no client secret and no hosted service. Its OAuth client ID is the a
 }
 ```
 
-It names only loopback redirects, so a sign-in made with it can only return to the computer that started it. It holds no secret or key.
+It names only loopback redirects, so a sign-in made with it returns to the computer that started it, or, from another device, ends on an address the person pastes back (see [The Redirect](#the-redirect)). It holds no secret or key.
 
 ## How Row-Bot Finds Out A Sign-In Is Needed
 
@@ -37,7 +37,7 @@ During an agreed setup, the `test` step sends one unauthenticated `initialize` r
 ## Which Client Row-Bot Uses
 
 1. **The person's own OAuth app**, when they gave one for this connection before, or when a reviewed recipe says the service needs one (GitHub's OAuth-app way, for example).
-2. **CIMD**, when the authorization server's metadata says `client_id_metadata_document_supported` and the sign-in returns to this computer's loopback address. CIMD is preferred when the server supports both.
+2. **CIMD**, when the authorization server's metadata says `client_id_metadata_document_supported` and the sign-in uses a loopback address the document lists. CIMD is preferred when the server supports both, except for a device code (below), which needs a registered client.
 3. **Dynamic client registration**, when the server has a `registration_endpoint`. Row-Bot registers as a public client named Row-Bot with only its callback address.
 4. **Otherwise the setup pauses** at **Add your OAuth app** for a client ID and an optional client secret. The help gives the callback address to register. With a secret, Row-Bot authenticates with `client_secret_post`.
 
@@ -45,9 +45,16 @@ The authorization request uses PKCE with S256. A reviewed recipe may set `oauth_
 
 ## The Redirect
 
-When Row-Bot runs on this computer, the callback is `http://127.0.0.1:<port>/api/v1/settings/mcp/auth/callback` on the port Row-Bot is using (8080 by default), and the person's browser opens on the same computer. The client metadata lists the address both without a port and with 8080; an authorization server that follows RFC 8252 §7.3 accepts any port on a loopback redirect. When Row-Bot is reached through an approved public https address, the callback uses that address, and CIMD isn't used: dynamic registration or the person's own app is.
+How the answer comes back depends on where the sign-in starts (`delivery` on the plan's `sign_in` step):
 
-For your own OAuth app, register `http://127.0.0.1/api/v1/settings/mcp/auth/callback` (with a port if your service requires one).
+- **This computer** (`this_computer`): the Row-Bot desktop app on the computer Row-Bot runs on. The callback is `http://127.0.0.1:<port>/api/v1/settings/mcp/auth/callback` on the port Row-Bot is using (8080 by default), and the browser opens on the same computer. The client metadata lists the address both without a port and with 8080; an authorization server that follows RFC 8252 §7.3 accepts any port on a loopback redirect.
+- **Another device, with Row-Bot's public address** (`public`): when Row-Bot has exactly one approved public https origin and the server has a `registration_endpoint`, Row-Bot registers a client for that sign-in with the public callback, `https://<origin>/api/v1/settings/mcp/auth/callback`, and the browser returns there by itself. CIMD and the person's own app don't list that address, so they use the next way.
+- **Another device, pasting the address back** (`paste`): the redirect is `http://127.0.0.1/api/v1/settings/mcp/auth/callback`, which doesn't load on that device. The person pastes the address the browser ended on, and the client sends it to `POST /api/v1/integrations/plans/{plan_id}/sign-in` with the session that started the setup. Row-Bot never fetches it and reads only `state` and `code` or `error`. It must be exactly the sign-in's own callback (scheme, host, port and path), carry each of those once, and name no part of the token exchange (`redirect_uri`, `code_verifier`, `client_id`…). It is then checked exactly as the callback route checks one: this owner's own waiting sign-in, its one-time state (the PKCE verifier never leaves Row-Bot), once, within five minutes, while the connection is unchanged. Refusals are `mcp_auth_address_invalid`, `mcp_auth_address_other`, `mcp_auth_address_used` and `mcp_auth_address_expired`.
+- **Another device, with a code** (`device`): when the authorization server publishes a `device_authorization_endpoint` and lists `urn:ietf:params:oauth:grant-type:device_code` (RFC 8628), and Row-Bot has a client that can use it (one it registers with that grant, or the person's own app), Row-Bot shows the code and the service's page, then asks the token endpoint at the service's interval (five seconds more after `slow_down`) until the person allows or denies it or the code expires. If the service gives no code, for example a GitHub OAuth app with device flow switched off, the sign-in carries on as a pasted address.
+
+The callback route, which needs no session, accepts only the state of a sign-in waiting for this computer's browser or the public address, never a pasted or device sign-in's.
+
+For your own OAuth app, register `http://127.0.0.1/api/v1/settings/mcp/auth/callback` (with a port if your service requires one). The same address works from this computer and, pasted back, from another device.
 
 ## Tokens
 
@@ -55,4 +62,4 @@ Tokens, the client registration and the person's own client secret are saved tog
 
 ## Testing
 
-`tests/subsystem/integrations/test_sign_in.py` covers discovery, CIMD before dynamic registration, the person's own app, scopes, the expired-sign-in state and the published document. The live GitHub check, `tests/e2e/test_github_live.py`, is opt-in; see [Extend Row-Bot](/docs/extending/#how-apps-and-skills-are-set-up).
+`tests/subsystem/integrations/test_sign_in.py` covers discovery, CIMD before dynamic registration, the person's own app, scopes, the expired-sign-in state and the published document. `tests/subsystem/integrations/test_sign_in_elsewhere.py` covers signing in from another device: the public address, pasted addresses and every refusal, and device codes. The live GitHub check, `tests/e2e/test_github_live.py`, is opt-in; see [Extend Row-Bot](/docs/extending/#how-apps-and-skills-are-set-up).

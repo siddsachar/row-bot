@@ -4575,7 +4575,8 @@
   align-items: center;
   gap: 2px;
 }
-.settings-page-content .settings-catalog-pin[aria-pressed='true'] {
+.settings-page-content .settings-catalog-pin[aria-pressed='true'],
+.settings-page-content .settings-model-favourite[aria-pressed='true'] {
   color: var(--accent-solid);
   background: transparent;
 }

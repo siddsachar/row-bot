@@ -695,6 +695,93 @@
       "title": "KnowledgeTypeCount",
       "type": "object"
     },
+    "LearningSettingsSnapshot": {
+      "additionalProperties": false,
+      "description": "Learning (preview): saved settings only; nothing acts on most of them yet.",
+      "properties": {
+        "apply_mode": {
+          "enum": [
+            "ask_first",
+            "automatic"
+          ],
+          "title": "Apply Mode",
+          "type": "string"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "has_data": {
+          "title": "Has Data",
+          "type": "boolean"
+        },
+        "monthly_token_limit": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Monthly Token Limit",
+          "type": "integer"
+        },
+        "sources": {
+          "$ref": "#/$defs/LearningSourcesSnapshot"
+        },
+        "train_in_quiet_hours": {
+          "title": "Train In Quiet Hours",
+          "type": "boolean"
+        },
+        "train_where": {
+          "enum": [
+            "this_computer",
+            "hugging_face"
+          ],
+          "title": "Train Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "enabled",
+        "sources",
+        "apply_mode",
+        "monthly_token_limit",
+        "train_in_quiet_hours",
+        "train_where",
+        "has_data"
+      ],
+      "title": "LearningSettingsSnapshot",
+      "type": "object"
+    },
+    "LearningSourcesSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "my_chats": {
+          "title": "My Chats",
+          "type": "boolean"
+        },
+        "past_chats": {
+          "title": "Past Chats",
+          "type": "boolean"
+        },
+        "workflows_and_goals": {
+          "title": "Workflows And Goals",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "my_chats",
+        "workflows_and_goals",
+        "past_chats"
+      ],
+      "title": "LearningSourcesSnapshot",
+      "type": "object"
+    },
     "MigrationSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -2107,7 +2194,8 @@
           "tools",
           "accounts",
           "utilities",
-          "preferences"
+          "preferences",
+          "learning"
         ]
       },
       "title": "Defaults",
@@ -2118,6 +2206,9 @@
     },
     "knowledge": {
       "$ref": "#/$defs/KnowledgeSettingsSnapshot"
+    },
+    "learning": {
+      "$ref": "#/$defs/LearningSettingsSnapshot"
     },
     "plugins": {
       "$ref": "#/$defs/SettingsPluginSummary"
@@ -2168,7 +2259,8 @@
     "accounts",
     "utilities",
     "plugins",
-    "preferences"
+    "preferences",
+    "learning"
   ],
   "title": "SettingsSnapshot",
   "type": "object"

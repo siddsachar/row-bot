@@ -38,12 +38,18 @@ def test_developer_approval_policy_modes(tmp_path, reload_for_data_dir):
     assert sandbox.decide_action("read_only", "read").decision == "allow"
     assert sandbox.decide_action("read_only", "edit").decision == "block"
     assert sandbox.decide_action("ask", "edit").decision == "ask"
-    assert sandbox.decide_action("auto_edit", "edit").decision == "allow"
-    assert sandbox.decide_action("auto_edit", "git_push").decision == "allow"
-    assert sandbox.decide_action("agent_run", "start_server").decision == "allow"
     assert sandbox.decide_action("block", "edit").decision == "block"
     assert sandbox.decide_action("approve", "edit").decision == "ask"
-    assert sandbox.decide_action("allow_all", "git_push").decision == "allow"
+    # An agent's push, install or server under Auto or Hands-off still needs an approval: the reviewer,
+    # or Hands-off itself, gives it (tools.approval_gate). The legacy modes are reviewed Auto.
+    for mode in ("auto_edit", "agent_run", "allow_all", "auto", "full"):
+        for action in ("edit", "git_push", "start_server", "run_install"):
+            assert sandbox.decide_action(mode, action).decision == "ask"
+    # The person's own click in the app needs nothing more under Auto or Hands-off; Ask still confirms.
+    assert sandbox.decide_action("auto", "git_push", by_person=True).decision == "allow"
+    assert sandbox.decide_action("full", "git_pr", by_person=True).decision == "allow"
+    assert sandbox.decide_action("approve", "git_push", by_person=True).decision == "ask"
+    assert sandbox.decide_action("block", "git_push", by_person=True).decision == "block"
     assert sandbox.action_needs_explicit_user_intent("git_push") is True
 
 
@@ -55,8 +61,8 @@ def test_developer_workspace_approval_mode_persists(tmp_path, reload_for_data_di
     workspace = storage.add_or_update_local_workspace(str(repo))
     updated = storage.set_workspace_approval_mode(workspace.id, "auto_edit")
 
-    assert updated.approval_mode == "allow_all"
-    assert storage.get_workspace(workspace.id).approval_mode == "allow_all"
+    assert updated.approval_mode == "auto"
+    assert storage.get_workspace(workspace.id).approval_mode == "auto"
 
 
 def test_developer_git_status_and_branch_creation(tmp_path, reload_for_data_dir):

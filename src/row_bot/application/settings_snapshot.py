@@ -3,7 +3,7 @@
 The richer Settings capabilities keep their existing bounded read/review/execute
 owners.  This module only projects local, already-saved state for the Buddy,
 Voice, System, Tracker, Knowledge, Wiki, Documents, Tools, Accounts, Utilities,
-and Preferences settings.  It never starts a runtime,
+Preferences and Learning settings.  It never starts a runtime,
 refreshes a token, probes a provider, or imports plugin entrypoints.
 """
 
@@ -1600,6 +1600,31 @@ def _preferences(root: Path) -> dict[str, Any]:
     }
 
 
+def _learning(root: Path) -> dict[str, Any]:
+    """Learning's saved settings, read by its switch alone (no store, no other import).
+
+    ``has_data`` is a path check: Learning data kept after turning it off.
+    """
+
+    from row_bot import learning
+
+    settings = learning.read_settings(root)
+    return {
+        "availability": "available" if settings.readable else "unavailable",
+        "enabled": settings.enabled,
+        "sources": {
+            "my_chats": settings.my_chats,
+            "workflows_and_goals": settings.workflows_and_goals,
+            "past_chats": settings.past_chats,
+        },
+        "apply_mode": settings.apply_mode,
+        "monthly_token_limit": settings.monthly_token_limit,
+        "train_in_quiet_hours": settings.train_in_quiet_hours,
+        "train_where": settings.train_where,
+        "has_data": learning.store_exists(root),
+    }
+
+
 def _plugins(validate: Callable[[], None]) -> dict[str, Any]:
     """Reuse the manifest-only plugin catalog owner, never the plugin loader."""
 
@@ -1683,6 +1708,17 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "dream_cycle.window_end": 5,
         "updates.channel": "stable",
     },
+    # The Learning setup sheet's defaults, with Learning itself off.
+    "learning": {
+        "enabled": False,
+        "sources.my_chats": True,
+        "sources.workflows_and_goals": True,
+        "sources.past_chats": True,
+        "apply_mode": "ask_first",
+        "monthly_token_limit": 2_000_000,
+        "train_in_quiet_hours": True,
+        "train_where": "this_computer",
+    },
 }
 
 
@@ -1716,6 +1752,7 @@ def read_settings_snapshot(
         "utilities": _utilities(tools, registered),
         "plugins": _plugins(validate),
         "preferences": _preferences(root),
+        "learning": _learning(root),
     }
     validate()
     return {

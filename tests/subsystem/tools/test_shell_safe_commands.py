@@ -168,7 +168,7 @@ def test_the_shell_tool_asks_before_running_them_and_runs_nothing_when_denied(sh
     ran: list[str] = []
 
     class FakeSession:
-        def run_command(self, command: str) -> dict:
+        def run_command(self, command: str, **_kwargs) -> dict:
             ran.append(command)
             return {"output": "", "exit_code": 0, "duration": 0.0, "cwd": str(tmp_path)}
 

@@ -94,7 +94,7 @@ def test_a_sandbox_change_that_no_longer_fits_is_explained_in_words(tmp_path, mo
         raise ValueError("error: patch failed: app.py:27\nerror: app.py: patch does not apply")
 
     monkeypatch.setattr(developer_tool, "_active_workspace", lambda **_kwargs: (workspace, tmp_path / "workspace"))
-    monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "allow_all")
+    monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "full")
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending)
     monkeypatch.setattr(developer_tool, "list_pending_changes", lambda **_kwargs: [pending])

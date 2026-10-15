@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "description": "Favourite or hide one model (by its provider-qualified reference), or show every hidden one.",
+  "properties": {
+    "action": {
+      "enum": [
+        "favourite",
+        "unfavourite",
+        "hide",
+        "show",
+        "show_all"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "model_ref": {
+      "anyOf": [
+        {
+          "maxLength": 647,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Ref"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "ModelVisibilityMutation",
+  "type": "object"
+}

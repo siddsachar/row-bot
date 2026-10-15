@@ -12,6 +12,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
 
 from row_bot import agent_runner
+from row_bot.approval_policy import stricter_approval_mode
 from row_bot.agent_profiles import (
     duplicate_agent_profile,
     list_agent_profiles,
@@ -428,7 +429,8 @@ class _AgentProfileSaveInput(BaseModel):
     skills: list[str] = Field(default=[], description="Manual skills pinned/injected when this profile is used.")
     context_mode: ContextMode = Field(default="focused", description="Default context mode.")
     workspace_mode: Literal["auto", "read_only", "single_writer", "worktree"] = "read_only"
-    approval_mode: Literal["inherit", "block", "approve", "allow_all"] = "inherit"
+    # Never Hands-off: only the person turns that on, in the app.
+    approval_mode: Literal["inherit", "block", "approve", "auto"] = "inherit"
 
 
 class _AgentMessageInput(BaseModel):
@@ -974,7 +976,8 @@ def _agent_promote(run_id: str, target: str = "profile") -> str:
             icon="hub",
             steps=steps,
             model_override=str(run.get("model_override") or "") or None,
-            safety_mode=str(run.get("approval_mode") or "block"),
+            # A promoted workflow runs on Auto at most: Hands-off is the person's choice.
+            safety_mode=stricter_approval_mode(run.get("approval_mode") or "block", "auto"),
             agent_profile_id=profile_ref or None,
             enabled=False,
             apply_default_skills=False,

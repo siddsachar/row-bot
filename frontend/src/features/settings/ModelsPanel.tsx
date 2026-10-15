@@ -14,6 +14,7 @@ import type {
   AgentRuntimeSettingsState,
   CachedModelPage,
   DefaultModelSnapshot,
+  LocalRuntimeSnapshot,
   ModelPickerOption,
   ModelsSettingsState,
 } from '../../api/types';
@@ -40,6 +41,7 @@ import {
 import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
+import LocalModelSettings from './LocalModelSettings';
 
 /** The pickers list pinned models only; the Catalog below is where more come from. */
 const PINNED_NOTE =
@@ -184,6 +186,10 @@ export default function ModelsPanel({
   const [cameras, setCameras] = useState<number[] | null>(null);
   // "Get models for this computer" only when Ollama isn't running (B117).
   const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+  // The local models, for On this computer (F10): undefined while read.
+  const [localRuntime, setLocalRuntime] = useState<
+    LocalRuntimeSnapshot | null | undefined
+  >(undefined);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -217,10 +223,13 @@ export default function ModelsPanel({
     const abort = new AbortController();
     controller.localRuntime(abort.signal).then(
       (runtime) => {
-        if (!abort.signal.aborted && runtime)
-          setOllamaRunning(runtime.state === 'running');
+        if (abort.signal.aborted) return;
+        setLocalRuntime(runtime ?? null);
+        if (runtime) setOllamaRunning(runtime.state === 'running');
       },
-      () => undefined,
+      () => {
+        if (!abort.signal.aborted) setLocalRuntime(null);
+      },
     );
     return () => abort.abort();
   }, [controller]);
@@ -884,6 +893,12 @@ export default function ModelsPanel({
           </SettingsItem>
         </Disclosure>
       </SettingsGroup>
+      <LocalModelSettings
+        controller={controller}
+        runtime={localRuntime}
+        pickerOptions={state.brain.options}
+        onChanged={() => void reload().catch(() => undefined)}
+      />
       <SettingsAdvanced
         summary="Limits for long work"
         anchor="long-work"
