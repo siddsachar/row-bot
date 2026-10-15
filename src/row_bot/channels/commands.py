@@ -217,38 +217,43 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
     )
 
 
+_APPROVAL_WORDS = {
+    "block": "nothing that makes changes runs",
+    "approve": "Row-Bot asks you before anything that makes changes",
+    "auto": "a reviewer approves what clearly matches what you asked; anything else asks you",
+    "full": "nothing asks; every action runs and is recorded",
+}
+
+
 def cmd_approval(channel_name: str, arg: str = "", *, thread_id: str | None = None) -> str:
-    """Handle ``/approval [block|ask|auto]`` for channel conversations."""
+    """Handle ``/approval [block|ask|auto]`` for channel conversations.
+
+    Hands-off is never turned on from a channel: the person turns it on in the Row-Bot app, where a
+    dialog says what it skips, and only for their own chats.
+    """
     if not thread_id:
         return f"{channel_name} could not identify the current conversation thread."
     try:
-        from row_bot.approval_policy import approval_label, normalize_approval_mode
+        from row_bot.approval_policy import approval_label, known_approval_mode
         from row_bot.threads import _get_thread_approval_mode, _set_thread_approval_mode
         from row_bot.agent import clear_agent_cache
     except Exception as exc:
         return f"Could not inspect approval mode: {exc}"
 
     raw = str(arg or "").strip().lower()
-    aliases = {
-        "ask": "approve",
-        "approve": "approve",
-        "approval": "approve",
-        "block": "block",
-        "blocked": "block",
-        "auto": "allow_all",
-        "allow": "allow_all",
-        "allow_all": "allow_all",
-        "allow-all": "allow_all",
-    }
+    aliases = {"allow": "auto", "reviewed": "auto"}
     if not raw:
         mode = _get_thread_approval_mode(thread_id)
-        return f"Current approval mode: **{approval_label(mode)}** (`{mode}`)."
-    mode = normalize_approval_mode(aliases.get(raw, raw), "")
-    if mode not in {"block", "approve", "allow_all"}:
+        return f"Approvals here: **{approval_label(mode)}**: {_APPROVAL_WORDS[mode]}."
+    mode = known_approval_mode(aliases.get(raw, raw))
+    if mode == "full":
+        return ("Hands-off can only be turned on in the Row-Bot app, for your own chats. "
+                "Here you can use `/approval block`, `/approval ask`, or `/approval auto`.")
+    if mode not in {"block", "approve", "auto"}:
         return "Usage: `/approval block`, `/approval ask`, or `/approval auto`."
     _set_thread_approval_mode(thread_id, mode)
     clear_agent_cache()
-    return f"Approval mode set to **{approval_label(mode)}** (`{mode}`)."
+    return f"Approvals here: **{approval_label(mode)}**: {_APPROVAL_WORDS[mode]}."
 
 
 def cmd_reasoning(channel_name: str, arg: str = "", *, thread_id: str | None = None) -> str:

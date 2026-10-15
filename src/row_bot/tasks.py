@@ -201,7 +201,8 @@ _CREATE_TABLE_SQL = {
             channel          TEXT NOT NULL,
             target           TEXT NOT NULL,
             external_conversation_id TEXT DEFAULT '',
-            updated_at       TEXT NOT NULL
+            updated_at       TEXT NOT NULL,
+            shared           INTEGER NOT NULL DEFAULT 0
         )
     """,
     "channel_thread_notifications": """
@@ -285,6 +286,10 @@ _COLUMN_MIGRATIONS = {
         ("graph_interrupted", "TEXT"),
         ("created_at", "TEXT DEFAULT ''"),
         ("updated_at", "TEXT DEFAULT ''"),
+    ],
+    # Other people share the channel conversation: it runs on Auto at most (full_autonomy).
+    "channel_thread_refs": [
+        ("shared", "INTEGER NOT NULL DEFAULT 0"),
     ],
     "approval_requests": [
         ("responded_at", "TEXT"),
@@ -441,8 +446,11 @@ def _apply_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_task_runs_latest_by_task "
         "ON task_runs(task_id, started_at DESC, id DESC)"
     )
+    # Workflows saved before approval levels: the old "Auto" (allow almost everything) is reviewed Auto
+    # now. Nothing is moved to Hands-off; only a person turns that on.
     conn.execute(
-        "UPDATE tasks SET safety_mode = 'allow_all' WHERE safety_mode IS NULL"
+        "UPDATE tasks SET safety_mode = 'auto' WHERE safety_mode IS NULL "
+        "OR safety_mode IN ('allow_all', 'allow-all', 'auto_edit', 'agent_run')"
     )
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
@@ -677,7 +685,7 @@ def _init_db() -> None:
             allowed_recipients  TEXT DEFAULT '[]',      -- JSON list of allowed email recipients for background runs
             skills_override     TEXT,                   -- JSON list of skill names (null = use global)
             steps               TEXT DEFAULT '[]',      -- JSON list of step dicts (pipeline mode)
-            safety_mode         TEXT,                   -- null = inherit global / 'block' / 'approve' / 'allow_all'
+            safety_mode         TEXT,                   -- null = inherit global / 'block' / 'approve' / 'auto' / 'full'
             concurrency_group   TEXT,                   -- null = no limit / 'local_gpu' / custom
             trigger             TEXT,                   -- JSON trigger config (null = schedule/manual only)
             tools_override      TEXT,                    -- JSON list of tool names (null = all enabled)
@@ -766,7 +774,8 @@ def _init_db() -> None:
             channel          TEXT NOT NULL,
             target           TEXT NOT NULL,
             external_conversation_id TEXT DEFAULT '',
-            updated_at       TEXT NOT NULL
+            updated_at       TEXT NOT NULL,
+            shared           INTEGER NOT NULL DEFAULT 0
         )
     """)
     conn.execute("""
@@ -833,8 +842,7 @@ def _init_db() -> None:
         except Exception:
             pass  # column already exists
 
-    # Existing tasks preserve current behavior — set safety_mode to 'allow_all'
-    # where it's currently NULL (new tasks will default to 'block')
+    # Existing tasks without a level run on reviewed Auto (new tasks default to 'block')
     for col, defn in [
         ("agent_run_id", "TEXT DEFAULT ''"),
         ("resume_kind", "TEXT DEFAULT ''"),
@@ -851,7 +859,7 @@ def _init_db() -> None:
 
     try:
         conn.execute(
-            "UPDATE tasks SET safety_mode = 'allow_all' "
+            "UPDATE tasks SET safety_mode = 'auto' "
             "WHERE safety_mode IS NULL"
         )
     except Exception:
@@ -1525,8 +1533,14 @@ def _approval_detail(intr: dict) -> str:
     if isinstance(intr.get("args"), dict) and intr["args"]:
         from row_bot.approval_messages import plain_tool_call
 
-        return plain_tool_call(tool_name, intr["args"], label=str(intr.get("label") or ""))
-    return intr.get("description", "") or f"Tool '{tool_name}' needs approval"
+        detail = plain_tool_call(tool_name, intr["args"], label=str(intr.get("label") or ""))
+    else:
+        detail = intr.get("description", "") or f"Tool '{tool_name}' needs approval"
+    # Under Auto, why the reviewer asked rather than approving it.
+    from row_bot.approval_messages import reviewer_note
+
+    note = reviewer_note(intr)
+    return f"{detail} ({note})" if note else detail
 
 
 def _canonicalize_agent_profile_reference(value: str | None) -> str:
@@ -3575,8 +3589,13 @@ def record_thread_channel_ref(
     channel: str,
     target: str | int,
     external_conversation_id: str = "",
+    shared: bool | None = None,
 ) -> None:
-    """Remember the channel conversation that owns a Row-Bot thread."""
+    """Remember the channel conversation that owns a Row-Bot thread.
+
+    ``shared``: other people share it (a channel thread or a group chat), so it runs on Auto at most;
+    None keeps what was recorded.
+    """
 
     clean_thread_id = str(thread_id or "").strip()
     clean_channel = str(channel or "").strip()
@@ -3587,18 +3606,21 @@ def record_thread_channel_ref(
     try:
         conn.execute(
             "INSERT INTO channel_thread_refs "
-            "(thread_id, channel, target, external_conversation_id, updated_at) "
-            "VALUES (?, ?, ?, ?, ?) "
+            "(thread_id, channel, target, external_conversation_id, updated_at, shared) "
+            "VALUES (?, ?, ?, ?, ?, COALESCE(?, 0)) "
             "ON CONFLICT(thread_id) DO UPDATE SET "
             "channel = excluded.channel, target = excluded.target, "
             "external_conversation_id = excluded.external_conversation_id, "
-            "updated_at = excluded.updated_at",
+            "updated_at = excluded.updated_at, "
+            "shared = CASE WHEN ? IS NULL THEN channel_thread_refs.shared ELSE excluded.shared END",
             (
                 clean_thread_id,
                 clean_channel,
                 clean_target,
                 str(external_conversation_id or ""),
                 datetime.now().isoformat(),
+                None if shared is None else int(bool(shared)),
+                None if shared is None else int(bool(shared)),
             ),
         )
         conn.commit()
@@ -4158,7 +4180,7 @@ def run_task_background(
         if reviewed_capture:
             runtime_policy = json.loads(json.dumps(reviewed_capture["policy"]))
         else:
-            # Determine effective approval mode (block/approve/allow_all)
+            # Determine effective approval level (block/approve/auto/full)
             try:
                 runtime_policy = _workflow_profile_runtime_policy(task, enabled_tool_names)
             except _WorkflowEffectDenied:
@@ -4436,9 +4458,10 @@ def run_task_background(
                                     step_succeeded = True
                                     break
 
-                                # Safety-mode gate: only "approve" creates
-                                # an approval request.  Block → refuse,
-                                # allow_all → auto-resume.
+                                # An interrupt reaching the run: the person is asked. Block refuses
+                                # it; Hands-off approves it (an approval never asks under Hands-off;
+                                # anything else that waits, such as a setup card, goes on); under Ask,
+                                # and under Auto when the reviewer asked, the run pauses and notifies.
                                 if approval_mode == "block":
                                     logger.info(
                                         "Task '%s' step %d: interrupt in block mode — refusing",
@@ -4455,9 +4478,9 @@ def run_task_background(
                                     step_succeeded = True
                                     break
 
-                                if approval_mode == "allow_all" and not _always_asks(interrupts):
+                                if approval_mode == "full":
                                     logger.info(
-                                        "Task '%s' step %d: interrupt in allow_all mode — auto-approving",
+                                        "Task '%s' step %d: interrupt under Hands-off — approving",
                                         task["name"], step_index + 1,
                                     )
                                     from row_bot.agent import resume_invoke_agent
@@ -5822,7 +5845,7 @@ def set_retry_max(value: int) -> None:
 
 # ── Global Safety Mode ──────────────────────────────────────────────────────
 
-_VALID_APPROVAL_MODES = ("block", "approve", "allow_all")
+_VALID_APPROVAL_MODES = ("block", "approve", "auto", "full")
 _VALID_SAFETY_MODES = _VALID_APPROVAL_MODES
 
 
@@ -6967,10 +6990,10 @@ def _resume_graph_interrupted(
                 except Exception as exc2:
                     logger.error("Block-mode resume denial failed: %s", exc2)
                 # Fall through to success path
-            elif approval_mode == "allow_all" and not _always_asks(interrupts):
-                # Allow_all — auto-approve the chained interrupt (an approval-locked app tool still asks)
+            elif approval_mode == "full":
+                # Hands-off approves the chained interrupt; under Auto it waits for the person.
                 logger.info(
-                    "Task '%s' graph resume: chained interrupt in allow_all — auto-approving",
+                    "Task '%s' graph resume: chained interrupt under Hands-off — approving",
                     task["name"],
                 )
                 try:
@@ -6979,7 +7002,7 @@ def _resume_graph_interrupted(
                         approved=True, stop_event=_stop_event,
                     )
                 except Exception as exc2:
-                    logger.error("Allow-all auto-resume failed: %s", exc2)
+                    logger.error("Hands-off auto-resume failed: %s", exc2)
                 # Fall through to success path
             else:
                 # Approve mode — create a new approval request
@@ -7359,7 +7382,7 @@ def _run_subtask_sync(
                     # agent triggered an interrupt(), handle it inline.
                     if isinstance(result, dict) and result.get("type") == "interrupt":
                         child_approval = get_task_approval_mode(child_task)
-                        if child_approval == "allow_all" and not _always_asks(result.get("interrupts") or []):
+                        if child_approval == "full":
                             from row_bot.agent import resume_invoke_agent
                             _check_workflow_effect(validate)
                             result = resume_invoke_agent(
@@ -7370,8 +7393,8 @@ def _run_subtask_sync(
                                 last_output = result
                                 step_outputs[step_id] = result
                         else:
-                            # Block or approve — refuse since subtasks
-                            # can't surface approval UI to the user.
+                            # Block, Ask, or Auto when the reviewer asked: refuse,
+                            # since subtasks can't surface approval UI to the user.
                             from row_bot.agent import resume_invoke_agent
                             _check_workflow_effect(validate)
                             denied_result = resume_invoke_agent(
@@ -7781,13 +7804,6 @@ def _use_step_apps(config: dict, step: dict) -> None:
         config["configurable"]["app_scope"] = scope
     else:
         config["configurable"].pop("app_scope", None)
-
-
-def _always_asks(interrupts: list) -> bool:
-    """An app tool asked that its access says must ask (a change without Full access, or a destructive,
-    high-impact or unknown one): it waits for the person even under Allow all, so a run pauses on it
-    rather than approving it unattended."""
-    return any(isinstance(item, dict) and item.get("always_ask") for item in interrupts)
 
 
 def _resolve_step_index(steps: list[dict], target: str) -> int | None:

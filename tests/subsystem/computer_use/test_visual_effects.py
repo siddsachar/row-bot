@@ -196,7 +196,7 @@ def test_changed_post_click_semantics_do_not_verify_the_intended_outcome(
         OWNER,
         element_token=observation.elements[0].token,
         expected_effect="Start playback",
-        approval_mode="allow_all",
+        approval_mode="full",
         capture_after=True,
     )
 

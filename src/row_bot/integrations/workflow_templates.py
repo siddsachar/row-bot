@@ -2,7 +2,7 @@
 
 Each creates a scheduled workflow (it checks on its schedule; nothing outside can start it) under
 the workflow's profile and the Ask approval mode: reading runs, anything that changes asks, and
-approval-locked tools ask even under Allow all. A template that uses apps limits its step to them, as
+approval-locked tools need approval under every level but Hands-off. A template that uses apps limits its step to them, as
 an @mention would; a template without apps uses Row-Bot's own tools (web search, your past chats), so
 it works with nothing connected. No template sets a webhook or changes how Row-Bot can be reached.
 A template whose app is not connected yet says so, and its page offers Connect.

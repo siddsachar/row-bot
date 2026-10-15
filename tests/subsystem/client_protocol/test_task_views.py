@@ -508,7 +508,7 @@ def test_schema_adds_latest_run_index_to_existing_database_without_losing_rows(
     conn = tasks._get_conn()
     try:
         conn.execute("DROP INDEX idx_task_runs_latest_by_task")
-        conn.execute("UPDATE tasks SET safety_mode='allow_all'")
+        conn.execute("UPDATE tasks SET safety_mode='auto'")
         conn.execute(
             "INSERT INTO task_runs(id,task_id,thread_id,started_at,status) VALUES('retained','task-001','synthetic-thread','2026-01-01','approval_pending')"
         )

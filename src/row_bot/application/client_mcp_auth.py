@@ -204,6 +204,9 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
             _, _, cfg = _server(flow.server_id, flow.target)
             if cfg.get("auth", {}).get("credential_ref") == flow.ref:
                 flow.state = "signed_in"
+            elif flow.state in {"starting", "waiting"} and time.monotonic() - flow.created >= _TTL:
+                # Its own wait ran out with no answer from the browser: it expired, it didn't fail (B338).
+                flow.state = "expired"
             elif flow.state not in {"cancelled", "expired"}:
                 flow.state = "failed"
             _persist(flow, complete=True)

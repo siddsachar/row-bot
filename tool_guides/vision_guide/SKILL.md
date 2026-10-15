@@ -29,3 +29,8 @@ tags: []
 - For a web page, use source='browser': it looks at the page open in
   Row-Bot's browser (open it with browser_navigate first) and asks nothing.
   Never capture the screen to see a page you opened in the browser.
+- To compare or review several pictures, pass them together in files (up to
+  8: chat files by name, workspace paths, 'browser', rec-…, edit-…); a
+  recording or video gives frames. For more, or to save tokens, set
+  contact_sheet: they are tiled into one numbered picture the person also
+  sees, so refer to them by number.

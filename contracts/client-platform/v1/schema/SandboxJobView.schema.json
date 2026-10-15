@@ -1,0 +1,204 @@
+{
+  "additionalProperties": false,
+  "description": "Prepare sandbox, or the sandbox image's download (F18): one job of a conversation's code folder.",
+  "properties": {
+    "by": {
+      "enum": [
+        "you",
+        "agent"
+      ],
+      "title": "By",
+      "type": "string"
+    },
+    "commands": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Commands",
+      "type": "array"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "detail": {
+      "maxLength": 400,
+      "title": "Detail",
+      "type": "string"
+    },
+    "ended_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Ended At"
+    },
+    "image": {
+      "maxLength": 256,
+      "title": "Image",
+      "type": "string"
+    },
+    "job_id": {
+      "pattern": "^prep-[0-9a-f]{8}$",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "prepare",
+        "pull"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "network": {
+      "enum": [
+        "on",
+        "off"
+      ],
+      "title": "Network",
+      "type": "string"
+    },
+    "network_off_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Network Off At"
+    },
+    "network_off_confirmed": {
+      "title": "Network Off Confirmed",
+      "type": "boolean"
+    },
+    "network_on_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Network On At"
+    },
+    "problem": {
+      "enum": [
+        "",
+        "pull_failed",
+        "install_failed",
+        "not_finished"
+      ],
+      "title": "Problem",
+      "type": "string"
+    },
+    "process_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "pattern": "^proc-[0-9a-f]{8}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Process Id"
+    },
+    "progress": {
+      "maxLength": 160,
+      "title": "Progress",
+      "type": "string"
+    },
+    "seconds": {
+      "minimum": 0,
+      "title": "Seconds",
+      "type": "number"
+    },
+    "sources": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Sources",
+      "type": "array"
+    },
+    "started_at": {
+      "maxLength": 80,
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "pulling",
+        "installing",
+        "finishing",
+        "ready",
+        "failed",
+        "stopped"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "stopped_by": {
+      "enum": [
+        "",
+        "you",
+        "agent",
+        "conversation",
+        "quit"
+      ],
+      "title": "Stopped By",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 300,
+      "title": "Summary",
+      "type": "string"
+    },
+    "workspace_name": {
+      "maxLength": 200,
+      "title": "Workspace Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "conversation_id",
+    "workspace_name",
+    "kind",
+    "status",
+    "summary",
+    "sources",
+    "commands",
+    "image",
+    "started_at",
+    "ended_at",
+    "seconds",
+    "network",
+    "network_on_at",
+    "network_off_at",
+    "network_off_confirmed",
+    "process_id",
+    "progress",
+    "by",
+    "stopped_by",
+    "problem",
+    "detail"
+  ],
+  "title": "SandboxJobView",
+  "type": "object"
+}

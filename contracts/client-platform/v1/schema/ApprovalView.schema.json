@@ -167,6 +167,12 @@
       "title": "Policy Revision",
       "type": "string"
     },
+    "question": {
+      "default": "",
+      "maxLength": 240,
+      "title": "Question",
+      "type": "string"
+    },
     "reason": {
       "default": "",
       "maxLength": 1024,
@@ -195,6 +201,12 @@
       "default": "",
       "maxLength": 256,
       "title": "Requesting Trace Id",
+      "type": "string"
+    },
+    "reviewer_reason": {
+      "default": "",
+      "maxLength": 240,
+      "title": "Reviewer Reason",
       "type": "string"
     },
     "revision": {

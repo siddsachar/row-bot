@@ -109,15 +109,19 @@ def _turn_on(group: str, label: str, why: str) -> bool:
     """Ask to turn on a tool group through the standard approval (a setup card)."""
     if registry.is_enabled(group):
         return True
-    from langgraph.types import interrupt
+    from row_bot.tools.approval_gate import request_approval
 
-    approved = interrupt({
-        "tool": "row_bot_update_setting",
-        "label": f"Turn on {label}",
-        "description": why,
-        "args": {"setting": "tool_toggle", "value": f"{group}:on"},
-        "setup": {"kind": "tool", "label": label},
-    })
+    # By the approval level: the person under Ask (and Block), the reviewer first under Auto, Hands-off.
+    approved = request_approval(
+        {
+            "tool": "row_bot_update_setting",
+            "label": f"Turn on {label}",
+            "description": why,
+            "args": {"setting": "tool_toggle", "value": f"{group}:on"},
+            "setup": {"kind": "tool", "label": label},
+        },
+        risks=("turns on a tool group in Settings",),
+    )
     if not approved:
         return False
     registry.set_enabled(group, True)
@@ -433,10 +437,10 @@ def use_code_folder(name: str = "") -> str:
     elif choices:
         reason = f"No code folder is called exactly “{asked}”. Choose one of these, or another folder."
     elif asked:
-        reason = (f"No code folder is called “{asked}” yet. Choose the folder on this computer; Row-Bot "
-                  "adds it and works only inside it.")
+        reason = (f"No code folder is called “{asked}” yet. Choose the folder; Row-Bot adds it and works "
+                  "only inside it.")
     else:
-        reason = ("Choose the folder on this computer; Row-Bot adds it and works only inside it. Its "
+        reason = ("Choose the folder; Row-Bot adds it and works only inside it. Its "
                   "files and Git history stay as they are.")
     from langgraph.types import interrupt
 
@@ -486,6 +490,16 @@ def clone_repository(repo_url: str = "") -> str:
     done = cloned()
     if done is not None:
         return done
+    from row_bot.developer.sandbox import decide_action
+    from row_bot.threads import _get_thread_approval_mode
+
+    # A clone downloads from the internet: a network action, refused under Block (F19). Under the
+    # other levels the card asks the person, who chooses where it goes.
+    if decide_action(_get_thread_approval_mode(conversation_id), "run_network",
+                     by_person=True).decision == "block":
+        return _json({"ok": False, "kind": "blocked",
+                      "error": "Approvals are set to Block in this conversation, so Row-Bot can't clone. Tell "
+                               "the person; they can change Approvals and ask again."})
     refused = _ask_developer_tools()
     if refused is not None:
         return refused

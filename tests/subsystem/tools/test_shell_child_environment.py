@@ -77,22 +77,53 @@ def test_a_saved_key_still_comes_before_the_environments(api_keys, monkeypatch):
 
 
 def test_shell_commands_run_without_keys_or_row_bots_secrets(environment, monkeypatch, tmp_path):
+    """Through the process manager, and through the plain subprocess it falls back to."""
+    from row_bot.developer import runtime
     from row_bot.process_cancellation import ProcessRunResult
     from row_bot.tools import shell_tool
 
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     seen: list[dict[str, str]] = []
+
+    def start(*_args, env=None, **_kwargs):
+        seen.append(dict(env))
+        raise OSError("synthetic: no worker here")
 
     def run(args, *, env=None, **_kwargs):
         seen.append(dict(env))
         return ProcessRunResult(args=args, returncode=0, stdout="hi\n")
 
+    monkeypatch.setattr(runtime.subprocess, "Popen", start)
     monkeypatch.setattr(shell_tool, "run_cancellable_subprocess", run)
 
     result = shell_tool.ShellSession(str(tmp_path)).run_command("echo hi")
 
     assert result["exit_code"] == 0
+    assert len(seen) == 2
+    for environment_seen in seen:
+        assert not set(SECRETS) & set(environment_seen)
+        assert environment_seen["WORKSPACE_FLAVOUR"] == "kept"
+
+
+def test_a_background_process_gets_its_extra_variables_and_still_no_secrets(environment, monkeypatch, tmp_path):
+    from row_bot import background_processes
+    from row_bot.developer import runtime
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    seen: list[dict[str, str]] = []
+
+    def start(*_args, env=None, **_kwargs):
+        seen.append(dict(env))
+        raise OSError("synthetic: nothing starts")
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", start)
+
+    with pytest.raises(background_processes.ProcessStartError):
+        background_processes.start("conversation-1", ["server"], command="server", folder=str(tmp_path),
+                                   env={"PORT": "3000"})
+
+    assert seen[0]["PORT"] == "3000"
     assert not set(SECRETS) & set(seen[0])
-    assert seen[0]["WORKSPACE_FLAVOUR"] == "kept"
 
 
 def test_the_child_process_gets_exactly_that_environment(environment, tmp_path):

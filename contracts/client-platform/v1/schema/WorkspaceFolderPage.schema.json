@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "WorkspaceFolderCrumb": {
+      "additionalProperties": false,
+      "description": "One folder on the way from the workspace root to the folder shown.",
+      "properties": {
+        "name": {
+          "maxLength": 260,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 1024,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path"
+      ],
+      "title": "WorkspaceFolderCrumb",
+      "type": "object"
+    },
+    "WorkspaceFolderEntry": {
+      "additionalProperties": false,
+      "description": "A folder inside the folder shown: a code folder to choose, or a folder to open.",
+      "properties": {
+        "is_git": {
+          "title": "Is Git",
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 260,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "is_git"
+      ],
+      "title": "WorkspaceFolderEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The folders in one folder of the Developer workspace root (F19): folders only, no host path.",
+  "properties": {
+    "crumbs": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceFolderCrumb"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Crumbs",
+      "type": "array"
+    },
+    "folders": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceFolderEntry"
+      },
+      "maxItems": 500,
+      "title": "Folders",
+      "type": "array"
+    },
+    "is_root": {
+      "title": "Is Root",
+      "type": "boolean"
+    },
+    "name": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 1024,
+      "title": "Path",
+      "type": "string"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "path",
+    "name",
+    "crumbs",
+    "folders",
+    "truncated",
+    "is_root"
+  ],
+  "title": "WorkspaceFolderPage",
+  "type": "object"
+}

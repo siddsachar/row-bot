@@ -18,7 +18,7 @@ A code folder is a folder or Git repository on this computer that a conversation
 - "Use my Hello-World folder" binds a code folder you already use, by its name. If several names match, a **Which code folder?** card lets you choose; if none does, a **Use an existing folder** card asks you to choose the folder on this computer.
 - "Clone https://github.com/octocat/Hello-World" shows a **Clone a repository** card with the address. Choose **Choose where** to pick the parent folder, and Row-Bot clones it there. An interrupted clone is kept for inspection and offers **Check clone status**; it is never cloned again automatically.
 
-Either way, the conversation shows a **Using code folder …** card with **Open** and **Undo**. The turn pauses while a card waits for you and continues in the folder once it is bound. Row-Bot never chooses a path on its own: you choose every folder in the picker.
+Either way, the conversation shows a **Using code folder …** card with **Open** and **Undo**. The turn pauses while a card waits for you and continues in the folder once it is bound. Row-Bot never chooses a path on its own: you choose every folder, in the picker or in Row-Bot's workspace folder (below).
 
 **Or set it up yourself.** Open the composer's **+** menu, choose **Add resource…**, then **Code folder**:
 
@@ -29,7 +29,19 @@ Either way, the conversation shows a **Using code folder …** card with **Open*
 | **Create a new empty folder** | Creates one empty folder under a parent you choose. |
 | **Clone a repository** | Downloads a repository into a new folder under a parent you choose. |
 
-**Open saved** brings a code folder you used before into this conversation. Home › Overview's **New code folder** does the same in a new chat. Choosing a folder on this computer needs the Row-Bot desktop app.
+**Open saved** brings a code folder you used before into this conversation. Home › Overview's **New code folder** does the same in a new chat.
+
+### From A Browser, Phone Or Another Computer
+
+The desktop app chooses folders with this computer's own folder picker. A browser, a phone or another computer signed in to Row-Bot has no picker for this computer, so the same steps (Add resource, and the **Use an existing folder** and **Clone a repository** cards in the chat) show **Row-Bot's workspace folder** instead (Settings › System › Workspace folder), one folder at a time: tap a folder to open it, use the path above the list to go back, and choose **Use …** for the folder shown. Only folders inside the workspace folder are listed, so put a project there (or clone it there) to work on it from another device.
+
+- There is no path to type. Row-Bot checks every folder it lists and every choice on the computer it runs on: anything outside the workspace folder, a link or Windows junction that leads out of it, or a hidden or Git-internal folder is refused.
+- **Clone from URL** clones a repository into the folder shown, with this computer's own Git sign-in.
+- Choosing a folder registers it exactly as the picker does: its files and Git history stay as they are.
+
+### Cloning Asks First
+
+A clone downloads from the internet, so it follows the conversation's **Approvals**: under **Ask** (and in a new conversation) Row-Bot shows where it downloads from and to, and clones when you confirm; **Auto** and **Hands-off** clone when you choose it; **Block** refuses.
 
 The conversation's details card lists the folder under **Working on**. Its **⋯** menu, or **Undo** on the card, unbinds it from the conversation; the files stay on disk.
 
@@ -67,10 +79,24 @@ An approved risky Custom Tool is a third case: it deliberately executes in Local
 
 For a host installation, start with Local mode on a disposable branch. Use Docker Sandbox when you want stronger isolation and the supported host runtime is available.
 
+### The Sandbox Network And Prepare Sandbox
+
+The Docker sandbox's network is **off** by default: commands there can't reach the internet, so they can't install packages either. Its image (`nikolaik/python-nodejs:python3.11-nodejs20`, Python and Node.js) has no pytest or project packages, so a project's first test run in the sandbox often can't start.
+
+- When you choose Docker mode and the image isn't on this computer yet, **Git › Advanced › Sandbox** offers **Download image** (about 570 MB from Docker Hub). Docker downloads it once; the sandbox network stays off.
+- When a test run in the sandbox can't start because pytest or the project's packages are missing, the chat says so and offers **Prepare sandbox**. It is also in **Git › Advanced › Sandbox**.
+- **Prepare sandbox** reads what the tests need from the project's own files: the test extra or dependency group in `pyproject.toml` and the project itself, `requirements*.txt`, or `package.json` (installed by its lockfile), plus pytest for a Python project that has none. It asks first and shows what it will run.
+- It turns the network on **for the install only**: the install runs in a separate, short-lived container of the sandbox's image, on the sandbox's copy of the folder. The sandbox's own network setting never changes. When the install finishes, fails or you press **Stop**, the install container is removed and the network is off again; the card says **Network off again** and **Details** records when it was on.
+- Python packages go into the sandbox's copy only (`.row-bot-sandbox`), Node packages into its `node_modules`; neither is copied to your real folder.
+- Row-Bot can prepare the sandbox itself when a test run fails this way. It asks by the conversation's **Approvals**, like any install: **Ask** asks, **Auto**'s reviewer may approve it when you clearly asked for the tests, **Hands-off** runs it, **Block** refuses.
+
+**Safety boundaries** in the Developer panel says whether the sandbox network is on and what Prepare sandbox does.
+
 ## Troubleshooting
 
 - If Row-Bot can't see your code, check that the folder is listed under **Working on** in the conversation's details card.
-- If choosing a folder does nothing, use the Row-Bot desktop app; a browser can't open folders on this computer.
+- If the folder you want isn't listed on a phone or in a browser, it isn't inside Row-Bot's workspace folder: move it there, clone it there, or choose it in the desktop app.
+- If tests in the Docker sandbox say pytest or a module isn't installed, use **Prepare sandbox**; if Docker isn't running, start Docker Desktop (or Docker) and choose **Check again**.
 - If an Agent folder assignment is rejected, confirm that the directory already exists and pass either that folder or an existing workspace ID, not both.
 - If a command asks for approval, read the exact command and folder before approving. Only read-only commands such as `git status` run without asking in **Ask** mode.
 - Undo on a **Created code folder** card in the chat removes the folder only while it is still empty; once files are added, it keeps them and says so.

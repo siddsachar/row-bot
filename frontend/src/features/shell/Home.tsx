@@ -25,6 +25,7 @@ import KnowledgeHome, {
 } from '../home/KnowledgeHome';
 import type { KnowledgeLifecycleAction } from '../home/KnowledgeReview';
 import MonitorHome from '../home/MonitorHome';
+import type { BackgroundProcessesIo } from '../home/BackgroundProcesses';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
 import { BuddyPortrait } from '../buddy/BuddySurface';
@@ -84,6 +85,18 @@ export default function Home({
   );
   const overlay = useOverlay();
   const navigate = useNavigate();
+  const processes = useMemo<BackgroundProcessesIo>(
+    () => ({
+      load: (conversation, signal) =>
+        controller.backgroundProcesses(conversation, signal),
+      output: (process, after, limit, signal) =>
+        controller.backgroundProcessOutput(process, after, limit, signal),
+      stop: (process) => controller.stopBackgroundProcess(process),
+      openConversation: (conversation) =>
+        navigate(`/conversations/${encodeURIComponent(conversation)}`),
+    }),
+    [controller, navigate],
+  );
   const [search, setSearch] = useSearchParams();
   const requestedTab = search.get('tab')?.toLowerCase() ?? '';
   const tab = homeTabs.includes(requestedTab) ? requestedTab : 'overview';
@@ -696,6 +709,7 @@ export default function Home({
                 onFixed={() => setMonitorReload((value) => value + 1)}
                 loadLogs={loadLogs}
                 loadTasks={identity ? loadTasks : undefined}
+                processes={identity ? processes : undefined}
               />
             ),
           },

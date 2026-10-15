@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "The person confirmed it in the app (their approval for this one).",
+  "properties": {
+    "confirmed": {
+      "const": true,
+      "title": "Confirmed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "confirmed"
+  ],
+  "title": "SandboxStartPayload",
+  "type": "object"
+}

@@ -1860,7 +1860,9 @@ def run_capsule_command(
     approval_mode: ApprovalMode,
     *,
     require_enabled: bool = True,
+    confirmed: bool = False,
 ) -> CommandResult:
+    """Run one of a Custom Tool's own commands. ``confirmed``: the person approved this exact command."""
     capsule = next((item for item in list_capsules() if item.id == capsule_id), None)
     if capsule is None:
         raise KeyError(f"Custom Tool not found: {capsule_id}")
@@ -1870,7 +1872,7 @@ def run_capsule_command(
     guard = _row_bot_env_guard_result(command, root)
     if guard:
         return guard
-    return run_workspace_command(str(root), command, approval_mode, reviewed_tool=True)
+    return run_workspace_command(str(root), command, approval_mode, reviewed_tool=True, confirmed=confirmed)
 
 
 class _CapsuleCommandInput(BaseModel):
@@ -1959,11 +1961,13 @@ def _run_promoted_capsule_command(capsule: ToolCapsule, command: dict[str, Any],
     if not command_text:
         return "Custom Tool command is empty."
     command_text = substitute_custom_tool_query(command_text, query)
+    # The person reviewed this exact command when they offered the tool in chats.
     result = run_capsule_command(
         capsule.id,
         command_text,
-        "allow_all",
+        "approve",
         require_enabled=False,
+        confirmed=True,
     )
     return _result_to_text(result)
 

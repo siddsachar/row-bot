@@ -411,6 +411,7 @@ def _conversation(chat_id: str) -> ch_conversations.ChannelConversation:
         default_thread_id=_make_thread_id(chat_id),
         name="📲 WhatsApp conversation",
         target=str(chat_id),
+        shared=str(chat_id).endswith("@g.us"),  # A group chat.
     )
 
 

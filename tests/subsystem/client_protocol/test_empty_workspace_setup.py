@@ -90,7 +90,7 @@ def test_clone_setup_replays_without_network_and_binds_one_workspace(workspace_a
     monkeypatch.setattr(client_clone.subprocess, "run", fake_run)
     command_id, key = str(uuid4()), str(uuid4())
     payload = {"kind": "workspace", "intent": "create", "folder_grant": _grant(client, headers),
-               "clone_workspace": {"repo_url": source}}
+               "clone_workspace": {"repo_url": source}, "confirm_network": True}
     response = _command(client, headers, payload, command_id=command_id, key=key)
     from row_bot.runtime import admissions
     assert response.status_code == 200, (response.text, admissions.receipt(service.instance_id, command_id))
@@ -124,7 +124,7 @@ def test_interrupted_clone_keeps_partial_and_continuation_never_restarts(workspa
     monkeypatch.setattr(client_clone.subprocess, "run", fake_run)
     command_id = str(uuid4())
     first = _public(_command(client, headers, {"kind": "workspace", "intent": "create",
-        "folder_grant": _grant(client, headers), "clone_workspace": {"repo_url": source}},
+        "folder_grant": _grant(client, headers), "clone_workspace": {"repo_url": source}, "confirm_network": True},
         command_id=command_id), parent)
     assert first["status"] == "partial" and first["code"] == "workspace_clone_unconfirmed"
     assert first["confirmed_stages"] == ["created"]
@@ -140,7 +140,7 @@ def test_clone_rejects_local_or_credential_source_before_creating_child(workspac
     service, storage, parent, client, headers, _, _ = workspace_api
     for source in ("file:///private/repo", "https://user:token@example.test/repo.git"):
         response = _command(client, headers, {"kind": "workspace", "intent": "create",
-            "folder_grant": _grant(client, headers), "clone_workspace": {"repo_url": source}})
+            "folder_grant": _grant(client, headers), "clone_workspace": {"repo_url": source}, "confirm_network": True})
         assert response.status_code in {409, 422}, response.text
         assert response.json()["code"] == "clone_source_invalid"
     assert list(parent.iterdir()) == []
