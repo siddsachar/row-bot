@@ -49,7 +49,13 @@ DETERMINISTIC = "not live_provider and not e2e"
 APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 
 # One PR browser pass: boot, first run, shell, overlays, a turn's lifecycle, chat,
-# providers, restart recovery, the desktop Buddy window and the UI primitives.
+# providers, restart recovery, the desktop Buddy window, the UI primitives and the
+# approval levels (Hands-off's one-time dialog, the reviewer's notes), background
+# processes (start, view output, stop), Row-Bot's browser (a local address asked
+# for once per chat, screenshots, page sizes, recordings) and video edits and many
+# images at once (the ffmpeg download asked for once, edits with Stop, contact sheets),
+# files sent to the person's devices (the download on another device, its notice) or a chat app,
+# and a workflow's steps as a flowchart (branches, loops, a broken branch, a card opening its step).
 BROWSER_SMOKE_SPECS = (
     "bootstrap",
     "setup-first-run",
@@ -62,6 +68,15 @@ BROWSER_SMOKE_SPECS = (
     "buddy-overlay",
     "polish-foundation",
     "apps-and-skills",
+    "conversation-approvals",
+    "conversation-processes",
+    "conversation-browser",
+    "conversation-media",
+    "conversation-delivery",
+    "workspace-folders",
+    "sandbox-prepare",
+    "workflow-flowchart",
+    "apps-sign-in-elsewhere",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
@@ -86,7 +101,7 @@ BROWSER_PHONE_SPECS = (
     "capability-surfaces", "conversation-layout", "message-content", "overlays",
     "polish-foundation", "polish-visual", "settings-models", "settings-providers",
     "settings-routes", "settings", "shell", "sidebar", "terminal", "theme",
-    "unified-panels", "unified-quality", "visual-alignment",
+    "unified-panels", "unified-quality", "visual-alignment", "apps-sign-in-elsewhere",
 )
 # Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
 BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")

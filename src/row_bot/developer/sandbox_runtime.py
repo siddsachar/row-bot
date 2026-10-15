@@ -75,6 +75,8 @@ _TEXT_LIMIT = 1_000_000
 _CARRY_TEXT_LIMIT = 512 * 1024
 _COPY_SKIP_DIRS = {
     ".row-bot-edit-recovery",
+    # The packages Prepare sandbox installs (F18): only ever in the sandbox's copy.
+    ".row-bot-sandbox",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
@@ -88,6 +90,18 @@ _COPY_SKIP_DIRS = {
     "venv",
 }
 _SNAPSHOT_SKIP_DIRS = _COPY_SKIP_DIRS | {".git", ".hg", ".svn"}
+# Every sandbox command sees the Python packages Prepare sandbox installed (F18).
+SANDBOX_ENV = {"PYTHONUSERBASE": "/workspace/.row-bot-sandbox/python"}
+
+
+def sandbox_env_args() -> list[str]:
+    """``-e NAME=value`` for each of the sandbox's own variables, for docker run and exec."""
+    args: list[str] = []
+    for name, value in SANDBOX_ENV.items():
+        args.extend(["-e", f"{name}={value}"])
+    return args
+
+
 OFFICIAL_CONTAINER_SANDBOX_UNAVAILABLE = (
     "Developer Docker Sandbox is not available inside the Row-Bot application "
     "container. Run Row-Bot on the host to use Docker Sandbox, or use Local mode "
@@ -859,7 +873,7 @@ def start_docker_sandbox_process(
     log_path = f"/tmp/{log_name}"
     script = f"nohup /bin/sh -lc {shlex.quote(command)} > {shlex.quote(log_path)} 2>&1 & echo $!"
     proc = subprocess.run(
-        [probe.binary, "exec", container_name, "/bin/sh", "-lc", script],
+        [probe.binary, "exec", *sandbox_env_args(), container_name, "/bin/sh", "-lc", script],
         capture_output=True,
         text=True,
         timeout=30,
@@ -919,6 +933,7 @@ def _docker_create_args(binary: str, workspace: DeveloperWorkspace, shadow: path
         f"{str(shadow)}:/workspace",
         "-w",
         "/workspace",
+        *sandbox_env_args(),
     ]
     if workspace.sandbox_network == "off":
         args.extend(["--network", "none"])
@@ -931,7 +946,7 @@ def _docker_create_args(binary: str, workspace: DeveloperWorkspace, shadow: path
 
 
 def _docker_exec_args(binary: str, container_name: str, command: str) -> list[str]:
-    return [binary, "exec", container_name, "/bin/sh", "-lc", command]
+    return [binary, "exec", *sandbox_env_args(), container_name, "/bin/sh", "-lc", command]
 
 
 def _docker_image_exists(binary: str, image: str) -> bool:

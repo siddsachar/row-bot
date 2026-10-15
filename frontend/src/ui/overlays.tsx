@@ -1,6 +1,8 @@
 import {
   createContext,
+  useCallback,
   useContext,
+  useMemo,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -12,6 +14,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Toast from '@radix-ui/react-toast';
 import { PanelLeftClose, X } from 'lucide-react';
 import { Button, IconButton } from './primitives';
+import { DialogFooterContext, type FooterSlot } from './dialog-footer';
 
 type Overlay = {
   key?: string;
@@ -129,6 +132,18 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const [task, setTask] = useState<Task | null>(null);
   const [confirmation, setConfirmation] = useState<Task | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
+  // Content that put its own actions in the footer (useDialogFooter): they
+  // render into footerHost, and the footer's Close steps aside meanwhile.
+  const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
+  const [footerClaims, setFooterClaims] = useState(0);
+  const claimFooter = useCallback(() => {
+    setFooterClaims((count) => count + 1);
+    return () => setFooterClaims((count) => Math.max(0, count - 1));
+  }, []);
+  const footerSlot = useMemo<FooterSlot>(
+    () => ({ host: footerHost, claim: claimFooter }),
+    [footerHost, claimFooter],
+  );
   // The notices as last set, so an ending runs its callback exactly once.
   const live = useRef<Notice[]>([]);
   const nextNotice = useRef(1);
@@ -319,12 +334,16 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                   hidden={Boolean(confirmation)}
                   inert={Boolean(confirmation)}
                 >
-                  {task?.content}
+                  <DialogFooterContext.Provider value={footerSlot}>
+                    {task?.content}
+                  </DialogFooterContext.Provider>
                 </div>
                 {confirmation && (
                   <div className="dialog-body">{confirmation.content}</div>
                 )}
-                {(confirmation || (task?.kind !== 'sheet' && !palette)) && (
+                {(confirmation ||
+                  (!palette &&
+                    (footerClaims > 0 || task?.kind !== 'sheet'))) && (
                   <footer className="dialog-footer">
                     {confirmation ? (
                       <>
@@ -342,7 +361,15 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                         </Button>
                       </>
                     ) : (
-                      <Button onClick={() => close()}>Close</Button>
+                      <>
+                        {footerClaims === 0 && (
+                          <Button onClick={() => close()}>Close</Button>
+                        )}
+                        <div
+                          ref={setFooterHost}
+                          className="dialog-footer-slot"
+                        />
+                      </>
                     )}
                   </footer>
                 )}

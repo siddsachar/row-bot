@@ -1,4 +1,36 @@
 {
+  "$defs": {
+    "PlanDeviceCode": {
+      "additionalProperties": false,
+      "description": "A code to enter on the service's own page, on any device (RFC 8628).",
+      "properties": {
+        "user_code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "User Code",
+          "type": "string"
+        },
+        "verification_uri": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Verification Uri",
+          "type": "string"
+        },
+        "verification_uri_complete": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Verification Uri Complete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_code",
+        "verification_uri"
+      ],
+      "title": "PlanDeviceCode",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "authorization_url": {
@@ -14,6 +46,42 @@
       "default": null,
       "title": "Authorization Url"
     },
+    "delivery": {
+      "default": "this_computer",
+      "enum": [
+        "this_computer",
+        "public",
+        "paste",
+        "device"
+      ],
+      "title": "Delivery",
+      "type": "string"
+    },
+    "device": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanDeviceCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "expires_in": {
+      "anyOf": [
+        {
+          "maximum": 3600,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires In"
+    },
     "method": {
       "enum": [
         "oauth_dcr",
@@ -24,6 +92,11 @@
       ],
       "title": "Method",
       "type": "string"
+    },
+    "received": {
+      "default": false,
+      "title": "Received",
+      "type": "boolean"
     }
   },
   "required": [

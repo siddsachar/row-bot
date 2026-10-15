@@ -20,6 +20,7 @@ const mock = vi.hoisted(() => ({
     intent: vi.fn(),
     library: vi.fn(),
     selectConversation: vi.fn(),
+    workspaceFolders: vi.fn(),
   },
   platform: { selectFolder: vi.fn(), discover: vi.fn() },
   navigate: vi.fn(),
@@ -425,12 +426,22 @@ it('clones only after a URL and local parent are chosen, with one command', asyn
   expect(clone).toBeEnabled();
   expect(mock.controller.intent).not.toHaveBeenCalled();
   await act(async () => fireEvent.click(clone));
+  // A new conversation starts at Ask: the download is confirmed first.
+  const confirm = screen.getByRole('group', { name: 'Confirm the download' });
+  expect(confirm).toHaveTextContent(
+    'Clone demo? Row-Bot downloads it from example.test into the folder you chose',
+  );
+  expect(mock.controller.intent).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Clone' })),
+  );
   expect(mock.controller.intent).toHaveBeenCalledTimes(1);
   expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
     kind: 'workspace',
     intent: 'create',
     folder_grant: 'clone-parent-grant',
     clone_workspace: { repo_url: 'https://example.test/team/demo.git' },
+    confirm_network: true,
   });
   expect(
     sessionStorage.getItem(
@@ -666,32 +677,119 @@ it('names a new draft from the request, or leaves the name to Row-Bot', async ()
 });
 
 const FOLDER_PICKS = ['existing_folder', 'empty_folder', 'clone_repository'];
-const DESKTOP_NOTE =
-  'Choosing a folder on this computer needs the Row-Bot desktop app. In the browser, start a new draft or ask Row-Bot in the chat.';
+const crumb = (name: string, path: string) => ({ name, path });
+const ROOT_PAGES: Record<string, unknown> = {
+  '': {
+    path: '',
+    name: 'Row-Bot',
+    crumbs: [crumb('Row-Bot', '')],
+    folders: [{ name: 'tide-app', path: 'tide-app', is_git: true }],
+    truncated: false,
+    is_root: true,
+  },
+  'tide-app': {
+    path: 'tide-app',
+    name: 'tide-app',
+    crumbs: [crumb('Row-Bot', ''), crumb('tide-app', 'tide-app')],
+    folders: [],
+    truncated: false,
+    is_root: false,
+  },
+};
 
-it('says before any pick that folders on this computer need the desktop app', async () => {
+it('without a picker, an existing folder is chosen in Row-Bot’s workspace folder (F19)', async () => {
   mock.platform.discover.mockResolvedValue(discovered('browser'));
-  setupSessions.update(setupSessions.scope(mock.handshake.instance_id, null), {
-    kind: 'workspace',
-    workspaceMode: 'existing_folder',
+  mock.controller.workspaceFolders.mockImplementation(
+    async (path: string) => ROOT_PAGES[path],
+  );
+  mock.controller.workspaceFor.mockResolvedValue({
+    revision: '4',
+    controls: { approval_mode: 'approve' },
   });
-  await act(async () => view(null));
+  mock.controller.intent.mockResolvedValue({
+    ...result('register-1'),
+    resource_kind: 'workspace',
+  });
+  setupSessions.update(
+    setupSessions.scope(mock.handshake.instance_id, 'conversation-a'),
+    { kind: 'workspace', workspaceMode: 'existing_folder' },
+  );
+  await act(async () => view('conversation-a'));
   const setup = screen.getByRole('combobox', { name: 'Folder setup' });
-  // A saved choice that needs a pick falls back to a new draft.
-  expect(setup).toHaveValue('draft_folder');
+  // Every folder setup works without the desktop app now.
+  expect(setup).toHaveValue('existing_folder');
   for (const value of FOLDER_PICKS)
     expect(
       setup.querySelector(`option[value="${value}"]`) as HTMLOptionElement,
-    ).toBeDisabled();
-  expect(screen.getByText(DESKTOP_NOTE)).toBeVisible();
-  expect(setup).toHaveAccessibleDescription(DESKTOP_NOTE);
-  expect(
-    screen.queryByRole('button', { name: /Choose (existing|parent) folder/ }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.getByRole('button', { name: 'Create draft code folder' }),
-  ).toBeEnabled();
+    ).toBeEnabled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose existing folder' }),
+    ),
+  );
   expect(mock.platform.selectFolder).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Use Row-Bot' })).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'tide-app, Git repository' }),
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Use tide-app' })),
+  );
+  expect(screen.getByText('Selected: Row-Bot › tide-app')).toBeVisible();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Register folder' })),
+  );
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'resource.setup',
+    { kind: 'workspace', intent: 'create', root_folder: 'tide-app' },
+    '4',
+    expect.any(String),
+  );
+});
+
+it('without a picker, a clone goes into the folder chosen there after the download is confirmed', async () => {
+  mock.platform.discover.mockResolvedValue(discovered('browser'));
+  mock.controller.workspaceFolders.mockImplementation(
+    async (path: string) => ROOT_PAGES[path],
+  );
+  await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Folder setup'), {
+      target: { value: 'clone_repository' },
+    }),
+  );
+  fireEvent.change(screen.getByLabelText('Repository URL'), {
+    target: { value: 'git@github.com:team/demo.git' },
+  });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose parent folder' }),
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Use Row-Bot' })),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' })),
+  );
+  expect(
+    screen.getByRole('group', { name: 'Confirm the download' }),
+  ).toHaveTextContent(
+    "Clone demo? Row-Bot downloads it from github.com into Row-Bot, with this computer's own Git sign-in.",
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Clone' })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2]).toEqual({
+    kind: 'workspace',
+    intent: 'create',
+    root_folder: '',
+    clone_workspace: { repo_url: 'git@github.com:team/demo.git' },
+    confirm_network: true,
+  });
 });
 
 it('keeps every folder setup in the desktop app', async () => {
@@ -703,12 +801,12 @@ it('keeps every folder setup in the desktop app', async () => {
     expect(
       setup.querySelector(`option[value="${value}"]`) as HTMLOptionElement,
     ).toBeEnabled();
-  expect(screen.queryByText(DESKTOP_NOTE)).not.toBeInTheDocument();
   fireEvent.change(setup, { target: { value: 'existing_folder' } });
   expect(setup).toHaveValue('existing_folder');
   expect(
     screen.getByRole('button', { name: 'Choose existing folder' }),
   ).toBeEnabled();
+  expect(mock.controller.workspaceFolders).not.toHaveBeenCalled();
 });
 
 it('protects an unresolved setup receipt from a new Home starter', async () => {

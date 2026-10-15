@@ -123,6 +123,7 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
 export const test = base.extend<{
   evidence: BrowserEvidence;
   nativeNetwork: boolean;
+  localSinks: string[];
 }>({
   // WebKit reports routed, same-origin requests cancelled by an intentional
   // document navigation as access-control page exceptions. Exercise its
@@ -132,8 +133,16 @@ export const test = base.extend<{
     async ({ browserName }, provide) => provide(browserName === 'webkit'),
     { option: true },
   ],
+  // Origins a test deliberately sends a browser to and answers itself with a
+  // route (an address that doesn't load on another device, F27): they are
+  // fulfilled locally, never fetched, so they aren't external requests.
+  localSinks: [[], { option: true }],
   evidence: [
-    async ({ context, page, baseURL, nativeNetwork }, use, testInfo) => {
+    async (
+      { context, page, baseURL, nativeNetwork, localSinks },
+      use,
+      testInfo,
+    ) => {
       const evidence: BrowserEvidence = {
         networkMode: nativeNetwork
           ? 'native-with-verified-csp'
@@ -160,7 +169,8 @@ export const test = base.extend<{
           const url = new URL(request.url());
           if (
             ['http:', 'https:'].includes(url.protocol) &&
-            url.origin !== origin
+            url.origin !== origin &&
+            !localSinks.includes(url.origin)
           )
             evidence.blockedExternal.push(publicPath(url.href));
         });

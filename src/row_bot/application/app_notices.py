@@ -51,9 +51,14 @@ class Notice:
     startup: bool
     count: int
     at: str
+    # The conversation it is about, when there is one to open (a file Row-Bot sent to the devices).
+    conversation_id: str = ""
 
     def view(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        if not data["conversation_id"]:
+            del data["conversation_id"]
+        return data
 
 
 class NoticeJournal:
@@ -68,18 +73,20 @@ class NoticeJournal:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def post(self, *, title: str, message: str, level: Level = "info", source: str = "app",
-             requested: bool = False, startup: bool = False) -> Notice:
+             requested: bool = False, startup: bool = False, conversation_id: str = "") -> Notice:
         if level not in ("info", "warning", "error"):
             level = "info"
         title = _clean(title, _TITLE_LIMIT) or "Row-Bot"
         message = _clean(message, _MESSAGE_LIMIT)
         source = _clean(source, _SOURCE_LIMIT) or "app"
+        conversation_id = str(conversation_id or "").strip()[:256]
         now = self._clock()
-        key = (level, source, title, message)
+        key = (level, source, title, message, conversation_id)
         with self._lock:
             for index in range(len(self._notices) - 1, -1, -1):
                 existing = self._notices[index]
-                if (existing.level, existing.source, existing.title, existing.message) != key:
+                if (existing.level, existing.source, existing.title, existing.message,
+                        existing.conversation_id) != key:
                     continue
                 age = now.timestamp() - datetime.fromisoformat(existing.at).timestamp()
                 if age > COALESCE_SECONDS:
@@ -91,7 +98,7 @@ class NoticeJournal:
                 self._notices[index] = folded
                 return folded
             notice = Notice(self._next, level, title, message, source, bool(requested), bool(startup), 1,
-                            now.isoformat())
+                            now.isoformat(), conversation_id)
             self._next += 1
             self._notices.append(notice)
             if startup:

@@ -6,13 +6,15 @@ import {
   screen,
   within,
 } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { TaskGraphFields, TaskGraphSnapshot } from '../../api/types';
 import TaskGraphEditor, { type TaskGraphEditorProps } from './TaskGraphEditor';
 import { TaskEditSession } from './task-edit-sessions';
 
 afterEach(cleanup);
+// The list/flowchart choice is remembered on this device; each test starts fresh.
+beforeEach(() => localStorage.clear());
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -222,7 +224,7 @@ it('preserves zero approval timeout and explicit decline branch', async () => {
   const callbacks = props();
   render(<TaskGraphEditor {...callbacks} />);
   await screen.findByLabelText('Prompt');
-  fireEvent.click(screen.getByRole('button', { name: '2. Approval' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Step 2 · Approval' }));
   expect(
     screen.getByLabelText('Approval timeout (minutes, 0 means no timeout)'),
   ).toHaveValue(0);
@@ -357,9 +359,9 @@ it('bounds the editing window to 100 steps without hiding saved steps', async ()
   });
   render(<TaskGraphEditor {...callbacks} />);
   await screen.findByLabelText('Prompt');
-  expect(screen.getAllByRole('listitem')).toHaveLength(100);
+  expect(flowchartSteps()).toHaveLength(100);
   expect(screen.getByRole('button', { name: 'Add step' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: '100. Prompt' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Step 100 · Prompt' }));
   fireEvent.change(screen.getByLabelText('Prompt'), {
     target: { value: 'Last step edited' },
   });
@@ -371,6 +373,19 @@ it('bounds the editing window to 100 steps without hiding saved steps', async ()
   expect(saved[99].fields.prompt).toBe('Last step edited');
 });
 
+function showList() {
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Show steps as' })).getByRole(
+      'radio',
+      { name: 'List' },
+    ),
+  );
+}
+function flowchartSteps() {
+  return within(
+    screen.getByRole('group', { name: 'Workflow flowchart' }),
+  ).getAllByRole('button');
+}
 function stepButtons() {
   return within(
     screen.getByRole('list', { name: 'Workflow step order' }),
@@ -397,6 +412,7 @@ it('lists one selectable button per step with its kind and a one-line summary, n
   });
   render(<TaskGraphEditor {...callbacks} />);
   await screen.findByLabelText('Prompt');
+  showList();
   const list = screen.getByRole('list', { name: 'Workflow step order' });
   const rows = within(list).getAllByRole('listitem');
   expect(rows).toHaveLength(2);
@@ -422,6 +438,7 @@ it('names an unsaved step "new step" and selects it when added', async () => {
   const callbacks = props();
   render(<TaskGraphEditor {...callbacks} />);
   await screen.findByLabelText('Prompt');
+  showList();
   fireEvent.change(screen.getByLabelText('New step type'), {
     target: { value: 'notify' },
   });
@@ -447,6 +464,7 @@ it('moves and removes the selected step with its icon buttons', async () => {
   const callbacks = props();
   render(<TaskGraphEditor {...callbacks} />);
   await screen.findByLabelText('Prompt');
+  showList();
   expect(screen.getByRole('button', { name: 'Move step up' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Move step down' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: '2. Approval' }));
@@ -469,6 +487,7 @@ it('moves and removes the selected step with its icon buttons', async () => {
 it('reorders steps by dragging one row onto another', async () => {
   render(<TaskGraphEditor {...props()} />);
   await screen.findByLabelText('Prompt');
+  showList();
   const [first, second] = within(
     screen.getByRole('list', { name: 'Workflow step order' }),
   ).getAllByRole('listitem');
@@ -539,4 +558,234 @@ it('offers no Editor choice or task settings link unless the host provides them'
   expect(
     screen.queryByRole('button', { name: 'Schedule and task settings' }),
   ).not.toBeInTheDocument();
+});
+
+function branching(): TaskGraphSnapshot {
+  const base = snapshot().steps[0];
+  return snapshot({
+    steps: [
+      {
+        ...base,
+        id: 'cond_a1',
+        type: 'condition',
+        fields: {
+          ...fields,
+          prompt: null,
+          condition: 'contains:ready',
+          if_true: 'tell_c3',
+          if_false: 'redo_b2',
+        },
+      },
+      {
+        ...base,
+        id: 'redo_b2',
+        fields: { ...fields, prompt: 'Fix the draft', next: 'end' },
+      },
+      {
+        ...base,
+        id: 'tell_c3',
+        type: 'notify',
+        fields: {
+          ...fields,
+          prompt: null,
+          message: 'Ready to send',
+          channel: 'desktop',
+          next: 'end',
+        },
+      },
+    ],
+  });
+}
+
+it('shows the steps as a flowchart with a condition’s two labelled branches', async () => {
+  render(
+    <TaskGraphEditor
+      {...props({ load: vi.fn().mockResolvedValue(branching()) })}
+    />,
+  );
+  await screen.findByLabelText(/Condition expression/);
+  const chart = screen.getByRole('group', { name: 'Workflow flowchart' });
+  expect(
+    within(screen.getByRole('radiogroup', { name: 'Show steps as' })).getByRole(
+      'radio',
+      { name: 'Flowchart' },
+    ),
+  ).toBeChecked();
+  expect(
+    screen.queryByRole('list', { name: 'Workflow step order' }),
+  ).not.toBeInTheDocument();
+  expect(within(chart).getByText('yes')).toBeInTheDocument();
+  expect(within(chart).getByText('no')).toBeInTheDocument();
+  expect(within(chart).getByText('Start')).toBeInTheDocument();
+  const condition = within(chart).getByRole('button', {
+    name: 'Step 1 · Condition',
+  });
+  expect(condition).toHaveAttribute('aria-pressed', 'true');
+  expect(condition).toHaveAccessibleDescription(
+    'contains:ready. When true, goes to step 3 · Notification. When false, goes to step 2 · Prompt.',
+  );
+  expect(
+    within(chart).getByRole('button', { name: 'Step 3 · Notification' }),
+  ).toHaveAccessibleDescription(
+    'Ready to send. Then goes to the end of the workflow.',
+  );
+  // Saved step ids never show.
+  expect(chart).not.toHaveTextContent(/cond_a1|redo_b2|tell_c3/);
+});
+
+it('opens a step’s form from its card and highlights the card', async () => {
+  const user = userEvent.setup();
+  const callbacks = props({ load: vi.fn().mockResolvedValue(branching()) });
+  render(<TaskGraphEditor {...callbacks} />);
+  await screen.findByLabelText(/Condition expression/);
+  const card = screen.getByRole('button', { name: 'Step 2 · Prompt' });
+  await user.click(card);
+  expect(card).toHaveAttribute('aria-pressed', 'true');
+  expect(
+    screen.getByRole('button', { name: 'Step 1 · Condition' }),
+  ).toHaveAttribute('aria-pressed', 'false');
+  expect(
+    screen.getByRole('group', { name: 'Step 2 · Prompt' }),
+  ).toBeInTheDocument();
+  await user.clear(screen.getByLabelText('Prompt'));
+  await user.type(screen.getByLabelText('Prompt'), 'Rewrite it');
+  expect(card).toHaveAccessibleDescription(
+    'Rewrite it. Then goes to the end of the workflow.',
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save graph' })),
+  );
+  expect(vi.mocked(callbacks.save).mock.calls[0][2][1].fields.prompt).toBe(
+    'Rewrite it',
+  );
+});
+
+it('tabs through the cards in step order and follows edges with the arrow keys', async () => {
+  const user = userEvent.setup();
+  render(
+    <TaskGraphEditor
+      {...props({ load: vi.fn().mockResolvedValue(branching()) })}
+    />,
+  );
+  await screen.findByLabelText(/Condition expression/);
+  const [first, second, third] = flowchartSteps();
+  // Step 3 is the "yes" branch, drawn to the left of step 2; Tab still
+  // follows the step order.
+  expect(
+    flowchartSteps().map((card) => card.getAttribute('aria-label')),
+  ).toEqual(['Step 1 · Condition', 'Step 2 · Prompt', 'Step 3 · Notification']);
+  first.focus();
+  await user.tab();
+  expect(second).toHaveFocus();
+  await user.tab();
+  expect(third).toHaveFocus();
+  first.focus();
+  await user.keyboard('{ArrowDown}');
+  expect(third).toHaveFocus();
+  await user.keyboard('{ArrowRight}');
+  expect(second).toHaveFocus();
+  await user.keyboard('{ArrowUp}');
+  expect(first).toHaveFocus();
+  second.focus();
+  await user.keyboard('{Enter}');
+  expect(second).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByLabelText('Prompt')).toHaveValue('Fix the draft');
+});
+
+it('remembers the list or flowchart choice on this device', async () => {
+  const first = render(<TaskGraphEditor {...props()} />);
+  await screen.findByLabelText('Prompt');
+  showList();
+  expect(
+    screen.getByRole('list', { name: 'Workflow step order' }),
+  ).toBeInTheDocument();
+  first.unmount();
+  render(<TaskGraphEditor {...props()} />);
+  await screen.findByLabelText('Prompt');
+  expect(
+    within(screen.getByRole('radiogroup', { name: 'Show steps as' })).getByRole(
+      'radio',
+      { name: 'List' },
+    ),
+  ).toBeChecked();
+  expect(
+    screen.queryByRole('group', { name: 'Workflow flowchart' }),
+  ).not.toBeInTheDocument();
+});
+
+it('starts a phone on the list, with the flowchart one tap away', async () => {
+  const desktop = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    ...desktop(query),
+    matches: query === '(max-width: 640px)',
+  })) as typeof window.matchMedia;
+  try {
+    render(<TaskGraphEditor {...props()} />);
+    await screen.findByLabelText('Prompt');
+    expect(
+      screen.getByRole('list', { name: 'Workflow step order' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Flowchart' }));
+    expect(
+      screen.getByRole('group', { name: 'Workflow flowchart' }),
+    ).toBeInTheDocument();
+  } finally {
+    window.matchMedia = desktop;
+  }
+});
+
+it('shows a step’s problem on its card, its row and its form in plain words', async () => {
+  const removed = snapshot({
+    steps: [
+      snapshot().steps[0],
+      {
+        ...snapshot().steps[1],
+        fields: { ...snapshot().steps[1].fields, if_denied: 'prompt_9' },
+      },
+    ],
+  });
+  render(
+    <TaskGraphEditor
+      {...props({ load: vi.fn().mockResolvedValue(removed) })}
+    />,
+  );
+  await screen.findByLabelText('Prompt');
+  const problem =
+    'When denied goes to a step that was removed. Choose another.';
+  expect(screen.getByText('1 step needs a fix')).toBeInTheDocument();
+  const card = screen.getByRole('button', { name: 'Step 2 · Approval' });
+  // The card says it in a few words; its description and form say it whole.
+  expect(within(card).getByText('Goes to a removed step')).toBeVisible();
+  expect(card).toHaveAccessibleDescription(
+    expect.stringContaining(`Problem: ${problem}`),
+  );
+  fireEvent.click(card);
+  const form = screen.getByRole('group', { name: 'Step 2 · Approval' });
+  expect(within(form).getByText(problem)).toBeInTheDocument();
+  const denied = screen.getByLabelText('When denied') as HTMLSelectElement;
+  expect(denied.selectedOptions[0].textContent).toBe('A removed step');
+  expect(document.body).not.toHaveTextContent('prompt_9');
+  showList();
+  const list = screen.getByRole('list', { name: 'Workflow step order' });
+  expect(within(list).getByText(problem)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('When denied'), {
+    target: { value: 'end' },
+  });
+  expect(within(list).queryByText(problem)).not.toBeInTheDocument();
+  expect(screen.queryByText('1 step needs a fix')).not.toBeInTheDocument();
+  expect(screen.queryByText(problem)).not.toBeInTheDocument();
+});
+
+it('never offers to continue after a denial, which stops the run', async () => {
+  render(<TaskGraphEditor {...props()} />);
+  await screen.findByLabelText('Prompt');
+  fireEvent.click(screen.getByRole('button', { name: 'Step 2 · Approval' }));
+  const approved = screen.getByLabelText('When approved') as HTMLSelectElement;
+  const denied = screen.getByLabelText('When denied') as HTMLSelectElement;
+  expect(Array.from(approved.options, (option) => option.text)).toContain(
+    'Continue to the next step',
+  );
+  expect(Array.from(denied.options, (option) => option.text)).not.toContain(
+    'Continue to the next step',
+  );
 });

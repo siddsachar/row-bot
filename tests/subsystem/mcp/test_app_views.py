@@ -169,13 +169,15 @@ def test_a_tool_only_its_view_may_call_is_never_given_to_the_agent(app, monkeypa
 
 
 @pytest.mark.parametrize(("mode", "tool", "full_access", "expected"), [
-    ("approve", "update_counter", False, "ask"), ("allow_all", "update_counter", False, "ask"),
+    ("approve", "update_counter", False, "ask"), ("auto", "update_counter", False, "ask"),
+    ("full", "update_counter", False, "run"), ("full", "delete_counter", True, "run"),
     ("block", "update_counter", False, "refuse"), ("approve", "update_counter", True, "run"),
-    ("allow_all", "update_counter", True, "run"), ("allow_all", "delete_counter", True, "ask"),
+    ("auto", "update_counter", True, "run"), ("auto", "delete_counter", True, "ask"),
     ("approve", "delete_counter", False, "ask"), ("block", "delete_counter", True, "refuse")])
 def test_a_call_from_a_view_is_gated_as_any_call_is(app, mode, tool, full_access, expected):
-    """Destructive, high-impact and unknown tools ask in every mode but Block; a routine change asks unless the
-    app's access lets it run (Full access), whatever the chat's approval mode: Allow all never broadens an app."""
+    """Destructive, high-impact and unknown tools ask in Ask and Auto (a view's call has no request of the
+    person's for the reviewer to judge), run under Hands-off and are refused in Block; a routine change asks
+    unless the app's access lets it run (Full access)."""
     if full_access:
         app.cfg["tools"]["run_without_asking"] = ["update_counter", "delete_counter"]
     runtime._sync_catalog_from_config()
@@ -197,23 +199,24 @@ def test_a_tool_recorded_as_always_asking_asks_whatever_its_hints_and_access_say
         runtime._sync_catalog_from_config()  # Read again as saved: still the same.
         info = runtime.tool_info("Broker", "lookup")
         assert info.enabled and info.effect == "read_only" and info.requires_approval
-        assert [views.gate(info, mode) for mode in ("approve", "allow_all", "block")] == ["ask", "ask", "refuse"]
+        assert [views.gate(info, mode) for mode in ("approve", "auto", "full", "block")] == [
+            "ask", "ask", "run", "refuse"]
         assert "mcp_broker_lookup" in runtime.get_destructive_tool_names()
     finally:
         with runtime._runtime_lock:
             runtime._catalog.pop("Broker", None)
 
 
-def test_allow_all_never_runs_a_routine_change_the_apps_access_asks_about(app, monkeypatch):
-    """§3: a routine change asks unless the person chose Full access (or let that tool run): the chat's Allow
-    all never broadens an app. Under Full access the same change runs without asking."""
+def test_auto_never_runs_a_routine_change_the_apps_access_asks_about(app, monkeypatch):
+    """§3: a routine change asks unless the person chose Full access (or let that tool run): the chat's Auto
+    never broadens an app. Under Full access the same change runs without asking."""
     asked = []
 
     async def ask(record, info, runtime_name, arguments):
         asked.append(runtime_name)
         return False
     monkeypatch.setattr(views, "_ask", ask)
-    app.mode["value"] = "allow_all"
+    app.mode["value"] = "auto"
     render_id = views.render("chat-1", "call-1")["render_id"]
     with pytest.raises(views.ViewError, match="view_tool_denied"):
         call(render_id, "update_counter", {"by": 1})  # Ask before changes, the default.
@@ -303,9 +306,10 @@ def test_a_look_alike_tool_name_never_shows_another_apps_identity(app, monkeypat
 
 
 def test_a_view_cannot_use_an_app_this_chat_has_switched_off(app):
+    """A hard limit no approval level changes: not even Hands-off uses an app switched off in the chat."""
     render_id = views.render("chat-1", "call-1")["render_id"]
     app.off.add("mcp:counter")
-    app.mode["value"] = "allow_all"
+    app.mode["value"] = "full"
     with pytest.raises(views.ViewError, match="view_tool_refused"):
         call(render_id, "update_counter", {})
     with pytest.raises(views.ViewError, match="views_off"):

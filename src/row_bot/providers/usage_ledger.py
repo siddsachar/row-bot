@@ -44,6 +44,7 @@ PURPOSES: tuple[str, ...] = (
     "verifier",
     "condition",
     "contradiction",
+    "approval_review",
     "child",
     "synthesis",
     "finalization",

@@ -50,6 +50,15 @@ _ROW_BOT_MANAGEMENT_PATHS = (
     "/mobile",
 )
 MAX_LOCAL_DEVELOPMENT_GRANT_SECONDS = 60 * 60
+# ``localhost`` and ``*.localhost`` always mean this computer (RFC 6761), as
+# Chromium treats them: they are pinned to loopback and never looked up, so no
+# DNS answer or hosts-file entry can point them anywhere else.
+_LOOPBACK_DESTINATIONS = frozenset({"127.0.0.1", "::1"})
+
+
+def is_loopback_name(host: str) -> bool:
+    name = str(host or "").rstrip(".").casefold()
+    return name == "localhost" or name.endswith(".localhost")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +77,9 @@ class LocalDevelopmentGrant:
     destinations: frozenset[str]
     intended_use: str
     expires_at: float
+    # The one conversation whose pages the grant covers; None covers every
+    # page of the browser session (tests and engine evidence only).
+    scope: str | None = None
 
 
 def _default_resolver(host: str, port: int) -> tuple[str, ...]:
@@ -140,6 +152,8 @@ class BrowserNetworkSecurity:
         self._resolved_origins: dict[tuple[str, str], frozenset[str]] = {}
 
     def _resolve(self, host: str, port: int) -> frozenset[str]:
+        if is_loopback_name(host):
+            return _LOOPBACK_DESTINATIONS
         try:
             literal = _canonical_address(host)
         except ValueError:
@@ -179,8 +193,15 @@ class BrowserNetworkSecurity:
         origin: str,
         intended_use: str,
         ttl_seconds: float,
+        scope: str | None = None,
     ) -> LocalDevelopmentGrant:
-        """Grant one exact private origin and its current destination set."""
+        """Grant one exact origin on this computer and its loopback destinations.
+
+        Only loopback destinations can be granted: other private-network
+        addresses (LAN hosts, routers, cloud metadata) stay blocked whatever
+        the person or the approval level says. With *scope*, the grant covers
+        only requests from that conversation's pages.
+        """
 
         identity = str(browser_session_id or "").strip()
         purpose = " ".join(str(intended_use or "").split())[:200]
@@ -189,6 +210,8 @@ class BrowserNetworkSecurity:
             raise ValueError(
                 "an exact origin, browser session, and intended use are required"
             )
+        if scope is not None and not str(scope).strip():
+            raise ValueError("a grant's conversation scope cannot be empty")
         canonical_origin, host, port, path = parts
         if path != "/" or "?" in str(origin) or "#" in str(origin):
             raise ValueError("local-development grants require an exact origin")
@@ -197,16 +220,16 @@ class BrowserNetworkSecurity:
                 "metadata and Row-Bot management targets cannot be granted"
             )
         # Chromium resolves hostnames again after the request interception
-        # callback. Without a connection-pinning proxy, a private hostname
-        # could therefore rebind between this policy check and the socket.
-        # Keep the explicit local-development path useful and auditable by
-        # requiring its exact destination to be a literal IP address.
-        try:
-            _canonical_address(host)
-        except ValueError as exc:
-            raise ValueError(
-                "local-development grants require a literal IP origin"
-            ) from exc
+        # callback, so a hostname could rebind between this policy check and
+        # the socket. Grants therefore name a literal IP address, or a
+        # localhost name, which is pinned to loopback and never looked up.
+        if not is_loopback_name(host):
+            try:
+                _canonical_address(host)
+            except ValueError as exc:
+                raise ValueError(
+                    "local-development grants require a literal IP origin or localhost"
+                ) from exc
         lifetime = float(ttl_seconds)
         if lifetime <= 0 or lifetime > MAX_LOCAL_DEVELOPMENT_GRANT_SECONDS:
             raise ValueError("local-development grant lifetime is out of bounds")
@@ -217,9 +240,9 @@ class BrowserNetworkSecurity:
             raise ValueError("local-development origin could not be resolved") from exc
         if any(_is_metadata_address(address) for address in addresses):
             raise ValueError("metadata destinations cannot be granted")
-        if all(_is_public(address) for address in addresses):
+        if not all(address.is_loopback for address in addresses):
             raise ValueError(
-                "local-development grants are only for restricted destinations"
+                "local-development grants are only for this computer's loopback addresses"
             )
         grant = LocalDevelopmentGrant(
             id=uuid.uuid4().hex,
@@ -228,6 +251,7 @@ class BrowserNetworkSecurity:
             destinations=destinations,
             intended_use=purpose,
             expires_at=self._clock() + lifetime,
+            scope=None if scope is None else str(scope),
         )
         with self._lock:
             self._grants[grant.id] = grant
@@ -237,6 +261,37 @@ class BrowserNetworkSecurity:
     def revoke_grant(self, grant_id: str) -> bool:
         with self._lock:
             return self._grants.pop(str(grant_id), None) is not None
+
+    def revoke_scope(self, browser_session_id: str, scope: str) -> int:
+        """Revoke every grant one conversation holds in this browser session."""
+
+        identity, owner = str(browser_session_id), str(scope)
+        with self._lock:
+            ids = [
+                grant_id
+                for grant_id, grant in self._grants.items()
+                if grant.browser_session_id == identity and grant.scope == owner
+            ]
+            for grant_id in ids:
+                self._grants.pop(grant_id, None)
+            return len(ids)
+
+    def active_grants(
+        self, browser_session_id: str, scope: str | None = None
+    ) -> list[LocalDevelopmentGrant]:
+        """Unexpired grants of a browser session (one conversation's, with *scope*)."""
+
+        now = self._clock()
+        identity = str(browser_session_id)
+        with self._lock:
+            for grant_id in [key for key, grant in self._grants.items() if grant.expires_at <= now]:
+                self._grants.pop(grant_id, None)
+            return [
+                grant
+                for grant in self._grants.values()
+                if grant.browser_session_id == identity
+                and (scope is None or grant.scope == str(scope))
+            ]
 
     def revoke_session(self, browser_session_id: str) -> int:
         identity = str(browser_session_id)
@@ -260,6 +315,7 @@ class BrowserNetworkSecurity:
         origin: str,
         destinations: frozenset[str],
         now: float,
+        scope: str | None = None,
     ) -> bool:
         expired: list[str] = []
         matched = False
@@ -272,6 +328,7 @@ class BrowserNetworkSecurity:
                     grant.browser_session_id == browser_session_id
                     and grant.origin == origin
                     and grant.destinations == destinations
+                    and (grant.scope is None or grant.scope == scope)
                 ):
                     matched = True
             for grant_id in expired:
@@ -284,8 +341,13 @@ class BrowserNetworkSecurity:
         *,
         browser_session_id: str,
         method: str = "GET",
+        scope: str | None = None,
     ) -> NetworkDecision:
-        """Authorize one actual request URL at the engine interception point."""
+        """Authorize one actual request URL at the engine interception point.
+
+        *scope* is the conversation whose page sent the request (None when it
+        is unknown); a conversation's grant covers only its own pages.
+        """
 
         try:
             scheme = urlsplit(str(url)).scheme.casefold()
@@ -350,6 +412,7 @@ class BrowserNetworkSecurity:
             origin=origin,
             destinations=destinations,
             now=self._clock(),
+            scope=None if scope is None else str(scope),
         ):
             if str(method or "GET").upper() not in {"GET", "HEAD", "OPTIONS"}:
                 return NetworkDecision(
@@ -376,37 +439,64 @@ class BrowserNetworkSecurity:
         context: Any,
         *,
         browser_session_id: str,
-        on_allowed: Callable[[str, str], None] | None = None,
+        on_allowed: Callable[..., None] | None = None,
+        page_scope: Callable[[Any], str | None] | None = None,
     ) -> None:
-        """Install actual request, WebSocket, and download engine hooks."""
+        """Install actual request, WebSocket, and download engine hooks.
+
+        With *page_scope* (page -> its conversation, or None), every request
+        is authorized for the conversation whose page sent it, so a
+        conversation's local-development grant never covers another
+        conversation's pages; *on_allowed* then also receives that scope.
+        """
 
         identity = str(browser_session_id)
+
+        def allowed(url: str, method: str, scope: str | None) -> None:
+            if on_allowed is None:
+                return
+            if page_scope is None:
+                on_allowed(url, method)
+            else:
+                on_allowed(url, method, scope)
+
+        def request_scope(request: Any) -> str | None:
+            if page_scope is None:
+                return None
+            try:
+                # Raises for a worker's request or a popup's first navigation:
+                # those have no known conversation, and no grant covers them.
+                page = request.frame.page
+            except Exception:
+                return None
+            return _page_scope(page_scope, page)
 
         def route_request(route: Any, request: Any | None = None) -> None:
             selected_request = request if request is not None else route.request
             url = str(getattr(selected_request, "url", "") or "")
             method = str(getattr(selected_request, "method", "GET") or "GET")
+            scope = request_scope(selected_request)
             decision = self.authorize(
                 url,
                 browser_session_id=identity,
                 method=method,
+                scope=scope,
             )
             if decision.allowed:
-                if on_allowed is not None:
-                    on_allowed(url, method)
+                allowed(url, method, scope)
                 route.continue_()
             else:
                 route.abort("blockedbyclient")
 
-        def route_websocket(websocket_route: Any) -> None:
+        def route_websocket(websocket_route: Any, scope: str | None = None) -> None:
             url = str(getattr(websocket_route, "url", "") or "")
             decision = self.authorize(
                 url,
                 browser_session_id=identity,
+                scope=scope,
             )
             if decision.allowed:
-                if on_allowed is not None:
-                    on_allowed(url, "GET")
+                allowed(url, "GET", scope)
                 websocket_route.connect_to_server()
             else:
                 websocket_route.close(code=1008, reason="Destination blocked")
@@ -422,14 +512,31 @@ class BrowserNetworkSecurity:
         route_ws("**/*", route_websocket)
 
         def on_page(page: Any) -> None:
-            self.attach_page(page, browser_session_id=identity)
+            self.attach_page(
+                page,
+                browser_session_id=identity,
+                page_scope=page_scope,
+                websocket_route=route_websocket if page_scope is not None else None,
+            )
 
         context.on("page", on_page)
         for page in tuple(getattr(context, "pages", ()) or ()):
             on_page(page)
 
-    def attach_page(self, page: Any, *, browser_session_id: str) -> None:
-        """Cancel a download if its final URL fails current network policy."""
+    def attach_page(
+        self,
+        page: Any,
+        *,
+        browser_session_id: str,
+        page_scope: Callable[[Any], str | None] | None = None,
+        websocket_route: Callable[[Any, str | None], None] | None = None,
+    ) -> None:
+        """Cancel a download if its final URL fails current network policy.
+
+        With *websocket_route*, the page's WebSockets are routed with its
+        conversation (the engine's context-level WebSocket hook doesn't say
+        which page opened one; a page's own hook runs first).
+        """
 
         identity = str(browser_session_id)
 
@@ -437,6 +544,7 @@ class BrowserNetworkSecurity:
             decision = self.authorize(
                 str(getattr(download, "url", "") or ""),
                 browser_session_id=identity,
+                scope=_page_scope(page_scope, page),
             )
             if not decision.allowed:
                 download.cancel()
@@ -447,3 +555,19 @@ class BrowserNetworkSecurity:
             # Minimal deterministic page fakes may omit event support. Actual
             # engine contexts are required to expose it in runtime evidence.
             return
+        route_ws = getattr(page, "route_web_socket", None)
+        if websocket_route is not None and callable(route_ws):
+            route_ws(
+                "**/*",
+                lambda route: websocket_route(route, _page_scope(page_scope, page)),
+            )
+
+
+def _page_scope(page_scope: Callable[[Any], str | None] | None, page: Any) -> str | None:
+    if page_scope is None:
+        return None
+    try:
+        scope = page_scope(page)
+    except Exception:
+        return None
+    return str(scope) if scope else None

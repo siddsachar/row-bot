@@ -1310,6 +1310,10 @@ small {
   background: var(--surface);
   flex-shrink: 0;
 }
+/* Content's own actions in the footer (useDialogFooter) lay out as its buttons. */
+.dialog-footer-slot {
+  display: contents;
+}
 .alert-dialog > .dialog-title {
   padding: 24px 24px 0;
 }
@@ -5542,6 +5546,23 @@ details[open] > summary > .settings-disclosure-chevron {
   object-fit: contain;
   border-radius: 8px;
   background: var(--surface, #171717);
+}
+/* The addresses on this computer the conversation's browser may open (F4). */
+.browser-local-addresses .entity-row-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+}
+.browser-local-addresses-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.browser-local-addresses-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
 }
 .insight-preview {
   max-width: 100%;

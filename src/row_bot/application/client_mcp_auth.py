@@ -6,10 +6,11 @@ from collections.abc import Callable
 import asyncio
 import copy
 from dataclasses import asdict, dataclass, field
+import hashlib
 import hmac
 import threading
 import time
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlsplit
 from uuid import uuid4
 
 from row_bot.application import capability_configuration_controls as configuration
@@ -20,6 +21,14 @@ from row_bot.developer.edits import FileEditRecovery
 _LOCK = threading.RLock()
 _FLOWS: dict[tuple[str, str], "Flow"] = {}
 _TTL = 300
+# How a sign-in's answer comes back. "this_computer" and "public": the service sends the browser to the callback
+# route by itself (this computer's loopback address, or Row-Bot's one public HTTPS address). "paste": the browser
+# is on another device and ends on an address that doesn't load there, which the person pastes back. "device":
+# the person enters a code on the service's own page and Row-Bot asks for the result.
+DELIVERIES = ("this_computer", "public", "paste", "device")
+# Parts of the token exchange a pasted address never names: one that does is not the address the browser ended on.
+_EXCHANGE = frozenset({"redirect_uri", "code_verifier", "code_challenge", "client_id", "client_secret", "grant_type",
+                       "access_token", "refresh_token", "id_token", "token", "device_code"})
 
 
 @dataclass
@@ -45,6 +54,10 @@ class Flow:
     ref: str = field(default_factory=lambda: uuid4().hex)
     # Its sign-in thread has ended: what it recorded is final, so its receipt and saved settings say how it ended.
     finished: bool = False
+    delivery: str = "this_computer"  # One of DELIVERIES.
+    expires_at: float = field(default_factory=lambda: time.time() + _TTL)  # Wall clock: only shown, never decides.
+    device: dict | None = None  # The code and page a device sign-in shows while it waits.
+    answered: str = ""  # The digest of the state its one answer brought, to tell a reused address apart.
 
     def active_authority(self) -> None:
         self.validate()
@@ -110,12 +123,18 @@ def _receipt(flow: Flow, *, message: str = "") -> dict:
             "uncertain": "Local binding cleared; owned runtime or credential cleanup is incomplete. Use Cancel or clear sign-in to retry cleanup of the original operation.",
             "disconnected": "Local account binding cleared. Remote revocation was not verified; revoke the app or token in the service's account security controls. Configuration and tool permissions are retained.", "cancelled": "Sign-in cancelled.",
             "expired": "Sign-in expired. Start a new sign-in.", "failed": "Sign-in failed; existing credentials were kept."}.get(flow.state, "Inspect connection setup."),
-        "authorization_url": flow.authorization_url if flow.state == "waiting" else None}
+        "authorization_url": (flow.authorization_url or None) if flow.state == "waiting" else None,
+        "delivery": flow.delivery,
+        # While it waits: when its link or code stops working, whether its answer came (it is finishing), its code.
+        "expires_at": flow.expires_at if flow.state in {"starting", "waiting"} else None,
+        "received": flow.callback_used and flow.state == "waiting",
+        "device": dict(flow.device) if flow.device and flow.state == "waiting" else None}
 
 
 def _persist(flow: Flow, *, complete: bool = False, private: dict | None = None) -> dict:
     result = _receipt(flow)
     result.pop("authorization_url")
+    result.pop("device")  # A code is shown only while its own sign-in runs, never kept.
     saved = admissions.read_command_receipt(flow.owner_id, flow.command_id) or {}
     result["_mcp_auth"] = {**saved.get("_mcp_auth", {}), "target": flow.target,
         "server_id": flow.server_id, "credential_ref": flow.ref, **(private or {})}
@@ -145,15 +164,8 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
     """Sign in with the person's own client when they gave one; otherwise the server's authorization
     service picks Row-Bot's published client metadata (CIMD) when it supports it, else registers
     a client for this connection (DCR). The client and its secret stay in this connection's keychain entry."""
-    storage = auth.TokenStorage(flow.ref, auth.binding(flow.name, flow.cfg), validate=flow.authority, staged=True)
-    if client:
-        from mcp.shared.auth import OAuthClientInformationFull
-        storage.data["client"] = OAuthClientInformationFull.model_validate(client).model_dump(mode="json")
-        storage.data["client_source"] = "own"
-    url = flow.cfg["url"]
-    if flow.cfg.get("inputs"):  # An address with the person's own values (a tenant) filled in.
-        from row_bot.integrations import inputs
-        url = inputs.resolve(flow.cfg, {}, partial=True)["url"]
+    storage = _storage(flow, client)
+    url = _address(flow)
     async def redirect(url: str) -> None:
         flow.authority()
         auth.public_endpoint(url)
@@ -178,6 +190,27 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
         # discovery is a separate reviewed runtime command after sign-in.
         await client_http.post(url, headers={"MCP-Protocol-Version": "2025-11-25", "Accept": "application/json, text/event-stream"},
             json={"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "Row-Bot", "version": "1"}}})
+    _save_sign_in(flow, storage, label)
+
+
+def _storage(flow: Flow, client: dict | None) -> auth.TokenStorage:
+    """A staged sign-in for this connection, with the person's own OAuth app when they gave one."""
+    storage = auth.TokenStorage(flow.ref, auth.binding(flow.name, flow.cfg), validate=flow.authority, staged=True)
+    if client:
+        from mcp.shared.auth import OAuthClientInformationFull
+        storage.data["client"] = OAuthClientInformationFull.model_validate(client).model_dump(mode="json")
+        storage.data["client_source"] = "own"
+    return storage
+
+
+def _address(flow: Flow) -> str:
+    if flow.cfg.get("inputs"):  # An address with the person's own values (a tenant) filled in.
+        from row_bot.integrations import inputs
+        return inputs.resolve(flow.cfg, {}, partial=True)["url"]
+    return flow.cfg["url"]
+
+
+def _save_sign_in(flow: Flow, storage: auth.TokenStorage, label: str) -> None:
     flow.authority()
     if not storage.data.get("tokens"):
         raise auth.McpAuthError("mcp_auth_not_completed")
@@ -189,9 +222,44 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
         "callback_uri": flow.callback_uri, "label": label, "operation_id": flow.command_id, **({"read_only": True} if reads else {})})
 
 
+async def _run_device(flow: Flow, label: str, client: dict | None) -> bool:
+    """Sign in with a code the person enters on the service's own page, on any device (RFC 8628). False when
+    the service gives this client no code, before anything is shown: the browser sign-in carries on instead."""
+    import httpx
+    from row_bot.mcp_client import device_code
+    storage = _storage(flow, client)
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False, transport=auth.PublicTransport()) as http:
+        try:
+            code = await device_code.start(http, _address(flow), storage, callback_uri=flow.callback_uri,
+                                           scope=str((flow.cfg.get("source") or {}).get("oauth_scope") or ""),
+                                           read_only=flow.read_only)
+        except device_code.DeviceUnavailable:
+            return False
+        flow.authority()
+        with _LOCK:
+            flow.device = {"user_code": code.user_code, "verification_uri": code.verification_uri,
+                           "verification_uri_complete": code.verification_uri_complete}
+            flow.expires_at = min(flow.expires_at, time.time() + max(0.0, code.deadline - time.monotonic()))
+            flow.state = "waiting"
+        _persist(flow)
+        try:
+            await device_code.finish(http, code, storage, check=flow.authority,
+                                     wait=lambda seconds: asyncio.to_thread(flow.event.wait, seconds))
+        except auth.McpAuthError as error:
+            if error.code == "mcp_auth_expired" and flow.state == "waiting":
+                flow.state = "expired"  # The service's code ran out first: it expired, it didn't fail.
+            raise
+    _save_sign_in(flow, storage, label)
+    return True
+
+
 def _finish_oauth(flow: Flow, label: str, client: dict | None):
     try:
-        asyncio.run(_run_oauth(flow, label, client))
+        if flow.delivery != "device" or not asyncio.run(_run_device(flow, label, client)):
+            if flow.delivery == "device":
+                with _LOCK:
+                    flow.delivery = "paste"  # The service gave no code: sign in in the browser and paste back.
+            asyncio.run(_run_oauth(flow, label, client))
         flow.state = "signed_in"
         old = flow.cfg.get("auth", {}).get("credential_ref")
         if old:
@@ -214,6 +282,7 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
             flow.state = "uncertain"
     finally:
         flow.code = flow.oauth_state = flow.authorization_url = ""
+        flow.device = None
         flow.finished = True
 
 
@@ -229,13 +298,19 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
         action: str, mode: str = "oauth", label: str = "", bindings: list | None = None,
         values: dict | None = None, client: dict | None = None, redirect_uri: str = "", metadata_document: bool = False,
         read_only: bool = False, validate: Callable[[], None] = lambda: None,
-        validate_review: Callable[[dict], None] = lambda review: None, target: dict | None = None) -> dict:
+        validate_review: Callable[[dict], None] = lambda review: None, target: dict | None = None,
+        delivery: str = "this_computer") -> dict:
+    """``delivery``: how the sign-in's answer comes back (see ``DELIVERIES``). A pasted address or a code always
+    uses ``auth.PASTE_CALLBACK``, the one address another device's browser is sent to."""
     validate()
     target = targets.normalize(target)
+    if delivery not in DELIVERIES or (delivery in {"paste", "device"} and redirect_uri != auth.PASTE_CALLBACK):
+        raise auth.McpAuthError("invalid_mcp_auth")
     intent = {"server_id": server_id, "configuration_revision": configuration_revision, "action": action,
         "mode": mode, "label": label, "bindings": bindings or [], "target": target}
     wire = {"command_id": command_id, "type": "mcp.auth." + action, **intent,
-        "input_digest": admissions.keyed_digest([values, client, redirect_uri, metadata_document, *([True] if read_only else [])])}
+        "input_digest": admissions.keyed_digest([values, client, redirect_uri, metadata_document, *([True] if read_only else []),
+                                                 *([delivery] if delivery != "this_computer" else [])])}
     existing = admissions.read_command_metadata(owner_id, command_id)
     if existing:
         try:
@@ -252,7 +327,7 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
     config.require_configuration_write_available(target=target)
     saved, name, cfg = _server(server_id, target)
     flow = Flow(owner_id, command_id, server_id, name, target, configuration_revision, cfg, redirect_uri, validate,
-                document=metadata_document, read_only=read_only)
+                document=metadata_document, read_only=read_only, delivery=delivery)
     admissions.claim_command(owner_id, command_id, wire, targets.admission_target(target), exclusive_target=True,
         initial_result={"command_id": command_id, "server_id": server_id, "state": "starting",
             "_mcp_auth": {"target": flow.target, "server_id": server_id, "credential_ref": flow.ref}})
@@ -378,17 +453,90 @@ def cancel_auth(*, owner_id: str, command_id: str, validate: Callable[[], None] 
     return result
 
 
+def _digest(state: str) -> str:
+    return hashlib.sha256(state.encode()).hexdigest()
+
+
+def _answer(flow: Flow, state: str, code: str, error: str) -> None:
+    """Hand a waiting sign-in its one answer (holding ``_LOCK``): a code, or a refusal that ends it."""
+    flow.authority()
+    flow.callback_used, flow.answered = True, _digest(state)
+    if error or not code:
+        flow.state = "failed"
+    else:
+        flow.code = code
+    flow.event.set()
+
+
 def accept_callback(*, state: str, code: str = "", error: str = "") -> None:
+    """The service sent a browser back to the callback route, with no session. Only a waiting sign-in whose
+    browser returns by itself (this computer's, or one through Row-Bot's public address) takes it, once, by its
+    one-time state; a sign-in finished by a pasted address or a code never does."""
     if not 20 <= len(state) <= 512 or len(code) > 4096 or len(error) > 256:
         raise auth.McpAuthError("mcp_auth_callback_invalid")
     with _LOCK:
         flow = next((f for f in _FLOWS.values() if f.oauth_state and hmac.compare_digest(f.oauth_state, state)), None)
-        if flow is None or flow.callback_used or flow.state != "waiting":
+        if (flow is None or flow.callback_used or flow.state != "waiting"
+                or flow.delivery not in {"this_computer", "public"}):
             raise auth.McpAuthError("mcp_auth_callback_invalid")
-        flow.authority()
-        flow.callback_used = True
-        if error or not code:
-            flow.state = "failed"
-        else:
-            flow.code = code
-        flow.event.set()
+        _answer(flow, state, code, error)
+
+
+def pasted_answer(address: str, callback_uri: str) -> dict[str, str]:
+    """The ``state`` and the ``code`` or ``error`` in an address pasted back from another device's browser.
+    Nothing else in it is read. It must be exactly the sign-in's own callback address (scheme, host, port and
+    path), carry each of those at most once, and name no part of the token exchange; it is never fetched."""
+    value = address.strip().strip("<>\"'").strip()
+    if value and "://" not in value[:12]:
+        value = "http://" + value  # Copied without its scheme.
+    if not value or len(value) > 8192 or any(ch.isspace() or ord(ch) < 0x20 or ch == "\\" for ch in value):
+        raise auth.McpAuthError("mcp_auth_address_invalid")
+    try:
+        given, wanted = urlsplit(value), urlsplit(callback_uri)
+        ports = {"http": 80, "https": 443}
+        same = (given.scheme.lower() == wanted.scheme and given.hostname == wanted.hostname and given.path == wanted.path
+                and (given.port or ports.get(given.scheme.lower())) == (wanted.port or ports[wanted.scheme]))
+    except ValueError:  # An impossible port, or brackets that aren't an address.
+        same = False
+    if not same or given.username is not None or given.password is not None:
+        raise auth.McpAuthError("mcp_auth_address_invalid")
+    pairs = parse_qsl(given.query, keep_blank_values=True)
+    names = [name for name, _ in pairs]
+    if set(names) & _EXCHANGE or any(names.count(name) > 1 for name in ("state", "code", "error")):
+        raise auth.McpAuthError("mcp_auth_address_invalid")
+    found = {name: item for name, item in pairs if name in {"state", "code", "error"}}
+    state, code, error = found.get("state", ""), found.get("code", ""), found.get("error", "")
+    if not 20 <= len(state) <= 512 or not (code or error) or len(code) > 4096 or len(error) > 256:
+        raise auth.McpAuthError("mcp_auth_address_invalid")
+    return {"state": state, "code": code, "error": error}
+
+
+def accept_pasted_callback(*, owner_id: str, command_id: str, address: str,
+                           validate: Callable[[], None] = lambda: None) -> dict:
+    """Finish a sign-in whose browser was on another device: the person pasted the address it ended on.
+
+    Only this owner's own sign-in ``command_id``, one that asked for a pasted address, takes it, and it is
+    checked exactly as the callback route checks one: this sign-in's one-time state (its PKCE verifier never
+    leaves Row-Bot), once, before it expires, while its connection is unchanged. Each refusal says which.
+    """
+    validate()
+    with _LOCK:
+        flow = _FLOWS.get((owner_id, command_id))
+    if flow is None or flow.delivery != "paste":
+        raise auth.McpAuthError("mcp_auth_address_expired")  # Ended, or Row-Bot restarted since it began.
+    answer = pasted_answer(address, flow.callback_uri)
+    with _LOCK:
+        if flow.callback_used:
+            raise auth.McpAuthError("mcp_auth_address_used" if hmac.compare_digest(flow.answered, _digest(answer["state"]))
+                                    else "mcp_auth_address_other")
+        if flow.finished or flow.state != "waiting" or time.monotonic() - flow.created >= _TTL:
+            raise auth.McpAuthError("mcp_auth_address_expired")
+        if not hmac.compare_digest(flow.oauth_state.encode(), answer["state"].encode()):
+            raise auth.McpAuthError("mcp_auth_address_other")
+        try:
+            _answer(flow, answer["state"], answer["code"], answer["error"])
+        except auth.McpAuthError as error:
+            if error.code == "mcp_auth_expired":
+                raise auth.McpAuthError("mcp_auth_address_expired") from None
+            raise
+        return _receipt(flow)

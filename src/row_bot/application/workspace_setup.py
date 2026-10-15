@@ -106,6 +106,34 @@ def _clone_workspace(command: dict, target: str, *, owner_id: str, key: str,
     return result, registration
 
 
+def clone_gate(target: str, payload: dict) -> None:
+    """A clone downloads a repository: a network action, by the conversation's approval level.
+
+    The person asked for it (Add resource, the folder browser, or a clone card the agent showed),
+    so Auto and Hands-off let it go ahead; Ask needs the person's confirmation of the download
+    (``confirm_network``); Block refuses. Add resource without a conversation starts one at the
+    default level.
+    """
+    from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
+    from row_bot.developer.client_clone import CloneCreationError, source_name
+    from row_bot.developer.sandbox import decide_action
+
+    try:  # An address Row-Bot never clones is refused first, at every level.
+        source_name(str((payload.get("clone_workspace") or {}).get("repo_url") or ""))
+    except CloneCreationError as exc:
+        raise ClientPlatformError(exc.code) from exc
+    level = DEFAULT_APPROVAL_MODE
+    if target != "resources":
+        from row_bot.threads import _get_thread_approval_mode
+
+        level = _get_thread_approval_mode(target)
+    decision = decide_action(level, "run_network", by_person=True)
+    if decision.decision == "block":
+        raise ClientPlatformError("clone_blocked")
+    if decision.requires_approval and payload.get("confirm_network") is not True:
+        raise ClientPlatformError("clone_confirmation_required")
+
+
 def forget_saved_resource(command: dict, target: str, *, validate: Any = None) -> dict:
     """Remove a saved code folder from Open saved, or put it back (``restore``).
 
@@ -211,7 +239,8 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                 authorized_folder=authorized_folder, previous=previous, validate=validate)
             if registration is None:
                 return previous
-        elif payload.get("folder_grant") or not payload.get("expected_resource_revision"):
+        elif (payload.get("folder_grant") or payload.get("root_folder") is not None
+              or not payload.get("expected_resource_revision")):
             raise ClientPlatformError("invalid_command")
         kind, identity = previous["resource_kind"], previous["resource_id"]
         result = {k: v for k, v in previous.items() if k not in {"code", "current_revision"}}
@@ -269,6 +298,7 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                     create_deck(identity, DeckSetup(**(payload.get("deck") or {})))
                 created = True
             elif payload.get('clone_workspace') is not None:
+                clone_gate(target, payload)
                 if validate:
                     validate()
                 empty_result, registration = _clone_workspace(command, target, owner_id=owner_id, key=key,
@@ -457,9 +487,12 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     row = service._metadata(identity)
     model = model_choice_value(row.get("model_override") or get_current_model())
     parsed = parse_model_ref(model)
+    from row_bot import full_autonomy
+    shared = full_autonomy.is_shared_conversation(identity)
     controls = {"model_selection": {"provider_id": parsed[0], "model_ref": model} if parsed else None,
                 "runtime_mode": row.get("client_runtime_mode") or "agent", "profile_id": row.get("agent_profile_id") or "",
-                "approval_mode": normalize_approval_mode(row.get("approval_mode"))}
+                # The level its turns run at: a shared conversation's Hands-off is Auto.
+                "approval_mode": full_autonomy.cap_for_conversation(identity, normalize_approval_mode(row.get("approval_mode")))}
     resources = []
     for binding in list_bindings(identity).bindings:
         if binding.kind not in {"artifact", "workspace"}:
@@ -490,6 +523,8 @@ def conversation_workspace(service: Any, identity: str) -> dict:
                 },
             ),
             "profiles": _people_facing_profiles(str(row.get("agent_profile_id") or "")),
+            "approval": {"full_autonomy_confirmed": full_autonomy.is_confirmed(),
+                         "full_autonomy_available": not shared},
             "resources": resources, "actions": [
                 {"action": action, "ready": ready, "code": None if ready else "model_configuration_required"}
                 for action in ("send", "generate")] + [
