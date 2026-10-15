@@ -224,6 +224,12 @@ class CanonicalBrowserControlBackend:
         manager = self._manager()
         if action == "browser.navigate":
             session = manager.get_session(conversation_id)
+            from row_bot.browser.local_access import local_development_origin
+
+            origin = local_development_origin(payload["url"])
+            if origin and session.local_address_grant(conversation_id, origin) is None:
+                # The person opened it themselves: allowed in this chat, as if they'd approved it.
+                session.allow_local_address(conversation_id, origin, source="you")
             outcome = session.navigate(payload["url"], conversation_id)
             self._confirmed(outcome)
             from row_bot.browser.history import append_browser_history
@@ -394,6 +400,14 @@ def _normalize(
         decision, reason = navigation_policy(url, str(proof.get("raw_url") or ""))
         if decision == "block":
             raise _error("browser_navigation_denied")
+        from row_bot.browser import local_access
+
+        origin = local_access.local_development_origin(url)
+        if (origin and local_access.is_row_bot_origin(origin)) or (
+            origin is None and local_access.private_network_target(url)
+        ):
+            # Row-Bot's own app and the local network never open, whoever asks.
+            raise _error("browser_navigation_denied")
         normalized["url"] = url
         return normalized, decision, _text(reason, 512)
     if set(payload) != {"revision"}:
@@ -444,6 +458,16 @@ def _review(
             "This conversation's live-control activity and preview will end; the shared browser profile remains local."
         ],
     }[action]
+    if action == "browser.navigate":
+        from row_bot.browser.local_access import address_label, local_development_origin
+
+        local = local_development_origin(normalized["url"])
+        if local:
+            disclosures = [
+                f"{address_label(local)} is on this computer. Opening it allows it in this conversation for an hour; "
+                "you can remove it in this panel.",
+                *disclosures,
+            ]
     review = {
         "schema_version": 1,
         "action": action,

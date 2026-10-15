@@ -32,9 +32,17 @@ _PROFILE_SCOPES = frozenset({"system", "user", "workspace", "plugin", "imported"
 _CAPABILITIES = frozenset({"read_only", "write_capable", "orchestrator"})
 _CONTEXT_MODES = frozenset({"auto", "focused", "recent", "full", "empty", "resume"})
 _WORKSPACE_MODES = frozenset({"auto", "read_only", "single_writer", "worktree"})
-_APPROVAL_MODES = frozenset({"inherit", "block", "approve", "allow_all"})
+_APPROVAL_MODES = frozenset({"inherit", "block", "approve", "auto", "full"})
 _MAX_ROWS = 500
 _MAX_GOAL_MINUTES = 60 * 24 * 7
+
+
+def _profile_level(value: object) -> str:
+    """A profile's stored level in today's words: "allow_all" (the old Auto) is reviewed "auto"."""
+    from row_bot.approval_policy import known_approval_mode
+
+    text = str(value or "inherit")
+    return "inherit" if text == "inherit" else (known_approval_mode(text) or "inherit")
 
 
 class GoalProfileCommandError(ValueError):
@@ -223,7 +231,7 @@ def _profile_public(
         ],
         "context_mode": str(context.get("default_context_mode") or "auto"),
         "workspace_mode": str(workspace.get("workspace_mode_default") or "auto"),
-        "approval_mode": str(approval.get("mode") or "inherit"),
+        "approval_mode": _profile_level(approval.get("mode")),
         # Reusable instructions can contain private local policy and prompt data.
         # Their presence is enough for a passive browser projection; edits use
         # an explicit replace-only field and never round-trip the stored body.

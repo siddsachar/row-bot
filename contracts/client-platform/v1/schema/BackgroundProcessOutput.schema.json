@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "description": "One page of a process's output, by position from its first byte; older output may be gone.",
+  "properties": {
+    "earlier_dropped": {
+      "title": "Earlier Dropped",
+      "type": "boolean"
+    },
+    "end": {
+      "minimum": 0,
+      "title": "End",
+      "type": "integer"
+    },
+    "process_id": {
+      "pattern": "^proc-[0-9a-f]{8}$",
+      "title": "Process Id",
+      "type": "string"
+    },
+    "running": {
+      "title": "Running",
+      "type": "boolean"
+    },
+    "size": {
+      "minimum": 0,
+      "title": "Size",
+      "type": "integer"
+    },
+    "start": {
+      "minimum": 0,
+      "title": "Start",
+      "type": "integer"
+    },
+    "text": {
+      "maxLength": 65536,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "process_id",
+    "text",
+    "start",
+    "end",
+    "size",
+    "earlier_dropped",
+    "running"
+  ],
+  "title": "BackgroundProcessOutput",
+  "type": "object"
+}

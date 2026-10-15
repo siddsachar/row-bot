@@ -389,7 +389,7 @@ def test_click_family_background_refusal_has_one_exact_foreground_rung(
         action,
         target_id,
         OWNER,
-        approval_mode="allow_all",
+        approval_mode="full",
         **kwargs,
     )
 
@@ -429,7 +429,7 @@ def test_cancellation_between_click_rungs_prevents_foreground_dispatch(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert [name for name, _args in fake_transport.calls[calls_before:]] == ["click"]
@@ -459,7 +459,7 @@ def test_owner_loss_between_click_rungs_prevents_foreground_dispatch(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert [name for name, _args in fake_transport.calls[calls_before:]] == ["click"]
@@ -493,7 +493,7 @@ def test_target_invalidation_between_click_rungs_prevents_foreground_dispatch(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert invalidated.value.code == "target_gone"
@@ -526,7 +526,7 @@ def test_policy_is_rechecked_between_click_rungs_before_foreground_dispatch(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert refused.value.code == "hard_blocked"
@@ -551,7 +551,7 @@ def test_second_click_family_foreground_refusal_is_terminal_takeover(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     calls = fake_transport.calls[calls_before:]
@@ -588,7 +588,7 @@ def test_post_dispatch_or_uncertain_click_result_is_never_replayed_in_call(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
     except ComputerUseError:
         pass
@@ -607,7 +607,7 @@ def test_disconnect_during_click_is_not_replayed(service, fake_transport) -> Non
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert [name for name, _args in fake_transport.calls[calls_before:]] == ["click"]
@@ -630,7 +630,7 @@ def test_explicit_foreground_is_first_and_only_exact_target_dispatch(
         target_id,
         OWNER,
         element_token=observation.elements[0].token,
-        approval_mode="allow_all",
+        approval_mode="full",
         delivery_mode="foreground",
     )
 
@@ -666,7 +666,7 @@ def test_explicit_foreground_refusal_has_no_second_or_background_attempt(
             target_id,
             OWNER,
             element_token=observation.elements[0].token,
-            approval_mode="allow_all",
+            approval_mode="full",
             delivery_mode="foreground",
         )
 
@@ -700,7 +700,7 @@ def test_coordinate_click_rejects_semantic_refresh_with_stale_pixels(
             OWNER,
             x=0,
             y=0,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert all(name != "click" for name, _args in fake_transport.calls[calls_before:])
@@ -722,7 +722,7 @@ def test_suspected_noop_px_alternative_requires_fresh_exact_capture_and_is_bound
         target_id,
         OWNER,
         element_token=observation.elements[0].token,
-        approval_mode="allow_all",
+        approval_mode="full",
         capture_after=True,
     )
 
@@ -881,7 +881,7 @@ def test_mutation_session_ended_is_never_replayed_and_requires_new_tokens(
             target_id,
             OWNER,
             element_token=old_token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert ended.value.code == "stale_observation"
@@ -903,7 +903,7 @@ def test_mutation_session_ended_is_never_replayed_and_requires_new_tokens(
             target_id,
             OWNER,
             element_token=old_token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
     assert [name for name, _args in fake_transport.calls].count("click") == clicks_before
 
@@ -949,7 +949,7 @@ def test_status_snapshot_exposes_safe_route_verdict_and_next_step(
         target_id,
         OWNER,
         element_token=observation.elements[0].token,
-        approval_mode="allow_all",
+        approval_mode="full",
         capture_after=True,
     )
 
@@ -981,7 +981,7 @@ def test_action_receipt_log_includes_only_safe_classification_fields(
         target_id,
         OWNER,
         element_token=observation.elements[0].token,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
     with caplog.at_level(logging.INFO, logger="row_bot.computer_use.service"):
         service.end_tool_call(

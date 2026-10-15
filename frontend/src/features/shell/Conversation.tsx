@@ -110,6 +110,10 @@ import {
 import ApprovalCard from './ApprovalCard';
 import ChatEmpty from './ChatEmpty';
 import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
+import { ProcessIoContext, type ProcessIo } from './background-processes';
+import { RecordingIoContext, type RecordingIo } from './recordings';
+import { VideoEditIoContext, type VideoEditIo } from './video-edits';
+import { DeliveryIoContext, type DeliveryIo } from './deliveries';
 import { SpeakersContext, TurnMarker, type Speakers } from './TurnMarker';
 import { useBuddyStill } from '../buddy/BuddyStill';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
@@ -166,25 +170,42 @@ const FIELD_SIZING =
 const SINGLE_LINE_COMPOSER = 480;
 
 /**
- * What the transcript's rows share: card actions, who speaks (B271) and the
- * delegated feed its agent stubs follow (B241).
+ * What the transcript's rows share: card actions, who speaks (B271), the
+ * delegated feed its agent stubs follow (B241) and the background processes
+ * its cards follow (F1, F6).
  */
 function TranscriptContexts({
   cardActions,
   speakers,
   delegatedRuns,
+  processes,
+  recordings,
+  videoEdits,
+  deliveries,
   children,
 }: {
   cardActions: CardActions;
   speakers: Speakers;
   delegatedRuns: DelegatedRuns;
+  processes: ProcessIo;
+  recordings: RecordingIo;
+  videoEdits: VideoEditIo;
+  deliveries: DeliveryIo;
   children: ReactNode;
 }) {
   return (
     <CardActionsContext.Provider value={cardActions}>
       <SpeakersContext.Provider value={speakers}>
         <DelegatedRunsContext.Provider value={delegatedRuns}>
-          {children}
+          <ProcessIoContext.Provider value={processes}>
+            <RecordingIoContext.Provider value={recordings}>
+              <VideoEditIoContext.Provider value={videoEdits}>
+                <DeliveryIoContext.Provider value={deliveries}>
+                  {children}
+                </DeliveryIoContext.Provider>
+              </VideoEditIoContext.Provider>
+            </RecordingIoContext.Provider>
+          </ProcessIoContext.Provider>
         </DelegatedRunsContext.Provider>
       </SpeakersContext.Provider>
     </CardActionsContext.Provider>
@@ -2576,6 +2597,45 @@ export default function Conversation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [controller, delegatedPage, id, overlay],
   );
+  const processes = useMemo<ProcessIo>(
+    () => ({
+      load: (conversation, signal) =>
+        controller.backgroundProcesses(conversation, signal),
+      output: (process, after, limit, signal) =>
+        controller.backgroundProcessOutput(process, after, limit, signal),
+      stop: (process) => controller.stopBackgroundProcess(process),
+    }),
+    [controller],
+  );
+  const recordings = useMemo<RecordingIo>(
+    () => ({
+      load: (conversation, signal) =>
+        controller.recordings(conversation, signal),
+      stop: (recording) => controller.stopRecording(recording),
+    }),
+    [controller],
+  );
+  const deliveries = useMemo<DeliveryIo>(
+    () => ({
+      load: (delivery, signal) => controller.delivery(delivery, signal),
+      download: (delivery, index, signal) =>
+        controller.downloadDelivery(delivery, index, signal),
+      saveToExports: (delivery, index) =>
+        controller.saveDelivery(delivery, index),
+      reveal: async (fileName) =>
+        (await controller.revealExport(fileName)).status === 'opened',
+      sendToDevices: (delivery) => controller.sendDeliveryToDevices(delivery),
+    }),
+    [controller],
+  );
+  const videoEdits = useMemo<VideoEditIo>(
+    () => ({
+      load: (conversation, signal) =>
+        controller.videoEdits(conversation, signal),
+      stop: (edit) => controller.stopVideoEdit(edit),
+    }),
+    [controller],
+  );
   const delegatedRuns = useMemo(
     () => ({
       runs: new Map(
@@ -2641,7 +2701,7 @@ export default function Conversation({
   }
   async function updateControls(patch: {
     profile_id?: string;
-    approval_mode?: 'allow_all';
+    approval_mode?: 'auto';
   }) {
     if (!id || !controls || !state.workspace) return;
     await controller.intent(
@@ -2657,7 +2717,7 @@ export default function Conversation({
       state.workspace.revision,
     );
   }
-  const allowInChat = () => updateControls({ approval_mode: 'allow_all' });
+  const allowInChat = () => updateControls({ approval_mode: 'auto' });
   // A delegated agent's own thread (it has a parent conversation).
   const childThread = Boolean(
     state.conversation?.id === id && state.conversation.parent_conversation_id,
@@ -2938,6 +2998,10 @@ export default function Conversation({
       cardActions={cardActions}
       speakers={speakers}
       delegatedRuns={delegatedRuns}
+      processes={processes}
+      recordings={recordings}
+      videoEdits={videoEdits}
+      deliveries={deliveries}
     >
       <div
         className={`chat-workspace${compactContext ? ' compact-context' : ''}${pinnedContext ? ' details-wide' : ''}${pinnedContext && cardActive ? ' details-open' : ''}`}
@@ -3199,8 +3263,10 @@ export default function Conversation({
                                   ? approvalEvent.event.payload
                                   : undefined
                               }
+                              // Offered under Ask only: Auto and Hands-off
+                              // already decide without the person.
                               onAllowInChat={
-                                controls?.approval_mode === 'allow_all' ||
+                                controls?.approval_mode !== 'approve' ||
                                 childThread
                                   ? undefined
                                   : allowInChat

@@ -116,6 +116,7 @@ def _conversation(
     channel_id: int | str,
     *,
     name: str = _DEFAULT_CONVERSATION_NAME,
+    shared: bool = True,
 ) -> ch_conversations.ChannelConversation:
     return ch_conversations.ChannelConversation(
         channel="discord",
@@ -123,17 +124,23 @@ def _conversation(
         default_thread_id=_make_thread_id(channel_id),
         name=name,
         target=str(channel_id),
+        shared=shared,
     )
 
 
-def _get_or_create_thread(channel_id: int | str, *, name: str = _DEFAULT_CONVERSATION_NAME) -> str:
-    """Return the Row-Bot thread for a DM, a Discord thread, or a channel without threads."""
-    return ch_conversations.current_thread(_conversation(channel_id, name=name))
+def _get_or_create_thread(
+    channel_id: int | str, *, name: str = _DEFAULT_CONVERSATION_NAME, shared: bool = True,
+) -> str:
+    """Return the Row-Bot thread for a DM, a Discord thread, or a channel without threads.
+
+    ``shared``: anything but a DM is shared with the people in the server (Auto at most).
+    """
+    return ch_conversations.current_thread(_conversation(channel_id, name=name, shared=shared))
 
 
-def _new_thread(channel_id: int | str) -> str:
+def _new_thread(channel_id: int | str, *, shared: bool = True) -> str:
     """Move a DM, a Discord thread or a channel to a fresh Row-Bot conversation."""
-    return ch_conversations.start_new_thread(_conversation(channel_id))
+    return ch_conversations.start_new_thread(_conversation(channel_id, shared=shared))
 
 
 def _channel_kind(channel) -> str:
@@ -1232,7 +1239,8 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
         )
         command_channel = await _conversation_here() if needs_conversation else message.channel
         _cmd_thread_id = (
-            _get_or_create_thread(command_channel.id, name=_conversation_name(command_channel, text))
+            _get_or_create_thread(command_channel.id, name=_conversation_name(command_channel, text),
+                                  shared=_channel_kind(command_channel) != "dm")
             if ch_commands.is_thread_scoped_command(text)
             else None
         )
@@ -1259,7 +1267,7 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
             return
 
         def _new_conversation() -> str | None:
-            _new_thread(command_channel.id)
+            _new_thread(command_channel.id, shared=_channel_kind(command_channel) != "dm")
             _drop_discord_interrupts(int(command_channel.id))
             if command_channel is not message.channel:
                 return "🆕 Started a new conversation. Reply in this thread to continue it."
@@ -1389,7 +1397,8 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
 
     # Normal message
     channel = await _conversation_here()
-    thread_id = _get_or_create_thread(channel.id, name=_conversation_name(channel, name_text))
+    thread_id = _get_or_create_thread(channel.id, name=_conversation_name(channel, name_text),
+                                      shared=_channel_kind(channel) != "dm")
     config = {"configurable": {"thread_id": thread_id}}
 
     # Add reaction to show processing + typing indicator
@@ -1434,7 +1443,7 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
             except Exception as retry_exc:
                 log.error("Retry after repair failed: %s", retry_exc)
                 # The stuck conversation stays in Row-Bot; this chat moves on.
-                _new_thread(channel.id)
+                _new_thread(channel.id, shared=_channel_kind(channel) != "dm")
                 try:
                     await message.remove_reaction("👀", client.user)
                     await message.add_reaction("💔")

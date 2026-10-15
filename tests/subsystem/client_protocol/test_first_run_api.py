@@ -220,3 +220,33 @@ def test_home_health_follows_the_first_pick_at_once(tmp_path, monkeypatch, fake_
     scheduler.jobs[client_diagnosis.DEFAULT_MODEL_JOB].func()
 
     assert model_check()["status"] == "ok"
+
+
+def test_local_models_carry_favourites_hidden_and_suggested_picks(tmp_path, monkeypatch, fake_ollama):
+    """F10: Setup lists favourites first, then Row-Bot's picks, then "Show all models"."""
+    from row_bot.providers import model_visibility
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    tools = {"qwen3:8b", "qwen3:32b", "llama3.1:8b", "mistral:7b", "gpt-oss:20b"}
+    monkeypatch.setattr(models, "is_tool_compatible", lambda name: name in tools)
+    fake_ollama.update(running=True, models=[
+        "gemma3:4b", "gpt-oss:20b", "llama3.1:8b", "mistral:7b", "nomic-embed-text:latest", "qwen3:32b", "qwen3:8b",
+    ])
+    # Nothing chosen: the first three tool-using chat models are suggested.
+    rows = {row["name"]: row for row in client_first_run.detect_local_runtime()["models"]}
+    assert [name for name, row in rows.items() if row.get("recommended")] == ["gpt-oss:20b", "llama3.1:8b", "mistral:7b"]
+    assert not any("favourite_rank" in row or "hidden" in row for row in rows.values())
+
+    (tmp_path / "model_settings.json").write_text(json.dumps({"model": "model:ollama:qwen3:8b"}), encoding="utf-8")
+    model_visibility.update_model_visibility("favourite", "model:ollama:gemma3:4b")
+    model_visibility.update_model_visibility("hide", "model:ollama:llama3.1:8b")
+    model_visibility.update_model_visibility("hide", "model:ollama:removed:1b")
+    rows = {row["name"]: row for row in client_first_run.detect_local_runtime()["models"]}
+    assert rows["gemma3:4b"]["favourite_rank"] == 1
+    assert rows["llama3.1:8b"]["hidden"] is True
+    # Hidden models aren't suggested, and the saved default is picked before
+    # the runtime's order would reach it (qwen3:32b misses out).
+    assert sorted(name for name, row in rows.items() if row.get("recommended")) == [
+        "gpt-oss:20b", "mistral:7b", "qwen3:8b",
+    ]
+    assert "removed:1b" not in rows and "recommended" not in rows["nomic-embed-text:latest"]

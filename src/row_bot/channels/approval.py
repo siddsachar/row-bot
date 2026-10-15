@@ -93,6 +93,12 @@ def format_interrupt_text(data: Any) -> str:
         elif args:
             for k, v in args.items():
                 parts.append(f"  • {k}: {v}")
+        # Under Auto: why the reviewer asked rather than approving it.
+        from row_bot.approval_messages import reviewer_note
+
+        note = reviewer_note(item)
+        if note:
+            parts.append(f"  {note}")
 
     return "\n".join(parts)
 

@@ -60,13 +60,13 @@ def test_ordinary_platform_labels_do_not_block_safe_exact_semantic_actions(
     service.acquire(OWNER, validate_context=False)
     target = service.list_windows(OWNER, app=app_name)[0]["target_id"]
 
-    observation = service.capture(target, OWNER, approval_mode="allow_all")
+    observation = service.capture(target, OWNER, approval_mode="full")
     result = service.act(
         "click",
         target,
         OWNER,
         element_token=observation.elements[1].token,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     assert observation.suspicious is False
@@ -476,7 +476,7 @@ def test_retina_scale_coordinates_remain_screenshot_local_without_double_scaling
         OWNER,
         x=120,
         y=60,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     click = [args for name, args in fake_transport.calls if name == "click"][-1]
@@ -634,7 +634,7 @@ def test_capture_failure_is_not_hidden_for_non_terminal_semantic_action(
             OWNER,
             element_token=observation.elements[0].token,
             expected_effect="Apply the selected setting",
-            approval_mode="allow_all",
+            approval_mode="full",
             capture_after=True,
         )
 
@@ -968,7 +968,7 @@ def test_exact_safe_menu_invocation_returns_standard_receipt(fake_transport) -> 
         target,
         ["View", "Zoom In"],
         OWNER,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     assert isinstance(receipt, ActionReceipt)

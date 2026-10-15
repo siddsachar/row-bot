@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "description": "The address another device's browser ended on after signing in, pasted back to finish the sign-in.",
+  "properties": {
+    "address": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "title": "Address",
+      "type": "string"
+    }
+  },
+  "required": [
+    "address"
+  ],
+  "title": "PlanSignInRequest",
+  "type": "object"
+}

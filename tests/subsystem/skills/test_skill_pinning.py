@@ -227,7 +227,7 @@ def test_row_bot_status_tool_can_pin_and_unpin_skills(tmp_path, monkeypatch, rel
 
     import row_bot.tools.approval_gate as approval_gate
 
-    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "allow_all")
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "full")
     tools = {tool.name: tool for tool in status_mod.RowBotStatusTool().as_langchain_tools()}
     update_tool = tools["row_bot_update_setting"]
     query_tool = tools["row_bot_status"]

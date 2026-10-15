@@ -1,0 +1,225 @@
+{
+  "$defs": {
+    "DeliveryFile": {
+      "additionalProperties": false,
+      "description": "One file a delivery sent, or tried to (F7): its name and size, never where it came from.",
+      "properties": {
+        "downloadable": {
+          "title": "Downloadable",
+          "type": "boolean"
+        },
+        "index": {
+          "maximum": 9,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "mime_type": {
+          "maxLength": 128,
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "sent": {
+          "title": "Sent",
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "name",
+        "size_bytes",
+        "mime_type",
+        "sent",
+        "downloadable"
+      ],
+      "title": "DeliveryFile",
+      "type": "object"
+    },
+    "DeliveryView": {
+      "additionalProperties": false,
+      "description": "Files sent from a conversation to the person's own devices or to a chat app (F7).",
+      "properties": {
+        "approval": {
+          "enum": [
+            "",
+            "not_needed",
+            "you",
+            "reviewer",
+            "hands_off"
+          ],
+          "title": "Approval",
+          "type": "string"
+        },
+        "can_send_to_devices": {
+          "title": "Can Send To Devices",
+          "type": "boolean"
+        },
+        "channel": {
+          "maxLength": 64,
+          "title": "Channel",
+          "type": "string"
+        },
+        "channel_label": {
+          "maxLength": 80,
+          "title": "Channel Label",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "maxLength": 80,
+          "title": "Created At",
+          "type": "string"
+        },
+        "delivery_id": {
+          "pattern": "^send-[0-9a-f]{8}$",
+          "title": "Delivery Id",
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 600,
+          "title": "Detail",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/DeliveryFile"
+          },
+          "maxItems": 10,
+          "title": "Files",
+          "type": "array"
+        },
+        "limit_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Limit Bytes"
+        },
+        "place": {
+          "maxLength": 120,
+          "title": "Place",
+          "type": "string"
+        },
+        "problem": {
+          "enum": [
+            "",
+            "too_large",
+            "cant_send_files",
+            "not_running",
+            "not_linked",
+            "send_failed",
+            "store_full",
+            "unavailable"
+          ],
+          "title": "Problem",
+          "type": "string"
+        },
+        "sent_instead": {
+          "anyOf": [
+            {
+              "pattern": "^send-[0-9a-f]{8}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sent Instead"
+        },
+        "shared": {
+          "title": "Shared",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "sent",
+            "partly_sent",
+            "failed",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "enum": [
+            "devices",
+            "channel"
+          ],
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delivery_id",
+        "conversation_id",
+        "target",
+        "channel",
+        "channel_label",
+        "place",
+        "shared",
+        "status",
+        "problem",
+        "detail",
+        "limit_bytes",
+        "files",
+        "created_at",
+        "expires_at",
+        "approval",
+        "can_send_to_devices",
+        "sent_instead"
+      ],
+      "title": "DeliveryView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A conversation's deliveries, or every one, newest first.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/DeliveryView"
+      },
+      "maxItems": 200,
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "DeliveryPage",
+  "type": "object"
+}

@@ -57,7 +57,7 @@ def test_developer_pr_uses_gh_cli_after_confirmed_approval(tmp_path, monkeypatch
 
     monkeypatch.setattr(github, "_run", fake_run)
 
-    result = github.create_pull_request(str(repo), "allow_all", title="Feature", body="Ready")
+    result = github.create_pull_request(str(repo), "approve", title="Feature", body="Ready", confirmed=True)
 
     assert result.ran is True
     assert result.ok is True

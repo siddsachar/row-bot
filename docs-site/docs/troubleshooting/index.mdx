@@ -39,7 +39,7 @@ Start with what Row-Bot already tells you. The sidebar's attention indicator app
 ## Design And Code Folder Problems
 
 - Designs: give a clearer goal, audience and length, and attach references. Exports use the last saved version.
-- Code folders: check that the folder is listed under **Working on** in the conversation's details card. Choosing or cloning a folder needs the Row-Bot desktop app.
+- Code folders: check that the folder is listed under **Working on** in the conversation's details card. On a phone or in a browser, folders are chosen inside Row-Bot's workspace folder; anything outside it is only available from the desktop app's picker.
 - Review commands and changes before approving or importing them.
 
 ## Knowledge And Monitor Problems
@@ -65,6 +65,7 @@ An app that isn't ready shows one status and one fix: the main action on its pag
 - **Finishing your last change… Retry**: Row-Bot couldn't confirm that a change finished, for example because it closed part-way. **Retry** checks what happened and never repeats the change.
 - **Open _program_, then check again**: the app works with a program on this computer, such as Blender. Open the program and its add-on, then choose **Check again**.
 - **Install Docker Desktop, then try again**, or **Docker Desktop isn't running on this computer**: the app runs as a container image. Install or open Docker Desktop, or choose another way to connect on the app's page.
+- **Signing in to an app from your phone**: without a public address, the browser ends on a page that doesn't load at `http://127.0.0.1`. Copy that page's whole address and paste it into the sign-in step; see [Sign in from a phone or another computer](/docs/settings/apps/#sign-in-from-a-phone-or-another-computer). If it says the address is from a different sign-in, open the sign-in page from the step again and paste the new address.
 - **_App_ needs your own OAuth app to sign in**: the service accepts only an OAuth app you create. Create one at the service, register the callback address the step shows, and paste its **Client ID** (and **Client secret (optional)**, if it has one).
 - If Google asks you to sign in every 7 days, your Google app is still in **Testing**; see [Google sign-ins in Testing last 7 days](/docs/integrations/accounts#google-sign-ins-in-testing-last-7-days).
 - If an app's tools never appear in chat, check that it is **Ready**, that it is checked in the chat's **+ › Apps**, that the chat's agent profile allows it, and that **Use apps** is on in **Apps › Advanced**.

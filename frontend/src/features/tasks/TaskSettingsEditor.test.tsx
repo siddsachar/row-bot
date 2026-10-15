@@ -193,6 +193,7 @@ it('loads settings without effects and validates changed fields while saving', a
     'a'.repeat(64),
     'b'.repeat(64),
     { ...fields, concurrency_group: 'synthetic-group' },
+    false,
   );
   expect(callbacks.onSaved).toHaveBeenCalledOnce();
 });
@@ -202,7 +203,7 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
     fields: {
       ...fields,
       agent_profile_id: 'builtin:review',
-      approval_mode: 'allow_all',
+      approval_mode: 'auto',
     },
     effective_approval_mode: 'block',
   });
@@ -216,7 +217,7 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
     target: { value: 'review' },
   });
   fireEvent.change(screen.getByLabelText('Approval policy'), {
-    target: { value: 'allow_all' },
+    target: { value: 'auto' },
   });
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
@@ -225,7 +226,9 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
   expect(
     screen.getByText(/^Approvals: Block\. This workflow can only read/),
   ).toBeVisible();
-  expect(screen.getByText(/Auto permits actions/)).toBeInTheDocument();
+  expect(
+    screen.getByText(/A reviewer approves what matches the workflow's steps/),
+  ).toBeInTheDocument();
 });
 
 it('clears inactive trigger target when changing trigger kind without creating a secret', async () => {
@@ -576,4 +579,54 @@ it('offers rotation but not download for a saved webhook without a secret', asyn
   expect(download).toBeEnabled();
   expect(callbacks.download).not.toHaveBeenCalled();
   expect(callbacks.save).not.toHaveBeenCalled();
+});
+
+it('asks once before a workflow runs on Hands-off, and saves the confirmation (A0)', async () => {
+  const { OverlayProvider } = await import('../../ui/overlays');
+  const callbacks = props();
+  render(
+    <OverlayProvider>
+      <TaskSettingsEditor {...callbacks} />
+    </OverlayProvider>,
+  );
+  await findProfileField();
+  fireEvent.change(screen.getByLabelText('Approval policy'), {
+    target: { value: 'full' },
+  });
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Turn on Hands-off?',
+  });
+  expect(screen.getByLabelText('Approval policy')).toHaveValue('block');
+  await act(async () =>
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Turn on' })),
+  );
+  expect(screen.getByLabelText('Approval policy')).toHaveValue('full');
+  expect(
+    screen.getByText(/Nothing pauses for approval; every action runs/),
+  ).toBeVisible();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
+  );
+  expect(callbacks.save).toHaveBeenCalledWith(
+    'task-a',
+    'a'.repeat(64),
+    'b'.repeat(64),
+    { ...fields, approval_mode: 'full' },
+    true,
+  );
+});
+
+it('never asks again once Hands-off was turned on on this install', async () => {
+  const callbacks = props({
+    load: vi
+      .fn()
+      .mockResolvedValue(snapshot({ full_autonomy_confirmed: true })),
+  });
+  render(<TaskSettingsEditor {...callbacks} />);
+  await findProfileField();
+  fireEvent.change(screen.getByLabelText('Approval policy'), {
+    target: { value: 'full' },
+  });
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(screen.getByLabelText('Approval policy')).toHaveValue('full');
 });

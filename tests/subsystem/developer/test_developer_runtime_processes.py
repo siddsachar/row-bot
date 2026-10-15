@@ -22,7 +22,7 @@ def test_run_workspace_command_captures_stdout_stderr_nonzero_and_timeout(tmp_pa
 
     workspace = fake_workspace(tmp_path)
 
-    ok = runtime.run_workspace_command(workspace.path, _py_command("print('ok')"), "allow_all")
+    ok = runtime.run_workspace_command(workspace.path, _py_command("print('ok')"), "approve", confirmed=True)
     assert ok.ran is True
     assert ok.ok is True
     assert ok.stdout.strip() == "ok"
@@ -30,7 +30,8 @@ def test_run_workspace_command_captures_stdout_stderr_nonzero_and_timeout(tmp_pa
     failed = runtime.run_workspace_command(
         workspace.path,
         _py_command("import sys; sys.stderr.write('bad'); sys.exit(3)"),
-        "allow_all",
+        "approve",
+        confirmed=True,
     )
     assert failed.returncode == 3
     assert failed.stderr == "bad"
@@ -38,7 +39,8 @@ def test_run_workspace_command_captures_stdout_stderr_nonzero_and_timeout(tmp_pa
     timed_out = runtime.run_workspace_command(
         workspace.path,
         _py_command("import time; time.sleep(2)"),
-        "allow_all",
+        "approve",
+        confirmed=True,
         timeout=1,
     )
     assert timed_out.returncode == 124
@@ -57,7 +59,7 @@ def test_run_workspace_command_blocks_unapproved_and_invalid_workspaces(tmp_path
     assert blocked.decision.requires_approval is True
 
     with pytest.raises(ValueError):
-        runtime.run_workspace_command(str(tmp_path / "missing"), "python -V", "allow_all")
+        runtime.run_workspace_command(str(tmp_path / "missing"), "python -V", "approve", confirmed=True)
 
 
 def test_docker_network_policy_blocks_install_and_allows_safe_actions(tmp_path) -> None:
@@ -100,7 +102,8 @@ def test_shell_command_uses_platform_shell_args_and_records_changed_files(monkey
     result = runtime.run_workspace_shell_command(
         workspace.path,
         "echo hi",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id=workspace.id,
         thread_id="thread-1",
     )
@@ -129,7 +132,8 @@ def test_shell_command_timeout_returns_structured_result(monkeypatch, tmp_path) 
     result = runtime.run_workspace_shell_command(
         workspace.path,
         "sleep 10",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id=workspace.id,
         thread_id="thread-1",
         timeout=1,
@@ -146,7 +150,7 @@ def test_managed_background_process_starts_and_stops_cleanly(tmp_path) -> None:
     workspace = fake_workspace(tmp_path)
     command = _py_command("import time; time.sleep(30)")
 
-    result = runtime.start_workspace_process(workspace.path, command, "allow_all")
+    result = runtime.start_workspace_process(workspace.path, command, "approve", confirmed=True)
     try:
         assert result.returncode == 0
         assert "Started PID" in result.stdout

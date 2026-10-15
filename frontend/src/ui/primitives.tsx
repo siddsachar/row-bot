@@ -306,6 +306,9 @@ export function Menu({
   variant,
   hint,
   iconOnly,
+  open,
+  onOpenChange,
+  tabIndex,
 }: {
   label: string;
   actions: MenuAction[];
@@ -317,6 +320,11 @@ export function Menu({
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   hint?: string;
   iconOnly?: boolean;
+  /** Opened by the caller too (a row's keyboard shortcut or right-click). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** -1 for a trigger inside a list whose own keys reach it (a model row). */
+  tabIndex?: number;
 }) {
   const opener = useRef<HTMLButtonElement>(null);
   const afterClose = useRef<(() => void) | null>(null);
@@ -335,6 +343,7 @@ export function Menu({
         className={className}
         variant={variant}
         iconOnly={iconOnly}
+        tabIndex={tabIndex}
       >
         {children ?? label}
         {!iconOnly && <ChevronDown size={16} aria-hidden />}
@@ -342,7 +351,7 @@ export function Menu({
     </Dropdown.Trigger>
   );
   return (
-    <Dropdown.Root>
+    <Dropdown.Root open={open} onOpenChange={onOpenChange}>
       {hint ? <Hint label={hint}>{trigger}</Hint> : trigger}
       <Dropdown.Portal>
         <Dropdown.Content
