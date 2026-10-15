@@ -40,6 +40,8 @@ export type GeneratedMedia = {
   mime: string;
   /** The generating prompt, when the tool input carried one. */
   caption?: string;
+  /** What it is, when it isn't a generated result ("Page screenshot"). */
+  label?: string;
 };
 
 // The runtime appends a marker such as "⏹️ *[Stopped]*" to interrupted text.
@@ -324,6 +326,12 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 reference={item.reference}
                 mime={item.mime}
                 caption={item.caption}
+                label={item.label}
+                downloadName={
+                  item.label === 'Page screenshot'
+                    ? 'screenshot.png'
+                    : undefined
+                }
               />
             ))}
           </div>

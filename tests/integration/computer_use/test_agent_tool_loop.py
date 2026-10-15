@@ -86,7 +86,7 @@ def _native_browser_tool(tmp_path, monkeypatch, scenario: FakeScenario):
     )
     monkeypatch.setattr(
         "row_bot.tools.approval_gate.current_approval_mode",
-        lambda: "allow_all",
+        lambda: "full",
     )
     return service, transport, vision, ComputerUseTool().as_langchain_tools()[0]
 

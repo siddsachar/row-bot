@@ -65,9 +65,12 @@ The event builders do not receive prompts, tool arguments or results, typed
 text, screenshots, accessibility trees, application/window names, URLs,
 filenames/paths, raw cursor/config values, or raw errors. Row-Bot does not
 disable or rebrand this upstream telemetry. It keeps Cua update checks off and
-does not expose Cua recording, browser, desktop-wide, updater, autostart,
-clipboard, or arbitrary execution tools, so those features cannot be invoked
-through this integration.
+does not expose Cua browser, desktop-wide, updater, autostart, clipboard, or
+arbitrary execution tools, so those features cannot be invoked through this
+integration. Screen recording (5.3, F2) is the one recording use: a
+service-only path, after the person's approval, that records video into a
+private folder (see below); the tagged telemetry still receives only its
+bounded recording-usage flag, never the folder path or the video.
 
 ## Driver allowlist
 
@@ -86,10 +89,22 @@ The private client permits only:
 | `start_session`, `end_session` | private window-scoped lifecycle | internal only |
 | `verify_state` | one bounded service-derived exact postcondition | internal only |
 | `invoke_menu` | exact 1-16-label native menu path | capability-gated and policy-gated |
+| `start_recording`, `stop_recording`, `get_recording_state` | screen recording (F2), only through `CuaClient.call_recording` on a client of its own | approval-gated start; stop needs none |
 
-All recording, desktop capture, browser-page/CDP, arbitrary config, update,
-installer, autostart, telemetry mutation, skill, FFmpeg, kill-process, and
-maintenance surfaces are forbidden and never model-visible.
+Screen recording never goes through the model's action schema or the generic
+call paths (they keep refusing the recording family). `start_recording` always
+gets exactly one absolute output folder under Row-Bot's data and
+`record_video: true`; nothing else is accepted. The recording runs on its own
+Cua session, so the Computer Use lease, Stop and Take over never end it by
+accident and Computer Use actions aren't written into its folder. Once the
+video is saved to the conversation (25 MB at most), the whole folder,
+including Cua's per-step pictures and action records, is removed; a folder a
+crash left behind is removed on the next start. On Windows, Cua's video needs
+ffmpeg on PATH; Row-Bot never calls `install_ffmpeg`.
+
+All other recording, desktop capture, browser-page/CDP, arbitrary config,
+update, installer, autostart, telemetry mutation, skill, FFmpeg, kill-process,
+and maintenance surfaces are forbidden and never model-visible.
 
 ## Security invariants
 

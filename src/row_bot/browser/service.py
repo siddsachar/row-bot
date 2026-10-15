@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 from dataclasses import dataclass, field
 import json
@@ -28,9 +29,23 @@ from row_bot.browser.observation import (
     StaleBrowserObservation,
     target_fingerprint,
 )
-from row_bot.browser.network_security import BrowserNetworkSecurity, LocalDevelopmentGrant
+from row_bot.browser.local_access import (
+    GRANT_SOURCES,
+    GrantSource,
+    LocalAddressGrant,
+    address_label,
+    is_row_bot_origin,
+    local_development_origin,
+    socket_origin,
+)
+from row_bot.browser.network_security import (
+    MAX_LOCAL_DEVELOPMENT_GRANT_SECONDS,
+    BrowserNetworkSecurity,
+    LocalDevelopmentGrant,
+)
 from row_bot.browser.network_proxy import PinnedNetworkProxy
 from row_bot.browser.policy import history_url
+from row_bot.browser.recording import PROTECTED_FIELDS, PageRecorder
 from row_bot.browser.runtime import (
     check_managed_browser_runtime,
     check_packaged_browser_runtime,
@@ -43,6 +58,44 @@ from row_bot.data_paths import get_row_bot_data_dir
 logger = logging.getLogger(__name__)
 PROFILE_DIR = get_row_bot_data_dir() / "browser_profile"
 VIEWPORT = {"width": 1280, "height": 900}
+# How long a local address stays allowed in a conversation (the grant's maximum).
+LOCAL_ADDRESS_SECONDS = MAX_LOCAL_DEVELOPMENT_GRANT_SECONDS
+# Page sizes people check a design at (CSS pixels, device scale, touch screen).
+VIEWPORT_PRESETS: dict[str, tuple[int, int, float, bool]] = {
+    "phone": (390, 844, 3.0, True),
+    "tablet": (820, 1180, 2.0, True),
+    "desktop": (1280, 800, 1.0, False),
+}
+# A full-page screenshot stops here on very long pages (CSS pixels, and device pixels).
+MAX_FULL_PAGE_CSS = 10_000
+MAX_FULL_PAGE_DEVICE = 16_384
+# Screenshots larger than this are saved as JPEG instead, and refused beyond it.
+MAX_SCREENSHOT_BYTES = 15 * 1024 * 1024
+
+
+def _cover(image: bytes, boxes: list[Any], *, jpeg: bool) -> bytes:
+    """Paint over protected fields (CSS-pixel boxes with their device ratio) in a screenshot."""
+
+    import io
+
+    from PIL import Image, ImageDraw
+
+    picture = Image.open(io.BytesIO(image)).convert("RGB")
+    draw = ImageDraw.Draw(picture)
+    for box in boxes:
+        try:
+            x, y, width, height, ratio = (float(value) for value in box)
+        except (TypeError, ValueError):
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        draw.rectangle(
+            [x * ratio - 2, y * ratio - 2, (x + width) * ratio + 2, (y + height) * ratio + 2],
+            fill=(38, 40, 46),
+        )
+    output = io.BytesIO()
+    picture.save(output, format="JPEG" if jpeg else "PNG", **({"quality": 80} if jpeg else {"optimize": False}))
+    return output.getvalue()
 
 
 def browser_runs_headless() -> bool:
@@ -150,6 +203,12 @@ class ManagedBrowserService:
         self._network_security = network_security or BrowserNetworkSecurity()
         self._browser_security_session_id = uuid.uuid4().hex
         self._network_proxy: PinnedNetworkProxy | None = None
+        self._local_lock = threading.RLock()
+        self._local_grants: dict[str, LocalAddressGrant] = {}
+        # Recordings of a conversation's page (F2) and pages' chosen sizes, owned by the
+        # Playwright thread.
+        self._recorders: dict[str, PageRecorder] = {}
+        self._viewports: dict[Any, tuple[Any, str, float]] = {}
 
     def grant_local_development_origin(
         self,
@@ -157,18 +216,132 @@ class ManagedBrowserService:
         *,
         intended_use: str,
         ttl_seconds: float,
+        scope: str | None = None,
     ) -> LocalDevelopmentGrant:
-        """Grant one exact local-development origin for this browser session."""
+        """Grant one exact local-development origin for this browser session.
+
+        With *scope*, only that conversation's pages may reach it.
+        """
 
         return self._network_security.grant_local_development(
             browser_session_id=self._browser_security_session_id,
             origin=origin,
             intended_use=intended_use,
             ttl_seconds=ttl_seconds,
+            scope=scope,
         )
 
     def revoke_local_development_grant(self, grant_id: str) -> bool:
         return self._network_security.revoke_grant(grant_id)
+
+    # ---- Local addresses (F4) ---------------------------------------------------------
+
+    def allow_local_address(
+        self,
+        conversation_id: str,
+        origin: str,
+        *,
+        source: GrantSource,
+    ) -> LocalAddressGrant:
+        """Let one conversation's pages open one address on this computer, for an hour.
+
+        It covers the server's pages and its live-reload WebSocket (same host
+        and port); a new grant for the same address replaces the old one.
+        Row-Bot's own app is never granted.
+        """
+
+        conversation = str(conversation_id or "").strip()
+        canonical = local_development_origin(origin)
+        if not conversation or canonical is None or canonical != origin:
+            raise ValueError("an exact local address and a conversation are required")
+        if is_row_bot_origin(canonical):
+            raise ValueError("Row-Bot's own app cannot be opened in its browser")
+        if source not in GRANT_SOURCES:
+            raise ValueError("unknown grant source")
+        label = address_label(canonical)
+        with self._local_lock:
+            for existing in [
+                grant for grant in self._local_grants.values()
+                if grant.conversation_id == conversation and grant.origin == canonical
+            ]:
+                self._drop_local_grant(existing)
+            network_ids: list[str] = []
+            try:
+                for target in (canonical, socket_origin(canonical)):
+                    network_ids.append(self.grant_local_development_origin(
+                        target,
+                        intended_use=f"Open {label} in one conversation",
+                        ttl_seconds=LOCAL_ADDRESS_SECONDS,
+                        scope=conversation,
+                    ).id)
+            except BaseException:
+                for grant_id in network_ids:
+                    self._network_security.revoke_grant(grant_id)
+                raise
+            now = time.time()
+            grant = LocalAddressGrant(
+                id=uuid.uuid4().hex,
+                conversation_id=conversation,
+                origin=canonical,
+                address=label,
+                source=source,
+                granted_at=now,
+                expires_at=now + LOCAL_ADDRESS_SECONDS,
+                network_grant_ids=tuple(network_ids),
+            )
+            self._local_grants[grant.id] = grant
+        logger.info("Local address allowed in one conversation (%s)", source)
+        return grant
+
+    def _drop_local_grant(self, grant: LocalAddressGrant) -> None:
+        self._local_grants.pop(grant.id, None)
+        for grant_id in grant.network_grant_ids:
+            self._network_security.revoke_grant(grant_id)
+
+    def local_address_grants(self, conversation_id: str) -> list[LocalAddressGrant]:
+        """The local addresses one conversation may open now, oldest first."""
+
+        conversation = str(conversation_id or "")
+        live = {
+            grant.id
+            for grant in self._network_security.active_grants(
+                self._browser_security_session_id, conversation
+            )
+        }
+        with self._local_lock:
+            stale = [
+                item for item in self._local_grants.values()
+                if item.conversation_id == conversation and not set(item.network_grant_ids) <= live
+            ]
+            for grant in stale:
+                # Expired or revoked underneath: gone for the person too.
+                self._drop_local_grant(grant)
+            return sorted(
+                (grant for grant in self._local_grants.values() if grant.conversation_id == conversation),
+                key=lambda grant: grant.granted_at,
+            )
+
+    def local_address_grant(self, conversation_id: str, origin: str) -> LocalAddressGrant | None:
+        return next(
+            (grant for grant in self.local_address_grants(conversation_id) if grant.origin == origin),
+            None,
+        )
+
+    def revoke_local_address(self, conversation_id: str, grant_id: str) -> bool:
+        with self._local_lock:
+            grant = self._local_grants.get(str(grant_id or ""))
+            if grant is None or grant.conversation_id != str(conversation_id or ""):
+                return False
+            self._drop_local_grant(grant)
+        return True
+
+    def revoke_local_addresses(self, conversation_id: str) -> int:
+        with self._local_lock:
+            grants = [grant for grant in self._local_grants.values() if grant.conversation_id == str(conversation_id)]
+            for grant in grants:
+                self._drop_local_grant(grant)
+        self._network_security.revoke_scope(self._browser_security_session_id, str(conversation_id))
+        return len(grants)
 
     def performance_snapshot(self) -> dict[str, int]:
         return {
@@ -336,6 +509,19 @@ class ManagedBrowserService:
             self._receipt("click", revision, effect="confirmed", verified=True)
             + "\nPage-change receipt: "
             + json.dumps(page_facts, sort_keys=True)
+        )
+
+    @staticmethod
+    def _blocked_navigation(url: str) -> str:
+        origin = local_development_origin(url)
+        if origin:
+            return (
+                f"BLOCKED: {address_label(origin)} isn't allowed in this chat (or its hour ran out). "
+                "Open it again with browser_navigate to ask the person."
+            )
+        return (
+            "BLOCKED: The page was blocked: Row-Bot's browser doesn't open addresses on your local network "
+            "(other computers, routers, cloud metadata). Only addresses on this computer can be allowed."
         )
 
     @staticmethod
@@ -564,6 +750,8 @@ class ManagedBrowserService:
             self._context,
             browser_session_id=self._browser_security_session_id,
             on_allowed=proxy.approve_request,
+            # Each request is authorized for the conversation whose page sent it.
+            page_scope=lambda page: self._page_owners.get(page),
         )
         self._context_generation += 1
         self._launched = True
@@ -596,6 +784,8 @@ class ManagedBrowserService:
         self._launched = False
         # The browser is already gone. Drop exact handles logically without
         # asking a disconnected Playwright transport to dispose them.
+        for recorder in list(self._recorders.values()):
+            recorder.request_stop("closed")
         self._observations.invalidate_all(dispose=False)
         self._thread_pages.clear()
         self._page_owners.clear()
@@ -629,7 +819,15 @@ class ManagedBrowserService:
                 self._network_proxy = None
             return
         while True:
-            item = self._work_q.get()
+            if self._recorders:
+                # A recording's frames arrive only while Playwright runs: keep it running.
+                try:
+                    item = self._work_q.get(timeout=0.05)
+                except queue.Empty:
+                    self._pump_recorders()
+                    continue
+            else:
+                item = self._work_q.get()
             if item is None:
                 break
             if not item.begin_dispatch():
@@ -657,6 +855,11 @@ class ManagedBrowserService:
             self._network_proxy.close()
             self._network_proxy = None
         self._launched = False
+        for recorder in list(self._recorders.values()):
+            recorder.request_stop("closed")
+            recorder.detach()
+        self._recorders.clear()
+        self._viewports.clear()
 
     def _start(self) -> None:
         if self._pw_thread is not None and self._pw_thread.is_alive() and self._launched:
@@ -750,6 +953,9 @@ class ManagedBrowserService:
     def release_thread(self, thread_id: str) -> None:
         self._invalidate(thread_id)
         self.clear_approval_proof(thread_id)
+        recorder = self._recorders.get(thread_id)
+        if recorder is not None:
+            recorder.request_stop("closed")
         if not self._launched or self._closed:
             self.end_activity(thread_id)
             return
@@ -781,7 +987,8 @@ class ManagedBrowserService:
     def evict_idle(self, ttl_seconds: float = 600.0) -> int:
         if not self._launched or self._closed:
             return 0
-        active = _active_generation_thread_ids()
+        # A recording keeps its conversation's page (copied: the Playwright thread owns the map).
+        active = _active_generation_thread_ids() | set(dict(self._recorders))
         cutoff = time.monotonic() - ttl_seconds
         expired = [task for task, used in self._thread_pages_last_used.items() if task not in active and used < cutoff]
         for task in expired:
@@ -789,9 +996,18 @@ class ManagedBrowserService:
         return len(expired)
 
     def close(self) -> None:
+        # Recordings finish first, so their videos are complete before the browser goes.
+        recorders = list(self._recorders.values())
+        for recorder in recorders:
+            recorder.request_stop("quit")
+        deadline = time.monotonic() + 15
+        for recorder in recorders:
+            recorder.join(max(0.0, deadline - time.monotonic()))
         self._invalidate_all()
         self._closed = True
         self._network_security.revoke_session(self._browser_security_session_id)
+        with self._local_lock:
+            self._local_grants.clear()
         with self._activity_lock:
             self._pending_approval_proofs.clear()
         for task in list(self._activity_by_thread):
@@ -862,12 +1078,21 @@ class ManagedBrowserService:
             page = self._get_page_for_thread(thread_id)
             page.bring_to_front()
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                response = page.goto(url, wait_until="domcontentloaded", timeout=30_000)
                 self._bump_navigation(page)
                 result = self._observe(page, thread_id)
                 self._publish_activity(thread_id, state="observing", action="Opened website", page=page)
+                origin = local_development_origin(url)
+                if origin and getattr(response, "status", 0) == 502:
+                    # The pinned proxy answers 502 when nothing accepts the connection.
+                    result = (
+                        f"Nothing answered at {address_label(origin)}: the server may not be running yet.\n"
+                        + result
+                    )
                 return result
             except BaseException as exc:
+                if "ERR_BLOCKED_BY_CLIENT" in str(exc):
+                    return self._blocked_navigation(url)
                 return self._error("navigate", exc)
         return self._run_activity(thread_id, "Open website", action)
 
@@ -1053,6 +1278,225 @@ class ManagedBrowserService:
             return "Unknown tab action. Use list/switch/new/close."
         return self._run_activity(thread_id, f"Tab action: {action}", perform)
 
+    # ---- Page size, screenshots and recordings (F4, F2) ---------------------------------
+
+    def _owned_page(self, thread_id: str) -> Any:
+        page = self._thread_pages.get(thread_id)
+        if page is None or page.is_closed() or str(getattr(page, "url", "") or "") in self._BLANK_URLS:
+            return None
+        return page
+
+    def set_viewport(self, preset: str, device_scale: float | None = None, thread_id: str = "default") -> str:
+        """Show this conversation's page at a phone, tablet or desktop size (optionally another device scale)."""
+
+        if preset not in VIEWPORT_PRESETS:
+            return "Choose phone, tablet or desktop."
+        width, height, scale, touch = VIEWPORT_PRESETS[preset]
+        if device_scale is not None:
+            try:
+                scale = float(device_scale)
+            except (TypeError, ValueError):
+                return "The device scale must be a number from 1 to 3."
+            if not 1.0 <= scale <= 3.0:
+                return "The device scale must be a number from 1 to 3."
+
+        def action() -> str:
+            page = self._get_page_for_thread(thread_id)
+            previous = self._viewports.pop(page, None)
+            if previous is not None:
+                try:
+                    previous[0].detach()
+                except Exception:
+                    pass
+            cdp = self._context.new_cdp_session(page)
+            cdp.send("Emulation.setDeviceMetricsOverride", {
+                "width": width, "height": height, "deviceScaleFactor": scale, "mobile": touch,
+            })
+            cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": touch, "maxTouchPoints": 5 if touch else 0})
+            self._viewports[page] = (cdp, preset, scale)
+            self._invalidate(thread_id)
+            self._publish_activity(thread_id, state="observing", action=f"Showing the page at {preset} size", page=page)
+            return (
+                f"The page now shows at {preset} size: {width}×{height} at {scale:g}× scale"
+                + (", as a touch screen" if touch else "")
+                + ". Observe the page again before acting on it."
+            )
+
+        return self._run_activity(thread_id, f"Show the page at {preset} size", action)
+
+    def capture_page(self, thread_id: str = "default", *, full_page: bool = False) -> tuple[bytes | None, str]:
+        """A PNG (JPEG when very large) of this conversation's page, and what it shows in words.
+
+        Captured through Chromium's own screenshot (CDP), so a phone or tablet size stays as it
+        is (Playwright's screenshot would put its own size back). Password, one-time-code and
+        card fields are covered. A full-page picture of a very long page stops at a bounded height.
+        """
+
+        def action() -> tuple[bytes | None, str]:
+            page = self._owned_page(thread_id)
+            if page is None:
+                return None, "No page is open in this chat yet. Open one with browser_navigate first."
+            try:
+                width, height, scroll_height, ratio = page.evaluate(
+                    "() => [window.innerWidth, window.innerHeight, "
+                    "Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0), "
+                    "window.devicePixelRatio || 1]"
+                )
+                width, height, scroll_height = int(width), int(height), int(scroll_height)
+                ratio = float(ratio) or 1.0
+            except Exception:
+                width, height, scroll_height, ratio = 0, 0, 0, 1.0
+            cut = 0
+            clip: dict[str, Any] | None = None
+            if full_page and width:
+                limit = max(height, min(MAX_FULL_PAGE_CSS, int(MAX_FULL_PAGE_DEVICE / max(ratio, 1.0))))
+                cut = limit if scroll_height > limit else 0
+                clip = {"x": 0, "y": 0, "width": width, "height": min(scroll_height, limit) or height, "scale": 1}
+            image = self._cdp_screenshot(page, clip=clip, document=full_page)
+            if image is not None and len(image) > MAX_SCREENSHOT_BYTES:
+                image = self._cdp_screenshot(page, clip=clip, document=full_page, jpeg=True)
+            if image is None:
+                return None, "The screenshot couldn't be taken. Try again in a moment."
+            if len(image) > MAX_SCREENSHOT_BYTES:
+                return None, "The page is too large to save as one picture; take a screenshot of what's on screen instead."
+            viewport = self._viewports.get(page)
+            size = f"{viewport[1]} size" if viewport else (f"{width}×{height}" if width else "its current size")
+            what = "the whole page" if full_page and not cut else (
+                f"the first {cut:,} pixels of a longer page" if cut else "what's on screen")
+            self._publish_activity(thread_id, state="observing", action="Took a screenshot", page=page)
+            return image, (
+                f"Screenshot of {history_url(str(page.url))} ({what}, {size} at {ratio:g}× scale). "
+                "Password and card fields are covered."
+            )
+
+        result = self._run_activity(thread_id, "Take a screenshot", action)
+        # A failure or a stop comes back as words.
+        return result if isinstance(result, tuple) else (None, str(result))
+
+    def _cdp_screenshot(
+        self,
+        page: Any,
+        *,
+        clip: dict[str, Any] | None = None,
+        document: bool = False,
+        jpeg: bool = False,
+        cover: bool = True,
+    ) -> bytes | None:
+        """Chromium's own screenshot of a page (device pixels), with protected fields covered."""
+
+        held = self._viewports.get(page)
+        cdp = held[0] if held else self._context.new_cdp_session(page)
+        try:
+            params: dict[str, Any] = {"format": "jpeg" if jpeg else "png"}
+            if jpeg:
+                params["quality"] = 80
+            if clip is not None:
+                params["clip"] = clip
+                params["captureBeyondViewport"] = True
+            data = base64.b64decode(str(cdp.send("Page.captureScreenshot", params).get("data") or ""))
+        except Exception:
+            logger.debug("A page screenshot failed", exc_info=True)
+            return None
+        finally:
+            if not held:
+                try:
+                    cdp.detach()
+                except Exception:
+                    pass
+        if not data or not cover:
+            return data or None
+        try:
+            boxes = page.evaluate(
+                "([selector, documentCoordinates]) => Array.from(document.querySelectorAll(selector)).map(element => {"
+                " const r = element.getBoundingClientRect();"
+                " const x = documentCoordinates ? r.left + window.scrollX : r.left;"
+                " const y = documentCoordinates ? r.top + window.scrollY : r.top;"
+                " return [x, y, r.width, r.height, window.devicePixelRatio || 1]; })",
+                [PROTECTED_FIELDS, bool(document)],
+            )
+        except Exception:
+            return None  # Unknown: never save a picture that might show one uncovered.
+        if not isinstance(boxes, list) or len(boxes) > 200:
+            return None  # Too many to be sure every one is covered: no picture.
+        return _cover(data, boxes, jpeg=jpeg) if boxes else data
+
+    def start_recording(
+        self,
+        path: Path,
+        *,
+        max_seconds: float,
+        size_limit: int,
+        on_end: Any,
+        thread_id: str = "default",
+    ) -> PageRecorder:
+        """Start recording this conversation's page (it follows the conversation's tab)."""
+
+        def action() -> PageRecorder:
+            if thread_id in self._recorders:
+                raise RuntimeError("already_recording")
+            page = self._owned_page(thread_id)
+            if page is None:
+                raise LookupError("no_page")
+            recorder = PageRecorder(path, max_seconds=max_seconds, size_limit=size_limit, on_end=on_end)
+            recorder.attach(page, self._context.new_cdp_session(page))
+            recorder.shielded = self._shielded(page, thread_id)
+            recorder.checked_at = time.monotonic()
+            self._recorders[thread_id] = recorder
+            recorder.start()
+            return recorder
+
+        return self._run_on_pw_thread(action)
+
+    def stop_recording(self, thread_id: str, reason: str) -> bool:
+        recorder = self._recorders.get(thread_id)
+        if recorder is None:
+            return False
+        recorder.request_stop(reason)
+        return True
+
+    def _shielded(self, page: Any, thread_id: str) -> bool:
+        with self._activity_lock:
+            taken_over = (self._activity_by_thread.get(thread_id) or {}).get("state") == "waiting_user"
+        if taken_over:
+            return True
+        try:
+            return page.query_selector(PROTECTED_FIELDS) is not None
+        except Exception:
+            return True
+
+    def _pump_recorders(self) -> None:
+        """On the Playwright thread: follow each recording's tab, hide protected pages, take frames."""
+
+        now = time.monotonic()
+        pump_page = None
+        for thread_id, recorder in list(self._recorders.items()):
+            if recorder.stopping:
+                recorder.detach()
+                self._recorders.pop(thread_id, None)
+                continue
+            page = self._thread_pages.get(thread_id)
+            try:
+                closed = page is None or page.is_closed()
+            except Exception:
+                closed = True
+            if closed:
+                recorder.detach()  # The last picture stays until a page is back.
+            elif page is not recorder.page:
+                recorder.detach()
+                try:
+                    recorder.attach(page, self._context.new_cdp_session(page))
+                except Exception:
+                    logger.debug("A recording could not follow its tab", exc_info=True)
+            if recorder.page is not None and now - recorder.checked_at >= 1.0:
+                recorder.shielded = self._shielded(recorder.page, thread_id)
+                recorder.checked_at = now
+            pump_page = pump_page or recorder.page
+        if pump_page is not None:
+            try:
+                pump_page.wait_for_timeout(1)
+            except Exception:
+                pass
+
     def take_screenshot(self, thread_id: str | None = None) -> bytes | None:
         """UI preview only; actions and observations never call this method."""
 
@@ -1070,6 +1514,9 @@ class ManagedBrowserService:
                 if protected is not None:
                     return None, True
                 self._preview_capture_count += 1
+                if page in self._viewports:
+                    # Playwright's screenshot would put its own page size back.
+                    return self._cdp_screenshot(page, cover=False), False
                 return page.screenshot(type="png"), False
             image, shielded = self._run_on_pw_thread(capture)
             if thread_id is not None:
@@ -1163,6 +1610,22 @@ class BrowserSessionManager:
             session = self._shared_session
         if session:
             session.release_thread(thread_id)
+
+    # Local addresses (F4): passive reads never start a browser.
+    def local_address_grants(self, conversation_id: str) -> list[LocalAddressGrant]:
+        with self._lock:
+            session = self._shared_session
+        return session.local_address_grants(conversation_id) if session else []
+
+    def revoke_local_address(self, conversation_id: str, grant_id: str) -> bool:
+        with self._lock:
+            session = self._shared_session
+        return bool(session and session.revoke_local_address(conversation_id, grant_id))
+
+    def revoke_local_addresses(self, conversation_id: str) -> int:
+        with self._lock:
+            session = self._shared_session
+        return session.revoke_local_addresses(conversation_id) if session else 0
 
     def kill_all(self) -> None:
         with self._lock:

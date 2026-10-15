@@ -269,6 +269,16 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserReceipt>;
+  /** The addresses on this computer a conversation's browser may open (F4). */
+  browserLocalAddresses?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalAddressPage>;
+  removeBrowserLocalAddress?(
+    conversation: string,
+    grant: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalAddressPage>;
   computerUse?(
     conversation: string,
     signal?: AbortSignal,
@@ -775,6 +785,34 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeGraphSnapshot>;
   monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
+  /** Background processes (F1, F6): every one, or one conversation's. */
+  backgroundProcesses?(
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessPage>;
+  backgroundProcess?(
+    processId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessView>;
+  backgroundProcessOutput?(
+    processId: string,
+    after?: number,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessOutput>;
+  stopBackgroundProcess?(
+    processId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessView>;
+  /** Recordings of Row-Bot's browser or the screen (F2): every one, or one conversation's. */
+  recordings?(
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.RecordingPage>;
+  stopRecording?(
+    recordingId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.RecordingView>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;

@@ -43,6 +43,9 @@ MODEL_ACTION_TO_CUA = {
 
 INTERNAL_TOOLS = frozenset({"set_config", "health_report", "check_permissions", "start_session", "end_session"})
 ALLOWED_CUA_TOOLS = frozenset(MODEL_ACTION_TO_CUA.values()) | INTERNAL_TOOLS | {"hotkey"}
+# Screen recording (F2) runs only through ``CuaClient.call_recording`` on a client of
+# its own; the model's actions and the generic paths still refuse the family.
+RECORDING_TOOLS = frozenset({"start_recording", "stop_recording", "get_recording_state"})
 FORBIDDEN_TOOL_FAMILIES = frozenset({
     "page", "get_desktop_state", "start_recording", "stop_recording",
     "get_recording_state", "check_for_update", "install_ffmpeg", "kill_app",
@@ -578,3 +581,31 @@ class CuaClient:
 
     def supports_capability(self, name: str) -> bool:
         return str(name) in self.capabilities
+
+    def call_recording(self, tool_name: str, arguments: dict[str, Any] | None = None) -> CuaResponse:
+        """Service-only screen recording (F2), on a client of its own.
+
+        Never reachable from the model's action schema or the generic paths, which
+        keep refusing the recording family. Starting always records video into one
+        folder the recording service chose; stopping and reading the state take no
+        arguments.
+        """
+
+        if tool_name not in RECORDING_TOOLS:
+            raise PermissionError(f"Cua recording tool is not approved: {tool_name}")
+        if tool_name == "start_recording":
+            args = dict(arguments or {})
+            output_dir = args.get("output_dir")
+            if (
+                set(args) != {"output_dir"}
+                or not isinstance(output_dir, str)
+                or not Path(output_dir).is_absolute()
+            ):
+                raise PermissionError("Cua recording needs exactly one absolute output folder")
+            safe: dict[str, Any] = {"output_dir": output_dir, "record_video": True}
+        else:
+            safe = {}
+        if self._transport is None:
+            self.start()
+        assert self._transport is not None
+        return parse_cua_result(self._transport.call_raw(tool_name, safe))

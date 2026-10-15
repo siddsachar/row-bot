@@ -208,6 +208,31 @@ def test_a_sign_in_left_past_its_time_stops_the_setup_and_connecting_again_signs
         plans.cancel(context(), again)
 
 
+def test_a_sign_in_whose_own_wait_runs_out_ends_as_expired_not_failed(hosted):
+    """B338, the usual timing: nobody looks before the 5 minutes are up, so the sign-in's own wait runs out
+    first. It ended as "failed" ("Sign-in failed"), not "wasn't finished in time". The same race made the
+    test above fail on a slow runner when its clock moved before the wait began (macOS CI, 15 Oct)."""
+    hosted(dcr=True)
+    _, plan = api.read_item(owner_id="owner", item_id=item_id())
+    first = str(uuid4())
+    api.start_plan(context(), plan_id=first, item_id=item_id(), digest=plan["digest"])
+    until_waiting(first)
+    flow = waiting_flow()
+    flow.created -= client_mcp_auth._TTL + 1  # Five minutes pass without the person finishing...
+    flow.event.set()  # ...and the sign-in's own wait ends then, with no answer from the browser.
+    for _ in range(200):
+        if flow.finished:
+            break
+        time.sleep(0.02)
+    assert flow.finished and flow.state == "expired"
+    stopped = plans.read_plan(context(), first)
+    assert stopped["state"] == "expired" and "wasn't finished in time" in stopped["message"]
+    found, fresh = api.read_item(owner_id="owner", item_id=item_id())
+    assert not {b["code"] for b in found["entry"]["blockers"]} & RECOVERING
+    assert found["entry"]["next_action"]["kind"] == "continue_setup" and fresh is not None
+    assert not config.configuration_recovery_required()
+
+
 def test_retry_ends_a_sign_in_whose_end_could_not_be_saved(hosted, monkeypatch):
     """B338: a sign-in that ended while its end couldn't be recorded stayed unfinished, and Retry never ended it
     while Row-Bot kept running."""

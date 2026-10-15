@@ -457,9 +457,12 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     row = service._metadata(identity)
     model = model_choice_value(row.get("model_override") or get_current_model())
     parsed = parse_model_ref(model)
+    from row_bot import full_autonomy
+    shared = full_autonomy.is_shared_conversation(identity)
     controls = {"model_selection": {"provider_id": parsed[0], "model_ref": model} if parsed else None,
                 "runtime_mode": row.get("client_runtime_mode") or "agent", "profile_id": row.get("agent_profile_id") or "",
-                "approval_mode": normalize_approval_mode(row.get("approval_mode"))}
+                # The level its turns run at: a shared conversation's Hands-off is Auto.
+                "approval_mode": full_autonomy.cap_for_conversation(identity, normalize_approval_mode(row.get("approval_mode")))}
     resources = []
     for binding in list_bindings(identity).bindings:
         if binding.kind not in {"artifact", "workspace"}:
@@ -490,6 +493,8 @@ def conversation_workspace(service: Any, identity: str) -> dict:
                 },
             ),
             "profiles": _people_facing_profiles(str(row.get("agent_profile_id") or "")),
+            "approval": {"full_autonomy_confirmed": full_autonomy.is_confirmed(),
+                         "full_autonomy_available": not shared},
             "resources": resources, "actions": [
                 {"action": action, "ready": ready, "code": None if ready else "model_configuration_required"}
                 for action in ("send", "generate")] + [

@@ -615,6 +615,18 @@ const CATALOG: Record<string, Entry> = {
     'An approval is waiting in this conversation. Answer it first.',
     'review',
   ],
+  full_autonomy_unconfirmed: [
+    'Turn on Hands-off from its dialog the first time; it says what it skips.',
+    'review',
+  ],
+  full_autonomy_shared_conversation: [
+    'Other people share this conversation, so it runs on Auto at most. Hands-off is only for your own chats.',
+    'none',
+  ],
+  full_autonomy_person_only: [
+    'Only you can turn on Hands-off, in Row-Bot.',
+    'none',
+  ],
 
   // Conversations, sending and waiting messages
   checkpoint_unavailable: [
@@ -1688,6 +1700,11 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   process_unavailable: ['That command is no longer running.', 'none'],
+  recording_unavailable: ['That recording is no longer listed.', 'none'],
+  local_address_unavailable: [
+    'That address was already removed or ran out.',
+    'none',
+  ],
   runtime_installation_command_unavailable: [
     "That install action isn't available.",
     'none',
@@ -1917,7 +1934,7 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   browser_navigation_denied: [
-    "The managed browser can't open that address.",
+    "Row-Bot's browser can't open that address. Addresses on your local network, and Row-Bot itself, never open there.",
     'review',
   ],
   browser_outcome_uncertain: [

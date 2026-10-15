@@ -36,7 +36,8 @@ _SOURCES = {
 _CAPABILITIES = {"read_only", "write_capable", "orchestrator"}
 _CONTEXT_MODES = {"auto", "focused", "recent", "full", "empty", "resume"}
 _WORKSPACE_MODES = {"auto", "read_only", "single_writer", "worktree"}
-_APPROVAL_MODES = {"inherit", "block", "approve", "allow_all"}
+# Stored profiles may still say "allow_all" (the old Auto): read as reviewed "auto".
+_APPROVAL_MODES = {"inherit", "block", "approve", "auto", "full", "allow_all"}
 
 _JSON_FIELDS = {
     "output_contract_json",
@@ -1134,17 +1135,22 @@ def canonical_profile_ref(profile_id_or_slug: str) -> str:
 
 
 def _approval_rank(mode: str) -> int:
-    mode = normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE)
-    return {"block": 0, "approve": 1, "allow_all": 2}.get(mode, 1)
+    from row_bot.approval_policy import approval_rank
+
+    return approval_rank(normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE))
 
 
 def _effective_approval(parent_mode: str, profile_mode: str) -> tuple[str, str]:
+    """A profile narrows its parent's level, never widens it: a profile on Hands-off under a chat on
+    Auto runs on Auto."""
+    from row_bot.approval_policy import known_approval_mode
+
     parent = normalize_approval_mode(parent_mode, DEFAULT_APPROVAL_MODE)
     requested = str(profile_mode or "inherit")
     if requested == "inherit":
         return parent, ""
-    requested = normalize_approval_mode(requested, "")
-    if requested not in {"block", "approve", "allow_all"}:
+    requested = known_approval_mode(requested) or ""
+    if not requested:
         return parent, f"Invalid profile approval mode '{profile_mode}' ignored."
     if _approval_rank(requested) > _approval_rank(parent):
         return parent, (

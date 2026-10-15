@@ -56,9 +56,8 @@ def _analyze_image(
     from row_bot.approval_policy import normalize_approval_mode
     from row_bot.tools.approval_gate import (
         APPROVAL_DENIED,
-        APPROVAL_GIVEN,
         current_approval_mode,
-        resolve_approval,
+        resolve_approval_line,
         with_approval,
     )
 
@@ -71,16 +70,20 @@ def _analyze_image(
         # Any other value used to reach the webcam capture without the approval below.
         return f"Unknown source {source!r}: use 'camera', 'screen', 'file' or 'browser'."
     label, description = _CAPTURES[source]
-    if normalize_approval_mode(current_approval_mode()) == "block":
+    mode = normalize_approval_mode(current_approval_mode())
+    if mode == "block":
         return f"BLOCKED: {label[:-1]} is unavailable while this conversation is in Block approval mode."
-    outcome = resolve_approval(
+    # Asked under Ask (B327); under Auto the reviewer approves it only when the person clearly asked to
+    # be looked at; Hands-off allows it.
+    outcome, line = resolve_approval_line(
         {"tool": "analyze_image", "label": label, "description": description,
          "args": {"source": source, "question": question}},
-        approval_mode="approve",
+        approval_mode=mode,
+        risks=(f"captures the person's {'screen' if source == 'screen' else 'camera'}",),
     )
     if outcome != "allow":
-        return with_approval(APPROVAL_DENIED, "Capture cancelled by user.")
-    return with_approval(APPROVAL_GIVEN, _get_vision_service().capture_and_analyze(question, source=source))
+        return with_approval(line or APPROVAL_DENIED, "Capture cancelled by user.")
+    return with_approval(line, _get_vision_service().capture_and_analyze(question, source=source))
 
 
 # ── Registration ─────────────────────────────────────────────────────────────

@@ -543,7 +543,7 @@ def _review(action: str, payload: dict[str, Any], resource_id: str, conversation
         if set(payload) != {"revision"}:
             raise _error("invalid_developer_repository_command")
     policy_action = _POLICY_ACTION[action]
-    decision = decide_action(context["approval_mode"], policy_action)
+    decision = decide_action(context["approval_mode"], policy_action, by_person=True)
     digest = hashlib.sha256(json.dumps({"action": action, "resource_id": resource_id, "conversation_id": conversation_id, "binding_id": snapshot["binding_id"], "binding_revision": snapshot["binding_revision"], "payload": normalized}, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
     disclosures = {
         "developer.repository.commit": ["Selected host workspace changes will be staged and committed."],

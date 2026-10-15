@@ -46,6 +46,7 @@ import { taskEdits, taskMutation, type TaskCommandOwner } from './task-edits';
 import TaskGraphEditor from './TaskGraphEditor';
 import AppTemplates from './AppTemplates';
 import TaskSettingsEditor from './TaskSettingsEditor';
+import { approvalLevel, approvalTag } from '../shell/approval-levels';
 import { webhookReach } from './webhook-reach';
 import { writeClipboardText } from '../../platform/clipboard';
 import { RunSparkline } from './RunSparkline';
@@ -147,11 +148,6 @@ function profileTag(id: string) {
     humanizeToken(id.replace(/^builtin:/, '').replace(/^row_bot_/, '')) ||
     'Default'
   );
-}
-function approvalTag(mode: string) {
-  if (mode === 'approve') return 'Asks before actions';
-  if (mode === 'allow_all') return 'Auto approvals';
-  return 'Blocks actions';
 }
 
 function DeliveryDefaults({
@@ -887,8 +883,9 @@ export function SavedTasks({
                             </span>
                             <span
                               className="workflow-tag"
+                              // Only Hands-off carries the warning tone.
                               data-attention={
-                                task.approval_mode === 'allow_all'
+                                approvalLevel(task.approval_mode) === 'full'
                                   ? 'true'
                                   : undefined
                               }

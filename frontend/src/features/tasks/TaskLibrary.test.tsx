@@ -1254,8 +1254,9 @@ it('names the profile and approvals a run uses on the row, with Auto approvals s
         task('Trusted', {
           notify_only: false,
           agent_profile_id: 'builtin:row_bot_research',
-          approval_mode: 'allow_all',
+          approval_mode: 'auto',
         }),
+        task('Unattended', { notify_only: false, approval_mode: 'full' }),
       ]),
     ),
   );
@@ -1267,7 +1268,11 @@ it('names the profile and approvals a run uses on the row, with Auto approvals s
   );
   const trusted = within(row('Trusted'));
   expect(trusted.getByText('Research')).toBeVisible();
-  expect(trusted.getByText('Auto approvals')).toHaveAttribute(
+  // Reviewed Auto is calm; only Hands-off carries the warning tone.
+  expect(trusted.getByText('Auto approvals')).not.toHaveAttribute(
+    'data-attention',
+  );
+  expect(within(row('Unattended')).getByText('Hands-off')).toHaveAttribute(
     'data-attention',
     'true',
   );

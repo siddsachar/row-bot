@@ -26,6 +26,14 @@ Ask from a normal local desktop chat and name the application and desired outcom
 
 When accessibility data is insufficient, Row-Bot may send one ephemeral target-window screenshot to the Vision model configured in Settings. The live control card shows sanitized state and a shielded thumbnail; screenshot bytes are not written to chat, durable memory, replay history, logs, or tool results.
 
+## Record The Screen
+
+With Computer Use set up, Row-Bot can record your main screen to a video when you ask. It asks first ("Record your screen?"): the recording shows everything on the screen, including other apps and notifications. The conversation shows **Recording · 0:42** with **Stop**; the video (MP4) is saved to the conversation's files and shows there with a player. It stops when you or Row-Bot stop it, at its time limit (5 minutes unless asked otherwise, at most 10), before it gets too large for the chat, when the conversation is deleted, and when Row-Bot quits.
+
+- On Windows, Cua Driver records video with ffmpeg, which must be installed (for example `winget install Gyan.FFmpeg`); Row-Bot says so if it's missing. On macOS it needs macOS 15 or later and Screen Recording permission.
+- The recording runs in a Cua session of its own, into a private folder in Row-Bot's data; the folder (including Cua's per-step pictures) is removed once the video is saved.
+- Without Computer Use set up, Row-Bot says that recording the screen needs it and how to set it up. Its own browser can be recorded without it (see [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal)).
+
 ## Stop Or Take Over
 
 - **Stop** cancels queued work and releases the session.

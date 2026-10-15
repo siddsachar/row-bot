@@ -72,7 +72,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DataBackupUploadRequest", "DataBackupUploadView",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -146,6 +146,8 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/browser/review", "BrowserReviewRequest", "BrowserReview"),
     ("get", "/conversations/{conversation_id}/browser/commands/{command_id}", None, "BrowserReceipt"),
     ("post", "/conversations/{conversation_id}/browser/commands", "Command", "BrowserReceipt"),
+    ("get", "/conversations/{conversation_id}/browser/local-addresses", None, "LocalAddressPage"),
+    ("post", "/conversations/{conversation_id}/browser/local-addresses/{grant_id}/remove", None, "LocalAddressPage"),
     ("get", "/conversations/{conversation_id}/computer", None, "ComputerUseSnapshot"),
     ("get", "/conversations/{conversation_id}/computer/preview", None, "ComputerUsePreview"),
     ("post", "/conversations/{conversation_id}/computer/commands", "ComputerUseCommand", "ComputerUseReceipt"),
@@ -196,6 +198,13 @@ OPERATIONS = (
     ("get", "/knowledge/entities/editor", None, "KnowledgeEditorState"),
     ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
     ("get", "/monitor", None, "MonitorSnapshot"),
+    ("get", "/processes", None, "BackgroundProcessPage"),
+    ("get", "/processes/{process_id}", None, "BackgroundProcessView"),
+    ("get", "/processes/{process_id}/output", None, "BackgroundProcessOutput"),
+    ("post", "/processes/{process_id}/stop", None, "BackgroundProcessView"),
+    ("get", "/recordings", None, "RecordingPage"),
+    ("get", "/recordings/{recording_id}", None, "RecordingView"),
+    ("post", "/recordings/{recording_id}/stop", None, "RecordingView"),
     ("get", "/monitor/attention", None, "AttentionSnapshot"),
     ("get", "/monitor/approvals", None, "PendingApprovalPage"),
     ("get", "/monitor/logs", None, "MonitorLogs"),
@@ -695,6 +704,24 @@ export const getKnowledgeGraph = (base: string, proof: SessionProof, limit = 250
   jsonRequest(base, '/knowledge/graph' + query({limit}), 'KnowledgeGraphSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getMonitorSnapshot = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MonitorSnapshot> =>
   jsonRequest(base, '/monitor', 'MonitorSnapshot', proof, 'GET', undefined, undefined, signal);
+/** Every background process (F1, F6), or one conversation's: running ones first. */
+export const getBackgroundProcesses = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<BackgroundProcessPage> =>
+  jsonRequest(base, '/processes' + query({conversation_id}), 'BackgroundProcessPage', proof, 'GET', undefined, undefined, signal);
+export const getBackgroundProcess = (base: string, proof: SessionProof, process: string, signal?: AbortSignal): Promise<BackgroundProcessView> =>
+  jsonRequest(base, `/processes/${id(process)}`, 'BackgroundProcessView', proof, 'GET', undefined, undefined, signal);
+export const getBackgroundProcessOutput = (base: string, proof: SessionProof, process: string, after = 0, limit = 65536, signal?: AbortSignal): Promise<BackgroundProcessOutput> =>
+  jsonRequest(base, `/processes/${id(process)}/output` + query({after,limit}), 'BackgroundProcessOutput', proof, 'GET', undefined, undefined, signal);
+/** Stop a background process and everything it started; it needs no approval. */
+export const stopBackgroundProcess = (base: string, proof: SessionProof, process: string, signal?: AbortSignal): Promise<BackgroundProcessView> =>
+  jsonRequest(base, `/processes/${id(process)}/stop`, 'BackgroundProcessView', proof, 'POST', undefined, undefined, signal);
+/** Every recording (F2), or one conversation's: running ones first. */
+export const getRecordings = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<RecordingPage> =>
+  jsonRequest(base, '/recordings' + query({conversation_id}), 'RecordingPage', proof, 'GET', undefined, undefined, signal);
+export const getRecording = (base: string, proof: SessionProof, recording: string, signal?: AbortSignal): Promise<RecordingView> =>
+  jsonRequest(base, `/recordings/${id(recording)}`, 'RecordingView', proof, 'GET', undefined, undefined, signal);
+/** Stop a recording; its video is saved to its conversation's files. It needs no approval. */
+export const stopRecording = (base: string, proof: SessionProof, recording: string, signal?: AbortSignal): Promise<RecordingView> =>
+  jsonRequest(base, `/recordings/${id(recording)}/stop`, 'RecordingView', proof, 'POST', undefined, undefined, signal);
 export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
   jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getPendingApprovals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<PendingApprovalPage> =>
@@ -1025,6 +1052,12 @@ export const getBrowserControlReceipt = (base: string, proof: SessionProof, conv
   jsonRequest(base, `/conversations/${id(conversation)}/browser/commands/${id(command)}`, 'BrowserReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendBrowserControl = (base: string, proof: SessionProof, conversation: string, command: Command, signal?: AbortSignal): Promise<BrowserReceipt> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/commands`, 'BrowserReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
+/** The addresses on this computer a conversation's browser may open now (F4). */
+export const getBrowserLocalAddresses = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<LocalAddressPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/local-addresses`, 'LocalAddressPage', proof, 'GET', undefined, undefined, signal);
+/** Remove one local address from a conversation; its browser can't open it until it's allowed again. */
+export const removeBrowserLocalAddress = (base: string, proof: SessionProof, conversation: string, grant: string, signal?: AbortSignal): Promise<LocalAddressPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/local-addresses/${id(grant)}/remove`, 'LocalAddressPage', proof, 'POST', undefined, undefined, signal);
 export const getComputerUse = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ComputerUseSnapshot> =>
   jsonRequest(base, `/conversations/${id(conversation)}/computer`, 'ComputerUseSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getComputerUsePreview = (base: string, proof: SessionProof, conversation: string, revision: string, signal?: AbortSignal): Promise<ComputerUsePreview> =>

@@ -108,6 +108,10 @@ export function tracedMedia(groups: TranscriptTraceGroup[]): GeneratedMedia[] {
           reference: value.media_ref,
           mime: value.mime_type,
           caption: prompt(item.safe_input),
+          // A picture of Row-Bot's browser, not something generated (F4).
+          ...(item.canonical_name === 'Browser Screenshot'
+            ? { label: 'Page screenshot' }
+            : {}),
         });
       }
   return media;
