@@ -29,6 +29,7 @@ class WindowsJob:
             _fields_ = [("times", ctypes.c_longlong * 4), ("faults", wintypes.DWORD),
                 ("total", wintypes.DWORD), ("active", wintypes.DWORD), ("terminated", wintypes.DWORD)]
 
+        self._extended = Extended
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
         kernel.CreateJobObjectW.restype = wintypes.HANDLE
@@ -54,6 +55,26 @@ class WindowsJob:
             kernel.CloseHandle(self._handle)
             self._handle = None
             raise RuntimeError("worker_ownership_unavailable")
+
+    def release(self) -> bool:
+        """Close the job without ending what is still in it (kill-on-close is cleared first).
+
+        For a command that ended on its own: an app it deliberately opened keeps running, as
+        it would from a plain subprocess. Returns False (and ends them) if the limit can't be
+        cleared.
+        """
+        if self._handle is None:
+            return self._stopped
+        limits = self._extended()
+        limits.basic.flags = 0
+        if not self._kernel.SetInformationJobObject(self._handle, 9, self._ctypes.byref(limits),
+                                                    self._ctypes.sizeof(limits)):
+            return self.close()
+        handle = self._handle
+        self._handle = None
+        self._kernel.CloseHandle(handle)
+        self._stopped = True
+        return True
 
     def close(self) -> bool:
         if self._handle is None:

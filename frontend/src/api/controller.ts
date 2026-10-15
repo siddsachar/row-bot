@@ -2507,6 +2507,129 @@ export class ClientController {
     this.query(() => this.transport.knowledgeGraph?.(limit, signal));
   monitorSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.monitorSnapshot?.(signal));
+  /** Background processes (F1, F6): every one, or one conversation's, running ones first. */
+  backgroundProcesses = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.backgroundProcesses?.(conversationId, signal),
+    );
+  backgroundProcess = (processId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.backgroundProcess?.(processId, signal));
+  backgroundProcessOutput = (
+    processId: string,
+    after = 0,
+    limit = 65536,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.backgroundProcessOutput?.(processId, after, limit, signal),
+    );
+  /** Stop a background process and everything it started; no approval. */
+  stopBackgroundProcess = (processId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopBackgroundProcess)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopBackgroundProcess(processId, signal);
+    });
+  /** Recordings (F2): every one, or one conversation's, running ones first. */
+  recordings = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.recordings?.(conversationId, signal));
+  /** Stop a recording; its video is saved to the conversation's files. No approval. */
+  stopRecording = (recordingId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopRecording)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopRecording(recordingId, signal);
+    });
+  /** A conversation's code folder's sandbox (F18): Docker, its image, what Prepare would install. */
+  conversationSandbox = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.conversationSandbox?.(conversationId, signal),
+    );
+  /** One Prepare sandbox (or image download) job, read live. */
+  sandboxJob = (jobId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.sandboxJob?.(jobId, signal));
+  /** Prepare sandbox, after the person confirmed it: the network is on for the install only. */
+  prepareSandbox = (conversationId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.prepareSandbox)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.prepareSandbox(conversationId, signal);
+    });
+  /** Download the sandbox image, after the person confirmed it. */
+  pullSandboxImage = (conversationId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.pullSandboxImage)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.pullSandboxImage(conversationId, signal);
+    });
+  /** Stop a sandbox job; the network goes off again. No approval. */
+  stopSandboxJob = (jobId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopSandboxJob)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopSandboxJob(jobId, signal);
+    });
+  /**
+   * The folders in one folder of the Developer workspace root (F19): how a
+   * device with no folder picker chooses a code folder. The server checks
+   * every path against the root.
+   */
+  workspaceFolders = (path = '', signal?: AbortSignal) =>
+    this.query(() => this.transport.workspaceFolders?.(path, signal));
+  /** Video edits (F3): every one, or one conversation's, running ones first. */
+  videoEdits = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.videoEdits?.(conversationId, signal));
+  /** Stop a video edit; nothing is saved. No approval. */
+  stopVideoEdit = (editId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopVideoEdit)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopVideoEdit(editId, signal);
+    });
+  /** Files sent to the person's devices or a chat app (F7). */
+  delivery = (deliveryId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.delivery?.(deliveryId, signal));
+  /** One file sent to the devices, with this session (refused once expired). */
+  downloadDelivery = (
+    deliveryId: string,
+    index: number,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.downloadDelivery)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.downloadDelivery(deliveryId, index, current);
+    }, signal);
+  /** Desktop window: save a sent file into Exports on this computer. */
+  saveDelivery = (deliveryId: string, index: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.saveDelivery)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.saveDelivery(deliveryId, index, signal);
+    });
+  /** "Send to your devices instead" for files that didn't go to a chat app. */
+  sendDeliveryToDevices = (deliveryId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.sendDeliveryToDevices)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.sendDeliveryToDevices(deliveryId, signal);
+    });
+  /** The local addresses a conversation's browser may open now (F4). */
+  browserLocalAddresses = (conversation: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.browserLocalAddresses?.(conversation, signal),
+    );
+  /** Remove one local address from a conversation; no approval. */
+  removeBrowserLocalAddress = (conversation: string, grant: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.removeBrowserLocalAddress)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.removeBrowserLocalAddress(
+        conversation,
+        grant,
+        signal,
+      );
+    });
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));

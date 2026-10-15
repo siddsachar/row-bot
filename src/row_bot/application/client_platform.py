@@ -421,7 +421,8 @@ class ClientPlatformService:
                         self.projection.publish(handle.conversation_id, "approval.required", {
                             "status": "waiting_approval", "approval_id": handle.approval_id,
                             **{key: view[key] for key in ("action_label", "reason", "risk_class", "scope",
-                                                          "safe_argument_summary", "requesting_trace_id", "setup")
+                                                          "safe_argument_summary", "requesting_trace_id", "setup",
+                                                          "question")
                                if key in view}})
                 return
             if status != "waiting_approval":
@@ -649,7 +650,9 @@ class ClientPlatformService:
                 for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
-    def _refresh_checkpoint(self, conversation_id: str) -> None:
+    def _refresh_checkpoint(self, conversation_id: str, *, settle: tuple[str, bool] | None = None) -> None:
+        """Read the saved messages in; with *settle* (a live row, adopted or not), retire that live row in the
+        same step, so no read shows the saved answer and its live row together."""
         from row_bot import threads
         from row_bot.runtime.checkpoint_reader import open_checkpoint
         with threads.checkpoint_mutation(conversation_id):
@@ -658,7 +661,10 @@ class ClientPlatformService:
                 if reader and reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]:
                     records = list(reader.records(start=-100))
                     rows = [row for _, row in project_checkpoint_records(reader, records)]
-                    self.projection.install_rows(conversation_id, reader.revision, rows)
+                    self.projection.install_rows(conversation_id, reader.revision, rows, settle=settle)
+                    return
+        if settle is not None:
+            self.projection.settle_live(conversation_id, settle[0], adopted=settle[1])
 
     def conversation_changed(self, conversation_id: str) -> None:
         """A conversation was written outside its own turns (a delegated
@@ -1025,6 +1031,16 @@ class ClientPlatformService:
                 raise ClientPlatformError("model_selection_mismatch")
             from row_bot.agent_profiles import require_agent_profile
             profile = require_agent_profile(payload["profile_id"], enabled_only=True) if payload.get("profile_id") else None
+            from row_bot import full_autonomy
+            from row_bot.approval_policy import normalize_approval_mode
+            if payload["approval_mode"] == "full" and normalize_approval_mode(row.get("approval_mode")) != "full":
+                # Only for the person's own chats, and after its one-time dialog on this install.
+                if full_autonomy.is_shared_conversation(target):
+                    raise ClientPlatformError("full_autonomy_shared_conversation")
+                try:
+                    full_autonomy.require_choice("full", confirmed=bool(payload.get("confirm_full_autonomy")))
+                except full_autonomy.FullAutonomyError as exc:
+                    raise ClientPlatformError(exc.code) from exc
             from row_bot.application.reasoning_controls import validated_control, merged_selection
             reasoning_control = payload.get("reasoning")
             reasoning_selection = validated_control(model, reasoning_control) if reasoning_control is not None else None
@@ -1203,6 +1219,7 @@ class ClientPlatformService:
             raise ClientPlatformError("model_selection_mismatch")
         model_ref = model_choice_value(model_ref, provider_id=provider_id)
         from row_bot.approval_policy import normalize_approval_mode
+        from row_bot.full_autonomy import cap_for_conversation
         row = self._metadata(conversation_id)
         if frozen_context is not None:
             row = {**row, "approval_mode": frozen_config.get("approval_mode"),
@@ -1274,7 +1291,8 @@ class ClientPlatformService:
             raise ClientPlatformError("invalid_command")
         config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,
-                  "approval_mode": normalize_approval_mode(row.get("approval_mode")),
+                  # A conversation other people share runs on Auto at most, never Hands-off.
+                  "approval_mode": cap_for_conversation(conversation_id, normalize_approval_mode(row.get("approval_mode"))),
                   "agent_profile_id": row.get("agent_profile_id") or "",
                   "platform_submission_id": submission_id,
                   "platform_command_id": command_id,
@@ -1526,8 +1544,8 @@ class ClientPlatformService:
                     handle.segment_committed = True
                     handle.output_message_id = native_id
                     handle.output_checkpoint_revision = revision
-            self._refresh_checkpoint(conversation_id)
-            self.projection.settle_live(conversation_id, row_id, adopted=adopted)
+            # The saved answer replaces its live row in one step: a reader never sees both (a reply twice).
+            self._refresh_checkpoint(conversation_id, settle=(row_id, adopted))
             from row_bot.application.live_content import discard
             discard(conversation_id, f"live:{handle.pass_id}:{target_segment}")
         elif kind in {"tool_call", "tool_done"}:

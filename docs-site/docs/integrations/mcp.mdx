@@ -25,7 +25,7 @@ When you choose what an app can do, Row-Bot groups its actions by effect:
 
 An action whose effect Row-Bot can't determine always asks. An app's own hints can only make an action stricter; the one exception is a read-only hint, and it never outweighs a name that says the action makes a change. Without that hint, an action whose name doesn't say it makes a change but whose description does always asks. Connections set up before this version keep asking before routine changes until you choose otherwise.
 
-High-impact actions and actions whose effect Row-Bot can't determine ask even when a chat or workflow uses **Auto** approvals: Auto lets routine actions run, never these. Approval mode, agent profiles and the model's tool support still apply on top of this. Turning an action off in Row-Bot does not revoke access at the service; use the service's own account controls for that.
+High-impact actions and actions whose effect Row-Bot can't determine always need approval: under **Auto** the reviewer approves one only when it clearly matches your request and otherwise asks you, and only **Hands-off**, which you choose, runs them without asking. Approval mode, agent profiles and the model's tool support still apply on top of this. Turning an action off in Row-Bot does not revoke access at the service; use the service's own account controls for that.
 
 ## Interactive Views
 

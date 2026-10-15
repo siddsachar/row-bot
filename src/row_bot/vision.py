@@ -129,6 +129,27 @@ def _encoded_image_mime(image_bytes: bytes) -> str:
         return "image/webp"
     return "image/jpeg"
 
+# Images in one look (F5, decision D6); more go on a contact sheet. Each is sent at most this
+# many pixels on its longer side (what vision models read anyway), as JPEG.
+MAX_IMAGES = 8
+MAX_IMAGE_SIDE = 1568
+
+
+def _prepared_image(data: bytes) -> bytes:
+    """One picture as a vision model reads it: upright, at most MAX_IMAGE_SIDE, JPEG."""
+    import io
+
+    from row_bot.contact_sheet import SheetError, open_picture
+
+    try:
+        picture = open_picture(data, max_side=MAX_IMAGE_SIDE)
+    except SheetError as exc:
+        raise ValueError(str(exc)) from None
+    output = io.BytesIO()
+    picture.save(output, format="JPEG", quality=88)
+    return output.getvalue()
+
+
 # ── Persistent settings ─────────────────────────────────────────────────────
 _DATA_DIR = get_row_bot_data_dir()
 _SETTINGS_PATH = _DATA_DIR / "vision_settings.json"
@@ -507,6 +528,66 @@ class VisionService:
             self.last_capture = shot
         return shot
 
+    def cannot_see(self, chat_model: str | None = None) -> str:
+        """Why the model can't look at images now, in plain words; empty when it can.
+
+        Reads only what Row-Bot already knows about the model (never calls a provider), so a
+        tool can say so before it gathers any pictures.
+        """
+        if not self._enabled:
+            return "Vision is disabled. Enable it in Settings → Models."
+        model = self.effective_model(chat_model)
+        if not model:
+            return "No model is chosen yet, so Row-Bot can't look at images. Choose a model, then try again."
+        compatibility = vision_model_compatibility(model)
+        if compatibility.get("explicit") and not compatibility.get("usable"):
+            if not self._model:
+                return (
+                    "The chat model can't see images. Choose a model that can for Vision in Settings › Models "
+                    "(or switch this chat to one), then ask again."
+                )
+            reason = str(compatibility.get("reason") or "not marked as image-capable")
+            return (
+                "The selected Vision model is no longer marked as image-capable. "
+                f"Choose a Vision-capable model in Settings -> Models. ({reason})"
+            )
+        return ""
+
+    def analyze_many(
+        self, images: list[tuple[bytes, str]], question: str, *, chat_model: str | None = None,
+    ) -> str:
+        """Send up to ``MAX_IMAGES`` labelled images with one question in one call (F5)."""
+        if not images:
+            return "There are no images to look at."
+        if len(images) > MAX_IMAGES:
+            return (f"At most {MAX_IMAGES} images go in one look (this was {len(images)}). Look at them in "
+                    "smaller groups, or tile them onto one contact sheet.")
+        problem = self.cannot_see(chat_model)
+        if problem:
+            return problem
+        model = self.effective_model(chat_model)
+        try:
+            prepared = [(_prepared_image(data), label) for data, label in images]
+        except ValueError as exc:
+            return f"Vision analysis failed: {exc}"
+        order = "\n".join(f"Image {index}: {label}" for index, (_data, label) in enumerate(prepared, start=1))
+        preface = f"You are looking at {len(prepared)} images, in this order:\n{order}\n\n{question}"
+        with self._lock:
+            try:
+                provider_id = _vision_provider_id(model)
+                if provider_id in {"", "local", "ollama"}:
+                    return self._analyze_ollama_local(
+                        [base64.b64encode(data).decode("ascii") for data, _label in prepared], preface, model=model)
+                content: list[dict[str, Any]] = [{"type": "text", "text": preface}]
+                for index, (data, label) in enumerate(prepared, start=1):
+                    content.append({"type": "text", "text": f"Image {index}: {label}"})
+                    content.append({"type": "image_url", "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64.b64encode(data).decode('ascii')}"}})
+                return self._invoke_provider(content, model)
+            except Exception as exc:
+                logger.error("Vision model error: %s", exc)
+                return f"Vision analysis failed: {exc}"
+
     def analyze(self, image_bytes: bytes, question: str, *, chat_model: str | None = None) -> str:
         """Send an image + question to the vision model and return the
         text response.
@@ -523,26 +604,13 @@ class VisionService:
         str
             The vision model's response text.
         """
-        if not self._enabled:
-            return "Vision is disabled. Enable it in Settings → Models."
+        problem = self.cannot_see(chat_model)
+        if problem:
+            return problem
         model = self.effective_model(chat_model)
-        if not model:
-            return "No model is chosen yet, so Row-Bot can't look at images. Choose a model, then try again."
 
         with self._lock:
             try:
-                compatibility = vision_model_compatibility(model)
-                if compatibility.get("explicit") and not compatibility.get("usable"):
-                    reason = str(compatibility.get("reason") or "not marked as image-capable")
-                    if not self._model:
-                        return (
-                            "The chat model can't see images. Choose a vision model in "
-                            f"Settings -> Models. ({reason})"
-                        )
-                    return (
-                        "The selected Vision model is no longer marked as image-capable. "
-                        f"Choose a Vision-capable model in Settings -> Models. ({reason})"
-                    )
                 b64 = base64.b64encode(image_bytes).decode("ascii")
                 provider_id = _vision_provider_id(model)
                 if provider_id in {"", "local", "ollama"}:
@@ -566,34 +634,38 @@ class VisionService:
         model: str | None = None,
     ) -> str:
         """Send image to the selected provider-backed vision model."""
+        model = model or self.effective_model()
+        return self._invoke_provider([
+            {"type": "text", "text": question},
+            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
+        ], model)
+
+    def _invoke_provider(self, content: list[dict[str, Any]], model: str) -> str:
+        """One provider call with text and images; the answer's text."""
         from row_bot.models import get_llm_for
         from langchain_core.messages import HumanMessage
 
-        model = model or self.effective_model()
         label = _vision_provider_label(model)
         try:
-            msg = HumanMessage(content=[
-                {"type": "text", "text": question},
-                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
-            ])
+            msg = HumanMessage(content=content)
             llm = get_llm_for(model)
             response = llm.invoke([msg])
-            content = getattr(response, "content", "")
-            if isinstance(content, list):
+            answer = getattr(response, "content", "")
+            if isinstance(answer, list):
                 text_parts = []
-                for item in content:
+                for item in answer:
                     if isinstance(item, str):
                         text_parts.append(item)
                     elif isinstance(item, dict) and isinstance(item.get("text"), str):
                         text_parts.append(item["text"])
-                content = "\n".join(text_parts)
-            return str(content or "")
+                answer = "\n".join(text_parts)
+            return str(answer or "")
         except Exception as exc:
             logger.error("Vision provider model error for %s: %s", label, exc)
             return f"Vision analysis failed for {label}: {exc}"
 
-    def _analyze_ollama_local(self, b64: str, question: str, model: str | None = None) -> str:
-        """Send image to a local Ollama vision model."""
+    def _analyze_ollama_local(self, b64: str | list[str], question: str, model: str | None = None) -> str:
+        """Send an image (or several, in order) to a local Ollama vision model."""
         if _ollama_mod is None:
             return "Ollama is not installed. Install it or switch to a provider-backed Vision model."
         from row_bot.models import _ollama_client, ollama_chat_request_settings
@@ -609,7 +681,7 @@ class VisionService:
             messages=[{
                 "role": "user",
                 "content": question,
-                "images": [b64],
+                "images": list(b64) if isinstance(b64, list) else [b64],
             }],
             **request,
         )

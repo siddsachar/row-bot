@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "VideoEditView": {
+      "additionalProperties": false,
+      "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
+      "properties": {
+        "conversation_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 400,
+          "title": "Detail",
+          "type": "string"
+        },
+        "download_received": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Download Received"
+        },
+        "download_total": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Download Total"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Seconds"
+        },
+        "edit_id": {
+          "pattern": "^edit-[0-9a-f]{8}$",
+          "title": "Edit Id",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ended At"
+        },
+        "ffmpeg": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ffmpeg"
+        },
+        "frame_count": {
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "video",
+            "frames"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "media_ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Media Ref"
+        },
+        "mime_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "video/mp4",
+                "image/jpeg",
+                "image/png"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mime Type"
+        },
+        "output_name": {
+          "maxLength": 120,
+          "title": "Output Name",
+          "type": "string"
+        },
+        "problem": {
+          "enum": [
+            "",
+            "ffmpeg_unavailable",
+            "download_failed",
+            "edit_failed",
+            "too_large",
+            "not_saved"
+          ],
+          "title": "Problem",
+          "type": "string"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Progress"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Size Bytes"
+        },
+        "started_at": {
+          "maxLength": 80,
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "getting_ffmpeg",
+            "preparing",
+            "editing",
+            "saving",
+            "saved",
+            "failed",
+            "stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stopped_by": {
+          "enum": [
+            "",
+            "you",
+            "agent",
+            "conversation",
+            "quit"
+          ],
+          "title": "Stopped By",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 200,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "edit_id",
+        "conversation_id",
+        "kind",
+        "summary",
+        "status",
+        "progress",
+        "download_received",
+        "download_total",
+        "started_at",
+        "ended_at",
+        "seconds",
+        "duration_seconds",
+        "output_name",
+        "media_ref",
+        "mime_type",
+        "size_bytes",
+        "frame_count",
+        "stopped_by",
+        "problem",
+        "detail",
+        "ffmpeg"
+      ],
+      "title": "VideoEditView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Video edits: those running now first, then finished ones, newest first.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/VideoEditView"
+      },
+      "maxItems": 200,
+      "title": "Items",
+      "type": "array"
+    },
+    "running": {
+      "minimum": 0,
+      "title": "Running",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "running"
+  ],
+  "title": "VideoEditPage",
+  "type": "object"
+}

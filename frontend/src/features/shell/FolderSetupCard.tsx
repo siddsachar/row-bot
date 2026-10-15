@@ -4,6 +4,11 @@ import type { ApprovalSetup, CommandReceipt } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { Button, Progress } from '../../ui/primitives';
+import {
+  FolderBrowser,
+  cloneName,
+  type RootFolderChoice,
+} from './FolderBrowser';
 
 type FolderSetup = ApprovalSetup & { kind: 'folder' | 'clone' };
 
@@ -21,8 +26,9 @@ class PickProblem extends Error {}
  * that share a name, or a repository with Choose where. Every choice is Add
  * resource's own: the desktop picker's grant, then the reviewed
  * `resource.setup` (a clone runs there, once, and an uncertain clone is only
- * ever inspected again), and only then is the waiting turn let go on. A
- * browser, which cannot pick folders on this computer, says where to do it.
+ * ever inspected again), and only then is the waiting turn let go on.
+ * Without the desktop picker (a browser, a phone, another computer) the
+ * card offers Row-Bot's workspace folder, folder by folder, instead (F19).
  */
 export default function FolderSetupCard({
   setup,
@@ -50,6 +56,12 @@ export default function FolderSetupCard({
   // The folder is bound; only the turn's go-ahead is left (it can be retried).
   const [bound, setBound] = useState(false);
   const [failure, setFailure] = useState('');
+  // Without a picker: the folder browser is open (a clone card opens it on Choose where).
+  const [browsing, setBrowsing] = useState(setup.kind === 'folder');
+  // The parent a clone went into from the browser, to check an uncertain clone again.
+  const [parent, setParent] = useState<RootFolderChoice | null>(null);
+  // Cloning from the browser asks first under Ask (and while the level is unknown).
+  const [confirmDownload, setConfirmDownload] = useState(true);
   useEffect(() => {
     let current = true;
     Promise.resolve()
@@ -67,6 +79,20 @@ export default function FolderSetupCard({
       current = false;
     };
   }, [platform]);
+  useEffect(() => {
+    if (desktop !== false || !conversationId) return;
+    let current = true;
+    Promise.resolve()
+      .then(() => controller.workspaceFor(conversationId))
+      .then((workspace) => {
+        const level = workspace?.controls?.approval_mode;
+        if (current) setConfirmDownload(level !== 'auto' && level !== 'full');
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [controller, conversationId, desktop]);
   const clone = setup.kind === 'clone';
   const choices = setup.folders ?? [];
   const title = clone
@@ -117,6 +143,7 @@ export default function FolderSetupCard({
     if (receipt.status === 'completed') {
       setPartial(null);
       setBound(true);
+      setBrowsing(false);
       // Bound: the waiting turn goes on in it.
       await onDecide('approve');
       return;
@@ -127,6 +154,7 @@ export default function FolderSetupCard({
         "Row-Bot couldn't confirm the folder was made. Check the folder you chose before trying again; it won't make another one by itself.",
       );
     }
+    setBrowsing(false);
     setPartial(receipt);
   }
   async function setUp(payload: object) {
@@ -141,6 +169,10 @@ export default function FolderSetupCard({
     );
   }
   function choose() {
+    if (desktop === false) {
+      setBrowsing(true);
+      return;
+    }
     void run(async () => {
       const grant = await pick('resource_setup');
       if (!grant) return;
@@ -148,7 +180,43 @@ export default function FolderSetupCard({
         kind: 'workspace',
         intent: 'create',
         folder_grant: grant,
-        ...(clone ? { clone_workspace: { repo_url: setup.repo_url } } : {}),
+        // This card is how the clone asks: the person chose where it goes.
+        ...(clone
+          ? {
+              clone_workspace: { repo_url: setup.repo_url },
+              confirm_network: true,
+            }
+          : {}),
+      });
+    });
+  }
+  /** A folder chosen in the workspace folder: the code folder, or where the card's clone goes. */
+  function useRoot(choice: RootFolderChoice) {
+    void run(async () => {
+      if (clone) setParent(choice);
+      await setUp({
+        kind: 'workspace',
+        intent: 'create',
+        root_folder: choice.path,
+        ...(clone
+          ? {
+              clone_workspace: { repo_url: setup.repo_url },
+              confirm_network: true,
+            }
+          : {}),
+      });
+    });
+  }
+  /** Not there yet: the person clones it from the folder card, into the folder shown. */
+  function cloneRoot(url: string, into: RootFolderChoice) {
+    void run(async () => {
+      setParent(into);
+      await setUp({
+        kind: 'workspace',
+        intent: 'create',
+        root_folder: into.path,
+        clone_workspace: { repo_url: url },
+        confirm_network: true,
       });
     });
   }
@@ -169,10 +237,10 @@ export default function FolderSetupCard({
     const previous = partial;
     if (!previous) return;
     void run(async () => {
-      const grant = previous.folder_reselection_required
-        ? await pick('resource_continue')
-        : null;
-      if (previous.folder_reselection_required && !grant) return;
+      const again = previous.folder_reselection_required;
+      const fromRoot = again && desktop === false && parent !== null;
+      const grant = again && !fromRoot ? await pick('resource_continue') : null;
+      if (again && !fromRoot && !grant) return;
       const current = await controller.workspaceFor(conversationId!);
       await settle(
         await controller.intent(
@@ -184,6 +252,7 @@ export default function FolderSetupCard({
               ? { expected_resource_revision: previous.resource_revision }
               : {}),
             ...(grant ? { folder_grant: grant } : {}),
+            ...(fromRoot && parent ? { root_folder: parent.path } : {}),
           },
           current.revision,
         ),
@@ -193,6 +262,10 @@ export default function FolderSetupCard({
 
   const unconfirmedClone = partial?.code === 'workspace_clone_unconfirmed';
   const canPick = Boolean(conversationId) && desktop !== false;
+  // No picker here: the workspace folder is browsed in the card instead.
+  const browser = Boolean(conversationId) && desktop === false;
+  const showBrowser = browser && browsing && !partial && !bound;
+  const cloningNow = working && (clone || parent !== null) && !partial;
   return (
     <aside
       className="approval-card folder-setup-card"
@@ -210,12 +283,12 @@ export default function FolderSetupCard({
           </code>
         )}
         <span className="approval-card-reason">
-          {canPick
+          {canPick || browser
             ? reason
             : 'Choose the folder in the Row-Bot desktop app, or add it with Add resource, then Continue.'}
         </span>
       </div>
-      {canPick && choices.length > 0 && !partial && !bound && (
+      {Boolean(conversationId) && choices.length > 0 && !partial && !bound && (
         <ul className="folder-setup-choices" aria-label="Code folders">
           {choices.map((folder) => (
             <li key={folder.resource_id}>
@@ -231,46 +304,75 @@ export default function FolderSetupCard({
           ))}
         </ul>
       )}
-      {working && clone && !partial && (
+      {showBrowser && (
+        <FolderBrowser
+          purpose={clone ? 'parent' : 'folder'}
+          title={
+            clone
+              ? `Where should ${cloneName(setup.repo_url ?? '')} go?`
+              : choices.length
+                ? 'Or choose another folder'
+                : undefined
+          }
+          actionLabel={clone ? () => 'Clone here' : undefined}
+          busy={!idle}
+          onCancel={() => void onDecide('reject')}
+          cancelLabel="Not now"
+          onUse={useRoot}
+          clone={
+            clone ? undefined : { confirm: confirmDownload, onClone: cloneRoot }
+          }
+        />
+      )}
+      {cloningNow && (
         <div className="approval-card-status">
-          <Progress label={`Cloning ${setup.label}…`} />
+          <Progress
+            label={`Cloning ${clone ? setup.label : 'the repository'}…`}
+          />
         </div>
       )}
       {partial && (
         <p className="approval-card-status">
           {unconfirmedClone
-            ? 'The clone may be incomplete. Choose the same parent folder to check it; Row-Bot never repeats an uncertain clone.'
+            ? browser
+              ? 'The clone may be incomplete. Check it to finish; Row-Bot never repeats an uncertain clone.'
+              : 'The clone may be incomplete. Choose the same parent folder to check it; Row-Bot never repeats an uncertain clone.'
             : partial.folder_reselection_required
-              ? 'The folder was set up but not finished. Choose the same folder again to finish.'
+              ? browser
+                ? 'The folder was set up but not finished. Continue to finish it.'
+                : 'The folder was set up but not finished. Choose the same folder again to finish.'
               : `Setup didn't finish. ${clientError({ code: partial.code ?? '' }).message}`}
         </p>
       )}
-      <div className="approval-card-actions">
-        <Button disabled={!idle} onClick={() => void onDecide('reject')}>
-          Not now
-        </Button>
-        {!canPick || bound ? (
-          <Button
-            variant="primary"
-            disabled={!idle}
-            onClick={() => void onDecide('approve')}
-          >
-            Continue
+      {/* The folder browser carries the card's actions while it is open. */}
+      {!showBrowser && (
+        <div className="approval-card-actions">
+          <Button disabled={!idle} onClick={() => void onDecide('reject')}>
+            Not now
           </Button>
-        ) : partial ? (
-          <Button variant="primary" disabled={!idle} onClick={finish}>
-            {unconfirmedClone ? 'Check clone status' : 'Continue setup'}
-          </Button>
-        ) : (
-          <Button variant="primary" disabled={!idle} onClick={choose}>
-            {clone
-              ? 'Choose where'
-              : choices.length
-                ? 'Choose another folder'
-                : 'Choose folder'}
-          </Button>
-        )}
-      </div>
+          {(!canPick && !browser) || bound ? (
+            <Button
+              variant="primary"
+              disabled={!idle}
+              onClick={() => void onDecide('approve')}
+            >
+              Continue
+            </Button>
+          ) : partial ? (
+            <Button variant="primary" disabled={!idle} onClick={finish}>
+              {unconfirmedClone ? 'Check clone status' : 'Continue setup'}
+            </Button>
+          ) : (
+            <Button variant="primary" disabled={!idle} onClick={choose}>
+              {clone
+                ? 'Choose where'
+                : choices.length
+                  ? 'Choose another folder'
+                  : 'Choose folder'}
+            </Button>
+          )}
+        </div>
+      )}
       {resolution && (
         <p role="status" className="approval-card-status">
           {resolution === 'Approval submitted.'

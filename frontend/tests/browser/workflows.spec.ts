@@ -169,6 +169,12 @@ test('Phase 4 workflow graph saves stable steps without starting a run', async (
   const order = page.getByRole('list', { name: 'Workflow step order' });
   await expect(order.getByRole('button')).toHaveCount(0);
   await page.getByRole('button', { name: 'Add step', exact: true }).click();
+  // The flowchart is the default view once there are steps; this test
+  // reorders rows in the list, which is remembered for the rest of it.
+  await page
+    .getByRole('radiogroup', { name: 'Show steps as' })
+    .getByRole('radio', { name: 'List', exact: true })
+    .click();
   const original = await order.getByRole('button').first().innerText();
   await page
     .getByRole('textbox', { name: 'Prompt', exact: true })

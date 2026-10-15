@@ -244,7 +244,12 @@ def _remote_process(argv: list[str], payload: dict) -> int:
             code = 130 if stopped.is_set() else int(process.returncode or 0)
     except (OSError, ValueError):
         code = 127
-    quiesced = _cleanup_children()
+    if payload.get("release") is True and process is not None and not stopped.is_set():
+        # The command ended on its own: what it deliberately launched (an app it opened)
+        # keeps running, as from a plain subprocess. A stop still ends every child.
+        quiesced = True
+    else:
+        quiesced = _cleanup_children()
     for pump in pumps:
         pump.join(timeout=1)
     incomplete = any(pump.is_alive() for pump in pumps)
@@ -303,7 +308,9 @@ def main() -> int:
         if "--recover-owner" in sys.argv:
             return _recover_owner(payload)
         argv = payload["argv"]
-        if (type(payload) is not dict or set(payload) not in ({"argv"}, {"argv", "owner_id", "container_id", "key"}) or type(argv) is not list
+        owned = {"argv", "owner_id", "container_id", "key"}
+        if (type(payload) is not dict or set(payload) not in ({"argv"}, owned, owned | {"release"})
+                or ("release" in payload and payload["release"] is not True) or type(argv) is not list
                 or not 1 <= len(argv) <= 256 or any(type(arg) is not str or "\0" in arg for arg in argv)
                 or sum(len(arg.encode("utf-8")) for arg in argv) > 16384):
             return 126

@@ -9,6 +9,8 @@ import {
   ScanEye,
 } from 'lucide-react';
 import type { BrowserPreview } from '../../api/types';
+import { clientError } from '../../api/errors';
+import { LocalAddresses, type LocalAddressesProps } from './LocalAddresses';
 import {
   Button,
   CompactAction,
@@ -175,6 +177,8 @@ export type BrowserLiveControlsProps = {
     command: BrowserCommand,
     review: BrowserReview,
   ) => Promise<BrowserReceipt>;
+  /** The local addresses this conversation's browser may open, and Remove (F4). */
+  localAddresses?: Omit<LocalAddressesProps, 'conversationId'>;
 };
 
 const actionLabels: Record<BrowserAction, string> = {
@@ -277,6 +281,7 @@ export default function BrowserLiveControls({
   loadPreview,
   review,
   execute,
+  localAddresses,
 }: BrowserLiveControlsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [url, setUrl] = useState('');
@@ -385,13 +390,18 @@ export default function BrowserLiveControls({
       };
       session.update({ retained: attempt, busy: false, message: '' });
       await submit(attempt);
-    } catch {
-      if (!abort.signal.aborted)
+    } catch (cause) {
+      if (!abort.signal.aborted) {
+        const error = clientError(cause);
         session.update({
           busy: false,
+          // An address that never opens says why; anything else can be retried.
           message:
-            'The browser action could not be reviewed. Refresh and try again.',
+            error.code === 'browser_navigation_denied'
+              ? error.message
+              : 'The browser action could not be reviewed. Refresh and try again.',
         });
+      }
     } finally {
       session.endRead(abort);
     }
@@ -584,6 +594,14 @@ export default function BrowserLiveControls({
           Open address
         </Button>
       </div>
+
+      {localAddresses && (
+        <LocalAddresses
+          conversationId={conversationId}
+          load={localAddresses.load}
+          remove={localAddresses.remove}
+        />
+      )}
 
       <div
         className="action-cluster capability-section"

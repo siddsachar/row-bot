@@ -39,6 +39,8 @@ class TaskSettingsSnapshot:
     profile_available: bool
     webhook_configured: bool
     conversation_id: str | None
+    # The person turned Hands-off on once on this install: choosing it needs no dialog again.
+    full_autonomy_confirmed: bool = False
 
 
 def _identity(value: str) -> None:
@@ -66,7 +68,7 @@ def _validate(fields: TaskSettingsFields) -> None:
     elif fields.trigger_task_id is not None:
         raise TaskSettingsError("invalid_task_settings")
     _identity(fields.agent_profile_id)
-    if fields.approval_mode not in {"block", "approve", "allow_all"} or type(fields.persistent_enabled) is not bool:
+    if fields.approval_mode not in {"block", "approve", "auto", "full"} or type(fields.persistent_enabled) is not bool:
         raise TaskSettingsError("invalid_task_settings")
     if fields.model_override is not None and (
         not isinstance(fields.model_override, str) or not 1 <= len(fields.model_override) <= 1024
@@ -103,7 +105,14 @@ def _snapshot(task_id: str, task: dict, revision: str, profile: dict | None,
         bool(profile and profile["profile"].get("enabled", True)),
         bool(isinstance(trigger, dict) and trigger.get("type") == "webhook" and trigger.get("secret")),
         conversation,
+        _full_autonomy_confirmed(),
     )
+
+
+def _full_autonomy_confirmed() -> bool:
+    from row_bot.full_autonomy import is_confirmed
+
+    return is_confirmed()
 
 
 def _read(task_id: str, values: dict | None = None) -> tuple[dict, str, dict | None]:
@@ -166,13 +175,23 @@ def update_saved_task_settings(
     task_id: str, fields: TaskSettingsFields, *, expected_revision: str,
     expected_profile_revision: str, validate: Callable[[], None],
     record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
+    confirm_full_autonomy: bool = False,
 ) -> TaskSettingsSnapshot:
+    """Save a workflow's reviewed settings. Turning Hands-off on needs its one-time confirmation
+    (``confirm_full_autonomy``: the person turned it on in the dialog just now)."""
     _revision(expected_revision)
     _revision(expected_profile_revision)
     task, revision, _ = _read(task_id)
     if revision != expected_revision:
         raise TaskSettingsError("task_revision_conflict", task_id=task_id)
     values = _proposed(task, fields)
+    if values.get("safety_mode") == "full":
+        from row_bot.full_autonomy import FullAutonomyError, require_choice
+
+        try:
+            require_choice("full", confirmed=confirm_full_autonomy)
+        except FullAutonomyError as exc:
+            raise TaskSettingsError(exc.code, task_id=task_id) from exc
     try:
         tasks.update_task_settings(task_id, expected_revision=revision, values=values,
             expected_profile_revision=expected_profile_revision, validate=validate, record_commit=record_commit)

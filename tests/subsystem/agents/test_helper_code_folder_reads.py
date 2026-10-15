@@ -60,8 +60,8 @@ def _modules(tmp_path, monkeypatch, reload_for_data_dir):
     return agent_runner, threads, agent_profiles
 
 
-def _code_chat(tmp_path, threads):
-    """A chat in Allow all with a code folder bound, as the client binds one."""
+def _code_chat(tmp_path, threads, approval_mode: str = "auto"):
+    """A chat on Auto (or another level) with a code folder bound, as the client binds one."""
     from row_bot import conversation_resources
     from row_bot.developer.state import DeveloperWorkspace
     from row_bot.developer.storage import save_workspace
@@ -71,7 +71,7 @@ def _code_chat(tmp_path, threads):
     (folder / "app.py").write_text("print('hello')\n", encoding="utf-8", newline="\n")
     (folder / "src" / "dates.py").write_text("FORMAT = '%Y-%m-%d'\n", encoding="utf-8", newline="\n")
     save_workspace(DeveloperWorkspace(id="shop", name="Shop", path=str(folder)))
-    chat = threads.create_thread("Fix the date bug", approval_mode="allow_all")
+    chat = threads.create_thread("Fix the date bug", approval_mode=approval_mode)
     revision = conversation_resources.list_bindings(chat).revision
     conversation_resources.bind(chat, "workspace", "shop", expected_revision=revision)
     return chat, folder
@@ -147,11 +147,13 @@ def _helper_dispatch(observed: dict):
     return invoke
 
 
+@pytest.mark.parametrize("approval_mode", ["auto", "full"])
 def test_read_only_helper_reads_the_chats_code_folder_and_changes_nothing(
-    tmp_path, monkeypatch, reload_for_data_dir
+    tmp_path, monkeypatch, reload_for_data_dir, approval_mode
 ):
+    """B335, and a hard limit no approval level changes: not even Hands-off lets a read-only helper write."""
     agent_runner, threads, _profiles = _modules(tmp_path, monkeypatch, reload_for_data_dir)
-    chat, folder = _code_chat(tmp_path, threads)
+    chat, folder = _code_chat(tmp_path, threads, approval_mode)
     before = _fingerprint(folder)
     observed: dict = {}
     monkeypatch.setattr(agent_runner, "_invoke_agent", _helper_dispatch(observed))
@@ -170,7 +172,7 @@ def test_read_only_helper_reads_the_chats_code_folder_and_changes_nothing(
     assert "- src/" in results["developer_list_files"]
     assert "FORMAT = '%Y-%m-%d'" in results["developer_read_file"]
     # Every Developer action that is not a reviewed read is refused before it runs or asks,
-    # although the chat is in Allow all.
+    # although the chat is on Auto or Hands-off.
     refused = {name: text for name, text in results.items() if name not in _READS}
     assert {
         "developer_write_file", "developer_apply_patch", "developer_run_command",

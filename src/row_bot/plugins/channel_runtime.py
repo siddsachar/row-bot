@@ -476,6 +476,7 @@ def _plugin_conversation(message: ChannelInboundMessage, channel: Channel | None
         default_thread_id=_default_thread_id(message, channel),
         name=_thread_title(message),
         target=_external_id(message),
+        shared=not bool(message.is_direct),
     )
 
 
@@ -548,6 +549,7 @@ def _ensure_thread_meta(thread_id: str, message: ChannelInboundMessage) -> None:
                 channel=str(message.channel_name or ""),
                 target=str(target),
                 external_conversation_id=str(target),
+                shared=not bool(message.is_direct),
             )
     except Exception:
         log.debug("Plugin channel thread metadata update skipped", exc_info=True)

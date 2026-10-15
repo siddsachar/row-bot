@@ -503,3 +503,79 @@ def test_canonical_passive_read_does_not_create_a_browser_session() -> None:
     assert result["state"] == "idle"
     assert manager.status_calls == 0
     assert manager.session_calls == 0
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://192.168.1.1/",  # a router page on the local network
+        "http://169.254.169.254/latest/meta-data/",  # cloud metadata
+        "http://localhost:8080/app-v2/",  # Row-Bot itself
+    ],
+)
+def test_the_persons_own_open_address_never_opens_the_network_or_row_bot(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ROW_BOT_PORT", "8080")
+    backend = FakeBackend()
+    status = controls.read_browser_controls(
+        CONVERSATION, validate=lambda: None, backend=backend
+    )
+
+    with pytest.raises(controls.ClientBrowserControlError) as caught:
+        controls.review_browser_command(
+            "browser.navigate",
+            {"revision": status["revision"], "url": url},
+            CONVERSATION,
+            validate=lambda: None,
+            backend=backend,
+        )
+
+    assert caught.value.code == "browser_navigation_denied"
+    assert backend.effects == []
+
+
+def test_the_persons_own_open_address_allows_a_local_app_in_this_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from row_bot.browser.service import BrowserSessionManager
+
+    monkeypatch.setenv("ROW_BOT_PORT", "8080")
+    manager = BrowserSessionManager()
+    session = manager.get_session(CONVERSATION)
+    opened: list[tuple[str, bool]] = []
+
+    def navigate(url: str, thread_id: str = "default") -> str:
+        allowed = session._network_security.authorize(
+            url, browser_session_id=session._browser_security_session_id, scope=thread_id
+        ).allowed
+        opened.append((url, allowed))
+        return "URL: " + url
+
+    monkeypatch.setattr(session, "navigate", navigate)
+    # The reviewed command, as the panel's Open address runs it.
+    backend = controls.CanonicalBrowserControlBackend(manager)
+    backend.execute("browser.navigate", {"url": "http://localhost:5173/"}, CONVERSATION)
+
+    assert opened == [("http://localhost:5173/", True)]
+    [grant] = session.local_address_grants(CONVERSATION)
+    assert (grant.address, grant.source) == ("localhost:5173", "you")
+    manager.kill_all()
+
+
+def test_a_local_address_review_says_what_opening_it_allows() -> None:
+    backend = FakeBackend()
+    status = controls.read_browser_controls(
+        CONVERSATION, validate=lambda: None, backend=backend
+    )
+    review = controls.review_browser_command(
+        "browser.navigate",
+        {"revision": status["revision"], "url": "http://localhost:5173/"},
+        CONVERSATION,
+        validate=lambda: None,
+        backend=backend,
+    )
+
+    assert review["disclosures"][0].startswith(
+        "localhost:5173 is on this computer. Opening it allows it in this conversation for an hour"
+    )

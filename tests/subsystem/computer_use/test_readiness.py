@@ -28,7 +28,7 @@ def test_local_calculator_test_stops_only_its_acquired_session(tmp_path, monkeyp
             calls.append("grant")
 
         def launch_app(self, app, owner, *, approval_mode):
-            assert app == "Calculator" and approval_mode == "allow_all"
+            assert app == "Calculator" and approval_mode == "full"
             calls.append("launch")
             return [{"target_id": "calculator"}]
 

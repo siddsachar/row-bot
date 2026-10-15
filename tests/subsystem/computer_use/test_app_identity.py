@@ -659,7 +659,7 @@ def test_optional_local_ui_test_accepts_canonical_calculator_name(
     windows = service.launch_app(
         "Calculator",
         OWNER,
-        approval_mode="allow_all",
+        approval_mode="full",  # The person's own test, as Settings runs it.
     )
 
     assert windows[0]["app"] == "Windows Calculator"

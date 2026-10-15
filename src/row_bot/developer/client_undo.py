@@ -90,7 +90,10 @@ def _policy(workspace, conversation_id):
 
 
 def review_workspace_undo(resource_id: str, conversation_id: str, change_set_id: str, *,
-                          validate: Callable[[], None] = lambda: None) -> WorkspaceUndoReview:
+                          validate: Callable[[], None] = lambda: None,
+                          by_person: bool = True) -> WorkspaceUndoReview:
+    """The review of one guarded undo. ``by_person``: the person asked for it in the app (an agent's undo
+    passes False, so Auto and Hands-off resolve its approval as for any agent action)."""
     validate()
     workspace, binding, change, revision = _source(resource_id, conversation_id, change_set_id)
     if change.reverted:
@@ -107,7 +110,7 @@ def review_workspace_undo(resource_id: str, conversation_id: str, change_set_id:
         if total > client_imports.IMPORT_BYTES:
             raise ValueError("workspace_undo_too_large")
     policy = _policy(workspace, conversation_id)
-    decision = decide_action(policy["approval_mode"], "edit")
+    decision = decide_action(policy["approval_mode"], "edit", by_person=by_person)
     fields = dict(resource_id=resource_id, conversation_id=conversation_id, resource_revision=workspace.updated_at,
         binding_id=binding.binding_id, binding_revision=binding.revision, change_set_id=change_set_id,
         change_set_revision=revision, host_revision=_digest(_hosts(change)), policy_revision=_digest(policy),
@@ -283,7 +286,7 @@ def prepare_retained_undo(resource_id: str, conversation_id: str, change_set_id:
             raise ValueError("edit_recovery_conflict")
         validate()
         return review, item["command_id"]
-    review = review_workspace_undo(resource_id, conversation_id, change_set_id, validate=validate)
+    review = review_workspace_undo(resource_id, conversation_id, change_set_id, validate=validate, by_person=False)
     # Fresh explicit review may follow a cancelled/rejected attempt. Once
     # reserved, this exact ID is recovered above across interrupt/remount.
     command = str(uuid.uuid4())
