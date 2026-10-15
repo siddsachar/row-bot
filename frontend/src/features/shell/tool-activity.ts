@@ -4,6 +4,7 @@ import {
   Brain,
   Calculator,
   Calendar,
+  Camera,
   ChartColumn,
   Clapperboard,
   Clock,
@@ -23,8 +24,12 @@ import {
   MousePointerClick,
   Palette,
   Plug,
+  Scissors,
   Search,
+  Send,
+  Smartphone,
   Terminal,
+  Video,
   Wrench,
   Zap,
   type LucideIcon,
@@ -75,6 +80,13 @@ const EXACT: Record<string, Verb> = {
   browser_snapshot: verb('Read the browser', 'Reading the browser', Globe),
   browser_back: verb('Went back', 'Going back', Globe),
   browser_tab: verb('Switched tab', 'Switching tab', Globe),
+  browser_screenshot: verb('Took a screenshot', 'Taking a screenshot', Camera),
+  browser_viewport: verb(
+    'Changed the page size',
+    'Changing the page size',
+    Smartphone,
+  ),
+  browser_record: verb('Recorded the browser', 'Recording the browser', Video),
   computer_use: verb('Used the computer', 'Using the computer', Monitor),
   wikipedia: verb('Searched Wikipedia', 'Searching Wikipedia', BookOpen),
   arxiv: verb('Searched arXiv', 'Searching arXiv', BookOpen),
@@ -113,6 +125,8 @@ const EXACT: Record<string, Verb> = {
   analyze_image: verb('Looked at an image', 'Looking at an image', Image),
   animate_image: verb('Animated an image', 'Animating an image', Clapperboard),
   generate_video: verb('Generated a video', 'Generating a video', Clapperboard),
+  edit_video: verb('Edited a video', 'Editing a video', Scissors),
+  send_file: verb('Sent files', 'Sending files', Send),
   create_chart: verb('Created a chart', 'Creating a chart', ChartColumn),
   create_design: verb('Created a design', 'Creating a design', Palette),
   create_code_folder: verb(
@@ -161,6 +175,21 @@ const EXACT: Record<string, Verb> = {
   run_command: verb('Ran a command', 'Running a command', Terminal),
   shell: verb('Ran a command', 'Running a command', Terminal),
   read_terminal: verb('Read the terminal', 'Reading the terminal', Terminal),
+  start_process: verb(
+    'Started a background process',
+    'Starting a background process',
+    Terminal,
+  ),
+  check_process: verb(
+    'Checked a background process',
+    'Checking a background process',
+    Terminal,
+  ),
+  stop_process: verb(
+    'Stopped a background process',
+    'Stopping a background process',
+    Terminal,
+  ),
   read_tool_output: verb(
     'Read more of a result',
     'Reading more of a result',
@@ -257,7 +286,8 @@ function bareName(name: string) {
 }
 
 function describe(name: string): Verb | null {
-  const key = bareName(name).toLowerCase();
+  // Settled steps carry the canonical name ("Browser Navigate" for browser_navigate).
+  const key = bareName(name).toLowerCase().replace(/\s+/g, '_');
   if (Object.hasOwn(EXACT, key)) return EXACT[key];
   // Workspace file tools mirror the plain ones: workspace_write_file.
   const inner = key.replace(/^workspace_/, '');
@@ -323,6 +353,17 @@ export function splitApproval(text: string): {
     approval: line[1].charAt(0).toUpperCase() + line[1].slice(1),
     body: text.slice(line[0].length),
   };
+}
+
+/**
+ * Who let a step run without the person (A0): the Auto reviewer, or Full
+ * autonomy. Its approval line says so ("Approved by the reviewer: …",
+ * "Allowed by Hands-off"); the step's row shows a quiet tag for it.
+ */
+export function approvedWithoutYou(approval: string): string | null {
+  if (/^approved by the reviewer\b/i.test(approval)) return 'Reviewer approved';
+  if (/^allowed by hands-off\b/i.test(approval)) return 'Hands-off';
+  return null;
 }
 
 /** "Frobnicate widget" reads "frobnicate widget" mid-sentence; "MCP" stays. */

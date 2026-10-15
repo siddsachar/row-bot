@@ -252,8 +252,10 @@ def test_running_code_asks_in_ask_is_refused_in_block_and_read_only_commands_run
 
     assert (blocked.ran, blocked.decision.decision) == (False, "block")
     assert (asked.ran, asked.decision.decision) == (False, "ask")
-    assert decide_action("allow_all", "run_command").allowed
-    assert all(decide_action(mode, "run_safe_command").allowed for mode in ("block", "approve", "allow_all"))
+    # Under Auto and Hands-off an agent's command still needs an approval, which the level gives.
+    assert decide_action("auto", "run_command").requires_approval
+    assert decide_action("full", "run_command").requires_approval
+    assert all(decide_action(mode, "run_safe_command").allowed for mode in ("block", "approve", "auto", "full"))
 
 
 def test_detected_test_runs_in_the_sandbox_without_asking_but_asks_on_this_computer(tmp_path, monkeypatch) -> None:

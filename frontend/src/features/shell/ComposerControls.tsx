@@ -10,9 +10,6 @@ import {
   Paperclip,
   Plus,
   Search,
-  ShieldBan,
-  ShieldCheck,
-  ShieldQuestion,
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
@@ -20,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import type {
   ContextUsageView,
   ConversationComposer,
-  ConversationControls,
+  ConversationControlsPayload,
   ReasoningSelectionValue,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
@@ -39,28 +36,30 @@ import {
 import { describeContextUsage, Ring } from './ContextUsage';
 import { AppIcon } from '../apps/parts';
 import { currentProfileChoice, profileChoices } from './agent-profiles';
-
-const APPROVAL_LABELS = { approve: 'Ask', block: 'Block', allow_all: 'Auto' };
-/** What each approval mode does, in the menus that choose it. */
-const APPROVAL_DESCRIPTIONS = {
-  approve: 'Asks before anything that makes changes',
-  allow_all: 'Routine actions run; risky ones still ask',
-  block: 'Nothing that makes changes runs',
-};
-const APPROVAL_ICONS = {
-  approve: ShieldQuestion,
-  block: ShieldBan,
-  allow_all: ShieldCheck,
-};
+import {
+  APPROVAL_DESCRIPTIONS,
+  APPROVAL_ICONS,
+  APPROVAL_LABELS,
+  APPROVAL_LEVELS,
+  SHARED_CONVERSATION_NOTE,
+  approvalLevel,
+  useConfirmFullAutonomy,
+  type ApprovalLevel,
+} from './approval-levels';
 
 /**
  * The composer's left cluster: a + menu (attach, add resource, skills, agent
  * profile, mode), the model pill with its picker, and an approval shield whose
- * glyph shows Ask/Auto/Block. The server supplies exact-model choices;
- * presentation never invents efforts. A one-line composer (`singleLine`)
- * keeps only the +: the model, approvals and context usage move into it and
- * the picker opens above the field.
+ * glyph shows Ask/Auto/Hands-off/Block. Hands-off reads as words, in
+ * the warning tone, while it is on, and turning it on the first time asks
+ * once. The server supplies exact-model choices; presentation never invents
+ * efforts. A one-line composer (`singleLine`) keeps only the +: the model,
+ * approvals and context usage move into it and the picker opens above the
+ * field (Hands-off still shows beside it).
  */
+/** How far a one-line composer's + submenus overlap the + menu (it sits at the screen's edge). */
+const SUBMENU_OVERLAP = 232;
+
 // The start-up handshake just read the list; later opens re-read it.
 let choicesReadAt = Date.now();
 /** Re-read the model list when the picker opens, at most every 30 s. */
@@ -117,7 +116,10 @@ export default function ComposerControls({
   const operation = useRef(false);
   const openSkillsAfterMenu = useRef(false);
   const openPickerAfterMenu = useRef(false);
+  const confirmFullAfterMenu = useRef(false);
   const plusRef = useRef<HTMLButtonElement>(null);
+  const shieldRef = useRef<HTMLButtonElement>(null);
+  const confirmFullAutonomy = useConfirmFullAutonomy();
   const workspace = state.workspace;
   const controls = workspace?.controls;
   const id = state.selectedConversationId;
@@ -134,9 +136,12 @@ export default function ComposerControls({
   );
   const profile =
     profiles.find((item) => item.id === currentProfile)?.label ?? 'Default';
-  const mode = controls.approval_mode ?? 'approve';
+  const mode = approvalLevel(controls.approval_mode);
   const approval = APPROVAL_LABELS[mode];
   const Shield = APPROVAL_ICONS[mode];
+  // Shared channel conversations run on Auto at most; the first Hands-off asks once.
+  const fullAvailable = workspace.approval?.full_autonomy_available !== false;
+  const fullConfirmed = workspace.approval?.full_autonomy_confirmed === true;
   const currentModel = state.handshake?.models?.find(
     (model) => model.model_ref === controls.model_selection?.model_ref,
   );
@@ -167,7 +172,7 @@ export default function ComposerControls({
       setSaving(false);
     }
   }
-  async function save(patch: Partial<ConversationControls>) {
+  async function save(patch: Partial<ConversationControlsPayload>) {
     if (operation.current || blocked || !id || !controls) return;
     operation.current = true;
     setSaving(true);
@@ -194,6 +199,43 @@ export default function ComposerControls({
       setSaving(false);
     }
   }
+  /** Turns a level on; Hands-off asks once on this install, after which it never asks again. */
+  function chooseLevel(level: ApprovalLevel, opener?: HTMLElement | null) {
+    if (level === mode) return;
+    if (level !== 'full' || fullConfirmed) {
+      void save({ approval_mode: level });
+      return;
+    }
+    confirmFullAutonomy(
+      () => void save({ approval_mode: 'full', confirm_full_autonomy: true }),
+      opener ?? shieldRef.current ?? plusRef.current,
+    );
+  }
+  // A narrow composer's + menu leaves no room beside it: its submenus open over it
+  // instead of running off the screen.
+  const submenuOffset = singleLine ? -SUBMENU_OVERLAP : 4;
+  const levelActions = APPROVAL_LEVELS.map((value) => {
+    const unavailable = value === 'full' && !fullAvailable;
+    const Icon = APPROVAL_ICONS[value];
+    return {
+      label: APPROVAL_LABELS[value],
+      description: unavailable
+        ? SHARED_CONVERSATION_NOTE
+        : APPROVAL_DESCRIPTIONS[value],
+      icon: <Icon size={16} />,
+      selected: mode === value,
+      disabled: unavailable,
+      // The dialog opens once the menu has let go of focus.
+      onSelect: () => {
+        if (value === 'full' && !fullConfirmed && mode !== 'full') return;
+        chooseLevel(value);
+      },
+      afterClose:
+        value === 'full' && !fullConfirmed && mode !== 'full'
+          ? () => chooseLevel('full', shieldRef.current)
+          : undefined,
+    };
+  });
   const chooseThinking = (selection: ReasoningSelectionValue) =>
     reasoning &&
     save({
@@ -257,6 +299,12 @@ export default function ComposerControls({
             sideOffset={8}
             collisionPadding={12}
             onCloseAutoFocus={(event) => {
+              if (confirmFullAfterMenu.current) {
+                confirmFullAfterMenu.current = false;
+                event.preventDefault();
+                chooseLevel('full', plusRef.current);
+                return;
+              }
               if (openPickerAfterMenu.current) {
                 openPickerAfterMenu.current = false;
                 event.preventDefault();
@@ -299,35 +347,38 @@ export default function ComposerControls({
                   <Dropdown.Portal>
                     <Dropdown.SubContent
                       className="menu surface-effect"
-                      sideOffset={4}
+                      sideOffset={submenuOffset}
                       collisionPadding={12}
                     >
                       <Dropdown.RadioGroup
                         value={mode}
-                        onValueChange={(value) =>
-                          void save({
-                            approval_mode:
-                              value as ConversationControls['approval_mode'],
-                          })
-                        }
+                        onValueChange={(value) => {
+                          const level = value as ApprovalLevel;
+                          // The dialog waits until the menu has closed.
+                          if (level === 'full' && !fullConfirmed)
+                            confirmFullAfterMenu.current = true;
+                          else chooseLevel(level);
+                        }}
                       >
-                        {(['approve', 'allow_all', 'block'] as const).map(
-                          (value) => (
-                            <Dropdown.RadioItem
-                              key={value}
-                              value={value}
-                              className="menu-item"
-                            >
-                              <span className="menu-item-label">
-                                {APPROVAL_LABELS[value]}
-                                <small>{APPROVAL_DESCRIPTIONS[value]}</small>
-                              </span>
-                              <Dropdown.ItemIndicator>
-                                <Check size={16} aria-hidden />
-                              </Dropdown.ItemIndicator>
-                            </Dropdown.RadioItem>
-                          ),
-                        )}
+                        {levelActions.map((action, index) => (
+                          <Dropdown.RadioItem
+                            key={APPROVAL_LEVELS[index]}
+                            value={APPROVAL_LEVELS[index]}
+                            disabled={action.disabled}
+                            className="menu-item menu-item-rich"
+                          >
+                            <span className="menu-item-icon" aria-hidden>
+                              {action.icon}
+                            </span>
+                            <span className="menu-item-label">
+                              {action.label}
+                              <small>{action.description}</small>
+                            </span>
+                            <Dropdown.ItemIndicator>
+                              <Check size={16} aria-hidden />
+                            </Dropdown.ItemIndicator>
+                          </Dropdown.RadioItem>
+                        ))}
                       </Dropdown.RadioGroup>
                     </Dropdown.SubContent>
                   </Dropdown.Portal>
@@ -388,7 +439,7 @@ export default function ComposerControls({
                 <Dropdown.Portal>
                   <Dropdown.SubContent
                     className="menu surface-effect composer-apps-menu"
-                    sideOffset={4}
+                    sideOffset={submenuOffset}
                     collisionPadding={12}
                     aria-label="Apps in this chat"
                   >
@@ -454,7 +505,7 @@ export default function ComposerControls({
               <Dropdown.Portal>
                 <Dropdown.SubContent
                   className="menu surface-effect"
-                  sideOffset={4}
+                  sideOffset={submenuOffset}
                   collisionPadding={12}
                 >
                   <Dropdown.RadioGroup
@@ -504,7 +555,7 @@ export default function ComposerControls({
               <Dropdown.Portal>
                 <Dropdown.SubContent
                   className="menu surface-effect"
-                  sideOffset={4}
+                  sideOffset={submenuOffset}
                   collisionPadding={12}
                 >
                   <Dropdown.RadioGroup
@@ -577,23 +628,29 @@ export default function ComposerControls({
       />
       {!singleLine && (
         <Menu
-          label="Approvals"
-          hint={`Approvals: ${approval}`}
+          label={mode === 'full' ? 'Approvals: Hands-off' : 'Approvals'}
+          hint={
+            mode === 'full'
+              ? 'Hands-off is on: nothing asks before it runs'
+              : `Approvals: ${approval}`
+          }
           variant="ghost"
-          iconOnly
-          className="composer-shield"
+          iconOnly={mode !== 'full'}
+          triggerRef={shieldRef}
+          className={`composer-shield${mode === 'full' ? ' composer-shield-full' : ''}`}
           disabled={blocked}
-          actions={(['approve', 'allow_all', 'block'] as const).map(
-            (value) => ({
-              label: APPROVAL_LABELS[value],
-              description: APPROVAL_DESCRIPTIONS[value],
-              selected: mode === value,
-              onSelect: () => void save({ approval_mode: value }),
-            }),
-          )}
+          actions={levelActions}
         >
           <Shield size={17} aria-hidden data-mode={mode} />
+          {mode === 'full' && <span>{approval}</span>}
         </Menu>
+      )}
+      {singleLine && mode === 'full' && (
+        // Unmistakable while on, even when the control sits in the + menu.
+        <span className="composer-full-autonomy" role="status">
+          <Shield size={14} aria-hidden data-mode={mode} />
+          Hands-off
+        </span>
       )}
       {saving && (
         <small className="visually-hidden" role="status">

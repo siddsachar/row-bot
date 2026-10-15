@@ -168,7 +168,7 @@ Rules for interactive mode:
 - Avoid broad filesystem access with `--add-dir` unless required.
 - Avoid `--permission-mode bypassPermissions` and `--dangerously-skip-permissions` by default.
 - Do not run destructive git commands, force pushes, deploys, production migrations, or secret-handling tasks through Claude Code without explicit user approval.
-- Respect Row-Bot background workflow safety modes: write-capable Claude Code runs should not happen in unattended background tasks unless the user selected an approval or allow-all mode for that task.
+- Respect Row-Bot background workflow safety modes: write-capable Claude Code runs should not happen in unattended background tasks unless the user selected an approval level that allows it for that task (Ask, reviewed Auto, or Hands-off).
 
 ## After Delegation
 

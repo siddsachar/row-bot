@@ -1003,6 +1003,12 @@ _STATUS.update(
     {
         "process_policy_denied": 403,
         "process_unavailable": 404,
+        "recording_unavailable": 404,
+        "local_address_unavailable": 404,
+        "video_edit_unavailable": 404,
+        "sent_file_unavailable": 404,
+        "sent_file_expired": 410,
+        "sent_files_gone": 409,
         "process_history_unavailable": 503,
         "process_limit": 429,
     }
@@ -2625,6 +2631,37 @@ def create_router(
         response = await respond(request, dto.BrowserPreview, result)
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Local addresses (F4): what this conversation's browser may open now, and Remove.
+    @router.get("/conversations/{conversation_id}/browser/local-addresses")
+    async def browser_local_addresses(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        from row_bot.application.recording_views import read_local_addresses
+
+        await call(validate)
+        result = await call(read_local_addresses, conversation_id)
+        return await respond(request, dto.LocalAddressPage, result)
+
+    @router.post("/conversations/{conversation_id}/browser/local-addresses/{grant_id}/remove")
+    async def remove_browser_local_address(
+        conversation_id: str, grant_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        if len(grant_id or "") != 32 or any(char not in "0123456789abcdef" for char in grant_id):
+            raise ProtocolError("local_address_unavailable", 404)
+        from row_bot.application.recording_views import remove_local_address
+
+        await call(validate)
+        result = await call(remove_local_address, conversation_id, grant_id)
+        if result is None:
+            raise ProtocolError("local_address_unavailable", 404)
+        return await respond(request, dto.LocalAddressPage, result)
 
     @router.post("/conversations/{conversation_id}/browser/review")
     async def browser_control_review(
@@ -5216,6 +5253,232 @@ def create_router(
 
         result = await call(read_monitor_logs, limit=limit)
         return await respond(request, dto.MonitorLogs, result)
+
+    # Background processes (F1, F6): a person sees and stops every one, whichever
+    # conversation started it; stopping one Row-Bot started needs no approval.
+    def _process_id(value: str) -> str:
+        from row_bot.background_processes import PROCESS_ID
+
+        if not PROCESS_ID.fullmatch(str(value or "")):
+            raise ProtocolError("process_unavailable", 404)
+        return value
+
+    @router.get("/processes")
+    async def list_background_processes(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_processes
+
+        result = await call(read_background_processes, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.BackgroundProcessPage, result)
+
+    @router.get("/processes/{process_id}")
+    async def background_process(request: Request, process_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process
+
+        result = await call(read_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    @router.get("/processes/{process_id}/output")
+    async def background_process_output(
+        request: Request, process_id: str, after: int = 0, limit: int = 65536
+    ) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process_output
+
+        if after < 0 or not 1 <= limit <= 65536:
+            raise ProtocolError("process_cursor_invalid", 422)
+        result = await call(read_background_process_output, _process_id(process_id), after, limit)
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessOutput, result)
+
+    @router.post("/processes/{process_id}/stop")
+    async def stop_background_process_route(request: Request, process_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.background_process_views import stop_background_process
+
+        result = await call(stop_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    # Recordings (F2): a person sees and stops every one; stopping needs no approval.
+    def _recording_id(value: str) -> str:
+        from row_bot.recordings import RECORDING_ID
+
+        if not RECORDING_ID.fullmatch(str(value or "")):
+            raise ProtocolError("recording_unavailable", 404)
+        return value
+
+    @router.get("/recordings")
+    async def list_recordings(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.recording_views import read_recordings
+
+        result = await call(read_recordings, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.RecordingPage, result)
+
+    @router.get("/recordings/{recording_id}")
+    async def recording(request: Request, recording_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.recording_views import read_recording
+
+        result = await call(read_recording, _recording_id(recording_id))
+        if result is None:
+            raise ProtocolError("recording_unavailable", 404)
+        return await respond(request, dto.RecordingView, result)
+
+    @router.post("/recordings/{recording_id}/stop")
+    async def stop_recording_route(request: Request, recording_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.recording_views import stop_recording
+
+        result = await call(stop_recording, _recording_id(recording_id))
+        if result is None:
+            raise ProtocolError("recording_unavailable", 404)
+        return await respond(request, dto.RecordingView, result)
+
+    # Video edits (F3): a person sees and stops every one; stopping needs no approval.
+    def _edit_id(value: str) -> str:
+        from row_bot.video_edits import EDIT_ID
+
+        if not EDIT_ID.fullmatch(str(value or "")):
+            raise ProtocolError("video_edit_unavailable", 404)
+        return value
+
+    @router.get("/video-edits")
+    async def list_video_edits(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_edit_views import read_video_edits
+
+        result = await call(read_video_edits, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.VideoEditPage, result)
+
+    @router.get("/video-edits/{edit_id}")
+    async def video_edit(request: Request, edit_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_edit_views import read_video_edit
+
+        result = await call(read_video_edit, _edit_id(edit_id))
+        if result is None:
+            raise ProtocolError("video_edit_unavailable", 404)
+        return await respond(request, dto.VideoEditView, result)
+
+    @router.post("/video-edits/{edit_id}/stop")
+    async def stop_video_edit_route(request: Request, edit_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_edit_views import stop_video_edit
+
+        result = await call(stop_video_edit, _edit_id(edit_id))
+        if result is None:
+            raise ProtocolError("video_edit_unavailable", 404)
+        return await respond(request, dto.VideoEditView, result)
+
+    # Files sent to the person's devices or a chat app (F7). Every signed-in device is the owner's,
+    # so each sees every delivery; a download needs the session and ends when its copy expires.
+    def _delivery(value: str, index: str | None = None) -> tuple[str, int]:
+        from row_bot.file_deliveries import DELIVERY_ID
+
+        if not DELIVERY_ID.fullmatch(str(value or "")):
+            raise ProtocolError("sent_file_unavailable", 404)
+        if index is None:
+            return value, -1
+        if not str(index).isdigit() or len(str(index)) > 2:
+            raise ProtocolError("sent_file_unavailable", 404)
+        return value, int(index)
+
+    def _delivery_failure(exc: Exception) -> ProtocolError:
+        code = getattr(exc, "code", "sent_file_unavailable")
+        return ProtocolError(code, _STATUS.get(code, 404))
+
+    @router.get("/deliveries")
+    async def list_deliveries(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.delivery_views import read_deliveries
+
+        result = await call(read_deliveries, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.DeliveryPage, result)
+
+    @router.get("/deliveries/{delivery_id}")
+    async def delivery(request: Request, delivery_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.delivery_views import read_delivery
+
+        result = await call(read_delivery, _delivery(delivery_id)[0])
+        if result is None:
+            raise ProtocolError("sent_file_unavailable", 404)
+        return await respond(request, dto.DeliveryView, result)
+
+    @router.get("/deliveries/{delivery_id}/files/{index}")
+    async def delivery_file(request: Request, delivery_id: str, index: str) -> Response:
+        current = await session(request)
+        from urllib.parse import quote
+
+        from row_bot.file_deliveries import CHUNK_BYTES, DeliveryError, open_file
+
+        identifier, number = _delivery(delivery_id, index)
+        try:
+            name, size, handle = await call(open_file, identifier, number)
+        except DeliveryError as exc:
+            raise _delivery_failure(exc) from None
+
+        async def chunks() -> Any:
+            try:
+                while True:
+                    # The person's session is checked again for every part sent.
+                    security.session(await _context(request), current.id, current.csrf)
+                    data = await call(handle.read, CHUNK_BYTES)
+                    if not data:
+                        return
+                    yield data
+            except ProtocolError:
+                return
+            finally:
+                handle.close()
+
+        return StreamingResponse(
+            chunks(),
+            # Never shown in the page: always a download, whatever the file is.
+            media_type="application/octet-stream",
+            headers={
+                **HEADERS,
+                "Content-Length": str(size),
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name, safe=""),
+            },
+        )
+
+    @router.post("/deliveries/{delivery_id}/files/{index}/save")
+    async def delivery_file_save(request: Request, delivery_id: str, index: str) -> JSONResponse:
+        """The desktop window can't download (B275): the file is saved into Exports on this computer."""
+        current = await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        from row_bot.application.export_folder import save_export
+        from row_bot.file_deliveries import DeliveryError, read_file
+
+        identifier, number = _delivery(delivery_id, index)
+        try:
+            name, data = await call(read_file, identifier, number)
+        except DeliveryError as exc:
+            raise _delivery_failure(exc) from None
+        result = await call(save_export, name, data, validate=dispatch_validation(request, current))
+        return await respond(request, dto.ExportSaved, result)
+
+    @router.post("/deliveries/{delivery_id}/to-devices")
+    async def delivery_to_devices(request: Request, delivery_id: str) -> JSONResponse:
+        """The person's own "Send to your devices instead": no approval (their own devices)."""
+        await session(request, lane="mutation")
+        from row_bot.application.delivery_views import send_to_devices_instead
+        from row_bot.file_deliveries import DeliveryError
+
+        try:
+            result = await call(send_to_devices_instead, _delivery(delivery_id)[0])
+        except DeliveryError as exc:
+            raise _delivery_failure(exc) from None
+        return await respond(request, dto.DeliveryView, result)
 
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
@@ -9931,6 +10194,8 @@ def create_router(
                 "setup",
                 "app",
                 "repeatable",
+                "reviewer_reason",
+                "question",
                 "policy_revision",
             )
             if k in view

@@ -2,7 +2,8 @@
 
 A background call is work Row-Bot does around the person's turn: the
 contradiction check in the memory tool, a workflow's yes/no condition, the goal
-verifier, compaction, memory extraction, Dream Cycle and document processing.
+verifier, the Auto approval reviewer, compaction, memory extraction, Dream Cycle
+and document processing.
 None of them is the person's answer, so each one runs
 
 - on the **thread's own model** when it belongs to a thread (compaction,
@@ -71,6 +72,8 @@ ANSWER_TOKENS: dict[str, int] = {
     "contradiction": 160,
     "condition": 64,
     "verifier": 512,
+    # The Auto reviewer: {"decision", "reason"} in one short line.
+    "approval_review": 200,
     "extraction": 4096,
     "dream": 1536,
 }

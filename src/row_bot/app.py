@@ -602,6 +602,40 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Data folder leftover sweep failed")
 
+    # Recordings a crash cut short are marked, and their working files removed (F2).
+    try:
+        from row_bot.recordings import sweep_leftovers
+        with _startup_phase("recording_leftovers"):
+            await asyncio.to_thread(sweep_leftovers)
+    except Exception:
+        logger.exception("Recording leftover check failed")
+
+    # Video edits a crash cut short are marked, and their working files removed (F3).
+    try:
+        from row_bot.video_edits import sweep_leftovers as sweep_video_edits
+        with _startup_phase("video_edit_leftovers"):
+            await asyncio.to_thread(sweep_video_edits)
+    except Exception:
+        logger.exception("Video edit leftover check failed")
+
+    # Files sent to the devices whose time ran out, and anything a send cut short, are removed (F7).
+    try:
+        from row_bot.file_deliveries import sweep as sweep_deliveries
+        with _startup_phase("delivery_leftovers"):
+            await asyncio.to_thread(sweep_deliveries)
+    except Exception:
+        logger.exception("Delivery clean-up failed")
+
+    # Background processes a crash left running are stopped, and reported once (F1).
+    try:
+        from row_bot.background_processes import report_leftovers
+        with _startup_phase("background_process_leftovers"):
+            leftover_notice = await asyncio.to_thread(report_leftovers)
+        if leftover_notice:
+            _startup_warning(leftover_notice, source="processes")
+    except Exception:
+        logger.exception("Background process leftover check failed")
+
     logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from row_bot.data_paths import describe_data_paths
@@ -1115,6 +1149,22 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
     except Exception as exc:
         _safe_console_print(f"[shutdown] Channel registry cleanup error: {exc}")
     try:
+        # Recordings stop first, so their videos are saved before the browser and Cua go (F2).
+        from row_bot.recordings import stop_all as _stop_recordings
+        _recorded = await asyncio.to_thread(_stop_recordings, by="quit", timeout=15.0)
+        if _recorded:
+            _safe_console_print(f"[shutdown] Stopped {_recorded} recording(s)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Recording cleanup error: {exc}")
+    try:
+        # Video edits stop before the background processes they run in (F3); nothing half-made is kept.
+        from row_bot.video_edits import stop_all as _stop_video_edits
+        _edits = await asyncio.to_thread(_stop_video_edits, by="quit", timeout=10.0)
+        if _edits:
+            _safe_console_print(f"[shutdown] Stopped {_edits} video edit(s)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Video edit cleanup error: {exc}")
+    try:
         from row_bot.tools.browser_tool import get_session_manager as _get_bsm
         _get_bsm().kill_all()
         _safe_console_print("[shutdown] Browser session closed")
@@ -1126,6 +1176,14 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
         _safe_console_print("[shutdown] Shell sessions closed")
     except Exception as exc:
         _safe_console_print(f"[shutdown] Shell cleanup error: {exc}")
+    try:
+        # Background processes stop with Row-Bot, each with everything it started (F1).
+        from row_bot.background_processes import stop_all as _stop_background_processes
+        _stopped = await asyncio.to_thread(_stop_background_processes, by="quit", timeout=10.0)
+        if _stopped:
+            _safe_console_print(f"[shutdown] Stopped {_stopped} background process(es)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Background process cleanup error: {exc}")
     try:
         from row_bot.terminal_bridge import TerminalBridge
         if TerminalBridge.has_instance():

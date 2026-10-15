@@ -47,7 +47,7 @@ Use approvals to review file writes, command execution, browser actions, account
 
 Approvals wait until you answer; they no longer expire on their own, unless a workflow step sets its own time limit. Every waiting approval shows in its conversation, in the sidebar's attention indicator and on Overview, with **Approve** and **Deny** in place, so background work can't slip past you. Each tool result records whether approval was needed, given or denied, and a denied action never runs.
 
-Approval mode is policy, not a model choice: blocked actions stay blocked, ask-mode actions wait for you, and auto-approved actions follow the configured policy. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled.
+Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled.
 
 ## Sharing Logs Or Screenshots
 

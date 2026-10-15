@@ -25,5 +25,5 @@ def test_list_threads_detail_indexes_are_append_only(tmp_path, reload_for_data_d
     assert row[5] == ""
     assert row[6] == "code"
     assert row[7] == "dev_123"
-    assert row[8] == "allow_all"
+    assert row[8] == "auto"  # The legacy "auto_edit" is reviewed Auto.
     assert row[9] == "manual"

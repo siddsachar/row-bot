@@ -284,7 +284,8 @@ export function checksStatus(
 const APPROVAL_WORDS: Record<string, string> = {
   block: 'Blocked',
   approve: 'Ask first',
-  allow_all: 'Allowed',
+  auto: 'Reviewed, then asks if unsure',
+  full: 'Hands-off',
 };
 const BOUNDARY_WORDS: Record<string, string> = {
   use_workspace_setup: 'Clone a repository through Add resource.',

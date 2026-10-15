@@ -3234,6 +3234,28 @@ button.overview-stat:hover {
 .monitor-section-head .home-caption {
   flex: 1 1 260px;
 }
+/* Background processes (F1, F6): running ones, then "Recently finished". */
+.monitor-processes .monitor-section-head .button {
+  margin-left: auto;
+}
+.monitor-processes .entity-list {
+  margin: 0;
+}
+.process-row .entity-row-meta {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 0;
+}
+.process-row .entity-row-meta .status-indicator {
+  flex: none;
+}
+.process-row .entity-row-details {
+  padding-top: 4px;
+}
+.monitor-processes-finished .disclosure-body {
+  padding-top: 6px;
+}
+
 .swimlane {
   display: grid;
   gap: 2px;

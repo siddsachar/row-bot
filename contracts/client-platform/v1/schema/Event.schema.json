@@ -210,6 +210,12 @@
           "default": null,
           "title": "Approval Id"
         },
+        "question": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Question",
+          "type": "string"
+        },
         "reason": {
           "default": "",
           "maxLength": 1024,
@@ -220,6 +226,12 @@
           "default": "",
           "maxLength": 256,
           "title": "Requesting Trace Id",
+          "type": "string"
+        },
+        "reviewer_reason": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Reviewer Reason",
           "type": "string"
         },
         "risk_class": {
@@ -2598,10 +2610,24 @@
           "title": "Binding Id",
           "type": "string"
         },
+        "delivery_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(send-[0-9a-f]{8})?$",
+          "title": "Delivery Id",
+          "type": "string"
+        },
         "display_name": {
           "default": "",
           "maxLength": 180,
           "title": "Display Name",
+          "type": "string"
+        },
+        "edit_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(edit-[0-9a-f]{8})?$",
+          "title": "Edit Id",
           "type": "string"
         },
         "error_code": {
@@ -2624,7 +2650,11 @@
             "resource_created",
             "resource_bound",
             "setup_needed",
-            "connect_apps"
+            "connect_apps",
+            "background_process",
+            "recording",
+            "video_edit",
+            "delivery"
           ],
           "title": "Kind",
           "type": "string"
@@ -2654,6 +2684,20 @@
           ],
           "default": null,
           "title": "Newly Active"
+        },
+        "process_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(proc-[0-9a-f]{8})?$",
+          "title": "Process Id",
+          "type": "string"
+        },
+        "recording_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(rec-[0-9a-f]{8})?$",
+          "title": "Recording Id",
+          "type": "string"
         },
         "resource_id": {
           "default": "",

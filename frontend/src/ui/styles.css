@@ -5543,6 +5543,23 @@ details[open] > summary > .settings-disclosure-chevron {
   border-radius: 8px;
   background: var(--surface, #171717);
 }
+/* The addresses on this computer the conversation's browser may open (F4). */
+.browser-local-addresses .entity-row-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+}
+.browser-local-addresses-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.browser-local-addresses-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
 .insight-preview {
   max-width: 100%;
   white-space: pre-wrap;

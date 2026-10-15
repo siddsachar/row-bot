@@ -32,6 +32,7 @@ import {
 } from '../../ui/primitives';
 import { Code2, Palette, X } from 'lucide-react';
 import { setupSessions, type SetupDraft } from './setup-state';
+import { APPROVAL_LABELS, approvalLevel } from './approval-levels';
 
 export type ResourceSetupEntry = {
   kind: 'artifact' | 'workspace';
@@ -972,8 +973,12 @@ export default function ResourceSetup({
                         (profile) => profile.id === review.controls.profile_id,
                       )?.label ??
                         (review.controls.profile_id || 'Default profile')}{' '}
-                      · Runtime: {review.controls.runtime_mode} · Approval:{' '}
-                      {review.controls.approval_mode}
+                      · Runtime: {review.controls.runtime_mode} · Approvals:{' '}
+                      {
+                        APPROVAL_LABELS[
+                          approvalLevel(review.controls.approval_mode)
+                        ]
+                      }
                     </p>
                     <p>
                       Target:{' '}

@@ -70,7 +70,7 @@ A view's `tools/call` becomes `POST /api/v1/views/{render_id}/tools/call`. Befor
 
 - the tool belongs to the view's own app, includes `"app"` in its visibility, and is turned on for that app;
 - both view switches are on, and the app is on in that chat and allowed by the chat's agent profile;
-- the chat's approval mode allows it, through the same rule as the agent's calls. Destructive, high-impact and unknown-effect tools ask in every mode and are refused under **Block**. A routine change the app's access asks about asks under **Ask**, runs under **Auto** and is refused under **Block**. Reads run.
+- the chat's approval mode allows it, through the same rule as the agent's calls. Destructive, high-impact and unknown-effect tools ask in every mode and are refused under **Block**. A routine change the app's access asks about asks under **Ask** and **Auto** (a view's call has no request of yours for the reviewer to compare with), runs under **Hands-off** and is refused under **Block**. Reads run.
 
 When a call asks, the standard approval card appears inside the view's card, as well as wherever approvals appear. The call waits up to 5 minutes without holding a server thread, and no answer counts as a denial. Access is checked again just before the call runs, and the result goes back to the view only, not into the transcript.
 

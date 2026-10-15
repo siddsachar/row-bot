@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
@@ -22,6 +23,25 @@ Reference = Annotated[
     str, StringConstraints(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9:_-]+$")
 ]
 Revision = Annotated[str, StringConstraints(pattern=r"^(0|[1-9][0-9]{0,19})$")]
+
+
+def _approval_level(value: Any) -> Any:
+    """An older client's or stored approval level in today's words: "allow_all" is reviewed "auto".
+
+    Anything that is not a known level is left as it is, so validation refuses it.
+    """
+    if isinstance(value, str) and value != "inherit":
+        from row_bot.approval_policy import known_approval_mode
+
+        return known_approval_mode(value) or value
+    return value
+
+
+# Block, Ask ("approve"), Auto (model-reviewed) and Hands-off.
+ApprovalLevel = Annotated[Literal["block", "approve", "auto", "full"], BeforeValidator(_approval_level)]
+ProfileApprovalLevel = Annotated[
+    Literal["inherit", "block", "approve", "auto", "full"], BeforeValidator(_approval_level)
+]
 PROTOCOL_VERSION = "1.0"
 JSON_LIMIT = 256 * 1024
 EVENT_LIMIT = 64 * 1024
@@ -85,8 +105,24 @@ class ConversationControls(WireModel):
     model_selection: ModelSelection | None = None
     runtime_mode: Literal["agent", "chat_only"] = "agent"
     profile_id: str = Field(default="", max_length=128)
-    approval_mode: Literal["block", "approve", "allow_all"] = "approve"
+    approval_mode: ApprovalLevel = "approve"
     reasoning: ReasoningControl | None = None
+
+
+class ConversationControlsPayload(ConversationControls):
+    """The chat's controls as the person sets them. ``confirm_full_autonomy``: they turned Hands-off on
+    in its one-time dialog (needed the first time on this install)."""
+
+    confirm_full_autonomy: bool = False
+
+
+class ConversationApprovalView(WireModel):
+    """What the chat's approval control needs to offer Hands-off."""
+
+    # The person turned Hands-off on once on this install: no dialog again.
+    full_autonomy_confirmed: bool
+    # False where other people share the conversation (a channel thread): Auto at most.
+    full_autonomy_available: bool
 
 
 class ConversationAppPayload(WireModel):
@@ -3428,7 +3464,7 @@ class ProfileSummary(WireModel):
     skills: list[str] = Field(max_length=100)
     context_mode: Literal["auto", "focused", "recent", "full", "empty", "resume"]
     workspace_mode: Literal["auto", "read_only", "single_writer", "worktree"]
-    approval_mode: Literal["inherit", "block", "approve", "allow_all"]
+    approval_mode: ProfileApprovalLevel
     instructions_preview: Literal[""]
     instructions_truncated: bool
     instruction_edit: ProfileInstructionEdit | None = None
@@ -3469,7 +3505,7 @@ class ProfileFields(WireModel):
     skills: list[str] = Field(max_length=100)
     context_mode: Literal["auto", "focused", "recent", "full", "empty", "resume"]
     workspace_mode: Literal["auto", "read_only", "single_writer", "worktree"]
-    approval_mode: Literal["inherit", "block", "approve", "allow_all"]
+    approval_mode: ProfileApprovalLevel
     enabled: bool
 
 
@@ -4128,6 +4164,192 @@ class PendingApprovalPage(WireModel):
     schema_version: Literal[1]
     items: list[PendingApproval] = Field(max_length=50)
     total: int = Field(ge=0)
+
+
+ProcessId = Annotated[str, StringConstraints(pattern=r"^proc-[0-9a-f]{8}$")]
+
+
+class BackgroundProcessView(WireModel):
+    """A background process the agent started, or a command that carried on in the background (F1, F6)."""
+    process_id: ProcessId
+    conversation_id: str = Field(min_length=1, max_length=256)
+    # The conversation it belongs to, as the list names it ("" when that conversation has no title).
+    conversation_title: str = Field(max_length=200)
+    command: str = Field(max_length=4096)
+    name: str = Field(max_length=80)
+    folder: str = Field(max_length=4096)
+    kind: Literal["process", "command"]
+    status: Literal["running", "stopping", "finished", "failed", "stopped"]
+    exit_code: int | None
+    started_at: str = Field(max_length=80)
+    ended_at: str | None = Field(max_length=80)
+    runtime_seconds: float = Field(ge=0)
+    # Local addresses it printed or listens on (http://localhost:5173).
+    local_urls: list[str] = Field(max_length=8)
+    pid: int | None
+    stopped_by: Literal["", "you", "agent", "quit", "restart", "conversation", "limit"]
+    env_names: list[str] = Field(max_length=64)
+    output_size: int = Field(ge=0)
+
+
+class BackgroundProcessPage(WireModel):
+    """Every background process: running ones first, then finished ones, newest first."""
+    items: list[BackgroundProcessView] = Field(max_length=200)
+    running: int = Field(ge=0)
+    limit_per_conversation: int = Field(ge=1)
+    limit_total: int = Field(ge=1)
+
+
+class BackgroundProcessOutput(WireModel):
+    """One page of a process's output, by position from its first byte; older output may be gone."""
+    process_id: ProcessId
+    text: str = Field(max_length=65536)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    size: int = Field(ge=0)
+    # The page starts later than asked: the output before it is no longer kept.
+    earlier_dropped: bool
+    running: bool
+
+
+RecordingId = Annotated[str, StringConstraints(pattern=r"^rec-[0-9a-f]{8}$")]
+
+
+class RecordingView(WireModel):
+    """A recording of Row-Bot's browser or of the screen (F2); its video is saved to its conversation's files."""
+    recording_id: RecordingId
+    conversation_id: str = Field(min_length=1, max_length=256)
+    kind: Literal["browser", "screen"]
+    status: Literal["recording", "saving", "saved", "failed"]
+    started_at: str = Field(max_length=80)
+    ended_at: str | None = Field(max_length=80)
+    # How long it has recorded (so far, or in all).
+    seconds: float = Field(ge=0)
+    # It stops by itself after this long.
+    max_seconds: int = Field(ge=1)
+    stopped_by: Literal["", "you", "agent", "limit", "size", "conversation", "quit", "closed", "error"]
+    # The saved video, shown with a preview (None until it is saved).
+    media_ref: str | None = Field(max_length=512)
+    mime_type: Literal["video/mp4"] | None
+    size_bytes: int | None = Field(ge=0)
+    # Why there is no video: not saved, too large for the chat, or nothing was recorded.
+    problem: Literal["", "not_saved", "too_large", "nothing_recorded"]
+
+
+class RecordingPage(WireModel):
+    """Recordings: those running now first, then finished ones, newest first."""
+    items: list[RecordingView] = Field(max_length=200)
+    recording: int = Field(ge=0)
+
+
+VideoEditId = Annotated[str, StringConstraints(pattern=r"^edit-[0-9a-f]{8}$")]
+
+
+class VideoEditView(WireModel):
+    """A video edit (F3): an edited video, or stills from one, saved to its conversation's files."""
+    edit_id: VideoEditId
+    conversation_id: str = Field(min_length=1, max_length=256)
+    kind: Literal["video", "frames"]
+    # What it does, in words: "Trimmed, sped up 2× and captioned".
+    summary: str = Field(max_length=200)
+    status: Literal["getting_ffmpeg", "preparing", "editing", "saving", "saved", "failed", "stopped"]
+    # How far it is, 0 to 1, when that is known (downloading ffmpeg, editing a video).
+    progress: float | None = Field(ge=0, le=1)
+    # While ffmpeg downloads (the first time only): bytes so far and in all.
+    download_received: int | None = Field(ge=0)
+    download_total: int | None = Field(ge=0)
+    started_at: str = Field(max_length=80)
+    ended_at: str | None = Field(max_length=80)
+    # How long it has run (so far, or in all).
+    seconds: float = Field(ge=0)
+    # How long the edited video is (None for stills, or before it is known).
+    duration_seconds: float | None = Field(ge=0)
+    output_name: str = Field(max_length=120)
+    # The saved video, or the contact sheet of the stills, shown with a preview (None until saved).
+    media_ref: str | None = Field(max_length=512)
+    mime_type: Literal["video/mp4", "image/jpeg", "image/png"] | None
+    size_bytes: int | None = Field(ge=0)
+    frame_count: int = Field(ge=0, le=64)
+    stopped_by: Literal["", "you", "agent", "conversation", "quit"]
+    problem: Literal["", "ffmpeg_unavailable", "download_failed", "edit_failed", "too_large", "not_saved"]
+    # Why it failed, in plain words.
+    detail: str = Field(max_length=400)
+    # Which ffmpeg made it: "ffmpeg 7.1 (GPL version 3 or later), downloaded from PyPI".
+    ffmpeg: str | None = Field(max_length=200)
+
+
+class VideoEditPage(WireModel):
+    """Video edits: those running now first, then finished ones, newest first."""
+    items: list[VideoEditView] = Field(max_length=200)
+    running: int = Field(ge=0)
+
+
+DeliveryId = Annotated[str, StringConstraints(pattern=r"^send-[0-9a-f]{8}$")]
+
+
+class DeliveryFile(WireModel):
+    """One file a delivery sent, or tried to (F7): its name and size, never where it came from."""
+    index: int = Field(ge=0, le=9)
+    name: str = Field(min_length=1, max_length=120)
+    size_bytes: int = Field(ge=0)
+    mime_type: str = Field(max_length=128)
+    sent: bool
+    # Sent to the person's devices and not expired: the download works with their session.
+    downloadable: bool
+
+
+class DeliveryView(WireModel):
+    """Files sent from a conversation to the person's own devices or to a chat app (F7)."""
+    delivery_id: DeliveryId
+    conversation_id: str = Field(min_length=1, max_length=256)
+    target: Literal["devices", "channel"]
+    # The chat app (its registry name and how people call it), for a channel delivery.
+    channel: str = Field(max_length=64)
+    channel_label: str = Field(max_length=80)
+    # Where it went, in words: "your Telegram chat", "this Slack thread".
+    place: str = Field(max_length=120)
+    # Other people share that chat.
+    shared: bool
+    status: Literal["sent", "partly_sent", "failed", "expired"]
+    problem: Literal["", "too_large", "cant_send_files", "not_running", "not_linked", "send_failed", "store_full",
+                     "unavailable"]
+    # Why it didn't go, in plain words.
+    detail: str = Field(max_length=600)
+    # The size limit that applied, when the problem is size.
+    limit_bytes: int | None = Field(ge=0)
+    files: list[DeliveryFile] = Field(max_length=10)
+    created_at: str = Field(max_length=80)
+    # When the downloads end (devices only).
+    expires_at: str | None = Field(max_length=80)
+    # Who allowed it: nobody needed to (devices), you, the reviewer (Auto), or Hands-off.
+    approval: Literal["", "not_needed", "you", "reviewer", "hands_off"]
+    # It didn't go to a chat app, and the person can send it to their devices instead.
+    can_send_to_devices: bool
+    # The delivery to the person's devices made from this one instead.
+    sent_instead: DeliveryId | None
+
+
+class DeliveryPage(WireModel):
+    """A conversation's deliveries, or every one, newest first."""
+    items: list[DeliveryView] = Field(max_length=200)
+
+
+class LocalAddressGrantView(WireModel):
+    """An address on this computer one conversation's browser may open (F4): one origin, for an hour."""
+    grant_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+    # As people write it: "localhost:5173".
+    address: str = Field(min_length=1, max_length=300)
+    origin: str = Field(min_length=1, max_length=300)
+    # Who allowed it: the person, the reviewer under Auto, Hands-off, or a server Row-Bot started in the chat.
+    source: Literal["you", "reviewer", "hands_off", "row_bot_server"]
+    granted_at: str = Field(max_length=80)
+    expires_at: str = Field(max_length=80)
+
+
+class LocalAddressPage(WireModel):
+    """The local addresses a conversation's browser may open now, oldest first."""
+    conversation_id: str = Field(min_length=1, max_length=256)
+    items: list[LocalAddressGrantView] = Field(max_length=64)
 
 
 class McpChatState(WireModel):
@@ -5207,7 +5429,7 @@ class TaskSettingsFields(WireModel):
     trigger_task_id: str | None = Field(max_length=128)
     model_override: str | None = Field(max_length=1024)
     agent_profile_id: str = Field(min_length=1, max_length=128)
-    approval_mode: Literal["block", "approve", "allow_all"]
+    approval_mode: ApprovalLevel
     persistent_enabled: bool
 
 
@@ -5216,10 +5438,12 @@ class TaskSettingsSnapshot(WireModel):
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     fields: TaskSettingsFields
     profile_revision: str | None = Field(pattern=r"^[a-f0-9]{64}$")
-    effective_approval_mode: Literal["block", "approve", "allow_all"] | None
+    effective_approval_mode: ApprovalLevel | None
     profile_available: bool
     webhook_configured: bool
     conversation_id: OpaqueId | None
+    # The person turned Hands-off on once on this install: choosing it needs no dialog again.
+    full_autonomy_confirmed: bool = False
 
 
 class TaskSettingsUpdatePayload(WireModel):
@@ -5227,6 +5451,8 @@ class TaskSettingsUpdatePayload(WireModel):
     task_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     profile_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     fields: TaskSettingsFields
+    # The person turned Hands-off on in its one-time dialog (needed the first time on this install).
+    confirm_full_autonomy: bool = False
 
 
 class TaskWebhookRotatePayload(WireModel):
@@ -5971,6 +6197,9 @@ class Command(WireModel):
             )  # Preserve existing durable v1 command verifiers.
         if self.type == "conversation.controls" and "reasoning" not in supplied:
             self.payload.pop("reasoning", None)
+        if (self.type in {"conversation.controls", "task.settings.update"}
+                and "confirm_full_autonomy" not in supplied):
+            self.payload.pop("confirm_full_autonomy", None)  # Existing durable verifiers stay as they were.
         if self.type == "resource.setup":
             for field in ("artifact", "empty_workspace", "draft_workspace", "draft_name", "clone_workspace"):
                 if field not in supplied:
@@ -6000,7 +6229,7 @@ COMMAND_PAYLOADS = {
     "conversation.bind": BindPayload,
     "conversation.unbind": UnbindPayload,
     "approval.resolve": ApprovalPayload,
-    "conversation.controls": ConversationControls,
+    "conversation.controls": ConversationControlsPayload,
     "conversation.skills": ConversationSkillPayload,
     "conversation.apps": ConversationAppPayload,
     "resource.setup": ResourceSetupPayload,
@@ -6266,6 +6495,11 @@ class ApprovalRequired(WireModel):
     setup: ApprovalSetup | None = None
     # The app asking, shown with its logo and name.
     app: TraceAppRef | None = None
+    # Under Auto: why the reviewer asked the person rather than approving.
+    reviewer_reason: str = Field(default="", max_length=240)
+    # The card's question in Row-Bot's own words, when the action has one ("Allow Row-Bot's browser to open
+    # localhost:5173 in this chat?"); otherwise the card asks from the action's name.
+    question: str = Field(default="", max_length=240)
 
 
 class GenerationError(WireModel):
@@ -6791,7 +7025,8 @@ class AppViewAppSetting(WireModel):
 
 class TraceSpecialization(WireModel):
     kind: Literal[
-        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps"
+        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps",
+        "background_process", "recording", "video_edit", "delivery",
     ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
@@ -6812,6 +7047,14 @@ class TraceSpecialization(WireModel):
     settings_page: Literal["", "accounts", "channels"] = ""
     # connect_apps: apps from Row-Bot's catalog the person may connect; nothing is installed by the card.
     apps: list[TraceAppRef] = Field(default_factory=list, max_length=3)
+    # background_process: the process the card follows live, re-read by id (F1, F6).
+    process_id: str = Field(default="", max_length=64, pattern=r"^(proc-[0-9a-f]{8})?$")
+    # recording: the recording the card follows live and then shows, re-read by id (F2).
+    recording_id: str = Field(default="", max_length=64, pattern=r"^(rec-[0-9a-f]{8})?$")
+    # video_edit: the edit the card follows live and then shows, re-read by id (F3).
+    edit_id: str = Field(default="", max_length=64, pattern=r"^(edit-[0-9a-f]{8})?$")
+    # delivery: the files a step sent to the person's devices or a chat app, re-read by id (F7).
+    delivery_id: str = Field(default="", max_length=64, pattern=r"^(send-[0-9a-f]{8})?$")
 
 
 class TranscriptTraceItem(WireModel):
@@ -6941,6 +7184,8 @@ class Notice(WireModel):
     startup: bool
     count: int = Field(ge=1, le=9007199254740991)
     at: str = Field(min_length=1, max_length=64)
+    # The conversation it is about, when there is one to open (a file Row-Bot sent to the devices).
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 class NoticePage(WireModel):
@@ -7145,6 +7390,10 @@ class ApprovalView(WireModel):
     app: TraceAppRef | None = None
     # Whether "approve the rest of this turn" is offered for this action (F21).
     repeatable: bool = False
+    # Under Auto: why the reviewer asked the person rather than approving ("The reviewer asked you: …").
+    reviewer_reason: str = Field(default="", max_length=240)
+    # The card's question in Row-Bot's own words, when the action has one.
+    question: str = Field(default="", max_length=240)
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -7300,6 +7549,7 @@ class ConversationWorkspace(WireModel):
     context_usage: ContextUsageView | None = None
     reasoning: ReasoningView | None = None
     composer: ConversationComposer | None = None
+    approval: ConversationApprovalView | None = None
 
 
 class DelegatedStep(WireModel):
@@ -7508,7 +7758,7 @@ class ArtifactLifecycleState(WireModel):
 
 class WorkspacePolicy(WireModel):
     execution_mode: Literal["local", "docker"]
-    approval_mode: Literal["block", "approve", "allow_all"]
+    approval_mode: ApprovalLevel
     sandbox_network: Literal["off", "ask", "on"]
     read_only: Literal[True] = True
 

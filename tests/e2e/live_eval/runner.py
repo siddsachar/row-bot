@@ -284,7 +284,7 @@ class Runtime:
 
         thread_id = f"le_{task.task_id[:20]}_{uuid.uuid4().hex[:8]}"
         threads.create_thread(
-            f"Live eval {task.task_id}", thread_id=thread_id, approval_mode="allow_all",
+            f"Live eval {task.task_id}", thread_id=thread_id, approval_mode="full",
             model_override=self.model_ref, seed_default_skills=False,
         )
         return thread_id
@@ -298,7 +298,7 @@ class Runtime:
             "model_override": self.model_ref,
             "runtime_mode": "chat_only" if mode == "chat_only" else "agent",
             "runtime_surface": "normal_chat",
-            "approval_mode": "allow_all",
+            "approval_mode": "full",
             "generation_id": uuid.uuid4().hex,
         }}
         try:
