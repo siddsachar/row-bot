@@ -1,7 +1,8 @@
 """What the vision tool may capture, and when it asks (B327).
 
 A page in Row-Bot's own browser or a workspace file needs no capture. The person's screen or camera can show
-anything, so capturing them asks every time, even in Auto, says what it captures, and is refused in Block.
+anything, so capturing them needs approval every time and says what it captures: Ask asks, Auto's reviewer
+approves only a capture the person clearly asked for (A0), Hands-off allows it, and Block refuses it.
 """
 
 from __future__ import annotations
@@ -66,12 +67,17 @@ def test_no_open_page_says_so_instead_of_capturing_anything(setup, monkeypatch) 
     assert asked == [] and vision.captured == []
 
 
-@pytest.mark.parametrize("approval_mode", ["approve", "allow_all"])
+@pytest.mark.parametrize("approval_mode", ["approve", "auto"])
 @pytest.mark.parametrize(("source", "label"), [("screen", "Capture your whole screen?"),
                                                ("camera", "Take a picture with your camera?")])
-def test_the_screen_and_camera_ask_every_time_even_in_auto(setup, approval_mode, source, label) -> None:
+def test_the_screen_and_camera_ask_every_time_unless_the_reviewer_approves(setup, monkeypatch, approval_mode, source,
+                                                                           label) -> None:
+    from row_bot.approval_review import ReviewVerdict
+
     vision, asked, _answer, mode = setup
     mode["value"] = approval_mode
+    monkeypatch.setattr("row_bot.approval_review.review",
+                        lambda *_a, **_k: ReviewVerdict("ask", "You didn't ask to be looked at."))
 
     result = vision_tool._analyze_image("What's showing?", source=source)
 
@@ -113,3 +119,24 @@ def test_a_source_that_is_not_offered_never_reaches_the_camera(setup, source) ->
 
     assert vision.captured == [] and asked == []
     assert result.startswith("Unknown source")
+
+
+@pytest.mark.parametrize(("approval_mode", "first_line"), [
+    ("auto", "Approval: approved by the reviewer: You asked what's on your screen"),
+    ("full", "Approval: allowed by Hands-off"),
+])
+def test_a_capture_the_reviewer_approves_or_full_autonomy_allows_runs_without_asking(setup, monkeypatch, approval_mode,
+                                                                                     first_line) -> None:
+    from row_bot.approval_review import ReviewVerdict
+
+    vision, asked, _answer, mode = setup
+    mode["value"] = approval_mode
+    risks: list[tuple] = []
+    monkeypatch.setattr("row_bot.approval_review.review", lambda _payload, **kw: risks.append(
+        tuple(kw.get("risks", ()))) or ReviewVerdict("approve", "You asked what's on your screen."))
+
+    result = vision_tool._analyze_image("What's on my screen?", source="screen")
+
+    assert asked == [] and vision.captured == ["screen"]
+    assert result.splitlines()[0] == first_line
+    assert risks == ([("captures the person's screen",)] if approval_mode == "auto" else [])

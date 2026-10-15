@@ -262,6 +262,10 @@ function BrowserPanel({ visible }: { visible: boolean }) {
       execute={(command, review) =>
         controller.executeBrowserControl(conversationId, command, review)
       }
+      localAddresses={{
+        load: controller.browserLocalAddresses,
+        remove: controller.removeBrowserLocalAddress,
+      }}
     />
   );
 }

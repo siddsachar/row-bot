@@ -18,9 +18,11 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.installer]
 
 TESTS = Path(__file__).resolve().parents[2]
 PLATFORM_SENSITIVE = frozenset({
+    "row_bot.background_processes",
     "row_bot.developer.client_processes",
     "row_bot.developer.process_worker",
     "row_bot.document_jobs",
+    "row_bot.ffmpeg_runtime",
     "row_bot.file_ownership",
     "row_bot.install_layout",
     "row_bot.launcher",

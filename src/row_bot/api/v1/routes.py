@@ -1003,6 +1003,9 @@ _STATUS.update(
     {
         "process_policy_denied": 403,
         "process_unavailable": 404,
+        "recording_unavailable": 404,
+        "local_address_unavailable": 404,
+        "video_edit_unavailable": 404,
         "process_history_unavailable": 503,
         "process_limit": 429,
     }
@@ -2625,6 +2628,37 @@ def create_router(
         response = await respond(request, dto.BrowserPreview, result)
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Local addresses (F4): what this conversation's browser may open now, and Remove.
+    @router.get("/conversations/{conversation_id}/browser/local-addresses")
+    async def browser_local_addresses(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        from row_bot.application.recording_views import read_local_addresses
+
+        await call(validate)
+        result = await call(read_local_addresses, conversation_id)
+        return await respond(request, dto.LocalAddressPage, result)
+
+    @router.post("/conversations/{conversation_id}/browser/local-addresses/{grant_id}/remove")
+    async def remove_browser_local_address(
+        conversation_id: str, grant_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        if len(grant_id or "") != 32 or any(char not in "0123456789abcdef" for char in grant_id):
+            raise ProtocolError("local_address_unavailable", 404)
+        from row_bot.application.recording_views import remove_local_address
+
+        await call(validate)
+        result = await call(remove_local_address, conversation_id, grant_id)
+        if result is None:
+            raise ProtocolError("local_address_unavailable", 404)
+        return await respond(request, dto.LocalAddressPage, result)
 
     @router.post("/conversations/{conversation_id}/browser/review")
     async def browser_control_review(
@@ -5216,6 +5250,129 @@ def create_router(
 
         result = await call(read_monitor_logs, limit=limit)
         return await respond(request, dto.MonitorLogs, result)
+
+    # Background processes (F1, F6): a person sees and stops every one, whichever
+    # conversation started it; stopping one Row-Bot started needs no approval.
+    def _process_id(value: str) -> str:
+        from row_bot.background_processes import PROCESS_ID
+
+        if not PROCESS_ID.fullmatch(str(value or "")):
+            raise ProtocolError("process_unavailable", 404)
+        return value
+
+    @router.get("/processes")
+    async def list_background_processes(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_processes
+
+        result = await call(read_background_processes, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.BackgroundProcessPage, result)
+
+    @router.get("/processes/{process_id}")
+    async def background_process(request: Request, process_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process
+
+        result = await call(read_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    @router.get("/processes/{process_id}/output")
+    async def background_process_output(
+        request: Request, process_id: str, after: int = 0, limit: int = 65536
+    ) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process_output
+
+        if after < 0 or not 1 <= limit <= 65536:
+            raise ProtocolError("process_cursor_invalid", 422)
+        result = await call(read_background_process_output, _process_id(process_id), after, limit)
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessOutput, result)
+
+    @router.post("/processes/{process_id}/stop")
+    async def stop_background_process_route(request: Request, process_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.background_process_views import stop_background_process
+
+        result = await call(stop_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    # Recordings (F2): a person sees and stops every one; stopping needs no approval.
+    def _recording_id(value: str) -> str:
+        from row_bot.recordings import RECORDING_ID
+
+        if not RECORDING_ID.fullmatch(str(value or "")):
+            raise ProtocolError("recording_unavailable", 404)
+        return value
+
+    @router.get("/recordings")
+    async def list_recordings(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.recording_views import read_recordings
+
+        result = await call(read_recordings, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.RecordingPage, result)
+
+    @router.get("/recordings/{recording_id}")
+    async def recording(request: Request, recording_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.recording_views import read_recording
+
+        result = await call(read_recording, _recording_id(recording_id))
+        if result is None:
+            raise ProtocolError("recording_unavailable", 404)
+        return await respond(request, dto.RecordingView, result)
+
+    @router.post("/recordings/{recording_id}/stop")
+    async def stop_recording_route(request: Request, recording_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.recording_views import stop_recording
+
+        result = await call(stop_recording, _recording_id(recording_id))
+        if result is None:
+            raise ProtocolError("recording_unavailable", 404)
+        return await respond(request, dto.RecordingView, result)
+
+    # Video edits (F3): a person sees and stops every one; stopping needs no approval.
+    def _edit_id(value: str) -> str:
+        from row_bot.video_edits import EDIT_ID
+
+        if not EDIT_ID.fullmatch(str(value or "")):
+            raise ProtocolError("video_edit_unavailable", 404)
+        return value
+
+    @router.get("/video-edits")
+    async def list_video_edits(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_edit_views import read_video_edits
+
+        result = await call(read_video_edits, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.VideoEditPage, result)
+
+    @router.get("/video-edits/{edit_id}")
+    async def video_edit(request: Request, edit_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_edit_views import read_video_edit
+
+        result = await call(read_video_edit, _edit_id(edit_id))
+        if result is None:
+            raise ProtocolError("video_edit_unavailable", 404)
+        return await respond(request, dto.VideoEditView, result)
+
+    @router.post("/video-edits/{edit_id}/stop")
+    async def stop_video_edit_route(request: Request, edit_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_edit_views import stop_video_edit
+
+        result = await call(stop_video_edit, _edit_id(edit_id))
+        if result is None:
+            raise ProtocolError("video_edit_unavailable", 404)
+        return await respond(request, dto.VideoEditView, result)
 
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
@@ -9931,6 +10088,8 @@ def create_router(
                 "setup",
                 "app",
                 "repeatable",
+                "reviewer_reason",
+                "question",
                 "policy_revision",
             )
             if k in view

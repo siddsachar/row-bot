@@ -48,7 +48,7 @@ def test_docker_network_policy_blocks_network_and_install_when_off(tmp_path, mon
     result = runtime.run_workspace_command(
         workspace.path,
         "python -m pip install rich",
-        "allow_all",
+        "full",  # A hard limit: not even Hands-off installs with the sandbox network off.
         workspace_id=workspace.id,
         thread_id="thread-1",
     )

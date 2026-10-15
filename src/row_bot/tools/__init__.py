@@ -63,6 +63,7 @@ _CORE_TOOL_MODULES = (
     "row_bot.tools.custom_tool_builder_tool",
     "row_bot.tools.image_gen_tool",
     "row_bot.tools.video_gen_tool",
+    "row_bot.tools.video_editing_tool",
     "row_bot.tools.wiki_tool",
     "row_bot.tools.x_tool",
     "row_bot.tools.row_bot_status_tool",

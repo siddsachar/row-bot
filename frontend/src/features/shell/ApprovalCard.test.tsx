@@ -150,7 +150,7 @@ it('asks to turn on a tool the work needs as a setup card (decision 12)', async 
   expect(card).toHaveTextContent('Row-Bot needs Web Search for this.');
   await screen.findByRole('button', { name: 'Turn on' });
   expect(
-    screen.queryByRole('button', { name: 'Always allow in this chat' }),
+    screen.queryByRole('button', { name: 'Use Auto in this chat' }),
   ).toBeNull();
   expect(screen.queryByRole('button', { name: 'Details' })).toBeNull();
   await act(async () => {
@@ -281,4 +281,95 @@ it('offers approving the rest of the reply only for a repeatable action (F21)', 
       '3',
     ),
   );
+});
+
+it('says quietly why the Auto reviewer asked, on the card and in its details (A0)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    reviewer_reason: 'You asked to tidy the folder, not to delete files.',
+  });
+  await renderCard();
+  expect(
+    screen.getByText(
+      'The reviewer asked you: You asked to tidy the folder, not to delete files.',
+    ),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  expect(
+    screen.getByText(
+      'Asked you: You asked to tidy the folder, not to delete files.',
+    ),
+  ).toBeVisible();
+});
+
+it('offers reviewed Auto for this chat under Ask, and approves', async () => {
+  const onAllowInChat = vi.fn(async () => undefined);
+  render(<ApprovalCard id="approval-a" onAllowInChat={onAllowInChat} />);
+  const auto = await screen.findByRole('button', {
+    name: 'Use Auto in this chat',
+  });
+  await waitFor(() => expect(auto).toBeEnabled());
+  expect(screen.queryByText(/The reviewer asked you/)).toBeNull();
+  await act(async () => fireEvent.click(auto));
+  expect(onAllowInChat).toHaveBeenCalledOnce();
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-a' },
+    '3',
+  );
+});
+
+it('asks the tool’s own question for a local address in one chat (F4)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'Browser Navigate',
+    question: "Allow Row-Bot's browser to open localhost:5173 in this chat?",
+    reason:
+      'localhost:5173 is on this computer. Allowing it lets Row-Bot’s browser open only this address, only in this chat, for up to an hour. You can remove it sooner in the browser panel.',
+    safe_argument_summary: '{"address": "localhost:5173"}',
+  });
+  await renderCard();
+
+  const card = screen.getByRole('complementary', {
+    name: "Approval required: Allow Row-Bot's browser to open localhost:5173 in this chat?",
+  });
+  expect(
+    within(card).getByText(
+      "Allow Row-Bot's browser to open localhost:5173 in this chat?",
+    ),
+  ).toBeVisible();
+  expect(card).toHaveTextContent('only this address, only in this chat');
+  fireEvent.click(within(card).getByRole('button', { name: 'Details' }));
+  expect(open.mock.calls[0][0].title).toBe(
+    "Allow Row-Bot's browser to open localhost:5173 in this chat?",
+  );
+});
+
+it('asks to download ffmpeg in plain words: how big, from where, and its licence (F3)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'edit_video',
+    question:
+      'Video editing needs ffmpeg (about 30 MB) from PyPI. Download it now?',
+    reason:
+      "Row-Bot will download imageio-ffmpeg 0.6.0 for Windows (30 MB) from PyPI (files.pythonhosted.org), check it against the fingerprint saved in Row-Bot, and keep only its ffmpeg program in Row-Bot's data folder. ffmpeg is free software (GPL version 3 or later); Row-Bot runs it as a separate program. This happens once.",
+    risk_class: 'medium',
+    safe_argument_summary:
+      '{"download": "imageio-ffmpeg 0.6.0 (Windows, 30 MB)", "from": "files.pythonhosted.org", "licence": "ffmpeg 7.1, GPL version 3 or later"}',
+  });
+  await renderCard();
+
+  const card = screen.getByRole('complementary', {
+    name: 'Approval required: Video editing needs ffmpeg (about 30 MB) from PyPI. Download it now?',
+  });
+  expect(card).toHaveTextContent('keep only its ffmpeg program');
+  fireEvent.click(within(card).getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  expect(screen.getByText('From: files.pythonhosted.org')).toBeVisible();
+  expect(
+    screen.getByText('Licence: ffmpeg 7.1, GPL version 3 or later'),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/edit_video|\{"/);
 });

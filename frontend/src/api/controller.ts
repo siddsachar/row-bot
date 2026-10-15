@@ -2507,6 +2507,65 @@ export class ClientController {
     this.query(() => this.transport.knowledgeGraph?.(limit, signal));
   monitorSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.monitorSnapshot?.(signal));
+  /** Background processes (F1, F6): every one, or one conversation's, running ones first. */
+  backgroundProcesses = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.backgroundProcesses?.(conversationId, signal),
+    );
+  backgroundProcess = (processId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.backgroundProcess?.(processId, signal));
+  backgroundProcessOutput = (
+    processId: string,
+    after = 0,
+    limit = 65536,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.backgroundProcessOutput?.(processId, after, limit, signal),
+    );
+  /** Stop a background process and everything it started; no approval. */
+  stopBackgroundProcess = (processId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopBackgroundProcess)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopBackgroundProcess(processId, signal);
+    });
+  /** Recordings (F2): every one, or one conversation's, running ones first. */
+  recordings = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.recordings?.(conversationId, signal));
+  /** Stop a recording; its video is saved to the conversation's files. No approval. */
+  stopRecording = (recordingId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopRecording)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopRecording(recordingId, signal);
+    });
+  /** Video edits (F3): every one, or one conversation's, running ones first. */
+  videoEdits = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.videoEdits?.(conversationId, signal));
+  /** Stop a video edit; nothing is saved. No approval. */
+  stopVideoEdit = (editId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopVideoEdit)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopVideoEdit(editId, signal);
+    });
+  /** The local addresses a conversation's browser may open now (F4). */
+  browserLocalAddresses = (conversation: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.browserLocalAddresses?.(conversation, signal),
+    );
+  /** Remove one local address from a conversation; no approval. */
+  removeBrowserLocalAddress = (conversation: string, grant: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.removeBrowserLocalAddress)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.removeBrowserLocalAddress(
+        conversation,
+        grant,
+        signal,
+      );
+    });
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));

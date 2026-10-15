@@ -177,6 +177,14 @@ def _is_authorised(update: Update) -> bool:
 # ──────────────────────────────────────────────────────────────────────
 # Thread management
 # ──────────────────────────────────────────────────────────────────────
+def _is_group_chat(chat_id: int | str) -> bool:
+    """A Telegram group or channel (a negative chat id) is shared with its members."""
+    try:
+        return int(chat_id) < 0
+    except (TypeError, ValueError):
+        return True
+
+
 def _get_or_create_thread(chat_id: int) -> dict:
     """Get or create a LangGraph thread for a Telegram chat."""
     prefix = f"tg_{chat_id}"
@@ -193,6 +201,7 @@ def _get_or_create_thread(chat_id: int) -> dict:
                     channel="telegram",
                     target=chat_id,
                     external_conversation_id=str(chat_id),
+                    shared=_is_group_chat(chat_id),
                 )
             except Exception:
                 log.debug("Telegram thread channel ref skipped", exc_info=True)
@@ -220,6 +229,7 @@ def _get_or_create_thread(chat_id: int) -> dict:
             channel="telegram",
             target=chat_id,
             external_conversation_id=str(chat_id),
+            shared=_is_group_chat(chat_id),
         )
     except Exception:
         log.debug("Telegram thread channel ref skipped", exc_info=True)
@@ -246,6 +256,7 @@ def _new_thread(chat_id: int) -> dict:
             channel="telegram",
             target=chat_id,
             external_conversation_id=str(chat_id),
+            shared=_is_group_chat(chat_id),
         )
     except Exception:
         log.debug("Telegram thread channel ref skipped", exc_info=True)
@@ -952,6 +963,12 @@ def _format_interrupt(data) -> str:
         elif args:
             for k, v in args.items():
                 parts.append(f"• <b>{_escape_html(str(k))}</b>: {_escape_html(str(v))}")
+        # Under Auto: why the reviewer asked rather than approving it.
+        from row_bot.approval_messages import reviewer_note
+
+        note = reviewer_note(item)
+        if note:
+            parts.append(_escape_html(note))
 
     return "\n".join(parts)
 

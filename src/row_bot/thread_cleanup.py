@@ -171,6 +171,15 @@ def _purge_thread_files(thread_id: str) -> int:
     from row_bot.tool_outputs import delete_thread_outputs
 
     removed += delete_thread_outputs(thread_id)  # Long tool results saved for paging.
+    from row_bot.background_processes import delete_conversation_logs
+
+    removed += delete_conversation_logs(thread_id)  # Its background processes' logs.
+    from row_bot.recordings import delete_conversation as delete_recordings
+
+    removed += delete_recordings(thread_id)  # Its recordings' records (the videos are its media).
+    from row_bot.video_edits import delete_conversation as delete_video_edits
+
+    removed += delete_video_edits(thread_id)  # Its video edits' records (the results are its media).
     return removed
 
 
@@ -213,6 +222,27 @@ def _request_thread_cancellation(thread_id: str, *, deletion_token: str = "",
         logger.debug("Could not stop Agent work for %s", thread_id, exc_info=True)
 
     try:
+        from row_bot.background_processes import stop_conversation
+
+        stop_conversation(thread_id)  # Each with everything it started; waits for them to end.
+    except Exception:
+        logger.debug("Could not stop background processes for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot import recordings
+
+        recordings.stop_conversation(thread_id)  # Its recordings stop with it (F2).
+    except Exception:
+        logger.debug("Could not stop recordings for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot import video_edits
+
+        video_edits.stop_conversation(thread_id)  # Its video edits stop with it (F3).
+    except Exception:
+        logger.debug("Could not stop video edits for %s", thread_id, exc_info=True)
+
+    try:
         from row_bot.tools.shell_tool import clear_shell_history, get_session_manager
 
         get_session_manager().kill_session(thread_id)
@@ -228,6 +258,13 @@ def _request_thread_cancellation(thread_id: str, *, deletion_token: str = "",
         clear_browser_history(thread_id)
     except Exception:
         logger.debug("Could not clear browser state for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot.tools.browser_tool import get_session_manager as get_browser_session_manager
+
+        get_browser_session_manager().revoke_local_addresses(thread_id)  # Its local-address grants (F4).
+    except Exception:
+        logger.debug("Could not remove local-address grants for %s", thread_id, exc_info=True)
 
     try:
         from row_bot.computer_use.service import get_computer_use_service

@@ -2132,18 +2132,62 @@
       "title": "ConversationBindCommand",
       "type": "object"
     },
-    "ConversationControls": {
+    "ConversationControlsCommand": {
       "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationControlsPayload"
+        },
+        "type": {
+          "const": "conversation.controls",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationControlsCommand",
+      "type": "object"
+    },
+    "ConversationControlsPayload": {
+      "additionalProperties": false,
+      "description": "The chat's controls as the person sets them. ``confirm_full_autonomy``: they turned Hands-off on\nin its one-time dialog (needed the first time on this install).",
       "properties": {
         "approval_mode": {
           "default": "approve",
           "enum": [
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "title": "Approval Mode",
           "type": "string"
+        },
+        "confirm_full_autonomy": {
+          "default": false,
+          "title": "Confirm Full Autonomy",
+          "type": "boolean"
         },
         "model_selection": {
           "anyOf": [
@@ -2183,44 +2227,7 @@
           "type": "string"
         }
       },
-      "title": "ConversationControls",
-      "type": "object"
-    },
-    "ConversationControlsCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/ConversationControls"
-        },
-        "type": {
-          "const": "conversation.controls",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "ConversationControlsCommand",
+      "title": "ConversationControlsPayload",
       "type": "object"
     },
     "ConversationCreateCommand": {
@@ -6029,7 +6036,8 @@
             "inherit",
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "title": "Approval Mode",
           "type": "string"
@@ -9920,7 +9928,8 @@
           "enum": [
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "title": "Approval Mode",
           "type": "string"
@@ -10027,6 +10036,11 @@
     "TaskSettingsUpdatePayload": {
       "additionalProperties": false,
       "properties": {
+        "confirm_full_autonomy": {
+          "default": false,
+          "title": "Confirm Full Autonomy",
+          "type": "boolean"
+        },
         "fields": {
           "$ref": "#/$defs/TaskSettingsFields"
         },

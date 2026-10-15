@@ -723,3 +723,36 @@ it('says which tool call is being written while a long one streams', () => {
     screen.getByText('Writing Designer update page · 12 KB…'),
   ).toBeInTheDocument();
 });
+
+it.each([
+  [
+    'Approval: approved by the reviewer: You asked to make the notes file\n$ New-Item notes.txt',
+    'Reviewer approved',
+    'Approved by the reviewer: You asked to make the notes file',
+  ],
+  [
+    'Approval: allowed by Hands-off\n$ New-Item notes.txt',
+    'Hands-off',
+    'Allowed by Hands-off',
+  ],
+])(
+  'records who let a step run without asking you (A0): %#',
+  (summary, tag, line) => {
+    render(
+      <TranscriptTrace
+        conversation="conversation-a"
+        groups={command({
+          call_id: `call-${tag}`,
+          status: 'succeeded',
+          safe_summary: summary,
+        })}
+      />,
+    );
+    openRow();
+    const ran = screen.getByText('Ran a command').closest('details')!;
+    // A quiet tag on the step's row, and the full line in its details.
+    expect(within(ran).getByText(tag)).toBeVisible();
+    fireEvent.click(within(ran).getByText('Ran a command'));
+    expect(within(ran).getByText(line)).toBeVisible();
+  },
+);

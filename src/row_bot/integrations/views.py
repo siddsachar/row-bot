@@ -8,7 +8,8 @@ frame the client creates with ``sandbox="allow-scripts"`` only: an opaque origin
 storage, page or API. A view's calls reach only its own app's tools that allow it (visibility ``app``), at
 most 20 a minute, and go through the chat's agent profile, the app's access and the chat's approvals as
 any other call does: destructive, high-impact and unknown tools always ask, and a routine change asks
-unless the person let it run (Full access, or that one tool), in Allow all too; Block refuses either.
+unless the person let it run (Full access, or that one tool), under Ask and Auto alike; Hands-off runs
+them and Block refuses either.
 """
 from __future__ import annotations
 
@@ -351,18 +352,20 @@ def _rate(render_id: str) -> None:
 
 
 def _approval_mode(conversation_id: str) -> str:
-    """The chat's own approval choice (Ask, Allow all or Block), as its turns use it."""
+    """The chat's own approval level (Block, Ask, Auto or Hands-off), as its turns use it."""
     from row_bot.threads import _get_thread_approval_mode
     return _get_thread_approval_mode(conversation_id)
 
 
 def gate(info: Any, approval_mode: str) -> str:
-    """``run``, ``ask`` or ``refuse`` for one call from a view, as for the agent: a tool the app's access
-    says to ask about (a routine change unless the app has Full access or that tool may run without
-    asking; high-impact and unknown ones always) asks in Ask and in Allow all alike, and Block refuses it;
-    anything else runs."""
+    """``run``, ``ask`` or ``refuse`` for one call from a view: a tool the app's access says to ask about (a
+    routine change unless the app has Full access or that tool may run without asking; high-impact and
+    unknown ones always) asks in Ask and in Auto alike (a view's call has no request of the person's for
+    the reviewer to compare it with), Hands-off runs it, and Block refuses it; anything else runs."""
     if info.requires_approval:
-        return "refuse" if approval_mode == "block" else "ask"
+        if approval_mode == "block":
+            return "refuse"
+        return "run" if approval_mode == "full" else "ask"
     return "run"
 
 

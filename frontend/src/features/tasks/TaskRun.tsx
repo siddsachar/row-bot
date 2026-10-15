@@ -15,6 +15,7 @@ import { Button, IconButton, InlineEmpty, Skeleton } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
 import { When, runStatus } from '../home/home-format';
 import { WaitingSince } from '../shell/InPlaceApproval';
+import { approvalTag } from '../shell/approval-levels';
 
 export interface TaskRunProps {
   taskId: string;
@@ -624,8 +625,5 @@ function profileWords(id: string) {
 }
 
 function approvalWords(mode: string) {
-  if (mode === 'approve') return 'Asks before actions';
-  if (mode === 'block') return 'Blocks actions';
-  if (mode === 'allow_all') return 'Auto approvals';
-  return mode ? humanizeToken(mode) : 'Asks before actions';
+  return approvalTag(mode);
 }
