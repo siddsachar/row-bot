@@ -6,3 +6,12 @@ Licensed under the Apache License, Version 2.0.
 This product includes the Public Suffix List (https://publicsuffix.org/), used under the
 Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/); see
 src/row_bot/integrations/public_suffix_list.dat.xz.
+
+Optional download, not included: for video editing, and only after the person agrees,
+Row-Bot can download ffmpeg (https://ffmpeg.org/) from the imageio-ffmpeg 0.6.0 package on
+PyPI (https://pypi.org/project/imageio-ffmpeg/; its wrapper code is BSD-2-Clause) and keeps
+only the ffmpeg program. That program is licensed under the GNU General Public License
+(version 3 or later for Windows and Linux, version 2 or later for macOS on Apple silicon); its
+source is available from https://ffmpeg.org/download.html. Row-Bot runs it as a separate
+program. Row-Bot never offers the macOS Intel build of that package, which is built as
+not redistributable.

@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "BackgroundProcessView": {
+      "additionalProperties": false,
+      "description": "A background process the agent started, or a command that carried on in the background (F1, F6).",
+      "properties": {
+        "command": {
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "conversation_title": {
+          "maxLength": 200,
+          "title": "Conversation Title",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ended At"
+        },
+        "env_names": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Env Names",
+          "type": "array"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "folder": {
+          "maxLength": 4096,
+          "title": "Folder",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "process",
+            "command"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "local_urls": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Local Urls",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 80,
+          "title": "Name",
+          "type": "string"
+        },
+        "output_size": {
+          "minimum": 0,
+          "title": "Output Size",
+          "type": "integer"
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pid"
+        },
+        "process_id": {
+          "pattern": "^proc-[0-9a-f]{8}$",
+          "title": "Process Id",
+          "type": "string"
+        },
+        "runtime_seconds": {
+          "minimum": 0,
+          "title": "Runtime Seconds",
+          "type": "number"
+        },
+        "started_at": {
+          "maxLength": 80,
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "stopping",
+            "finished",
+            "failed",
+            "stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stopped_by": {
+          "enum": [
+            "",
+            "you",
+            "agent",
+            "quit",
+            "restart",
+            "conversation",
+            "limit"
+          ],
+          "title": "Stopped By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process_id",
+        "conversation_id",
+        "conversation_title",
+        "command",
+        "name",
+        "folder",
+        "kind",
+        "status",
+        "exit_code",
+        "started_at",
+        "ended_at",
+        "runtime_seconds",
+        "local_urls",
+        "pid",
+        "stopped_by",
+        "env_names",
+        "output_size"
+      ],
+      "title": "BackgroundProcessView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Every background process: running ones first, then finished ones, newest first.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/BackgroundProcessView"
+      },
+      "maxItems": 200,
+      "title": "Items",
+      "type": "array"
+    },
+    "limit_per_conversation": {
+      "minimum": 1,
+      "title": "Limit Per Conversation",
+      "type": "integer"
+    },
+    "limit_total": {
+      "minimum": 1,
+      "title": "Limit Total",
+      "type": "integer"
+    },
+    "running": {
+      "minimum": 0,
+      "title": "Running",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "running",
+    "limit_per_conversation",
+    "limit_total"
+  ],
+  "title": "BackgroundProcessPage",
+  "type": "object"
+}

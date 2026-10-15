@@ -970,7 +970,7 @@ def test_background_refusal_permits_one_foreground_driver_action_without_focus_c
         OWNER,
         element_token=observed.elements[0].token,
         text="query",
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     calls = fake_transport.calls[calls_before:]
@@ -996,7 +996,7 @@ def test_background_key_refusal_permits_exactly_one_same_action_foreground_retry
         target_id,
         OWNER,
         keys="enter",
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     calls = fake_transport.calls[calls_before:]
@@ -1023,7 +1023,7 @@ def test_background_scroll_refusal_permits_one_identical_foreground_delivery(
         OWNER,
         direction="up",
         amount=200,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     assert receipt.action_dispatched is True
@@ -1067,7 +1067,7 @@ def test_calculator_key_sequence_uses_one_foreground_retry_without_preparation(
         target_id,
         "7",
         OWNER,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     calls = fake_transport.calls[calls_before:]
@@ -1096,7 +1096,7 @@ def test_second_foreground_key_refusal_is_terminal_and_requires_takeover(
             target_id,
             OWNER,
             keys="enter",
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     calls = fake_transport.calls[calls_before:]
@@ -1128,7 +1128,7 @@ def test_second_foreground_scroll_refusal_is_terminal_and_requires_takeover(
             OWNER,
             direction="down",
             amount=3,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     calls = fake_transport.calls[calls_before:]

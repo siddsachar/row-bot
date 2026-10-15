@@ -4,18 +4,24 @@ import os
 
 import pytest
 
-from row_bot.process_cancellation import ProcessRunResult
 from row_bot.tools import shell_tool
 
 
 pytestmark = pytest.mark.platform
 
 
-def test_shell_session_reports_cancelled_command(monkeypatch, tmp_path) -> None:
-    def fake_run(args, **kwargs):
-        return ProcessRunResult(args, 130, stdout="partial out", stderr="partial err", cancelled=True)
+class _Record:
+    process_id = "proc-0123abcd"
 
-    monkeypatch.setattr(shell_tool, "run_cancellable_subprocess", fake_run)
+
+def test_shell_session_reports_cancelled_command(monkeypatch, tmp_path) -> None:
+    from row_bot import background_processes
+
+    def fake_run(_conversation, _argv, **_kwargs):
+        return background_processes.CommandRun(_Record(), finished=True, exit_code=130,
+                                               output="partial out\npartial err", cancelled=True)
+
+    monkeypatch.setattr(background_processes, "run_command", fake_run)
     session = shell_tool.ShellSession(str(tmp_path))
 
     result = session.run_command("echo hi")
@@ -30,13 +36,16 @@ def test_shell_session_releases_lock_after_background_launch_returns(
     monkeypatch,
     tmp_path,
 ) -> None:
+    from row_bot import background_processes
+
     commands: list[str] = []
 
-    def fake_run(args, **kwargs):
-        commands.append(str(args[-1]))
-        return ProcessRunResult(args, 0, stdout=f"result-{len(commands)}")
+    def fake_run(_conversation, _argv, *, command, **_kwargs):
+        commands.append(command)
+        return background_processes.CommandRun(_Record(), finished=True, exit_code=0,
+                                               output=f"result-{len(commands)}")
 
-    monkeypatch.setattr(shell_tool, "run_cancellable_subprocess", fake_run)
+    monkeypatch.setattr(background_processes, "run_command", fake_run)
     session = shell_tool.ShellSession(str(tmp_path))
 
     launch = session.run_command("Start-Process background-server")
@@ -46,7 +55,7 @@ def test_shell_session_releases_lock_after_background_launch_returns(
     assert launch["output"] == "result-1"
     assert follow_up["exit_code"] == 0
     assert follow_up["output"] == "result-2"
-    assert len(commands) == 2
+    assert commands == ["Start-Process background-server", "echo ready"]
 
 
 @pytest.mark.skipif(not shell_tool._IS_WINDOWS, reason="PowerShell contract is Windows-only")

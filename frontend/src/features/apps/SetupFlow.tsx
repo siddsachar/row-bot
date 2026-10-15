@@ -31,6 +31,7 @@ import {
 } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import AccessSheet from './AccessSheet';
+import SignInWait from './SignInWait';
 
 const VERBS: Record<string, string> = {
   connect: 'Connect',
@@ -150,6 +151,13 @@ export function usePlan(
       if (plan?.plan_id)
         setPlan(await controller.cancelInstallPlan(plan.plan_id));
     });
+  /** The address another device's browser ended on; a refusal is thrown for the form to word. */
+  const finishSignIn = async (address: string) => {
+    if (!plan?.plan_id) return;
+    setPlan(
+      await controller.finishInstallPlanSignIn(plan.plan_id, { address }),
+    );
+  };
   const planId = plan?.plan_id;
   const state = plan?.state;
   const pause = plan?.pause;
@@ -202,6 +210,7 @@ export function usePlan(
     apply,
     resume,
     cancel,
+    finishSignIn,
     notice,
     readOnly,
     setReadOnly,
@@ -428,7 +437,13 @@ export function PlanProgress({
   const { plan, busy } = control;
   const opened = useRef('');
   const step = plan?.steps.find((item) => item.id === plan.current_step);
-  const url = plan?.pause === 'sign_in' ? step?.sign_in?.authorization_url : '';
+  // Only this computer's own browser opens by itself; on another device the
+  // person opens the page from the steps, which also say what comes after.
+  const url =
+    plan?.pause === 'sign_in' &&
+    (step?.sign_in?.delivery ?? 'this_computer') === 'this_computer'
+      ? step?.sign_in?.authorization_url
+      : '';
   useEffect(() => {
     if (url && opened.current !== url) {
       opened.current = url;
@@ -482,20 +497,14 @@ export function PlanProgress({
         />
       )}
       {plan.pause === 'sign_in' && (
-        <div className="plan-wait">
-          <p>
-            Finish signing in to {name} in your browser. This page updates by
-            itself.
-          </p>
-          <div className="app-dialog-actions">
-            {stop}
-            {url && (
-              <Button onClick={() => void platform.openExternal(url)}>
-                Open the sign-in page again
-              </Button>
-            )}
-          </div>
-        </div>
+        <SignInWait
+          key={`${plan.plan_id}:${step?.id}`}
+          name={name}
+          signIn={step?.sign_in}
+          busy={busy}
+          stop={stop}
+          onFinish={control.finishSignIn}
+        />
       )}
       {plan.pause === 'resume' && step?.local_app ? (
         <div className="plan-wait button-row">

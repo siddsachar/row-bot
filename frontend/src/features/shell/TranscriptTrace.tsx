@@ -22,6 +22,7 @@ import { Button, CopyGlyph, useCopyFeedback } from '../../ui/primitives';
 import { AppIcon } from '../apps/parts';
 import {
   activityLabel,
+  approvedWithoutYou,
   formatElapsed,
   isAttention,
   keyArgument,
@@ -293,6 +294,7 @@ function TraceItem({
   // A step that waited for you shows its run, not the wait.
   const duration = wait.text ? wait.ran : stepDuration(item);
   const reason = skipReason(item);
+  const decidedBy = approvedWithoutYou(approval.approval);
   return (
     <li className="activity-step" data-trace-status={item.status}>
       <details
@@ -324,6 +326,9 @@ function TraceItem({
               )}
               {stepVerb(item.canonical_name, item.status, item.app)}
               {reason && <span className="activity-step-tag">{reason}</span>}
+              {!reason && decidedBy && (
+                <span className="activity-step-tag">{decidedBy}</span>
+              )}
             </span>
             {argument ? (
               <span className="activity-step-arg">{argument}</span>

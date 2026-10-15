@@ -17,6 +17,11 @@ import {
   type ComboboxOption,
 } from '../../ui/primitives';
 import { DangerAction, SettingsDangerZone } from '../settings/anatomy';
+import {
+  approvalLevel,
+  useConfirmFullAutonomy,
+  type ApprovalLevel,
+} from '../shell/approval-levels';
 import WebhookAddress, {
   type WebhookAddressProps,
   type WebhookConfiguration,
@@ -36,13 +41,16 @@ export interface TaskSettingsEditorProps {
     revision: string,
     profileRevision: string,
     fields: TaskSettingsFields,
+    /** The person turned Hands-off on in its one-time dialog just now. */
+    confirmFullAutonomy?: boolean,
   ) => Promise<TaskSettingsSnapshot>;
   rotate: (taskId: string, revision: string) => Promise<TaskSettingsSnapshot>;
   download: (taskId: string, revision: string) => Promise<void>;
   onSaved: (snapshot: TaskSettingsSnapshot) => void;
   onCancel: () => void;
   profileOptions?: ReadonlyArray<{ id: string; label: string }>;
-  modelOptions?: ReadonlyArray<{ id: string; label: string }>;
+  /** Favourites first; hidden models carry the group "More models" (F10). */
+  modelOptions?: ReadonlyArray<{ id: string; label: string; group?: string }>;
   /** Shown in the page's one-line description. */
   taskName?: string;
   /** The saved webhook's address and reachability (parity rows 20, 52). */
@@ -56,12 +64,24 @@ export interface TaskSettingsEditorProps {
 
 /** What the saved approvals let this workflow do, in words. */
 function approvalWords(mode: string | null) {
-  return mode === 'block'
-    ? 'Approvals: Block. This workflow can only read; anything that would change something is refused.'
-    : mode === 'approve'
-      ? 'Approvals: Ask. This workflow asks you before anything that changes something.'
-      : 'Approvals: Auto. This workflow makes changes without asking, except where an app always asks.';
+  return {
+    block:
+      'Approvals: Block. This workflow can only read; anything that would change something is refused.',
+    approve:
+      'Approvals: Ask. This workflow asks you before anything that changes something.',
+    auto: "Approvals: Auto. A reviewer approves what matches this workflow's steps; anything else pauses the run for you.",
+    full: 'Approvals: Hands-off. This workflow makes every change without asking; each one is recorded.',
+  }[approvalLevel(mode)];
 }
+
+/** What each level means for a workflow that runs while you're away. */
+const LEVEL_NOTES: Record<ApprovalLevel, string> = {
+  approve:
+    'The run pauses and asks you before anything that changes something.',
+  auto: "A reviewer approves what matches the workflow's steps; anything else pauses the run for you. The profile's limits still apply.",
+  full: 'Nothing pauses for approval; every action runs and is recorded. The profile and sandbox limits still apply.',
+  block: 'Anything that would change something is refused.',
+};
 
 export default function TaskSettingsEditor({
   taskId,
@@ -93,6 +113,7 @@ export default function TaskSettingsEditor({
     ...modelOptions.map((option) => ({
       value: option.id,
       label: option.label,
+      ...(option.group ? { group: option.group } : {}),
     })),
     ...(current && !modelOptions.some((option) => option.id === current)
       ? [{ value: current, label: `${current} (not available)` }]
@@ -127,6 +148,13 @@ export default function TaskSettingsEditor({
     true,
   );
   const [reload, setReload] = useTaskEditValue(session, 'reload', 0);
+  // Hands-off was turned on in its dialog during this edit: the save says so once.
+  const [fullConfirmedNow, setFullConfirmedNow] = useTaskEditValue(
+    session,
+    'fullConfirmedNow',
+    false,
+  );
+  const confirmFullAutonomy = useConfirmFullAutonomy();
   const [pendingKind, setPendingKind] = useTaskEditValue<'save' | 'rotate'>(
     session,
     'pendingKind',
@@ -332,6 +360,7 @@ export default function TaskSettingsEditor({
                     snapshot.revision,
                     selected!.profile_revision!,
                     selectedFields,
+                    fullConfirmedNow && selectedFields.approval_mode === 'full',
                   )
                 : rotate(taskId, snapshot.revision),
             );
@@ -459,28 +488,35 @@ export default function TaskSettingsEditor({
             <SettingRow
               label="Approvals"
               htmlFor={`${inputId}-approval`}
-              description={
-                fields.approval_mode === 'allow_all'
-                  ? 'Auto permits actions without asking when the selected profile allows them; apps still ask when their access says to. Existing sandbox limits still apply.'
-                  : 'What happens when a run wants to act.'
-              }
+              description={LEVEL_NOTES[approvalLevel(fields.approval_mode)]}
             >
               <Select
                 id={`${inputId}-approval`}
                 aria-label="Approval policy"
                 value={fields.approval_mode}
-                onChange={(event) =>
-                  change(
-                    'approval_mode',
-                    event.target.value as TaskSettingsFields['approval_mode'],
-                  )
-                }
+                data-level={fields.approval_mode}
+                onChange={(event) => {
+                  const level = event.target.value as ApprovalLevel;
+                  const opener = event.currentTarget;
+                  if (
+                    level !== 'full' ||
+                    snapshot?.full_autonomy_confirmed ||
+                    fullConfirmedNow
+                  ) {
+                    change('approval_mode', level);
+                    return;
+                  }
+                  // The first time on this install: say what it skips, then turn it on.
+                  confirmFullAutonomy(() => {
+                    setFullConfirmedNow(true);
+                    change('approval_mode', 'full');
+                  }, opener);
+                }}
               >
-                <option value="block">Block actions</option>
                 <option value="approve">Ask before actions</option>
-                <option value="allow_all">
-                  Auto — allow actions within the profile policy
-                </option>
+                <option value="auto">Auto, reviewed</option>
+                <option value="full">Hands-off</option>
+                <option value="block">Block actions</option>
               </Select>
             </SettingRow>
             <SettingRow

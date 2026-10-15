@@ -365,7 +365,7 @@ def test_captured_prompt_and_policy_survive_edit_after_claim(runtime, monkeypatc
     tasks = runtime[0]
     original = tasks.run_task_background
     def race(*args, **kwargs):
-        tasks.update_task(runtime[3], prompts=["Unreviewed replacement"], safety_mode="allow_all")
+        tasks.update_task(runtime[3], prompts=["Unreviewed replacement"], safety_mode="full")
         return original(*args, **kwargs)
     monkeypatch.setattr(tasks, "run_task_background", race)
     result = start(runtime)
@@ -506,7 +506,7 @@ def test_approval_resumes_captured_steps_policy_once_after_later_task_edit(runti
     approval = pause(runtime)
     assert approval.response_available and approval.approval_mode == "block"
     assert "resume_token" not in json.dumps(asdict(approval))
-    runtime[0].update_task(runtime[3], steps=[{"id": "new", "type": "prompt", "prompt": "Unreviewed replacement"}], safety_mode="allow_all")
+    runtime[0].update_task(runtime[3], steps=[{"id": "new", "type": "prompt", "prompt": "Unreviewed replacement"}], safety_mode="full")
     result = execution.respond_task_approval(runtime[3], "reviewed-run", approval.id,
         expected_revision=approval.revision, approved=True, validate=lambda: None)
     assert result.run.status == "completed"
@@ -723,7 +723,7 @@ def test_graph_interrupt_resume_keeps_captured_policy_and_one_owner_through_rema
     runtime[0].update_task(runtime[3], prompts=["First graph prompt", "Captured tail"], safety_mode="approve")
     assert start(runtime).run.status == "paused"
     card = execution.list_task_approvals(runtime[3], "reviewed-run").items[0]
-    runtime[0].update_task(runtime[3], prompts=["Replacement"], safety_mode="allow_all")
+    runtime[0].update_task(runtime[3], prompts=["Replacement"], safety_mode="full")
     result = execution.respond_task_approval(runtime[3], "reviewed-run", card.id,
         expected_revision=card.revision, approved=True, validate=lambda: None)
     assert result.run.status == "completed"
@@ -771,11 +771,11 @@ def _fake_graph(monkeypatch, *, invoke, resume) -> None:
 
 @pytest.mark.parametrize("mode,interrupts,approved", [
     ("block", _INTERRUPTS, False),
-    ("allow_all", _INTERRUPTS, True),
+    ("full", _INTERRUPTS, True),
     ("approve", [], True),
 ])
-def test_a_graph_interrupt_outside_approve_mode_never_waits_for_a_person(runtime, monkeypatch, mode, interrupts,
-                                                                          approved):
+def test_a_graph_interrupt_under_block_or_full_autonomy_never_waits_for_a_person(runtime, monkeypatch, mode,
+                                                                                 interrupts, approved):
     invoked, resumed = [], []
 
     def invoke(prompt, tools, config, stop_event=None):
@@ -864,8 +864,9 @@ def test_a_lost_graph_checkpoint_fails_the_run_with_a_clear_message(runtime, mon
     assert row[0] == "Graph checkpoint was lost — cannot resume (task may need to re-run)"
 
 
-@pytest.mark.parametrize("mode,approved", [("approve", False), ("block", False), ("allow_all", True)])
-def test_a_subtask_interrupt_is_denied_unless_the_child_allows_all(delivery_runtime, monkeypatch, mode, approved):
+@pytest.mark.parametrize("mode,approved", [("approve", False), ("block", False), ("auto", False), ("full", True)])
+def test_a_subtask_interrupt_is_denied_unless_the_child_has_full_autonomy(delivery_runtime, monkeypatch, mode,
+                                                                          approved):
     tasks, _, _, _, thread_id, _ = delivery_runtime
     child_id = tasks.create_task("Synthetic subtask", prompts=["Write"], enabled=False, channels=[], safety_mode=mode)
     resumed = []
@@ -880,7 +881,8 @@ def test_a_subtask_interrupt_is_denied_unless_the_child_allows_all(delivery_runt
         assert "cannot surface approval requests" in output
 
 
-@pytest.mark.parametrize("mode_at_approval,second", [("approve", None), ("block", False), ("allow_all", True)])
+@pytest.mark.parametrize("mode_at_approval,second", [("approve", None), ("auto", None), ("block", False),
+                                                     ("full", True)])
 def test_a_chained_interrupt_on_a_scheduled_run_follows_the_current_mode(tmp_path, monkeypatch, mode_at_approval,
                                                                           second,
                                                                           reload_for_data_dir):
@@ -904,41 +906,56 @@ def test_a_chained_interrupt_on_a_scheduled_run_follows_the_current_mode(tmp_pat
     tasks.update_task(task_id, safety_mode=mode_at_approval)
     assert tasks.respond_to_approval(first["resume_token"], True, source="test") is True
     pending = tasks.get_pending_approvals()
-    if second is None:  # Approve asks again and never runs the second tool unapproved
+    if second is None:  # Ask (and Auto, whose reviewer asked) asks again; never runs the second tool unapproved
         assert resumed == [True]
         assert len(pending) == 1 and pending[0]["id"] != first["id"]
-    else:  # Block refuses and Allow-all approves; neither asks
+    else:  # Block refuses and Hands-off approves; neither asks
         assert resumed == [True, second]
         assert pending == []
 
 
-def _app_asks(tool: str, description: str) -> dict:
-    """An app tool the agent asked about even under Allow all (its interrupt says so)."""
-    return {"type": "interrupt", "interrupts": [{"tool": tool, "description": description, "always_ask": True}]}
+def _reviewer_asked(tool: str, description: str) -> dict:
+    """An action the Auto reviewer handed to the person (its interrupt carries the reviewer's reason)."""
+    return {"type": "interrupt", "interrupts": [{"tool": tool, "description": description,
+                                                "review": {"decision": "ask", "reason": "Not in the workflow."}}]}
 
 
-# A high-impact tool, and a routine change its app's access (Ask before changes, not Full access) asks about.
-_APP_ASKS = [_app_asks("mcp_notes_delete_page", "Delete a page"), _app_asks("mcp_notes_update_page", "Update a page")]
+# A high-impact app tool, and a routine change its app's access (Ask before changes) asks about.
+_APP_ASKS = [_reviewer_asked("mcp_notes_delete_page", "Delete a page"),
+             _reviewer_asked("mcp_notes_update_page", "Update a page")]
 
 
 @pytest.mark.parametrize("interrupt", _APP_ASKS, ids=["high_impact", "routine_change"])
-def test_an_app_tool_that_asks_waits_for_a_person_even_under_allow_all(runtime, monkeypatch, interrupt):
+def test_an_unattended_run_on_auto_pauses_for_the_person_when_the_reviewer_asks(runtime, monkeypatch, interrupt):
     resumed = []
     _fake_graph(monkeypatch, invoke=lambda prompt, tools, config, stop_event=None: interrupt,
                 resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or interrupt)
-    runtime[0].update_task(runtime[3], prompts=["Tidy my notes"], safety_mode="allow_all")
+    runtime[0].update_task(runtime[3], prompts=["Tidy my notes"], safety_mode="auto")
     assert start(runtime).run.status == "paused"
     assert resumed == []  # Never approved unattended.
+    [first] = runtime[0].get_pending_approvals()
+    assert "The reviewer asked you: Not in the workflow." in first["message"]
     _approve_pending(runtime)
     assert resumed == [True]
-    [pending] = runtime[0].get_pending_approvals()  # A second such call asks again, still under Allow all.
+    [pending] = runtime[0].get_pending_approvals()  # A second such call asks again, still under Auto.
     assert interrupt["interrupts"][0]["description"] in pending["message"]
 
 
+def test_an_unattended_run_on_full_autonomy_runs_without_waiting(runtime, monkeypatch):
+    resumed = []
+    _fake_graph(monkeypatch, invoke=lambda prompt, tools, config, stop_event=None: _APP_ASKS[0],
+                resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or "done")
+    runtime[0].update_task(runtime[3], prompts=["Tidy my notes"], safety_mode="full")
+    start(runtime)
+    assert resumed == [True]
+    assert runtime[0].get_pending_approvals() == []
+    assert execution.get_task_run(runtime[3], "reviewed-run").status == "completed"
+
+
 @pytest.mark.parametrize("interrupt", _APP_ASKS, ids=["high_impact", "routine_change"])
-def test_a_subtask_refuses_an_app_tool_that_asks_even_when_it_allows_all(delivery_runtime, monkeypatch, interrupt):
+def test_a_subtask_on_auto_refuses_what_the_reviewer_asked_about(delivery_runtime, monkeypatch, interrupt):
     tasks, _, _, _, thread_id, _ = delivery_runtime
-    child_id = tasks.create_task("Synthetic subtask", prompts=["Tidy"], enabled=False, channels=[], safety_mode="allow_all")
+    child_id = tasks.create_task("Synthetic subtask", prompts=["Tidy"], enabled=False, channels=[], safety_mode="auto")
     resumed = []
     _fake_graph(monkeypatch, invoke=lambda *a, **k: interrupt,
                 resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or "")

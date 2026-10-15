@@ -236,6 +236,7 @@ export default function BuddyOverlay({
     state.workspace?.actions.find((action) => action.action === 'send')?.ready,
   );
   const turnInFlight = live || phase === 'approval';
+  const fullAutonomy = turnInFlight && controls?.approval_mode === 'full';
   const canSend =
     Boolean(id && conversation) &&
     state.status === 'ready' &&
@@ -582,7 +583,13 @@ export default function BuddyOverlay({
         </span>
         <div className="buddy-overlay-heading">
           <h1 title={title}>{title}</h1>
-          <p>{statusLine}</p>
+          <p>
+            {statusLine}
+            {fullAutonomy && (
+              // Running work on Hands-off says so, in the warning tone.
+              <span className="buddy-overlay-full"> · Hands-off</span>
+            )}
+          </p>
         </div>
         <div
           className="buddy-overlay-actions"
@@ -705,6 +712,9 @@ export default function BuddyOverlay({
             title={[
               approvalQuestion(actionLabel, approval?.app),
               argument || approval?.reason || hint?.reason,
+              // Under Auto: why the reviewer asked, quietly, in the one-line overlay.
+              approval?.reviewer_reason &&
+                `The reviewer asked you: ${approval.reviewer_reason}`,
             ]
               .filter(Boolean)
               .join(' · ')}

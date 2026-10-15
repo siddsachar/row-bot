@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Safety And Approvals
 
 <!-- generated-from: src/row_bot/approval_policy.py -->
-<!-- inventory-hash: afe03d2eebcd2e47 -->
+<!-- inventory-hash: 770a1c90feb0ab5f -->
 
 <GeneratedNotice source="src/row_bot/approval_policy.py" />
 
@@ -16,7 +16,8 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 
 | ID | Label | Decision | Description | Source |
 | --- | --- | --- | --- | --- |
-| allow_all | Auto | allow | Automatically allows actions in trusted contexts. | `src/row_bot/approval_policy.py` |
 | approve | Ask | ask | Prompts the user before a sensitive action continues. | `src/row_bot/approval_policy.py` |
+| auto | Auto | review | A reviewer model approves actions that clearly match the person's request and asks the person about the rest; it fails safe to asking. | `src/row_bot/approval_policy.py` |
 | block | Block | block | Read-only or blocked mode for actions that would change external state. | `src/row_bot/approval_policy.py` |
+| full | Hands-off | allow | Approves every action without asking and records each one; chosen by the person, never in a conversation other people share. | `src/row_bot/approval_policy.py` |
 | mcp-destructive-tools | MCP destructive tool classification | ask | External MCP tools that look destructive require approval by default. | `src/row_bot/mcp_client/safety.py` |

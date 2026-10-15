@@ -1111,6 +1111,17 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* Under Auto: why the reviewer asked. Visible but quiet. */
+.approval-card-reviewer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+.approval-card-reviewer svg {
+  flex: none;
+  align-self: center;
+}
 .approval-card-actions,
 .turn-notice-actions {
   display: flex;
@@ -1204,6 +1215,184 @@
   }
 }
 
+/* Row-Bot's workspace folder, folder by folder (F19): the path, a bounded
+   list of folders (one tap opens one), and one action for the folder shown. */
+.folder-browser {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.approval-card .folder-browser {
+  grid-column: 2 / -1;
+  margin-top: 4px;
+}
+.folder-browser-head {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.folder-browser-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.folder-browser-crumbs li {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.folder-browser-crumbs [aria-current] {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.folder-browser-separator {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.folder-browser-crumb {
+  min-height: 24px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  cursor: pointer;
+}
+.folder-browser-crumb:hover {
+  text-decoration: underline;
+}
+.folder-browser-crumb:focus-visible,
+.folder-browser-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.folder-browser-list {
+  display: grid;
+  gap: 1px;
+  max-height: min(272px, 40vh);
+  margin: 0;
+  padding: 2px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+.folder-browser-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  text-align: start;
+  cursor: pointer;
+}
+.folder-browser-row:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.folder-browser-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.folder-browser-row > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+.folder-browser-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-browser-tag {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.folder-browser-row > .folder-browser-open {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+.folder-browser-problem {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--status-danger-border);
+  border-radius: var(--radius-control);
+  background: var(--status-danger-background);
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}
+.folder-browser-problem p {
+  margin: 0;
+}
+.folder-browser-note {
+  margin: 0;
+  font-size: var(--text-12);
+}
+.folder-browser-clone {
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-13);
+}
+.folder-browser-clone label {
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+}
+.folder-browser-confirm {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+.folder-browser-confirm p {
+  margin: 0;
+}
+.folder-browser-confirm .action-cluster,
+.folder-browser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.folder-browser-actions .button svg,
+.folder-browser-confirm .button svg {
+  margin-inline-end: 4px;
+}
+@media (pointer: coarse) {
+  .folder-browser-row {
+    min-height: 44px;
+  }
+  .folder-browser-crumb {
+    min-height: 32px;
+  }
+}
+
 /* ---------------------------------------------- cards the assistant leaves */
 
 /* A design or code folder a turn created (Open · Rename · Undo), or a
@@ -1268,6 +1457,346 @@
     grid-column: 2 / -1;
     justify-content: flex-start;
   }
+}
+
+/* A background process a step left running (F1, F6): what runs, its state
+   as a dot and words, where it serves; View output and Stop. */
+.process-card-text {
+  display: grid;
+  gap: 2px;
+}
+.process-card-command {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.process-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  font-size: var(--text-12);
+}
+.process-address {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.process-address code {
+  color: var(--text-secondary);
+}
+.process-card[data-state='loading'] .transcript-card-text,
+.process-card[data-state='unavailable'] .transcript-card-text {
+  color: var(--text-muted);
+}
+.process-card[data-state='unavailable'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+
+/* A recording of Row-Bot's browser or the screen (F2): "Recording · 0:42"
+   with Stop while it records, then the video with a player. */
+.recording-card-text {
+  display: grid;
+  gap: 2px;
+}
+.recording-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.recording-card[data-state='recording'] .transcript-card-icon {
+  color: var(--status-warning-text);
+}
+.recording-card[data-state='failed'] .transcript-card-icon,
+.recording-card[data-state='loading'] .transcript-card-icon,
+.recording-card[data-state='unavailable'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+.recording-card[data-state='unavailable'] .transcript-card-text {
+  color: var(--text-muted);
+}
+.recording-card-preview {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+.recording-card-preview .media-preview {
+  max-width: 100%;
+}
+
+/* Prepare sandbox (F18): the network's state in words (warning tone only
+   while it is on), the install's latest line, and the offer under a test run
+   that couldn't start. */
+.sandbox-job-network[data-warning] {
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
+}
+.sandbox-job-card[data-network='on'] .transcript-card-icon {
+  color: var(--status-warning-text);
+}
+.sandbox-job-card[data-state='stopped'] .transcript-card-icon,
+.sandbox-job-card[data-state='failed'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+.sandbox-job-summary,
+.sandbox-offer-advice {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.sandbox-job-progress {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sandbox-job-commands,
+.sandbox-confirm-commands code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sandbox-confirm {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  font-size: var(--text-13);
+}
+.sandbox-confirm p {
+  margin: 0;
+}
+.sandbox-confirm .action-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sandbox-confirm-commands {
+  font-size: var(--text-12);
+}
+.sandbox-ready {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 8px;
+}
+.sandbox-ready-line {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.sandbox-image-offer,
+.sandbox-prepare-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 10px;
+  font-size: var(--text-13);
+}
+.sandbox-image-offer > .button,
+.sandbox-prepare-row > .button {
+  grid-column: 2;
+  justify-self: start;
+}
+.sandbox-image-offer {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+.sandbox-image-offer p,
+.sandbox-prepare-row p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}
+.sandbox-prepare-row p {
+  margin: 0;
+}
+.sandbox-image-name {
+  display: block;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+.sandbox-ready-icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+
+/* Files a step sent (F7): where they went, each file with Download while it
+   lasts on the person's devices, or why it didn't go with one way out. */
+.delivery-advice {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.delivery-files {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.delivery-file {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 6px 6px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.delivery-file:not([data-sent]) .media-file-text strong {
+  color: var(--text-secondary);
+}
+@container transcript (max-width: 520px) {
+  /* A phone: the whole name, on two lines if it needs them, beside Download. */
+  .delivery-file .media-file-text strong {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
+.delivery-saved {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2 / -1;
+  align-items: center;
+  gap: 2px 8px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.delivery-actions {
+  grid-column: 2 / -1;
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+.delivery-card[data-state='failed'] .transcript-card-icon,
+.delivery-card[data-state='expired'] .transcript-card-icon,
+.delivery-card[data-state='loading'] .transcript-card-icon,
+.delivery-card[data-state='unavailable'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+
+/* A video edit (F3): what it does, its progress and Stop while it is made
+   (getting ffmpeg first, the first time), then the result with a player. */
+.video-edit-progress {
+  width: 100%;
+  height: 6px;
+  margin-top: 4px;
+  accent-color: var(--accent-solid);
+}
+.video-edit-why {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.video-edit-card[data-state='stopped'] .transcript-card-icon,
+.video-edit-card[data-state='failed'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+.video-edit-details {
+  grid-column: 2 / -1;
+  font-size: var(--text-12);
+}
+.video-edit-details dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 4px 0 0;
+}
+.video-edit-details dt {
+  color: var(--text-muted);
+}
+.video-edit-details dd {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* Its output in a side sheet: status and Stop, the log, then Details. */
+.drawer-panel.process-output-drawer {
+  width: min(560px, calc(100vw - 24px));
+}
+.process-output {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+.process-output-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: var(--text-13);
+}
+.process-output-status .button {
+  margin-left: auto;
+}
+.process-output-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.process-output-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}
+.process-log {
+  flex: 1 1 auto;
+  min-height: 160px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--code-background);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.process-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  font-size: var(--text-13);
+}
+.process-details dt {
+  color: var(--text-muted);
+}
+.process-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.process-details code {
+  font-size: var(--text-12);
 }
 
 /* Computer use while a turn holds the computer: the latest picture, then
@@ -2579,11 +3108,47 @@ button.attachment-tile-face:hover {
   border-color: transparent;
   color: var(--text-muted);
 }
-.composer-shield svg[data-mode='allow_all'] {
-  color: var(--status-warning-text);
-}
 .composer-shield svg[data-mode='block'] {
   color: var(--text-secondary);
+}
+/* Hands-off is unmistakable while on: the level in words, in the warning tone. */
+.composer-shield.composer-shield-full.button {
+  width: auto;
+  gap: 6px;
+  padding: 0 8px 0 7px;
+  border-color: var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.composer-shield.composer-shield-full.button:hover {
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+}
+.composer-full-autonomy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.full-autonomy-notice p {
+  margin: 0;
+}
+.full-autonomy-notice ul {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  display: grid;
+  gap: 4px;
 }
 .composer-voice {
   display: inline-flex;
@@ -2977,6 +3542,86 @@ button.attachment-tile-face:hover {
 }
 .model-picker-connect:hover {
   background: var(--accent-subtle);
+}
+/* F10: "More models (N)" opens the hidden models in place. */
+.model-picker-more {
+  color: var(--text-muted);
+}
+.model-picker-more > svg {
+  flex: none;
+}
+/* A row's favourite/hide menu, beside its option: shown on the hovered or
+   highlighted row, always on touch. */
+.model-picker-row {
+  position: relative;
+}
+.model-picker-row > .model-picker-option {
+  padding-inline-end: 32px;
+}
+.model-picker-row-menu {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 50%;
+  display: inline-flex;
+  transform: translateY(-50%);
+}
+.model-picker-row-menu-button.button {
+  inline-size: 24px;
+  block-size: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  opacity: 0;
+}
+.model-picker-row:hover .model-picker-row-menu-button,
+.model-picker-row[data-menu] .model-picker-row-menu-button,
+.model-picker-option[aria-selected='true']
+  + .model-picker-row-menu
+  .model-picker-row-menu-button {
+  opacity: 1;
+}
+.model-picker-row-menu-button.button:hover,
+.model-picker-row-menu-button.button[data-state='open'] {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+@media (hover: none), (pointer: coarse) {
+  .model-picker-option {
+    min-height: 40px;
+  }
+  .model-picker-row > .model-picker-option {
+    padding-inline-end: 40px;
+  }
+  .model-picker-row-menu-button.button {
+    inline-size: 32px;
+    block-size: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    opacity: 0.6;
+  }
+}
+/* F10: "<model> is under More models. Undo", in place of a toast. */
+.model-picker-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-hairline);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.model-picker-note > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .model-picker-empty {
   margin: 0;

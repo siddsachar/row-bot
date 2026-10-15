@@ -56,21 +56,33 @@ _ACTION_LABELS = {
 }
 
 
-def decide_action(mode: ApprovalMode, action: DeveloperAction) -> ApprovalDecision:
+def decide_action(mode: ApprovalMode, action: DeveloperAction, *, by_person: bool = False) -> ApprovalDecision:
     """Return the policy decision for a Developer action.
 
     This is intentionally conservative.  The UI can still perform explicit
     user-triggered actions, but agent-driven actions must pass through this
     function so the same policy holds everywhere.
+
+    "ask" means the action needs an approval; an agent-driven caller gets it
+    through ``tools.approval_gate.request_approval``, which resolves it by the
+    level (the person under Ask, the reviewer first under Auto, the level
+    itself under Hands-off). ``by_person``: the person started it in the app, so Auto and
+    Hands-off need nothing more (Ask still confirms).
     """
     label = _ACTION_LABELS[action]
     normalized = normalize_approval_mode(mode)
-    decision = decision_for_action(normalized, read_only=action in {"read", "run_safe_command"})
+    decision = decision_for_action(
+        normalized, read_only=action in {"read", "run_safe_command"}, by_person=by_person,
+    )
     mode_label = approval_label(normalized)
     if decision == "allow":
         return ApprovalDecision("allow", f"{mode_label} allows {label}.")
     if decision == "block":
         return ApprovalDecision("block", f"{mode_label} blocks attempts to {label}.")
+    if normalized == "auto":
+        return ApprovalDecision("ask", f"Auto asks the reviewer before it will {label}.")
+    if normalized == "full":
+        return ApprovalDecision("ask", f"Hands-off approves attempts to {label}.")
     return ApprovalDecision("ask", f"{mode_label} requires approval to {label}.")
 
 

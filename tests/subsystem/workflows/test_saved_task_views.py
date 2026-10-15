@@ -274,7 +274,7 @@ def test_summary_names_the_profile_and_approvals_a_run_starts_with(saved):
         conn.close()
     rows = task_views.list_saved_tasks().items
     assert [(row.agent_profile_id, row.approval_mode) for row in rows] == [
-        ("builtin:row_bot_research", "allow_all"),
+        ("builtin:row_bot_research", "auto"),  # The old Auto is reviewed Auto.
         ("builtin:row_bot_default", "block"),
         ("builtin:row_bot_default", "approve"),
     ]

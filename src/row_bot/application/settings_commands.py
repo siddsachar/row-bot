@@ -21,6 +21,7 @@ import tempfile
 from typing import Any
 from uuid import UUID
 
+from row_bot import learning
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime import admissions
 
@@ -36,6 +37,7 @@ _PAGES = {
     "accounts",
     "utilities",
     "preferences",
+    "learning",
 }
 _TOOL_IDS = {
     "web_search",
@@ -114,6 +116,8 @@ _ENUMS = {
     ("tools", "compression_mode"): {"off", "deep"},
     ("preferences", "window_mode"): {"ask", "native", "browser"},
     ("preferences", "updates.channel"): {"stable", "beta"},
+    ("learning", "apply_mode"): set(learning.APPLY_MODES),
+    ("learning", "train_where"): set(learning.TRAIN_PLACES),
 }
 # Removed settings that an older client may still send. A change is reviewed
 # and accepted as before, but nothing is saved and nothing reads the value.
@@ -139,6 +143,11 @@ _BOOL_FIELDS = {
     ("accounts", "x.enabled"),
     ("preferences", "identity.self_improvement_enabled"),
     ("preferences", "dream_cycle.enabled"),
+    ("learning", "enabled"),
+    ("learning", "sources.my_chats"),
+    ("learning", "sources.workflows_and_goals"),
+    ("learning", "sources.past_chats"),
+    ("learning", "train_in_quiet_hours"),
 }
 _ACTION_FIELDS = {
     ("voice", "tts.install"),
@@ -331,6 +340,9 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
     }:
         if type(value) is not int or not 0 <= value <= 23:
             raise SettingsCommandError("invalid_settings_command")
+    elif key == ("learning", "monthly_token_limit"):
+        if type(value) is not int or not 0 <= value <= learning.MAX_MONTHLY_TOKEN_LIMIT:
+            raise SettingsCommandError("invalid_settings_command")
     elif page == "tools" and field.endswith(".enabled"):
         tool_id = field.removesuffix(".enabled")
         if tool_id not in _TOOL_IDS or type(value) is not bool:
@@ -428,6 +440,14 @@ def review_settings_update(
         )
     elif (page, field) == ("system", "workspace.folder_grant"):
         summary = "Use the explicitly selected local folder as the filesystem workspace"
+    elif (page, field) == ("learning", "enabled"):
+        summary = (
+            "Turn on Learning: Row-Bot keeps a private record of how it handled your "
+            "requests, on this computer"
+            if intent["value"]
+            else "Turn off Learning: nothing new is recorded, tested or trained; your "
+            "learning data is kept until you delete it"
+        )
     elif (page, field) == ("voice", "tts.install"):
         summary = "Download and install Kokoro speech output locally"
     elif (page, field) == ("voice", "sensevoice.install"):
@@ -566,6 +586,8 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         path, keys = root / "dream_config.json", (field.split(".", 1)[1],)
     elif page == "preferences" and field == "updates.channel":
         path, keys = root / "update_config.json", ("channel",)
+    elif page == "learning":
+        path, keys = root / learning.SETTINGS_FILE, tuple(field.split("."))
     else:
         raise SettingsCommandError("settings_action_unavailable")
     from row_bot.providers.config import provider_config_transaction
@@ -580,6 +602,9 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         from row_bot import updater
 
         updater.reload_saved_update_state(path)
+    if page == "learning":
+        # Turning Learning on creates its store; turning it off keeps the data.
+        learning.settings_saved(field, value)
 
 
 def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
