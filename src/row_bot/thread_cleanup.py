@@ -171,6 +171,9 @@ def _purge_thread_files(thread_id: str) -> int:
     from row_bot.tool_outputs import delete_thread_outputs
 
     removed += delete_thread_outputs(thread_id)  # Long tool results saved for paging.
+    from row_bot.background_processes import delete_conversation_logs
+
+    removed += delete_conversation_logs(thread_id)  # Its background processes' logs.
     return removed
 
 
@@ -211,6 +214,13 @@ def _request_thread_cancellation(thread_id: str, *, deletion_token: str = "",
                 active = active or child_active
     except Exception:
         logger.debug("Could not stop Agent work for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot.background_processes import stop_conversation
+
+        stop_conversation(thread_id)  # Each with everything it started; waits for them to end.
+    except Exception:
+        logger.debug("Could not stop background processes for %s", thread_id, exc_info=True)
 
     try:
         from row_bot.tools.shell_tool import clear_shell_history, get_session_manager

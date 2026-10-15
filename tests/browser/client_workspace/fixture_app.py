@@ -356,6 +356,16 @@ def resources(x_fixture_token: str = Header(default="")) -> dict:
             "git_present": (folder / ".git").exists()}
 
 
+@app.post("/__a0_fixture/full-autonomy/reset")
+def reset_full_autonomy(x_fixture_token: str = Header(default="")) -> dict:
+    """Forget that Hands-off was turned on, so its one-time dialog shows again (A0)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.full_autonomy import _settings_path
+
+    _settings_path().unlink(missing_ok=True)
+    return {"reset": True}
+
+
 @app.get("/__p3_fixture/calls")
 def phase3_calls(x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)
@@ -396,6 +406,132 @@ def _natural_final(call: dict, thread: str, final: str, key: str):
     yield "done", final
 
 
+_S2_PROGRAMS = {
+    "dev_server.py": (
+        "import time\n"
+        "print('Starting the development server...', flush=True)\n"
+        "time.sleep(0.4)\n"
+        "print('  > Local:   http://localhost:5199/', flush=True)\n"
+        "print('  > Network: use --host to expose', flush=True)\n"
+        "tick = 0\n"
+        "while True:\n"
+        "    time.sleep(1.5)\n"
+        "    tick += 1\n"
+        "    print(f'GET /assets/app.js 200 in {12 + tick % 7}ms', flush=True)\n"
+    ),
+    "run_tests.py": (
+        "import sys, time\n"
+        "print('collected 24 items', flush=True)\n"
+        "time.sleep(0.6)\n"
+        "print('tests/test_login.py ........F', flush=True)\n"
+        "print('FAILED tests/test_login.py::test_redirect - AssertionError: expected /home', flush=True)\n"
+        "print('1 failed, 23 passed in 0.61s', flush=True)\n"
+        "sys.exit(1)\n"
+    ),
+    "build.py": (
+        "import time\n"
+        "for step in ('Compiling 128 modules', 'Bundling', 'Minifying', 'Writing dist/'):\n"
+        "    print(step + '...', flush=True)\n"
+        "    time.sleep(1.2)\n"
+        "print('Built in 4.8s', flush=True)\n"
+    ),
+}
+_S2_LOCK = threading.Lock()
+_s2_folder: Path | None = None
+
+
+def _s2_site() -> Path:
+    """A synthetic project folder outside Row-Bot's data folder (which processes may not use)."""
+    global _s2_folder
+    if _s2_folder is None:
+        import tempfile
+
+        _s2_folder = Path(tempfile.mkdtemp(prefix="row-bot-s2-")) / "site"
+        _s2_folder.mkdir()
+        for name, source in _S2_PROGRAMS.items():
+            (_s2_folder / name).write_text(source, encoding="utf-8", newline="\n")
+    return _s2_folder
+
+
+def _s2_approved(call):
+    """Run a real process tool as if the person approved it on its card (the card itself is the
+    "s2 process approval fixture")."""
+    import langgraph.types as graph_types
+    from row_bot.tools import approval_gate
+
+    with _S2_LOCK:
+        mode, ask = approval_gate.current_approval_mode, graph_types.interrupt
+        approval_gate.current_approval_mode = lambda: "approve"
+        graph_types.interrupt = lambda _payload: True
+        try:
+            return call()
+        finally:
+            approval_gate.current_approval_mode, graph_types.interrupt = mode, ask
+
+
+def _s2_stream(text: str, config: dict):
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools.shell_tool import ShellTool, start_process_approval
+
+    call = predecessor._record("submit", config, "s2-process")
+    thread = call["conversation_id"]
+    identity = f"s2:{call['generation_id']}"
+    site = str(_s2_site())
+    tool = ShellTool()
+    runtime_config = {"configurable": {"thread_id": thread}}
+    try:
+        if "approval" in text:
+            args = {"command": "python dev_server.py", "folder": site, "name": "Dev server",
+                    "env": {"PORT": "5199"}}
+            tool_id = fixture_id(identity + ":tool")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "start_process", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "start_process", "args": args}
+            payload = start_process_approval("python dev_server.py", site, {"PORT": "5199"}, "Dev server",
+                                             "To preview the site while we work on it.")
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), **payload}]
+            return
+        if "failed" in text:
+            steps = [("start_process", {"command": "python run_tests.py", "name": "Unit tests"},
+                      lambda: tool.start_process("python run_tests.py", folder=site, name="Unit tests",
+                                                 runtime_config=runtime_config))]
+            final = "The tests failed: one assertion in test_login.py."
+        elif "long command" in text:
+            steps = [("run_command", {"command": "python build.py", "background": True},
+                      lambda: tool.execute("cd '" + site.replace("'", "''") + "'", runtime_config=runtime_config)
+                      and tool.execute("python build.py", runtime_config=runtime_config, background=True))]
+            final = "The build runs in the background; I'll check on it."
+        else:
+            steps = [("start_process", {"command": "python dev_server.py", "name": "Dev server",
+                                        "env": {"PORT": "5199"}},
+                      lambda: tool.start_process("python dev_server.py", folder=site, env={"PORT": "5199"},
+                                                 name="Dev server", runtime_config=runtime_config))]
+            final = "The dev server is running at http://localhost:5199."
+        for index, (name, args, run) in enumerate(steps):
+            tool_id = fixture_id(f"{identity}:{index}:tool")
+            result_id = fixture_id(f"{identity}:{index}:result")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(f"{identity}:{index}:call"), content="",
+                tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+            result = _s2_approved(run)
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                                                          content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                "content": result}
+        yield from _natural_final(call, thread, final, "s2")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__s2_fixture/processes/stop-all")
+def s2_stop_processes(x_fixture_token: str = Header(default="")) -> dict:
+    """Stop every background process the fixture started (a spec's clean-up)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import background_processes
+
+    return {"stopped": background_processes.stop_all(by="you", timeout=20)}
+
+
 def _goal_verifier(goal, _context):
     """A goal's second step completes it; the first asks for one more."""
     if int(goal.get("turns_used") or 0) >= 2:
@@ -405,6 +541,11 @@ def _goal_verifier(goal, _context):
 
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
+    if text.startswith("s2 ") and text.rstrip().endswith("fixture"):
+        # Background processes (F1, F6): the real start_process / run_command and process manager,
+        # with small synthetic programs instead of a real server or build.
+        yield from _s2_stream(text, config)
+        return
     if (text.startswith("[Goal mode started]") or text.startswith("[Goal continuation]")) and "approval" not in text:
         # One goal step finishes at once; the real goal owner counts it and
         # the scripted verifier (_goal_verifier) decides what happens next.
@@ -460,6 +601,55 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                                  "description": "Row-Bot needs Web Search for this. You can turn it off "
                                                 "again in Settings › Tools.",
                                  "args": args, "setup": {"kind": "tool", "label": "Web Search"}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "reviewer asked fixture" in text:
+        # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "reviewer-asked")
+        thread = call["conversation_id"]
+        identity = f"reviewer-asked:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        args = {"file_path": "notes/old-draft.md"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "workspace_file_delete", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "workspace_file_delete", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "workspace_file_delete", "label": "Delete file",
+                                 "description": "Delete file: notes/old-draft.md", "args": args,
+                                 "review": {"decision": "ask",
+                                            "reason": "You asked to tidy the notes, not to delete any."}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "decided without asking fixture" in text:
+        # Auto and Hands-off (A0): steps that ran without asking say who let them run.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "decided-without-asking")
+        thread = call["conversation_id"]
+        identity = f"decided:{call['generation_id']}"
+        steps = (
+            ("workspace_write_file", {"file_path": "notes/summary.md"},
+             "Approval: approved by the reviewer: You asked to save the summary to your notes\n"
+             "Wrote notes/summary.md"),
+            ("run_command", {"command": "git commit -am \"Tidy notes\""},
+             "Approval: allowed by Hands-off\n$ git commit -am \"Tidy notes\"\n\n"
+             "[Exit code: 0 | Duration: 0.21s]"),
+        )
+        try:
+            for index, (name, args, result) in enumerate(steps):
+                tool_id = fixture_id(f"{identity}:{index}:tool")
+                result_id = fixture_id(f"{identity}:{index}:result")
+                append_checkpoint_messages(thread, [AIMessage(id=fixture_id(f"{identity}:{index}:call"), content="",
+                    tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+                yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+                append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                                                              content=result)])
+                yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                    "content": result}
+            yield from _natural_final(call, thread, "Saved the summary and committed the tidy-up.", "decided")
         finally:
             call["quiesced"] = True
         return

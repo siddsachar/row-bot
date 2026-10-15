@@ -258,7 +258,8 @@ def create_buddy_policy(
             raise ClientPlatformError("invalid_hatch_request")
         if action == "cancel":
             return  # Exact original owner validation remains in buddy_commands.
-        decision = decision_for_action(current["approval_mode"])
+        # The person asks Buddy for this in the app: Auto and Hands-off need no further confirmation.
+        decision = decision_for_action(current["approval_mode"], by_person=True)
         if decision == "block":
             raise ClientPlatformError("buddy_action_blocked")
         if action == "update":

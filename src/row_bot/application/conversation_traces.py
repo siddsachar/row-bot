@@ -25,9 +25,16 @@ TraceStatus = Literal[
 ]
 TraceGroupKind = Literal["generic", "browser", "computer"]
 TraceSpecializationKind = Literal[
-    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps"
+    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps",
+    "background_process",
 ]
-CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed", "connect_apps"})
+CARD_SPECIALIZATIONS = frozenset({
+    "resource_created", "resource_bound", "setup_needed", "connect_apps", "background_process",
+})
+# A background process a step started (F1) or a command that carried on in the background (F6):
+# the result's first line after its approval line names it; command output only ever follows.
+_PROCESS_TOOLS = frozenset({"run_command", "start_process"})
+_PROCESS_LINE = re.compile(r"Background process (proc-[0-9a-f]{8}): ")
 # A design or code folder a turn created, or a folder it brought in (B277).
 _RESOURCE_CARDS: dict[tuple[str, str], TraceSpecializationKind] = {
     ("create_design", "resource_created"): "resource_created",
@@ -123,6 +130,8 @@ class TraceSpecialization:
     settings_page: str = ""
     # connect_apps: catalog apps the person may connect, re-read by id (never the model's words).
     apps: tuple[dict, ...] = ()
+    # background_process: the process the card follows live (its status is re-read by id).
+    process_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -586,6 +595,17 @@ def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpec
     return None
 
 
+def _process_specialization(name: str, content: Any) -> TraceSpecialization | None:
+    """The background process a run_command or start_process step left running, by its handle line."""
+    if name not in _PROCESS_TOOLS or not isinstance(content, str):
+        return None
+    first, _newline, rest = content.partition("\n")
+    if first.startswith("Approval: "):
+        first = rest.partition("\n")[0]
+    match = _PROCESS_LINE.match(first)
+    return TraceSpecialization(kind="background_process", process_id=match.group(1)) if match else None
+
+
 def specialize_tool_result(result: Any) -> TraceSpecialization | None:
     """Return only reviewed specialization metadata, never the raw payload."""
 
@@ -593,7 +613,8 @@ def specialize_tool_result(result: Any) -> TraceSpecialization | None:
     name = _clean_text(wrapper.get("name"), MAX_TOOL_NAME_CHARS)
     payload = _bounded_json_object(_content(result))
     return (
-        _skill_specialization(name, payload)
+        _process_specialization(name, _content(result))
+        or _skill_specialization(name, payload)
         or _agent_specialization(name, payload)
         or _card_specialization(name, payload)
         or _media_specialization(result)
@@ -733,6 +754,7 @@ def _public_specialization(
             "setup_target": specialization.setup_target,
             "settings_page": specialization.settings_page,
             "apps": [dict(app) for app in specialization.apps],
+            **({"process_id": specialization.process_id} if specialization.process_id else {}),
         }
         if specialization.kind in CARD_SPECIALIZATIONS
         else {}

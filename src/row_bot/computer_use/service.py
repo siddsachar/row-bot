@@ -1022,6 +1022,14 @@ def current_owner() -> LeaseOwner:
     return LeaseOwner(thread_id, generation_id, task_id)
 
 
+def _waits_for_approval(approval_mode: object) -> bool:
+    """Whether the session shows itself waiting while an approval is decided: never under Hands-off,
+    which gives it at once (the person, or the Auto reviewer first, otherwise)."""
+    from row_bot.approval_policy import normalize_approval_mode
+
+    return normalize_approval_mode(approval_mode) != "full"
+
+
 def _default_approval(payload: dict[str, Any]) -> bool | str:
     from langgraph.types import interrupt
 
@@ -1060,6 +1068,9 @@ class ComputerUseService:
         self._preview_observation: Observation | None = None
         self._observation_generation = 0
         self._approved_apps: set[str] = set()
+        # Apps the Auto reviewer approved this session: they count under Auto only, never as the person's
+        # own consent under Ask.
+        self._reviewed_apps: set[str] = set()
         self._app_display_names: dict[str, str] = {}
         self._app_package_families: dict[str, str] = {}
         self._app_launch_aumids: dict[str, str] = {}
@@ -1279,6 +1290,7 @@ class ComputerUseService:
                 self._observation = None
                 self._preview_observation = None
                 self._approved_apps.clear()
+                self._reviewed_apps.clear()
                 self._app_display_names.clear()
                 self._app_package_families.clear()
                 self._app_launch_aumids.clear()
@@ -1583,6 +1595,7 @@ class ComputerUseService:
             self._target_hint = None
             self._app_hint = ""
             self._approved_apps.clear()
+            self._reviewed_apps.clear()
             self._app_display_names.clear()
             self._app_package_families.clear()
             self._app_launch_aumids.clear()
@@ -2510,12 +2523,42 @@ class ComputerUseService:
         *,
         approval_mode: object,
     ) -> str:
-        from row_bot.tools.approval_gate import resolve_approval
+        outcome, _line = self._gate_optional_approval_line(payload, approval_mode=approval_mode)
+        return outcome
 
-        return resolve_approval(
+    def _gate_optional_approval_line(
+        self,
+        payload: dict[str, Any],
+        *,
+        approval_mode: object,
+    ) -> tuple[str, str]:
+        """The outcome by the approval level, and its approval line (who gave it)."""
+        from row_bot.tools.approval_gate import resolve_approval_line
+
+        return resolve_approval_line(
             payload,
             approval_mode=approval_mode,
+            risks=("controls an app on this computer",),
             approval_callback=self._approval,
+        )
+
+    def _remember_app_approval(self, permission_key: str, line: str) -> None:
+        """Remember an app's approval for this session by who gave it: the person (every level), or the
+        Auto reviewer (Auto only). Hands-off needs nothing remembered."""
+        from row_bot.tools.approval_gate import APPROVAL_FULL_AUTONOMY
+
+        if line == APPROVAL_FULL_AUTONOMY:
+            return
+        if line.startswith("Approval: approved by the reviewer"):
+            self._reviewed_apps.add(permission_key)
+        else:
+            self._approved_apps.add(permission_key)
+
+    def _app_already_approved(self, permission_key: str, approval_mode: object) -> bool:
+        from row_bot.approval_policy import normalize_approval_mode
+
+        return permission_key in self._approved_apps or (
+            normalize_approval_mode(approval_mode) == "auto" and permission_key in self._reviewed_apps
         )
 
     def _ensure_app_permission(
@@ -2527,7 +2570,7 @@ class ComputerUseService:
         permission_scope = _permission_scope_name(target.app_name)
         permission_key = _permission_key(permission_scope)
         with self._lock:
-            if permission_key in self._approved_apps:
+            if self._app_already_approved(permission_key, approval_mode):
                 return
             display_name = self._app_display_names.get(permission_key, target.app_name)
         from row_bot.approval_policy import decision_for_action, normalize_approval_mode
@@ -2541,11 +2584,13 @@ class ComputerUseService:
                 "BLOCKED: Computer access is unavailable while this thread is in Block approval mode.",
                 code="hard_blocked",
             )
-        with self._lock:
-            self._state = SessionState.WAITING_APPROVAL
-            self.invalidate_observation("app scope approval")
-        self._notify()
-        outcome = self._gate_optional_approval({
+        waits = _waits_for_approval(approval_mode)
+        if waits:
+            with self._lock:
+                self._state = SessionState.WAITING_APPROVAL
+                self.invalidate_observation("app scope approval")
+            self._notify()
+        outcome, line = self._gate_optional_approval_line({
             "tool": "computer_use",
             "label": f"Allow Computer · {display_name}",
             "action": "task_session_app_permission",
@@ -2568,12 +2613,11 @@ class ComputerUseService:
                 code="approval_denied",
             )
         with self._lock:
-            from row_bot.approval_policy import normalize_approval_mode
-
-            if normalize_approval_mode(approval_mode) == "approve":
-                self._approved_apps.add(permission_key)
-            self._state = SessionState.OBSERVING
-        self._notify()
+            self._remember_app_approval(permission_key, line)
+            if waits:
+                self._state = SessionState.OBSERVING
+        if waits:
+            self._notify()
 
     def _ensure_named_app_permission(
         self,
@@ -2586,7 +2630,7 @@ class ComputerUseService:
         permission_key = _permission_key(permission_scope)
         friendly_name = str(display_name or app_name).strip()[:128]
         with self._lock:
-            if permission_key in self._approved_apps:
+            if self._app_already_approved(permission_key, approval_mode):
                 return
             if permission_key and friendly_name:
                 self._app_display_names[permission_key] = friendly_name
@@ -2601,11 +2645,13 @@ class ComputerUseService:
                 "BLOCKED: App launch is unavailable while this thread is in Block approval mode.",
                 code="hard_blocked",
             )
-        with self._lock:
-            self._state = SessionState.WAITING_APPROVAL
-            self.invalidate_observation("app launch approval")
-        self._notify()
-        outcome = self._gate_optional_approval({
+        waits = _waits_for_approval(approval_mode)
+        if waits:
+            with self._lock:
+                self._state = SessionState.WAITING_APPROVAL
+                self.invalidate_observation("app launch approval")
+            self._notify()
+        outcome, line = self._gate_optional_approval_line({
             "tool": "computer_use",
             "label": f"Allow Computer · {friendly_name}",
             "action": "task_session_app_permission",
@@ -2628,12 +2674,11 @@ class ComputerUseService:
                 code="approval_denied",
             )
         with self._lock:
-            from row_bot.approval_policy import normalize_approval_mode
-
-            if normalize_approval_mode(approval_mode) == "approve":
-                self._approved_apps.add(permission_key)
-            self._state = SessionState.OBSERVING
-        self._notify()
+            self._remember_app_approval(permission_key, line)
+            if waits:
+                self._state = SessionState.OBSERVING
+        if waits:
+            self._notify()
 
     def grant_app_permission_for_local_ui(self, owner: LeaseOwner, app_name: str) -> None:
         """Record consent from an explicit local setup/test button."""
@@ -3215,9 +3260,10 @@ class ComputerUseService:
             )
         if decision.outcome is not PolicyOutcome.CONSEQUENTIAL or mode_decision != "ask":
             return bool(decision.reversible)
-        with self._lock:
-            self._state = SessionState.WAITING_APPROVAL
-        self._notify()
+        if _waits_for_approval(approval_mode):
+            with self._lock:
+                self._state = SessionState.WAITING_APPROVAL
+            self._notify()
         approval = self._gate_optional_approval(
             approval_payload(
                 action,
@@ -3308,9 +3354,10 @@ class ComputerUseService:
                 code="hard_blocked",
             )
         if decision.outcome is PolicyOutcome.CONSEQUENTIAL and mode == "ask":
-            with self._lock:
-                self._state = SessionState.WAITING_APPROVAL
-            self._notify()
+            if _waits_for_approval(approval_mode):
+                with self._lock:
+                    self._state = SessionState.WAITING_APPROVAL
+                self._notify()
             approval = self._gate_optional_approval(
                 approval_payload(
                     "menu",
@@ -4441,6 +4488,7 @@ class ComputerUseService:
                 self._target_hint = None
                 self._app_hint = ""
                 self._approved_apps.clear()
+                self._reviewed_apps.clear()
                 self._app_display_names.clear()
                 self._app_package_families.clear()
                 self._app_launch_aumids.clear()

@@ -1111,6 +1111,17 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* Under Auto: why the reviewer asked. Visible but quiet. */
+.approval-card-reviewer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+.approval-card-reviewer svg {
+  flex: none;
+  align-self: center;
+}
 .approval-card-actions,
 .turn-notice-actions {
   display: flex;
@@ -1268,6 +1279,110 @@
     grid-column: 2 / -1;
     justify-content: flex-start;
   }
+}
+
+/* A background process a step left running (F1, F6): what runs, its state
+   as a dot and words, where it serves; View output and Stop. */
+.process-card-text {
+  display: grid;
+  gap: 2px;
+}
+.process-card-command {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.process-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  font-size: var(--text-12);
+}
+.process-address {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.process-address code {
+  color: var(--text-secondary);
+}
+.process-card[data-state='loading'] .transcript-card-text,
+.process-card[data-state='unavailable'] .transcript-card-text {
+  color: var(--text-muted);
+}
+.process-card[data-state='unavailable'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+
+/* Its output in a side sheet: status and Stop, the log, then Details. */
+.drawer-panel.process-output-drawer {
+  width: min(560px, calc(100vw - 24px));
+}
+.process-output {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+.process-output-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: var(--text-13);
+}
+.process-output-status .button {
+  margin-left: auto;
+}
+.process-output-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.process-output-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}
+.process-log {
+  flex: 1 1 auto;
+  min-height: 160px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--code-background);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.process-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  font-size: var(--text-13);
+}
+.process-details dt {
+  color: var(--text-muted);
+}
+.process-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.process-details code {
+  font-size: var(--text-12);
 }
 
 /* Computer use while a turn holds the computer: the latest picture, then
@@ -2579,11 +2694,47 @@ button.attachment-tile-face:hover {
   border-color: transparent;
   color: var(--text-muted);
 }
-.composer-shield svg[data-mode='allow_all'] {
-  color: var(--status-warning-text);
-}
 .composer-shield svg[data-mode='block'] {
   color: var(--text-secondary);
+}
+/* Hands-off is unmistakable while on: the level in words, in the warning tone. */
+.composer-shield.composer-shield-full.button {
+  width: auto;
+  gap: 6px;
+  padding: 0 8px 0 7px;
+  border-color: var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.composer-shield.composer-shield-full.button:hover {
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+}
+.composer-full-autonomy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.full-autonomy-notice p {
+  margin: 0;
+}
+.full-autonomy-notice ul {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  display: grid;
+  gap: 4px;
 }
 .composer-voice {
   display: inline-flex;

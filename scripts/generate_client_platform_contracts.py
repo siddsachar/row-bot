@@ -72,7 +72,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DataBackupUploadRequest", "DataBackupUploadView",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -196,6 +196,10 @@ OPERATIONS = (
     ("get", "/knowledge/entities/editor", None, "KnowledgeEditorState"),
     ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
     ("get", "/monitor", None, "MonitorSnapshot"),
+    ("get", "/processes", None, "BackgroundProcessPage"),
+    ("get", "/processes/{process_id}", None, "BackgroundProcessView"),
+    ("get", "/processes/{process_id}/output", None, "BackgroundProcessOutput"),
+    ("post", "/processes/{process_id}/stop", None, "BackgroundProcessView"),
     ("get", "/monitor/attention", None, "AttentionSnapshot"),
     ("get", "/monitor/approvals", None, "PendingApprovalPage"),
     ("get", "/monitor/logs", None, "MonitorLogs"),
@@ -695,6 +699,16 @@ export const getKnowledgeGraph = (base: string, proof: SessionProof, limit = 250
   jsonRequest(base, '/knowledge/graph' + query({limit}), 'KnowledgeGraphSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getMonitorSnapshot = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MonitorSnapshot> =>
   jsonRequest(base, '/monitor', 'MonitorSnapshot', proof, 'GET', undefined, undefined, signal);
+/** Every background process (F1, F6), or one conversation's: running ones first. */
+export const getBackgroundProcesses = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<BackgroundProcessPage> =>
+  jsonRequest(base, '/processes' + query({conversation_id}), 'BackgroundProcessPage', proof, 'GET', undefined, undefined, signal);
+export const getBackgroundProcess = (base: string, proof: SessionProof, process: string, signal?: AbortSignal): Promise<BackgroundProcessView> =>
+  jsonRequest(base, `/processes/${id(process)}`, 'BackgroundProcessView', proof, 'GET', undefined, undefined, signal);
+export const getBackgroundProcessOutput = (base: string, proof: SessionProof, process: string, after = 0, limit = 65536, signal?: AbortSignal): Promise<BackgroundProcessOutput> =>
+  jsonRequest(base, `/processes/${id(process)}/output` + query({after,limit}), 'BackgroundProcessOutput', proof, 'GET', undefined, undefined, signal);
+/** Stop a background process and everything it started; it needs no approval. */
+export const stopBackgroundProcess = (base: string, proof: SessionProof, process: string, signal?: AbortSignal): Promise<BackgroundProcessView> =>
+  jsonRequest(base, `/processes/${id(process)}/stop`, 'BackgroundProcessView', proof, 'POST', undefined, undefined, signal);
 export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
   jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getPendingApprovals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<PendingApprovalPage> =>

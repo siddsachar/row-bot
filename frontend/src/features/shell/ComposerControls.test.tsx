@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ConversationWorkspace, ModelChoice } from '../../api/types';
+import { OverlayProvider } from '../../ui/overlays';
 import ComposerControls from './ComposerControls';
 
 const mock = vi.hoisted(() => ({
@@ -478,10 +479,128 @@ it('folds the model, approvals and context usage into + on a one-line composer',
   await act(async () =>
     fireEvent.click(approvals.getByRole('menuitemradio', { name: /^Auto/ })),
   );
-  expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe(
-    'allow_all',
-  );
+  expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('auto');
   anchor.current.remove();
+});
+
+function withApproval(
+  approval_mode: 'approve' | 'auto' | 'full' | 'block',
+  approval = { full_autonomy_confirmed: false, full_autonomy_available: true },
+) {
+  mock.state.workspace = {
+    ...mock.state.workspace!,
+    controls: { ...mock.state.workspace!.controls, approval_mode },
+    approval,
+  };
+}
+
+it('offers the four levels, each with what it does', async () => {
+  render(<ComposerControls onError={vi.fn()} />);
+  const approvals = await menu('Approvals');
+  const levels = approvals.getAllByRole('menuitem');
+  ['Ask', 'Auto', 'Hands-off', 'Block'].forEach((label, index) =>
+    expect(levels[index].textContent).toMatch(new RegExp(`^${label}`)),
+  );
+  expect(
+    approvals.getByText(
+      'A reviewer approves what you asked for; the rest asks',
+    ),
+  ).toBeVisible();
+  expect(
+    approvals.getByText('Nothing asks; every action runs and is recorded'),
+  ).toBeVisible();
+  await act(async () =>
+    fireEvent.click(approvals.getByRole('menuitem', { name: /^Auto/ })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('auto');
+});
+
+it('asks once before Hands-off, then turns it on with the confirmation', async () => {
+  withApproval('approve');
+  render(
+    <OverlayProvider>
+      <ComposerControls onError={vi.fn()} />
+    </OverlayProvider>,
+  );
+  const approvals = await menu('Approvals');
+  await act(async () =>
+    fireEvent.click(approvals.getByRole('menuitem', { name: /^Hands-off/ })),
+  );
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Turn on Hands-off?',
+  });
+  // Nothing changes until the person turns it on.
+  expect(mock.controller.intent).not.toHaveBeenCalled();
+  expect(within(dialog).getByText(/Screen and camera captures/)).toBeVisible();
+  expect(
+    within(dialog).getByText(/Blocked commands, settings you’ve switched off/),
+  ).toBeVisible();
+  await act(async () =>
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Turn on' })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
+    approval_mode: 'full',
+    confirm_full_autonomy: true,
+  });
+});
+
+it('never shows the dialog again once Hands-off was turned on', async () => {
+  withApproval('auto', {
+    full_autonomy_confirmed: true,
+    full_autonomy_available: true,
+  });
+  render(
+    <OverlayProvider>
+      <ComposerControls onError={vi.fn()} />
+    </OverlayProvider>,
+  );
+  const approvals = await menu('Approvals');
+  await act(async () =>
+    fireEvent.click(approvals.getByRole('menuitem', { name: /^Hands-off/ })),
+  );
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('full');
+  expect(mock.controller.intent.mock.calls[0][2]).not.toHaveProperty(
+    'confirm_full_autonomy',
+  );
+});
+
+it('reads Hands-off in words while it is on', () => {
+  withApproval('full', {
+    full_autonomy_confirmed: true,
+    full_autonomy_available: true,
+  });
+  render(<ComposerControls onError={vi.fn()} />);
+  const control = screen.getByRole('button', {
+    name: 'Approvals: Hands-off',
+  });
+  expect(control).toHaveTextContent('Hands-off');
+  expect(control).toHaveClass('composer-shield-full');
+});
+
+it('keeps Hands-off on view in a one-line composer too', () => {
+  withApproval('full', {
+    full_autonomy_confirmed: true,
+    full_autonomy_available: true,
+  });
+  render(<ComposerControls onError={vi.fn()} singleLine contextUsage={null} />);
+  expect(screen.getByRole('status')).toHaveTextContent('Hands-off');
+});
+
+it('does not offer Hands-off in a conversation other people share', async () => {
+  withApproval('auto', {
+    full_autonomy_confirmed: true,
+    full_autonomy_available: false,
+  });
+  render(<ComposerControls onError={vi.fn()} />);
+  const approvals = await menu('Approvals');
+  const full = approvals.getByRole('menuitem', { name: /^Hands-off/ });
+  expect(full).toHaveAttribute('aria-disabled', 'true');
+  expect(
+    approvals.getByText(
+      'Other people share this conversation, so it runs on Auto at most.',
+    ),
+  ).toBeVisible();
 });
 
 it('hands Add resource the + trigger so focus can return to it', async () => {

@@ -199,6 +199,45 @@ export class HttpTransport implements ClientTransport {
   monitorSnapshot(signal?: AbortSignal) {
     return wire.getMonitorSnapshot(this.base, this.session(), signal);
   }
+  backgroundProcesses(conversationId?: string, signal?: AbortSignal) {
+    return wire.getBackgroundProcesses(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  backgroundProcess(processId: string, signal?: AbortSignal) {
+    return wire.getBackgroundProcess(
+      this.base,
+      this.session(),
+      processId,
+      signal,
+    );
+  }
+  backgroundProcessOutput(
+    processId: string,
+    after = 0,
+    limit = 65536,
+    signal?: AbortSignal,
+  ) {
+    return wire.getBackgroundProcessOutput(
+      this.base,
+      this.session(),
+      processId,
+      after,
+      limit,
+      signal,
+    );
+  }
+  stopBackgroundProcess(processId: string, signal?: AbortSignal) {
+    return wire.stopBackgroundProcess(
+      this.base,
+      this.session(),
+      processId,
+      signal,
+    );
+  }
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
   }

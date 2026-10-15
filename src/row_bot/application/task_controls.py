@@ -145,10 +145,17 @@ def _snapshot(row: dict, revision: str) -> TaskEditorSnapshot:
         id=row["id"], revision=revision, fields=fields,
         advanced=bool(row.get("advanced_mode") or row.get("_stored_steps")),
         agent_profile_id=str(row.get("agent_profile_id") or ""),
-        approval_mode=str(row.get("safety_mode") or ""),
+        approval_mode=_approval_level(row.get("safety_mode")),
         conversation_id=row.get("persistent_thread_id"),
         legacy_delivery=bool(row.get("delivery_channel") or row.get("delivery_target")),
     )
+
+
+def _approval_level(value: object) -> str:
+    """A workflow's stored level in today's words ("allow_all" is reviewed "auto"); empty when unset."""
+    from row_bot.approval_policy import normalize_approval_mode
+
+    return normalize_approval_mode(value) if str(value or "").strip() else ""
 
 
 def get_task_editor(task_id: str) -> TaskEditorSnapshot:

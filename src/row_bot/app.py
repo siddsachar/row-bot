@@ -602,6 +602,16 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Data folder leftover sweep failed")
 
+    # Background processes a crash left running are stopped, and reported once (F1).
+    try:
+        from row_bot.background_processes import report_leftovers
+        with _startup_phase("background_process_leftovers"):
+            leftover_notice = await asyncio.to_thread(report_leftovers)
+        if leftover_notice:
+            _startup_warning(leftover_notice, source="processes")
+    except Exception:
+        logger.exception("Background process leftover check failed")
+
     logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from row_bot.data_paths import describe_data_paths
@@ -1126,6 +1136,14 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
         _safe_console_print("[shutdown] Shell sessions closed")
     except Exception as exc:
         _safe_console_print(f"[shutdown] Shell cleanup error: {exc}")
+    try:
+        # Background processes stop with Row-Bot, each with everything it started (F1).
+        from row_bot.background_processes import stop_all as _stop_background_processes
+        _stopped = await asyncio.to_thread(_stop_background_processes, by="quit", timeout=10.0)
+        if _stopped:
+            _safe_console_print(f"[shutdown] Stopped {_stopped} background process(es)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Background process cleanup error: {exc}")
     try:
         from row_bot.terminal_bridge import TerminalBridge
         if TerminalBridge.has_instance():

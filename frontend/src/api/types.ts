@@ -775,6 +775,25 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeGraphSnapshot>;
   monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
+  /** Background processes (F1, F6): every one, or one conversation's. */
+  backgroundProcesses?(
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessPage>;
+  backgroundProcess?(
+    processId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessView>;
+  backgroundProcessOutput?(
+    processId: string,
+    after?: number,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessOutput>;
+  stopBackgroundProcess?(
+    processId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessView>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;

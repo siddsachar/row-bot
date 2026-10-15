@@ -11,15 +11,17 @@ import { useOverlay } from '../../ui/overlays';
 import { Button, Input } from '../../ui/primitives';
 import ChatConnect from '../apps/ChatConnect';
 import AppViewFrame from '../apps/AppViewFrame';
+import { ProcessCard } from './BackgroundProcess';
 
 /**
  * Cards the assistant leaves in a turn (decision 12): a design or code folder
  * it created, with Open · Rename · Undo, a code folder the person had or
- * cloned (B277), with Open · Undo (it only leaves this conversation), and a
+ * cloned (B277), with Open · Undo (it only leaves this conversation), a
  * Connect card for apps from Row-Bot's catalog the work needs (or, in chats
- * from before apps, an account or channel). Each comes from its tool's
- * reviewed specialization, live from `tool.activity` and settled from the
- * turn's traces.
+ * from before apps, an account or channel), and a background process a step
+ * started, followed live (F1, F6). Each comes from its tool's reviewed
+ * specialization, live from `tool.activity` and settled from the turn's
+ * traces.
  */
 export type TranscriptCard =
   | {
@@ -39,7 +41,9 @@ export type TranscriptCard =
     }
   | { kind: 'apps'; apps: TraceAppRef[] }
   /** A finished step whose app shows a view (MCP Apps). */
-  | { kind: 'view'; callId: string; app: TraceAppRef };
+  | { kind: 'view'; callId: string; app: TraceAppRef }
+  /** A server, watcher or long command a step left running in the background. */
+  | { kind: 'process'; processId: string };
 
 type Specialization = NonNullable<
   TranscriptTraceGroup['items'][number]['specialization']
@@ -62,6 +66,11 @@ export function cardOf(value: Specialization | null | undefined) {
     } satisfies TranscriptCard;
   if (value.kind === 'connect_apps' && value.apps?.length)
     return { kind: 'apps', apps: value.apps } satisfies TranscriptCard;
+  if (value.kind === 'background_process' && value.process_id)
+    return {
+      kind: 'process',
+      processId: value.process_id,
+    } satisfies TranscriptCard;
   if (
     value.kind === 'setup_needed' &&
     (value.settings_page === 'accounts' || value.settings_page === 'channels')
@@ -82,7 +91,9 @@ export function cardKey(card: TranscriptCard) {
       ? `apps:${card.apps.map((app) => app.item_id).join(',')}`
       : card.kind === 'view'
         ? `view:${card.callId}`
-        : `connect:${card.target}`;
+        : card.kind === 'process'
+          ? `process:${card.processId}`
+          : `connect:${card.target}`;
 }
 
 export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
@@ -355,6 +366,12 @@ export function TranscriptCards({
           <ResourceCard key={cardKey(card)} card={card} live={live} />
         ) : card.kind === 'apps' ? (
           <AppsCard key={cardKey(card)} card={card} />
+        ) : card.kind === 'process' ? (
+          <ProcessCard
+            key={cardKey(card)}
+            processId={card.processId}
+            conversationId={conversation}
+          />
         ) : card.kind === 'view' ? (
           conversation ? (
             <AppViewFrame

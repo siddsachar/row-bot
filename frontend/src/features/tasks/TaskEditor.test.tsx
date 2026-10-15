@@ -873,7 +873,10 @@ it('shows the saved model and approval policy in words and opens their settings'
 it.each([
   ['block', 'Block actions'],
   ['approve', 'Ask before actions'],
-  ['allow_all', 'Auto, within the profile'],
+  ['auto', 'Auto, reviewed within the profile'],
+  ['full', 'Hands-off'],
+  // A workflow saved before approval levels: the old Auto is reviewed Auto.
+  ['allow_all', 'Auto, reviewed within the profile'],
   // An unset policy follows the global setting; it is not "Ask".
   ['', 'Default'],
 ])('describes the %j approval policy as %s', async (mode, words) => {

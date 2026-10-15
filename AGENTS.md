@@ -223,7 +223,7 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
   relation normalization, recall ranking, deduplication, migration, wiki sync,
   Dream Cycle idle/busy behavior, and repair paths.
 - MCP: use fake stdio/HTTP/SSE transports by default; destructive tools must be
-  approval-gated.
+  approval-gated; only Hands-off, chosen by the person, skips the gate.
 - Developer Studio/shell: classify install, network, delete, git commit, git
   push, and PR actions conservatively; test sandbox import gates.
 - Designer/UI: reuse the React client primitives in `frontend/src/ui` and

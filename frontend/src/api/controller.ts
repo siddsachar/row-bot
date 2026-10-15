@@ -2507,6 +2507,29 @@ export class ClientController {
     this.query(() => this.transport.knowledgeGraph?.(limit, signal));
   monitorSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.monitorSnapshot?.(signal));
+  /** Background processes (F1, F6): every one, or one conversation's, running ones first. */
+  backgroundProcesses = (conversationId?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.backgroundProcesses?.(conversationId, signal),
+    );
+  backgroundProcess = (processId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.backgroundProcess?.(processId, signal));
+  backgroundProcessOutput = (
+    processId: string,
+    after = 0,
+    limit = 65536,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.backgroundProcessOutput?.(processId, after, limit, signal),
+    );
+  /** Stop a background process and everything it started; no approval. */
+  stopBackgroundProcess = (processId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopBackgroundProcess)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopBackgroundProcess(processId, signal);
+    });
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));

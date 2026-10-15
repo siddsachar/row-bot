@@ -29,6 +29,7 @@ import {
 import { humanizeToken } from '../../ui/format';
 import PromptTextarea from './PromptTextarea';
 import ScheduleBuilder from './ScheduleBuilder';
+import { approvalLevel } from '../shell/approval-levels';
 
 export interface TaskEditorProps {
   session?: TaskEditSession;
@@ -74,10 +75,13 @@ function profileLabel(id: string) {
 }
 
 function approvalLabel(mode: string) {
-  if (mode === 'approve') return 'Ask before actions';
-  if (mode === 'block') return 'Block actions';
-  if (mode === 'allow_all') return 'Auto, within the profile';
-  return mode ? humanizeToken(mode) : 'Default';
+  if (!mode) return 'Default';
+  return {
+    approve: 'Ask before actions',
+    block: 'Block actions',
+    auto: 'Auto, reviewed within the profile',
+    full: 'Hands-off',
+  }[approvalLevel(mode)];
 }
 
 export default function TaskEditor({

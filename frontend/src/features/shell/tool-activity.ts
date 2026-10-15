@@ -161,6 +161,21 @@ const EXACT: Record<string, Verb> = {
   run_command: verb('Ran a command', 'Running a command', Terminal),
   shell: verb('Ran a command', 'Running a command', Terminal),
   read_terminal: verb('Read the terminal', 'Reading the terminal', Terminal),
+  start_process: verb(
+    'Started a background process',
+    'Starting a background process',
+    Terminal,
+  ),
+  check_process: verb(
+    'Checked a background process',
+    'Checking a background process',
+    Terminal,
+  ),
+  stop_process: verb(
+    'Stopped a background process',
+    'Stopping a background process',
+    Terminal,
+  ),
   read_tool_output: verb(
     'Read more of a result',
     'Reading more of a result',
@@ -323,6 +338,17 @@ export function splitApproval(text: string): {
     approval: line[1].charAt(0).toUpperCase() + line[1].slice(1),
     body: text.slice(line[0].length),
   };
+}
+
+/**
+ * Who let a step run without the person (A0): the Auto reviewer, or Full
+ * autonomy. Its approval line says so ("Approved by the reviewer: …",
+ * "Allowed by Hands-off"); the step's row shows a quiet tag for it.
+ */
+export function approvedWithoutYou(approval: string): string | null {
+  if (/^approved by the reviewer\b/i.test(approval)) return 'Reviewer approved';
+  if (/^allowed by hands-off\b/i.test(approval)) return 'Hands-off';
+  return null;
 }
 
 /** "Frobnicate widget" reads "frobnicate widget" mid-sentence; "MCP" stays. */

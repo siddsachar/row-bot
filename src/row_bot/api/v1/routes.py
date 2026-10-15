@@ -5217,6 +5217,57 @@ def create_router(
         result = await call(read_monitor_logs, limit=limit)
         return await respond(request, dto.MonitorLogs, result)
 
+    # Background processes (F1, F6): a person sees and stops every one, whichever
+    # conversation started it; stopping one Row-Bot started needs no approval.
+    def _process_id(value: str) -> str:
+        from row_bot.background_processes import PROCESS_ID
+
+        if not PROCESS_ID.fullmatch(str(value or "")):
+            raise ProtocolError("process_unavailable", 404)
+        return value
+
+    @router.get("/processes")
+    async def list_background_processes(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_processes
+
+        result = await call(read_background_processes, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.BackgroundProcessPage, result)
+
+    @router.get("/processes/{process_id}")
+    async def background_process(request: Request, process_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process
+
+        result = await call(read_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    @router.get("/processes/{process_id}/output")
+    async def background_process_output(
+        request: Request, process_id: str, after: int = 0, limit: int = 65536
+    ) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process_output
+
+        if after < 0 or not 1 <= limit <= 65536:
+            raise ProtocolError("process_cursor_invalid", 422)
+        result = await call(read_background_process_output, _process_id(process_id), after, limit)
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessOutput, result)
+
+    @router.post("/processes/{process_id}/stop")
+    async def stop_background_process_route(request: Request, process_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.background_process_views import stop_background_process
+
+        result = await call(stop_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
         await session(request, lane="mutation")
@@ -9931,6 +9982,7 @@ def create_router(
                 "setup",
                 "app",
                 "repeatable",
+                "reviewer_reason",
                 "policy_revision",
             )
             if k in view

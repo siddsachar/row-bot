@@ -21,10 +21,16 @@ from row_bot.approval_policy import approval_label, legacy_safety_mode_to_approv
 
 logger = logging.getLogger(__name__)
 
+_FULL_AUTONOMY_REFUSAL = (
+    "Hands-off can only be turned on by the person, in the workflow's settings in Row-Bot. "
+    "Use approval_mode='auto' (reviewed) or 'approve', or ask the person to turn it on."
+)
+
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
 
-ApprovalModeChoice = Literal["block", "approve", "allow_all"]
+# An agent never chooses Hands-off for a workflow: only the person does, in the app.
+ApprovalModeChoice = Literal["block", "approve", "auto"]
 _SCHEDULE_FORMATS = (
     "'daily:HH:MM', 'weekly:DAY:HH:MM' (e.g. 'weekly:monday:09:00'), 'interval:H' (every H hours), "
     "'interval_minutes:M' or 'cron:EXPR' (e.g. 'cron:0 9 * * mon-fri')"
@@ -99,7 +105,10 @@ class _TaskCreateInput(BaseModel):
     )
     approval_mode: ApprovalModeChoice | None = Field(
         default=None,
-        description="Destructive tools: block (default), approve (pause for the person) or allow_all.",
+        description=(
+            "Destructive tools: block (default), approve (pause for the person) or auto (a reviewer approves "
+            "what matches the workflow; otherwise it pauses for the person)."
+        ),
     )
     persistent_thread: bool = Field(
         default=False,
@@ -199,6 +208,8 @@ def _task_create(
         if persistent_thread:
             p_thread_id = f"pt_{uuid.uuid4().hex[:10]}"
         effective_approval_mode = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
+        if effective_approval_mode == "full":
+            return _FULL_AUTONOMY_REFUSAL
 
         task_id = tasks_db.create_task(
             name=name,
@@ -355,6 +366,8 @@ def _task_update(
         updates["steps"] = steps
     if approval_mode is not None or safety_mode is not None:
         updates["safety_mode"] = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
+        if updates["safety_mode"] == "full":
+            return _FULL_AUTONOMY_REFUSAL
     if enabled is not None:
         updates["enabled"] = enabled
     if model is not None:

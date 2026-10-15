@@ -252,6 +252,7 @@ def test_skill_specialization_exposes_only_reviewed_bounded_metadata():
         "setup_target": "",
         "settings_page": "",
         "apps": (),
+        "process_id": "",
     }
     assert private not in repr(specialized)
 

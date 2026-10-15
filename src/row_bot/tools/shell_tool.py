@@ -34,6 +34,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 from row_bot.approval_policy import normalize_approval_mode
 from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
 from row_bot.data_paths import get_row_bot_data_dir, private_data_dirs
@@ -44,10 +45,9 @@ from row_bot.tools import registry
 from row_bot.tools import approval_gate
 from row_bot.tools.approval_gate import (
     APPROVAL_DENIED,
-    APPROVAL_GIVEN,
     APPROVAL_NOT_NEEDED_SAFE,
     approval_check,
-    resolve_approval,
+    resolve_approval_line,
     with_approval,
 )
 
@@ -372,142 +372,171 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
 # ═════════════════════════════════════════════════════════════════════════════
 
 _IS_WINDOWS = platform.system() == "Windows"
+_CWD_MARKER = "___ROW_BOT_CWD___"
+
+
+def shell_argv(command: str, *, report_cwd: bool = True) -> list[str]:
+    """The platform shell running *command*, as ``run_command`` runs it.
+
+    PowerShell starts fresh for every call, so its error list and native status are cleared
+    before the command; a native exit code is kept, and any PowerShell error record fails the
+    command even when a later statement succeeded. With *report_cwd* the folder the command
+    ended in is written last to stderr (``_CWD_MARKER``), so ``cd`` carries over.
+    """
+    if _IS_WINDOWS:
+        wrapped = (
+            "$global:Error.Clear()\n"
+            "$global:LASTEXITCODE = 0\n"
+            "$__row_bot_terminated = $false\n"
+            "try {\n"
+            f"& {{\n{command}\n}}\n"
+            "$__row_bot_ok = $?\n"
+            "} catch {\n"
+            "$__row_bot_ok = $false\n"
+            "$__row_bot_terminated = $true\n"
+            "[Console]::Error.WriteLine([string]$_)\n"
+            "}\n"
+            "$__row_bot_native_exit = $LASTEXITCODE\n"
+            "$__row_bot_error_count = $Error.Count\n"
+            + (f"[Console]::Error.WriteLine('{_CWD_MARKER}' + (Get-Location).Path)\n" if report_cwd else "")
+            + "if ($__row_bot_native_exit -ne 0) { exit $__row_bot_native_exit }\n"
+            "if ($__row_bot_terminated -or -not $__row_bot_ok -or "
+            "$__row_bot_error_count -gt 0) { exit 1 }"
+        )
+        return ["powershell", "-NoProfile", "-NoLogo", "-Command", wrapped]
+    # The marker keeps the command's own exit code.
+    wrapped = (
+        f"{command}\n__row_bot_status=$?\n"
+        f'echo "{_CWD_MARKER}$(pwd)" >&2\nexit $__row_bot_status'
+        if report_cwd else command
+    )
+    return [os.environ.get("SHELL", "/bin/bash"), "-c", wrapped]
+
+
+def _split_cwd(output: str) -> tuple[str, str]:
+    """(output without the folder marker, the folder the command ended in or '')."""
+    if _CWD_MARKER not in output:
+        return output, ""
+    position = output.rfind(_CWD_MARKER)
+    rest = output[position + len(_CWD_MARKER):]
+    folder, _newline, after = rest.partition("\n")
+    return (output[:position] + after).rstrip(), folder.strip()
 
 
 class ShellSession:
     """A logical shell session that tracks cwd across commands.
 
-    Each ``run_command`` call spawns a short-lived subprocess (reliable),
-    but the working directory is carried forward between calls so ``cd``
-    works as expected.
+    Each ``run_command`` call starts the platform shell through Row-Bot's process manager
+    (``background_processes``), but the working directory is carried forward between calls
+    so ``cd`` works as expected. A command still running after the inline limit carries on
+    in the background, owned by the conversation.
     """
 
     def __init__(self, working_dir: str | None = None):
         self.cwd: str = working_dir or os.path.expanduser("~")
         self._lock = threading.Lock()
 
-    def run_command(self, command: str, timeout: int = 120) -> dict:
+    def run_command(
+        self,
+        command: str,
+        timeout: int = 120,
+        *,
+        conversation_id: str = "default",
+        background: bool = False,
+    ) -> dict:
         """Execute *command* and return a result dict.
 
         Returns
         -------
         dict
-            ``{command, output, exit_code, cwd, duration}``
+            ``{command, output, exit_code, cwd, duration}``; a command carrying on in the
+            background also has ``process_id`` (and ``exit_code`` None).
         """
+        from row_bot import background_processes
+        from row_bot.cancellation import current_cancellation_scope
+
         start = time.time()
+        scope = current_cancellation_scope()
+        if scope is not None and scope.is_cancelled():
+            return {"command": command, "output": "Command stopped before it started.", "exit_code": 130,
+                    "cwd": self.cwd, "duration": 0.0}
+        with self._lock:
+            try:
+                outcome = background_processes.run_command(
+                    conversation_id,
+                    shell_argv(command),
+                    command=command,
+                    folder=self.cwd,
+                    timeout=timeout,
+                    background=background,
+                )
+            except background_processes.ProcessLimitError as exc:
+                return {"command": command, "output": f"Error: {exc}", "exit_code": -1, "cwd": self.cwd,
+                        "duration": round(time.time() - start, 2)}
+            except background_processes.ProcessStartError:
+                if background:
+                    raise
+                # Without process containment here (an old Linux kernel), commands still run in the turn.
+                return self._run_plain(command, timeout, start)
+            except Exception as exc:
+                return {"command": command, "output": f"Error: {exc}", "exit_code": -1, "cwd": self.cwd,
+                        "duration": round(time.time() - start, 2)}
+            if not outcome.finished:
+                tail, _earlier = outcome.record.log.tail(8_000)
+                return {"command": command, "output": _split_cwd(tail)[0], "exit_code": None, "cwd": self.cwd,
+                        "duration": round(time.time() - start, 2), "process_id": outcome.record.process_id}
+            output, folder = _split_cwd(outcome.output)
+            if folder and os.path.isdir(folder):
+                self.cwd = folder
+            if outcome.earlier_output_dropped:
+                output = (f"[Earlier output was not kept: Row-Bot keeps the last "
+                          f"{2 * background_processes.LOG_ROTATE_BYTES // (1024 * 1024)} MB of a command's output.]\n"
+                          + output)
+            if outcome.cancelled:
+                output = _append_process_note(output, "Command stopped by user.")
+            if outcome.limit_message:
+                output = _append_process_note(
+                    output, f"Stopped after {timeout}s instead of carrying on in the background: "
+                            f"{outcome.limit_message}")
+            return {
+                "command": command,
+                "output": output.rstrip(),
+                "exit_code": outcome.exit_code if outcome.exit_code is not None else -1,
+                "cwd": self.cwd,
+                "duration": round(time.time() - start, 2),
+            }
+
+    def _run_plain(self, command: str, timeout: int, start: float) -> dict:
+        """Run *command* as a plain subprocess (no background continuation): stopped at *timeout*."""
         # Saved keys and Row-Bot's own secrets stay out of the command's environment.
         from row_bot.api_keys import child_environment
 
-        with self._lock:
-            try:
-                if _IS_WINDOWS:
-                    # PowerShell: run command, then write cwd marker to
-                    # stderr so it doesn't interfere with pipeline-buffered
-                    # stdout (pipeline output can appear after Write-Host).
-                    # PowerShell starts fresh for every call, so clear its
-                    # process-local error list and native status before the
-                    # submitted command. Preserve a native exit code and fail
-                    # if the command added any PowerShell error record, even
-                    # when a later statement happened to succeed.
-                    wrapped = (
-                        "$global:Error.Clear()\n"
-                        "$global:LASTEXITCODE = 0\n"
-                        "$__row_bot_terminated = $false\n"
-                        "try {\n"
-                        f"& {{\n{command}\n}}\n"
-                        "$__row_bot_ok = $?\n"
-                        "} catch {\n"
-                        "$__row_bot_ok = $false\n"
-                        "$__row_bot_terminated = $true\n"
-                        "[Console]::Error.WriteLine([string]$_)\n"
-                        "}\n"
-                        "$__row_bot_native_exit = $LASTEXITCODE\n"
-                        "$__row_bot_error_count = $Error.Count\n"
-                        "[Console]::Error.WriteLine("
-                        "'___ROW_BOT_CWD___' + (Get-Location).Path)\n"
-                        "if ($__row_bot_native_exit -ne 0) { exit $__row_bot_native_exit }\n"
-                        "if ($__row_bot_terminated -or -not $__row_bot_ok -or "
-                        "$__row_bot_error_count -gt 0) { exit 1 }"
-                    )
-                    proc = run_cancellable_subprocess(
-                        ["powershell", "-NoProfile", "-NoLogo", "-Command", wrapped],
-                        cwd=self.cwd,
-                        timeout=timeout,
-                        text=True,
-                        encoding="utf-8", errors="replace",
-                        env=child_environment(),
-                    )
-                else:
-                    # Unix: same idea — cwd marker goes to stderr
-                    wrapped = (
-                        f"{command}\n"
-                        f'echo "___ROW_BOT_CWD___$(pwd)" >&2'
-                    )
-                    shell = os.environ.get("SHELL", "/bin/bash")
-                    proc = run_cancellable_subprocess(
-                        [shell, "-c", wrapped],
-                        cwd=self.cwd,
-                        timeout=timeout,
-                        text=True,
-                        encoding="utf-8", errors="replace",
-                        env=child_environment(),
-                    )
-
-                if proc.timed_out:
-                    return {
-                        "command": command,
-                        "output": f"Command timed out after {timeout}s",
-                        "exit_code": -1,
-                        "cwd": self.cwd,
-                        "duration": timeout,
-                    }
-                stdout = proc.stdout or ""
-                stderr = proc.stderr or ""
-                if proc.cancelled:
-                    stderr = _append_process_note(stderr, "Command stopped by user.")
-
-                # stdout is pure command output — no marker to strip
-                actual_output = stdout.rstrip()
-
-                # Extract new cwd from stderr (last occurrence in case
-                # the command itself printed the marker string)
-                marker = "___ROW_BOT_CWD___"
-                if marker in stderr:
-                    marker_pos = stderr.rfind(marker)
-                    cwd_part = stderr[marker_pos + len(marker):]
-                    new_cwd = cwd_part.strip().split("\n")[0].strip()
-                    if new_cwd and os.path.isdir(new_cwd):
-                        self.cwd = new_cwd
-                    # Remove the marker line from stderr so it doesn't
-                    # leak into the output shown to the user / LLM
-                    stderr = stderr[:marker_pos].rstrip()
-
-                # Combine stdout and stderr
-                output = actual_output
-                if stderr.strip():
-                    if output:
-                        output += "\n" + stderr.rstrip()
-                    else:
-                        output = stderr.rstrip()
-
-                duration = round(time.time() - start, 2)
-                return {
-                    "command": command,
-                    "output": output,
-                    "exit_code": proc.returncode,
-                    "cwd": self.cwd,
-                    "duration": duration,
-                }
-
-            except Exception as exc:
-                duration = round(time.time() - start, 2)
-                return {
-                    "command": command,
-                    "output": f"Error: {exc}",
-                    "exit_code": -1,
-                    "cwd": self.cwd,
-                    "duration": duration,
-                }
+        try:
+            proc = run_cancellable_subprocess(
+                shell_argv(command),
+                cwd=self.cwd,
+                timeout=timeout,
+                text=True,
+                encoding="utf-8", errors="replace",
+                env=child_environment(),
+            )
+            if proc.timed_out:
+                return {"command": command, "output": f"Command timed out after {timeout}s", "exit_code": -1,
+                        "cwd": self.cwd, "duration": timeout}
+            stdout, stderr = (proc.stdout or "").rstrip(), proc.stderr or ""
+            stderr, folder = _split_cwd(stderr)
+            if folder and os.path.isdir(folder):
+                self.cwd = folder
+            if proc.cancelled:
+                stderr = _append_process_note(stderr, "Command stopped by user.")
+            output = stdout
+            if stderr.strip():
+                output = f"{output}\n{stderr.rstrip()}" if output else stderr.rstrip()
+            return {"command": command, "output": output, "exit_code": proc.returncode, "cwd": self.cwd,
+                    "duration": round(time.time() - start, 2)}
+        except Exception as exc:
+            return {"command": command, "output": f"Error: {exc}", "exit_code": -1, "cwd": self.cwd,
+                    "duration": round(time.time() - start, 2)}
 
 
 class ShellSessionManager:
@@ -635,7 +664,8 @@ class ShellTool(BaseTool):
 
     @property
     def untrusted_tool_names(self) -> set[str]:
-        return {"run_command", "read_terminal"}
+        # Process output is whatever the program printed.
+        return {"run_command", "read_terminal", "start_process", "check_process", "stop_process"}
 
     def _get_developer_workspace_root(
         self,
@@ -747,11 +777,75 @@ class ShellTool(BaseTool):
                     pass
         return patterns
 
+    def _gate(
+        self,
+        *,
+        command: str,
+        classification: str,
+        payload: dict[str, Any],
+        risks: tuple[str, ...],
+        private_description: str,
+        blocked_message: str,
+    ) -> tuple[str | None, str]:
+        """The approval a classified command needs, as run_command asks it: (refusal or None, approval line).
+
+        Safe commands run without asking; the private data folder needs its setting and then
+        asks (the reviewer under Auto, allowed under Hands-off); anything else asks by the
+        conversation's approval level. Blocked patterns never reach here.
+        """
+        approval = APPROVAL_NOT_NEEDED_SAFE
+        if classification == "private_data":
+            if self.get_config("allow_data_folder", False) is not True:
+                return PRIVATE_DATA_REFUSAL, ""
+            mode = normalize_approval_mode(approval_gate.current_approval_mode())
+            if mode == "block":
+                return f"BLOCKED: this command reads Row-Bot's private data folder: {command}", ""
+            # Asked under Ask; under Auto the reviewer approves it only when the person clearly asked
+            # for it; Hands-off allows it (the setting above still has to be on).
+            outcome, approval = resolve_approval_line(
+                {**payload, "label": "Read Row-Bot's private data?", "description": private_description},
+                approval_mode=mode,
+                risks=("reads Row-Bot's private data folder (conversations, settings, keys)", *risks[1:]),
+            )
+            if outcome != "allow":
+                return with_approval(approval or APPROVAL_DENIED, "Command cancelled by user."), approval
+        if classification == "needs_approval":
+            # Determine execution context for background-audit compatibility.
+            # approval_check() below resolves it by the approval level.
+            try:
+                from row_bot.agent import is_background_workflow
+
+                _is_bg = is_background_workflow()
+            except Exception:
+                _is_bg = False
+            logger.debug("Shell command approval required; background=%s", _is_bg)
+            blocked, approval = approval_check(
+                payload,
+                risks=risks,
+                blocked_message=blocked_message,
+                cancelled_message="Command cancelled by user.",
+            )
+            if blocked:
+                return blocked, approval
+        return None, approval
+
+    def _session_for(self, runtime_config: RunnableConfig | None) -> tuple[str, str, ShellSession]:
+        """This conversation's id, its shell session's key and the session (the folder ``cd`` left it in)."""
+        thread_id, developer_workspace_id = self._get_shell_context_ids(runtime_config)
+        working_dir = self._get_workspace_root(thread_id, developer_workspace_id)
+        session_key = (
+            thread_id
+            if thread_id and thread_id != "default"
+            else f"developer:{developer_workspace_id}" if developer_workspace_id else "default"
+        )
+        return thread_id, session_key, _session_manager.get_session(session_key, working_dir)
+
     def execute(
         self,
         command: str,
         runtime_config: RunnableConfig | None = None,
         approval_reason: str = "",
+        background: bool = False,
     ) -> str:
         """Run a shell command.  Self-gates with ``interrupt()`` for
         non-safe commands."""
@@ -769,68 +863,42 @@ class ShellTool(BaseTool):
                 f"cannot be executed: {command}"
             )
 
-        approval = APPROVAL_NOT_NEEDED_SAFE
-        if classification == "private_data":
-            if self.get_config("allow_data_folder", False) is not True:
-                return PRIVATE_DATA_REFUSAL
-            if normalize_approval_mode(approval_gate.current_approval_mode()) == "block":
-                return f"BLOCKED: this command reads Row-Bot's private data folder: {command}"
-            # Never allowed without asking, even in Auto.
-            outcome = resolve_approval(
-                {
-                    "tool": "run_command",
-                    "label": "Read Row-Bot's private data?",
-                    "description": (
-                        "This reads Row-Bot's private data folder (conversations, settings, keys): "
-                        f"{command}"
-                    ),
-                    "approval_reason": approval_reason,
-                    "args": {"command": command},
-                },
-                approval_mode="approve",
-            )
-            if outcome != "allow":
-                return with_approval(APPROVAL_DENIED, "Command cancelled by user.")
-            approval = APPROVAL_GIVEN
-        if classification == "needs_approval":
-            # Determine execution context for background-audit compatibility.
-            # approval_check() below handles block / approve / allow_all.
-            try:
-                from row_bot.agent import is_background_workflow
-
-                _is_bg = is_background_workflow()
-            except Exception:
-                _is_bg = False
-            logger.debug("Shell command approval required; background=%s", _is_bg)
-            blocked, approval = approval_check(
-                {
-                    "tool": "run_command",
-                    "label": "Run shell command",
-                    "description": f"Run shell command: {command}",
-                    "approval_reason": approval_reason,
-                    "args": {"command": command},
-                },
-                blocked_message=(
-                    f"BLOCKED: This command requires approval and cannot run "
-                    f"in Block approval mode: {command}"
-                ),
-                cancelled_message="Command cancelled by user.",
-            )
-            if blocked:
-                return blocked
+        risks: tuple[str, ...] = ("runs a command that can change things on this computer",)
+        if background:
+            risks += (_BACKGROUND_RISK,)
+        refusal, approval = self._gate(
+            command=command,
+            classification=classification,
+            payload={
+                "tool": "run_command",
+                "label": "Run shell command",
+                "description": f"Run shell command: {command}",
+                "approval_reason": approval_reason,
+                "args": {"command": command},
+            },
+            risks=risks,
+            private_description=(
+                "This reads Row-Bot's private data folder (conversations, settings, keys): "
+                f"{command}"
+            ),
+            blocked_message=(
+                f"BLOCKED: This command requires approval and cannot run "
+                f"in Block approval mode: {command}"
+            ),
+        )
+        if refusal:
+            return refusal
 
         # ── Execute ──────────────────────────────────────────────────────
-        thread_id, developer_workspace_id = self._get_shell_context_ids(runtime_config)
+        thread_id, session_key, session = self._session_for(runtime_config)
+        try:
+            result = session.run_command(command, conversation_id=thread_id, background=background)
+        except Exception as exc:
+            from row_bot.background_processes import ProcessStartError
 
-        # Always use subprocess — reliable, cross-platform, no PTY contention
-        working_dir = self._get_workspace_root(thread_id, developer_workspace_id)
-        session_key = (
-            thread_id
-            if thread_id and thread_id != "default"
-            else f"developer:{developer_workspace_id}" if developer_workspace_id else "default"
-        )
-        session = _session_manager.get_session(session_key, working_dir)
-        result = session.run_command(command)
+            if not isinstance(exc, ProcessStartError):
+                raise
+            return with_approval(approval, f"$ {command}\nError: {exc}")
 
         # Persist to history
         result["timestamp"] = datetime.now().isoformat()
@@ -842,6 +910,9 @@ class ShellTool(BaseTool):
         duration = result["duration"]
         cwd = result["cwd"]
 
+        if result.get("process_id"):
+            return with_approval(approval, _carried_on_text(result, started=background))
+
         parts = [f"$ {command}"]
         if output:
             # Long output keeps its head and tail here; the whole of it stays readable by handle.
@@ -852,13 +923,142 @@ class ShellTool(BaseTool):
 
         return with_approval(approval, "\n".join(parts))
 
+    # ── Background processes (F1) ────────────────────────────────────────
+
+    def start_process(
+        self,
+        command: str,
+        folder: str = "",
+        env: dict[str, str] | None = None,
+        name: str = "",
+        approval_reason: str = "",
+        runtime_config: RunnableConfig | None = None,
+    ) -> str:
+        """Start a program that keeps running in the background; asks first like run_command."""
+        from row_bot import background_processes as processes
+        from row_bot.data_paths import is_private_data_path
+
+        command = str(command or "").strip()
+        if not command:
+            return "No command provided."
+        try:
+            variables = processes.check_environment(env)
+        except ValueError as exc:
+            return f"Error: {exc}"
+        thread_id, session_key, session = self._session_for(runtime_config)
+        where = Path(session.cwd)
+        if str(folder or "").strip():
+            chosen = Path(os.path.expanduser(str(folder).strip()))
+            where = chosen if chosen.is_absolute() else where / chosen
+        try:
+            where = where.resolve()
+        except OSError:
+            pass
+        if not where.is_dir():
+            return f"Error: the folder {where} doesn't exist. Pass an existing folder, or leave it out to use {session.cwd}."
+
+        # Classified exactly like run_command; the variables' values count as part of the command.
+        classification = classify_command("\n".join([command, *variables.values()]), self._get_extra_blocked())
+        if classification == "blocked":
+            return (
+                f"🚫 BLOCKED: This command matches a blocked pattern and "
+                f"cannot be executed: {command}"
+            )
+        if classification != "blocked" and is_private_data_path(where):
+            classification = "private_data"
+        label = " ".join(str(name or "").split())[: processes.MAX_NAME_CHARS]
+        refusal, approval = self._gate(
+            command=command,
+            classification=classification,
+            payload=start_process_approval(command, str(where), variables, label, approval_reason),
+            risks=(
+                "runs a command that can change things on this computer",
+                _BACKGROUND_RISK,
+            ),
+            private_description=(
+                "This starts a background process that reads Row-Bot's private data folder "
+                f"(conversations, settings, keys): {command}"
+            ),
+            blocked_message=(
+                f"BLOCKED: This command requires approval and cannot start "
+                f"in Block approval mode: {command}"
+            ),
+        )
+        if refusal:
+            return refusal
+        try:
+            record = processes.start(
+                thread_id,
+                shell_argv(command, report_cwd=False),
+                command=command,
+                folder=str(where),
+                kind="process",
+                env=variables,
+                name=label,
+            )
+        except (processes.ProcessLimitError, processes.ProcessStartError) as exc:
+            return with_approval(approval, f"Error: {exc}")
+        # Its first moments: until it ends, prints a local address, or a few seconds pass.
+        deadline = time.monotonic() + START_WATCH_SECONDS
+        while time.monotonic() < deadline and not record.urls:
+            if processes.wait(record, 0.1):
+                break
+        return with_approval(approval, process_text(record, lines=40, conversation_id=thread_id))
+
+    def check_process(
+        self,
+        process_id: str = "",
+        lines: int = 40,
+        runtime_config: RunnableConfig | None = None,
+    ) -> str:
+        """A background process's status and the end of its output, or this conversation's list."""
+        from row_bot import background_processes as processes
+
+        thread_id, _key, _session = self._session_for(runtime_config)
+        process_id = str(process_id or "").strip()
+        if not process_id:
+            return processes_list_text(thread_id)
+        record = processes.get(process_id)
+        if record is None or record.conversation_id != thread_id:
+            return (f"No background process {process_id!r} in this conversation. "
+                    "Call check_process without a process_id to list them.")
+        return process_text(record, lines=lines, conversation_id=thread_id, spill_full=True)
+
+    def stop_process(self, process_id: str, runtime_config: RunnableConfig | None = None) -> str:
+        """Stop a background process of this conversation and everything it started."""
+        from row_bot import background_processes as processes
+
+        thread_id, _key, _session = self._session_for(runtime_config)
+        process_id = str(process_id or "").strip()
+        record = processes.get(process_id)
+        if record is None or record.conversation_id != thread_id:
+            return (f"No background process {process_id!r} in this conversation. "
+                    "Call check_process without a process_id to list them.")
+        if record.running:
+            processes.stop(process_id, by="agent")
+            processes.wait(record, 15)
+        return process_text(record, lines=10, conversation_id=thread_id)
+
     def as_langchain_tools(self) -> list:
-        """Return ``run_command`` and ``read_terminal`` tools."""
+        """Return ``run_command``, ``read_terminal`` and the background process tools."""
+        from row_bot.background_processes import MAX_RUNNING_PER_CONVERSATION
+
         tool_instance = self
+
+        def guarded(call):
+            try:
+                return call()
+            except Exception as exc:
+                from langgraph.errors import GraphInterrupt
+                if isinstance(exc, GraphInterrupt):
+                    raise
+                logger.error("Shell tool error: %s", exc, exc_info=True)
+                return f"Error executing command: {exc}"
 
         def run_command(
             command: str,
             approval_reason: str = "",
+            background: bool = False,
             config: RunnableConfig = None,
         ) -> str:
             """Execute a shell command on the user's computer.
@@ -874,19 +1074,36 @@ class ShellTool(BaseTool):
                          'git status').
                 approval_reason: One short user-facing sentence explaining
                         why this command is needed if approval is required.
+                background: Start it as a background process and return at
+                        once, for a command that takes long (a build, a
+                        download). A command still running after 2 minutes
+                        carries on in the background anyway.
             """
-            try:
-                return tool_instance.execute(
-                    command,
-                    runtime_config=config,
-                    approval_reason=approval_reason,
-                )
-            except Exception as exc:
-                from langgraph.errors import GraphInterrupt
-                if isinstance(exc, GraphInterrupt):
-                    raise
-                logger.error("Shell tool error: %s", exc, exc_info=True)
-                return f"Error executing command: {exc}"
+            return guarded(lambda: tool_instance.execute(
+                command,
+                runtime_config=config,
+                approval_reason=approval_reason,
+                background=bool(background),
+            ))
+
+        def start_process(
+            command: str,
+            folder: str = "",
+            env: dict[str, str] | None = None,
+            name: str = "",
+            approval_reason: str = "",
+            config: RunnableConfig = None,
+        ) -> str:
+            return guarded(lambda: tool_instance.start_process(
+                command, folder=folder, env=env, name=name, approval_reason=approval_reason,
+                runtime_config=config,
+            ))
+
+        def check_process(process_id: str = "", lines: int = 40, config: RunnableConfig = None) -> str:
+            return guarded(lambda: tool_instance.check_process(process_id, lines=lines, runtime_config=config))
+
+        def stop_process(process_id: str, config: RunnableConfig = None) -> str:
+            return guarded(lambda: tool_instance.stop_process(process_id, runtime_config=config))
 
         def read_terminal(lines: int = 50) -> str:
             """Read recent output from the user's interactive terminal.
@@ -922,7 +1139,44 @@ class ShellTool(BaseTool):
                     "run automatically; other commands require user approval. "
                     "When approval may be needed, include approval_reason as "
                     "one short sentence explaining why the command is needed. "
-                    "Returns the command output and exit code."
+                    "Returns the command output and exit code. A command still "
+                    "running after 2 minutes (or started with background=true) "
+                    "carries on as a background process: the result names its "
+                    "process_id for check_process and stop_process. For a server "
+                    "or watcher that should keep running, use start_process."
+                ),
+            ),
+            StructuredTool.from_function(
+                func=start_process,
+                name="start_process",
+                args_schema=_StartProcessInput,
+                description=(
+                    "Start a program that keeps running in the background, such as a "
+                    "development server or a file watcher, in any folder and with extra "
+                    "environment variables. Asks for approval like run_command. Returns its "
+                    "process_id, its first output and any local address it serves. Background "
+                    "processes belong to this conversation, stop when Row-Bot quits, and at "
+                    f"most {MAX_RUNNING_PER_CONVERSATION} run at once here."
+                ),
+            ),
+            StructuredTool.from_function(
+                func=check_process,
+                name="check_process",
+                args_schema=_CheckProcessInput,
+                description=(
+                    "Check a background process of this conversation: running or not, its "
+                    "exit code, how long it ran, the local address it serves and the last lines "
+                    "of its output (the rest through read_tool_output). Without a process_id, "
+                    "list this conversation's background processes."
+                ),
+            ),
+            StructuredTool.from_function(
+                func=stop_process,
+                name="stop_process",
+                args_schema=_StopProcessInput,
+                description=(
+                    "Stop a background process of this conversation and everything it started. "
+                    "Needs no approval."
                 ),
             ),
             StructuredTool.from_function(
@@ -937,6 +1191,162 @@ class ShellTool(BaseTool):
                 ),
             ),
         ]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# BACKGROUND PROCESS TEXT
+# ═════════════════════════════════════════════════════════════════════════════
+
+_BACKGROUND_RISK = "keeps running in the background after this reply, until it ends, is stopped or Row-Bot quits"
+# start_process watches a new process this long for an early failure or its local address.
+START_WATCH_SECONDS = 5.0
+_TAIL_CHARS = 6_000
+
+
+class _StartProcessInput(BaseModel):
+    command: str = Field(description="The command to run, as you would type it in the shell (e.g. 'npm run dev').")
+    folder: str = Field(default="", description="The folder to run it in; empty for the shell's current folder.")
+    env: dict[str, str] = Field(default_factory=dict, description="Extra environment variables, e.g. {\"PORT\": \"3000\"}.")
+    name: str = Field(default="", description="A short name people see, e.g. 'Dev server'.")
+    approval_reason: str = Field(
+        default="",
+        description="One short user-facing sentence explaining why it is needed if approval is required.",
+    )
+
+
+class _CheckProcessInput(BaseModel):
+    process_id: str = Field(default="", description="The process_id (proc-…); empty to list this conversation's.")
+    lines: int = Field(default=40, description="How many of the last output lines to show (at most 200).")
+
+
+class _StopProcessInput(BaseModel):
+    process_id: str = Field(description="The process_id (proc-…) to stop.")
+
+
+def start_process_approval(
+    command: str, folder: str, variables: dict[str, str], name: str, approval_reason: str,
+) -> dict[str, Any]:
+    """The approval request for starting a background process: what runs, with what, and where.
+
+    The command leads; the folder comes last, where a long path doesn't hide the rest.
+    """
+    what = f"Start “{name}” in the background" if name else "Start in the background"
+    description = f"{what}: {command}"
+    if variables:
+        shown = ", ".join(f"{key}={value[:40]}{'…' if len(value) > 40 else ''}" for key, value in variables.items())
+        description += f" with {shown}"
+    description += f". It keeps running after this reply until it's stopped or Row-Bot quits. Folder: {folder}"
+    args: dict[str, Any] = {"command": command, "folder": folder}
+    if variables:
+        args["env"] = sorted(variables)
+    return {
+        "tool": "start_process",
+        "label": "Start a background process",
+        "description": description,
+        "approval_reason": approval_reason,
+        "args": args,
+    }
+
+
+def _status_words(record) -> str:
+    from row_bot.background_processes import duration_words
+
+    took = duration_words(record.runtime_seconds())
+    status = record.status
+    if status == "running":
+        return f"running for {took}"
+    if status == "stopping":
+        return "stopping"
+    if status == "finished":
+        return f"finished (exit code 0) after {took}"
+    if status == "failed":
+        code = record.exit_code
+        return f"failed ({'exit code ' + str(code) if code is not None else 'it could not start'}) after {took}"
+    who = {"you": "by the person", "agent": "by you", "quit": "when Row-Bot quit",
+           "restart": "when Row-Bot restarted", "conversation": "with its conversation",
+           "limit": "at the limit"}.get(record.stopped_by, "")
+    return f"stopped {who} after {took}".replace("  ", " ")
+
+
+def process_text(record, *, lines: int, conversation_id: str, spill_full: bool = False) -> str:
+    """A background process for the agent: its handle line first, then what it runs and its output."""
+    from row_bot import background_processes as processes
+    from row_bot.tool_outputs import READER_TOOL_NAME, spill
+
+    lines = max(1, min(int(lines or 40), 200))
+    parts = [f"Background process {record.process_id}: {_status_words(record)}."]
+    parts.append(f"$ {record.command}")
+    parts.append(f"Folder: {record.folder}")
+    if record.name:
+        parts.append(f"Name: {record.name}")
+    if record.env_names:
+        parts.append("Environment: " + ", ".join(record.env_names))
+    served = processes.addresses(record)
+    if served:
+        listening = set(record.ports)
+        parts.append("Serving: " + ", ".join(
+            f"{url}{' (listening)' if int(url.rsplit(':', 1)[1]) in listening else ''}" for url in served))
+    tail, earlier = record.log.tail(_TAIL_CHARS)
+    shown = tail.splitlines()[-lines:]
+    more = earlier or len(tail.splitlines()) > len(shown)
+    if shown:
+        parts.append(f"Last {len(shown)} lines of output:" if more else "Output:")
+        parts.append("\n".join(shown))
+    else:
+        parts.append("No output yet." if record.running else "No output.")
+    if more and spill_full:
+        text, dropped = record.log.text()
+        handle = spill(text, thread_id=conversation_id, source="check_process")
+        if handle:
+            note = " (earlier output is no longer kept)" if dropped else ""
+            parts.append(f"[The whole output so far{note} is {len(text):,} characters, saved as {handle}: "
+                         f'read it with {READER_TOOL_NAME}(handle="{handle}", offset=0).]')
+    elif more:
+        parts.append(f'[More output: check_process(process_id="{record.process_id}") saves all of it for reading.]')
+    if record.running:
+        parts.append(f'Check it with check_process(process_id="{record.process_id}"); stop it with '
+                     f'stop_process(process_id="{record.process_id}"). It stops when Row-Bot quits.')
+    return "\n".join(parts)
+
+
+def _carried_on_text(result: dict, *, started: bool) -> str:
+    """run_command's result for a command that carries on in the background (F6)."""
+    from row_bot import background_processes as processes
+
+    process_id = str(result["process_id"])
+    lead = ("started in the background" if started else
+            f"still running after {processes.INLINE_SECONDS // 60} minutes, so it carries on in the background")
+    parts = [f"Background process {process_id}: {lead}.", f"$ {result['command']}"]
+    output = str(result.get("output") or "").rstrip()
+    if output:
+        shown = output.splitlines()[-20:]
+        parts.append("Output so far (last lines):" if len(shown) < len(output.splitlines()) else "Output so far:")
+        parts.append("\n".join(shown))
+    parts.append(f'Check it with check_process(process_id="{process_id}"); stop it with '
+                 f'stop_process(process_id="{process_id}"). It stops when Row-Bot quits.')
+    parts.append(f"\n[Exit code: still running | Duration: {result['duration']}s | cwd: {result['cwd']}]")
+    return "\n".join(parts)
+
+
+def processes_list_text(conversation_id: str) -> str:
+    """This conversation's background processes, for the agent."""
+    from row_bot import background_processes as processes
+
+    records = processes.list_processes(conversation_id)
+    if not records:
+        return "No background processes in this conversation. Start one with start_process."
+    running = sum(record.running for record in records)
+    lines = [f"Background processes in this conversation ({running} running, at most "
+             f"{processes.MAX_RUNNING_PER_CONVERSATION} at once):"]
+    for record in records[:20]:
+        served = processes.addresses(record) if record.running else []
+        lines.append(" · ".join(filter(None, (
+            f"- {record.process_id}", _status_words(record), record.name, record.command[:200],
+            ", ".join(served),
+        ))))
+    if len(records) > 20:
+        lines.append(f"…and {len(records) - 20} older ones.")
+    return "\n".join(lines)
 
 
 registry.register(ShellTool())

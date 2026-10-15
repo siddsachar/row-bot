@@ -116,6 +116,36 @@ def _active_approval_mode() -> str:
         return DEFAULT_APPROVAL_MODE
 
 
+# Developer actions that reach other people or can't be taken back, for the Auto reviewer.
+_DEVELOPER_RISKS = {
+    "developer_push_current_branch": "pushes commits to a shared remote other people can see",
+    "developer_create_pull_request": "opens a pull request other people can see",
+    "developer_revert_change_set": "restores files, undoing earlier changes",
+    "developer_import_sandbox_changes": "applies sandbox changes to the real code folder",
+}
+
+
+def _ask(payload: dict) -> object:
+    """The approval a Developer action needs, by the conversation's approval level.
+
+    The person under Ask; the reviewer first under Auto (the person when it asks); the level
+    itself under Hands-off. Returns what ``interrupt()`` would: True when approved.
+    """
+    from row_bot.tools.approval_gate import request_approval
+
+    tool = str(payload.get("tool") or "")
+    risks = [f"a Developer action in the conversation's code folder: {payload.get('label') or tool}"]
+    if tool in _DEVELOPER_RISKS:
+        risks.append(_DEVELOPER_RISKS[tool])
+    return request_approval(
+        payload,
+        approval_mode=_active_approval_mode(),
+        risks=risks,
+        # This module's own name, so a test can stand in for the person.
+        approval_callback=lambda request: interrupt(request),
+    )
+
+
 class _ListFilesInput(BaseModel):
     path: str = Field(default=".", description="Workspace-relative folder to list.")
     limit: int = Field(default=80, description="Maximum entries to return.")
@@ -302,7 +332,7 @@ def _run_detected(command: str) -> str:
 
     result = run(False)
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_run_detected_test",
             "label": "Run project command",
             "description": f"Run in {workspace.name}: {chosen.command}",
@@ -366,7 +396,7 @@ def _run_command(command: str, timeout: int = 120, approval_reason: str = "") ->
         confirmed=False,
     )
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_run_command",
             "label": "Run Developer shell command",
             "description": f"Run in {workspace.name}: {command}",
@@ -395,7 +425,7 @@ def _create_branch(branch_name: str) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_create_branch",
             "label": "Create Developer branch",
             "description": f"Create branch {branch_name} in {workspace.name}",
@@ -411,7 +441,7 @@ def _switch_branch(branch_name: str) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_switch_branch",
             "label": "Switch Developer branch",
             "description": f"Switch to branch {branch_name} in {workspace.name}",
@@ -432,7 +462,7 @@ def _commit_changes(message: str, paths: list[str] | None = None) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_commit")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_commit_changes",
             "label": "Create Developer commit",
             "description": f"Commit changes in {workspace.name}: {message}",
@@ -449,7 +479,7 @@ def _push_current_branch() -> str:
     workspace, _root = _active_workspace(write=True)
     result = push_current_branch(workspace.path, _active_approval_mode(), confirmed=False)
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_push_current_branch",
             "label": "Push Developer branch",
             "description": f"Push the current branch from {workspace.name} to origin",
@@ -481,7 +511,7 @@ def _create_pull_request(title: str = "", body: str = "", draft: bool = True) ->
     branch = get_git_status(workspace.path).branch or ""
     result = create_pull_request(workspace.path, _active_approval_mode(), title=title, body=body, draft=draft)
     if result.decision and result.decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_create_pull_request",
             "label": "Open pull request",
             "description": f"Open a {'draft ' if draft else ''}pull request from {workspace.name}: {title}",
@@ -520,7 +550,7 @@ def _fast_forward_merge(branch_name: str) -> str:
     workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_fast_forward_merge",
             "label": "Fast-forward merge",
             "description": f"Fast-forward merge {branch_name} into the current branch in {workspace.name}",
@@ -565,7 +595,7 @@ def _import_sandbox_changes(pending_change_id: str = "", summary: str = "") -> s
     confirmed = False
     if decision.requires_approval:
         sets = f" ({len(batch)} sandbox changes)" if len(batch) > 1 else ""
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_import_sandbox_changes",
             "label": "Apply these changes",
             "description": summary or f"Apply {len(files)} changed file(s) from Docker Sandbox to {workspace.name}{sets}",
@@ -668,7 +698,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
         if decision.decision == "block":
             return decision.reason
         if decision.requires_approval:
-            approval = interrupt({
+            approval = _ask({
                 "tool": "developer_apply_patch",
                 "label": "Apply Developer patch in Docker Sandbox",
                 "description": summary or "Apply a patch inside the Docker Sandbox shadow workspace",
@@ -700,7 +730,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
         confirmed=False,
     )
     if decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_apply_patch",
             "label": "Apply Developer patch",
             "description": summary or "Apply a patch inside the active Developer workspace",
@@ -745,7 +775,7 @@ def _import_media(media_ref: str, path: str) -> str:
         path=path, approval_mode=_active_approval_mode(),
     )
     if decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_import_media",
             "label": "Import generated media",
             "description": f"Copy one conversation output to {path} in {workspace.name}",
@@ -770,7 +800,7 @@ def _write_file(path: str, content: str, summary: str = "", expected_sha256: str
         if decision.decision == "block":
             return decision.reason
         if decision.requires_approval:
-            approval = interrupt({
+            approval = _ask({
                 "tool": "developer_write_file",
                 "label": "Write Developer file in Docker Sandbox",
                 "description": summary or f"Write {path} inside the Docker Sandbox shadow workspace",
@@ -803,7 +833,7 @@ def _write_file(path: str, content: str, summary: str = "", expected_sha256: str
         expected_sha256=expected_sha256,
     )
     if decision.requires_approval:
-        approval = interrupt({
+        approval = _ask({
             "tool": "developer_write_file",
             "label": "Write Developer file",
             "description": summary or f"Write {path} inside the active Developer workspace",
@@ -853,7 +883,7 @@ def _revert_change_set(change_set_id: str) -> str:
             return "Undo is blocked by the current workspace policy."
         client_undo.reserve_retained_undo_review(review, command_id, validate=validate)
         if review.approval_required:
-            approved = interrupt({"tool": "developer_revert_change_set", "label": "Undo imported workspace changes",
+            approved = _ask({"tool": "developer_revert_change_set", "label": "Undo imported workspace changes",
                 "description": "Restore the exact retained original files. Created directories will remain.",
                 "args": {"change_set_id": change_set_id, "files": list(review.files),
                     "directories_retained": list(review.directories_retained), "action_digest": review.action_digest}})

@@ -515,7 +515,8 @@
             "resource_created",
             "resource_bound",
             "setup_needed",
-            "connect_apps"
+            "connect_apps",
+            "background_process"
           ],
           "title": "Kind",
           "type": "string"
@@ -545,6 +546,13 @@
           ],
           "default": null,
           "title": "Newly Active"
+        },
+        "process_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(proc-[0-9a-f]{8})?$",
+          "title": "Process Id",
+          "type": "string"
         },
         "resource_id": {
           "default": "",

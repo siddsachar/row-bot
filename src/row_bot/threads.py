@@ -381,15 +381,19 @@ def _get_thread_approval_mode_raw(thread_id: str) -> str:
 
 
 def _get_thread_approval_mode(thread_id: str) -> str:
-    """Return the shared approval mode for a thread."""
+    """Return the approval level a thread runs at (Hands-off is Auto where others share it)."""
+    from row_bot.full_autonomy import cap_for_conversation
+
     raw = _get_thread_approval_mode_raw(thread_id)
-    return normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE)
+    return cap_for_conversation(thread_id, normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE))
 
 
 def _set_thread_approval_mode(thread_id: str, mode: str) -> None:
-    """Persist the shared approval mode for a thread."""
+    """Persist the shared approval level for a thread (a shared conversation keeps Auto at most)."""
+    from row_bot.full_autonomy import cap_for_conversation
+
     _ensure_thread_db()
-    normalized = normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE)
+    normalized = cap_for_conversation(thread_id, normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE))
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "UPDATE thread_meta SET approval_mode = ? WHERE thread_id = ?",
