@@ -5,6 +5,7 @@
 
 Serves ``/api/chat`` and ``/api/generate``; ``/api/tags`` lists ``server.model``. Each token is written and
 flushed as its own chunk, so a client reading the stream sees hundreds of small chunks for a long answer.
+``tool_calls`` (Ollama's wire form) are sent in one chat chunk before the last, as the real server does.
 """
 
 from __future__ import annotations
@@ -23,11 +24,14 @@ class FakeOllama:
     model: str
     tokens: list[str]
     requests: list[dict] = field(default_factory=list)
+    tool_calls: list[dict] = field(default_factory=list)
 
 
 @contextmanager
-def fake_streaming_ollama(*, tokens: list[str], model: str = "fake-local:7b") -> Iterator[FakeOllama]:
-    state = FakeOllama(url="", model=model, tokens=list(tokens))
+def fake_streaming_ollama(
+    *, tokens: list[str], model: str = "fake-local:7b", tool_calls: list[dict] | None = None
+) -> Iterator[FakeOllama]:
+    state = FakeOllama(url="", model=model, tokens=list(tokens), tool_calls=list(tool_calls or ()))
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -70,7 +74,10 @@ def fake_streaming_ollama(*, tokens: list[str], model: str = "fake-local:7b") ->
             for token in state.tokens:
                 part = {"message": {"role": "assistant", "content": token}} if chat else {"response": token}
                 chunk({"model": state.model, "done": False, **part})
-            last = {"message": {"role": "assistant", "content": ""}} if chat else {"response": ""}
+            if chat and state.tool_calls:
+                calls = {"role": "assistant", "content": "", "tool_calls": state.tool_calls}
+                chunk({"model": state.model, "done": False, "message": calls})
+            last ={"message": {"role": "assistant", "content": ""}} if chat else {"response": ""}
             chunk({"model": state.model, "done": True, "done_reason": "stop", **last})
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
