@@ -73,6 +73,7 @@ import {
   type ConversationType,
 } from './conversation-groups';
 import { absoluteTime, ariaKeyShortcut } from '../../ui/format';
+import { useLearningChatMenu } from '../learning/chat-learning';
 
 const PREVIEW_COUNT = 10;
 const PINNED_PREVIEW_COUNT = 5;
@@ -306,6 +307,8 @@ export default function Navigation({
   const { controller, platform, conversationActionsOwner, goalProfileOwner } =
     useRuntime();
   const overlay = useOverlay();
+  // Learning (preview): "Don't learn from this chat" while Learning is on.
+  const learningMenuItem = useLearningChatMenu();
   const navigate = useNavigate();
   const location = useLocation();
   // Navigate before closing: closing the compact drawer pops its same-URL
@@ -691,6 +694,9 @@ export default function Navigation({
                 icon: <FileText size={16} />,
                 onSelect: () => openActions(conversation, 'pdf'),
               },
+              ...[learningMenuItem({ id: conversation.id, title })].filter(
+                (item) => item !== null,
+              ),
               {
                 label: 'Delete…',
                 icon: <Trash2 size={16} />,

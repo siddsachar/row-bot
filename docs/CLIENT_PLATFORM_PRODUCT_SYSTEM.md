@@ -554,7 +554,8 @@ explicit action. Controls keep 44px targets on coarse pointers.
 
 Home is five tabs under one `Home capabilities` tablist, addressed by
 `?tab=`: **Overview** (the default) · Workflows · Knowledge · Monitor ·
-Insights. `?tab=workflows&workflow=<id>` opens one workflow's runs and then
+Insights, and a sixth, **Learning**, while Learning (preview) is on in a build
+started with `ROW_BOT_LEARNING_PREVIEW=1` (see below). `?tab=workflows&workflow=<id>` opens one workflow's runs and then
 drops only the `workflow` parameter. Home shares its reads: the knowledge graph,
 the monitor snapshot and the first workflow page are reused for 20 s across
 tabs, and nothing is read before the workspace is connected.
@@ -640,6 +641,22 @@ tabs, and nothing is read before the workspace is connected.
   two-line summary, an expandable Why, one suggested action, and pin and
   dismiss icons; All | Pinned filters it. The skill library report renders as
   rows, never raw JSON.
+- **Learning** (preview; `?tab=learning&view=`) exists only while Learning is
+  on, paused or not, and only in a build with the preview flag (the handshake
+  offers `learning:preview`). A one-line header (Learning, On or Paused, quiet
+  hours and "N of M tokens this month", ⋯ with Pause or Resume, Learning
+  settings and Delete learning data…) sits over a segmented Overview · Changes
+  · Lessons · Personal model. Overview has Needs you, Overnight, What Row-Bot
+  is learning and How Row-Bot learns, each with its own empty line, and one
+  banner at a time for Paused (Resume) or Monthly limit reached (Raise limit);
+  "Reading 214 past chats · 61 done" shows a progress bar because its
+  denominator is real. Changes filters Ready · Testing · In use · Not used;
+  Lessons lists what Row-Bot saved for itself as Not tested, with search;
+  Personal model says what it is waiting for (set up, download, a graphics
+  card, Hugging Face). Nothing made up is shown as data. Settings › Learning,
+  the setup sheet (with the download ask as its second step), Teach on a reply
+  or a failed step, and "Don't learn from this chat" in the chat menus belong
+  to the same preview.
 
 ### Design and Developer panels
 

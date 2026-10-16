@@ -174,7 +174,10 @@ def _docker_bootstrap(binary: str, container_id: str, *, recover: bool = False) 
     source = Path(runtime.__file__).with_name("process_worker.py").read_text(encoding="utf-8")
     if len(source.encode("utf-8")) > 24 * 1024:
         raise ValueError("process_containment_unavailable")
-    return [binary, "exec", "-i", "-w", "/workspace", container_id,
+    from row_bot.developer.sandbox_runtime import sandbox_env_args
+
+    # The worker's commands see the packages Prepare sandbox installed (F18).
+    return [binary, "exec", "-i", "-w", "/workspace", *sandbox_env_args(), container_id,
             "python3", "-I", "-S", "-B", "-u", "-c", source, *(["--recover-owner"] if recover else [])]
 
 
@@ -339,7 +342,7 @@ def start_workspace_process(resource_id: str, conversation_id: str, command: str
         action = runtime.classify_command_action(command)
         if action in {"run_safe_command", "run_command"}:
             action = "start_server"
-        decision = decide_action(mode, action)
+        decision = decide_action(mode, action, by_person=True)  # The person starts it in the Run tab.
         decision = runtime._apply_docker_network_policy(workspace, action, decision)
         if decision.requires_approval and confirmed:
             decision = ApprovalDecision("allow", "Server confirmed this exact process command.")

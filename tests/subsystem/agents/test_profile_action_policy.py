@@ -602,7 +602,7 @@ def test_actual_graph_retains_exact_repeat_admission_once_per_dispatch(
     [
         ("approve", True, "Approval: asked; approved by you\nDeleted notes.txt"),
         ("approve", False, "Approval: asked; denied by you — did not run\nAction cancelled by user."),
-        ("allow_all", None, "Approval: not needed (Auto approval mode)\nDeleted notes.txt"),
+        ("full", None, "Approval: allowed by Hands-off\nDeleted notes.txt"),
     ],
 )
 def test_gated_results_say_whether_approval_was_needed_and_given(
@@ -728,17 +728,26 @@ def test_an_approval_shows_an_empty_nested_value_and_keeps_list_items_apart(runt
     assert asked[0]["description"] == 'Items: title Done, status empty\nTags: "a, b", c'
 
 
-def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypatch):
-    """Allow all lets routine actions run; an app tool that is destructive or of unknown effect still asks,
-    and says so, so an unattended run waits for the person instead of approving it."""
-    asked, deleted = [], []
+def test_an_approval_locked_app_tool_goes_to_the_reviewer_under_auto_and_runs_under_full(runtime, monkeypatch):
+    """An app tool that is destructive or of unknown effect: under Auto the reviewer is told its app's access
+    says to ask, and the person is asked when the reviewer asks; Hands-off runs it; Block refuses it."""
+    from row_bot.approval_review import ReviewVerdict
+
+    asked, deleted, reviewed = [], [], []
+    monkeypatch.setattr("row_bot.approval_review.review", lambda payload, *, risks=(), **_kw: reviewed.append(
+        tuple(risks)) or ReviewVerdict("ask", "You didn't ask to delete a page."))
     tool = StructuredTool.from_function(func=lambda page: deleted.append(page) or "Deleted", name="mcp_notes_delete_page",
                                         description="Delete a page")
     runtime._wrap_with_interrupt_gate(tool, always_ask=True)
-    runtime._approval_mode_var.set("allow_all")
+    runtime._approval_mode_var.set("auto")
     monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
     assert tool.invoke({"page": "Plans"}).startswith("Approval: asked; denied by you")
-    assert deleted == [] and asked[0]["always_ask"] is True and asked[0]["tool"] == "mcp_notes_delete_page"
+    assert deleted == [] and asked[0]["tool"] == "mcp_notes_delete_page"
+    assert asked[0]["review"]["reason"] == "You didn't ask to delete a page."
+    assert any("app's access says to ask" in risk for risk in reviewed[0])
+    runtime._approval_mode_var.set("full")
+    assert tool.invoke({"page": "Plans"}) == "Approval: allowed by Hands-off\nDeleted"
+    assert deleted == ["Plans"] and len(asked) == 1 and len(reviewed) == 1
     runtime._approval_mode_var.set("block")
     assert tool.invoke({"page": "Plans"}).startswith("BLOCKED") and len(asked) == 1
 

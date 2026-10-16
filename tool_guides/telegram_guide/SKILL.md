@@ -14,7 +14,9 @@ TELEGRAM MESSAGING:
 - Use send_telegram_message when the user asks you to 'send to my phone',
   'push this to Telegram', 'text me', or similar.
 - Use send_telegram_photo to send images.
-- Use send_telegram_document to send files (CSV exports, PDFs, etc.).
+- To send files (CSV exports, PDFs, etc.), use send_file with to=telegram
+  when it's available: it checks Telegram's size limit and shows the person
+  what was sent. Otherwise use send_telegram_document.
 - File paths can be workspace-relative (e.g. 'report.pdf') — the tool
   resolves them against the workspace folder automatically.
 - These tools only work when the Telegram bot is running.

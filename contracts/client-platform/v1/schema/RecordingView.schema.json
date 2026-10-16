@@ -1,0 +1,140 @@
+{
+  "additionalProperties": false,
+  "description": "A recording of Row-Bot's browser or of the screen (F2); its video is saved to its conversation's files.",
+  "properties": {
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "ended_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Ended At"
+    },
+    "kind": {
+      "enum": [
+        "browser",
+        "screen"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "max_seconds": {
+      "minimum": 1,
+      "title": "Max Seconds",
+      "type": "integer"
+    },
+    "media_ref": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Media Ref"
+    },
+    "mime_type": {
+      "anyOf": [
+        {
+          "const": "video/mp4",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Mime Type"
+    },
+    "problem": {
+      "enum": [
+        "",
+        "not_saved",
+        "too_large",
+        "nothing_recorded"
+      ],
+      "title": "Problem",
+      "type": "string"
+    },
+    "recording_id": {
+      "pattern": "^rec-[0-9a-f]{8}$",
+      "title": "Recording Id",
+      "type": "string"
+    },
+    "seconds": {
+      "minimum": 0,
+      "title": "Seconds",
+      "type": "number"
+    },
+    "size_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Size Bytes"
+    },
+    "started_at": {
+      "maxLength": 80,
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "recording",
+        "saving",
+        "saved",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "stopped_by": {
+      "enum": [
+        "",
+        "you",
+        "agent",
+        "limit",
+        "size",
+        "conversation",
+        "quit",
+        "closed",
+        "error"
+      ],
+      "title": "Stopped By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "recording_id",
+    "conversation_id",
+    "kind",
+    "status",
+    "started_at",
+    "ended_at",
+    "seconds",
+    "max_seconds",
+    "stopped_by",
+    "media_ref",
+    "mime_type",
+    "size_bytes",
+    "problem"
+  ],
+  "title": "RecordingView",
+  "type": "object"
+}

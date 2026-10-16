@@ -71,6 +71,12 @@ _LOCAL_APPLICATION_CAPABILITIES = (
     "computer:interactive",
 )
 _PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
+
+
+def _learning_preview() -> bool:
+    from row_bot import learning
+
+    return learning.preview_enabled()
 # Settings actions that act on this computer's screen (Computer Use's test
 # opens Calculator; the others open macOS System Settings): desktop app only.
 _SCREEN_SETTINGS_ACTIONS = frozenset({
@@ -352,6 +358,23 @@ _STATUS.update(
         "insight_proposal_finished": 409,
         "insight_proposal_draft_only": 409,
         "insight_receipt_unavailable": 404,
+        "learning_unavailable": 404,
+        "invalid_learning_command": 422,
+        "learning_revision_conflict": 409,
+        "learning_off": 409,
+        "learning_paused": 409,
+        "learning_chat_not_used": 409,
+        "learning_data_missing": 409,
+        "learning_data_busy": 409,
+        "learning_settings_unavailable": 409,
+        "learning_save_unconfirmed": 503,
+        "learning_receipt_unavailable": 404,
+        "learning_nothing_to_train": 409,
+        "learning_training_changed": 409,
+        "learning_download_unavailable": 409,
+        "learning_not_enough_disk": 409,
+        "learning_download_busy": 409,
+        "learning_download_changed": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
@@ -1003,6 +1026,25 @@ _STATUS.update(
     {
         "process_policy_denied": 403,
         "process_unavailable": 404,
+        "recording_unavailable": 404,
+        "local_address_unavailable": 404,
+        "video_edit_unavailable": 404,
+        "sent_file_unavailable": 404,
+        "sent_file_expired": 410,
+        "sent_files_gone": 409,
+        # The workspace root's folder browser (F19) and a clone's network check.
+        "workspace_folder_refused": 403,
+        "workspace_folder_unavailable": 404,
+        "workspace_folder_root": 422,
+        "clone_blocked": 403,
+        "clone_confirmation_required": 409,
+        # Prepare sandbox and the sandbox image (F18).
+        "sandbox_unavailable": 404,
+        "sandbox_job_unavailable": 404,
+        "sandbox_docker_required": 409,
+        "sandbox_nothing_to_install": 409,
+        "sandbox_runtime_unavailable": 409,
+        "sandbox_prepare_blocked": 403,
         "process_history_unavailable": 503,
         "process_limit": 429,
     }
@@ -1032,6 +1074,10 @@ _STATUS.update(
 
 
 _STATUS.update(dict.fromkeys(('plan_changed', 'plan_unsupported', 'plan_not_resumable', 'invalid_access_preset', 'invalid_integration_query', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
+# An address pasted back to finish a sign-in from another device: not that address, another sign-in's, already
+# used, or its sign-in has ended.
+_STATUS.update({"mcp_auth_address_invalid": 422, "mcp_auth_address_other": 409, "mcp_auth_address_used": 409,
+                "mcp_auth_address_expired": 409})
 
 _STATUS.update(dict.fromkeys(('integration_link_unsupported', 'invalid_upload', 'unsupported_upload', 'unsafe_upload',
                               'bundle_signature_invalid', 'bundle_unsupported'), 422))
@@ -1195,23 +1241,28 @@ def cached_choices() -> dict:
     """Read existing caches/catalogues; opening a client never refreshes a provider."""
     from row_bot.providers.model_catalog_cache import read_model_catalog_cache
     from row_bot.providers.client_status import picker_choices
+    from row_bot.providers.model_visibility import annotate
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
     snapshot = read_model_catalog_cache()
-    # The composer offers the Brain picker's list, judged by the same rule.
-    models = [
-        {
-            "provider_id": option["provider_id"],
-            "model_ref": option["selection_ref"],
-            "label": option["label"],
-            "available": option["available"],
-            "unavailable_reason": option["unavailable_reason"],
-            "billing": option["billing"],
-        }
-        for option in picker_choices("chat")
-    ]
+    # The composer offers the Brain picker's list, judged by the same rule,
+    # with each person's favourites and hidden models marked (F10).
+    models = annotate(
+        (
+            {
+                "provider_id": option["provider_id"],
+                "model_ref": option["selection_ref"],
+                "label": option["label"],
+                "available": option["available"],
+                "unavailable_reason": option["unavailable_reason"],
+                "billing": option["billing"],
+            }
+            for option in picker_choices("chat")
+        ),
+        key="model_ref",
+    )
     capabilities = []
 
     def add(identifier: str, enabled: bool, destructive: bool) -> None:
@@ -1489,6 +1540,8 @@ def create_router(
                 "application_capabilities": [
                     *_APPLICATION_CAPABILITIES,
                     *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                    # Learning (preview) surfaces exist only in a build with its flag (O34).
+                    *(("learning:preview",) if _learning_preview() else ()),
                 ],
                 "presentation_capabilities": sorted(
                     set(body.presentation_features) & _PRESENTATION_FEATURES
@@ -2626,6 +2679,37 @@ def create_router(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    # Local addresses (F4): what this conversation's browser may open now, and Remove.
+    @router.get("/conversations/{conversation_id}/browser/local-addresses")
+    async def browser_local_addresses(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        from row_bot.application.recording_views import read_local_addresses
+
+        await call(validate)
+        result = await call(read_local_addresses, conversation_id)
+        return await respond(request, dto.LocalAddressPage, result)
+
+    @router.post("/conversations/{conversation_id}/browser/local-addresses/{grant_id}/remove")
+    async def remove_browser_local_address(
+        conversation_id: str, grant_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        if len(grant_id or "") != 32 or any(char not in "0123456789abcdef" for char in grant_id):
+            raise ProtocolError("local_address_unavailable", 404)
+        from row_bot.application.recording_views import remove_local_address
+
+        await call(validate)
+        result = await call(remove_local_address, conversation_id, grant_id)
+        if result is None:
+            raise ProtocolError("local_address_unavailable", 404)
+        return await respond(request, dto.LocalAddressPage, result)
+
     @router.post("/conversations/{conversation_id}/browser/review")
     async def browser_control_review(
         conversation_id: str, request: Request
@@ -3238,6 +3322,7 @@ def create_router(
         validate_access = dispatch_validation(request, current)
         folder = None
         native_folder_scope = None
+        root_folder: tuple[str, bool] | None = None
         if (
             body.type == "resource.setup"
             and body.payload.get("intent") == "new_conversation"
@@ -3245,6 +3330,25 @@ def create_router(
         ):
             # A saved-workspace conversation never consumes a folder capability.
             raise ProtocolError("invalid_command", 422)
+        if body.type in {"resource.setup", "resource.continue"} and body.payload.get(
+            "root_folder"
+        ) is not None:
+            # A folder chosen in the workspace root's folder browser (F19), from any signed-in
+            # device: checked against the root here and again just before the setup runs.
+            from row_bot.developer import workspace_folders
+
+            root_folder = (
+                str(body.payload["root_folder"]),
+                body.type == "resource.continue"
+                or body.payload.get("clone_workspace") is not None
+                or body.payload.get("empty_workspace") is not None,
+            )
+            try:
+                folder = await call(
+                    workspace_folders.authorize, root_folder[0], parent=root_folder[1]
+                )
+            except workspace_folders.FolderRefused as exc:
+                raise ProtocolError(exc.code, _STATUS[exc.code]) from None
         if body.type in {"resource.setup", "resource.continue"} and body.payload.get(
             "folder_grant"
         ):
@@ -3289,7 +3393,16 @@ def create_router(
                     body.payload["nonce"],
                     str(body.command_id),
                 )
-            if folder is not None:
+            if root_folder is not None:
+                from row_bot.developer import workspace_folders
+
+                try:
+                    again = workspace_folders.authorize(root_folder[0], parent=root_folder[1])
+                except workspace_folders.FolderRefused as exc:
+                    raise ProtocolError(exc.code, _STATUS[exc.code]) from None
+                if again.path != folder.path or again.scope_root != folder.scope_root:
+                    raise ProtocolError("workspace_folder_refused", 403)
+            elif folder is not None:
                 if native_folder_scope is not None:
                     validate_native_folder(native_folder_scope)
                     if not folder.path.is_dir():
@@ -4431,7 +4544,7 @@ def create_router(
         except ValueError:
             redirect = ""
         return Context(owner_id=await integration_owner(request), mcp_owner_id=security.instance_id,
-            validate=dispatch_validation(request, current),
+            validate=dispatch_validation(request, current), remote=not on_this_computer(await _context(request)),
             redirect_uri=redirect, runtimes=runtime_installations, read_policy=installation_policy, **fields)
 
     @router.get("/integrations/sources")
@@ -4687,6 +4800,16 @@ def create_router(
                                      review_digest=body.review_digest)
         result = await call(resume, context, str(plan_id), preset=body.preset,
             overrides=None if body.overrides is None else dict(body.overrides), background=True)
+        return await respond(request, dto.InstallPlan, result)
+
+    @router.post("/integrations/plans/{plan_id}/sign-in")
+    async def integration_plan_sign_in(plan_id: UUID, request: Request) -> JSONResponse:
+        """Finish this plan's sign-in from another device with the address its browser ended on. The address is
+        only read (its state and code), never fetched; the session that sends it must be signed in."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.PlanSignInRequest, 16384)
+        from row_bot.integrations.plans import finish_sign_in
+        result = await call(finish_sign_in, await plan_context(request, current), str(plan_id), body.address)
         return await respond(request, dto.InstallPlan, result)
 
     @router.post("/integrations/plans/{plan_id}/cancel")
@@ -5216,6 +5339,318 @@ def create_router(
 
         result = await call(read_monitor_logs, limit=limit)
         return await respond(request, dto.MonitorLogs, result)
+
+    # Background processes (F1, F6): a person sees and stops every one, whichever
+    # conversation started it; stopping one Row-Bot started needs no approval.
+    def _process_id(value: str) -> str:
+        from row_bot.background_processes import PROCESS_ID
+
+        if not PROCESS_ID.fullmatch(str(value or "")):
+            raise ProtocolError("process_unavailable", 404)
+        return value
+
+    @router.get("/processes")
+    async def list_background_processes(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_processes
+
+        result = await call(read_background_processes, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.BackgroundProcessPage, result)
+
+    @router.get("/processes/{process_id}")
+    async def background_process(request: Request, process_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process
+
+        result = await call(read_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    @router.get("/processes/{process_id}/output")
+    async def background_process_output(
+        request: Request, process_id: str, after: int = 0, limit: int = 65536
+    ) -> JSONResponse:
+        await session(request)
+        from row_bot.application.background_process_views import read_background_process_output
+
+        if after < 0 or not 1 <= limit <= 65536:
+            raise ProtocolError("process_cursor_invalid", 422)
+        result = await call(read_background_process_output, _process_id(process_id), after, limit)
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessOutput, result)
+
+    @router.post("/processes/{process_id}/stop")
+    async def stop_background_process_route(request: Request, process_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.background_process_views import stop_background_process
+
+        result = await call(stop_background_process, _process_id(process_id))
+        if result is None:
+            raise ProtocolError("process_unavailable", 404)
+        return await respond(request, dto.BackgroundProcessView, result)
+
+    # Recordings (F2): a person sees and stops every one; stopping needs no approval.
+    def _recording_id(value: str) -> str:
+        from row_bot.recordings import RECORDING_ID
+
+        if not RECORDING_ID.fullmatch(str(value or "")):
+            raise ProtocolError("recording_unavailable", 404)
+        return value
+
+    @router.get("/recordings")
+    async def list_recordings(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.recording_views import read_recordings
+
+        result = await call(read_recordings, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.RecordingPage, result)
+
+    @router.get("/recordings/{recording_id}")
+    async def recording(request: Request, recording_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.recording_views import read_recording
+
+        result = await call(read_recording, _recording_id(recording_id))
+        if result is None:
+            raise ProtocolError("recording_unavailable", 404)
+        return await respond(request, dto.RecordingView, result)
+
+    @router.post("/recordings/{recording_id}/stop")
+    async def stop_recording_route(request: Request, recording_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.recording_views import stop_recording
+
+        result = await call(stop_recording, _recording_id(recording_id))
+        if result is None:
+            raise ProtocolError("recording_unavailable", 404)
+        return await respond(request, dto.RecordingView, result)
+
+    # Video edits (F3): a person sees and stops every one; stopping needs no approval.
+    def _edit_id(value: str) -> str:
+        from row_bot.video_edits import EDIT_ID
+
+        if not EDIT_ID.fullmatch(str(value or "")):
+            raise ProtocolError("video_edit_unavailable", 404)
+        return value
+
+    # The Developer workspace root's folders (F19): folders only, for attaching a code folder
+    # from a device with no folder picker. Every path is checked against the root.
+    @router.get("/workspace-folders")
+    async def workspace_folder_page(request: Request, path: str = "") -> JSONResponse:
+        await session(request)
+        from row_bot.developer import workspace_folders
+
+        try:
+            result = await call(workspace_folders.browse, path[:1025])
+        except workspace_folders.FolderRefused as exc:
+            raise ProtocolError(exc.code, _STATUS[exc.code]) from None
+        return await respond(request, dto.WorkspaceFolderPage, result)
+
+    # Prepare sandbox and the sandbox image (F18). The person's own start is confirmed in the app;
+    # Block refuses it. A person sees and stops every job; stopping needs no approval.
+    def _sandbox_failure(exc: Exception) -> ProtocolError:
+        code = getattr(exc, "code", "sandbox_unavailable")
+        return ProtocolError(code, _STATUS.get(code, 409))
+
+    def _sandbox_job_id(value: str) -> str:
+        from row_bot.developer.sandbox_prepare import JOB_ID
+
+        if not JOB_ID.fullmatch(str(value or "")):
+            raise ProtocolError("sandbox_job_unavailable", 404)
+        return value
+
+    @router.get("/conversations/{conversation_id}/sandbox")
+    async def conversation_sandbox(request: Request, conversation_id: str) -> JSONResponse:
+        await session(request)
+        await readable_conversation(conversation_id)
+        from row_bot.application.sandbox_views import SandboxViewError, read_status
+
+        try:
+            result = await call(read_status, conversation_id)
+        except SandboxViewError as exc:
+            raise _sandbox_failure(exc) from None
+        return await respond(request, dto.SandboxStatusView, result)
+
+    async def _start_sandbox_job(request: Request, conversation_id: str, kind: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        await readable_conversation(conversation_id)
+        await _body(request, dto.SandboxStartPayload, 1024)
+        from row_bot.application.sandbox_views import SandboxViewError, start_job
+
+        try:
+            result = await call(start_job, conversation_id, kind)
+        except SandboxViewError as exc:
+            raise _sandbox_failure(exc) from None
+        return await respond(request, dto.SandboxJobView, result)
+
+    @router.post("/conversations/{conversation_id}/sandbox/prepare")
+    async def prepare_conversation_sandbox(request: Request, conversation_id: str) -> JSONResponse:
+        return await _start_sandbox_job(request, conversation_id, "prepare")
+
+    @router.post("/conversations/{conversation_id}/sandbox/pull")
+    async def pull_conversation_sandbox_image(request: Request, conversation_id: str) -> JSONResponse:
+        return await _start_sandbox_job(request, conversation_id, "pull")
+
+    @router.get("/sandbox-jobs")
+    async def list_sandbox_jobs(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.sandbox_views import read_jobs
+
+        result = await call(read_jobs, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.SandboxJobPage, result)
+
+    @router.get("/sandbox-jobs/{job_id}")
+    async def sandbox_job(request: Request, job_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.sandbox_views import read_job
+
+        result = await call(read_job, _sandbox_job_id(job_id))
+        if result is None:
+            raise ProtocolError("sandbox_job_unavailable", 404)
+        return await respond(request, dto.SandboxJobView, result)
+
+    @router.post("/sandbox-jobs/{job_id}/stop")
+    async def stop_sandbox_job(request: Request, job_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.sandbox_views import stop_job
+
+        result = await call(stop_job, _sandbox_job_id(job_id))
+        if result is None:
+            raise ProtocolError("sandbox_job_unavailable", 404)
+        return await respond(request, dto.SandboxJobView, result)
+
+    @router.get("/video-edits")
+    async def list_video_edits(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_edit_views import read_video_edits
+
+        result = await call(read_video_edits, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.VideoEditPage, result)
+
+    @router.get("/video-edits/{edit_id}")
+    async def video_edit(request: Request, edit_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_edit_views import read_video_edit
+
+        result = await call(read_video_edit, _edit_id(edit_id))
+        if result is None:
+            raise ProtocolError("video_edit_unavailable", 404)
+        return await respond(request, dto.VideoEditView, result)
+
+    @router.post("/video-edits/{edit_id}/stop")
+    async def stop_video_edit_route(request: Request, edit_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_edit_views import stop_video_edit
+
+        result = await call(stop_video_edit, _edit_id(edit_id))
+        if result is None:
+            raise ProtocolError("video_edit_unavailable", 404)
+        return await respond(request, dto.VideoEditView, result)
+
+    # Files sent to the person's devices or a chat app (F7). Every signed-in device is the owner's,
+    # so each sees every delivery; a download needs the session and ends when its copy expires.
+    def _delivery(value: str, index: str | None = None) -> tuple[str, int]:
+        from row_bot.file_deliveries import DELIVERY_ID
+
+        if not DELIVERY_ID.fullmatch(str(value or "")):
+            raise ProtocolError("sent_file_unavailable", 404)
+        if index is None:
+            return value, -1
+        if not str(index).isdigit() or len(str(index)) > 2:
+            raise ProtocolError("sent_file_unavailable", 404)
+        return value, int(index)
+
+    def _delivery_failure(exc: Exception) -> ProtocolError:
+        code = getattr(exc, "code", "sent_file_unavailable")
+        return ProtocolError(code, _STATUS.get(code, 404))
+
+    @router.get("/deliveries")
+    async def list_deliveries(request: Request, conversation_id: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.delivery_views import read_deliveries
+
+        result = await call(read_deliveries, (conversation_id or "")[:256] or None)
+        return await respond(request, dto.DeliveryPage, result)
+
+    @router.get("/deliveries/{delivery_id}")
+    async def delivery(request: Request, delivery_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.delivery_views import read_delivery
+
+        result = await call(read_delivery, _delivery(delivery_id)[0])
+        if result is None:
+            raise ProtocolError("sent_file_unavailable", 404)
+        return await respond(request, dto.DeliveryView, result)
+
+    @router.get("/deliveries/{delivery_id}/files/{index}")
+    async def delivery_file(request: Request, delivery_id: str, index: str) -> Response:
+        current = await session(request)
+        from urllib.parse import quote
+
+        from row_bot.file_deliveries import CHUNK_BYTES, DeliveryError, open_file
+
+        identifier, number = _delivery(delivery_id, index)
+        try:
+            name, size, handle = await call(open_file, identifier, number)
+        except DeliveryError as exc:
+            raise _delivery_failure(exc) from None
+
+        async def chunks() -> Any:
+            try:
+                while True:
+                    # The person's session is checked again for every part sent.
+                    security.session(await _context(request), current.id, current.csrf)
+                    data = await call(handle.read, CHUNK_BYTES)
+                    if not data:
+                        return
+                    yield data
+            except ProtocolError:
+                return
+            finally:
+                handle.close()
+
+        return StreamingResponse(
+            chunks(),
+            # Never shown in the page: always a download, whatever the file is.
+            media_type="application/octet-stream",
+            headers={
+                **HEADERS,
+                "Content-Length": str(size),
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name, safe=""),
+            },
+        )
+
+    @router.post("/deliveries/{delivery_id}/files/{index}/save")
+    async def delivery_file_save(request: Request, delivery_id: str, index: str) -> JSONResponse:
+        """The desktop window can't download (B275): the file is saved into Exports on this computer."""
+        current = await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        from row_bot.application.export_folder import save_export
+        from row_bot.file_deliveries import DeliveryError, read_file
+
+        identifier, number = _delivery(delivery_id, index)
+        try:
+            name, data = await call(read_file, identifier, number)
+        except DeliveryError as exc:
+            raise _delivery_failure(exc) from None
+        result = await call(save_export, name, data, validate=dispatch_validation(request, current))
+        return await respond(request, dto.ExportSaved, result)
+
+    @router.post("/deliveries/{delivery_id}/to-devices")
+    async def delivery_to_devices(request: Request, delivery_id: str) -> JSONResponse:
+        """The person's own "Send to your devices instead": no approval (their own devices)."""
+        await session(request, lane="mutation")
+        from row_bot.application.delivery_views import send_to_devices_instead
+        from row_bot.file_deliveries import DeliveryError
+
+        try:
+            result = await call(send_to_devices_instead, _delivery(delivery_id)[0])
+        except DeliveryError as exc:
+            raise _delivery_failure(exc) from None
+        return await respond(request, dto.DeliveryView, result)
 
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
@@ -7905,6 +8340,29 @@ def create_router(
             raise ProtocolError(str(exc), 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
 
+    @router.post("/settings/models/visibility")
+    async def models_visibility_update(request: Request) -> JSONResponse:
+        # A display preference (F10): favourites first, hidden models under
+        # "More models". It never changes which model a chat uses.
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ModelVisibilityMutation, 2048)
+        from row_bot.providers.config import ProviderConfigError
+        from row_bot.providers.model_visibility import update_model_visibility
+
+        try:
+            result = await call(
+                update_model_visibility,
+                body.action,
+                body.model_ref,
+                validate=dispatch_validation(request, current),
+            )
+        except ProviderConfigError as exc:
+            # The settings file can't be read or written right now.
+            raise ProtocolError(exc.code, 503) from None
+        except ValueError as exc:
+            raise ProtocolError(str(exc), 422) from None
+        return await respond(request, dto.ModelVisibilityState, result.as_dict())
+
     @router.get("/settings/models/agents")
     async def models_agent_settings(request: Request) -> JSONResponse:
         current = await session(request)
@@ -9084,6 +9542,114 @@ def create_router(
         )
         return await respond(request, dto.InsightReceipt, result)
 
+    # Learning (preview): every route answers learning_unavailable without the flag (O34).
+    @router.get("/learning")
+    async def learning_snapshot(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning
+
+        return await respond(
+            request,
+            dto.LearningSnapshot,
+            await call(read_learning, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/training")
+    async def learning_training(request: Request) -> JSONResponse:
+        # Polled by Monitor's row and the Personal model view while a run is live.
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_training
+
+        return await respond(
+            request,
+            dto.LearningTraining,
+            await call(read_learning_training, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/download")
+    async def learning_download(request: Request) -> JSONResponse:
+        # Polled by Monitor's row and the Personal model view while the download runs.
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_download
+
+        return await respond(
+            request,
+            dto.LearningDownload,
+            await call(read_learning_download, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/hardware")
+    async def learning_hardware(request: Request, refresh: bool = False) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_hardware
+
+        return await respond(
+            request,
+            dto.LearningHardware,
+            await call(
+                read_learning_hardware,
+                validate=dispatch_validation(request, current),
+                refresh=refresh,
+            ),
+        )
+
+    @router.get("/learning/conversations/{conversation_id}")
+    async def learning_conversation(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_conversation
+
+        return await respond(
+            request,
+            dto.LearningConversation,
+            await call(
+                read_learning_conversation,
+                conversation_id,
+                validate=dispatch_validation(request, current),
+            ),
+        )
+
+    @router.get("/learning/lessons")
+    async def learning_lessons(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_lessons
+
+        return await respond(
+            request,
+            dto.LearningLessonPage,
+            await call(read_learning_lessons, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/commands/{command_id}")
+    async def learning_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_receipt
+
+        result = await call(
+            read_learning_receipt,
+            str(command_id),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.LearningReceipt, result)
+
+    @router.post("/learning/commands")
+    async def learning_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.LearningCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_learning import execute_learning
+
+        result = await call(
+            execute_learning,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.LearningReceipt, result)
+
     # Settings › Data (decision 21), from any signed-in device.
     _DATA_RECEIPTS: dict[str, dict] = {}
 
@@ -9931,6 +10497,8 @@ def create_router(
                 "setup",
                 "app",
                 "repeatable",
+                "reviewer_reason",
+                "question",
                 "policy_revision",
             )
             if k in view

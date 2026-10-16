@@ -128,6 +128,14 @@ class TrackedProcess:
     remote_receipt: dict | None = None
     remote_done: threading.Event = field(default_factory=threading.Event)
     host_quiesced: bool = False
+    # The command's own process, as the worker reported it (the worker is ``process``).
+    child_pid: int | None = None
+    # Each piece of output as it arrives, for an owner that keeps its own log.
+    on_output: Callable[[str, str], None] | None = None
+    # A command that ends on its own leaves anything it deliberately launched (an app it
+    # opened) running, as a plain subprocess did; Stop still ends the whole tree.
+    release_on_exit: bool = False
+    registry_key: str = ""
 
     def __post_init__(self):
         self.changed = threading.Condition(self.lock)
@@ -144,6 +152,11 @@ class TrackedProcess:
                 self.output_bytes -= self.output.popleft()[3]
                 self.truncated = True
             self.changed.notify_all()
+        if self.on_output is not None:
+            try:
+                self.on_output(channel, value)
+            except Exception:
+                logger.debug("A process output observer failed", exc_info=True)
 
 
 def tracked_processes(workspace_path: str) -> tuple[TrackedProcess, ...]:
@@ -160,10 +173,28 @@ def _retirable_tracked_process(process: subprocess.Popen) -> bool:
                 (state.on_quiesced is None or state.finalization_complete))
 
 
+def retire_tracked_process(state: TrackedProcess) -> bool:
+    """Drop a finished owner from the registry once its cleanup and history are complete."""
+    with _PROCESS_LOCK:
+        entries = _ACTIVE_PROCESSES.get(state.registry_key)
+        if not entries or state.process not in entries or not _retirable_tracked_process(state.process):
+            return False
+        entries.remove(state.process)
+        if not entries:
+            del _ACTIVE_PROCESSES[state.registry_key]
+        return True
+
+
+def _releases_on_exit(state: TrackedProcess) -> bool:
+    """A command that ended on its own (not stopped) leaves what it deliberately launched running."""
+    return state.release_on_exit and not state.stop_requested and state.process.poll() is not None
+
+
 def _close_process_containment(state: TrackedProcess) -> bool:
     with state.lifetime_lock:
         if state.containment_closed is not None:
             return state.containment_closed
+        release = _releases_on_exit(state)
         if state.verify_receipt and not state.remote_done.is_set():
             def request_remote_stop():
                 try:
@@ -176,7 +207,9 @@ def _close_process_containment(state: TrackedProcess) -> bool:
             state.threads.append(sender)
             sender.start()
             state.remote_done.wait(timeout=_REMOTE_STOP_TIMEOUT)
-        if state.job is not None:
+        if release:
+            closed = state.job.release() if state.job is not None else True
+        elif state.job is not None:
             closed = state.job.close()
         elif os.name != "nt":
             try:
@@ -250,6 +283,7 @@ def _read_process_frames(state: TrackedProcess) -> None:
                     raise ValueError("process_output_invalid")
                 started = True
                 with state.lock:
+                    state.child_pid = value["pid"]
                     if not state.stop_requested:
                         state.state = "running"
                 state.ready.set()
@@ -373,8 +407,18 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
         validate: Callable[[], None] | None = None, startup_timeout: float = 15,
         bootstrap_argv: list[str] | None = None, request_fields: dict | None = None,
         verify_receipt: Callable[[dict], dict] | None = None,
-        on_owner: Callable[[TrackedProcess], None] | None = None) -> TrackedProcess:
-    """Start only after trusted bootstrap containment and current admission."""
+        on_owner: Callable[[TrackedProcess], None] | None = None,
+        env: dict[str, str] | None = None,
+        on_output: Callable[[str, str], None] | None = None,
+        release_on_exit: bool = False,
+        registry_key: str | None = None) -> TrackedProcess:
+    """Start only after trusted bootstrap containment and current admission.
+
+    ``env`` adds variables to the command's environment (Row-Bot's own, without its keys);
+    ``on_output`` sees each piece of output as it arrives; ``release_on_exit`` lets what a
+    command that ended on its own launched keep running (Stop still ends the whole tree);
+    ``registry_key`` keeps the owner in its own bucket of the one registry (default: the folder).
+    """
     identity = process_id or str(uuid.uuid4())
     if bootstrap_argv is None and sys.platform.startswith("linux"):
         if verify_receipt is None:
@@ -383,12 +427,17 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
             from row_bot.developer.process_worker import verify_receipt as check_receipt
             secret, target = os.urandom(32), "0" * 64
             request_fields = {"owner_id": identity, "container_id": target, "key": secret.hex()}
+            if release_on_exit:
+                request_fields["release"] = True
             def verify_receipt(receipt):
                 return check_receipt(receipt, identity, target, secret)
     request = json.dumps({**(request_fields or {}), "argv": argv}, ensure_ascii=True).encode("ascii") + b"\n"
     if len(request) > 32768:
         raise ValueError("process_command_too_large")
-    key = str(root.resolve())
+    environment = _command_environment()
+    if env:
+        environment.update(env)
+    key = registry_key or str(root.resolve())
     with _PROCESS_LOCK:
         while sum(len(values) for values in _ACTIVE_PROCESSES.values()) >= 128:
             old = next(((name, proc) for name, values in _ACTIVE_PROCESSES.items() for proc in values
@@ -406,8 +455,8 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
             if old is None:
                 raise ValueError("process_limit")
             entries.remove(old)
-        kwargs = {"cwd": key, "stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
-                  "stderr": subprocess.PIPE, "shell": False, "close_fds": True, "env": _command_environment()}
+        kwargs = {"cwd": str(root.resolve()), "stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
+                  "stderr": subprocess.PIPE, "shell": False, "close_fds": True, "env": environment}
         if os.name != "nt":
             kwargs["start_new_session"] = True
         process = subprocess.Popen(bootstrap_argv or [_worker_interpreter(), "-I", "-S", "-B",
@@ -415,6 +464,9 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
         state = TrackedProcess(identity, command, dict(metadata or {}), process, on_quiesced)
         state.guard = validate
         state.verify_receipt = verify_receipt
+        state.on_output = on_output
+        state.release_on_exit = release_on_exit
+        state.registry_key = key
         process._row_bot_state = state
         entries.append(process)
     try:
@@ -1101,8 +1153,12 @@ def start_workspace_process(
     *,
     workspace_id: str = "",
     thread_id: str = "",
+    confirmed: bool = False,
 ) -> CommandResult:
     """Start a tracked long-running process for later cleanup.
+
+    ``confirmed``: the approval it needs was given (by the person, or by the level through
+    ``tools.approval_gate``).
 
     This is intentionally small for the first Developer phase. The UI does not
     expose arbitrary server starts yet, but this gives future preview/server
@@ -1115,6 +1171,8 @@ def start_workspace_process(
     if action in {"run_safe_command", "run_command"}:
         action = "start_server"
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
+    if decision.requires_approval and confirmed:
+        decision = ApprovalDecision("allow", "User explicitly approved this server command.")
     if decision.decision != "allow":
         return CommandResult(command=command, cwd=str(root), returncode=None, stderr=decision.reason, decision=decision)
 

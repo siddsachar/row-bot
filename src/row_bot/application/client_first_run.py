@@ -27,6 +27,8 @@ OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 _TEST_PROMPT = "Reply with exactly one word: ready"
 _TEST_TIMEOUT_SECONDS = 180.0
 _KEY_CHECK_TIMEOUT_SECONDS = 20.0
+# Setup suggests at most this many local models before "Show all models" (F10).
+RECOMMENDED_PICKS = 3
 
 
 def platform_name() -> str:
@@ -67,9 +69,30 @@ def local_models() -> list[str]:
     return list_local_models()
 
 
+def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[str]) -> None:
+    """Mark Row-Bot's suggested first picks (F10).
+
+    A pick is a chat model that can use Row-Bot's tools (the same judgement as
+    "Chat only"), not an embedding model, and not already a favourite or hidden.
+    The saved default comes first, then the runtime's order.
+    """
+    from row_bot.providers.ollama import is_ollama_chat_candidate
+
+    picks = [row for row in models if row["agent_ready"] is True and row["model_ref"] not in skip
+             and is_ollama_chat_candidate(row["name"])]
+    picks.sort(key=lambda row: row["model_ref"] != default)
+    for row in picks[:RECOMMENDED_PICKS]:
+        row["recommended"] = True
+
+
 def detect_local_runtime() -> dict[str, Any]:
-    """Loopback-only detection; lists models only when the runtime answers."""
+    """Loopback-only detection; lists models only when the runtime answers.
+
+    Each model says whether it is a favourite or hidden and whether Row-Bot
+    suggests it first (F10); Setup and Settings › Models list them that way.
+    """
     from row_bot.models import is_tool_compatible
+    from row_bot.providers.model_visibility import annotate, read_model_visibility
 
     running = ollama_running()
     names = local_models() if running else []
@@ -82,6 +105,10 @@ def detect_local_runtime() -> dict[str, Any]:
         except Exception:
             agent_ready = None
         models.append({"model_ref": f"model:ollama:{name}", "name": name, "agent_ready": agent_ready})
+    if models:
+        shown = read_model_visibility()
+        _recommend(models, default=saved_default_model(), skip={*shown.favourites, *shown.hidden})
+        models = annotate(models, key="model_ref", visibility=shown)
     return {
         "schema_version": 1,
         "state": "running" if running else "installed" if ollama_installed() else "not_installed",

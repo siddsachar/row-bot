@@ -1987,6 +1987,7 @@ button.overview-stat:hover {
 .task-graph-steps {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 .task-graph-editor .task-graph-list {
   display: grid;
@@ -2077,6 +2078,299 @@ button.overview-stat:hover {
 .task-graph-form-actions {
   display: flex;
   gap: 2px;
+}
+/* The flowchart takes the room; the step form becomes the side panel. */
+.task-graph-body[data-view='flowchart'] {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+}
+@container builder (max-width: 760px) {
+  .task-graph-body[data-view='flowchart'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.task-graph-steps-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.task-graph-problems,
+.task-graph-form-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.task-graph-problems > svg,
+.task-graph-form-issue > svg {
+  flex: none;
+  margin-top: 3px;
+}
+/* The same look as the editor's other alerts: a quiet card, a danger edge. */
+.task-graph-form-issue {
+  padding: 8px 10px;
+  border-inline-start: 2px solid var(--status-danger-text);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+  color: var(--text-primary);
+}
+.task-graph-form-issue > svg {
+  color: var(--status-danger-text);
+}
+.task-graph-step-issue {
+  grid-column: 2;
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+
+/* Workflow flowchart (F23) ------------------------------------------------ */
+.workflow-chart {
+  --chart-line: var(--border-control);
+  /* Room for most workflows beside the form; longer ones scroll inside. */
+  max-height: min(max(360px, calc(100vh - 240px)), 960px);
+  max-height: min(max(360px, calc(100dvh - 240px)), 960px);
+  overflow: auto;
+  border-radius: var(--radius-panel);
+  background-color: var(--surface-sunken);
+  background-image: radial-gradient(
+    circle,
+    var(--border-subtle) 1px,
+    transparent 1.5px
+  );
+  background-size: 16px 16px;
+  background-attachment: local;
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+  overscroll-behavior: contain;
+}
+@container builder (max-width: 760px) {
+  .workflow-chart {
+    max-height: 65vh;
+    max-height: 65dvh;
+  }
+}
+.workflow-chart-canvas {
+  position: relative;
+  margin-inline: auto;
+}
+.workflow-chart-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.workflow-chart-line {
+  fill: none;
+  stroke: var(--chart-line);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.workflow-chart-arrow {
+  fill: var(--chart-line);
+}
+.workflow-chart-edge[data-active='true'] {
+  --chart-line: var(--accent-solid);
+}
+.workflow-chart-edge[data-active='true'] .workflow-chart-line {
+  stroke-width: 2;
+}
+.workflow-chart-label {
+  position: absolute;
+  z-index: 1;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.workflow-chart-label[data-active='true'] {
+  box-shadow: inset 0 0 0 1px var(--accent-solid);
+  color: var(--text-primary);
+}
+.workflow-chart-terminal {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.workflow-chart-terminal[data-kind='end'] {
+  background: var(--surface-pressed);
+  box-shadow: none;
+  color: var(--text-primary);
+}
+.workflow-chart-group {
+  position: absolute;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  white-space: nowrap;
+}
+.workflow-chart-group > strong {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+.workflow-chart-node {
+  --type-hue: var(--chart-series-6);
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 9px 12px 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 1px 2px -1px var(--shadow-color);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-popover) var(--ease-out),
+    box-shadow var(--motion-popover) var(--ease-out);
+}
+.workflow-chart-node[data-type='prompt'] {
+  --type-hue: var(--chart-series-1);
+}
+.workflow-chart-node[data-type='condition'] {
+  --type-hue: var(--chart-series-3);
+}
+.workflow-chart-node[data-type='approval'] {
+  --type-hue: var(--chart-series-4);
+}
+.workflow-chart-node[data-type='notify'] {
+  --type-hue: var(--chart-series-2);
+}
+.workflow-chart-node:hover:not(:disabled) {
+  border-color: var(--border-control);
+}
+.workflow-chart-node:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.workflow-chart-node[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent-solid) 18%, transparent),
+    0 1px 2px -1px var(--shadow-color);
+}
+.workflow-chart-node[data-issue='true']:not([aria-pressed='true']) {
+  border-color: color-mix(
+    in srgb,
+    var(--status-danger-border) 60%,
+    var(--border-subtle)
+  );
+}
+.workflow-chart-node[data-unreached='true'] {
+  border-style: dashed;
+  box-shadow: none;
+}
+.workflow-chart-node[data-unreached='true'][aria-pressed='true'] {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-solid) 18%, transparent);
+}
+.workflow-chart-node:disabled {
+  cursor: default;
+}
+.workflow-chart-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--type-hue) 14%, transparent);
+  color: var(--type-hue);
+}
+.workflow-chart-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.workflow-chart-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.workflow-chart-number {
+  flex: none;
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.workflow-chart-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workflow-chart-new {
+  flex: none;
+  margin-inline-start: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--status-info-background);
+  color: var(--status-info-text);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 18px;
+}
+.workflow-chart-summary,
+.workflow-chart-issue > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-chart-summary {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.workflow-chart-issue {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.workflow-chart-issue > svg {
+  flex: none;
+}
+@media (forced-colors: active) {
+  .workflow-chart-line {
+    stroke: CanvasText;
+  }
+  .workflow-chart-arrow {
+    fill: CanvasText;
+  }
+  .workflow-chart-node[aria-pressed='true'] {
+    outline: 2px solid Highlight;
+  }
 }
 .task-settings-group {
   display: grid;
@@ -3234,6 +3528,28 @@ button.overview-stat:hover {
 .monitor-section-head .home-caption {
   flex: 1 1 260px;
 }
+/* Background processes (F1, F6): running ones, then "Recently finished". */
+.monitor-processes .monitor-section-head .button {
+  margin-left: auto;
+}
+.monitor-processes .entity-list {
+  margin: 0;
+}
+.process-row .entity-row-meta {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 0;
+}
+.process-row .entity-row-meta .status-indicator {
+  flex: none;
+}
+.process-row .entity-row-details {
+  padding-top: 4px;
+}
+.monitor-processes-finished .disclosure-body {
+  padding-top: 6px;
+}
+
 .swimlane {
   display: grid;
   gap: 2px;

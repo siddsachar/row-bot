@@ -92,12 +92,20 @@ def _approve_running_code(action: str, draft_id: str, command_name: str, enable:
         return decision.reason
     commands = [item for item in draft.commands if not command_name or item.get("name") == command_name]
     listed = "; ".join(str(item.get("command", "")) for item in commands) or "no commands"
-    approval = interrupt({
-        "tool": "custom_tool_builder",
-        "label": f"{verb} Custom Tool",
-        "description": f"{verb} {draft.name}. It runs on this computer: {listed}",
-        "args": {"tool": draft.name, "action": action, "commands": [item.get("command", "") for item in commands]},
-    })
+    from row_bot.tools.approval_gate import request_approval
+
+    approval = request_approval(
+        {
+            "tool": "custom_tool_builder",
+            "label": f"{verb} Custom Tool",
+            "description": f"{verb} {draft.name}. It runs on this computer: {listed}",
+            "args": {"tool": draft.name, "action": action,
+                     "commands": [item.get("command", "") for item in commands]},
+        },
+        approval_mode=_active_approval_mode(),
+        risks=("runs a Custom Tool's commands on this computer",),
+        approval_callback=lambda request: interrupt(request),
+    )
     return "" if approval else "Cancelled by user."
 
 

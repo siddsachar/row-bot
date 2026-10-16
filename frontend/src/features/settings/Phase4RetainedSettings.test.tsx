@@ -341,6 +341,17 @@ const snapshot = {
     },
     migration: { available: false, sources: [] },
   },
+  learning: {
+    availability: 'available',
+    enabled: false,
+    paused: false,
+    sources: { my_chats: true, workflows_and_goals: true, past_chats: true },
+    apply_mode: 'ask_first',
+    monthly_token_limit: 2_000_000,
+    train_in_quiet_hours: true,
+    train_where: 'this_computer',
+    has_data: false,
+  },
 } satisfies SettingsSnapshot;
 
 let mutation: SettingsMutationIO;

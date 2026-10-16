@@ -210,7 +210,7 @@ def test_new_generation_rejects_prior_target_and_token_as_lease_expired(
             old_target,
             OWNER_B,
             element_token=old_token,
-            approval_mode="allow_all",
+            approval_mode="full",
         )
 
     assert expired.value.code == "target_gone"

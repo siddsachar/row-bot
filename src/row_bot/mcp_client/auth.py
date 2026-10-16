@@ -40,6 +40,12 @@ def document_redirect(callback_uri: str) -> str:
         return ""
     return "listed" if parts.port in _DOCUMENT_PORTS else "loopback"
 CALLBACK_PATH = "/api/v1/settings/mcp/auth/callback"
+# Where a sign-in finished on another device (a phone, a remote browser) sends that device's browser: an address
+# that doesn't load there, which the person pastes back into Row-Bot. Portless loopback, so the published client
+# metadata lists it exactly, a registered client records it, and a person's own OAuth app can list one address
+# that works from this computer too (RFC 8252 lets loopback take any port).
+PASTE_CALLBACK = "http://127.0.0.1" + CALLBACK_PATH
+DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 _REF = re.compile(r"[a-f0-9]{32}")
 _LIMIT = 64 * 1024
 _STORE_LOCK = threading.RLock()
@@ -429,6 +435,20 @@ async def _metadata(client: httpx.AsyncClient, url: str) -> bytes | None:
         return bytes(body)
 
 
+def device_endpoint(document: bytes | str) -> str:
+    """The device authorization endpoint (RFC 8628) an authorization server's metadata offers: only when it lists
+    the device grant too and the endpoint is public HTTPS; otherwise ""."""
+    try:
+        raw = json.loads(document)
+        endpoint, grants = raw.get("device_authorization_endpoint"), raw.get("grant_types_supported")
+        if not isinstance(endpoint, str) or not isinstance(grants, list) or DEVICE_GRANT not in grants:
+            return ""
+        public_endpoint(endpoint)
+        return endpoint
+    except (ValueError, AttributeError):  # Not JSON, not an object, or not a public HTTPS address.
+        return ""
+
+
 async def _discover(url: str) -> dict:
     from mcp.client.auth import utils
     from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
@@ -462,7 +482,7 @@ async def _discover(url: str) -> dict:
                 except ValueError:
                     continue
                 return {**found, "issuer": str(metadata.issuer), "cimd": metadata.client_id_metadata_document_supported is True,
-                        "dcr": bool(metadata.registration_endpoint), "metadata": True}
+                        "dcr": bool(metadata.registration_endpoint), "metadata": True, "device": device_endpoint(content) != ""}
         return {**found, "issuer": server, "metadata": False}
 
 

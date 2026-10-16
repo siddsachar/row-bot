@@ -92,6 +92,16 @@ Old links to the Accounts and Channels settings pages open the matching app, for
 
 Searching and reading an app's page never install or run anything; nothing installs until you agree and choose **Install**.
 
+### Sign In From A Phone Or Another Computer
+
+On the Row-Bot desktop app, an app's sign-in opens the browser on the computer Row-Bot runs on and comes back by itself. From any other signed-in device, such as your phone over [remote access](/docs/operations/remote-access/), the sign-in step says what that device needs, and how long its link or code still works (five minutes):
+
+- **Row-Bot has a public HTTPS address** (one approved address in **Settings › Devices & remote access**) and Row-Bot registers itself with the service: choose **Open sign-in page**, sign in, and come back. The service returns to Row-Bot by itself.
+- **Otherwise**, the step shows three steps. **Open sign-in page** and allow access. Your browser then ends on a page that doesn't load, at an address starting with `http://127.0.0.1`; that's expected. Copy that whole address from the address bar, paste it into **Paste that address here**, and choose **Finish**. Row-Bot reads only the sign-in's one-time answer from it and never opens it.
+- **Where the service offers a code**, Row-Bot shows it instead: go to the page it names, on any device, enter the code and allow access. The step carries on by itself.
+
+A pasted address works once, for the sign-in that gave it. Row-Bot says plainly when it isn't the address, comes from a different sign-in, was already used, or the sign-in has ended; start again for a new link.
+
 **Stop** cancels a setup and keeps what was already done. A setup left waiting for more than 30 minutes stops by itself, also keeping what was done. If Row-Bot can't confirm that a change finished, the page shows **Finishing your last change…** with **Retry**; it checks the result and never repeats the change blindly.
 
 ## Choose What An App Can Do
@@ -114,7 +124,7 @@ Deleting, sending, paying, publishing, running code and anything Row-Bot can't i
 
 ### In Chats And Workflows
 
-An app's access applies wherever Row-Bot uses it, together with the chat's or workflow's **Approvals**. **Auto** never overrides an app's access: its changes still ask unless you gave it **Full access**, actions that always ask still ask, and a workflow waits for you on them; **Block** leaves out anything that would ask. Approval cards name the app and the action, such as "Allow Notion to delete page?"; see [Approvals](/docs/chat/tools-approvals-and-terminal#approvals).
+An app's access applies wherever Row-Bot uses it, together with the chat's or workflow's **Approvals**. Under **Auto**, an action the app's access asks about goes to the reviewer, which approves it only when it clearly matches your request and otherwise asks you (a workflow waits for you); **Hands-off** runs it; **Block** leaves out anything that would ask. Approval cards name the app and the action, such as "Allow Notion to delete page?"; see [Approvals](/docs/chat/tools-approvals-and-terminal#approvals).
 
 ## Change Settings After Setup
 

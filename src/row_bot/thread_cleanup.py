@@ -171,6 +171,21 @@ def _purge_thread_files(thread_id: str) -> int:
     from row_bot.tool_outputs import delete_thread_outputs
 
     removed += delete_thread_outputs(thread_id)  # Long tool results saved for paging.
+    from row_bot.background_processes import delete_conversation_logs
+
+    removed += delete_conversation_logs(thread_id)  # Its background processes' logs.
+    from row_bot.recordings import delete_conversation as delete_recordings
+
+    removed += delete_recordings(thread_id)  # Its recordings' records (the videos are its media).
+    from row_bot.video_edits import delete_conversation as delete_video_edits
+
+    removed += delete_video_edits(thread_id)  # Its video edits' records (the results are its media).
+    from row_bot.developer.sandbox_prepare import delete_conversation as delete_sandbox_jobs
+
+    removed += delete_sandbox_jobs(thread_id)  # Its Prepare sandbox records (the packages stay in the sandbox).
+    from row_bot.file_deliveries import delete_conversation as delete_deliveries
+
+    removed += delete_deliveries(thread_id)  # Files it sent to the devices, and the records of its sends.
     return removed
 
 
@@ -213,6 +228,34 @@ def _request_thread_cancellation(thread_id: str, *, deletion_token: str = "",
         logger.debug("Could not stop Agent work for %s", thread_id, exc_info=True)
 
     try:
+        from row_bot.background_processes import stop_conversation
+
+        stop_conversation(thread_id)  # Each with everything it started; waits for them to end.
+    except Exception:
+        logger.debug("Could not stop background processes for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot import recordings
+
+        recordings.stop_conversation(thread_id)  # Its recordings stop with it (F2).
+    except Exception:
+        logger.debug("Could not stop recordings for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot import video_edits
+
+        video_edits.stop_conversation(thread_id)  # Its video edits stop with it (F3).
+    except Exception:
+        logger.debug("Could not stop video edits for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot.developer import sandbox_prepare
+
+        sandbox_prepare.stop_conversation(thread_id)  # Prepare sandbox stops with it, network off (F18).
+    except Exception:
+        logger.debug("Could not stop sandbox jobs for %s", thread_id, exc_info=True)
+
+    try:
         from row_bot.tools.shell_tool import clear_shell_history, get_session_manager
 
         get_session_manager().kill_session(thread_id)
@@ -228,6 +271,13 @@ def _request_thread_cancellation(thread_id: str, *, deletion_token: str = "",
         clear_browser_history(thread_id)
     except Exception:
         logger.debug("Could not clear browser state for %s", thread_id, exc_info=True)
+
+    try:
+        from row_bot.tools.browser_tool import get_session_manager as get_browser_session_manager
+
+        get_browser_session_manager().revoke_local_addresses(thread_id)  # Its local-address grants (F4).
+    except Exception:
+        logger.debug("Could not remove local-address grants for %s", thread_id, exc_info=True)
 
     try:
         from row_bot.computer_use.service import get_computer_use_service
@@ -270,6 +320,20 @@ def _clear_in_memory_state(thread_id: str) -> None:
         set_active_thread(None, previous_id=thread_id)
     except Exception:
         pass
+
+
+def _purge_learning_state(thread_id: str) -> int:
+    """Learning's step: purge what the conversation owns and mark what was derived
+    from it. Only when Learning has a store: while it has none this is one path
+    check, and nothing else from Learning is imported."""
+
+    from row_bot import learning
+
+    if not learning.store_exists():
+        return 0
+    from row_bot.learning.store import LearningStore
+
+    return LearningStore().purge_thread(thread_id).total
 
 
 def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
@@ -318,6 +382,12 @@ def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
         delete_thread_usage(thread_id)
     except Exception:
         logger.debug("Usage ledger cleanup failed for %s", thread_id, exc_info=True)
+    try:
+        changed += _purge_learning_state(thread_id)
+    except Exception:
+        # Every purge pass retries it; idle maintenance sweeps what is left.
+        warnings.append("Some Learning data could not be removed.")
+        logger.warning("Learning cleanup failed for thread %s", thread_id, exc_info=True)
     return changed, tuple(warnings)
 
 
@@ -842,6 +912,19 @@ def sweep_data_dir_leftovers(
     return removed
 
 
+def _sweep_orphaned_learning_threads(owners: set[str], *, older_than: float) -> int:
+    """Learning data of conversations that are gone (a deletion whose Learning step
+    failed). Only when Learning has a store; nothing is imported otherwise."""
+
+    from row_bot import learning
+
+    if not learning.store_exists():
+        return 0
+    from row_bot.learning.store import LearningStore
+
+    return LearningStore().purge_missing_threads(owners, older_than=older_than)
+
+
 def sweep_orphaned_thread_artifacts(
     *,
     now: datetime | None = None,
@@ -947,6 +1030,10 @@ def sweep_orphaned_thread_artifacts(
         logger.debug("Could not clean imported sandbox orphans", exc_info=True)
 
     cutoff = maintenance_now - STALE_TEMP_FILE_AGE
+    try:
+        stats["learning_threads"] = _sweep_orphaned_learning_threads(owners, older_than=cutoff.timestamp())
+    except Exception:
+        logger.warning("Could not clean Learning data of deleted conversations", exc_info=True)
     try:
         from row_bot.tool_outputs import sweep_orphaned_outputs
 

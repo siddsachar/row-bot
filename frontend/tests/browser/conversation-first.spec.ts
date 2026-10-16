@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, screenshot, test } from './evidence';
+import { fixtureHeaders } from './surface-helpers';
 import {
   composer,
   conversationState,
@@ -35,7 +36,7 @@ test('a tool the work needs asks to be turned on, in the chat', async ({
   await expect(card).toContainText('Turn on Web Search?');
   await expect(card).toContainText('Row-Bot needs Web Search for this.');
   await expect(
-    card.getByRole('button', { name: 'Always allow in this chat' }),
+    card.getByRole('button', { name: 'Use Auto in this chat' }),
   ).toHaveCount(0);
   await screenshot(page, testInfo, 'setup-card');
   await card.getByRole('button', { name: 'Turn on', exact: true }).click();
@@ -44,27 +45,49 @@ test('a tool the work needs asks to be turned on, in the chat', async ({
   ).toBeVisible();
 });
 
-test('a folder the work needs is chosen on a card in the chat (B277)', async ({
+test('a folder the work needs is chosen on a card in the chat (B277), from Row-Bot’s workspace folder in a browser (F19)', async ({
   page,
 }, testInfo) => {
-  await newConversation(page);
-  await send(page, 'Work on my tide app folder fixture');
-  const card = page.getByRole('complementary', {
-    name: 'Use an existing folder',
-    exact: true,
+  const prepared = await page.request.post('/__s6_fixture/workspace', {
+    headers: fixtureHeaders(),
   });
-  // A browser can't pick a folder on this computer: the card says where to.
-  await expect(card).toContainText(
-    'Choose the folder in the Row-Bot desktop app, or add it with Add resource, then Continue.',
-  );
-  await expect(
-    card.getByRole('button', { name: 'Choose folder', exact: true }),
-  ).toHaveCount(0);
-  await screenshot(page, testInfo, 'folder-card');
-  await card.getByRole('button', { name: 'Continue', exact: true }).click();
-  await expect(
-    page.getByText('Synthetic approval resumed.', { exact: true }),
-  ).toBeVisible();
+  expect(prepared.ok()).toBe(true);
+  try {
+    await newConversation(page);
+    await send(page, 'Work on my tide app folder fixture');
+    const card = page.getByRole('complementary', {
+      name: 'Use an existing folder',
+      exact: true,
+    });
+    // A browser has no folder picker for this computer: the card offers
+    // Row-Bot's workspace folder instead, folder by folder.
+    await expect(card).not.toContainText('desktop app');
+    const browser = card.getByRole('region', { name: 'Choose a code folder' });
+    await browser
+      .getByRole('button', { name: 'Projects', exact: true })
+      .click();
+    await expect(
+      browser.getByRole('button', {
+        name: 'tide-app, Git repository',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await screenshot(page, testInfo, 'folder-card');
+    await browser
+      .getByRole('button', { name: 'tide-app, Git repository', exact: true })
+      .click();
+    await browser
+      .getByRole('button', { name: 'Use tide-app', exact: true })
+      .click();
+    await expect(
+      page.getByText('Synthetic approval resumed.', { exact: true }),
+    ).toBeVisible();
+  } finally {
+    const reset = await page.request.post('/__s6_fixture/reset', {
+      headers: fixtureHeaders(),
+    });
+    expect(reset.ok()).toBe(true);
+  }
 });
 
 test('an app the work needs shows a Connect card that opens its consent sheet', async ({
