@@ -62,6 +62,24 @@ export function groupModels(models: readonly ModelChoice[]): ModelGroup[] {
   ];
 }
 
+/**
+ * Favourites first, in their order, then the rest as listed, then hidden
+ * models (F10): for lists that can't group, such as a workflow's model.
+ */
+export function favouritesFirst<
+  T extends Pick<ModelChoice, 'favourite_rank' | 'hidden'>,
+>(models: readonly T[]): T[] {
+  const favourites = models
+    .filter((model) => model.favourite_rank != null)
+    .sort((a, b) => (a.favourite_rank ?? 0) - (b.favourite_rank ?? 0));
+  const others = models.filter((model) => model.favourite_rank == null);
+  return [
+    ...favourites,
+    ...others.filter((model) => !model.hidden),
+    ...others.filter((model) => model.hidden),
+  ];
+}
+
 export function matchesModel(model: ModelChoice, query: string) {
   const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return true;

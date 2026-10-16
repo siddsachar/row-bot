@@ -19,7 +19,7 @@ def test_long_command_output_is_capped_with_the_rest_readable(tmp_path, monkeypa
     monkeypatch.setattr(
         shell_tool.ShellSession,
         "run_command",
-        lambda self, command, timeout=120: {
+        lambda self, command, timeout=120, **_kwargs: {
             "command": command, "output": output, "exit_code": 0, "cwd": str(tmp_path), "duration": 0.1,
         },
     )
@@ -51,7 +51,7 @@ def test_short_command_output_is_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(
         shell_tool.ShellSession,
         "run_command",
-        lambda self, command, timeout=120: {
+        lambda self, command, timeout=120, **_kwargs: {
             "command": command, "output": "a.txt\nb.txt", "exit_code": 0, "cwd": str(tmp_path), "duration": 0.1,
         },
     )

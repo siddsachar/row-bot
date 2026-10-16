@@ -82,7 +82,10 @@ class Context:
     owner_id: str
     mcp_owner_id: str
     validate: Callable[[], None]
+    # Where a sign-in's browser returns by itself: this computer's loopback address for the desktop app here;
+    # for another device (``remote``), Row-Bot's one public HTTPS address, or "" without one.
     redirect_uri: str = ""
+    remote: bool = False  # The request came from another device: a phone, a remote browser, a paired computer.
     runtimes: Any = None
     read_policy: Callable[[str], dict] | None = None
     inputs: dict = field(default_factory=dict)
@@ -385,6 +388,11 @@ def view(plan: dict) -> dict:
     """The public plan; owner command records and references stay private."""
     value = {key: copy.deepcopy(item) for key, item in plan.items()
              if not key.startswith("_") and key not in {"reference", "owner", "target", "server_id", "preset", "overrides", "app_id"}}
+    for step in value["steps"]:
+        sign_in = step.get("sign_in")
+        if sign_in is not None:  # How long its link or code still works, by this computer's clock, never the device's.
+            ends = sign_in.pop("expires_at", None)
+            sign_in["expires_in"] = max(0, min(3600, int(ends - _now()))) if ends and step["state"] == "waiting" else None
     value["next_action"] = next_action(plan)
     value["consent_token"] = ""
     return value
@@ -763,6 +771,39 @@ def _observe_commands(ctx: Context, record: dict, step: dict) -> str:
     return "resume"  # Recorded but never admitted: nothing happened yet.
 
 
+def _show_sign_in(step: dict, result: dict) -> None:
+    """What a sign-in step shows while it waits: its link or code, how its answer comes back, until when."""
+    step["sign_in"].update(authorization_url=result.get("authorization_url"),
+                           delivery=result.get("delivery") or step["sign_in"].get("delivery") or "this_computer",
+                           expires_at=result.get("expires_at"), received=bool(result.get("received")),
+                           device=result.get("device"))
+
+
+def finish_sign_in(ctx: Context, plan_id: str, address: str) -> dict:
+    """The person pasted the address their browser ended on, on another device, after signing in: it finishes
+    this plan's own waiting sign-in, checked as the callback route checks one. Each refusal is a code the
+    client words plainly (not the address, another sign-in's, already used, expired)."""
+    from row_bot.application.client_mcp_auth import accept_pasted_callback, auth_status
+    from row_bot.mcp_client.auth import McpAuthError
+    with _plan_lock(plan_id):
+        record, open_ = _load(ctx.owner_id, plan_id)
+        signing = [s for s in record["steps"] if s["type"] in {"sign_in", "allow_changes"} and record.get(_auth_key(s))]
+        step = next((s for s in signing if s["id"] == record.get("current_step")), None)
+        if not open_ or step is None or record["state"] != "paused" or record.get("pause") != "sign_in":
+            # Not waiting for a sign-in any more: it got its answer (the address was used), or it ended.
+            def signed_in(item: dict) -> bool:
+                try:
+                    return auth_status(owner_id=ctx.owner_id, command_id=record[_auth_key(item)],
+                                       validate=ctx.validate)["state"] == "signed_in"
+                except McpAuthError:
+                    return False
+            used = any(s["state"] == "done" or signed_in(s) for s in signing)
+            raise McpAuthError("mcp_auth_address_used" if used else "mcp_auth_address_expired")
+        command_id = record[_auth_key(step)]
+    accept_pasted_callback(owner_id=ctx.owner_id, command_id=command_id, address=address, validate=ctx.validate)
+    return read_plan(ctx, plan_id)
+
+
 def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application.client_mcp_auth import auth_status
     from row_bot.runtime import admissions
@@ -774,7 +815,7 @@ def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
         step["message"] = "Sign-in didn't start. Try again."
         return "failed"
     result = auth_status(owner_id=ctx.owner_id, command_id=record[key], validate=ctx.validate)
-    step["sign_in"]["authorization_url"] = result.get("authorization_url")
+    _show_sign_in(step, result)
     if result["state"] == "signed_in":
         return "resume"
     if result["state"] == "expired":
@@ -782,7 +823,7 @@ def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
         # from holding up every other change, so connecting again can sign in afresh (B338).
         from row_bot.application.client_mcp_auth import cancel_auth
         cancel_auth(owner_id=ctx.owner_id, command_id=record[key], validate=ctx.validate)
-        step["sign_in"]["authorization_url"] = None
+        _show_sign_in(step, {"delivery": step["sign_in"].get("delivery")})
         step["message"] = "Not finished in time."
         return "expired"
     if result["state"] in {"failed", "cancelled", "disconnected"}:
@@ -1109,11 +1150,12 @@ def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
         return "done" if seen == "resume" else "sign_in"
     if step["type"] == "allow_changes" and not _wants_changes(record):
         return "skipped"
-    if not ctx.redirect_uri:
+    if not ctx.redirect_uri and not ctx.remote:
         raise PlanError("mcp_auth_callback_unavailable", "Signing in needs Row-Bot open on this computer.")
-    client = _sign_in_client(ctx, record, step)
-    if client is False:
+    chosen = _sign_in_client(ctx, record, step)
+    if chosen is False:
         return "inputs"
+    client, callback, delivery = chosen
     revision = _revision(ctx, record)
     review = review_auth(server_id=record["server_id"], configuration_revision=revision, action="start", mode="oauth",
                          label=record["name"], validate=ctx.validate, target=record["target"])
@@ -1122,53 +1164,85 @@ def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
     record[key] = str(uuid4())
     _save(record)
     result = execute_auth(owner_id=ctx.owner_id, command_id=record[key], server_id=record["server_id"],
-        configuration_revision=revision, action="start", mode="oauth", label=record["name"], redirect_uri=ctx.redirect_uri,
+        configuration_revision=revision, action="start", mode="oauth", label=record["name"], redirect_uri=callback,
         client=client, metadata_document=step["sign_in"].get("method") == "oauth_cimd", read_only=read_only,
-        validate=ctx.validate, validate_review=_bound(review), target=record["target"])
-    step["sign_in"]["authorization_url"] = result.get("authorization_url")
+        validate=ctx.validate, validate_review=_bound(review), target=record["target"], delivery=delivery)
+    _show_sign_in(step, result)
     return "sign_in"
 
 
-def _sign_in_client(ctx: Context, record: dict, step: dict) -> dict | None | bool:
-    """How Row-Bot signs in: with the person's own OAuth app when the app needs one (or the person gave
-    one before); otherwise with Row-Bot's published client metadata (CIMD) or a client registered for this
-    connection (DCR), whichever the server's sign-in service supports. ``False``: the person's own app is
-    needed, so the step waits for its client ID and secret, which go only to the keychain."""
+def _sign_in_client(ctx: Context, record: dict, step: dict) -> tuple[dict | None, str, str] | bool:
+    """How Row-Bot signs in, where the service sends the browser after, and how that answer comes back.
+
+    The client: the person's own OAuth app when the app needs one (or the person gave one before); otherwise
+    Row-Bot's published client metadata (CIMD) or a client registered for this connection (DCR), whichever the
+    server's sign-in service supports. ``False``: the person's own app is needed, so the step waits for its
+    client ID and secret, which go only to the keychain.
+
+    The answer (``client_mcp_auth.DELIVERIES``): the desktop app here signs in through this computer's browser
+    and loopback address, as before. Another device signs in through its own browser: to Row-Bot's public HTTPS
+    address when there is one and Row-Bot registers its own client there (only a registered client can list
+    it); otherwise its browser ends on ``auth.PASTE_CALLBACK``, which the person pastes back, or the service
+    gives a code to enter on its own page where it offers one (RFC 8628).
+
+    Returns ``(client, callback, delivery)``.
+    """
     from row_bot.mcp_client import auth
     cfg = _saved(record["target"], record["server_id"])[1]
     source = cfg.get("source") or {}
+    required = source.get("oauth_client") == "required"
+    public = ctx.redirect_uri if ctx.remote else ""
+
+    def found() -> dict:
+        if record.get("_signs_in") is None:
+            try:
+                record["_signs_in"] = auth.discover_sign_in(_address(cfg))
+            except auth.McpAuthError:
+                record["_signs_in"] = {"required": True}  # Unreachable now; the SDK's own discovery reports it when signing in.
+        return record["_signs_in"]
+
     ref = (cfg.get("auth") or {}).get("credential_ref")
     if ref:
         try:
             saved = auth.read_credentials(ref)
-            if saved.get("client_source") == "own" and saved.get("client"):
-                step["sign_in"]["method"] = "oauth_client"
-                return saved["client"]  # Signing in again keeps the person's own app.
         except auth.McpAuthError:
-            pass
-    found = record.get("_signs_in")
-    if found is None and source.get("oauth_client") != "required":
-        try:
-            found = record["_signs_in"] = auth.discover_sign_in(_address(cfg))
-        except auth.McpAuthError:
-            found = {"required": True}  # Unreachable now; the SDK's own discovery reports it when signing in.
-    loopback = urlsplit(ctx.redirect_uri).hostname in {"127.0.0.1", "localhost", "::1"}
+            saved = {}
+        if saved.get("client_source") == "own" and saved.get("client"):
+            step["sign_in"]["method"] = "oauth_client"  # Signing in again keeps the person's own app.
+            client = saved["client"]
+            if not ctx.remote:
+                return client, ctx.redirect_uri, "this_computer"
+            if public and public in (client.get("redirect_uris") or []):  # Set up from another device before 5.3.
+                return client, public, "public"
+            return client, auth.PASTE_CALLBACK, "device" if found().get("device") else "paste"
+    signs_in = found() if ctx.remote or not required else None
+    if not ctx.remote:
+        callback = ctx.redirect_uri
+    elif public and signs_in.get("dcr") and not required:
+        callback = public  # Row-Bot registers itself with its public address: the browser comes back by itself.
+    else:
+        callback = auth.PASTE_CALLBACK
+    cimd, dcr = bool(signs_in and signs_in.get("cimd")), bool(signs_in and signs_in.get("dcr"))
+    device = callback == auth.PASTE_CALLBACK and ctx.remote and bool(signs_in and signs_in.get("device"))
     # The document where it lists this exact address; on another port, a server that registers clients records the
-    # exact address instead, and one that only takes the document gets its portless loopback entry.
-    covered = auth.document_redirect(ctx.redirect_uri)
-    document = bool(found and found.get("cimd")) and (covered == "listed" or covered == "loopback" and not found.get("dcr"))
-    own = source.get("oauth_client") == "required" or bool(found and found.get("metadata") is not None and not found.get("dcr")
-                                                           and not document)
+    # exact address instead, and one that only takes the document gets its portless loopback entry. A code needs a
+    # registered client: the published document doesn't list that grant.
+    covered = auth.document_redirect(callback)
+    document = cimd and (covered == "listed" or covered == "loopback" and not dcr) and not (device and dcr)
+    own = required or bool(signs_in and signs_in.get("metadata") is not None and not dcr and not document)
+    delivery = ("this_computer" if not ctx.remote else "public" if callback == public
+                else "device" if device and (own or dcr) else "paste")
     if not own:
         step["sign_in"]["method"] = "oauth_cimd" if document else "oauth_dcr"
-        return None
+        return None, callback, delivery
     step["sign_in"]["method"] = "oauth_client"
-    callback = "http://127.0.0.1" + auth.CALLBACK_PATH if loopback else ctx.redirect_uri
+    # One callback address for the person's own app, whichever device signs in: this computer's browser reaches
+    # it (any port), and another device's browser ends there for the address to be pasted back.
     step["inputs"] = [
         {"key": "client_id", "label": "Client ID", "secret": False, "required": True, "target": "header", "name": "client_id",
          "template": "", "default": "", "choices": [], "format": "string",
          "help_url": public_link(source.get("oauth_client_url")) or getattr(apps.match(facts._mcp_refs(cfg)), "docs_url", ""),
-         "description": f"From an OAuth app you create for Row-Bot. Use {callback} as its callback URL."[:512]},
+         "description": f"From an OAuth app you create for Row-Bot. Use {auth.PASTE_CALLBACK} as its callback URL."[:512]},
         {"key": "client_secret", "label": "Client secret", "secret": True, "required": False, "target": "header",
          "name": "client_secret", "template": "", "default": "", "choices": [], "format": "string", "help_url": "",
          "description": "Kept only in your system keychain."}]
@@ -1177,9 +1251,9 @@ def _sign_in_client(ctx: Context, record: dict, step: dict) -> dict | None | boo
         step["message"] = f"{record['name']} needs your own OAuth app to sign in. Add its client ID to continue."
         return False
     step["message"] = ""
-    return {"client_id": client_id, **({"client_secret": secret} if secret else {}), "redirect_uris": [ctx.redirect_uri],
+    return {"client_id": client_id, **({"client_secret": secret} if secret else {}), "redirect_uris": [callback],
             "token_endpoint_auth_method": "client_secret_post" if secret else "none",
-            "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]}
+            "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]}, callback, delivery
 
 
 def _runtime_receipt(ctx: Context, record: dict, step: dict, stage: str) -> dict:

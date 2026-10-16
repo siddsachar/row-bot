@@ -209,6 +209,34 @@ def list_generated_outputs(conversation_id: str, *, limit: int = 20) -> list[dic
     return list(reversed(outputs))
 
 
+def list_conversation_files(conversation_id: str, *, limit: int = 200) -> list[dict]:
+    """The conversation's files (name, type, size and reference), newest first, from their checked records."""
+    from row_bot import threads
+
+    _conversation(conversation_id)
+    root = _managed_root(threads._MEDIA_DIR)
+    folder = root / conversation_id
+    _safe_path(root, folder)
+    if not folder.is_dir():
+        return []
+    candidates = []
+    for path in folder.glob("attachment_*.json"):
+        try:
+            candidates.append((path.stat().st_mtime_ns, path))
+        except OSError:
+            continue
+    candidates.sort(reverse=True)
+    files: list[dict] = []
+    for _, path in candidates[:limit]:
+        attachment_id = path.stem.removeprefix("attachment_")
+        try:
+            metadata = _metadata(root, folder, str(UUID(attachment_id)), f"{conversation_id}:{UUID(attachment_id)}")
+        except (AttachmentError, ValueError):
+            continue
+        files.append({key: metadata[key] for key in ("attachment_ref", "name", "mime_type", "size_bytes")})
+    return files
+
+
 def read_native_selection(path: Path) -> tuple[str, bytes]:
     """Read one explicitly selected native file without following replacements.
 

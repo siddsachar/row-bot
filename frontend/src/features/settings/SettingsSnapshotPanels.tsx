@@ -77,6 +77,7 @@ import type {
   TrackerEntryPage,
 } from '../../api/types';
 import { useWorkspaceActions } from '../shell/workspace-actions';
+import { favouritesFirst } from '../shell/model-choices';
 import {
   Button,
   Disclosure,
@@ -4605,7 +4606,13 @@ export function DocumentModelSetting({
 }: {
   snapshot: SettingsSnapshot['documents'];
   mutation: SettingsMutationIO;
-  models: { model_ref: string; label: string; available: boolean }[];
+  models: {
+    model_ref: string;
+    label: string;
+    available: boolean;
+    favourite_rank?: number | null;
+    hidden?: boolean;
+  }[];
 }) {
   const current = snapshot.processing_model ?? '';
   return (
@@ -4625,7 +4632,8 @@ export function DocumentModelSetting({
       }
       options={[
         { value: '', label: 'Default model' },
-        ...models
+        // Favourites first, hidden models last (F10).
+        ...favouritesFirst(models)
           .filter((model) => model.available || model.model_ref === current)
           .map((model) => ({
             value: model.model_ref,

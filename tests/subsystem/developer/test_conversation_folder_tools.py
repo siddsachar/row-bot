@@ -320,7 +320,8 @@ def test_the_clone_card_shows_the_url_and_clones_on_the_reviewed_path_once(creat
     def choose_where(payload):
         assert clones == [], "nothing is cloned before the person chooses where"
         receipt = _card_setup(service, conversation, {"kind": "workspace", "intent": "create",
-                                                      "clone_workspace": {"repo_url": payload["setup"]["repo_url"]}},
+                                                      "clone_workspace": {"repo_url": payload["setup"]["repo_url"]},
+                                                      "confirm_network": True},
                               parent)
         assert receipt["status"] == "completed"
         return True
@@ -333,6 +334,31 @@ def test_the_clone_card_shows_the_url_and_clones_on_the_reviewed_path_once(creat
     assert len(clones) == 1
     workspace = get_workspace(list_bindings(conversation).bindings[0].resource_id)
     assert Path(workspace.path) == parent / "demo" and workspace.repo_url == REPO
+
+
+@pytest.mark.parametrize("level, card", [("block", False), ("approve", True), ("auto", True), ("full", True)])
+def test_cloning_from_the_chat_asks_at_each_level(creation, monkeypatch, level, card):  # noqa: F811
+    """A clone reaches the network (F19): Block refuses before any card; every other level shows the
+    card, where the person chooses where it goes (that card is how it asks)."""
+    from row_bot import threads
+    from row_bot.developer import client_clone
+    from row_bot.tools import registry
+    from row_bot.tools.conversation_setup_tool import clone_repository
+
+    service, conversation, _ = creation
+    threads._set_thread_approval_mode(conversation, level)
+    monkeypatch.setattr(registry, "is_enabled", lambda name: name == "developer")
+    monkeypatch.setattr(client_clone.subprocess, "run", lambda *a, **k: pytest.fail("git ran"))
+    shown = _cards(monkeypatch, lambda payload: False)
+    with _in(conversation):
+        result = json.loads(clone_repository(REPO))
+    assert result["ok"] is False
+    if card:
+        assert [payload["setup"]["kind"] for payload in shown] == ["clone"]
+        assert result["kind"] == "setup_declined"
+    else:
+        assert shown == [] and result["kind"] == "blocked"
+        assert "Block" in result["error"]
 
 
 def test_an_uncertain_clone_is_kept_never_repeated_and_nothing_is_bound(creation, monkeypatch, tmp_path):  # noqa: F811
@@ -357,7 +383,8 @@ def test_an_uncertain_clone_is_kept_never_repeated_and_nothing_is_bound(creation
 
     def choose_then_check(payload):
         first = _card_setup(service, conversation, {"kind": "workspace", "intent": "create",
-                                                    "clone_workspace": {"repo_url": REPO}}, parent)
+                                                    "clone_workspace": {"repo_url": REPO},
+                                                    "confirm_network": True}, parent)
         assert first["status"] == "partial" and first["code"] == "workspace_clone_unconfirmed"
         # Check clone status: the same parent picked again, continuation only inspects.
         identity = str(uuid4())

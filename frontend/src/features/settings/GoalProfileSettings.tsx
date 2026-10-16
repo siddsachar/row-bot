@@ -140,7 +140,7 @@ export type ProfileSummary = {
   skills: string[];
   context_mode: 'auto' | 'focused' | 'recent' | 'full' | 'empty' | 'resume';
   workspace_mode: 'auto' | 'read_only' | 'single_writer' | 'worktree';
-  approval_mode: 'inherit' | 'block' | 'approve' | 'allow_all';
+  approval_mode: 'inherit' | 'block' | 'approve' | 'auto' | 'full';
   instructions_preview: string;
   instructions_truncated: boolean;
   instruction_edit?: { mode: 'replace_only'; stored: boolean } | null;
@@ -589,10 +589,12 @@ const WORKSPACE_MODES: Record<ProfileDraft['workspace_mode'], string> = {
   single_writer: 'Single writer',
   worktree: 'Separate worktree',
 };
+/** A profile narrows the chat's or workflow's level, never widens it. */
 const APPROVAL_MODES: Record<ProfileDraft['approval_mode'], string> = {
   inherit: 'Same as the chat',
   approve: 'Ask',
-  allow_all: 'Auto',
+  auto: 'Auto',
+  full: 'Hands-off, where the chat allows it',
   block: 'Block',
 };
 

@@ -135,14 +135,16 @@ def test_retained_docker_command_and_process_never_fall_back_locally(
     command = runtime.run_workspace_command(
         workspace.path,
         "python -V",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id=workspace.id,
         thread_id="thread-1",
     )
     process = runtime.start_workspace_process(
         workspace.path,
         "python -m http.server 8000",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id=workspace.id,
         thread_id="thread-1",
     )
@@ -176,20 +178,23 @@ def test_missing_requested_workspace_fails_closed_for_every_run_path(
     direct = runtime.run_workspace_command(
         workspace.path,
         "python -V",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id="missing",
     )
     shell = runtime.run_workspace_shell_command(
         workspace.path,
         "python -V",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id="missing",
         thread_id="thread-1",
     )
     process = runtime.start_workspace_process(
         workspace.path,
         "python -m http.server 8000",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id="missing",
     )
 
@@ -221,7 +226,8 @@ def test_explicit_local_mode_still_runs_on_a_mounted_path(
     result = runtime.run_workspace_command(
         workspace.path,
         "python -V",
-        "allow_all",
+        "approve",
+        confirmed=True,
         workspace_id=workspace.id,
     )
 

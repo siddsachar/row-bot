@@ -21,6 +21,11 @@ export function pickerModel(option: ModelPickerOption): ListedModel {
     unavailable_reason: option.unavailable_reason ?? null,
     billing: option.billing ?? null,
     reason: option.available ? undefined : option.reason,
+    // Favourites first and hidden models under More models, as in the composer.
+    ...(option.favourite_rank != null
+      ? { favourite_rank: option.favourite_rank }
+      : {}),
+    ...(option.hidden ? { hidden: true } : {}),
   };
 }
 

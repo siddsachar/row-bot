@@ -329,13 +329,13 @@ def test_full_replacement_requires_current_file_hash_inside_captured_run(creatio
         monkeypatch.setattr(agent, "get_active_runtime_context", lambda: {"agent_run_id": run_id})
         with execution_context(conversation):
             write_file_to_workspace(workspace_id=workspace_id, thread_id=conversation,
-                                    path="index.html", content="one", approval_mode="allow_all")
+                                    path="index.html", content="one", approval_mode="auto")
             with pytest.raises(ValueError, match="file_revision_conflict"):
                 write_file_to_workspace(workspace_id=workspace_id, thread_id=conversation,
-                                        path="index.html", content="two", approval_mode="allow_all")
+                                        path="index.html", content="two", approval_mode="auto")
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             write_file_to_workspace(workspace_id=workspace_id, thread_id=conversation,
-                                    path="index.html", content="two", approval_mode="allow_all",
+                                    path="index.html", content="two", approval_mode="auto",
                                     expected_sha256=digest)
     assert path.read_text(encoding="utf-8") == "two"
 
@@ -363,19 +363,19 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
             with pytest.raises(ValueError, match="media_scope_conflict"):
                 import_conversation_media(workspace_id=workspace_id, thread_id=conversation,
                                           media_ref="other:" + reference, path="image.png",
-                                          approval_mode="allow_all")
+                                          approval_mode="auto")
             change, _ = import_conversation_media(workspace_id=workspace_id,
                                                    thread_id=conversation, media_ref=reference,
-                                                   path="image.png", approval_mode="allow_all")
+                                                   path="image.png", approval_mode="auto")
             assert change and change.files[0].binary
             repeat, _ = import_conversation_media(workspace_id=workspace_id,
                                                    thread_id=conversation, media_ref=reference,
-                                                   path="image.png", approval_mode="allow_all")
+                                                   path="image.png", approval_mode="auto")
             assert repeat is None
             (root / "existing.png").write_bytes(b"different")
             with pytest.raises(ValueError, match="media_destination_conflict"):
                 import_conversation_media(workspace_id=workspace_id, thread_id=conversation,
-                                          media_ref=reference, path="existing.png", approval_mode="allow_all")
+                                          media_ref=reference, path="existing.png", approval_mode="auto")
     assert (root / "image.png").read_bytes().startswith(b"\x89PNG")
     assert change is not None
     assert "Reverted" in revert_change_set(workspace_id, change.id)

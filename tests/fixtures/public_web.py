@@ -32,6 +32,9 @@ class PublicWeb:
     def page(self, url: str, body: bytes, content_type: str = "text/html; charset=utf-8") -> None:
         self.routes[url.split("://", 1)[1]] = (200, {"Content-Type": content_type}, body)
 
+    def file(self, url: str, body: bytes) -> None:
+        self.page(url, body, "application/octet-stream")
+
     def redirect(self, url: str, location: str, status: int = 302) -> None:
         self.routes[url.split("://", 1)[1]] = (status, {"Location": location}, b"")
 
@@ -73,7 +76,8 @@ def public_web(monkeypatch: pytest.MonkeyPatch) -> Iterator[PublicWeb]:
 
     def carry_to_loopback(transport, request: httpx.Request) -> httpx.Response:
         web.connected.append((request.url.host, request.headers["host"]))
-        loopback = request.url.copy_with(host="127.0.0.1", port=web.loopback_port)
+        # The loopback server speaks plain HTTP: an https address (an https-only fetcher) is carried to it too.
+        loopback = request.url.copy_with(scheme="http", host="127.0.0.1", port=web.loopback_port)
         return send(transport, httpx.Request(request.method, loopback, headers=request.headers,
                                              stream=request.stream, extensions=request.extensions))
 

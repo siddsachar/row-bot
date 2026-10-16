@@ -290,6 +290,74 @@
   display: grid;
   gap: var(--space-2);
 }
+/* Signing in from another device (F27): numbered steps, each with its own action. */
+.sign-in-elsewhere {
+  gap: var(--space-3);
+}
+.sign-in-steps {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding-inline-start: 22px;
+}
+.sign-in-steps li {
+  padding-inline-start: var(--space-1);
+  color: var(--text-primary);
+}
+.sign-in-steps li::marker {
+  color: var(--text-muted);
+  font-weight: var(--weight-semibold);
+}
+.sign-in-steps li > span {
+  display: block;
+}
+.sign-in-steps li > span + .button,
+.sign-in-steps li > span + .subscription-device-code-row {
+  margin-top: var(--space-2);
+}
+.sign-in-steps li > .button {
+  gap: var(--space-1);
+}
+.sign-in-steps code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+.sign-in-steps .field {
+  min-width: 0;
+  max-width: 40rem;
+}
+.sign-in-steps .input[aria-invalid='true'] {
+  border-color: var(--status-danger-border);
+}
+.sign-in-steps .settings-dialog-error {
+  display: block;
+  max-width: 40rem;
+  margin-top: var(--space-1);
+}
+.sign-in-time {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.sign-in-time strong {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.sign-in-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+.sign-in-waiting > svg {
+  flex: none;
+  animation: app-spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sign-in-waiting > svg {
+    animation: none;
+  }
+}
 .app-dialog-actions {
   display: flex;
   flex-wrap: wrap;
