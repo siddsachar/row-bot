@@ -381,15 +381,19 @@ def _get_thread_approval_mode_raw(thread_id: str) -> str:
 
 
 def _get_thread_approval_mode(thread_id: str) -> str:
-    """Return the shared approval mode for a thread."""
+    """Return the approval level a thread runs at (Hands-off is Auto where others share it)."""
+    from row_bot.full_autonomy import cap_for_conversation
+
     raw = _get_thread_approval_mode_raw(thread_id)
-    return normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE)
+    return cap_for_conversation(thread_id, normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE))
 
 
 def _set_thread_approval_mode(thread_id: str, mode: str) -> None:
-    """Persist the shared approval mode for a thread."""
+    """Persist the shared approval level for a thread (a shared conversation keeps Auto at most)."""
+    from row_bot.full_autonomy import cap_for_conversation
+
     _ensure_thread_db()
-    normalized = normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE)
+    normalized = cap_for_conversation(thread_id, normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE))
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "UPDATE thread_meta SET approval_mode = ? WHERE thread_id = ?",
@@ -2091,7 +2095,9 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_
         if not isinstance(existing, list):
             existing = []
         retried = _retried_turn(existing, retry_text) if retry_text else None
+        replaced: list = []
         if retried is not None:
+            replaced = existing[retried:]
             existing = existing[:retried]
         by_id = {str(message.id): message for message in existing if getattr(message, "id", None)}
         accepted = []
@@ -2130,6 +2136,11 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_
             {"messages": next_version},
         )
         logger.debug("Appended %d checkpoint message(s) for thread %s", len(messages), str(thread_id)[:8])
+        if retried is not None:
+            # Learning (preview): Retry is an implicit signal on the reply it replaced (off: one check).
+            from row_bot import learning
+
+            learning.note_retry(str(thread_id), replaced)
         return True
     except Exception:
         logger.warning("Failed to append checkpoint messages for thread %s", thread_id, exc_info=True)

@@ -155,7 +155,7 @@ def test_download_rejects_stale_revision_and_non_webhook(owner):
 def test_current_profile_policy_is_captured_and_concurrent_profile_change_rejected(owner):
     tasks, profiles, task_id = owner
     custom = profiles.duplicate_agent_profile("worker", {"display_name": "Synthetic profile"})
-    snapshot = review(owner, agent_profile_id=custom["id"], approval_mode="allow_all")
+    snapshot = review(owner, agent_profile_id=custom["id"], approval_mode="auto")
     assert snapshot.profile_available and snapshot.profile_revision
     profiles.save_agent_profile({**custom, "approval_policy_json": {"mode": "block"}})
     with pytest.raises(control.TaskSettingsError, match="task_settings_profile_conflict"):
@@ -181,8 +181,8 @@ def test_profile_cap_is_reported_without_silently_lowering_the_saved_parent_poli
     _, profiles, _ = owner
     custom = profiles.duplicate_agent_profile("worker", {"display_name": "Restricted synthetic profile"})
     profiles.save_agent_profile({**custom, "approval_policy_json": {"mode": "block"}})
-    snapshot = review(owner, agent_profile_id=custom["id"], approval_mode="allow_all")
-    assert snapshot.fields.approval_mode == "allow_all" and snapshot.effective_approval_mode == "block"
+    snapshot = review(owner, agent_profile_id=custom["id"], approval_mode="auto")
+    assert snapshot.fields.approval_mode == "auto" and snapshot.effective_approval_mode == "block"
     assert save(snapshot).effective_approval_mode == "block"
 
 
@@ -211,7 +211,7 @@ def test_unchanged_legacy_model_is_not_rewritten_or_revalidated(owner, monkeypat
 
 
 @pytest.mark.parametrize("change", [
-    {"approval_mode": "auto"}, {"trigger_type": "unknown"}, {"trigger_type": "task_complete"},
+    {"approval_mode": "everything"}, {"trigger_type": "unknown"}, {"trigger_type": "task_complete"},
     {"trigger_task_id": "unexpected"}, {"persistent_enabled": 1}, {"concurrency_group": " x "},
     {"agent_profile_id": "../outside"}, {"model_override": "x" * 1025},
 ])

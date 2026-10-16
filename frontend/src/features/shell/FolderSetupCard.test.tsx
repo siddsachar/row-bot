@@ -1,17 +1,19 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import ApprovalCard from './ApprovalCard';
 
 const approval = vi.fn();
 const intent = vi.fn();
 const workspaceFor = vi.fn();
+const workspaceFolders = vi.fn();
 const discover = vi.fn();
 const selectFolder = vi.fn();
+const runtime = {
+  controller: { approval, intent, workspaceFor, workspaceFolders },
+  platform: { discover, selectFolder },
+};
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({
-    controller: { approval, intent, workspaceFor },
-    platform: { discover, selectFolder },
-  }),
+  useRuntime: () => runtime,
 }));
 vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({ open: vi.fn(), notify: vi.fn(), close: vi.fn() }),
@@ -24,12 +26,43 @@ const base = {
   revision: '3',
   nonce: 'nonce-a',
   action_label: 'use_code_folder',
-  reason: 'Choose the folder on this computer; Row-Bot adds it.',
+  reason: 'Choose the folder; Row-Bot adds it.',
   policy_revision: '1',
 };
 const folderCard = {
   ...base,
   setup: { kind: 'folder', label: 'Use an existing folder', folders: [] },
+};
+const crumb = (name: string, path: string) => ({ name, path });
+const PAGES: Record<string, unknown> = {
+  '': {
+    path: '',
+    name: 'Row-Bot',
+    crumbs: [crumb('Row-Bot', '')],
+    folders: [{ name: 'Projects', path: 'Projects', is_git: false }],
+    truncated: false,
+    is_root: true,
+  },
+  Projects: {
+    path: 'Projects',
+    name: 'Projects',
+    crumbs: [crumb('Row-Bot', ''), crumb('Projects', 'Projects')],
+    folders: [{ name: 'tide-app', path: 'Projects/tide-app', is_git: true }],
+    truncated: false,
+    is_root: false,
+  },
+  'Projects/tide-app': {
+    path: 'Projects/tide-app',
+    name: 'tide-app',
+    crumbs: [
+      crumb('Row-Bot', ''),
+      crumb('Projects', 'Projects'),
+      crumb('tide-app', 'Projects/tide-app'),
+    ],
+    folders: [],
+    truncated: false,
+    is_root: false,
+  },
 };
 const approve = [
   'approval-a',
@@ -39,8 +72,16 @@ const approve = [
 ];
 
 beforeEach(() => {
-  for (const mock of [approval, intent, workspaceFor, discover, selectFolder])
+  for (const mock of [
+    approval,
+    intent,
+    workspaceFor,
+    workspaceFolders,
+    discover,
+    selectFolder,
+  ])
     mock.mockReset();
+  workspaceFolders.mockImplementation(async (path: string) => PAGES[path]);
   approval.mockResolvedValue(folderCard);
   workspaceFor.mockResolvedValue({ revision: '7' });
   discover.mockResolvedValue({ status: 'ok', value: { kind: 'pywebview' } });
@@ -66,9 +107,7 @@ async function click(name: string) {
 
 it('Choose folder picks on this computer, adds it like Add resource, then lets the turn go on', async () => {
   const card = await renderCard('Use an existing folder');
-  expect(card).toHaveTextContent(
-    'Choose the folder on this computer; Row-Bot adds it.',
-  );
+  expect(card).toHaveTextContent('Choose the folder; Row-Bot adds it.');
   // A folder card never answers from the keyboard shortcut.
   await act(async () => {
     fireEvent.keyDown(document.body, { key: 'Enter', ctrlKey: true });
@@ -166,6 +205,7 @@ it('the clone card shows the address and clones where the person chose, with pro
       intent: 'create',
       folder_grant: 'grant-1',
       clone_workspace: { repo_url: REPO },
+      confirm_network: true,
     },
     '7',
   ]);
@@ -292,14 +332,95 @@ it('Not now answers without adding a folder', async () => {
   );
 });
 
-it('a browser says to choose the folder in the desktop app or Add resource', async () => {
+it('without a picker the card offers the workspace folder, and the folder chosen there is added', async () => {
   discover.mockResolvedValue({ status: 'ok', value: { kind: 'browser' } });
   const card = await renderCard('Use an existing folder');
-  expect(card).toHaveTextContent(
-    'Choose the folder in the Row-Bot desktop app, or add it with Add resource, then Continue.',
-  );
-  expect(screen.queryByRole('button', { name: 'Choose folder' })).toBeNull();
-  await click('Continue');
+  // A phone or browser chooses inside Row-Bot's workspace folder; no path to type.
+  expect(card).not.toHaveTextContent('desktop app');
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Use Row-Bot' })).toBeDisabled();
+  await click('Projects');
+  await click('tide-app, Git repository');
+  const path = screen.getByRole('navigation', { name: 'Folder path' });
+  expect(
+    within(path)
+      .getAllByRole('listitem')
+      .map((item) => item.textContent),
+  ).toEqual(['Row-Bot', 'Projects', 'tide-app']);
+  await click('Use tide-app');
   expect(selectFolder).not.toHaveBeenCalled();
-  expect(intent.mock.calls).toEqual([approve]);
+  expect(intent.mock.calls).toEqual([
+    [
+      'conversation-a',
+      'resource.setup',
+      { kind: 'workspace', intent: 'create', root_folder: 'Projects/tide-app' },
+      '7',
+    ],
+    approve,
+  ]);
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Going on in the folder…',
+  );
+});
+
+it('without a picker the clone card clones into the folder chosen in the workspace folder', async () => {
+  discover.mockResolvedValue({ status: 'ok', value: { kind: 'browser' } });
+  approval.mockResolvedValue({
+    ...base,
+    action_label: 'clone_repository',
+    reason: 'Row-Bot downloads it into a new folder “demo”.',
+    setup: { kind: 'clone', label: 'demo', repo_url: REPO },
+  });
+  await renderCard('Clone a repository');
+  await click('Choose where');
+  expect(
+    screen.getByRole('region', { name: 'Where should demo go?' }),
+  ).toBeVisible();
+  await click('Projects');
+  await click('Clone here');
+  expect(intent.mock.calls[0]).toEqual([
+    'conversation-a',
+    'resource.setup',
+    {
+      kind: 'workspace',
+      intent: 'create',
+      root_folder: 'Projects',
+      clone_workspace: { repo_url: REPO },
+      confirm_network: true,
+    },
+    '7',
+  ]);
+  expect(intent.mock.calls[1]).toEqual(approve);
+});
+
+it('Clone from URL on a folder card asks before the download under Ask', async () => {
+  discover.mockResolvedValue({ status: 'ok', value: { kind: 'browser' } });
+  workspaceFor.mockResolvedValue({
+    revision: '7',
+    controls: { approval_mode: 'approve' },
+  });
+  await renderCard('Use an existing folder');
+  await click('Clone from URL');
+  await act(async () => {
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Repository address' }),
+      {
+        target: { value: REPO },
+      },
+    );
+  });
+  await click('Clone here');
+  const confirm = screen.getByRole('group', { name: 'Confirm the download' });
+  expect(confirm).toHaveTextContent(
+    "Clone demo? Row-Bot downloads it from github.com into Row-Bot, with this computer's own Git sign-in.",
+  );
+  expect(intent).not.toHaveBeenCalled();
+  await click('Clone');
+  expect(intent.mock.calls[0][2]).toEqual({
+    kind: 'workspace',
+    intent: 'create',
+    root_folder: '',
+    clone_workspace: { repo_url: REPO },
+    confirm_network: true,
+  });
 });

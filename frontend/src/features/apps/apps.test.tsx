@@ -1059,6 +1059,87 @@ it('after an abandoned sign-in, Retry leads back to one clear way to finish conn
   );
 });
 
+it('on another device the setup takes the pasted address and carries on (F27)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const planId = 'f2f2f2f2-0000-4000-8000-000000000027';
+  const waiting = (signIn: Partial<PlanStep['sign_in']> = {}) =>
+    plan({
+      plan_id: planId,
+      state: 'paused',
+      pause: 'sign_in',
+      current_step: 'sign_in',
+      steps: [
+        step('consent', 'done'),
+        step('sign_in', 'waiting', {
+          sign_in: {
+            method: 'oauth_dcr',
+            authorization_url: 'https://auth.example.test/authorize',
+            delivery: 'paste',
+            expires_in: 280,
+            ...signIn,
+          },
+        }),
+        step('access', 'pending'),
+        step('enable', 'pending'),
+      ],
+    });
+  const signedIn = plan({
+    ...waiting(),
+    pause: 'resume',
+    steps: [
+      step('consent', 'done'),
+      step('sign_in', 'waiting'),
+      step('access', 'pending'),
+      step('enable', 'pending'),
+    ],
+  });
+  const accepted = waiting({ received: true });
+  const controller = {
+    integrationDetail: vi.fn(async () => detail({ plan: waiting() })),
+    reviewInstallPlan: vi.fn(async () => waiting()),
+    installPlan: vi
+      .fn()
+      .mockResolvedValueOnce(waiting())
+      .mockResolvedValue(signedIn),
+    finishInstallPlanSignIn: vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('other'), {
+          code: 'mcp_auth_address_other',
+          status: 409,
+        }),
+      )
+      .mockResolvedValue(accepted),
+    continueInstallPlan: vi.fn(async () =>
+      plan({ ...signedIn, pause: 'access' }),
+    ),
+  };
+  const { platform } = show(
+    '/settings/apps/item?id=mcp%3Acurated%3Anotion',
+    controller,
+  );
+  const field = await screen.findByLabelText('Paste that address here');
+  expect(platform.openExternal).not.toHaveBeenCalled(); // The steps come first.
+  const address =
+    'http://127.0.0.1/api/v1/settings/mcp/auth/callback?code=c&state=s';
+  fireEvent.change(field, { target: { value: address } });
+  fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'That address is from a different sign-in.',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+  expect(
+    await screen.findByText('Finishing signing in to Notion…'),
+  ).toBeVisible();
+  expect(controller.finishInstallPlanSignIn).toHaveBeenLastCalledWith(planId, {
+    address,
+  });
+  await act(() => vi.advanceTimersByTimeAsync(1600));
+  await waitFor(() =>
+    expect(controller.continueInstallPlan).toHaveBeenCalledWith(planId, {}),
+  );
+});
+
 it('a setup whose sign-in ran out of time says so and offers to try again (B338)', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const waiting = plan({

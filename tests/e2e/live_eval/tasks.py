@@ -6,8 +6,9 @@ file in the task's workspace, or a fact the runner collected from Row-Bot
 an :class:`Outcome`, so the deterministic tests exercise them without a model.
 
 Tiers: ``core`` runs by default; ``full`` adds the heavier paging tasks
-(``ROW_BOT_LIVE_EVAL_TIER=full``). Provider-specific tasks (local Ollama) run
-only on that provider.
+(``ROW_BOT_LIVE_EVAL_TIER=full``); ``learning`` runs Learning's task packs and
+replay fixtures instead (``learning.py``). Provider-specific tasks (local Ollama)
+run only on that provider.
 """
 from __future__ import annotations
 
@@ -647,16 +648,26 @@ TASKS: tuple[Task, ...] = (
 
 
 def by_id() -> dict[str, Task]:
-    return {task.task_id: task for task in TASKS}
+    from .learning import all_tasks
+
+    return {task.task_id: task for task in (*TASKS, *all_tasks())}
 
 
 def select_tasks(provider_id: str, env: Mapping[str, str] | None = None) -> list[Task]:
     """The tasks one provider runs, in registry order, for the tier and task filter in the environment."""
     source = os.environ if env is None else env
     tier = str(source.get(TIER_ENV, "") or "core").strip().lower()
-    if tier not in {"core", "full"}:
-        raise ValueError(f"{TIER_ENV} must be core or full, not {tier!r}")
+    if tier not in {"core", "full", "learning"}:
+        raise ValueError(f"{TIER_ENV} must be core, full or learning, not {tier!r}")
     wanted = [name.strip() for name in str(source.get(TASKS_ENV, "") or "").split(",") if name.strip()]
+    if tier == "learning":
+        from .learning import tasks as learning_tasks
+
+        chosen = learning_tasks(source)
+        unknown = [name for name in wanted if name not in {task.task_id for task in chosen}]
+        if unknown:
+            raise ValueError(f"{TASKS_ENV} names unknown learning tasks {unknown}")
+        return [task for task in chosen if not wanted or task.task_id in wanted]
     known = by_id()
     unknown = [name for name in wanted if name not in known]
     if unknown:

@@ -127,3 +127,33 @@ def test_proxy_connects_to_resolved_ip_without_a_second_hostname_lookup() -> Non
         assert _request(proxy, "GET", "http://public.test/exact") == (200, b"ok")
 
     assert connected == [("8.8.8.8", 80)]
+
+
+def test_proxy_rechecks_a_local_grant_for_the_conversation_the_hook_approved() -> None:
+    _OriginHandler.hits = []
+    origin = ThreadingHTTPServer(("127.0.0.1", 0), _OriginHandler)
+    thread = threading.Thread(target=origin.serve_forever, daemon=True)
+    thread.start()
+    port = origin.server_address[1]
+    policy = BrowserNetworkSecurity()
+    try:
+        with PinnedNetworkProxy(policy, browser_session_id="browser-a") as proxy:
+            policy.grant_local_development(
+                browser_session_id="browser-a",
+                origin=f"http://localhost:{port}",
+                intended_use="Preview the local app",
+                ttl_seconds=60,
+                scope="conversation-a",
+            )
+            url = f"http://localhost:{port}/page"
+            proxy.approve_request(url, "GET", "conversation-b")
+            assert _request(proxy, "GET", url)[0] == 403
+            proxy.approve_request(url, "GET")
+            assert _request(proxy, "GET", url)[0] == 403
+            proxy.approve_request(url, "GET", "conversation-a")
+            assert _request(proxy, "GET", url) == (200, b"pinned origin")
+            assert _OriginHandler.hits == [("GET", "/page")]
+    finally:
+        origin.shutdown()
+        origin.server_close()
+        thread.join(timeout=5)

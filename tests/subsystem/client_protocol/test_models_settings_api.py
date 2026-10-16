@@ -127,3 +127,57 @@ def test_catalog_cursor_expiry_is_reported_for_bounded_models_route(monkeypatch)
         response = client.get("/api/v1/settings/models/catalog?surface=chat&cursor=old", headers=headers)
         assert response.status_code == 410, response.text
         assert response.json()["code"] == "cursor_expired"
+
+
+def test_visibility_writes_are_typed_authenticated_and_mark_the_composer_list(tmp_path, monkeypatch):
+    """F10: favourites and hidden models, by provider-qualified reference."""
+    import json
+    from types import SimpleNamespace
+
+    from row_bot.api.v1.routes import cached_choices
+    from row_bot.mcp_client import runtime
+    from row_bot.plugins import registry as plugin_registry
+    from row_bot.providers import client_status, model_catalog_cache
+    from row_bot.tools import registry as tool_registry
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    (tmp_path / "model_settings.json").write_text(json.dumps({"model": "model:ollama:qwen3:8b"}), encoding="utf-8")
+    client, _, _ = client_app()
+    with client:
+        route = "/api/v1/settings/models/visibility"
+        assert client.post(route, json={"action": "show_all"}).status_code == 403
+        _, headers = bootstrap(client)
+        for invalid in (
+            {"action": "hide"},
+            {"action": "show_all", "model_ref": "model:ollama:qwen3:8b"},
+            {"action": "pin", "model_ref": "model:ollama:qwen3:8b"},
+            {"action": "hide", "model_ref": "qwen3:8b"},
+        ):
+            refused = client.post(route, headers=headers, json=invalid)
+            assert refused.status_code == 422, (invalid, refused.text)
+        assert client.post(route, headers=headers,
+                           json={"action": "favourite", "model_ref": "model:ollama:llama3.1:8b"}).status_code == 200
+        hidden = client.post(route, headers=headers, json={"action": "hide", "model_ref": "model:ollama:gemma3:4b"})
+        assert hidden.status_code == 200, hidden.text
+        assert hidden.json() == {"schema_version": 1, "favourites": ["model:ollama:llama3.1:8b"],
+                                 "hidden": ["model:ollama:gemma3:4b"]}
+    saved = json.loads((tmp_path / "model_settings.json").read_text(encoding="utf-8"))
+    assert saved["model"] == "model:ollama:qwen3:8b"
+
+    def option(ref: str) -> dict:
+        return {"provider_id": "ollama", "selection_ref": ref, "label": ref.split(":", 2)[2],
+                "available": True, "unavailable_reason": None, "billing": "local"}
+
+    monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=False))
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [
+        option("model:ollama:gemma3:4b"), option("model:ollama:llama3.1:8b"), option("model:ollama:qwen3:8b"),
+    ])
+    monkeypatch.setattr(tool_registry, "get_all_tools", lambda: [])
+    monkeypatch.setattr(plugin_registry, "get_loaded_manifests", lambda: [])
+    monkeypatch.setattr(runtime, "get_catalog_snapshot", lambda: {})
+    models = cached_choices()["models"]
+    assert [(row["model_ref"], row.get("favourite_rank"), row.get("hidden")) for row in models] == [
+        ("model:ollama:gemma3:4b", None, True),
+        ("model:ollama:llama3.1:8b", 1, None),
+        ("model:ollama:qwen3:8b", None, None),
+    ]

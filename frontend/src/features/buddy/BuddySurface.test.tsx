@@ -629,3 +629,27 @@ describe('BuddyPortrait: Buddy beside the Overview greeting (B269)', () => {
     expect(session.load).not.toHaveBeenCalled();
   });
 });
+
+it('shows Learning’s quiet line while a personal model trains', async () => {
+  surface.state.selectedConversationId = null;
+  surface.globalBuddy.mockResolvedValue({
+    ...snapshot,
+    status: {
+      ...snapshot.status,
+      mood: 'focused',
+      animation: 'step_check',
+      label: 'Learning: training your personal model',
+    },
+    conversation_id: null,
+    activity: 'idle',
+  });
+  surface.globalBuddyPack.mockResolvedValue({ ...pack, available: false });
+
+  const view = render(<BuddySurface />);
+
+  await waitFor(() =>
+    expect(view.getByRole('status')).toHaveTextContent(
+      'Learning: training your personal model',
+    ),
+  );
+});

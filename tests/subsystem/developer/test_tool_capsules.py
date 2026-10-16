@@ -802,13 +802,19 @@ def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_pat
     assert capsules.list_capsules()[0].promoted_plugin_id == ""
 
 
-@pytest.mark.parametrize(("mode", "asks", "builds"), [("approve", True, False), ("block", False, False),
-                                                      ("allow_all", False, True)])
-def test_the_agent_asks_before_testing_or_turning_on_a_custom_tool(monkeypatch, mode, asks, builds):
-    """B292: a Custom Tool's commands run on this computer, so the agent can't test or enable one unasked."""
+@pytest.mark.parametrize(("mode", "reviewer", "asks", "builds"), [
+    ("approve", "approve", True, False), ("block", "approve", False, False),
+    ("auto", "ask", True, False), ("auto", "approve", False, True), ("full", "ask", False, True)])
+def test_the_agent_asks_before_testing_or_turning_on_a_custom_tool(monkeypatch, mode, reviewer, asks, builds):
+    """B292: a Custom Tool's commands run on this computer, so the agent can't test or enable one unasked:
+    the person approves under Ask, the reviewer first under Auto, the level itself under Hands-off."""
     from types import SimpleNamespace
 
+    from row_bot.approval_review import ReviewVerdict
     from row_bot.tools import custom_tool_builder_tool as builder
+
+    monkeypatch.setattr("row_bot.approval_review.review",
+                        lambda *_a, **_k: ReviewVerdict(reviewer, "You asked to build this tool."))
 
     asked, built = [], []
     draft = SimpleNamespace(name="Weather", commands=[{"name": "Run", "command": "python evil.py"}])

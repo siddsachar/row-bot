@@ -602,6 +602,48 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Data folder leftover sweep failed")
 
+    # Recordings a crash cut short are marked, and their working files removed (F2).
+    try:
+        from row_bot.recordings import sweep_leftovers
+        with _startup_phase("recording_leftovers"):
+            await asyncio.to_thread(sweep_leftovers)
+    except Exception:
+        logger.exception("Recording leftover check failed")
+
+    # Video edits a crash cut short are marked, and their working files removed (F3).
+    try:
+        from row_bot.video_edits import sweep_leftovers as sweep_video_edits
+        with _startup_phase("video_edit_leftovers"):
+            await asyncio.to_thread(sweep_video_edits)
+    except Exception:
+        logger.exception("Video edit leftover check failed")
+
+    # A Prepare sandbox a crash cut short is marked, and its install container removed (F18).
+    try:
+        from row_bot.developer.sandbox_prepare import sweep_leftovers as sweep_sandbox_jobs
+        with _startup_phase("sandbox_job_leftovers"):
+            await asyncio.to_thread(sweep_sandbox_jobs)
+    except Exception:
+        logger.exception("Sandbox job leftover check failed")
+
+    # Files sent to the devices whose time ran out, and anything a send cut short, are removed (F7).
+    try:
+        from row_bot.file_deliveries import sweep as sweep_deliveries
+        with _startup_phase("delivery_leftovers"):
+            await asyncio.to_thread(sweep_deliveries)
+    except Exception:
+        logger.exception("Delivery clean-up failed")
+
+    # Background processes a crash left running are stopped, and reported once (F1).
+    try:
+        from row_bot.background_processes import report_leftovers
+        with _startup_phase("background_process_leftovers"):
+            leftover_notice = await asyncio.to_thread(report_leftovers)
+        if leftover_notice:
+            _startup_warning(leftover_notice, source="processes")
+    except Exception:
+        logger.exception("Background process leftover check failed")
+
     logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from row_bot.data_paths import describe_data_paths
@@ -665,6 +707,15 @@ async def _run_startup_sequence():
     _set("🌙 Starting dream cycle daemon…")
     with _startup_phase("dream_cycle_daemon"):
         await asyncio.to_thread(start_dream_loop)
+
+    # Learning (preview): an unfinished past-chat import carries on. Off: one check, nothing else.
+    from row_bot import learning as _learning
+
+    if _learning.is_enabled():
+        await asyncio.to_thread(_learning.start_past_chat_import)
+        # Training left running when Row-Bot closed pauses at its newest checkpoint; the
+        # quiet-hours runner starts (L2a).
+        await asyncio.to_thread(_learning.start_runner)
 
     _set("⬆ Starting auto-update scheduler…")
     try:
@@ -1099,6 +1150,18 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
         _shutdown_cleanup_started = False
         return False
     stop_performance_monitor()
+    # Learning (preview), only if it ran: the past-chat import stops, training stops with its
+    # whole process tree (it continues from its newest checkpoint next time), and capture
+    # writes what it holds (a few seconds at most) and stops.
+    for _learning_name, _learning_stop in (("row_bot.learning.past_chats", "stop_background"),
+                                           ("row_bot.learning.runner", "shutdown"),
+                                           ("row_bot.learning.capture", "shutdown")):
+        _learning_module = sys.modules.get(_learning_name)
+        if _learning_module is not None:
+            try:
+                await asyncio.to_thread(getattr(_learning_module, _learning_stop), 5.0)
+            except Exception:
+                logger.debug("Stopping Learning's %s failed", _learning_name, exc_info=True)
     mark_shutdown(reason)
     _safe_console_print(f"[shutdown] Cleaning up sessions ({reason})...")
     try:
@@ -1115,6 +1178,30 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
     except Exception as exc:
         _safe_console_print(f"[shutdown] Channel registry cleanup error: {exc}")
     try:
+        # Recordings stop first, so their videos are saved before the browser and Cua go (F2).
+        from row_bot.recordings import stop_all as _stop_recordings
+        _recorded = await asyncio.to_thread(_stop_recordings, by="quit", timeout=15.0)
+        if _recorded:
+            _safe_console_print(f"[shutdown] Stopped {_recorded} recording(s)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Recording cleanup error: {exc}")
+    try:
+        # Video edits stop before the background processes they run in (F3); nothing half-made is kept.
+        from row_bot.video_edits import stop_all as _stop_video_edits
+        _edits = await asyncio.to_thread(_stop_video_edits, by="quit", timeout=10.0)
+        if _edits:
+            _safe_console_print(f"[shutdown] Stopped {_edits} video edit(s)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Video edit cleanup error: {exc}")
+    try:
+        # Prepare sandbox stops with its network off: its install container is removed (F18).
+        from row_bot.developer.sandbox_prepare import stop_all as _stop_sandbox_jobs
+        _jobs = await asyncio.to_thread(_stop_sandbox_jobs, timeout=15.0)
+        if _jobs:
+            _safe_console_print(f"[shutdown] Stopped {_jobs} sandbox job(s)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Sandbox job cleanup error: {exc}")
+    try:
         from row_bot.tools.browser_tool import get_session_manager as _get_bsm
         _get_bsm().kill_all()
         _safe_console_print("[shutdown] Browser session closed")
@@ -1126,6 +1213,14 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
         _safe_console_print("[shutdown] Shell sessions closed")
     except Exception as exc:
         _safe_console_print(f"[shutdown] Shell cleanup error: {exc}")
+    try:
+        # Background processes stop with Row-Bot, each with everything it started (F1).
+        from row_bot.background_processes import stop_all as _stop_background_processes
+        _stopped = await asyncio.to_thread(_stop_background_processes, by="quit", timeout=10.0)
+        if _stopped:
+            _safe_console_print(f"[shutdown] Stopped {_stopped} background process(es)")
+    except Exception as exc:
+        _safe_console_print(f"[shutdown] Background process cleanup error: {exc}")
     try:
         from row_bot.terminal_bridge import TerminalBridge
         if TerminalBridge.has_instance():

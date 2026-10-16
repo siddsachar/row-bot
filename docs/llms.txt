@@ -107,7 +107,7 @@ Public documentation index for Row-Bot.
 - [MCP Bundles (.mcpb)](/docs/extending/mcp-bundles)
   Route: /docs/extending/mcp-bundles. For developers: how Row-Bot imports .mcpb bundles, which manifest fields it reads, how user_config becomes setup inputs, platform and runtime checks, signatures, and Registry bundles downloaded only after consent and a checksum match.
 - [Sign-In And Client Metadata](/docs/extending/sign-in-and-client-metadata)
-  Route: /docs/extending/sign-in-and-client-metadata. For developers: how Row-Bot signs in to a hosted app, using its published OAuth client metadata document (CIMD), dynamic client registration or the person's own OAuth app, with a loopback redirect.
+  Route: /docs/extending/sign-in-and-client-metadata. For developers: how Row-Bot signs in to a hosted app, using its published OAuth client metadata document (CIMD), dynamic client registration or the person's own OAuth app, and how a sign-in finishes on another device.
 - [Hosting MCP Apps Views](/docs/extending/mcp-apps)
   Route: /docs/extending/mcp-apps. For developers: how Row-Bot shows an app's ui:// view in chat, with the sandboxed frame, its Content-Security-Policy, declared domains, the bridge messages it answers, limits, and calls that go through approvals.
 - [Operations, Data, And Recovery](/docs/operations/)

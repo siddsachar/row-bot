@@ -72,7 +72,7 @@ def test_developer_patch_records_and_reverts_agent_change(tmp_path, monkeypatch,
     _init_repo(repo)
     (repo / "README.md").write_text("Hello\n", encoding="utf-8")
     workspace = storage.add_or_update_local_workspace(str(repo))
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     thread_id = storage.ensure_workspace_thread(workspace.id)
     tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
     patch = """diff --git a/README.md b/README.md
@@ -101,7 +101,7 @@ def test_developer_write_file_records_agent_change(tmp_path, monkeypatch, reload
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     thread_id = storage.ensure_workspace_thread(workspace.id)
     tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
     try:
@@ -127,7 +127,7 @@ def test_developer_ordinary_write_policy_allows_ask_and_auto_but_blocks_block(
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
 
-    for mode, path in (("approve", "ask.txt"), ("allow_all", "auto.txt")):
+    for mode, path in (("approve", "ask.txt"), ("auto", "auto.txt"), ("full", "full.txt")):
         change_set, decision = edits.write_file_to_workspace(
             workspace_id=workspace.id,
             thread_id="thread-ordinary",
@@ -202,7 +202,7 @@ def test_developer_non_git_workspace_writes_and_surfaces_changed_path(
         lambda path: developer_git.GitStatus(path=str(path), is_git=False),
     )
     workspace = storage.add_or_update_local_workspace(str(folder))
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     thread_id = storage.ensure_workspace_thread(workspace.id)
     tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
     try:
@@ -238,7 +238,7 @@ def test_developer_write_file_uses_docker_shadow_when_enabled(tmp_path, monkeypa
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
 
@@ -281,7 +281,7 @@ def test_developer_apply_patch_uses_docker_shadow_when_enabled(tmp_path, monkeyp
     (repo / "README.md").write_text("before\n", encoding="utf-8")
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
 
@@ -675,7 +675,7 @@ def test_docker_network_off_blocks_network_commands_before_docker(tmp_path, monk
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off")
-    storage.set_workspace_approval_mode(workspace.id, "agent_run")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
 
@@ -699,7 +699,7 @@ def test_docker_network_off_blocks_package_installs_before_docker(tmp_path, monk
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off")
-    storage.set_workspace_approval_mode(workspace.id, "agent_run")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
 
@@ -764,7 +764,7 @@ def test_developer_write_file_in_docker_mode_requires_verified_sandbox(tmp_path,
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
 
@@ -884,7 +884,7 @@ def test_import_sandbox_changes_applies_patch_to_host_workspace(tmp_path, monkey
     (repo / "README.md").write_text("before\n", encoding="utf-8")
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
-    storage.set_workspace_approval_mode(workspace.id, "auto_edit")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
 
@@ -968,7 +968,7 @@ def test_importing_the_newest_sandbox_change_brings_in_the_earlier_ones_first(tm
                                                                                reload_for_data_dir):
     """B303: sandbox changes build on each other; importing the latest no longer fails with a git error."""
     repo, sandbox_runtime, developer_tool, first, second, reset = _two_sandbox_changes(
-        tmp_path, monkeypatch, reload_for_data_dir, "auto_edit")
+        tmp_path, monkeypatch, reload_for_data_dir, "full")
     try:
         result = developer_tool._import_sandbox_changes(second.pending_change_id, "Import the latest change")
     finally:
@@ -1007,7 +1007,7 @@ def test_an_agent_branch_switch_makes_the_workspace_card_read_the_folder_again(t
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
-    storage.set_workspace_approval_mode(workspace.id, "allow_all")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     thread_id = storage.ensure_workspace_thread(workspace.id)
     monkeypatch.setattr(inspector_snapshot, "_snapshots", {
         (workspace.id, thread_id): object(), (workspace.id, "parent-chat"): object(), ("other", thread_id): object()})
@@ -1034,7 +1034,7 @@ def _change_made_before_the_first_was_imported(tmp_path, monkeypatch, reload_for
     (repo / "dates.txt").write_text(_DATES, encoding="utf-8", newline="\n")
     workspace = storage.add_or_update_local_workspace(str(repo))
     storage.set_workspace_execution_settings(workspace.id, execution_mode="docker")
-    storage.set_workspace_approval_mode(workspace.id, "allow_all")
+    storage.set_workspace_approval_mode(workspace.id, "full")
     workspace = storage.get_workspace(workspace.id)
     thread_id = storage.ensure_workspace_thread(workspace.id)
     monkeypatch.setattr(sandbox_runtime, "detect_container_runtime",

@@ -1,0 +1,258 @@
+{
+  "$defs": {
+    "LearningRunnerStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "train_off",
+                "hugging_face",
+                "no_engine",
+                "no_data",
+                "quiet_hours",
+                "after_dream",
+                "now",
+                "in_use",
+                "chat",
+                "workflow",
+                "indexing",
+                "dream",
+                "you",
+                "app_closed",
+                "worker_stopped",
+                "out_of_gpu_memory",
+                "out_of_disk",
+                "cannot_resume",
+                "data_unreadable",
+                "engine_error",
+                "learning_off",
+                "learning_paused"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "state": {
+          "enum": [
+            "off",
+            "paused",
+            "training",
+            "waiting",
+            "scheduled",
+            "held",
+            "failed",
+            "trained",
+            "nothing_to_do"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "LearningRunnerStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The personal model's current training run (L2a), polled while it runs.",
+  "properties": {
+    "can_train_now": {
+      "title": "Can Train Now",
+      "type": "boolean"
+    },
+    "checkpoint_step": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Checkpoint Step"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "enum": [
+            "out_of_gpu_memory",
+            "out_of_disk",
+            "cannot_resume",
+            "data_unreadable",
+            "engine_error"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure"
+    },
+    "job_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Job Id"
+    },
+    "pause_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "in_use",
+            "local_gpu",
+            "learning_paused",
+            "learning_off",
+            "you",
+            "app_closed",
+            "worker_stopped"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pause Reason"
+    },
+    "recovered": {
+      "anyOf": [
+        {
+          "enum": [
+            "previous_checkpoint",
+            "start_over"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recovered"
+    },
+    "resumes": {
+      "anyOf": [
+        {
+          "enum": [
+            "quiet_hours",
+            "when_free",
+            "ask"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resumes"
+    },
+    "runner": {
+      "$ref": "#/$defs/LearningRunnerStatus"
+    },
+    "seconds_left": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seconds Left"
+    },
+    "state": {
+      "enum": [
+        "none",
+        "planned",
+        "waiting",
+        "preparing",
+        "running",
+        "pausing",
+        "paused",
+        "evaluating",
+        "failed"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "step": {
+      "minimum": 0,
+      "title": "Step",
+      "type": "integer"
+    },
+    "steps_total": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Steps Total"
+    },
+    "trigger": {
+      "anyOf": [
+        {
+          "enum": [
+            "quiet_hours",
+            "train_now"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trigger"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    }
+  },
+  "required": [
+    "state",
+    "step",
+    "can_train_now",
+    "runner"
+  ],
+  "title": "LearningTraining",
+  "type": "object"
+}

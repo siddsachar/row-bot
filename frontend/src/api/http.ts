@@ -199,6 +199,150 @@ export class HttpTransport implements ClientTransport {
   monitorSnapshot(signal?: AbortSignal) {
     return wire.getMonitorSnapshot(this.base, this.session(), signal);
   }
+  backgroundProcesses(conversationId?: string, signal?: AbortSignal) {
+    return wire.getBackgroundProcesses(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  backgroundProcess(processId: string, signal?: AbortSignal) {
+    return wire.getBackgroundProcess(
+      this.base,
+      this.session(),
+      processId,
+      signal,
+    );
+  }
+  backgroundProcessOutput(
+    processId: string,
+    after = 0,
+    limit = 65536,
+    signal?: AbortSignal,
+  ) {
+    return wire.getBackgroundProcessOutput(
+      this.base,
+      this.session(),
+      processId,
+      after,
+      limit,
+      signal,
+    );
+  }
+  stopBackgroundProcess(processId: string, signal?: AbortSignal) {
+    return wire.stopBackgroundProcess(
+      this.base,
+      this.session(),
+      processId,
+      signal,
+    );
+  }
+  recordings(conversationId?: string, signal?: AbortSignal) {
+    return wire.getRecordings(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  stopRecording(recordingId: string, signal?: AbortSignal) {
+    return wire.stopRecording(this.base, this.session(), recordingId, signal);
+  }
+  conversationSandbox(conversationId: string, signal?: AbortSignal) {
+    return wire.getConversationSandbox(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  prepareSandbox(conversationId: string, signal?: AbortSignal) {
+    return wire.prepareConversationSandbox(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  pullSandboxImage(conversationId: string, signal?: AbortSignal) {
+    return wire.pullConversationSandboxImage(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  sandboxJob(jobId: string, signal?: AbortSignal) {
+    return wire.getSandboxJob(this.base, this.session(), jobId, signal);
+  }
+  stopSandboxJob(jobId: string, signal?: AbortSignal) {
+    return wire.stopSandboxJob(this.base, this.session(), jobId, signal);
+  }
+  workspaceFolders(path = '', signal?: AbortSignal) {
+    return wire.getWorkspaceFolders(this.base, this.session(), path, signal);
+  }
+  videoEdits(conversationId?: string, signal?: AbortSignal) {
+    return wire.getVideoEdits(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  stopVideoEdit(editId: string, signal?: AbortSignal) {
+    return wire.stopVideoEdit(this.base, this.session(), editId, signal);
+  }
+  delivery(deliveryId: string, signal?: AbortSignal) {
+    return wire.getDelivery(this.base, this.session(), deliveryId, signal);
+  }
+  downloadDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
+    return wire.readDeliveryFile(
+      this.base,
+      this.session(),
+      deliveryId,
+      index,
+      signal,
+    );
+  }
+  saveDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
+    return wire.saveDeliveryFile(
+      this.base,
+      this.session(),
+      deliveryId,
+      index,
+      signal,
+    );
+  }
+  sendDeliveryToDevices(deliveryId: string, signal?: AbortSignal) {
+    return wire.sendDeliveryToDevices(
+      this.base,
+      this.session(),
+      deliveryId,
+      signal,
+    );
+  }
+  browserLocalAddresses(conversation: string, signal?: AbortSignal) {
+    return wire.getBrowserLocalAddresses(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
+  removeBrowserLocalAddress(
+    conversation: string,
+    grant: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.removeBrowserLocalAddress(
+      this.base,
+      this.session(),
+      conversation,
+      grant,
+      signal,
+    );
+  }
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
   }
@@ -1213,6 +1357,19 @@ export class HttpTransport implements ClientTransport {
   cancelInstallPlan(plan: string, signal?: AbortSignal) {
     return wire.cancelInstallPlan(this.base, this.session(), plan, signal);
   }
+  finishInstallPlanSignIn(
+    plan: string,
+    body: wire.PlanSignInRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.finishInstallPlanSignIn(
+      this.base,
+      this.session(),
+      plan,
+      body,
+      signal,
+    );
+  }
   mcpConfiguration(
     query: string,
     cursor?: string,
@@ -2068,6 +2225,32 @@ export class HttpTransport implements ClientTransport {
   executeInsight(command: wire.InsightCommand, signal?: AbortSignal) {
     return wire.sendInsightCommand(this.base, this.session(), command, signal);
   }
+  learning(signal?: AbortSignal) {
+    return wire.getLearning(this.base, this.session(), signal);
+  }
+  learningTraining(signal?: AbortSignal) {
+    return wire.getLearningTraining(this.base, this.session(), signal);
+  }
+  learningHardware(refresh = false, signal?: AbortSignal) {
+    return wire.getLearningHardware(this.base, this.session(), refresh, signal);
+  }
+  learningConversation(conversation: string, signal?: AbortSignal) {
+    return wire.getLearningConversation(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
+  learningLessons(signal?: AbortSignal) {
+    return wire.getLearningLessons(this.base, this.session(), signal);
+  }
+  learningReceipt(command: string, signal?: AbortSignal) {
+    return wire.getLearningReceipt(this.base, this.session(), command, signal);
+  }
+  executeLearning(command: wire.LearningCommand, signal?: AbortSignal) {
+    return wire.sendLearningCommand(this.base, this.session(), command, signal);
+  }
   customToolReceipt(
     conversation: string,
     binding: string,
@@ -2422,6 +2605,12 @@ export class HttpTransport implements ClientTransport {
   }
   updateModelContext(body: wire.ModelContextMutation, signal?: AbortSignal) {
     return wire.updateModelContext(this.base, this.session(), body, signal);
+  }
+  updateModelVisibility(
+    body: wire.ModelVisibilityMutation,
+    signal?: AbortSignal,
+  ) {
+    return wire.updateModelVisibility(this.base, this.session(), body, signal);
   }
   agentRuntimeSettings(signal?: AbortSignal) {
     return wire.getAgentRuntimeSettings(this.base, this.session(), signal);

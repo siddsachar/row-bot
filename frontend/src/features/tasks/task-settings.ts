@@ -25,6 +25,7 @@ export function taskSettings(
     revision: string,
     fields?: TaskSettingsFields,
     profileRevision?: string,
+    confirmFullAutonomy = false,
   ) =>
     mutate(
       fields ? 'task.settings.update' : 'task.webhook.rotate',
@@ -32,6 +33,10 @@ export function taskSettings(
         task_id: task,
         task_revision: revision,
         ...(fields ? { fields, profile_revision: profileRevision } : {}),
+        // The person turned Hands-off on in its one-time dialog just now.
+        ...(fields && confirmFullAutonomy
+          ? { confirm_full_autonomy: true }
+          : {}),
       },
       task,
       async () => {
@@ -47,7 +52,8 @@ export function taskSettings(
       revision: string,
       profileRevision: string,
       fields: TaskSettingsFields,
-    ) => change(task, revision, fields, profileRevision),
+      confirmFullAutonomy = false,
+    ) => change(task, revision, fields, profileRevision, confirmFullAutonomy),
     rotate: (task: string, revision: string) => change(task, revision),
     download: async (task: string, revision: string, signal?: AbortSignal) => {
       const authorize = () => {

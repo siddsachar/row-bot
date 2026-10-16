@@ -44,6 +44,10 @@ import { FAILED_RUN_STATUSES, When, plural, runStatus } from './home-format';
 import { Sparkline, Swimlane, type Lane } from './monitor-charts';
 import { settingsLeaves } from '../settings/model';
 import FixAction from './FixAction';
+import BackgroundProcesses, {
+  type BackgroundProcessesIo,
+} from './BackgroundProcesses';
+import type { LearningIO } from '../learning/learning-state';
 
 export type MonitorAvailability =
   'available' | 'missing' | 'unavailable' | 'corrupt';
@@ -150,6 +154,10 @@ export type MonitorHomeProps = {
   loadLogs?: (signal?: AbortSignal) => Promise<MonitorLogs>;
   loadTasks?: () => Promise<TaskSummaryPage>;
   writeClipboard?: ClientPlatform['writeClipboard'];
+  /** Every background process, with Stop (F1, F6). */
+  processes?: BackgroundProcessesIo;
+  /** Learning (preview), when this build has it: training shows as a row with Stop. */
+  learning?: LearningIO | null;
   now?: Date;
 };
 
@@ -913,6 +921,8 @@ export default function MonitorHome({
   loadLogs,
   loadTasks,
   writeClipboard,
+  processes,
+  learning = null,
   now: suppliedNow,
 }: MonitorHomeProps) {
   const notify = useNotify();
@@ -1332,6 +1342,7 @@ export default function MonitorHome({
           }
         />
       )}
+      {processes && <BackgroundProcesses io={processes} learning={learning} />}
       {startupWarnings && startupWarnings.length > 0 && (
         <section
           className="monitor-section monitor-startup"

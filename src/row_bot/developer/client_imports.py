@@ -370,7 +370,8 @@ def review_workspace_import(resource_id: str, conversation_id: str, pending_chan
     patch, captured = _capture(workspace, row)
     policy = {"approval_mode": _get_thread_approval_mode(conversation_id), "workspace": workspace.to_dict()}
     git_policy = _git_policy(Path(workspace.path), list(captured))
-    decision = decide_action(policy["approval_mode"], "edit")
+    # The person imports it themselves: Auto and Hands-off need no further confirmation.
+    decision = decide_action(policy["approval_mode"], "edit", by_person=True)
     # Contents remain server-only. Public review binds hashes and relative names.
     hosts = {path: {key: value for key, value in item.items() if key != "data"} for path, item in captured.items()}
     fields = dict(resource_id=resource_id, conversation_id=conversation_id, resource_revision=workspace.updated_at,
@@ -411,7 +412,7 @@ def import_workspace_change(review: WorkspaceImportReview, *, command_id: str, c
         workspace, binding, rows = _saved(review.resource_id, review.conversation_id, validate)
         row = _pending(rows, review.pending_change_id)
         policy = {"approval_mode": _get_thread_approval_mode(review.conversation_id), "workspace": workspace.to_dict()}
-        decision = decide_action(policy["approval_mode"], "edit")
+        decision = decide_action(policy["approval_mode"], "edit", by_person=True)
         if decision.decision == "block" or decision.requires_approval and not confirmed:
             raise ValueError("sandbox_import_approval_required" if decision.requires_approval else "edit_policy_denied")
         if (workspace.updated_at != review.resource_revision or binding.binding_id != review.binding_id or
