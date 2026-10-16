@@ -104,7 +104,7 @@ def test_exact_policy_change_rejects_even_when_both_modes_allow_ordinary_edits(d
     snapshot = d.read()
     def change():
         with sqlite3.connect(d.threads.DB_PATH) as connection:
-            connection.execute("UPDATE thread_meta SET approval_mode='allow_all' WHERE thread_id='chat'")
+            connection.execute("UPDATE thread_meta SET approval_mode='auto' WHERE thread_id='chat'")
     if when == "before_save":
         change()
     else:

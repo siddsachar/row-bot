@@ -881,7 +881,7 @@ def collect_safety() -> list[dict[str, Any]]:
                 "title": str(label),
                 "description": _approval_description(str(mode)),
                 "source": repo_path(ROOT, approval_path),
-                "decision": "block" if mode == "block" else "allow" if mode == "allow_all" else "ask",
+                "decision": _APPROVAL_DECISIONS.get(str(mode), "ask"),
             }
         )
     rows.append(
@@ -896,11 +896,18 @@ def collect_safety() -> list[dict[str, Any]]:
     return rows
 
 
+_APPROVAL_DECISIONS = {"block": "block", "approve": "ask", "auto": "review", "full": "allow"}
+
+
 def _approval_description(mode: str) -> str:
     if mode == "block":
         return "Read-only or blocked mode for actions that would change external state."
-    if mode == "allow_all":
-        return "Automatically allows actions in trusted contexts."
+    if mode == "auto":
+        return ("A reviewer model approves actions that clearly match the person's request and asks the "
+                "person about the rest; it fails safe to asking.")
+    if mode == "full":
+        return ("Approves every action without asking and records each one; chosen by the person, never "
+                "in a conversation other people share.")
     return "Prompts the user before a sensitive action continues."
 
 

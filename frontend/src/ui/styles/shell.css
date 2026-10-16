@@ -862,6 +862,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A longer status ("Learning: training your personal model") takes a second line, not an ellipsis. */
+.navigation .buddy-companion-text p[role='status'] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+}
 .navigation .buddy-companion-state {
   justify-content: flex-start;
 }

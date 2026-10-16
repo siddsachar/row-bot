@@ -263,7 +263,7 @@ class PinnedNetworkProxy:
         self._ticket_lock = threading.Lock()
         self._tickets: dict[
             tuple[str, str, str],
-            deque[tuple[str, str, float]],
+            deque[tuple[str, str, str | None, float]],
         ] = {}
 
     @property
@@ -329,11 +329,13 @@ class PinnedNetworkProxy:
                 "transport_not_approved",
                 "The managed engine did not approve this exact transport request.",
             )
-        approved_url, approved_method = approved or (url, method)
+        # A download carries no ticket, so no conversation: no local grant covers it.
+        approved_url, approved_method, scope = approved or (url, method, None)
         return self._policy.authorize(
             approved_url,
             browser_session_id=self._browser_session_id,
             method=approved_method,
+            scope=scope,
         )
 
     @staticmethod
@@ -354,8 +356,12 @@ class PinnedNetworkProxy:
             and values.get("sec-fetch-site") == "same-origin"
         )
 
-    def approve_request(self, url: str, method: str) -> None:
-        """Issue one short-lived transport ticket from the engine route hook."""
+    def approve_request(self, url: str, method: str, scope: str | None = None) -> None:
+        """Issue one short-lived transport ticket from the engine route hook.
+
+        *scope* is the conversation whose page the hook authorized the request
+        for; the proxy rechecks policy for that same conversation.
+        """
 
         key = _ticket_key(url, method)
         if key is None:
@@ -373,10 +379,15 @@ class PinnedNetworkProxy:
                 return
             for selected in keys:
                 self._tickets.setdefault(selected, deque()).append(
-                    (str(url), str(method or "GET").upper(), now + _TICKET_TTL_SECONDS)
+                    (
+                        str(url),
+                        str(method or "GET").upper(),
+                        None if scope is None else str(scope),
+                        now + _TICKET_TTL_SECONDS,
+                    )
                 )
 
-    def _consume_ticket(self, url: str, method: str) -> tuple[str, str] | None:
+    def _consume_ticket(self, url: str, method: str) -> tuple[str, str, str | None] | None:
         key = _ticket_key(url, method)
         if key is None:
             return None
@@ -386,14 +397,14 @@ class PinnedNetworkProxy:
             queue = self._tickets.get(key)
             if not queue:
                 return None
-            approved_url, approved_method, _expires_at = queue.popleft()
+            approved_url, approved_method, scope, _expires_at = queue.popleft()
             if not queue:
                 self._tickets.pop(key, None)
-            return approved_url, approved_method
+            return approved_url, approved_method, scope
 
     def _expire_tickets(self, now: float) -> None:
         for key, queue in tuple(self._tickets.items()):
-            while queue and queue[0][2] <= now:
+            while queue and queue[0][3] <= now:
                 queue.popleft()
             if not queue:
                 self._tickets.pop(key, None)

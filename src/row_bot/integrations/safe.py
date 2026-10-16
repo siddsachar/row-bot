@@ -146,7 +146,8 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
           headers: Mapping[str, str] | None = None, redirects: int = 0,
           exact_redirects: Mapping[str, str] | None = None, meta: dict | None = None,
           refused: str = "package_source_not_supported", too_large: str = "package_download_too_large",
-          method: str = "GET", check: Callable[[], None] | None = None) -> bytes:
+          method: str = "GET", check: Callable[[], None] | None = None,
+          progress: Callable[[int, int | None], None] | None = None) -> bytes:
     """Bounded https GET without automatic redirects.
 
     ``hosts`` is a reviewed allow-list; ``None`` admits any public name. A direct
@@ -160,7 +161,9 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
     whole fetch has one deadline as well as the per-read ``timeout``. ``meta``
     receives the final response's status and headers. ``check`` (or the one set by
     ``checked``) runs before each hop and about four times a second while reading,
-    and stops the fetch by raising. ``HEAD`` returns no body.
+    and stops the fetch by raising. ``progress`` is told the bytes read so far and
+    the length the final response announced (None when it announced none) as often,
+    and once at the end. ``HEAD`` returns no body.
     """
     check = check or _CHECK.get() or (lambda: None)
     if method not in {"GET", "HEAD"}:
@@ -198,6 +201,8 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
                     meta.update(status=response.status_code, headers={k.lower(): v for k, v in response.headers.items()})
                 if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
                     raise ValueError(refused)
+                announced = response.headers.get("content-length", "").strip()
+                total = int(announced) if announced.isdigit() else None
                 data, checked_at = bytearray(), time.monotonic()
                 for chunk in response.iter_bytes() if method == "GET" else ():  # Identity only: nothing is decompressed.
                     data.extend(chunk)
@@ -207,9 +212,66 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
                         raise TimeoutError("source_timeout")
                     if time.monotonic() - checked_at >= 0.25:
                         check()
+                        if progress is not None:
+                            progress(len(data), total)
                         checked_at = time.monotonic()
                 check()
+                if progress is not None:
+                    progress(len(data), total)
                 return bytes(data)
+
+
+def _reviewed(host: str, allowed: frozenset[str]) -> bool:
+    """An exact reviewed name, or a subdomain of a reviewed ``.suffix`` (a download's CDN)."""
+    host = host.lower().rstrip(".")
+    return host in allowed or any(entry.startswith(".") and host.endswith(entry) for entry in allowed)
+
+
+@contextmanager
+def open_stream(url: str, *, hosts: Iterable[str], timeout: float = 30, headers: Mapping[str, str] | None = None,
+                redirects: int = 3, refused: str = "download_source_refused",
+                check: Callable[[], None] | None = None) -> Iterator[httpx.Response]:
+    """A reviewed https GET whose body the caller reads in chunks (large downloads that resume).
+
+    The same rules as :func:`fetch`, without holding the body: ``hosts`` is the reviewed list
+    (exact names, or ``.example.org`` for its subdomains, as a download's CDN needs); a direct
+    connection goes only to a checked global address, a reviewed host may go through the
+    system or environment proxy; each redirect hop is checked again and nothing but the
+    reviewed headers (a ``Range``, say) is ever sent, so no credential crosses a host. Yields
+    the final response (2xx); ``timeout`` bounds each read, not the whole download.
+    """
+    check = check or _CHECK.get() or (lambda: None)
+    allowed = frozenset(item.lower() for item in hosts)
+    sent = {key: value for key, value in dict(headers or {}).items() if key.lower() not in _CREDENTIALS}
+    budget = redirects
+    while True:
+        check()
+        parts = urlsplit(url)
+        if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
+                or parts.fragment or parts.port not in {None, 443} or not _reviewed(parts.hostname, allowed)):
+            raise ValueError(refused)
+        options: dict[str, Any] = {"timeout": timeout, "follow_redirects": False, "trust_env": False}
+        proxy = proxy_for(parts.hostname)
+        if proxy:
+            options["proxy"] = proxy
+        else:
+            options["transport"] = _Pinned(parts.hostname, _public_addresses(parts.hostname, refused),
+                                           time.monotonic() + timeout * 6)
+        with httpx.Client(**options) as client:
+            with client.stream("GET", url, headers={"User-Agent": "Row-Bot", **sent,
+                                                    "Accept-Encoding": "identity"}) as response:
+                if response.status_code in _REDIRECTS:
+                    location = response.headers.get("location", "")
+                    if budget < 1 or not location:
+                        raise ValueError(refused)
+                    budget -= 1
+                    url = urljoin(url, location)
+                    continue
+                response.raise_for_status()
+                if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+                    raise ValueError(refused)
+                yield response
+                return
 
 
 class TtlCache:

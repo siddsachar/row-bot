@@ -337,7 +337,7 @@ def test_providers_are_available_from_environment_keys_only() -> None:
     chosen = provider_registry.select({"ANTHROPIC_API_KEY": "k", "OPENAI_API_KEY": "k", "ROW_BOT_LIVE_EVAL_PROVIDERS": "openai"})
     assert [s.target.provider_id for s in chosen.chosen] == ["openai"]
     with pytest.raises(ValueError, match="OAuth-only"):
-        provider_registry.select({"ROW_BOT_LIVE_EVAL_PROVIDERS": "codex"})
+        provider_registry.select({"ROW_BOT_LIVE_EVAL_PROVIDERS": "xai_oauth"})
 
 
 def test_the_dry_run_plans_tasks_by_provider_without_spending(monkeypatch: pytest.MonkeyPatch,

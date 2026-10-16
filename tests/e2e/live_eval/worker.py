@@ -4,8 +4,10 @@ The parent (``orchestrate.run_provider``) starts this process with
 ``ROW_BOT_DATA_DIR`` pointing at a new folder inside the run folder and
 ``ROW_BOT_TEST_MODE`` set, so every Row-Bot module binds to that folder and the
 OS keychain stays closed. Provider keys arrive in the inherited environment,
-never on the command line. Results are written after every task, so a crash
-keeps what ran.
+never on the command line. The ChatGPT lane's sign-in (``--credentials stdin``)
+arrives on stdin and lives in an in-memory keyring; tokens it refreshes go back
+to the parent on stdout (``eval_profile``). Results are written after every
+task, so a crash keeps what ran.
 """
 from __future__ import annotations
 
@@ -34,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--variant", default="")
     parser.add_argument("--max-usd", default="")
     parser.add_argument("--max-tokens", default="")
+    parser.add_argument("--credentials", choices=("env", "stdin"), default="env",
+                        help="stdin: an OAuth sign-in handed over by the parent (the ChatGPT lane)")
     args = parser.parse_args(argv)
 
     data_dir = os.environ.get("ROW_BOT_DATA_DIR", "")
@@ -54,10 +58,21 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    from .report import redact
+
+    if args.credentials == "stdin":
+        from .eval_profile import seed_worker
+
+        seed_worker(json.loads(sys.stdin.read() or "{}"))
     if args.log:
+
+        class Redacting(logging.Formatter):
+            def format(self, record: logging.LogRecord) -> str:
+                return redact(super().format(record))
+
         handler = logging.FileHandler(args.log, encoding="utf-8")
         handler.setLevel(logging.DEBUG)
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler.setFormatter(Redacting("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         logging.getLogger("row_bot").addHandler(handler)
 
     caps = Caps(max_usd=_parse_cap(args.max_usd, float), max_tokens=_parse_cap(args.max_tokens, int))
@@ -75,8 +90,6 @@ def main(argv: list[str] | None = None) -> int:
         "tasks": [],
         "spent": {},
     }
-
-    from .report import redact
 
     def save() -> None:
         out.write_bytes((redact(json.dumps(result, indent=2, default=str)) + "\n").encode("utf-8"))
@@ -97,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result["variant_changes"] = runtime.setup(variant)
             result["setup_notes"] = runtime.setup_notes
+            result["model"] = runtime.model_id
             result["status"] = "running"
             save()
 

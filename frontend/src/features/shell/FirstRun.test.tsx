@@ -343,3 +343,71 @@ it("lists a connected provider's usable chat models from the assessed catalog", 
     ),
   );
 });
+
+it('lists favourites, then Row-Bot’s picks, with every other model one step away (F10)', async () => {
+  const names = [
+    'gemma3:4b',
+    'gpt-oss:20b',
+    'llama3.1:8b',
+    'mistral:7b',
+    'nomic-embed-text',
+    'phi4:14b',
+    'qwen3:32b',
+    'qwen3:8b',
+  ];
+  const listed = runtime('running', names);
+  const flags: Record<string, object> = {
+    'qwen3:8b': { favourite_rank: 2 },
+    'qwen3:32b': { favourite_rank: 1 },
+    'gpt-oss:20b': { recommended: true },
+    'mistral:7b': { recommended: true },
+    'phi4:14b': { hidden: true },
+  };
+  mock.controller.localRuntime.mockResolvedValue({
+    ...listed,
+    models: listed.models.map((model) => ({
+      ...model,
+      ...flags[model.name],
+    })),
+  });
+  const actions = show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  const rows = (name: string) =>
+    within(screen.getByRole('list', { name }))
+      .getAllByRole('button')
+      .map((button) => button.textContent?.replace(/Use$/, ''));
+  expect(
+    await screen.findByRole('heading', { name: 'Your favourites' }),
+  ).toBeVisible();
+  expect(rows('Your favourites')).toEqual(['qwen3:32b', 'qwen3:8b']);
+  expect(rows('Recommended')).toEqual(['gpt-oss:20b', 'mistral:7b']);
+  // The rest wait behind one line, hidden models last and marked.
+  const all = screen.getByText('Show all models (4)');
+  expect(
+    screen.getByRole('list', { name: 'All models on this computer' }),
+  ).not.toBeVisible();
+  fireEvent.click(all);
+  expect(rows('All models on this computer')).toEqual([
+    'gemma3:4b',
+    'llama3.1:8b',
+    'nomic-embed-text',
+    'phi4:14bHidden',
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: /phi4:14b/ }));
+  await vi.waitFor(() =>
+    expect(actions.choose).toHaveBeenCalledWith('model:ollama:phi4:14b'),
+  );
+});
+
+it('lists every local model when there are no favourites or picks', async () => {
+  mock.controller.localRuntime.mockResolvedValue(
+    runtime('running', ['tiny-chat', 'qwen3.8:27b']),
+  );
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  const list = await screen.findByRole('list', {
+    name: 'Models on this computer',
+  });
+  expect(within(list).getAllByRole('button')).toHaveLength(2);
+  expect(screen.queryByText(/Show all models/)).toBeNull();
+});

@@ -147,12 +147,12 @@ def test_local_development_grant_is_exact_expiring_and_revocable() -> None:
     )
 
     blocked = policy.authorize(
-        "http://192.168.1.20:8080/app",
+        "http://127.0.0.1:8080/app",
         browser_session_id="browser-a",
     )
     grant = policy.grant_local_development(
         browser_session_id="browser-a",
-        origin="http://192.168.1.20:8080",
+        origin="http://127.0.0.1:8080",
         intended_use="Preview the local development server",
         ttl_seconds=30,
     )
@@ -161,13 +161,13 @@ def test_local_development_grant_is_exact_expiring_and_revocable() -> None:
     assert grant.intended_use == "Preview the local development server"
     assert (
         policy.authorize(
-            "http://192.168.1.20:8080/app.js",
+            "http://127.0.0.1:8080/app.js",
             browser_session_id="browser-a",
         ).allowed
         is True
     )
     write = policy.authorize(
-        "http://192.168.1.20:8080/upload",
+        "http://127.0.0.1:8080/upload",
         browser_session_id="browser-a",
         method="POST",
     )
@@ -175,14 +175,14 @@ def test_local_development_grant_is_exact_expiring_and_revocable() -> None:
     assert write.code == "consequential_private_request"
     assert (
         policy.authorize(
-            "http://192.168.1.20:8081/app.js",
+            "http://127.0.0.1:8081/app.js",
             browser_session_id="browser-a",
         ).allowed
         is False
     )
     assert (
         policy.authorize(
-            "http://192.168.1.20:8080/app.js",
+            "http://127.0.0.1:8080/app.js",
             browser_session_id="browser-b",
         ).allowed
         is False
@@ -191,7 +191,7 @@ def test_local_development_grant_is_exact_expiring_and_revocable() -> None:
     assert policy.revoke_grant(grant.id) is True
     assert (
         policy.authorize(
-            "http://192.168.1.20:8080/app.js",
+            "http://127.0.0.1:8080/app.js",
             browser_session_id="browser-a",
         ).allowed
         is False
@@ -199,14 +199,14 @@ def test_local_development_grant_is_exact_expiring_and_revocable() -> None:
 
     replacement = policy.grant_local_development(
         browser_session_id="browser-a",
-        origin="http://192.168.1.20:8080",
+        origin="http://127.0.0.1:8080",
         intended_use="Preview the local development server",
         ttl_seconds=30,
     )
     clock[0] = replacement.expires_at
     assert (
         policy.authorize(
-            "http://192.168.1.20:8080/app.js",
+            "http://127.0.0.1:8080/app.js",
             browser_session_id="browser-a",
         ).allowed
         is False
@@ -214,7 +214,7 @@ def test_local_development_grant_is_exact_expiring_and_revocable() -> None:
     with pytest.raises(ValueError, match="lifetime"):
         policy.grant_local_development(
             browser_session_id="browser-a",
-            origin="http://192.168.1.20:8080",
+            origin="http://127.0.0.1:8080",
             intended_use="Too broad",
             ttl_seconds=3601,
         )
@@ -347,16 +347,154 @@ def test_private_subresource_needs_its_own_exact_origin_grant() -> None:
     context = _Context()
     policy.install_context(context, browser_session_id="browser-a")
 
-    before = _Route("https://10.0.0.8:8443/app.js")
+    before = _Route("https://127.0.0.1:8443/app.js")
     context.route_handler(before)
     policy.grant_local_development(
         browser_session_id="browser-a",
-        origin="https://10.0.0.8:8443",
+        origin="https://127.0.0.1:8443",
         intended_use="Load assets for the reviewed local preview",
         ttl_seconds=60,
     )
-    after = _Route("https://10.0.0.8:8443/app.js")
+    after = _Route("https://127.0.0.1:8443/app.js")
     context.route_handler(after)
 
     assert before.outcome == "blockedbyclient"
     assert after.outcome == "continued"
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://192.168.1.20:8080",  # another computer on the local network
+        "http://10.0.0.1",  # a router page
+        "http://172.16.4.2:3000",
+        "http://100.64.0.9:3000",  # carrier-grade NAT / tailnet
+        "http://[fd00::5]:8080",
+        "http://169.254.169.254",  # cloud metadata
+        "http://[fe80::1]:8080",
+    ],
+)
+def test_only_this_computer_can_ever_be_granted(origin: str) -> None:
+    policy = BrowserNetworkSecurity(resolver=_Resolver({}))
+
+    with pytest.raises(ValueError):
+        policy.grant_local_development(
+            browser_session_id="browser-a",
+            origin=origin,
+            intended_use="Preview a local server",
+            ttl_seconds=60,
+            scope="conversation-a",
+        )
+    assert policy.active_grants("browser-a") == []
+    assert not policy.authorize(
+        origin + "/", browser_session_id="browser-a", scope="conversation-a"
+    ).allowed
+
+
+def test_localhost_names_are_pinned_to_loopback_without_a_lookup() -> None:
+    resolver = _Resolver({})
+    policy = BrowserNetworkSecurity(resolver=resolver)
+
+    before = policy.authorize("http://localhost:5173/", browser_session_id="browser-a")
+    grant = policy.grant_local_development(
+        browser_session_id="browser-a",
+        origin="http://app.localhost:5173",
+        intended_use="Preview the local app",
+        ttl_seconds=60,
+    )
+
+    assert before.code == "restricted_destination"
+    assert before.destinations == frozenset({"127.0.0.1", "::1"})
+    assert grant.destinations == frozenset({"127.0.0.1", "::1"})
+    assert policy.authorize(
+        "http://app.localhost:5173/src/main.ts", browser_session_id="browser-a"
+    ).allowed
+    assert resolver.calls == []
+
+
+def test_a_conversation_grant_covers_only_that_conversations_pages() -> None:
+    policy = BrowserNetworkSecurity()
+    grant = policy.grant_local_development(
+        browser_session_id="browser-a",
+        origin="http://localhost:5173",
+        intended_use="Preview the local app",
+        ttl_seconds=60,
+        scope="conversation-a",
+    )
+
+    def allowed(url: str, scope: str | None) -> bool:
+        return policy.authorize(url, browser_session_id="browser-a", scope=scope).allowed
+
+    assert allowed("http://localhost:5173/", "conversation-a")
+    assert not allowed("http://localhost:5173/", "conversation-b")
+    assert not allowed("http://localhost:5173/", None)  # a worker or an unknown page
+    assert not allowed("http://localhost:5174/", "conversation-a")  # another port
+    assert not allowed("http://127.0.0.1:5173/", "conversation-a")  # another origin
+    assert [item.id for item in policy.active_grants("browser-a", "conversation-a")] == [grant.id]
+    assert policy.active_grants("browser-a", "conversation-b") == []
+
+    assert policy.revoke_scope("browser-a", "conversation-a") == 1
+    assert not allowed("http://localhost:5173/", "conversation-a")
+
+
+class _OwnedPage(_Page):
+    def __init__(self, owner: str | None) -> None:
+        super().__init__()
+        self.owner = owner
+        self.websocket_handler = None
+
+    def route_web_socket(self, pattern: str, callback) -> None:
+        assert pattern == "**/*"
+        self.websocket_handler = callback
+
+
+def _request_from(page: _OwnedPage, url: str) -> _Route:
+    route = _Route(url)
+    route.request = SimpleNamespace(url=url, method="GET", frame=SimpleNamespace(page=page))
+    return route
+
+
+def test_engine_hooks_authorize_each_request_for_the_page_that_sent_it() -> None:
+    policy = BrowserNetworkSecurity()
+    context = _Context()
+    page_a, page_b = _OwnedPage("conversation-a"), _OwnedPage("conversation-b")
+    context.pages = [page_a, page_b]
+    tickets: list[tuple[str, str, str | None]] = []
+    policy.install_context(
+        context,
+        browser_session_id="browser-a",
+        on_allowed=lambda url, method, scope: tickets.append((url, method, scope)),
+        page_scope=lambda page: page.owner,
+    )
+    policy.grant_local_development(
+        browser_session_id="browser-a",
+        origin="http://localhost:5173",
+        intended_use="Preview the local app",
+        ttl_seconds=60,
+        scope="conversation-a",
+    )
+    policy.grant_local_development(
+        browser_session_id="browser-a",
+        origin="ws://localhost:5173",
+        intended_use="Preview the local app",
+        ttl_seconds=60,
+        scope="conversation-a",
+    )
+
+    from_a = _request_from(page_a, "http://localhost:5173/")
+    from_b = _request_from(page_b, "http://localhost:5173/")
+    context.route_handler(from_a)
+    context.route_handler(from_b)
+    socket_a = _WebSocketRoute("ws://localhost:5173/hmr")
+    socket_b = _WebSocketRoute("ws://localhost:5173/hmr")
+    page_a.websocket_handler(socket_a)
+    page_b.websocket_handler(socket_b)
+
+    assert from_a.outcome == "continued"
+    assert from_b.outcome == "blockedbyclient"
+    assert socket_a.outcome == "connected"
+    assert socket_b.outcome.startswith("closed:1008")
+    assert tickets == [
+        ("http://localhost:5173/", "GET", "conversation-a"),
+        ("ws://localhost:5173/hmr", "GET", "conversation-a"),
+    ]

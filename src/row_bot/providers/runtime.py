@@ -385,6 +385,7 @@ def captured_chat_model(
                     "event_hooks":asynchronous.event_hooks}}
             if is_ollama_reasoning_model(resolved.runtime_model):
                 kwargs["reasoning"] = True
+            kwargs.update(_local_reasoning_default(resolved.runtime_model))
             kwargs.update(_reasoning_constructor_kwargs(capture.reasoning_plan, provider=provider))
             model = ChatOllama(**kwargs)
         elif provider == "ollama_cloud":
@@ -837,6 +838,7 @@ def _create_chat_model(
         }
         if is_ollama_reasoning_model(runtime_model):
             kwargs["reasoning"] = True
+        kwargs.update(_local_reasoning_default(runtime_model))
         kwargs.update(_reasoning_constructor_kwargs(reasoning_plan, provider="ollama"))
         return ChatOllama(**kwargs)
     if provider == "ollama_cloud":
@@ -1145,6 +1147,17 @@ def _validated_runtime_reasoning_plan(
 
     validate_reasoning_selection(plan.selection, plan.capabilities)
     return plan
+
+
+def _local_reasoning_default(runtime_model: str) -> dict[str, Any]:
+    """A local model saved as non-thinking (a personal model, O24) is asked not to think unless
+    the conversation chose otherwise (the plan's own setting is applied after this)."""
+    try:
+        from row_bot.models import local_model_settings
+
+        return {"reasoning": False} if local_model_settings(runtime_model).get("reasoning") == "off" else {}
+    except Exception:
+        return {}
 
 
 def _reasoning_constructor_kwargs(

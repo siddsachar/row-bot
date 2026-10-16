@@ -854,7 +854,7 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 - **Webhook triggers** — workflows can be launched by HTTP webhook with per-workflow secrets
 - **Completion triggers** — one workflow can trigger another after finishing
 - **Concurrency groups** — related workflows can be serialized so only one runs at a time
-- **Safety mode** — `block_destructive`, `require_approval`, and `allow_all` modes control shell, workflow, and channel behavior inside background execution
+- **Approval level** — Block (`block`), Ask (`approve`), Auto (`auto`, model-reviewed: a reviewer approves what clearly matches the person's request and asks about the rest) and Hands-off (`full`, chosen by the person) control shell, workflow, and channel behavior inside background execution
 
 ### Step-Based Pipelines
 

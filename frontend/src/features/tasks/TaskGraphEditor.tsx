@@ -1,5 +1,20 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  CircleAlert,
+  GripVertical,
+  List,
+  Plus,
+  Trash2,
+  Workflow,
+} from 'lucide-react';
 import {
   useTaskEditSession,
   useTaskEditValue,
@@ -22,6 +37,9 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import StepApps, { type StepApp } from './StepApps';
+import WorkflowFlowchart from './WorkflowFlowchart';
+import { stepIssues } from './workflow-flowchart';
+import { readStepView, saveStepView, type StepView } from './step-view';
 
 export interface TaskGraphEditorProps {
   session?: TaskEditSession;
@@ -171,8 +189,12 @@ export default function TaskGraphEditor({
   const [reload, setReload] = useTaskEditValue(session, 'reload', 0);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [view, setView] = useState<StepView>(readStepView);
   const epoch = useRef(0);
   const pending = useRef(false);
+  const stepsPane = useRef<HTMLDivElement>(null);
+  const detail = useRef<HTMLDivElement>(null);
+  const issues = useMemo(() => stepIssues(steps), [steps]);
 
   useEffect(() => {
     const abort = session.beginRead(reload);
@@ -251,6 +273,25 @@ export default function TaskGraphEditor({
       next.splice(to, 0, item);
       return next;
     });
+  }
+  /** A clicked card opens its form; when the form sits below, show it. */
+  function open(id: string, how: 'pointer' | 'keyboard') {
+    setSelected(id);
+    const pane = stepsPane.current?.getBoundingClientRect();
+    const form = detail.current;
+    if (how !== 'pointer' || !pane || !form) return;
+    if (form.getBoundingClientRect().top < pane.bottom - 1) return;
+    const still = window.matchMedia?.(
+      '(prefers-reduced-motion: reduce)',
+    )?.matches;
+    form.scrollIntoView?.({
+      block: 'start',
+      behavior: still ? 'auto' : 'smooth',
+    });
+  }
+  function chooseView(next: StepView) {
+    setView(next);
+    saveStepView(next);
   }
   function move(offset: number) {
     setSteps((current) => {
@@ -379,8 +420,9 @@ export default function TaskGraphEditor({
     label: string,
     options: [string, string][],
     fallback = '',
+    unknown?: (value: string) => string,
   ) {
-    const value = String(step.fields[field] ?? fallback);
+    const value = String(step.fields[field] || fallback);
     return (
       <Field label={label}>
         <Select
@@ -388,7 +430,9 @@ export default function TaskGraphEditor({
           onChange={(event) => change(field, event.target.value)}
         >
           {!options.some(([key]) => key === value) && (
-            <option value={value}>{value || 'Default'}</option>
+            <option value={value}>
+              {unknown?.(value) ?? (value || 'Default')}
+            </option>
           )}
           {options.map(([key, title]) => (
             <option key={key} value={key}>
@@ -400,11 +444,15 @@ export default function TaskGraphEditor({
     );
   }
   function branch(field: keyof TaskGraphFields, label: string, fallback = '') {
+    // A denied approval with no step chosen stops the run (tasks.py), so it
+    // never offers to continue.
+    const following: [string, string][] =
+      field === 'if_denied' ? [] : [['', 'Continue to the next step']];
     return choice(
       field,
       label,
       [
-        ['', 'Continue to the next step'],
+        ...following,
         ['end', 'End workflow'],
         ...steps
           .filter((item) => item.id !== selected)
@@ -414,6 +462,7 @@ export default function TaskGraphEditor({
           ]),
       ],
       fallback,
+      (value) => (value === selected ? 'This same step' : 'A removed step'),
     );
   }
 
@@ -499,62 +548,110 @@ export default function TaskGraphEditor({
         </div>
       )}
       {snapshot && (
-        <div className="task-graph-body">
-          <div className="task-graph-steps">
-            <ol className="task-graph-list" aria-label="Workflow step order">
-              {steps.map((item, position) => (
-                <li
-                  key={item.id}
-                  className="task-graph-step"
-                  data-selected={item.id === selected ? 'true' : undefined}
-                  data-over={
-                    dragOver === position && dragFrom !== position
-                      ? 'true'
-                      : undefined
-                  }
-                  draggable={!disabled}
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', item.id);
-                    setDragFrom(position);
-                  }}
-                  onDragEnd={() => {
-                    setDragFrom(null);
-                    setDragOver(null);
-                  }}
-                  onDragOver={(event) => {
-                    if (dragFrom === null) return;
-                    event.preventDefault();
-                    setDragOver(position);
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    if (dragFrom !== null) reorder(dragFrom, position);
-                    setDragFrom(null);
-                    setDragOver(null);
-                  }}
-                >
-                  <GripVertical
-                    className="task-graph-grip"
-                    size={14}
-                    aria-hidden
-                  />
-                  <button
-                    type="button"
-                    className="task-graph-step-button"
-                    aria-pressed={item.id === selected}
-                    onClick={() => setSelected(item.id)}
-                    disabled={saving}
+        <div className="task-graph-body" data-view={view}>
+          <div className="task-graph-steps" ref={stepsPane}>
+            {steps.length > 0 && (
+              <div className="task-graph-steps-head">
+                <Segmented
+                  label="Show steps as"
+                  size="sm"
+                  value={view}
+                  onChange={chooseView}
+                  options={[
+                    {
+                      value: 'flowchart',
+                      label: 'Flowchart',
+                      icon: <Workflow size={14} aria-hidden />,
+                    },
+                    {
+                      value: 'list',
+                      label: 'List',
+                      icon: <List size={14} aria-hidden />,
+                    },
+                  ]}
+                />
+                {issues.size > 0 && (
+                  <p className="task-graph-problems">
+                    <CircleAlert size={14} aria-hidden />
+                    {issues.size === 1
+                      ? '1 step needs a fix'
+                      : `${issues.size} steps need a fix`}
+                  </p>
+                )}
+              </div>
+            )}
+            {view === 'flowchart' && steps.length > 0 && (
+              <WorkflowFlowchart
+                steps={steps}
+                selected={selected}
+                onSelect={open}
+                disabled={saving}
+                issues={issues}
+                kindLabel={kindLabel}
+                summary={stepSummary}
+              />
+            )}
+            {(view === 'list' || !steps.length) && (
+              <ol className="task-graph-list" aria-label="Workflow step order">
+                {steps.map((item, position) => (
+                  <li
+                    key={item.id}
+                    className="task-graph-step"
+                    data-selected={item.id === selected ? 'true' : undefined}
+                    data-over={
+                      dragOver === position && dragFrom !== position
+                        ? 'true'
+                        : undefined
+                    }
+                    draggable={!disabled}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', item.id);
+                      setDragFrom(position);
+                    }}
+                    onDragEnd={() => {
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
+                    onDragOver={(event) => {
+                      if (dragFrom === null) return;
+                      event.preventDefault();
+                      setDragOver(position);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (dragFrom !== null) reorder(dragFrom, position);
+                      setDragFrom(null);
+                      setDragOver(null);
+                    }}
                   >
-                    {position + 1}. {kindLabel(item.type)}
-                    {draftMark(item.id)}
-                  </button>
-                  <span className="task-graph-step-summary">
-                    {stepSummary(item)}
-                  </span>
-                </li>
-              ))}
-            </ol>
+                    <GripVertical
+                      className="task-graph-grip"
+                      size={14}
+                      aria-hidden
+                    />
+                    <button
+                      type="button"
+                      className="task-graph-step-button"
+                      aria-pressed={item.id === selected}
+                      onClick={() => setSelected(item.id)}
+                      disabled={saving}
+                    >
+                      {position + 1}. {kindLabel(item.type)}
+                      {draftMark(item.id)}
+                    </button>
+                    <span className="task-graph-step-summary">
+                      {stepSummary(item)}
+                    </span>
+                    {issues.has(position) && (
+                      <span className="task-graph-step-issue">
+                        {issues.get(position)?.message}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
             {!steps.length && (
               <p className="home-caption">No steps yet. Add the first one.</p>
             )}
@@ -593,7 +690,7 @@ export default function TaskGraphEditor({
               )}
             </fieldset>
           </div>
-          <div className="task-graph-detail">
+          <div className="task-graph-detail" ref={detail}>
             {step ? (
               <fieldset disabled={disabled} className="task-graph-form">
                 <legend>
@@ -635,6 +732,12 @@ export default function TaskGraphEditor({
                     <Trash2 size={14} aria-hidden />
                   </IconButton>
                 </div>
+                {issues.has(index) && (
+                  <p className="task-graph-form-issue">
+                    <CircleAlert size={14} aria-hidden />
+                    {issues.get(index)?.message}
+                  </p>
+                )}
                 {retained?.retained_fields && (
                   <p className="home-caption">
                     Additional saved settings are preserved when you edit these

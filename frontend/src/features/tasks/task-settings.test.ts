@@ -57,7 +57,7 @@ it('retains immutable reviewed settings and original identity in a fresh adapter
   await expect(
     settings.save('task', 'old', 'profile', input),
   ).rejects.toThrow();
-  input.approval_mode = 'allow_all';
+  input.approval_mode = 'auto';
   expect(
     (controller.command.mock.calls[0][1].payload.fields as TaskSettingsFields)
       .approval_mode,

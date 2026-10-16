@@ -172,7 +172,11 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
     )
     if include_readiness:
         rows = project_saved_catalog_readiness(rows)
-    rows = [row for row in rows if _provider_identity(row.provider_id) and _identity(row.model_id, 512)]
+    from row_bot.providers.model_visibility import withheld
+
+    # Learning's personal models aren't offered here until Learning offers a version (L2c2).
+    rows = [row for row in rows if _provider_identity(row.provider_id) and _identity(row.model_id, 512)
+            and not withheld(row.provider_id, row.model_id)]
     endpoints = {}
     for raw in config.get("custom_endpoints", []):
         if not isinstance(raw, dict):
@@ -181,7 +185,7 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
             endpoint = normalize_custom_endpoint(raw)
         except (ValueError, TypeError, OverflowError):
             continue
-        if _provider_identity(endpoint["provider_id"]):
+        if _provider_identity(endpoint["provider_id"]) and not withheld(endpoint["provider_id"]):
             endpoint["display_name"] = _label(raw.get("name") or raw.get("display_name"), endpoint["provider_id"])
             endpoints[endpoint["provider_id"]] = endpoint
     labels = {key: definition.display_name for key, definition in PROVIDER_DEFINITIONS.items()}

@@ -15,12 +15,15 @@ export default function Preferences({
   snapshotState,
   showUpdateControls = false,
   part = 'preferences',
+  skillsMoved = false,
 }: {
   snapshot?: SettingsSnapshot['preferences'];
   mutation?: SettingsMutationIO | null;
   snapshotState?: ReactNode;
   showUpdateControls?: boolean;
   part?: 'preferences' | 'updates' | 'data';
+  /** "Learn new skills" moved to Settings › Learning (D29). */
+  skillsMoved?: boolean;
 }) {
   return (
     <div className={`stack settings-preferences settings-${part}`}>
@@ -30,6 +33,7 @@ export default function Preferences({
           mutation={mutation}
           showUpdateControls={showUpdateControls}
           part={part}
+          skillsMoved={skillsMoved}
         />
       ) : (
         snapshotState

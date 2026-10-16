@@ -30,6 +30,7 @@ import {
 } from '../../ui/primitives';
 import type { Suggestion } from './commit-suggestion';
 import { parseTracking } from './git-status';
+import { SandboxReadiness } from '../shell/SandboxPrepare';
 
 export type DeveloperRepositoryAction =
   | 'developer.repository.branch.create'
@@ -1249,6 +1250,13 @@ export default function DeveloperRepositoryPanel(
               Save sandbox settings
             </Button>
           </div>
+          {snapshot.sandbox.execution_mode === 'docker' && (
+            // Docker mode: the image (offered when it isn't here yet) and Prepare sandbox (F18).
+            <SandboxReadiness
+              conversationId={snapshot.conversation_id}
+              revisionKey={`${snapshot.resource_revision}:${snapshot.sandbox.image}`}
+            />
+          )}
           <div
             className="dev-danger"
             role="group"

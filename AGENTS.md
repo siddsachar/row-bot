@@ -63,6 +63,17 @@ Priorities, in order:
 - `src/row_bot/designer/`: Designer Studio state, export, templates, rendering,
   previews, thumbnails, and AI content.
 - `src/row_bot/plugins/`, `skills_hub/`, `skills.py`: plugin and skill systems.
+- `src/row_bot/learning/`: Learning (preview): the switch (`is_enabled`), versioned
+  records, the `learning.db` store and blobs, scope (what may be recorded), capture
+  (the seams' queue and writer, with redaction), the past-chat import, evaluation
+  (replay, task packs in throwaway sandboxes, equal-budget arms), the sealed audit
+  vault (only `evaluation` reads it) and the task packs. Off by default; while off
+  or paused its seams cost one check, and it creates no file and imports nothing
+  beyond the switch. Until the 5.4 cut it exists only in a build started with
+  `ROW_BOT_LEARNING_PREVIEW=1`; its surfaces live in `frontend/src/features/learning/`
+  and `application/client_learning.py`. The training engine is its own locked project
+  (`src/row_bot/learning_engine/`), downloaded only when the person agrees into the
+  data folder's `runtimes/learning/`, never into Row-Bot's environment or installers.
 - `frontend/`: the React client (the only UI), served at `/app-v2/`.
 - `src/row_bot/server.py` and `src/row_bot/app.py`: the FastAPI app, its
   routes, middleware and start-up sequence, run by uvicorn.
@@ -177,6 +188,9 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 - Developer Studio: `tests/subsystem/developer/`.
 - Designer: `tests/subsystem/designer/` and `tests/snapshots/`.
 - Plugins: `tests/contracts/plugins/` and `tests/subsystem/plugins/`.
+- Learning: `tests/contracts/learning/test_learning_contract.py`,
+  `tests/subsystem/learning/` and `tests/integration/learning/`; Learning-off
+  inertness stays in the pull request lane.
 - App start-up, server and native host: `tests/subsystem/client_host/`; the
   React client's API: `tests/subsystem/client_protocol/`.
 - Installer, CLI, packaging, updater, GitHub workflow contracts:
@@ -223,7 +237,7 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
   relation normalization, recall ranking, deduplication, migration, wiki sync,
   Dream Cycle idle/busy behavior, and repair paths.
 - MCP: use fake stdio/HTTP/SSE transports by default; destructive tools must be
-  approval-gated.
+  approval-gated; only Hands-off, chosen by the person, skips the gate.
 - Developer Studio/shell: classify install, network, delete, git commit, git
   push, and PR actions conservatively; test sandbox import gates.
 - Designer/UI: reuse the React client primitives in `frontend/src/ui` and

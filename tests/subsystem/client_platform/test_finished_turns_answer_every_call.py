@@ -198,3 +198,56 @@ def test_stop_while_an_approval_waits_records_that_the_call_never_ran(platform, 
     messages = threads.get_latest_checkpoint_messages("conversation-a")
     assert _unanswered(messages) == []
     assert [item["status"] for item in _trace_items(platform)] == ["cancelled"]
+
+
+
+_WRITE, _PUSH = "Write notes.md", "git push origin main"
+
+
+@pytest.mark.parametrize(("mode", "reviewer", "answers", "cards", "result"), [
+    ("approve", {}, {_WRITE: "approve", _PUSH: "deny"}, [_WRITE, _PUSH], "Write: yes; Push: no"),
+    # A denial ends the turn: the call's next card is never shown, and the call is recorded as denied.
+    ("approve", {}, {_WRITE: "deny", _PUSH: "approve"}, [_WRITE], "denied by you — did not run"),
+    ("auto", {_WRITE: "approve", _PUSH: "ask"}, {_PUSH: "deny"}, [_PUSH], "Write: yes; Push: no"),
+    ("auto", {_WRITE: "ask", _PUSH: "approve"}, {_WRITE: "deny"}, [_WRITE], "Write: no; Push: yes"),
+])
+def test_a_call_that_asks_twice_shows_each_card_and_each_answer_stays_with_it(
+        platform, monkeypatch, mode, reviewer, answers, cards, result):
+    """Through the app: one tool call asks twice; each card is shown in turn, and each answer applies to its own
+    card (under Auto, only the card the reviewer asked about is shown)."""
+    from row_bot import approval_review, threads
+    from row_bot.approval_review import ReviewVerdict
+    from row_bot.tools import approval_gate
+
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: mode)
+    monkeypatch.setattr(approval_review, "review", lambda payload, **_kwargs: ReviewVerdict(
+        reviewer[payload["description"]], "You asked for it." if reviewer[payload["description"]] == "approve"
+        else "Not sure you asked for this."))
+
+    @tool
+    def tidy_and_push(path: str) -> str:
+        """Write a file, then push."""
+        done = []
+        for label, what in (("Write", f"Write {path}"), ("Push", _PUSH)):
+            refusal = approval_gate.gate_action({"tool": "tidy_and_push", "label": label, "description": what})
+            done.append(f"{label}: {'no' if refusal else 'yes'}")
+        return "; ".join(done)
+
+    model = ProviderShapedModel(responses=[_call("tidy_and_push", "call-tidy", path="notes.md"),
+                                           AIMessage(content="Done.", id="ai-done")])
+    turns = RealGraphTurns(model, [tidy_and_push])
+    handle = _submit(platform, turns, f"asks-twice-{mode}-{cards[0]}", "Tidy notes.md and push")
+    shown: list[str] = []
+    while handle.status == "waiting_approval":
+        card = platform.get_approval(handle.approval_id)["reason"]
+        shown.append(card)
+        key = f"answer-{len(shown)}"
+        receipt = platform.execute(owner_id="fixture-owner", idempotency_key=key, target=handle.approval_id,
+                                   command=command("approval.resolve", key, {"decision": answers[card]}))
+        handle = platform.registry.get(receipt["execution_id"])
+        assert handle.producer_done.wait(10)
+
+    assert shown == cards
+    messages = threads.get_latest_checkpoint_messages("conversation-a")
+    [answer] = [message for message in messages if getattr(message, "type", "") == "tool"]
+    assert str(answer.content).endswith(result)

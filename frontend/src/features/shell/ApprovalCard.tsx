@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Power, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Power, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import type { ApprovalSetup, ApprovalView } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -23,7 +23,20 @@ type Hint_ = {
   reason?: string;
   risk_class?: string;
   setup?: ApprovalSetup | null;
+  reviewer_reason?: string;
+  question?: string;
 };
+
+/** Under Auto: why the reviewer asked the person rather than approving it (quiet, one line). */
+function ReviewerNote({ reason }: { reason?: string }) {
+  if (!reason) return null;
+  return (
+    <small className="approval-card-meta approval-card-reviewer">
+      <ShieldQuestion aria-hidden size={13} />
+      The reviewer asked you: {reason}
+    </small>
+  );
+}
 
 /** A notice's approval that is no longer waiting. */
 const ANSWERED = new Set([
@@ -94,6 +107,12 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
         )}
         <dt>Affects</dt>
         <dd>{plainScope(view.scope)}</dd>
+        {view.reviewer_reason && (
+          <>
+            <dt>Reviewer</dt>
+            <dd>Asked you: {view.reviewer_reason}</dd>
+          </>
+        )}
         {view.safe_argument_summary && !fieldsWritten(view) && (
           <>
             <dt>With</dt>
@@ -141,9 +160,9 @@ function editableTarget(target: EventTarget | null) {
 
 /**
  * An inline card anchored at the step that needs a decision: what will
- * happen, how risky it is, and Approve (⌘↵) / Deny. "Always allow in this
- * chat" switches the conversation to automatic approvals, then approves;
- * an app's tools still ask when its access says to.
+ * happen, how risky it is, and Approve (⌘↵) / Deny. Under Auto it says, quietly,
+ * why the reviewer asked rather than approving. "Use Auto in this chat"
+ * switches the conversation to reviewed Auto, then approves.
  *
  * Turning on a tool the work needs is a setup card instead (decision 12):
  * "Turn on Web search?" with Turn on (⌘↵) / Not now, in place of sending
@@ -244,6 +263,11 @@ export default function ApprovalCard({
   const action = view?.action_label || hint?.action_label || '';
   // The app asking, shown as the catalog knows it.
   const app = view?.app ?? null;
+  // The tool's own question when it has one ("Allow Row-Bot's browser to open localhost:5173 in this chat?").
+  const question =
+    view?.question ||
+    hint?.question ||
+    approvalQuestion(view?.action_label || action, app);
   const risk = view?.risk_class || hint?.risk_class || 'unknown';
   // The reason names every field already when an app's tool asks; the key argument would repeat one.
   const argument =
@@ -321,7 +345,11 @@ export default function ApprovalCard({
   return (
     <aside
       className="approval-card"
-      aria-label={`Approval required for ${app?.tool || action || 'requested action'}${app ? ` in ${app.name}` : ''}`}
+      aria-label={
+        view?.question || hint?.question
+          ? `Approval required: ${question}`
+          : `Approval required for ${app?.tool || action || 'requested action'}${app ? ` in ${app.name}` : ''}`
+      }
       data-risk={risk}
     >
       <span className="approval-card-icon" aria-hidden>
@@ -331,7 +359,7 @@ export default function ApprovalCard({
         <>
           <div className="approval-card-context">
             {app && <span className="approval-card-app">{app.name}</span>}
-            <strong>{approvalQuestion(view.action_label || '', app)}</strong>
+            <strong>{question}</strong>
             <span
               className="approval-card-reason"
               data-fields={fieldsWritten(view) || undefined}
@@ -341,6 +369,9 @@ export default function ApprovalCard({
             {argument && (
               <code className="approval-card-argument">{argument}</code>
             )}
+            <ReviewerNote
+              reason={view.reviewer_reason || hint?.reviewer_reason}
+            />
             {RISK[risk] && (
               <small className="approval-card-meta">{RISK[risk]}</small>
             )}
@@ -356,7 +387,7 @@ export default function ApprovalCard({
               disabled={busy || Boolean(resolution)}
               onClick={() =>
                 overlay.open({
-                  title: approvalQuestion(view.action_label || '', app),
+                  title: question,
                   description: 'What Row-Bot wants to do, and what it affects.',
                   content: <ApprovalDetails view={view} />,
                 })
@@ -398,14 +429,14 @@ export default function ApprovalCard({
               </Hint>
             )}
             {onAllowInChat && (
-              <Hint label="Approves this and switches this chat to Auto. Apps still ask when their access says to.">
+              <Hint label="Approves this and switches this chat to Auto: a reviewer approves what matches your request, and anything else still asks you.">
                 <Button
                   variant="ghost"
                   className="approval-card-allow"
                   disabled={busy || Boolean(resolution)}
                   onClick={() => void resolve('approve', true)}
                 >
-                  Always allow in this chat
+                  Use Auto in this chat
                 </Button>
               </Hint>
             )}

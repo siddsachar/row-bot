@@ -8,6 +8,7 @@ from row_bot.application.provider_default_model import read_default_model
 from row_bot.providers import client_status
 from row_bot.providers.catalog import provider_billing
 from row_bot.providers.model_catalog import picker_options
+from row_bot.providers.model_visibility import ModelVisibility, annotate, read_model_visibility
 from row_bot.providers.selection import format_model_choice_label, model_choice_value, parse_model_ref
 
 SURFACES = ("chat", "vision", "image", "video")
@@ -21,7 +22,7 @@ def _media_ref(value: str, *, default_provider: str) -> str:
 
 
 def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = None,
-            media_options: dict[str, str] | None = None) -> dict:
+            media_options: dict[str, str] | None = None, visibility: ModelVisibility | None = None) -> dict:
     options = picker_options(rows, surface, current)
     if current and not any(option["selection_ref"] == current for option in options):
         parsed = parse_model_ref(current)
@@ -45,7 +46,7 @@ def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = N
         else:
             warning = f"Current {surface.capitalize()} default is unavailable. Connect the provider, refresh the catalog, or choose another pinned model."
     return {"current_ref": current, "enabled": enabled, "warning": warning,
-            "options": options[:4096]}
+            "options": annotate(options[:4096], key="selection_ref", visibility=visibility)}
 
 
 def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict:
@@ -70,17 +71,18 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     image_ref = _media_ref(str(image_value), default_provider="openai")
     video_ref = _media_ref(str(video_value), default_provider="google")
     cache, rows = client_status._read(None, include_readiness=True)
+    shown = read_model_visibility()
     policy = get_context_policy(brain_ref or None, allow_probe=False)
     cap = (get_cloud_context_override() if policy.policy_kind == "provider" else
            None if get_local_context_mode() == "auto" else get_user_context_size())
     result = {
         "schema_version": 1,
-        "brain": _picker("chat", brain_ref, rows),
-        "vision": _picker("vision", vision_ref, rows, enabled=vision.enabled),
+        "brain": _picker("chat", brain_ref, rows, visibility=shown),
+        "vision": _picker("vision", vision_ref, rows, enabled=vision.enabled, visibility=shown),
         "image": _picker("image", image_ref, rows, enabled=registry.is_enabled("image_gen") if image_tool else False,
-                         media_options=get_available_image_models()),
+                         media_options=get_available_image_models(), visibility=shown),
         "video": _picker("video", video_ref, rows, enabled=registry.is_enabled("video_gen") if video_tool else False,
-                         media_options=get_available_video_models()),
+                         media_options=get_available_video_models(), visibility=shown),
         "camera_index": max(0, min(64, int(vision.camera_index))),
         "context": {"policy_kind": policy.policy_kind, "selected_cap": cap,
                     "native_max": policy.native_max, "effective_cap": policy.effective_context or None,
