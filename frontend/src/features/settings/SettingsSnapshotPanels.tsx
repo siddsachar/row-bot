@@ -77,6 +77,7 @@ import type {
   TrackerEntryPage,
 } from '../../api/types';
 import { useWorkspaceActions } from '../shell/workspace-actions';
+import { favouritesFirst } from '../shell/model-choices';
 import {
   Button,
   Disclosure,
@@ -388,7 +389,7 @@ type RowLook = Pick<
   extra?: ReactNode;
 };
 
-function SavedSetting({
+export function SavedSetting({
   mutation,
   field,
   label,
@@ -1120,7 +1121,7 @@ function TextSetting({
   );
 }
 
-function SelectSetting({
+export function SelectSetting({
   mutation,
   field,
   label,
@@ -1184,7 +1185,7 @@ function SelectSetting({
  * Browser", "Search runs: This computer | Cloud"). A saved value outside
  * the options still shows, as the first option.
  */
-function SegmentedSetting({
+export function SegmentedSetting({
   mutation,
   field,
   label,
@@ -1284,7 +1285,7 @@ function RadioSetting({
   );
 }
 
-function SwitchSetting({
+export function SwitchSetting({
   mutation,
   field,
   label,
@@ -4605,7 +4606,13 @@ export function DocumentModelSetting({
 }: {
   snapshot: SettingsSnapshot['documents'];
   mutation: SettingsMutationIO;
-  models: { model_ref: string; label: string; available: boolean }[];
+  models: {
+    model_ref: string;
+    label: string;
+    available: boolean;
+    favourite_rank?: number | null;
+    hidden?: boolean;
+  }[];
 }) {
   const current = snapshot.processing_model ?? '';
   return (
@@ -4625,7 +4632,8 @@ export function DocumentModelSetting({
       }
       options={[
         { value: '', label: 'Default model' },
-        ...models
+        // Favourites first, hidden models last (F10).
+        ...favouritesFirst(models)
           .filter((model) => model.available || model.model_ref === current)
           .map((model) => ({
             value: model.model_ref,
@@ -5167,12 +5175,15 @@ export function PreferencesSnapshotPanel({
   mutation,
   showUpdateControls = false,
   part = 'preferences',
+  skillsMoved = false,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
   showUpdateControls?: boolean;
   /** Preferences, or the Updates / Data pages that share its snapshot. */
   part?: 'preferences' | 'updates' | 'data';
+  /** "Learn new skills" lives in Settings › Learning (D29, a Learning preview build). */
+  skillsMoved?: boolean;
 }) {
   if (part === 'updates')
     return (
@@ -5280,7 +5291,13 @@ export function PreferencesSnapshotPanel({
         </Section>
       </div>
     );
-  return <PreferencesPage snapshot={snapshot} mutation={mutation} />;
+  return (
+    <PreferencesPage
+      snapshot={snapshot}
+      mutation={mutation}
+      skillsMoved={skillsMoved}
+    />
+  );
 }
 
 /** "1:00 AM" for hour 1, in the reader's locale. */
@@ -5338,9 +5355,11 @@ function HourSetting({
 function PreferencesPage({
   snapshot,
   mutation,
+  skillsMoved,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
+  skillsMoved: boolean;
 }) {
   const identity = snapshot.identity;
   const dream = snapshot.dream_cycle;
@@ -5402,13 +5421,15 @@ function PreferencesPage({
             ),
           }}
         />
-        <SwitchSetting
-          mutation={mutation}
-          field="identity.self_improvement_enabled"
-          label="Learn new skills"
-          hint={`${identity.name || 'Row-Bot'} writes and improves its own skills over time.`}
-          value={identity.self_improvement_enabled}
-        />
+        {!skillsMoved && (
+          <SwitchSetting
+            mutation={mutation}
+            field="identity.self_improvement_enabled"
+            label="Learn new skills"
+            hint={`${identity.name || 'Row-Bot'} writes and improves its own skills over time.`}
+            value={identity.self_improvement_enabled}
+          />
+        )}
       </SettingsGroup>
       <SettingsGroup title="Opening Row-Bot">
         <SegmentedSetting

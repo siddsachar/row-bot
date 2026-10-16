@@ -1796,7 +1796,8 @@ def get_destructive_tool_names(
     *,
     source_plugin_id: str | None = None,
 ) -> set[str]:
-    """App tools whose access says ask (and every locked one): they ask in Ask and in Allow all alike."""
+    """App tools whose access says ask (and every locked one): they need approval at every level but Block,
+    which leaves them out (the person under Ask, the reviewer first under Auto, the level itself under Hands-off)."""
     allow = _allow_names_set(allow_names)
     _sync_catalog_from_config()
     with _runtime_lock:

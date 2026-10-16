@@ -404,7 +404,7 @@ def test_local_computer_use() -> None:
         service.acquire(owner, validate_context=False)
         acquired = True
         service.grant_app_permission_for_local_ui(owner, "Calculator")
-        windows = service.launch_app("Calculator", owner, approval_mode="allow_all")
+        windows = service.launch_app("Calculator", owner, approval_mode="full")  # The person's own test.
         if not windows:
             raise RuntimeError("Calculator launched but no target window was reported.")
         if service.current_observation(windows[0]["target_id"]) is None:

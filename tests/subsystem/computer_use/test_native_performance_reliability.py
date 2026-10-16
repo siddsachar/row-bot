@@ -330,8 +330,8 @@ def test_known_background_key_and_scroll_try_background_without_preemptive_focus
     target_id = service.list_windows(OWNER, app="Notepad")[0]["target_id"]
     service.capture(target_id, OWNER)
 
-    service.act("key", target_id, OWNER, keys="a", approval_mode="allow_all")
-    service.act("scroll", target_id, OWNER, direction="down", amount=2, approval_mode="allow_all")
+    service.act("key", target_id, OWNER, keys="a", approval_mode="full")
+    service.act("scroll", target_id, OWNER, direction="down", amount=2, approval_mode="full")
 
     assert [name for name, _args in fake_transport.calls].count("bring_to_front") == 0
     delivered = [
@@ -360,7 +360,7 @@ def test_refused_background_scroll_adds_only_one_bounded_foreground_driver_call(
         OWNER,
         direction="down",
         amount=200,
-        approval_mode="allow_all",
+        approval_mode="full",
     )
 
     after = service.performance_snapshot()
@@ -433,7 +433,7 @@ def test_generic_three_action_flow_stays_inside_native_budget(service, fake_tran
 def test_native_browser_four_action_flow_has_exact_bounded_counts(service, fake_transport) -> None:
     target_id, observation = _browser_target(service, fake_transport)
     before = service.performance_snapshot()
-    service.act("focus", target_id, OWNER, approval_mode="allow_all")
+    service.act("focus", target_id, OWNER, approval_mode="full")
     service.act("type", target_id, OWNER, text="synthetic query")
     service.refresh_semantics(target_id, OWNER)
     current = service.current_observation(target_id)

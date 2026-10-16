@@ -15,6 +15,25 @@
           "default": null,
           "title": "Agent Ready"
         },
+        "favourite_rank": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Favourite Rank"
+        },
+        "hidden": {
+          "default": false,
+          "title": "Hidden",
+          "type": "boolean"
+        },
         "model_ref": {
           "maxLength": 1024,
           "minLength": 1,
@@ -25,6 +44,11 @@
           "maxLength": 512,
           "title": "Name",
           "type": "string"
+        },
+        "recommended": {
+          "default": false,
+          "title": "Recommended",
+          "type": "boolean"
         }
       },
       "required": [

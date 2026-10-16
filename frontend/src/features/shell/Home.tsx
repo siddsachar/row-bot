@@ -5,6 +5,7 @@ import {
   Activity,
   Brain,
   GitBranch,
+  GraduationCap,
   LayoutGrid,
   Lightbulb,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ import KnowledgeHome, {
 } from '../home/KnowledgeHome';
 import type { KnowledgeLifecycleAction } from '../home/KnowledgeReview';
 import MonitorHome from '../home/MonitorHome';
+import type { BackgroundProcessesIo } from '../home/BackgroundProcesses';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
 import { BuddyPortrait } from '../buddy/BuddySurface';
@@ -33,6 +35,11 @@ import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { idPath } from '../apps/parts';
 import { neverUsed } from './new-chat';
+import LearningHome, {
+  LEARNING_VIEWS,
+  type LearningView,
+} from '../learning/LearningHome';
+import { learningIsOn, useLearning } from '../learning/learning-state';
 
 const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
 /** Snapshots read in the last few seconds are reused when switching tabs. */
@@ -84,9 +91,29 @@ export default function Home({
   );
   const overlay = useOverlay();
   const navigate = useNavigate();
+  const processes = useMemo<BackgroundProcessesIo>(
+    () => ({
+      load: (conversation, signal) =>
+        controller.backgroundProcesses(conversation, signal),
+      output: (process, after, limit, signal) =>
+        controller.backgroundProcessOutput(process, after, limit, signal),
+      stop: (process) => controller.stopBackgroundProcess(process),
+      openConversation: (conversation) =>
+        navigate(`/conversations/${encodeURIComponent(conversation)}`),
+    }),
+    [controller, navigate],
+  );
   const [search, setSearch] = useSearchParams();
+  // A sixth tab while Learning (preview) is on (D23).
+  const learning = useLearning();
+  const learningTab = learningIsOn(learning);
+  const tabs = learningTab ? [...homeTabs, 'learning'] : homeTabs;
   const requestedTab = search.get('tab')?.toLowerCase() ?? '';
-  const tab = homeTabs.includes(requestedTab) ? requestedTab : 'overview';
+  const tab = tabs.includes(requestedTab) ? requestedTab : 'overview';
+  const requestedView = search.get('view') ?? '';
+  const learningView: LearningView =
+    LEARNING_VIEWS.find((item) => item.value === requestedView)?.value ??
+    'overview';
   const [knowledge, setKnowledge] = useState<KnowledgeGraphSnapshot | null>(
     null,
   );
@@ -696,6 +723,7 @@ export default function Home({
                 onFixed={() => setMonitorReload((value) => value + 1)}
                 loadLogs={loadLogs}
                 loadTasks={identity ? loadTasks : undefined}
+                processes={identity ? processes : undefined}
               />
             ),
           },
@@ -715,6 +743,36 @@ export default function Home({
               />
             ),
           },
+          ...(learning && learningTab
+            ? [
+                {
+                  id: 'learning',
+                  label: (
+                    <>
+                      <GraduationCap size={16} aria-hidden />
+                      Learning
+                    </>
+                  ),
+                  content: (
+                    <LearningHome
+                      io={learning}
+                      view={learningView}
+                      onViewChange={(view) =>
+                        chooseTab(
+                          'learning',
+                          view === 'overview' ? {} : { view },
+                        )
+                      }
+                      onOpenSettings={(anchor) =>
+                        navigate(
+                          `/settings/learning${anchor ? `#${anchor}` : ''}`,
+                        )
+                      }
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
       {knowledgeOwner?.get() && (

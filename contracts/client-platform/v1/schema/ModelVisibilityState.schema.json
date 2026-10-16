@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "description": "Favourites in their order, and the hidden models (F10).",
+  "properties": {
+    "favourites": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Favourites",
+      "type": "array"
+    },
+    "hidden": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 512,
+      "title": "Hidden",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "favourites",
+    "hidden"
+  ],
+  "title": "ModelVisibilityState",
+  "type": "object"
+}

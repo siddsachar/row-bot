@@ -30,6 +30,7 @@ _DATA_DIR = get_row_bot_data_dir()
 def _approval_gate_bool(payload: dict, *, blocked_message: str) -> bool:
     return gate_action(
         payload,
+        risks=("changes a Row-Bot setting",),
         blocked_message=blocked_message,
         cancelled_message="",
     ) is None

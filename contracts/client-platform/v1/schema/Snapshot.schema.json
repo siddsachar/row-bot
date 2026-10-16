@@ -426,10 +426,24 @@
           "title": "Binding Id",
           "type": "string"
         },
+        "delivery_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(send-[0-9a-f]{8})?$",
+          "title": "Delivery Id",
+          "type": "string"
+        },
         "display_name": {
           "default": "",
           "maxLength": 180,
           "title": "Display Name",
+          "type": "string"
+        },
+        "edit_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(edit-[0-9a-f]{8})?$",
+          "title": "Edit Id",
           "type": "string"
         },
         "error_code": {
@@ -444,6 +458,13 @@
           "title": "Evicted Skill Id",
           "type": "string"
         },
+        "job_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(prep-[0-9a-f]{8})?$",
+          "title": "Job Id",
+          "type": "string"
+        },
         "kind": {
           "enum": [
             "skill_load",
@@ -452,7 +473,13 @@
             "resource_created",
             "resource_bound",
             "setup_needed",
-            "connect_apps"
+            "connect_apps",
+            "background_process",
+            "recording",
+            "video_edit",
+            "delivery",
+            "sandbox_job",
+            "sandbox_unprepared"
           ],
           "title": "Kind",
           "type": "string"
@@ -482,6 +509,20 @@
           ],
           "default": null,
           "title": "Newly Active"
+        },
+        "process_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(proc-[0-9a-f]{8})?$",
+          "title": "Process Id",
+          "type": "string"
+        },
+        "recording_id": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(rec-[0-9a-f]{8})?$",
+          "title": "Recording Id",
+          "type": "string"
         },
         "resource_id": {
           "default": "",

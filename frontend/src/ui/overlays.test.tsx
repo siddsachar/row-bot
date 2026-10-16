@@ -9,6 +9,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ACTION_NOTICE_MS,
   ModalTask,
@@ -18,6 +19,7 @@ import {
   useOverlay,
 } from './overlays';
 import { Button, Input, Skeleton } from './primitives';
+import { useDialogFooter } from './dialog-footer';
 
 function Form({ confirmed }: { confirmed: () => void }) {
   const [draft, setDraft] = useState('Saved example');
@@ -430,4 +432,77 @@ it('dismisses a keyed sheet from a handler created before it opened', async () =
   await waitFor(() =>
     expect(screen.queryByRole('dialog', { name: 'Keyed sheet' })).toBeNull(),
   );
+});
+
+function Chooser() {
+  const [choosing, setChoosing] = useState(false);
+  // Reads the overlay's context too, so every footer change re-renders it.
+  useOverlay();
+  const footer = useDialogFooter(choosing);
+  const actions = (
+    <>
+      <Button onClick={() => setChoosing(false)}>Cancel</Button>
+      <Button variant="primary">Use Projects</Button>
+    </>
+  );
+  return choosing ? (
+    footer ? (
+      createPortal(actions, footer)
+    ) : (
+      actions
+    )
+  ) : (
+    <Button onClick={() => setChoosing(true)}>Choose</Button>
+  );
+}
+
+it('content puts its own actions in the dialog footer in place of Close, and gives it back', async () => {
+  function Opener() {
+    const { open } = useOverlay();
+    return (
+      <Button
+        onClick={() =>
+          open({
+            title: 'Add resource',
+            description: 'A fixture with its own actions.',
+            content: <Chooser />,
+          })
+        }
+      >
+        Open
+      </Button>
+    );
+  }
+  render(
+    <OverlayProvider>
+      <Opener />
+    </OverlayProvider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Add resource' });
+  expect(within(dialog).getByRole('button', { name: 'Close' })).toBeVisible();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Choose' }));
+  // One way out (the header's ×), and the primary action in the footer.
+  expect(within(dialog).queryByRole('button', { name: 'Close' })).toBeNull();
+  expect(
+    within(dialog).getByRole('button', { name: 'Use Projects' }),
+  ).toBeVisible();
+  expect(
+    within(dialog).getByRole('button', { name: 'Close dialog' }),
+  ).toBeVisible();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(within(dialog).getByRole('button', { name: 'Close' })).toBeVisible();
+  expect(
+    within(dialog).queryByRole('button', { name: 'Use Projects' }),
+  ).toBeNull();
+});
+
+it('outside a dialog, content keeps its actions in place', () => {
+  render(
+    <OverlayProvider>
+      <Chooser />
+    </OverlayProvider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+  expect(screen.getByRole('button', { name: 'Use Projects' })).toBeVisible();
 });

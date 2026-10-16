@@ -32,5 +32,6 @@ tags: []
   3:4, 3:2, 2:3. Resolutions: 480p or 720p.
 - Generated videos are saved as MP4 files in the thread media folder and
   displayed inline in chat.
-- Do NOT promise video editing, video extension, reference-image workflows,
-  or fal-backed models — these are not available in this version.
+- Do NOT promise video extension, reference-image workflows, or fal-backed
+  models — these are not available in this version. Editing a video the
+  person already has (trim, join, speed, captions) is edit_video.

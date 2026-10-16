@@ -202,6 +202,8 @@ def _conversation(
         default_thread_id=_make_thread_id(channel_id, thread_ts),
         name=name,
         target=target,
+        # A thread in a channel (or a group DM) is shared with the people there.
+        shared=bool(thread_ts) or not _is_dm_channel(channel_id),
     )
 
 
@@ -1399,6 +1401,9 @@ async def _handle_dm(
     # Normal message — run agent
     thread_id = _get_or_create_thread(channel_id, conv_ts, first_text=first_text)
     config = {"configurable": {"thread_id": thread_id}}
+    # Learning (preview) tells the owner's own DM by its sender (O3); off: one check.
+    from row_bot import learning
+    learning.note_channel_sender(thread_id, user_id)
 
     # Add typing reaction
     ts = event.get("ts", "")

@@ -356,6 +356,16 @@ def resources(x_fixture_token: str = Header(default="")) -> dict:
             "git_present": (folder / ".git").exists()}
 
 
+@app.post("/__a0_fixture/full-autonomy/reset")
+def reset_full_autonomy(x_fixture_token: str = Header(default="")) -> dict:
+    """Forget that Hands-off was turned on, so its one-time dialog shows again (A0)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.full_autonomy import _settings_path
+
+    _settings_path().unlink(missing_ok=True)
+    return {"reset": True}
+
+
 @app.get("/__p3_fixture/calls")
 def phase3_calls(x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)
@@ -396,6 +406,1020 @@ def _natural_final(call: dict, thread: str, final: str, key: str):
     yield "done", final
 
 
+_S2_PROGRAMS = {
+    "dev_server.py": (
+        "import time\n"
+        "print('Starting the development server...', flush=True)\n"
+        "time.sleep(0.4)\n"
+        "print('  > Local:   http://localhost:5199/', flush=True)\n"
+        "print('  > Network: use --host to expose', flush=True)\n"
+        "tick = 0\n"
+        "while True:\n"
+        "    time.sleep(1.5)\n"
+        "    tick += 1\n"
+        "    print(f'GET /assets/app.js 200 in {12 + tick % 7}ms', flush=True)\n"
+    ),
+    "run_tests.py": (
+        "import sys, time\n"
+        "print('collected 24 items', flush=True)\n"
+        "time.sleep(0.6)\n"
+        "print('tests/test_login.py ........F', flush=True)\n"
+        "print('FAILED tests/test_login.py::test_redirect - AssertionError: expected /home', flush=True)\n"
+        "print('1 failed, 23 passed in 0.61s', flush=True)\n"
+        "sys.exit(1)\n"
+    ),
+    "build.py": (
+        "import time\n"
+        "for step in ('Compiling 128 modules', 'Bundling', 'Minifying', 'Writing dist/'):\n"
+        "    print(step + '...', flush=True)\n"
+        "    time.sleep(1.2)\n"
+        "print('Built in 4.8s', flush=True)\n"
+    ),
+}
+_S2_LOCK = threading.Lock()
+_s2_folder: Path | None = None
+
+
+def _s2_site() -> Path:
+    """A synthetic project folder outside Row-Bot's data folder (which processes may not use)."""
+    global _s2_folder
+    if _s2_folder is None:
+        import tempfile
+
+        _s2_folder = Path(tempfile.mkdtemp(prefix="row-bot-s2-")) / "site"
+        _s2_folder.mkdir()
+        for name, source in _S2_PROGRAMS.items():
+            (_s2_folder / name).write_text(source, encoding="utf-8", newline="\n")
+    return _s2_folder
+
+
+def _s2_approved(call):
+    """Run a real process tool as if the person approved it on its card (the card itself is the
+    "s2 process approval fixture")."""
+    import langgraph.types as graph_types
+    from row_bot.tools import approval_gate
+
+    with _S2_LOCK:
+        mode, ask = approval_gate.current_approval_mode, graph_types.interrupt
+        approval_gate.current_approval_mode = lambda: "approve"
+        graph_types.interrupt = lambda _payload: True
+        try:
+            return call()
+        finally:
+            approval_gate.current_approval_mode, graph_types.interrupt = mode, ask
+
+
+def _s2_stream(text: str, config: dict):
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools.shell_tool import ShellTool, start_process_approval
+
+    call = predecessor._record("submit", config, "s2-process")
+    thread = call["conversation_id"]
+    identity = f"s2:{call['generation_id']}"
+    site = str(_s2_site())
+    tool = ShellTool()
+    runtime_config = {"configurable": {"thread_id": thread}}
+    try:
+        if "approval" in text:
+            args = {"command": "python dev_server.py", "folder": site, "name": "Dev server",
+                    "env": {"PORT": "5199"}}
+            tool_id = fixture_id(identity + ":tool")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "start_process", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "start_process", "args": args}
+            payload = start_process_approval("python dev_server.py", site, {"PORT": "5199"}, "Dev server",
+                                             "To preview the site while we work on it.")
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), **payload}]
+            return
+        if "failed" in text:
+            steps = [("start_process", {"command": "python run_tests.py", "name": "Unit tests"},
+                      lambda: tool.start_process("python run_tests.py", folder=site, name="Unit tests",
+                                                 runtime_config=runtime_config))]
+            final = "The tests failed: one assertion in test_login.py."
+        elif "long command" in text:
+            steps = [("run_command", {"command": "python build.py", "background": True},
+                      lambda: tool.execute("cd '" + site.replace("'", "''") + "'", runtime_config=runtime_config)
+                      and tool.execute("python build.py", runtime_config=runtime_config, background=True))]
+            final = "The build runs in the background; I'll check on it."
+        else:
+            steps = [("start_process", {"command": "python dev_server.py", "name": "Dev server",
+                                        "env": {"PORT": "5199"}},
+                      lambda: tool.start_process("python dev_server.py", folder=site, env={"PORT": "5199"},
+                                                 name="Dev server", runtime_config=runtime_config))]
+            final = "The dev server is running at http://localhost:5199."
+        for index, (name, args, run) in enumerate(steps):
+            tool_id = fixture_id(f"{identity}:{index}:tool")
+            result_id = fixture_id(f"{identity}:{index}:result")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(f"{identity}:{index}:call"), content="",
+                tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+            result = _s2_approved(run)
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                                                          content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                "content": result}
+        yield from _natural_final(call, thread, final, "s2")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__s2_fixture/processes/stop-all")
+def s2_stop_processes(x_fixture_token: str = Header(default="")) -> dict:
+    """Stop every background process the fixture started (a spec's clean-up)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import background_processes
+
+    return {"stopped": background_processes.stop_all(by="you", timeout=20)}
+
+
+# ── S3: Row-Bot's browser on local apps, screenshots, page sizes, recordings (F4, F2) ──
+# The scripted model asks for the real local-address approval; approving grants the address
+# through the real browser session (no browser starts) and shows a synthetic screenshot.
+# Recordings run through the real recording manager with a fake capture that "writes" a
+# synthetic video; the screen-recording step uses the real "needs Computer use" words.
+_S3_ORIGIN = "http://localhost:5173"
+
+
+def _s3_page_picture(width: int, height: int, scale: int = 1, *, phone: bool = False) -> bytes:
+    """A synthetic picture of a small local web app's sign-up page."""
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    w, h = width * scale, height * scale
+    image = Image.new("RGB", (w, h), (248, 249, 251))
+    draw = ImageDraw.Draw(image)
+
+    def font(size: int):
+        try:
+            return ImageFont.load_default(size=size * scale)
+        except TypeError:
+            return ImageFont.load_default()
+
+    draw.rectangle([0, 0, w, 56 * scale], fill=(30, 41, 59))
+    draw.text((20 * scale, 16 * scale), "Fixture Shop", fill=(255, 255, 255), font=font(20))
+    left = 24 * scale if phone else w // 2 - 220 * scale
+    right = w - 24 * scale if phone else w // 2 + 220 * scale
+    top = 96 * scale
+    draw.text((left, top), "Create your account", fill=(15, 23, 42), font=font(26))
+    for index, label in enumerate(("Name", "Email", "Password")):
+        y = top + (64 + index * 84) * scale
+        draw.text((left, y), label, fill=(71, 85, 105), font=font(14))
+        box = [left, y + 22 * scale, right, y + 62 * scale]
+        draw.rounded_rectangle(box, radius=8 * scale, outline=(203, 213, 225), width=max(1, scale),
+                               fill=(38, 40, 46) if label == "Password" else (255, 255, 255))
+    y = top + 324 * scale
+    draw.rounded_rectangle([left, y, right, y + 48 * scale], radius=10 * scale, fill=(37, 99, 235))
+    draw.text((left + 16 * scale, y + 13 * scale), "Sign up", fill=(255, 255, 255), font=font(16))
+    out = BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _s3_video() -> bytes:
+    """A short synthetic recording of the sign-up page (H.264), or the stock fixture video."""
+    try:
+        from io import BytesIO
+
+        import av
+        from PIL import Image, ImageDraw
+
+        page = Image.open(BytesIO(_s3_page_picture(640, 400))).convert("RGB")
+        out = BytesIO()
+        with av.open(out, mode="w", format="mp4") as container:
+            stream = container.add_stream("libx264", rate=12)
+            stream.width, stream.height, stream.pix_fmt = 640, 400, "yuv420p"
+            for index in range(36):
+                frame = page.copy()
+                x, y = 180 + index * 6, 150 + (index % 12) * 8
+                ImageDraw.Draw(frame).ellipse([x, y, x + 14, y + 14], fill=(239, 68, 68))
+                video_frame = av.VideoFrame.from_image(frame)
+                video_frame.pts = index
+                for packet in stream.encode(video_frame):
+                    container.mux(packet)
+            for packet in stream.encode(None):
+                container.mux(packet)
+        return out.getvalue()
+    except Exception:
+        return (Path(__file__).parents[2] / "fixtures/client_synthetic_video.mp4").read_bytes()
+
+
+def _s3_media(thread: str, data: bytes) -> list[dict]:
+    from row_bot.application.attachments import register_attachment
+
+    saved = register_attachment(thread, "generated-image.png", data)
+    return [{"type": "media.available", "payload": {"media_ref": saved["attachment_ref"],
+                                                    "mime_type": saved["mime_type"]}}]
+
+
+class _S3Capture:
+    """A recording backend that finishes with the synthetic video when it's stopped."""
+
+    def __init__(self, record, path: Path) -> None:
+        self.record, self.path = record, path
+
+    def request_stop(self, reason: str) -> None:
+        from row_bot import recordings
+
+        self.path.write_bytes(_s3_video())
+        recordings.finished(self.record, reason, self.path)
+
+
+def _s3_steps(thread: str, identity: str, steps):
+    """Each scripted step: its call, then its result (with any media), as the real tool wrapper saves them."""
+    from row_bot.threads import append_checkpoint_messages
+
+    for index, (name, args, run) in enumerate(steps):
+        tool_id = fixture_id(f"{identity}:{index}:tool")
+        result_id = fixture_id(f"{identity}:{index}:result")
+        append_checkpoint_messages(thread, [AIMessage(id=fixture_id(f"{identity}:{index}:call"), content="",
+            tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+        yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+        content, media = run()
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+            content=content, additional_kwargs={"platform_media": media} if media else {})])
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                            "content": content, **({"media": media} if media else {})}
+
+
+def _s3_stream(text: str, config: dict):
+    from row_bot import recordings
+    from row_bot.browser.local_access import approval_request
+    from row_bot.computer_use.recording import setup_problem
+    from row_bot.threads import append_checkpoint_messages
+
+    call = predecessor._record("submit", config, "s3-browser")
+    thread = call["conversation_id"]
+    identity = f"s3:{call['generation_id']}"
+    try:
+        if "local address" in text:
+            args = {"url": _S3_ORIGIN + "/signup"}
+            tool_id = fixture_id(identity + ":tool")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "browser_navigate", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "browser_navigate", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), **approval_request(_S3_ORIGIN)}]
+            return
+        if "viewport" in text:
+            steps = [
+                ("browser_viewport", {"preset": "phone"}, lambda: (
+                    "The page now shows at phone size: 390×844 at 3× scale, as a touch screen. "
+                    "Observe the page again before acting on it.", [])),
+                ("browser_screenshot", {"full_page": False}, lambda: (
+                    "Screenshot of http://localhost:5173/signup (what's on screen, phone size at 2× scale). "
+                    "Password and card fields are covered. Saved to this chat's files and shown to the person.",
+                    _s3_media(thread, _s3_page_picture(390, 844, 2, phone=True)))),
+            ]
+            final = "Here's the sign-up page at phone size: the form stacks into one column and the button fits."
+        elif "screen recording" in text:
+            problem = setup_problem()
+            assert problem.startswith("Recording your screen needs Computer use set up."), problem
+            steps = [("computer_use", {"action": "start_recording"}, lambda: (problem, []))]
+            final = ("I can't record your screen yet: that needs Computer use set up. Open **Settings › System › "
+                     "Browser and computer use**, turn on Computer use and finish its setup, then ask me again. "
+                     "I can record Row-Bot's own browser without it.")
+        else:  # Recording Row-Bot's browser.
+            def start():
+                record = recordings.start(thread, "browser", max_minutes=5,
+                                          begin=lambda record, path: _S3Capture(record, path))
+                return ("Approval: asked; approved by you\n" + recordings.summary(record)
+                        + " Do the steps to record, then call browser_record with action stop.", [])
+
+            steps = [("browser_record", {"action": "start", "max_minutes": 5}, start)]
+            final = "Recording Row-Bot's browser now. I'll stop it once the sign-up flow is done."
+        yield from _s3_steps(thread, identity, steps)
+        yield from _natural_final(call, thread, final, "s3")
+    finally:
+        call["quiesced"] = True
+
+
+def _s3_resume(enabled_tools: list[str], config: dict, approved: bool, *, interrupt_ids=None, stop_event=None):
+    """After the local-address card: open the page (granted for real) and show a screenshot."""
+    from row_bot.threads import get_latest_checkpoint_messages
+
+    thread = str(config["configurable"]["thread_id"])
+    last = next((message for message in reversed(get_latest_checkpoint_messages(thread))
+                 if getattr(message, "tool_calls", None)), None)
+    asked = last.tool_calls[0] if last is not None else {}
+    if asked.get("name") != "browser_navigate" or not str((asked.get("args") or {}).get("url", "")).startswith(
+            _S3_ORIGIN):
+        yield from predecessor.resume(enabled_tools, config, approved, interrupt_ids=interrupt_ids,
+                                      stop_event=stop_event)
+        return
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools.browser_tool import get_session_manager
+
+    call = predecessor._record("resume", config, "s3-local-address")
+    identity = f"s3-resume:{call['generation_id']}:{call['sequence']}"
+    try:
+        result_id = fixture_id(identity + ":navigate")
+        if approved:
+            get_session_manager().get_session(thread).allow_local_address(thread, _S3_ORIGIN, source="you")
+            content = ("Approval: asked; approved by you\nURL: http://localhost:5173/signup\n"
+                       "Title: Fixture Shop · Sign up\nInteractive elements (4):")
+        else:
+            content = ("Approval: asked; denied by you — did not run\n"
+                       "The person didn't allow localhost:5173; it wasn't opened.")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=asked["id"],
+                                                        name="browser_navigate", content=content)])
+        yield "tool_done", {"tool_call_id": asked["id"], "message_id": result_id, "name": "browser_navigate",
+                            "args": asked.get("args") or {}, "content": content}
+        if not approved:
+            yield from _natural_final(call, thread, "OK, I won't open localhost:5173.", "s3-denied")
+            return
+        steps = [("browser_screenshot", {"full_page": False}, lambda: (
+            "Screenshot of http://localhost:5173/signup (what's on screen, 1280×800 at 1× scale). "
+            "Password and card fields are covered. Saved to this chat's files and shown to the person.",
+            _s3_media(thread, _s3_page_picture(1280, 800))))]
+        yield from _s3_steps(thread, identity, steps)
+        yield from _natural_final(call, thread,
+                                  "localhost:5173 is open in Row-Bot's browser. Here's the sign-up page as it is now.",
+                                  "s3-local")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__s3_fixture/reset")
+def s3_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Stop every recording and forget local-address grants (a spec's clean-up)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import recordings
+    from row_bot.tools.browser_tool import get_session_manager
+
+    stopped = recordings.stop_all(by="you", timeout=10)
+    get_session_manager().kill_all()
+    return {"stopped": stopped}
+
+
+# ── S4: video editing and many images at once (F3, F5) ──
+# The real edit_video and analyze_image tools, video edit jobs, process manager, file owner and
+# cards. ffmpeg is a small synthetic program the fixture writes (it reports progress and "makes"
+# the video by copying a synthetic H.264 clip), and the ffmpeg download is a fake that reports
+# progress; nothing is downloaded. The vision model is scripted.
+_S4_FAKE_FFMPEG = (
+    "import json, shutil, sys, time\n"
+    "from pathlib import Path\n"
+    "settings = json.loads(Path(__file__).with_suffix('.json').read_text())\n"
+    "args = sys.argv[1:]\n"
+    "outputs = [a[5:] for i, a in enumerate(args) if a.startswith('file:') and args[i - 1] != '-i']\n"
+    "if not outputs:\n"
+    "    length = '00:00:03.00' if args[-1].endswith('output.mp4') else '00:00:12.00'\n"
+    "    sys.stderr.write(f'  Duration: {length}, start: 0.000000\\n'\n"
+    "                     '  Stream #0:0(und): Video: h264 (High), yuv420p, 640x400, 12 fps, 12 tbr\\n')\n"
+    "    sys.exit(1)\n"
+    "seconds = float(settings['seconds'])\n"
+    "steps = max(1, int(seconds / 0.25))\n"
+    "for step in range(steps):\n"
+    "    print(f'out_time_us={int(step * 3_000_000 / steps)}', flush=True)\n"
+    "    print('progress=continue', flush=True)\n"
+    "    time.sleep(0.25)\n"
+    "for name in outputs:\n"
+    "    shutil.copyfile(settings['video'], name)\n"
+    "print('progress=end', flush=True)\n"
+)
+_S4_STATE: dict = {}
+_S4_RELEASE = threading.Event()
+
+
+def _s4_program(seconds: float):
+    """The synthetic ffmpeg, set to take this long; as the resolver hands it out."""
+    import tempfile
+
+    from row_bot import ffmpeg_runtime
+
+    if "folder" not in _S4_STATE:
+        folder = Path(tempfile.mkdtemp(prefix="row-bot-s4-"))
+        (folder / "fake_ffmpeg.py").write_text(_S4_FAKE_FFMPEG, encoding="utf-8", newline="\n")
+        (folder / "sample.mp4").write_bytes(_s3_video())
+        _S4_STATE["folder"] = folder
+    folder = _S4_STATE["folder"]
+    (folder / "fake_ffmpeg.json").write_text(json.dumps({"seconds": seconds, "video": str(folder / "sample.mp4")}),
+                                             encoding="utf-8")
+    return ffmpeg_runtime.Ffmpeg(executable=str(folder / "fake_ffmpeg.py"), source="row_bot", version="7.1",
+                                 licence="GPL version 3 or later", prefix=(sys.executable,))
+
+
+def _s4_patch(*, missing: bool, seconds: float = 1.0) -> None:
+    """ffmpeg present (the synthetic program) or missing (the download is a fake that waits)."""
+    from row_bot import ffmpeg_runtime
+    from row_bot.tools import video_editing_tool as video_tool
+
+    if "originals" not in _S4_STATE:
+        _S4_STATE["originals"] = (ffmpeg_runtime.find, ffmpeg_runtime.install, ffmpeg_runtime.current_wheel,
+                                  video_tool.INLINE_SECONDS)
+    program = _s4_program(seconds)
+    wheel = ffmpeg_runtime.WHEELS["windows-x86_64"]
+    _S4_RELEASE.clear()
+
+    def install(*, check=lambda: None):
+        ffmpeg_runtime._set(status="downloading", received=0, total=wheel.size, error="")
+        received = 0
+        while not _S4_RELEASE.wait(0.1):
+            check()
+            received = min(int(wheel.size * 0.42), received + wheel.size // 40)
+            ffmpeg_runtime._set(received=received)
+        ffmpeg_runtime._set(status="installed", received=wheel.size)
+        return program
+
+    ffmpeg_runtime.find = (lambda: None) if missing else (lambda: program)
+    ffmpeg_runtime.install = install
+    ffmpeg_runtime.current_wheel = lambda *_a, **_k: wheel
+    video_tool.INLINE_SECONDS = 1.5
+
+
+def _s4_restore() -> None:
+    from row_bot import ffmpeg_runtime
+    from row_bot.tools import video_editing_tool as video_tool
+
+    originals = _S4_STATE.pop("originals", None)
+    if originals:
+        ffmpeg_runtime.find, ffmpeg_runtime.install, ffmpeg_runtime.current_wheel, video_tool.INLINE_SECONDS = originals
+
+
+def _s4_steps_picture(index: int) -> bytes:
+    """One step of a sign-up flow, numbered, for the contact sheet."""
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    page = Image.open(BytesIO(_s3_page_picture(640, 400))).convert("RGB")
+    draw = ImageDraw.Draw(page)
+    try:
+        font = ImageFont.load_default(size=22)
+    except TypeError:
+        font = ImageFont.load_default()
+    draw.rounded_rectangle([440, 70, 620, 108], radius=10, fill=(234, 88, 12) if index == 9 else (22, 163, 74))
+    draw.text((452, 76), "Error" if index == 9 else f"Step {index}", fill=(255, 255, 255), font=font)
+    out = BytesIO()
+    page.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _s4_in_thread(thread: str, run):
+    """Run a real tool as part of this conversation's turn, as if the person approved any card."""
+    from row_bot.agent import _current_thread_id_var
+
+    token = _current_thread_id_var.set(thread)
+    try:
+        return _s2_approved(run)
+    finally:
+        _current_thread_id_var.reset(token)
+
+
+# 6 s of the 12 s clip at twice the speed: 3 s, the length of the synthetic clip the fake ffmpeg "makes".
+_S4_STEPS = [{"op": "trim", "start": 2, "end": 8}, {"op": "speed", "factor": 2},
+             {"op": "captions", "text": "1\n00:00:00,500 --> 00:00:02,000\nCreate your account\n"}]
+
+
+def _s4_stream(text: str, config: dict):
+    from row_bot import ffmpeg_runtime
+    from row_bot.application.attachments import register_attachment
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools import video_editing_tool as video_tool, vision_tool
+
+    call = predecessor._record("submit", config, "s4-media")
+    thread = call["conversation_id"]
+    identity = f"s4:{call['generation_id']}"
+    try:
+        register_attachment(thread, "signup.mp4", _s3_video())
+        args = {"inputs": ["signup.mp4"], "steps": _S4_STEPS, "name": "signup-demo"}
+        if "consent" in text:
+            _s4_patch(missing=True)
+            tool_id = fixture_id(identity + ":tool")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "edit_video", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "edit_video", "args": args}
+            payload = ffmpeg_runtime.consent_request("edit", "edit_video",
+                                                     wheel=ffmpeg_runtime.WHEELS["windows-x86_64"])
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), **payload}]
+            return
+        if "contact sheet" in text or "no vision" in text:
+            for index in range(1, 13):
+                register_attachment(thread, f"step-{index:02d}.png", _s4_steps_picture(index))
+            files = [f"step-{index:02d}.png" for index in range(1, 13)]
+            shown: list[str] = []
+
+            class _Vision:
+                def cannot_see(self, chat_model=None):
+                    if "no vision" not in text:
+                        return ""
+                    import row_bot.vision as vision
+
+                    real = vision.VisionService()
+                    real._model, real._enabled = "", True
+                    saved = vision.vision_model_compatibility
+                    vision.vision_model_compatibility = lambda _model: {"usable": False, "explicit": True}
+                    try:
+                        real.effective_model = lambda chat_model=None: "model:ollama:qwen3:8b"
+                        return real.cannot_see()
+                    finally:
+                        vision.vision_model_compatibility = saved
+
+                def analyze(self, image, question):
+                    return ("Picture 9 shows the error: the password field says “Too short” after the person "
+                            "typed 6 characters, while the hint above it says 6 is enough.")
+
+            def look():
+                originals = (vision_tool._get_vision_service, vision_tool._show_sheet)
+                vision_tool._get_vision_service = lambda: _Vision()
+                vision_tool._show_sheet = lambda sheet: shown.append(sheet) or True
+                try:
+                    content = vision_tool._analyze_image("Which step of the sign-up goes wrong?", files=files,
+                                                          contact_sheet=True)
+                finally:
+                    vision_tool._get_vision_service, vision_tool._show_sheet = originals
+                return content, (_s3_media(thread, shown[0]) if shown else [])
+
+            steps = [("analyze_image", {"question": "Which step of the sign-up goes wrong?", "files": files,
+                                        "contact_sheet": True}, lambda: _s4_in_thread(thread, look))]
+            final = ("Step 9 goes wrong: the password field rejects a 6-character password although the hint says "
+                     "6 is enough." if "no vision" not in text else
+                     "I can't look at these screenshots with this chat's model: it can't see images. Choose a model "
+                     "that can see images for Vision in **Settings › Models** (or switch this chat to one), and ask "
+                     "me again.")
+        else:
+            long_edit = "long" in text
+            _s4_patch(missing=False, seconds=20.0 if long_edit else 0.6)
+            steps = [("edit_video", args, lambda: (_s4_in_thread(thread, lambda: video_tool._edit_video(**args)), []))]
+            final = ("The edit is running: you can follow it below and stop it at any time." if long_edit else
+                     "Here's the sign-up demo: trimmed, the form filling sped up 2× with a label, and a caption.")
+        yield from _s3_steps(thread, identity, steps)
+        yield from _natural_final(call, thread, final, "s4")
+    finally:
+        call["quiesced"] = True
+
+
+def _s4_resume(enabled_tools: list[str], config: dict, approved: bool, *, interrupt_ids=None, stop_event=None):
+    """After the ffmpeg card: start the edit, which downloads ffmpeg first (a fake that waits)."""
+    from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages
+    from row_bot.tools import video_editing_tool as video_tool
+
+    thread = str(config["configurable"]["thread_id"])
+    last = next((message for message in reversed(get_latest_checkpoint_messages(thread))
+                 if getattr(message, "tool_calls", None)), None)
+    asked = last.tool_calls[0] if last is not None else {}
+    if asked.get("name") != "edit_video":
+        yield from _s3_resume(enabled_tools, config, approved, interrupt_ids=interrupt_ids, stop_event=stop_event)
+        return
+    call = predecessor._record("resume", config, "s4-ffmpeg")
+    identity = f"s4-resume:{call['generation_id']}:{call['sequence']}"
+    try:
+        result_id = fixture_id(identity + ":edit")
+        if approved:
+            content = _s4_in_thread(thread, lambda: video_tool._edit_video(**(asked.get("args") or {})))
+        else:
+            content = ("Approval: asked; denied by you — did not run\n"
+                       "The person didn't allow downloading ffmpeg; nothing was downloaded or edited.")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=asked["id"], name="edit_video",
+                                                        content=content)])
+        yield "tool_done", {"tool_call_id": asked["id"], "message_id": result_id, "name": "edit_video",
+                            "args": asked.get("args") or {}, "content": content}
+        yield from _natural_final(call, thread, "Getting ffmpeg first; the edit starts as soon as it's ready."
+                                  if approved else "OK, I won't download ffmpeg.", "s4-ffmpeg")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__s4_fixture/reset")
+def s4_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Stop every video edit and put ffmpeg back (a spec's clean-up)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import video_edits
+
+    _S4_RELEASE.set()
+    stopped = video_edits.stop_all(by="you", timeout=10)
+    _s4_restore()
+    return {"stopped": stopped}
+
+
+# ── S5: send a file to your devices or a chat app (F7) ──
+# The real send_file tool, deliveries, notices, downloads and cards. Telegram is the in-memory fake
+# adapter (tests/fixtures/channels.FakeChannel): it records what it would send; nothing reaches
+# Telegram. A big video for the "too big" case is written into a temporary workspace folder.
+_S5_STATE: dict = {}
+_S5_VIDEO_BYTES = 63 * 1024 * 1024
+
+
+def _s5_report() -> bytes:
+    """A small one-page PDF: the quarterly report the fixture sends."""
+    stream = b"BT /F1 24 Tf 72 720 Td (Q3 report) Tj ET"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += str(number).encode() + b" 0 obj\n" + body + b"\nendobj\n"
+    start = len(out)
+    out += b"xref\n0 " + str(len(objects) + 1).encode() + b"\n0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += b"trailer\n<< /Size " + str(len(objects) + 1).encode() + b" /Root 1 0 R >>\nstartxref\n"
+    out += str(start).encode() + b"\n%%EOF\n"
+    # Padded so it reads as a real report's size on the card.
+    return bytes(out) + b"%" + b" " * (182 * 1024)
+
+
+def _s5_telegram():
+    """The fake Telegram adapter, running and linked to the person, in place of the real one."""
+    from row_bot.channels import registry as channels
+    from tests.fixtures.channels import FakeChannel
+
+    if "telegram" not in _S5_STATE:
+        _S5_STATE["original"] = channels._channels.get("telegram")
+        fake = FakeChannel(name="telegram", display_name="Telegram", default_target=4242)
+        fake._running = True
+        channels._channels["telegram"] = fake
+        _S5_STATE["telegram"] = fake
+    return _S5_STATE["telegram"]
+
+
+def _s5_workspace() -> None:
+    """A workspace folder with a 63 MB screen recording in videos/ (too big for Telegram)."""
+    import tempfile
+
+    from row_bot.tools import registry
+
+    if "workspace" not in _S5_STATE:
+        _S5_STATE["workspace_root"] = registry.get_tool_config("filesystem", "workspace_root", "")
+        folder = Path(tempfile.mkdtemp(prefix="row-bot-s5-")) / "Projects"
+        (folder / "videos").mkdir(parents=True)
+        video = _s3_video()
+        (folder / "videos" / "demo-recording.mp4").write_bytes(video + b"\x00" * (_S5_VIDEO_BYTES - len(video)))
+        _S5_STATE["workspace"] = folder
+    registry.set_tool_config("filesystem", "workspace_root", str(_S5_STATE["workspace"]))
+
+
+def _s5_stream(text: str, config: dict):
+    from row_bot import file_deliveries
+    from row_bot.application.attachments import register_attachment
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools import file_delivery_tool
+
+    call = predecessor._record("submit", config, "s5-send")
+    thread = call["conversation_id"]
+    identity = f"s5:{call['generation_id']}"
+    try:
+        register_attachment(thread, "q3-report.pdf", _s5_report())
+        _s5_telegram()
+        if "telegram" in text:
+            args = {"files": ["q3-report.pdf"], "to": "telegram"}
+            tool_id = fixture_id(identity + ":tool")
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "send_file", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "send_file", "args": args}
+            plan = file_deliveries.plan_channel(thread, "telegram")
+            sources = file_deliveries.resolve(args["files"], thread)
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 **file_delivery_tool.channel_approval(plan, sources)}]
+            return
+        if "too big" in text:
+            _s5_workspace()
+            args = {"files": ["videos/demo-recording.mp4"], "to": "telegram"}
+            final = ("demo-recording.mp4 is 63 MB, too big for Telegram (50 MB limit), so I didn't send it. I can "
+                     "send it to your devices instead: use the button below.")
+        else:
+            args = {"files": ["q3-report.pdf"], "to": "devices"}
+            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop and tap "
+                     "Download; it's there for 7 days.")
+        steps = [("send_file", args,
+                  lambda: (_s4_in_thread(thread, lambda: file_delivery_tool._send_file(**args)), []))]
+        yield from _s3_steps(thread, identity, steps)
+        yield from _natural_final(call, thread, final, "s5")
+    finally:
+        call["quiesced"] = True
+
+
+def _s5_resume(enabled_tools: list[str], config: dict, approved: bool, *, interrupt_ids=None, stop_event=None):
+    """After the Telegram card: send through the fake adapter, as approved."""
+    from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages
+    from row_bot.tools import file_delivery_tool
+
+    thread = str(config["configurable"]["thread_id"])
+    last = next((message for message in reversed(get_latest_checkpoint_messages(thread))
+                 if getattr(message, "tool_calls", None)), None)
+    asked = last.tool_calls[0] if last is not None else {}
+    if asked.get("name") != "send_file":
+        yield from _s4_resume(enabled_tools, config, approved, interrupt_ids=interrupt_ids, stop_event=stop_event)
+        return
+    call = predecessor._record("resume", config, "s5-telegram")
+    identity = f"s5-resume:{call['generation_id']}:{call['sequence']}"
+    try:
+        args = asked.get("args") or {}
+        result_id = fixture_id(identity + ":send")
+        if approved:
+            content = _s4_in_thread(thread, lambda: file_delivery_tool._send_file(**args))
+        else:
+            content = ("Approval: asked; denied by you — did not run\nThe person didn't allow sending "
+                       "q3-report.pdf to your Telegram chat; nothing was sent.")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=asked["id"], name="send_file",
+                                                        content=content)])
+        yield "tool_done", {"tool_call_id": asked["id"], "message_id": result_id, "name": "send_file",
+                            "args": args, "content": content}
+        yield from _natural_final(call, thread, "Sent q3-report.pdf to your Telegram chat." if approved
+                                  else "OK, I won't send it.", "s5-telegram")
+    finally:
+        call["quiesced"] = True
+
+
+@app.get("/__s5_fixture/telegram")
+def s5_telegram(x_fixture_token: str = Header(default="")) -> dict:
+    """What the fake Telegram adapter was asked to send: file names and the chat."""
+    predecessor._authorize(x_fixture_token)
+    fake = _S5_STATE.get("telegram")
+    return {"sent": [{"target": str(target), "name": Path(path).name} for target, path, _caption
+                     in (fake.documents if fake else [])]}
+
+
+@app.post("/__s5_fixture/reset")
+def s5_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Put the real Telegram adapter and the workspace folder back (a spec's clean-up)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.channels import registry as channels
+    from row_bot.tools import registry
+
+    fake = _S5_STATE.pop("telegram", None)
+    original = _S5_STATE.pop("original", None)
+    if fake is not None:
+        if original is not None:
+            channels._channels["telegram"] = original
+        else:
+            channels._channels.pop("telegram", None)
+    if "workspace_root" in _S5_STATE:
+        registry.set_tool_config("filesystem", "workspace_root", _S5_STATE.pop("workspace_root"))
+    return {"sent": len(fake.documents) if fake else 0}
+
+
+# ── S6: attach a code folder from any device (F19) and Prepare sandbox (F18) ──
+# The workspace folder is a disposable one with a few projects; a clone is a fake Git that
+# makes the folder; Docker is a fake that "installs" over a few seconds (or until released).
+_S6_STATE: dict = {}
+_S6_IMAGE = "nikolaik/python-nodejs:python3.11-nodejs20"
+_S6_INSTALL_LINES = (
+    "Obtaining file:///workspace",
+    "Collecting pytest",
+    "  Downloading pytest-8.3.3-py3-none-any.whl (342 kB)",
+    "Collecting pluggy<2,>=1.5",
+    "Building editable for tide (pyproject.toml)",
+    "Installing collected packages: pluggy, iniconfig, pytest, tide",
+    "Successfully installed iniconfig-2.0.0 pluggy-1.5.0 pytest-8.3.3 tide-0.1.0",
+)
+
+
+def _s6_root() -> Path:
+    """Row-Bot's workspace folder for these specs: projects, an empty folder and a repository."""
+    import tempfile
+
+    from row_bot.tools import registry
+
+    if "root" not in _S6_STATE:
+        _S6_STATE["workspace_root"] = registry.get_tool_config("filesystem", "workspace_root", "")
+        base = Path(tempfile.mkdtemp(prefix="row-bot-s6-"))
+        root = base / "Row-Bot"
+        (root / "Projects" / "tide-app" / ".git").mkdir(parents=True)
+        (root / "Projects" / "tide-app" / "README.md").write_text("# Tide app\n", encoding="utf-8")
+        (root / "Projects" / "harbour-site" / ".git").mkdir(parents=True)
+        (root / "Projects" / "notes").mkdir()
+        (root / "Archive" / "2025").mkdir(parents=True)
+        (base / "outside" / "private").mkdir(parents=True)
+        _S6_STATE.update(root=root.resolve(), base=base)
+    registry.set_tool_config("filesystem", "workspace_root", str(_S6_STATE["root"]))
+    return _S6_STATE["root"]
+
+
+def _s6_fake_git() -> None:
+    """Clones make their folder with a .git and a README; nothing reaches the network."""
+    from types import SimpleNamespace
+
+    from row_bot.developer import client_clone
+
+    if "subprocess_run" in _S6_STATE:
+        return
+    real = client_clone.subprocess.run
+    _S6_STATE["subprocess_run"] = real
+
+    def run(args, **kwargs):
+        if isinstance(args, list) and args and Path(str(args[0])).stem.lower() == "git":
+            if "clone" in args:
+                target = Path(args[-1])
+                (target / ".git").mkdir(parents=True, exist_ok=True)
+                (target / "README.md").write_text("# demo\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout=_S6_STATE.get("source", "") + "\n", stderr="")
+        return real(args, **kwargs)
+
+    client_clone.subprocess = SimpleNamespace(**{**vars(client_clone.subprocess), "run": run})
+
+
+class _S6Docker:
+    """Docker as Prepare sandbox sees it, with an install that takes a while."""
+
+    def __init__(self, image_present: bool) -> None:
+        import threading
+
+        self.images = {_S6_IMAGE} if image_present else set()
+        self.containers: set[str] = set()
+        self.release = threading.Event()
+
+    def runtime(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(available=True, binary="docker", message="", version="27.3.1")
+
+    def docker(self, binary, *args, timeout=30):
+        from types import SimpleNamespace
+
+        if args[:2] == ("image", "inspect"):
+            return SimpleNamespace(returncode=0 if args[2] in self.images else 1, stdout="", stderr="")
+        if args[0] == "inspect":
+            return SimpleNamespace(returncode=0 if args[-1] in self.containers else 1, stdout="", stderr="")
+        if args[0] == "rm":
+            self.containers.discard(args[-1])
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def start(self, job, argv, folder, name):
+        import threading
+        import uuid
+        from types import SimpleNamespace
+
+        record = SimpleNamespace(process_id=f"proc-{uuid.uuid4().hex[:8]}", exit_code=None, output="",
+                                 done=threading.Event())
+        if argv[1] == "pull":
+            self.images.add(argv[2])
+            record.output = "Status: Downloaded newer image for " + argv[2] + "\n"
+            record.exit_code = 0
+            record.done.set()
+            return record
+        self.containers.add(argv[argv.index("--name") + 1])
+
+        def install():
+            for line in _S6_INSTALL_LINES:
+                if record.done.is_set():
+                    return
+                record.output += line + "\n"
+                if "Downloading pytest" in line and self.release.wait(60):
+                    continue
+                if self.release.wait(0.6):
+                    continue
+            if not record.done.is_set():
+                record.exit_code = 0
+                record.done.set()
+
+        threading.Thread(target=install, daemon=True).start()
+        return record
+
+    def stop(self, record, by):
+        record.exit_code = 137
+        record.done.set()
+
+
+def _s6_docker(image_present: bool) -> _S6Docker:
+    from row_bot.developer import sandbox_prepare
+
+    fake = _S6Docker(image_present)
+    if "sandbox_seams" not in _S6_STATE:
+        _S6_STATE["sandbox_seams"] = {name: getattr(sandbox_prepare, name) for name in (
+            "_runtime", "_docker", "_start_process", "_process_done", "_stop_process", "_tail")}
+    sandbox_prepare._runtime = fake.runtime
+    sandbox_prepare._docker = fake.docker
+    sandbox_prepare._start_process = fake.start
+    sandbox_prepare._process_done = lambda record, timeout: record.done.wait(timeout)
+    sandbox_prepare._stop_process = fake.stop
+    sandbox_prepare._tail = lambda record: record.output
+    _S6_STATE["docker"] = fake
+    return fake
+
+
+@app.post("/__s6_fixture/workspace")
+def s6_workspace(x_fixture_token: str = Header(default="")) -> dict:
+    """Use the disposable workspace folder, with fake Git clones."""
+    predecessor._authorize(x_fixture_token)
+    root = _s6_root()
+    _s6_fake_git()
+    _S6_STATE["source"] = "https://example.test/team/demo.git"
+    return {"folders": sorted(item.name for item in root.iterdir())}
+
+
+@app.get("/__s6_fixture/workspace")
+def s6_workspace_state(x_fixture_token: str = Header(default="")) -> dict:
+    """Which folders the workspace folder has now (names only)."""
+    predecessor._authorize(x_fixture_token)
+    root = _S6_STATE.get("root")
+    if root is None:
+        return {"folders": [], "projects": []}
+    return {"folders": sorted(item.name for item in root.iterdir()),
+            "projects": sorted(item.name for item in (root / "Projects").iterdir())}
+
+
+@app.post("/__s6_fixture/link-out")
+def s6_link_out(x_fixture_token: str = Header(default="")) -> dict:
+    """Swap Projects/notes for a link to a folder outside the workspace folder (a junction on Windows)."""
+    predecessor._authorize(x_fixture_token)
+    import shutil
+
+    root = _s6_root()
+    target = root / "Projects" / "notes"
+    outside = _S6_STATE["base"] / "outside"
+    if target.is_dir() and not target.is_symlink():
+        shutil.rmtree(target)
+    if not target.exists():
+        if sys.platform == "win32":
+            import _winapi
+
+            _winapi.CreateJunction(str(outside), str(target))
+        else:
+            target.symlink_to(outside, target_is_directory=True)
+    return {"linked": True}
+
+
+@app.post("/__s6_fixture/sandbox")
+def s6_sandbox(body: dict, x_fixture_token: str = Header(default="")) -> dict:
+    """The conversation's code folder becomes a Python project in the Docker sandbox, with a fake Docker."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.developer import sandbox_prepare, storage
+
+    conversation = str(body.get("conversation_id") or "")
+    workspace = sandbox_prepare.conversation_workspace(conversation)
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="No code folder")
+    folder = Path(workspace.path)
+    (folder / "tests").mkdir(exist_ok=True)
+    (folder / "pyproject.toml").write_text(
+        "[build-system]\nrequires = [\"setuptools\"]\nbuild-backend = \"setuptools.build_meta\"\n\n"
+        "[project]\nname = \"tide\"\nversion = \"0.1.0\"\n\n[project.optional-dependencies]\n"
+        "test = [\"pytest-cov\"]\n", encoding="utf-8")
+    (folder / "tests" / "test_tide.py").write_text("def test_high_tide():\n    assert True\n", encoding="utf-8")
+    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off",
+                                             sandbox_image=_S6_IMAGE)
+    _s6_docker(image_present=bool(body.get("image_present", True)))
+    return {"workspace": workspace.name}
+
+
+@app.post("/__s6_fixture/sandbox/release")
+def s6_sandbox_release(x_fixture_token: str = Header(default="")) -> dict:
+    """Let the fake install finish."""
+    predecessor._authorize(x_fixture_token)
+    fake = _S6_STATE.get("docker")
+    if fake is not None:
+        fake.release.set()
+    return {"released": fake is not None}
+
+
+@app.post("/__s6_fixture/reset")
+def s6_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Put the workspace folder, Git and Docker back (a spec's clean-up)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.developer import client_clone, sandbox_prepare
+    from row_bot.tools import registry
+
+    fake = _S6_STATE.pop("docker", None)
+    if fake is not None:
+        fake.release.set()
+        sandbox_prepare.stop_all(timeout=5)
+    for name, value in _S6_STATE.pop("sandbox_seams", {}).items():
+        setattr(sandbox_prepare, name, value)
+    real = _S6_STATE.pop("subprocess_run", None)
+    if real is not None:
+        import subprocess
+
+        client_clone.subprocess = subprocess
+    if "workspace_root" in _S6_STATE:
+        registry.set_tool_config("filesystem", "workspace_root", _S6_STATE.pop("workspace_root"))
+    _S6_STATE.pop("root", None)
+    return {"ok": True}
+
+
+def _s6_stream(text: str, config: dict):
+    """A sandbox test run that couldn't start: pytest isn't installed there (F18)."""
+    from row_bot.developer.runtime import CommandResult
+    from row_bot.developer.sandbox import ApprovalDecision
+    from row_bot.tools.developer_tool import _command_text
+
+    call = predecessor._record("submit", config, "s6-tests")
+    thread = call["conversation_id"]
+    identity = f"s6:{call['generation_id']}"
+    try:
+        result = CommandResult(command="python -m pytest", cwd="/workspace", returncode=1, stdout="",
+                               stderr="/usr/local/bin/python: No module named pytest",
+                               decision=ApprovalDecision("allow", "The project's detected commands run in the "
+                                                         "sandbox without asking."),
+                               execution_mode="docker", sandbox_backend="docker")
+        content = _command_text(result, tool_name="developer_run_detected_test")
+        steps = [("developer_run_detected_test", {"command": "pytest"}, lambda: (content, []))]
+        yield from _s3_steps(thread, identity, steps)
+        yield from _natural_final(call, thread, (
+            "The tests couldn't run: pytest isn't installed in the sandbox, and its network is off. "
+            "Prepare the sandbox to install the project's test tools, then I'll run them again."), "s6")
+    finally:
+        call["quiesced"] = True
+
+
 def _goal_verifier(goal, _context):
     """A goal's second step completes it; the first asks for one more."""
     if int(goal.get("turns_used") or 0) >= 2:
@@ -405,6 +1429,34 @@ def _goal_verifier(goal, _context):
 
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
+    if text.startswith("l1a ") and text.rstrip().endswith("fixture"):
+        # Learning (L1a): a reply to Teach on, after a step that failed.
+        yield from _l1a_stream(text, config)
+        return
+    if text.startswith("s6 ") and text.rstrip().endswith("fixture"):
+        # Prepare sandbox (F18): a sandbox test run that lacked pytest; the offer, the job and
+        # its card are real, Docker is a fake.
+        yield from _s6_stream(text, config)
+        return
+    if text.startswith("s5 ") and text.rstrip().endswith("fixture"):
+        # Send a file to your devices or a chat app (F7): the real tool, deliveries and cards, with
+        # the fake Telegram adapter.
+        yield from _s5_stream(text, config)
+        return
+    if text.startswith("s4 ") and text.rstrip().endswith("fixture"):
+        # Video editing and many images at once (F3, F5): the real tools, jobs and cards, with a
+        # synthetic ffmpeg program, a fake ffmpeg download and a scripted vision model.
+        yield from _s4_stream(text, config)
+        return
+    if text.startswith("s3 ") and text.rstrip().endswith("fixture"):
+        # Row-Bot's browser on local apps, screenshots, page sizes and recordings (F4, F2).
+        yield from _s3_stream(text, config)
+        return
+    if text.startswith("s2 ") and text.rstrip().endswith("fixture"):
+        # Background processes (F1, F6): the real start_process / run_command and process manager,
+        # with small synthetic programs instead of a real server or build.
+        yield from _s2_stream(text, config)
+        return
     if (text.startswith("[Goal mode started]") or text.startswith("[Goal continuation]")) and "approval" not in text:
         # One goal step finishes at once; the real goal owner counts it and
         # the scripted verifier (_goal_verifier) decides what happens next.
@@ -463,6 +1515,55 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "reviewer asked fixture" in text:
+        # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "reviewer-asked")
+        thread = call["conversation_id"]
+        identity = f"reviewer-asked:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        args = {"file_path": "notes/old-draft.md"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "workspace_file_delete", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "workspace_file_delete", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "workspace_file_delete", "label": "Delete file",
+                                 "description": "Delete file: notes/old-draft.md", "args": args,
+                                 "review": {"decision": "ask",
+                                            "reason": "You asked to tidy the notes, not to delete any."}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "decided without asking fixture" in text:
+        # Auto and Hands-off (A0): steps that ran without asking say who let them run.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "decided-without-asking")
+        thread = call["conversation_id"]
+        identity = f"decided:{call['generation_id']}"
+        steps = (
+            ("workspace_write_file", {"file_path": "notes/summary.md"},
+             "Approval: approved by the reviewer: You asked to save the summary to your notes\n"
+             "Wrote notes/summary.md"),
+            ("run_command", {"command": "git commit -am \"Tidy notes\""},
+             "Approval: allowed by Hands-off\n$ git commit -am \"Tidy notes\"\n\n"
+             "[Exit code: 0 | Duration: 0.21s]"),
+        )
+        try:
+            for index, (name, args, result) in enumerate(steps):
+                tool_id = fixture_id(f"{identity}:{index}:tool")
+                result_id = fixture_id(f"{identity}:{index}:result")
+                append_checkpoint_messages(thread, [AIMessage(id=fixture_id(f"{identity}:{index}:call"), content="",
+                    tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+                yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+                append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                                                              content=result)])
+                yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                    "content": result}
+            yield from _natural_final(call, thread, "Saved the summary and committed the tidy-up.", "decided")
+        finally:
+            call["quiesced"] = True
+        return
     if "instant reply fixture" in text:
         # A turn that answers at once, before the app has refreshed after sending.
         from langchain_core.messages import HumanMessage
@@ -490,7 +1591,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
             yield "tool_call", {"tool_call_id": tool_id, "name": "use_code_folder", "args": {}}
             yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
                                  "tool": "use_code_folder", "label": "Use an existing folder",
-                                 "description": "Choose the folder on this computer; Row-Bot adds it and "
+                                 "description": "Choose the folder; Row-Bot adds it and "
                                                 "works only inside it. Its files and Git history stay as they are.",
                                  "args": {}, "setup": {"kind": "folder", "label": "Use an existing folder",
                                                        "folders": []}}]
@@ -1849,6 +2950,63 @@ def p4_tasks(state: str, x_fixture_token: str = Header(default="")) -> dict:
     return {"state": state, "seeded_tasks": count}
 
 
+# F23: workflows whose steps branch, loop, break and leave a step unreached,
+# for the step editor's flowchart. Saved switched off; never scheduled or run.
+_F23_WORKFLOWS = (
+    ("f23-chain", "Flowchart: morning summary", [
+        {"id": "gather", "type": "prompt", "prompt": "Gather today's calendar and inbox highlights"},
+        {"id": "summarise", "type": "prompt", "prompt": "Summarise the news in five bullet points"},
+        {"id": "tell", "type": "notify", "message": "Your morning summary is ready", "channel": "desktop"},
+    ]),
+    ("f23-review", "Flowchart: weekly report review", [
+        {"id": "draft", "type": "prompt", "prompt": "Draft the weekly report from this week's notes"},
+        {"id": "check", "type": "condition", "condition": "contains:TODO", "if_true": "fix", "if_false": "review"},
+        {"id": "fix", "type": "prompt", "prompt": "Finish every TODO left in the report"},
+        {"id": "review", "type": "approval", "message": "Approve the weekly report before it goes out?",
+         "timeout_minutes": 0, "if_approved": "publish", "if_denied": "end"},
+        {"id": "publish", "type": "notify", "message": "The weekly report went out", "channel": "desktop",
+         "next": "end"},
+    ]),
+    ("f23-loop", "Flowchart: draft until approved", [
+        {"id": "write", "type": "prompt", "prompt": "Write a short announcement for the team"},
+        {"id": "approve", "type": "approval", "message": "Approve the announcement?", "timeout_minutes": 0,
+         "if_denied": "write"},
+        {"id": "announce", "type": "notify", "message": "The announcement was approved", "channel": "desktop"},
+    ]),
+    ("f23-broken", "Flowchart: release checklist", [
+        {"id": "collect", "type": "prompt", "prompt": "Check the release checklist"},
+        {"id": "gate", "type": "condition", "condition": "contains:ready", "if_true": "ship",
+         "if_false": "notes_9"},
+        {"id": "ship", "type": "notify", "message": "Ready to ship", "channel": "desktop", "next": "end"},
+        {"id": "tidy", "type": "prompt", "prompt": "Tidy up old release drafts"},
+    ]),
+)
+
+
+@app.post("/__p4_fixture/workflow-graphs")
+def p4_workflow_graphs(x_fixture_token: str = Header(default="")) -> dict:
+    """Seed disposable workflows with branching steps; do not schedule or run them."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import tasks
+    if not Path(tasks._DB_PATH).resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    conn = tasks._get_conn()
+    try:
+        conn.execute("DELETE FROM tasks WHERE id LIKE 'f23-%'")
+        conn.executemany(
+            "INSERT INTO tasks (id,name,description,icon,prompts,created_at,enabled,notify_only,sort_order,"
+            "channels,steps,advanced_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [(identity, name, "Synthetic flowchart", "",
+              json.dumps([step["prompt"] for step in steps if step["type"] == "prompt"]),
+              "2026-01-01", 0, 0, order, "[]", json.dumps(steps), 1)
+             for order, (identity, name, steps) in enumerate(_F23_WORKFLOWS)],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"seeded_workflows": len(_F23_WORKFLOWS)}
+
+
 @app.post("/__p4_fixture/tools/{state}")
 def p4_tools(state: str, x_fixture_token: str = Header(default="")) -> dict:
     """Register inert synthetic metadata only in this disposable fixture process."""
@@ -2033,6 +3191,92 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
     return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
 
 
+# ── S8 (F10): many local models ─────────────────────────────────────────────
+# A person with twenty-odd models in Ollama: each is in the composer's picker
+# (a pinned choice with its saved catalog row) and on the synthetic local
+# runtime that Setup and Settings › Models read. Favourites and hidden models
+# start empty. Nothing reaches a runtime, a provider or the network.
+_S8_LOCAL_MODELS = (
+    "deepseek-r1:14b", "gemma3:12b", "gemma3:4b", "gpt-oss:20b", "granite3.3:8b", "llama3.1:8b",
+    "llama3.2:3b", "llava:13b", "mistral-nemo:12b", "mistral-small3.2:24b", "mistral:7b", "phi4-mini:3.8b",
+    "phi4:14b", "qwen2.5-coder:7b", "qwen3-coder:30b", "qwen3:14b", "qwen3:32b", "qwen3:8b", "qwen3.8:27b",
+    "smollm2:1.7b",
+)
+_S8_CHAT = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"], "tool_calling": True}
+_s8_backup: dict | None = None
+
+
+@app.post("/__s8_fixture/models/{action}")
+def s8_models(action: str, favourites: str = "", hidden: str = "",
+              x_fixture_token: str = Header(default="")) -> dict:
+    """seed: twenty local models everywhere models are chosen, with any favourites
+    and hidden models given (comma-separated names); restore: the profile back."""
+    global _s8_backup
+    predecessor._authorize(x_fixture_token)
+    from row_bot.providers import config as provider_config, model_catalog_cache as cache, saved_model_settings
+    from row_bot.providers.model_visibility import update_model_visibility
+    from row_bot.providers.selection import add_quick_choice_for_model
+
+    files = {
+        "providers": Path(provider_config.CONFIG_PATH),
+        "catalog": Path(cache.CATALOG_CACHE_PATH),
+        "settings": predecessor.DATA / "model_settings.json",
+    }
+    if not all(path.resolve().is_relative_to(predecessor.DATA.resolve()) for path in files.values()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if action == "seed":
+        if _s8_backup is None:
+            _s8_backup = {key: path.read_text(encoding="utf-8") if path.exists() else None
+                          for key, path in files.items()}
+        snapshot = cache.read_model_catalog_cache()
+        from row_bot.providers.ollama import is_ollama_tool_capable
+
+        def chat(name: str) -> dict:
+            # Tools where the family uses them, as Ollama would report.
+            return {**_S8_CHAT, "tool_calling": is_ollama_tool_capable(name)}
+
+        cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+            1, snapshot.generated_at + 1, snapshot.cloud_cache,
+            [{"provider_id": "ollama", "model_id": name, "display_name": name, "installed": True,
+              "capabilities_snapshot": chat(name)} for name in _S8_LOCAL_MODELS],
+            {"ollama": {"status": "ok", "count": len(_S8_LOCAL_MODELS)}}, (), "synthetic-browser",
+        ))
+        for name in _S8_LOCAL_MODELS:
+            add_quick_choice_for_model(name, provider_id="ollama", display_name=name,
+                                       capabilities_snapshot=chat(name), surface="chat")
+        saved_model_settings.update_saved_model_settings(
+            lambda raw: {key: value for key, value in raw.items() if key != "model_visibility"},
+            path=files["settings"])
+        for name in filter(None, favourites.split(",")):
+            update_model_visibility("favourite", f"model:ollama:{name}", path=files["settings"])
+        for name in filter(None, hidden.split(",")):
+            update_model_visibility("hide", f"model:ollama:{name}", path=files["settings"])
+        # Setup and Settings › Models read the same models from the local runtime.
+        _p10_state.update(runtime="running", models=[*_S8_LOCAL_MODELS, "nomic-embed-text:latest"])
+    elif action == "restore":
+        import time
+
+        for key, path in files.items():
+            saved = (_s8_backup or {}).get(key)
+            # Windows briefly refuses a file another reader has open: try again.
+            for attempt in range(20):
+                try:
+                    if saved is not None:
+                        path.write_text(saved, encoding="utf-8")
+                    elif _s8_backup is not None and path.exists():
+                        path.unlink()
+                    break
+                except PermissionError:
+                    if attempt == 19:
+                        raise
+                    time.sleep(0.1)
+        _s8_backup = None
+        _p10_state.update(runtime="not_installed", models=[])
+    else:
+        raise HTTPException(status_code=422, detail="Unknown model fixture action")
+    return {"action": action, "models": len(_S8_LOCAL_MODELS)}
+
+
 def _p17_install_connection_check_fakes() -> None:
     """Monitor's connection checks (B252) run hourly and on Run diagnosis; in
     this disposable server they answer from the fixture and never reach a
@@ -2184,7 +3428,7 @@ def main() -> None:
             streaming=True, credential_status="fixture", capability_source="fixture", confidence="high")
 
     agent.stream_agent = stream
-    agent.resume_stream_agent = predecessor.resume
+    agent.resume_stream_agent = _s5_resume
     readiness.evaluate_agent_readiness = fake_agent_readiness
     readiness.evaluate_chat_readiness = fake_chat_readiness
     from row_bot.api.v1 import routes
@@ -2195,7 +3439,7 @@ def main() -> None:
     _p10_install_fakes()
     _p17_install_connection_check_fakes()
     client_platform_service.stream_factory = stream
-    client_platform_service.resume_factory = predecessor.resume
+    client_platform_service.resume_factory = _s5_resume
     from row_bot import goals as goal_owner
     # Goals verify with a scripted verdict, never a model call.
     goal_owner._invoke_goal_verifier = _goal_verifier
@@ -2265,6 +3509,7 @@ def p4_integration_skills(x_fixture_token: str = Header(default="")) -> dict:
 def p5_apps(x_fixture_token: str = Header(default=""), x_fixture_origin: str = Header(default="")) -> dict:
     """Apps end to end on this machine only: synthetic servers, keychain and sign-in page."""
     p4_provider_credentials(x_fixture_token)
+    _elsewhere["mode"] = "this_computer"  # Signed in from this computer unless a spec says otherwise (F27).
     import asyncio
     import secrets
     from types import SimpleNamespace
@@ -2445,8 +3690,89 @@ def p5_oauth_approve(state: str, allow: str = ""):
     if not allow:
         return HTMLResponse("<!doctype html><title>Synthetic sign-in</title><p>Allow Row-Bot to use this service?</p>"
                             f'<a href="?state={escape(quote(state))}&allow=1">Allow</a>')
+    with client_mcp_auth._LOCK:
+        flow = next((f for f in client_mcp_auth._FLOWS.values() if f.oauth_state and f.oauth_state == state), None)
+    if flow is not None and flow.delivery == "paste":
+        # Another device's browser goes where the sign-in said: an address that doesn't load there (F27). A page
+        # that moves on by itself, not a 302: a spec answers that address with a route, which Chromium applies to
+        # a navigation but not reliably to a redirect hop.
+        from urllib.parse import urlencode
+        landing = flow.callback_uri + "?" + urlencode({"code": "synthetic-code", "state": state})
+        return HTMLResponse("<!doctype html><title>Signing in</title>"
+                            f'<meta http-equiv="refresh" content="0;url={escape(landing)}"><p>Returning to Row-Bot…</p>')
     client_mcp_auth.accept_callback(state=state, code="synthetic-code")
     return HTMLResponse("<!doctype html><title>Signed in</title><p>Signed in to the synthetic service.</p>")
+
+
+_elsewhere: dict = {"mode": "this_computer"}
+_ELSEWHERE_PUBLIC = "https://rowbot.example.test/api/v1/settings/mcp/auth/callback"
+
+
+@app.post("/__s7_fixture/sign-in-elsewhere")
+def s7_sign_in_elsewhere(mode: str = "paste", x_fixture_token: str = Header(default=""),
+                         x_fixture_origin: str = Header(default="")) -> dict:
+    """F27 on this machine only: apps sign in to the synthetic service of /__p5_fixture/apps as if this browser
+    were another device. "paste": Row-Bot has no public address, so the browser ends on an address that doesn't
+    load, to paste back; "public": Row-Bot's public address; "device": the service offers a code."""
+    if mode not in {"paste", "public", "device"}:
+        raise HTTPException(status_code=422, detail="mode")
+    p5_apps(x_fixture_token, x_fixture_origin)
+    import asyncio
+    from row_bot.application import client_mcp_auth
+    from row_bot.integrations import plans
+    from row_bot.mcp_client import auth
+    _elsewhere["mode"] = mode
+    original = _elsewhere.setdefault("handler", plans._HANDLERS[("mcp", "sign_in")])
+
+    def elsewhere(ctx, record, step):
+        if _elsewhere["mode"] != "this_computer":
+            ctx = replace(ctx, remote=True, redirect_uri=_ELSEWHERE_PUBLIC if _elsewhere["mode"] == "public" else "")
+        return original(ctx, record, step)
+    plans._HANDLERS[("mcp", "sign_in")] = plans._HANDLERS[("mcp", "allow_changes")] = elsewhere
+    auth.discover_sign_in = lambda url: {"required": False, "metadata": True, "dcr": True, "device": mode == "device"}
+
+    async def run_device(flow, label, client):
+        with client_mcp_auth._LOCK:
+            flow.device = {"user_code": "WDJB-MJHT", "verification_uri": "https://auth.example.test/device",
+                           "verification_uri_complete": ""}
+            flow.state = "waiting"
+        client_mcp_auth._persist(flow)
+        await asyncio.to_thread(flow.event.wait, 120)
+        flow.authority()
+        if not flow.code:
+            raise auth.McpAuthError("mcp_auth_denied")
+        auth.write_credentials(flow.ref, {"tokens": {"access_token": "synthetic-access", "token_type": "Bearer"}})
+        client_mcp_auth._publish(flow, {"mode": "oauth", "credential_ref": flow.ref, "binding": auth.binding(flow.name, flow.cfg),
+            "callback_uri": flow.callback_uri, "label": label, "operation_id": flow.command_id})
+        return True
+    client_mcp_auth._run_device = run_device
+    return {"ready": True}
+
+
+@app.post("/__s7_fixture/sign-in-elsewhere/allow-code")
+def s7_allow_code(x_fixture_token: str = Header(default="")) -> dict:
+    """The person entered the code on the synthetic service's page and allowed access."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.application import client_mcp_auth
+    with client_mcp_auth._LOCK:
+        flow = next(f for f in client_mcp_auth._FLOWS.values() if f.delivery == "device" and f.state == "waiting")
+        flow.code, flow.callback_used = "synthetic-code", True
+        flow.event.set()
+    return {"allowed": True}
+
+
+@app.post("/__s7_fixture/sign-in-elsewhere/expire")
+def s7_expire(x_fixture_token: str = Header(default="")) -> dict:
+    """Five minutes pass: every waiting sign-in is past its time (B338)."""
+    predecessor._authorize(x_fixture_token)
+    import time
+    from row_bot.application import client_mcp_auth
+    with client_mcp_auth._LOCK:
+        flows = [f for f in client_mcp_auth._FLOWS.values() if f.state == "waiting"]
+        for flow in flows:
+            flow.created -= client_mcp_auth._TTL + 1
+            flow.expires_at = time.time() - 1
+    return {"expired": len(flows)}
 
 
 
@@ -2560,6 +3886,93 @@ def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
         registry.set_enabled("web_search", _p6_search_was_on)
     facts.invalidate()
     return {"removed": True}
+
+
+# ── Learning (preview), L1a: the flag, the hardware check and the Overview's states ──
+
+_l1a_saved: dict[str, object] = {}
+
+
+def _l1a_stream(text: str, config: dict):
+    from row_bot.threads import append_checkpoint_messages
+    call = predecessor._record("submit", config, "l1a")
+    thread = call["conversation_id"]
+    identity = f"l1a:{call['generation_id']}"
+    try:
+        tool_id = fixture_id(identity + ":tool")
+        result_id = fixture_id(identity + ":result")
+        args = {"path": "budgets/2026-draft.md"}
+        append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":call"), content="",
+            tool_calls=[{"id": tool_id, "name": "workspace_read_file", "args": args}])])
+        yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": "workspace_read_file",
+                            "args": args}
+        result = "Error: budgets/2026-draft.md was not found."
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id,
+                                                      name="workspace_read_file", content=result, status="error")])
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "workspace_read_file",
+                            "args": args, "content": result, "status": "error"}
+        yield from _natural_final(call, thread, "The 2026 budget for travel is 1,200 (from the draft).", "l1a")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__l1a_fixture/learning/{action}")
+def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L1a spec: the start-up flag, a faked hardware check and the
+    Overview's states. Nothing reaches a GPU, a download or a provider."""
+    predecessor._authorize(x_fixture_token)
+    import time as _time
+
+    from row_bot import learning
+    from row_bot.learning import spending
+    from row_bot.learning.training import hardware
+
+    if "check" not in _l1a_saved:
+        _l1a_saved["check"] = hardware.check
+        _l1a_saved["used"] = spending.used_this_month
+    if action == "preview":
+        learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
+        learning.invalidate()
+    elif action in {"gpu", "no-gpu"}:
+        found = (hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 5070 Laptop GPU", 8151, "596.08")])
+                 if action == "gpu" else hardware.HardwareCheck("no_gpu"))
+        hardware.check = lambda *, refresh=False, detector=None: found
+    elif action == "paused":
+        from row_bot.application.settings_commands import write_learning_settings
+        write_learning_settings({"paused": True})
+    elif action == "limit":
+        limit = learning.read_settings().monthly_token_limit
+        spending.used_this_month = lambda **_kwargs: limit
+    elif action == "reading":
+        from row_bot.learning import past_chats
+        past_chats.stop_background(10)  # the real import of the fixture's chats, if still running
+        from row_bot.learning.contracts import Job
+        from row_bot.learning.store import LearningStore
+        now = _time.time()
+        LearningStore().put(Job(id=past_chats.JOB_ID, kind="past_chat_import", created_at=now, updated_at=now,
+                                state="running", steps_total=214, steps_done=61))
+    elif action == "restore":
+        from row_bot.learning.store import LearningStore
+        hardware.check = _l1a_saved["check"]
+        spending.used_this_month = _l1a_saved["used"]
+        past = sys.modules.get("row_bot.learning.past_chats")
+        if past is not None:
+            past.stop_background(10)
+        capture = sys.modules.get("row_bot.learning.capture")
+        if capture is not None:
+            capture.learning_turned_off()
+        store = LearningStore()
+        if store.exists():
+            for thread in store.opted_out_chats():
+                store.set_chat_opt_out(thread, False)
+            store.delete_all()
+        for leftover in (learning.store_path(), learning.settings_path()):
+            leftover.unlink(missing_ok=True)
+        learning._PREVIEW = False
+        learning.invalidate()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
 
 
 if __name__ == "__main__":

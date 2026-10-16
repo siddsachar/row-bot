@@ -262,6 +262,10 @@ function BrowserPanel({ visible }: { visible: boolean }) {
       execute={(command, review) =>
         controller.executeBrowserControl(conversationId, command, review)
       }
+      localAddresses={{
+        load: controller.browserLocalAddresses,
+        remove: controller.removeBrowserLocalAddress,
+      }}
     />
   );
 }
@@ -356,7 +360,9 @@ export default function Workspace() {
     Boolean(
       state.handshake?.application_capabilities?.includes('native:terminal'),
     );
-  useBackgroundNotices();
+  useBackgroundNotices(conversationId, (id) =>
+    navigate(`/conversations/${encodeURIComponent(id)}`),
+  );
   useApprovalNotices(conversationId);
   const connectionAction =
     state.error?.recovery === 'update' ? (

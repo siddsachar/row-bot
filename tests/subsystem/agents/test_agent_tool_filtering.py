@@ -70,7 +70,7 @@ def _prepare_graph(monkeypatch):
     import row_bot.agent as agent
 
     agent.clear_agent_cache()
-    agent._approval_mode_var.set("allow_all")
+    agent._approval_mode_var.set("auto")
     monkeypatch.setattr(agent, "_build_runtime_skill_snapshot", lambda: ((), (), False, "test-skills"))
     monkeypatch.setattr(agent, "get_current_model", lambda: "model:test")
     monkeypatch.setattr(agent, "get_llm", lambda: object())

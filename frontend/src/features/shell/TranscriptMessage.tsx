@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   CornerDownRight,
+  GraduationCap,
   Pencil,
   Repeat2,
   RotateCcw,
@@ -29,6 +30,7 @@ import { TranscriptCards, type TranscriptCard } from './TranscriptCards';
 import type { TracedAgent } from './transcript-model';
 import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
+import { useTeach } from '../learning/chat-learning';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
 const NO_MEDIA: GeneratedMedia[] = [];
@@ -40,6 +42,8 @@ export type GeneratedMedia = {
   mime: string;
   /** The generating prompt, when the tool input carried one. */
   caption?: string;
+  /** What it is, when it isn't a generated result ("Page screenshot"). */
+  label?: string;
 };
 
 // The runtime appends a marker such as "⏹️ *[Stopped]*" to interrupted text.
@@ -121,6 +125,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   children?: ReactNode;
 }) {
   const { controller, platform } = useRuntime();
+  // Teach Row-Bot, while Learning (preview) is on and uses this chat.
+  const teach = useTeach();
   const [expanded, setExpanded] = useState('');
   const [cursor, setCursor] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -324,6 +330,14 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 reference={item.reference}
                 mime={item.mime}
                 caption={item.caption}
+                label={item.label}
+                downloadName={
+                  item.label === 'Page screenshot'
+                    ? 'screenshot.png'
+                    : item.label === 'Contact sheet'
+                      ? 'contact-sheet.jpg'
+                      : undefined
+                }
               />
             ))}
           </div>
@@ -415,6 +429,15 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 onClick={onRetry}
               >
                 <RotateCcw size={15} aria-hidden />
+              </IconButton>
+            )}
+            {row.role === 'assistant' && teach && row.message_id && (
+              <IconButton
+                size="sm"
+                label="Teach Row-Bot"
+                onClick={() => teach({ messageId: row.message_id ?? '' })}
+              >
+                <GraduationCap size={15} aria-hidden />
               </IconButton>
             )}
             {row.role === 'user' && onEdit && (
