@@ -45,6 +45,9 @@ class ChannelConversation:
     """Name for a conversation started here."""
     target: str
     """Where late messages for its conversation are delivered."""
+    shared: bool = False
+    """Other people share it (a channel thread or a group chat): it runs on Auto at most, never Full
+    autonomy (``full_autonomy``)."""
 
 
 def first_words(text: str, limit: int = _NAME_WORDS_LIMIT) -> str:
@@ -77,6 +80,7 @@ def _record_ref(conversation: ChannelConversation, thread_id: str) -> None:
             channel=conversation.channel,
             target=conversation.target,
             external_conversation_id=conversation.key,
+            shared=conversation.shared,
         )
     except Exception:
         log.debug("%s thread channel ref skipped", conversation.channel, exc_info=True)

@@ -230,6 +230,12 @@ export interface ClientTransport {
     plan: string,
     signal?: AbortSignal,
   ): Promise<Wire.InstallPlan>;
+  /** The address another device's browser ended on after signing in (F27). */
+  finishInstallPlanSignIn?(
+    plan: string,
+    body: Wire.PlanSignInRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
 
   conversationActions?(
     conversation: string,
@@ -269,6 +275,16 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserReceipt>;
+  /** The addresses on this computer a conversation's browser may open (F4). */
+  browserLocalAddresses?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalAddressPage>;
+  removeBrowserLocalAddress?(
+    conversation: string,
+    grant: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalAddressPage>;
   computerUse?(
     conversation: string,
     signal?: AbortSignal,
@@ -396,6 +412,30 @@ export interface ClientTransport {
     command: Wire.InsightCommand,
     signal?: AbortSignal,
   ): Promise<Wire.InsightReceipt>;
+  learning?(signal?: AbortSignal): Promise<Wire.LearningSnapshot>;
+  learningTraining?(signal?: AbortSignal): Promise<Wire.LearningTraining>;
+  learningDownload?(signal?: AbortSignal): Promise<Wire.LearningDownload>;
+  learningHardware?(
+    refresh?: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningHardware>;
+  learningConversation?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningConversation>;
+  learningLessons?(signal?: AbortSignal): Promise<Wire.LearningLessonPage>;
+  learningVersion?(
+    version: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningVersionDetails>;
+  learningReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningReceipt>;
+  executeLearning?(
+    command: Wire.LearningCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningReceipt>;
   customToolReceipt?(
     conversation: string,
     binding: string,
@@ -775,6 +815,93 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeGraphSnapshot>;
   monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
+  /** Background processes (F1, F6): every one, or one conversation's. */
+  backgroundProcesses?(
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessPage>;
+  backgroundProcess?(
+    processId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessView>;
+  backgroundProcessOutput?(
+    processId: string,
+    after?: number,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessOutput>;
+  stopBackgroundProcess?(
+    processId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BackgroundProcessView>;
+  /** Recordings of Row-Bot's browser or the screen (F2): every one, or one conversation's. */
+  recordings?(
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.RecordingPage>;
+  stopRecording?(
+    recordingId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.RecordingView>;
+  /** A conversation's code folder's sandbox (F18): Docker, its image, Prepare, the latest job. */
+  conversationSandbox?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SandboxStatusView>;
+  /** Prepare sandbox, confirmed by the person in the app. */
+  prepareSandbox?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SandboxJobView>;
+  /** Download the sandbox image, confirmed by the person in the app. */
+  pullSandboxImage?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SandboxJobView>;
+  sandboxJob?(
+    jobId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SandboxJobView>;
+  stopSandboxJob?(
+    jobId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SandboxJobView>;
+  /** The folders in one folder of the Developer workspace root (F19). */
+  workspaceFolders?(
+    path?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceFolderPage>;
+  /** Video edits (F3): every one, or one conversation's. */
+  videoEdits?(
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.VideoEditPage>;
+  stopVideoEdit?(
+    editId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.VideoEditView>;
+  /** Files sent to the person's devices or a chat app (F7). */
+  delivery?(
+    deliveryId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DeliveryView>;
+  /** One file sent to the devices, with this session; refused once it expired. */
+  downloadDelivery?(
+    deliveryId: string,
+    index: number,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
+  /** Desktop window: the file saved into Exports on this computer. */
+  saveDelivery?(
+    deliveryId: string,
+    index: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ExportSaved>;
+  /** The person's "Send to your devices instead". No approval. */
+  sendDeliveryToDevices?(
+    deliveryId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DeliveryView>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
@@ -1359,6 +1486,10 @@ export interface ClientTransport {
     body: Wire.ModelContextMutation,
     signal?: AbortSignal,
   ): Promise<Wire.ModelsSettingsState>;
+  updateModelVisibility?(
+    body: Wire.ModelVisibilityMutation,
+    signal?: AbortSignal,
+  ): Promise<Wire.ModelVisibilityState>;
   agentRuntimeSettings?(
     signal?: AbortSignal,
   ): Promise<Wire.AgentRuntimeSettingsState>;

@@ -23,6 +23,9 @@ from row_bot.prompt_cache import (
 )
 from row_bot.providers.capabilities import PROMPT_CACHE_SYSTEM_BREAKPOINT_ROUTES, prompt_cache_route
 from row_bot import prompt_prefix_diff
+# Learning (preview): only the switch. Its seams call learning.is_enabled() first and import
+# nothing else of it while it is off.
+from row_bot import learning
 from row_bot.providers.stop_reason import stop_reason as provider_stop_reason, stopped_at_output_limit
 from row_bot.providers.usage_ledger import with_usage_purpose
 from row_bot import external_content as _external_content
@@ -753,18 +756,23 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
                 if not content:
                     continue
                 if str(item.get("role") or "") == "human":
+                    ui: dict[str, Any] = {
+                        "thread_event": True,
+                        "source_event_id": str(item.get("source_event_id") or ""),
+                    }
+                    # Learning (preview): the main model finishing a stuck personal model's turn. The
+                    # transcript shows only the note's public sentence, never this event's text.
+                    fallback = (item.get("row_bot_ui") or {}).get("learning_fallback") if isinstance(
+                        item.get("row_bot_ui"), dict) else None
+                    if isinstance(fallback, dict) and isinstance(fallback.get("text"), str):
+                        ui["learning_fallback"] = {
+                            "text": fallback["text"][:300],
+                            "version": int(fallback.get("version") or 0),
+                            "kind": str(fallback.get("kind") or "")[:64],
+                            "reason": str(fallback.get("reason") or "")[:64],
+                        }
                     event_messages.append(
-                        HumanMessage(
-                            content=content,
-                            additional_kwargs={
-                                "row_bot_ui": {
-                                    "thread_event": True,
-                                    "source_event_id": str(
-                                        item.get("source_event_id") or ""
-                                    ),
-                                }
-                            },
-                        )
+                        HumanMessage(content=content, additional_kwargs={"row_bot_ui": ui})
                     )
                 else:
                     event_messages.append(
@@ -4360,18 +4368,47 @@ class _AgentModelCall:
             if resumed is not None:
                 messages, _created, _inputs, prepared = _prepare_agent_request(resumed, config)
                 _remember_request_estimate(config, getattr(prepared, "raw_estimated_input_tokens", 0))
+            # Learning (preview): the request as sent, the response raw and as kept (off: one check).
+            turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+            sent, run_config, ledger_id, refused = messages, config, None, None
+            if turn is not None:
+                run_config, ledger_id = _learning_ledger_config(config)
+                started = time.perf_counter()
             try:
-                response = model.invoke(messages, config)
+                response = model.invoke(messages, run_config)
             except Exception as exc:
                 if not _is_context_overflow_error(exc):
+                    if turn is not None:
+                        _learning_model_call(turn, sent, inputs=_last_preparation_inputs(config), error=exc,
+                                             latency_ms=(time.perf_counter() - started) * 1000, ledger_call_id=ledger_id)
                     raise
+                if turn is not None:
+                    refused = _learning_model_call(turn, sent, inputs=_last_preparation_inputs(config), error=exc,
+                                                   latency_ms=(time.perf_counter() - started) * 1000,
+                                                   ledger_call_id=ledger_id)
                 retry = _request_after_overflow(exc, config)
                 if retry is None:
                     raise
-                response = model.invoke(retry, config)
+                sent, run_config = retry, config
+                if turn is not None:
+                    run_config, ledger_id = _learning_ledger_config(config)
+                    started = time.perf_counter()
+                try:
+                    response = model.invoke(retry, run_config)
+                except Exception as retry_exc:
+                    if turn is not None:
+                        _learning_model_call(turn, sent, inputs=_last_preparation_inputs(config), error=retry_exc,
+                                             latency_ms=(time.perf_counter() - started) * 1000,
+                                             ledger_call_id=ledger_id, retry_of=refused)
+                    raise
+            latency_ms = (time.perf_counter() - started) * 1000 if turn is not None else None
             _observe_request_size(config, response)
             inputs = _last_preparation_inputs(config)
-            return _with_inline_thinking_moved(response, getattr(inputs, "provider_id", None))
+            kept = _with_inline_thinking_moved(response, getattr(inputs, "provider_id", None))
+            if turn is not None:
+                _learning_model_call(turn, sent, response=response, kept=kept, inputs=inputs,
+                                     latency_ms=latency_ms, ledger_call_id=ledger_id, retry_of=refused)
+            return kept
 
         return RunnableLambda(call, name="row_bot_model_call")
 
@@ -4501,6 +4538,133 @@ _current_external_discovery_active_var: _contextvars.ContextVar[bool] = _context
 _current_app_scope_var: _contextvars.ContextVar[dict | None] = _contextvars.ContextVar(
     "current_app_scope", default=None
 )
+
+
+# ── Learning (preview) seams ────────────────────────────────────────────────────────────────────
+# Each seam checks learning.is_enabled() first: while Learning is off it does nothing else and
+# imports nothing else of Learning. On, it hands cheap references to learning.capture, which
+# serialises and writes them on its own thread; a seam never waits on it and never raises.
+
+# This run's Learning turn (learning.capture.Turn), or None.
+_current_learning_turn_var: _contextvars.ContextVar[Any] = _contextvars.ContextVar(
+    "current_learning_turn", default=None
+)
+# The tool call running in this context, so an approval it asks for is linked to it.
+_current_learning_tool_call_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_learning_tool_call", default=""
+)
+# Surfaces where a turn starts with the person's own message (a next-message marker).
+_LEARNING_PERSON_SURFACES = frozenset({"normal_chat", "remote_client", "channel"})
+# The stream's last event says how the turn ended.
+_LEARNING_TURN_STATUS = {"done": "completed", "interrupt": "waiting", "error": "failed"}
+
+
+def _learning_begin_turn(configurable: dict | None, *, resumed: bool = False) -> None:
+    """Open this run's Learning turn (a resumed run carries on the turn its approval paused)."""
+    if not learning.is_enabled():
+        return
+    try:
+        from row_bot.learning import capture
+
+        values = configurable if isinstance(configurable, dict) else {}
+        surface = str(values.get("runtime_surface") or "")
+        started_by_row_bot = bool(values.get("internal_goal_continuation")
+                                  or values.get("orchestration_internal_wake")
+                                  or values.get("thread_event_context"))
+        _current_learning_turn_var.set(capture.begin_turn(
+            thread_id=str(values.get("thread_id") or ""),
+            generation_id=str(values.get("generation_id") or ""),
+            surface=surface,
+            agent_run_id=str(values.get("agent_run_id") or ""),
+            goal=bool(values.get("internal_goal_continuation")),
+            person_message=surface in _LEARNING_PERSON_SURFACES and not started_by_row_bot,
+            resumed=resumed,
+        ))
+    except Exception as exc:
+        logger.debug("Learning could not open a turn (%s)", type(exc).__name__)
+
+
+def _learning_end_turn(status: str, stop_event: threading.Event | None = None) -> None:
+    """Close this run's Learning turn: completed, waiting at an approval, failed or stopped."""
+    turn = _current_learning_turn_var.get()
+    if turn is None:
+        return
+    _current_learning_turn_var.set(None)
+    try:
+        from row_bot.learning import capture
+
+        by_person = False
+        if status == "stopped" or (stop_event is not None and stop_event.is_set()):
+            status = "stopped"
+            from row_bot.runtime.executions import current_execution
+
+            # Only the person's Stop is a signal; a deletion, a deadline or shutdown is not.
+            handle = current_execution()
+            by_person = handle is not None and str(handle.cancel_scope.reason or "") == "user"
+        capture.end_turn(turn, status, stopped_by_person=by_person)
+    except Exception as exc:
+        logger.debug("Learning could not close a turn (%s)", type(exc).__name__)
+
+
+def _learning_model_call(turn: Any, messages: list, *, response: Any = None, kept: Any = None,
+                         inputs: Any = None, purpose: str = "agent", latency_ms: float | None = None,
+                         ledger_call_id: str | None = None, error: BaseException | None = None,
+                         retry_of: str | None = None, stopped: bool = False) -> str | None:
+    """Hand one model call to Learning: the request as sent and the response, raw and as kept."""
+    try:
+        from row_bot.learning import capture
+
+        status = "stopped" if stopped else "ok"
+        if error is not None:
+            status = "stopped" if isinstance(error, (InterruptedError, TaskStoppedError)) else "error"
+        model_ref = str(getattr(inputs, "model_ref", "") or _active_model_override.get() or "")
+        return capture.model_call(
+            turn,
+            messages=messages,
+            response=response,
+            kept=kept,
+            tools=getattr(inputs, "canonical_tools", None),
+            model_ref=model_ref,
+            provider_id=str(getattr(inputs, "provider_id", "") or ""),
+            purpose=purpose,
+            latency_ms=latency_ms,
+            ledger_call_id=ledger_call_id,
+            status=status,
+            error=error,
+            retry_of=retry_of,
+        )
+    except Exception as exc:
+        logger.debug("Learning could not capture a model call (%s)", type(exc).__name__)
+        return None
+
+
+def _learning_ledger_config(config: dict | None) -> tuple[dict, str]:
+    """The call's config with its own run id: the usage ledger records it as the call's id."""
+    run_id = uuid.uuid4()
+    return {**(config or {}), "run_id": run_id}, str(run_id)
+
+
+def note_learning_approval(payload: dict, mode: object, response: Any, line: str, *,
+                           blocked: bool = False) -> None:
+    """The approval gate's decision, for Learning (read only: nothing Learning keeps reaches
+    the reviewer, E8). Called only while Learning is on."""
+    turn = _current_learning_turn_var.get()
+    if turn is None:
+        return
+    try:
+        from row_bot.learning import capture
+
+        capture.approval(
+            turn,
+            payload=dict(payload or {}),
+            mode=normalize_approval_mode(mode),
+            response=response,
+            line=str(line or ""),
+            blocked=blocked,
+            tool_call_id=_current_learning_tool_call_var.get() or None,
+        )
+    except Exception as exc:
+        logger.debug("Learning could not capture an approval (%s)", type(exc).__name__)
 
 
 def current_app_scope() -> dict | None:
@@ -4662,6 +4826,7 @@ def _set_active_runtime_context(
     _current_last_preparation_var.set(None)
     _current_stop_event_var.set(None)
     _current_pending_context_events_var.set(())
+    _current_learning_turn_var.set(None)
 
 
 def _agent_profile_system_context(thread_id: str = "") -> str:
@@ -4864,31 +5029,30 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
 
 
 def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
-    """Keep sync and async targets behind the same current approval decision. ``always_ask``: an app tool
-    its app's access says to ask about (a routine change without Full access, or a high-impact one) asks even
-    under Allow all."""
+    """Keep sync and async targets behind the same current approval decision, resolved by the approval level
+    (``approval_gate``): the person under Ask, the reviewer first under Auto, the level itself under Hands-off.
+    ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
+    high-impact one); the reviewer is told so, and decides as for any other action."""
     from functools import wraps
-    from row_bot.tools.approval_gate import (
-        APPROVAL_DENIED, APPROVAL_GIVEN, APPROVAL_NOT_NEEDED_AUTO, with_approval,
-    )
+    from row_bot.tools.approval_gate import resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
+    risks = ("changes or deletes something",) + (
+        ("its app's access says to ask first (a high-impact change, or one without Full access)",)
+        if always_ask else ())
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()
 
     def refusal(args, kwargs) -> tuple[str | None, str]:
         """The refusal (None when the call may run) and its result's approval line."""
-        decision = decision_for_action(get_approval_mode())
-        if always_ask and decision == "allow":
-            decision = "ask"
+        mode = get_approval_mode()
+        decision = decision_for_action(mode)
         if decision == "block":
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
                     "and move on."), ""
-        if decision == "allow":
-            return None, APPROVAL_NOT_NEEDED_AUTO
         # What the person reads names what was given: an option left unset (None) is not part of the action.
         given = {key: value for key, value in kwargs.items() if value is not None}
         if tool.name.startswith("mcp_"):
@@ -4913,15 +5077,20 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
             external_discovery_active = is_external_discovery_invocation()
         except Exception:
             external_discovery_active = False
-        approval = interrupt({
-            "tool": tool.name, "label": label, "description": description,
-            "args": kwargs or (args[0] if args else {}),
-            "external_discovery_active": external_discovery_active,
-            **({"always_ask": True} if always_ask else {}),
-        })
-        if approval:
-            return None, APPROVAL_GIVEN
-        return with_approval(APPROVAL_DENIED, "Action cancelled by user."), ""
+        outcome, line = resolve_approval_line(
+            {
+                "tool": tool.name, "label": label, "description": description,
+                "args": kwargs or (args[0] if args else {}),
+                "external_discovery_active": external_discovery_active,
+            },
+            approval_mode=mode,
+            risks=risks,
+            # This module's own name, so a test can stand in for the person.
+            approval_callback=lambda payload: interrupt(payload),
+        )
+        if outcome == "allow":
+            return None, line
+        return with_approval(line, "Action cancelled by user."), ""
 
     sync_target = getattr(original, "func", None) or original._run
     async_target = getattr(original, "coroutine", None) or original._arun
@@ -5241,7 +5410,8 @@ def _collect_agent_tool_candidates(
 # profile limits and guides unchanged). On every window, Developer tools come with a code folder (WP A5):
 # without one each of them fails, and their 22 schemas and guide went with every call of every chat.
 SMALL_CONTEXT_TOKENS = 65_536
-ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status", "row_bot_updater", "custom_tool_builder"})
+ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status", "row_bot_updater", "custom_tool_builder", "video_editing",
+                                   "file_delivery"})
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}
 )
@@ -5492,18 +5662,29 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
         except Exception:
             return 'BLOCKED: The selected Agent Profile policy is unavailable.'
 
+    from row_bot.tools.approval_gate import collect_decisions, with_decisions
+
     def sync(function):
         @wraps(function)
         def guarded(*args, **kwargs):
             blocked = refusal(function, args, kwargs)
-            return blocked if blocked is not None else function(*args, **kwargs)
+            if blocked is not None:
+                return blocked
+            # Every approval decided while it runs is recorded on its result (the activity shows it).
+            with collect_decisions() as decisions:
+                result = function(*args, **kwargs)
+            return with_decisions(decisions, result)
         return guarded
 
     def asynchronous(function):
         @wraps(function)
         async def guarded(*args, **kwargs):
             blocked = refusal(function, args, kwargs)
-            return blocked if blocked is not None else await function(*args, **kwargs)
+            if blocked is not None:
+                return blocked
+            with collect_decisions() as decisions:
+                result = await function(*args, **kwargs)
+            return with_decisions(decisions, result)
         return guarded
 
     updates = {}
@@ -5640,13 +5821,12 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     # when called (_turn_scope_refusal), so the tool list is the same on every turn (WP A5).
     app_scope = _current_app_scope_var.get(None) or {}
     eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
-    # App tools that ask even under Allow all: each one its app's access says to ask about (a routine change
-    # unless the app has Full access or that tool may run without asking; high-impact and unknown ones always).
+    # App tools their app's access says to ask about (a routine change unless the app has Full access or that
+    # tool may run without asking; high-impact and unknown ones always): the reviewer is told so under Auto.
     # Standalone connections ("mcp") and those a plugin brings ("plugin:<id>:mcp:<server>") alike.
     app_entries = [entry for entry in eager_core_entries + external_entries
                    if entry["source"] == "mcp" or ":mcp:" in str(entry["source"])]
-    app_asks = ({str(getattr(entry["tool"], "name", "") or "") for entry in app_entries} & destructive_names
-                if approval_mode == "allow_all" else set())
+    app_asks = {str(getattr(entry["tool"], "name", "") or "") for entry in app_entries} & destructive_names
     # Which built-in tool each chat tool came from, so its app is named later without building any tool.
     from row_bot.integrations.builtin import remember_tools
     remember_tools({str(getattr(entry["tool"], "name", "") or ""): str(entry["parent"])
@@ -5767,37 +5947,17 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             lc_tools = eager_core_tools + external_tools
 
             # Append tools from enabled plugins (totally separate registry)
-            if is_background:
-                # BG gating: block=strip destructive tools; approve=wrap
-                # via interrupt() for pause-and-approve; allow_all=keep
-                # everything, but app tools whose access says ask still ask.
-                # run_command self-gates at runtime via classify_command.
-                if approval_mode == "block":
-                    lc_tools = [t for t in lc_tools
-                                if t.name not in destructive_names]
-                elif approval_mode == "approve":
-                    for t in lc_tools:
-                        if t.name in destructive_names:
-                            _wrap_with_interrupt_gate(t)
-                else:
-                    for t in lc_tools:
-                        if t.name in app_asks:
-                            _wrap_with_interrupt_gate(t, always_ask=True)
+            # Workflows and chats gate alike: block=strip destructive tools; every other level wraps them,
+            # and the gate resolves each call by the level (the person under Ask, the reviewer first under
+            # Auto, the level itself under Hands-off). A workflow run pauses when the person is asked.
+            # run_command self-gates at runtime via classify_command.
+            if approval_mode == "block":
+                lc_tools = [t for t in lc_tools
+                            if t.name not in destructive_names]
             else:
-                # Interactive sessions use the same app-wide approval mode:
-                # block=hide destructive tools; approve=wrap with interrupt();
-                # allow_all=keep everything; app tools whose access says ask still ask.
-                if approval_mode == "block":
-                    lc_tools = [t for t in lc_tools
-                                if t.name not in destructive_names]
-                elif approval_mode == "approve":
-                    for t in lc_tools:
-                        if t.name in destructive_names:
-                            _wrap_with_interrupt_gate(t)
-                else:
-                    for t in lc_tools:
-                        if t.name in app_asks:
-                            _wrap_with_interrupt_gate(t, always_ask=True)
+                for t in lc_tools:
+                    if t.name in destructive_names:
+                        _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,
@@ -6032,10 +6192,25 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     return _agent_cache[cache_key]
 
 
+def _paused_at_a_question(state: Any) -> bool:
+    """Whether a LangGraph state is paused at a question (an ``interrupt()``).
+
+    ``state.next`` alone misses a tool that asks again once answered: LangGraph
+    counts the answers it keeps for that tool call as writes, and leaves the
+    call out of ``next`` although it is waiting.
+    """
+
+    if not state:
+        return False
+    if getattr(state, "next", None):
+        return True
+    return any(getattr(task, "interrupts", None) for task in getattr(state, "tasks", ()) or ())
+
+
 def _graph_interrupt_result(state: Any) -> dict[str, Any] | None:
     """Return normalized interrupt data from a paused LangGraph state."""
 
-    if not state or not getattr(state, "next", None):
+    if not _paused_at_a_question(state):
         return None
     all_interrupts: list[dict[str, Any]] = []
     for task in getattr(state, "tasks", ()) or ():
@@ -6186,6 +6361,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
     if stop_event and stop_event.is_set():
         raise TaskStoppedError("Task stopped before execution")
     config, initial_input = _new_agent_graph_input(user_input, config, agent=agent)
+    _learning_begin_turn(config.get("configurable"))  # closed by invoke_agent
 
     # Use node-level streaming so we can check stop_event between nodes
     if stop_event is not None:
@@ -6231,6 +6407,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
                         exc_info=True,
                     )
                 _notify_api_error(_err_msg)
+                _learning_end_turn("failed", stop_event)
                 return _err_msg
 
         # Read final state from checkpoint
@@ -6455,14 +6632,29 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
             "type": "orchestration_waiting",
             "orchestration_id": str(routed.get("id") or ""),
         }
-    result = _invoke_agent_graph(
-        user_input,
-        enabled_tool_names,
-        config,
-        stop_event=stop_event,
-    )
+    learning_status = "failed"
+    try:
+        result = _invoke_agent_graph(
+            user_input,
+            enabled_tool_names,
+            config,
+            stop_event=stop_event,
+        )
+        learning_status = _learning_invoke_status(result)
+    except TaskStoppedError:
+        learning_status = "stopped"
+        raise
+    finally:
+        _learning_end_turn(learning_status, stop_event)
     _complete_unified_parent_pass(result, enabled_tool_names, config)
     return result
+
+
+def _learning_invoke_status(result: Any) -> str:
+    """How an invoked run ended, for Learning: paused at an approval, or done."""
+    if isinstance(result, dict) and result.get("type") == "interrupt":
+        return "waiting"
+    return "completed"
 
 
 import re as _re  # noqa: E402
@@ -6577,8 +6769,42 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
 
     Untrusted results (third-party text, plugin and custom tools) are stamped once here, when
     they enter the checkpoint (see ``_untrusted_result_stamp``); generated media is bound to the
-    exact ToolMessage in parallel tool batches.
+    exact ToolMessage in parallel tool batches. With Learning (preview) on, the call and its
+    capped result are captured too.
     """
+    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+    if turn is None:
+        return _platform_tool_call(request, execute, None)
+    token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+    try:
+        return _platform_tool_call(request, execute, turn)
+    finally:
+        _current_learning_tool_call_var.reset(token)
+
+
+def _learning_tool_call(turn: Any, request: Any, result: Any = None, *, untrusted: bool = False,
+                        error: BaseException | None = None) -> None:
+    """Hand one tool call to Learning: its arguments, capped result, status and untrusted stamp."""
+    try:
+        if error is not None:
+            from langgraph.errors import GraphBubbleUp
+
+            if isinstance(error, GraphBubbleUp):
+                return  # Paused for an approval: the call is captured when it runs.
+        from row_bot.learning import capture
+
+        call = dict(request.tool_call or {})
+        if error is not None:
+            status = "stopped" if isinstance(error, (InterruptedError, TaskStoppedError)) else "error"
+        else:
+            status = "error" if getattr(result, "status", "success") == "error" else "ok"
+        capture.tool_call(turn, call=call, runtime_name=_tool_call_runtime_name(call), result=result,
+                          status=status, untrusted=untrusted)
+    except Exception as exc:
+        logger.debug("Learning could not capture a tool call (%s)", type(exc).__name__)
+
+
+def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     from row_bot.application.attachment_context import tool_attachment_scope
     from row_bot.runtime.executions import current_execution, generation_registry
     handle = current_execution()
@@ -6591,7 +6817,12 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
     with tool_attachment_scope() as caches:
-        result = execute(request)
+        try:
+            result = execute(request)
+        except BaseException as exc:
+            if learning_turn is not None:
+                _learning_tool_call(learning_turn, request, error=exc)
+            raise
         if handle is not None:
             handle.external_outcome = "sent"
         if not isinstance(result, ToolMessage):
@@ -6602,6 +6833,7 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
 
         # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
         result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
+        stamp_failed = False
         try:
             call = dict(request.tool_call or {})
             stamp = _untrusted_result_stamp(_tool_call_runtime_name(call), result.content, call.get("args"))
@@ -6609,10 +6841,14 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
             # The request still fences it: an unstamped result is decided when the request is built.
             logger.warning("Tool result fence decision failed; it is made per request instead", exc_info=True)
             stamp = None
+            stamp_failed = True
         if stamp is not None:
             result = result.model_copy(update={
                 "additional_kwargs": {**dict(result.additional_kwargs), _UNTRUSTED_RESULT_KEY: stamp},
             })
+        if learning_turn is not None:
+            # Undecided counts as untrusted for Learning: the request fences it anyway.
+            _learning_tool_call(learning_turn, request, result, untrusted=stamp is not None or stamp_failed)
         if caches is None:
             return result
         from row_bot.application.generated_media import capture_generated_media
@@ -6858,6 +7094,26 @@ def stream_chat_only(
     phase_timings: dict[str, Any] | None = None,
 ):
     """Stream a normal chat response without constructing a ReAct graph or tools."""
+    learning_status = "cancelled"
+    try:
+        for event in _stream_chat_only_events(user_input, config, stop_event=stop_event,
+                                              phase_timings=phase_timings):
+            learning_status = _LEARNING_TURN_STATUS.get(event[0], learning_status)
+            yield event
+    except Exception:
+        learning_status = "failed"
+        raise
+    finally:
+        _learning_end_turn(learning_status, stop_event)
+
+
+def _stream_chat_only_events(
+    user_input: str,
+    config: dict,
+    *,
+    stop_event: threading.Event | None = None,
+    phase_timings: dict[str, Any] | None = None,
+):
     from row_bot.providers.readiness import evaluate_chat_readiness
     from row_bot.threads import append_checkpoint_messages
 
@@ -6960,6 +7216,30 @@ def stream_chat_only(
     thinking_signalled = False
     decoder = _ReasoningTextStreamDecoder()
 
+    # Learning (preview): this turn's one model call, captured when it ends (off: one check).
+    _learning_begin_turn(configurable)
+    learning_turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+    learning_call: list[Any] = [None, None]  # [run config, ledger id] of the call being made
+
+    def learn(error: BaseException | None = None) -> None:
+        if learning_turn is None:
+            return
+        response = None if error is not None else AIMessage(
+            content="".join(full_answer),
+            additional_kwargs={"reasoning_content": "".join(full_reasoning)} if full_reasoning else {},
+            response_metadata=dict(latest_response_metadata),
+        )
+        _learning_model_call(learning_turn, messages, response=response, inputs=preparation_inputs,
+                             purpose="chat_only", latency_ms=(time.perf_counter() - _provider_started) * 1000,
+                             ledger_call_id=learning_call[1], error=error,
+                             stopped=bool(stop_event is not None and stop_event.is_set()))
+
+    def provider_stream() -> Any:
+        if learning_turn is None:
+            return llm.stream(messages)
+        learning_call[:] = _learning_ledger_config(None)
+        return llm.stream(messages, learning_call[0])
+
     _provider_started = time.perf_counter()
     provider_call: dict[str, Any] = {
         "index": 1,
@@ -6976,7 +7256,7 @@ def stream_chat_only(
     overflow_retried = False
     while True:
         try:
-            stream_iter = llm.stream(messages)
+            stream_iter = provider_stream()
             phase_timings["generation.provider_stream_create_ms"] = (
                 time.perf_counter() - _provider_started
             ) * 1000.0
@@ -6990,6 +7270,7 @@ def stream_chat_only(
                     yield from _take_pending_context_events()
                     continue
                 _mark_context_overflow(preparation_inputs)
+                learn(exc)
                 yield ("error", _friendly_api_error(str(exc), model_label))
                 return
             stream_iter = None
@@ -7041,7 +7322,11 @@ def stream_chat_only(
                 _provider_started = time.perf_counter()
                 if execution is not None:
                     generation_registry.check_dispatch(execution)
-                result = llm.invoke(messages)
+                if learning_turn is None:
+                    result = llm.invoke(messages)
+                else:
+                    learning_call[:] = _learning_ledger_config(None)
+                    result = llm.invoke(messages, learning_call[0])
                 response_metadata = getattr(result, "response_metadata", None) or {}
                 if isinstance(response_metadata, dict) and response_metadata:
                     latest_response_metadata.update(response_metadata)
@@ -7083,9 +7368,11 @@ def stream_chat_only(
                     continue
             if _is_context_overflow_error(exc):
                 _mark_context_overflow(preparation_inputs)
+            learn(exc)
             yield ("error", _friendly_api_error(str(exc), model_label))
             return
         break
+    learn()
 
     try:
         from row_bot import context_calibration
@@ -7416,10 +7703,13 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
 
     # The graph pre-model hook prepares and accounts every primary model call.
     config, initial_input = _new_agent_graph_input(user_input, config, agent=agent)
+    _learning_begin_turn(config.get("configurable"))
+    learning_status = "cancelled"
     try:
         for event in _stream_graph(agent, initial_input, config,
                                    stop_event=stop_event,
                                    phase_timings=phase_timings):
+            learning_status = _LEARNING_TURN_STATUS.get(event[0], learning_status)
             yield from _memory_recall_warning_events(config)
             yield event
             if event[0] == "done":
@@ -7437,8 +7727,12 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                             "output_kind": parent_pass.output_kind,
                         },
                     )
+    except Exception:
+        learning_status = "failed"
+        raise
     finally:
         _forget_preparation_inputs(config)
+        _learning_end_turn(learning_status, stop_event)
     yield from _memory_recall_warning_events(config)
 
 
@@ -7567,6 +7861,8 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         resume_val = {iid: approved for iid in interrupt_ids}
     else:
         resume_val = approved
+    _learning_begin_turn(config.get("configurable"), resumed=True)
+    learning_status = "cancelled"
     try:
         for event in _stream_graph(
             agent,
@@ -7574,6 +7870,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
             config,
             stop_event=stop_event,
         ):
+            learning_status = _LEARNING_TURN_STATUS.get(event[0], learning_status)
             yield from _memory_recall_warning_events(config)
             yield event
             if event[0] == "done":
@@ -7591,8 +7888,12 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
                             "output_kind": parent_pass.output_kind,
                         },
                     )
+    except Exception:
+        learning_status = "failed"
+        raise
     finally:
         _forget_preparation_inputs(config)
+        _learning_end_turn(learning_status, stop_event)
     yield from _memory_recall_warning_events(config)
 
 
@@ -7606,7 +7907,8 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
     approval).
 
     Chained interrupts are handled after ``Command(resume=...)`` by checking
-    ``state.next`` and returning ``{"type": "interrupt", ...}``.
+    whether the graph is paused at a question (``_paused_at_a_question``) and
+    returning ``{"type": "interrupt", ...}``.
     """
     config = _normalize_agent_config(config)
     configurable = config.get("configurable") or {}
@@ -7657,6 +7959,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
     else:
         resume_val = approved
 
+    _learning_begin_turn(config.get("configurable"), resumed=True)  # closed by resume_invoke_agent
     try:
         for _event in agent.stream(
             Command(resume=resume_val),
@@ -7684,7 +7987,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
 
     # Check for another interrupt (agent may call a second dangerous tool)
     state = agent.get_state(config)
-    if state and state.next:
+    if _paused_at_a_question(state):
         all_interrupts: list[dict] = []
         for task in state.tasks:
             if hasattr(task, "interrupts") and task.interrupts:
@@ -7710,13 +8013,21 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
                         stop_event: threading.Event | None = None) -> str | dict:
     """Resume the shared graph and apply the durable orchestration guard."""
 
-    result = _resume_invoke_agent_graph(
-        enabled_tool_names,
-        config,
-        approved,
-        interrupt_ids=interrupt_ids,
-        stop_event=stop_event,
-    )
+    learning_status = "failed"
+    try:
+        result = _resume_invoke_agent_graph(
+            enabled_tool_names,
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            stop_event=stop_event,
+        )
+        learning_status = _learning_invoke_status(result)
+    except TaskStoppedError:
+        learning_status = "stopped"
+        raise
+    finally:
+        _learning_end_turn(learning_status, stop_event)
     _complete_unified_parent_pass(result, enabled_tool_names, config)
     return result
 
@@ -7889,6 +8200,7 @@ def _run_tool_result_finalization(
     messages = _tool_result_finalization_messages(user_text, tool_messages)
     decoder = _ReasoningTextStreamDecoder()
     parts: list[dict[str, Any]] = []
+    started = time.perf_counter()
     try:
         stream_iter = llm.stream(messages)
     except Exception:
@@ -7901,7 +8213,18 @@ def _run_tool_result_finalization(
         parts.extend(decode_ai_stream_parts(result, decoder))
     answer = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text")
     reasoning = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "reasoning")
+    _learning_finalization_call(messages, answer, reasoning, started)
     return answer, reasoning, parts
+
+
+def _learning_finalization_call(messages: list, answer: str, reasoning: str, started: float) -> None:
+    """A finalization call (an answer written from tool results) is the turn's model call too."""
+    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+    if turn is None:
+        return
+    response = AIMessage(content=answer, additional_kwargs={"reasoning_content": reasoning} if reasoning else {})
+    _learning_model_call(turn, messages, response=response, purpose="finalization",
+                         latency_ms=(time.perf_counter() - started) * 1000)
 
 
 def _terminal_surface(config: dict) -> str:
@@ -7977,6 +8300,7 @@ def _handle_agent_terminal(
             )
             decoder = _ReasoningTextStreamDecoder()
             parts: list[dict[str, Any]] = []
+            started = time.perf_counter()
             try:
                 stream_iter = llm.stream(messages)
             except Exception:
@@ -7990,6 +8314,7 @@ def _handle_agent_terminal(
             reasoning = "".join(
                 str(part.get("text") or "") for part in parts if part.get("type") == "reasoning"
             )
+            _learning_finalization_call(messages, answer, reasoning, started)
         except Exception:
             logger.warning("Agent budget finalization call failed", exc_info=True)
     if not answer:
@@ -8631,7 +8956,7 @@ def _stream_graph(agent, input_data, config: dict,
 
     # Check if the graph paused due to an interrupt (destructive tool gate)
     state = agent.get_state(config)
-    if state and state.next:
+    if _paused_at_a_question(state):
         _log_stream_completion(
             config=config,
             answer_chars=_answer_chars,

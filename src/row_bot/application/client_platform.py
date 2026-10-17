@@ -421,7 +421,8 @@ class ClientPlatformService:
                         self.projection.publish(handle.conversation_id, "approval.required", {
                             "status": "waiting_approval", "approval_id": handle.approval_id,
                             **{key: view[key] for key in ("action_label", "reason", "risk_class", "scope",
-                                                          "safe_argument_summary", "requesting_trace_id", "setup")
+                                                          "safe_argument_summary", "requesting_trace_id", "setup",
+                                                          "question")
                                if key in view}})
                 return
             if status != "waiting_approval":
@@ -1030,6 +1031,16 @@ class ClientPlatformService:
                 raise ClientPlatformError("model_selection_mismatch")
             from row_bot.agent_profiles import require_agent_profile
             profile = require_agent_profile(payload["profile_id"], enabled_only=True) if payload.get("profile_id") else None
+            from row_bot import full_autonomy
+            from row_bot.approval_policy import normalize_approval_mode
+            if payload["approval_mode"] == "full" and normalize_approval_mode(row.get("approval_mode")) != "full":
+                # Only for the person's own chats, and after its one-time dialog on this install.
+                if full_autonomy.is_shared_conversation(target):
+                    raise ClientPlatformError("full_autonomy_shared_conversation")
+                try:
+                    full_autonomy.require_choice("full", confirmed=bool(payload.get("confirm_full_autonomy")))
+                except full_autonomy.FullAutonomyError as exc:
+                    raise ClientPlatformError(exc.code) from exc
             from row_bot.application.reasoning_controls import validated_control, merged_selection
             reasoning_control = payload.get("reasoning")
             reasoning_selection = validated_control(model, reasoning_control) if reasoning_control is not None else None
@@ -1208,6 +1219,7 @@ class ClientPlatformService:
             raise ClientPlatformError("model_selection_mismatch")
         model_ref = model_choice_value(model_ref, provider_id=provider_id)
         from row_bot.approval_policy import normalize_approval_mode
+        from row_bot.full_autonomy import cap_for_conversation
         row = self._metadata(conversation_id)
         if frozen_context is not None:
             row = {**row, "approval_mode": frozen_config.get("approval_mode"),
@@ -1279,7 +1291,8 @@ class ClientPlatformService:
             raise ClientPlatformError("invalid_command")
         config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,
-                  "approval_mode": normalize_approval_mode(row.get("approval_mode")),
+                  # A conversation other people share runs on Auto at most, never Hands-off.
+                  "approval_mode": cap_for_conversation(conversation_id, normalize_approval_mode(row.get("approval_mode"))),
                   "agent_profile_id": row.get("agent_profile_id") or "",
                   "platform_submission_id": submission_id,
                   "platform_command_id": command_id,
@@ -1325,6 +1338,21 @@ class ClientPlatformService:
             restore_resume_reasoning(config["configurable"], conversation_id,
                                      pass_id=str((approval_context or {}).get("pass_id") or ""))
         freeze_reasoning(config["configurable"], conversation_id, revalidate=frozen_context is not None)
+        # Learning (preview, L2c2): a new message of a kind of work the person gave their personal model
+        # runs on it, with the main model finishing a stuck turn. Nothing in use: one path check.
+        learning_route = None
+        if not resume and frozen_context is None and followup is None:
+            from row_bot import learning
+            learning_route = learning.route_turn(
+                conversation_id=conversation_id, text=text, model_ref=model_ref, surface=effective_surface,
+                attachments=[str(view.get("name") or "") for view in attachment_views],
+                apps=[str(app) for app in (narrowed.get("focus") or ())] if isinstance(narrowed, dict) else [],
+                code_folder=any(binding.kind == "workspace" for binding in captured_bindings))
+            if learning_route is not None:
+                routed = {**deepcopy(config["configurable"]), "model_override": learning_route.personal_ref}
+                routed.pop("reasoning_snapshot", None)
+                freeze_reasoning(routed, conversation_id)
+                learning_route = learning_route.with_configurable(routed)
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
         if frozen_context is not None:  # Remembered for a resume: this turn's own apps, not those it was queued behind.
             kept = {key: value for key, value in queue_context["configurable"].items() if key != "app_scope"}
@@ -1412,10 +1440,16 @@ class ClientPlatformService:
                             descriptor = describe(binding)
                             if not descriptor.available or descriptor.resource_revision != target["resource_revision"]:
                                 raise ClientPlatformError("resource_revision_conflict")
-                    events = ((self.resume_factory or resume_stream_agent)(enabled, config,
-                              bool((approval_context or {}).get("approved")),
-                              interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event)
-                              if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
+                    if learning_route is not None:
+                        from row_bot.learning import routing as learning_routing
+                        events = learning_routing.stream(
+                            learning_route, self.stream_factory or stream_agent, prepared_text, enabled, config,
+                            stop_event=handle.cancel_scope.stop_event)
+                    else:
+                        events = ((self.resume_factory or resume_stream_agent)(enabled, config,
+                                  bool((approval_context or {}).get("approved")),
+                                  interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event)
+                                  if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
                     if approval_context is not None and not approval_context.get("approved"):
                         events = _settled_denial(
                             events, conversation_id=conversation_id,

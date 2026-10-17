@@ -36,7 +36,8 @@
             "inherit",
             "block",
             "approve",
-            "allow_all"
+            "auto",
+            "full"
           ],
           "title": "Approval Mode",
           "type": "string"

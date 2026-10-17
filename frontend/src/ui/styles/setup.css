@@ -526,6 +526,20 @@
   display: grid;
   gap: 8px;
 }
+/* F10: favourites, then Row-Bot's picks, then "Show all models". */
+.first-run-model-groups {
+  display: grid;
+  gap: 16px;
+}
+.first-run-models-title {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+.first-run-all-models .disclosure-body {
+  padding: 8px 0 0;
+}
 .first-run-model,
 .first-run-provider {
   display: flex;

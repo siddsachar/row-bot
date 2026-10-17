@@ -19,9 +19,11 @@ import type {
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, CopyGlyph, useCopyFeedback } from '../../ui/primitives';
+import { TEACH_ICON, useTeach } from '../learning/chat-learning';
 import { AppIcon } from '../apps/parts';
 import {
   activityLabel,
+  approvedWithoutYou,
   formatElapsed,
   isAttention,
   keyArgument,
@@ -180,6 +182,8 @@ function TraceItem({
   item: TranscriptTraceItem;
 }) {
   const { controller, platform } = useRuntime();
+  // Teach Row-Bot about a step that failed (Learning preview, when it uses this chat).
+  const teach = useTeach();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(item.safe_summary);
   const [cursor, setCursor] = useState<string | undefined>();
@@ -293,6 +297,7 @@ function TraceItem({
   // A step that waited for you shows its run, not the wait.
   const duration = wait.text ? wait.ran : stepDuration(item);
   const reason = skipReason(item);
+  const decidedBy = approvedWithoutYou(approval.approval);
   return (
     <li className="activity-step" data-trace-status={item.status}>
       <details
@@ -324,6 +329,9 @@ function TraceItem({
               )}
               {stepVerb(item.canonical_name, item.status, item.app)}
               {reason && <span className="activity-step-tag">{reason}</span>}
+              {!reason && decidedBy && (
+                <span className="activity-step-tag">{decidedBy}</span>
+              )}
             </span>
             {argument ? (
               <span className="activity-step-arg">{argument}</span>
@@ -390,6 +398,15 @@ function TraceItem({
           )}
           {cursor && pages >= MAX_RESULT_PAGES && (
             <small>Result display limited to {MAX_RESULT_PAGES} pages.</small>
+          )}
+          {teach && isAttention(item.status) && (
+            <Button
+              variant="ghost"
+              className="activity-copy"
+              onClick={() => teach({ toolCallId: item.call_id })}
+            >
+              <TEACH_ICON size={14} aria-hidden /> Teach Row-Bot
+            </Button>
           )}
         </div>
       </details>

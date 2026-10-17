@@ -1,0 +1,75 @@
+# Row-Bot Learning's training engine (E1, O25): its own locked environment, installed by Row-Bot
+# under the data folder's runtimes/ only after the person agrees to the download. It is never part
+# of Row-Bot's own environment, the `all` extra, requirements.txt or the installers.
+#
+# Variants (one is installed, chosen by the NVIDIA driver):
+#   cu130: CUDA 13.0 PyTorch, the default (driver 580 or newer)
+#   cu128: CUDA 12.8 PyTorch 2.11 (drivers 570-579)
+# Wheels only: Row-Bot installs with --no-build and never compiles anything.
+# Left out on purpose: xformers (built for another torch), wandb, kernels, redis, trackio (telemetry or
+# remote caches); see docs/LEARNING_ENGINE_TELEMETRY.md.
+# `uv lock` here regenerates uv.lock; Row-Bot reads the lock directly (training/engine.py).
+
+[project]
+name = "row-bot-learning-engine"
+version = "1.0.0"
+description = "Row-Bot Learning's training engine (installed separately, never in Row-Bot's own environment)"
+requires-python = "==3.12.*"
+dependencies = [
+    "unsloth==2026.10.6",
+    "unsloth_zoo==2026.10.6",
+    "transformers==5.17.0",
+    "trl==1.15.0",
+    "peft==0.21.2",
+    "accelerate==1.15.0",
+    "bitsandbytes==0.50.2",
+    "datasets>=4.8,<5",
+    # llama.cpp's own converter (export, L2c) needs these.
+    "sentencepiece>=0.2.0",
+    "protobuf",
+    "numpy",
+]
+
+[project.optional-dependencies]
+cu130 = [
+    "torch==2.12.1",
+    "torchvision==0.27.1",
+    "triton-windows==3.7.1.post27; sys_platform == 'win32'",
+]
+cu128 = [
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "triton-windows>=3.6,<3.7; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+# The installer Row-Bot fetches first (by its pinned hash) to install everything else offline.
+bootstrap = ["uv==0.12.22"]
+
+[tool.uv]
+package = false
+default-groups = []
+conflicts = [[{ extra = "cu130" }, { extra = "cu128" }]]
+# Unsloth asks for xformers on Windows and Linux, but the PyPI build is for another torch (L0d W4: it
+# "cannot load" and Unsloth uses SDPA). An impossible marker leaves it out of the lock.
+override-dependencies = ["xformers; python_version < '3'"]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu130", extra = "cu130" },
+    { index = "pytorch-cu128", extra = "cu128" },
+]
+torchvision = [
+    { index = "pytorch-cu130", extra = "cu130" },
+    { index = "pytorch-cu128", extra = "cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

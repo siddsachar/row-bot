@@ -10,6 +10,20 @@
           "title": "At",
           "type": "string"
         },
+        "conversation_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversation Id"
+        },
         "count": {
           "maximum": 9007199254740991,
           "minimum": 1,

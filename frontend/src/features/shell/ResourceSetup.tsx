@@ -1,12 +1,12 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type {
   CommandReceipt,
@@ -18,6 +18,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
+import { useDialogFooter } from '../../ui/dialog-footer';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -32,6 +33,19 @@ import {
 } from '../../ui/primitives';
 import { Code2, Palette, X } from 'lucide-react';
 import { setupSessions, type SetupDraft } from './setup-state';
+import { APPROVAL_LABELS, approvalLevel } from './approval-levels';
+import { FolderBrowser, cloneName } from './FolderBrowser';
+
+/** The repository's host, for the clone's confirmation ("github.com"). */
+function cloneHost(url: string) {
+  const ssh = /^git@([^:]+):/.exec(url.trim());
+  if (ssh) return ssh[1];
+  try {
+    return new URL(url.trim()).hostname;
+  } catch {
+    return '';
+  }
+}
 
 export type ResourceSetupEntry = {
   kind: 'artifact' | 'workspace';
@@ -175,9 +189,17 @@ export default function ResourceSetup({
   const artifactLabel = artifactLabels[artifactMode];
   const currentOptions = options?.mode === artifactMode ? options : null;
   const [library, setLibrary] = useState<ResourceChoicePage | null>(null);
-  const [folder, setFolder] = useState<{ grant: string; name: string } | null>(
-    null,
-  );
+  // The folder picked on this computer (a grant), or chosen in Row-Bot's
+  // workspace folder from a device with no picker (its path there, F19).
+  const [folder, setFolder] = useState<{
+    grant?: string;
+    root?: string;
+    name: string;
+    label?: string;
+  } | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  // A clone under Ask waits for the person to confirm the download.
+  const [confirmClone, setConfirmClone] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -253,7 +275,6 @@ export default function ResourceSetup({
   // Only the desktop app picks a folder on this computer; a browser says so
   // before any pick (null while unknown keeps every choice open).
   const [desktopFolders, setDesktopFolders] = useState<boolean | null>(null);
-  const desktopNoteId = useId();
   useEffect(() => {
     let current = true;
     Promise.resolve()
@@ -271,23 +292,13 @@ export default function ResourceSetup({
       current = false;
     };
   }, [platform]);
+  // No picker for this computer here (a browser, a phone, another computer):
+  // folders are chosen inside Row-Bot's workspace folder instead (F19).
   const foldersNeedDesktop = desktopFolders === false;
   useEffect(() => {
-    const current = setupSessions.read(scope);
-    if (
-      !foldersNeedDesktop ||
-      current.workspaceMode === 'draft_folder' ||
-      current.commandId
-    )
-      return;
-    try {
-      setupSessions.update(scope, { workspaceMode: 'draft_folder' });
-    } catch {
-      // The choice stays; its pick explains itself.
-    }
-  }, [foldersNeedDesktop, scope, workspaceMode]);
-  useEffect(() => {
     setFolder(null);
+    setBrowsing(false);
+    setConfirmClone(false);
     setReview(null);
     setConfirmed(false);
   }, [client.handshake?.client_session_id, scope]);
@@ -491,6 +502,12 @@ export default function ResourceSetup({
     };
   }
   async function pickFolder() {
+    setConfirmClone(false);
+    if (foldersNeedDesktop) {
+      setFolder(null);
+      setBrowsing(true);
+      return;
+    }
     const initiating = capturePresentation();
     setFolder(null);
     try {
@@ -663,8 +680,13 @@ export default function ResourceSetup({
   }
   async function perform(
     action: 'default' | 'repair' | 'new_conversation' = 'default',
+    downloadConfirmed = false,
   ) {
     if (operation.current || setupSessions.read(scope).commandId) return;
+    const cloning =
+      mode === 'create' &&
+      kind === 'workspace' &&
+      workspaceMode === 'clone_repository';
     if (
       action === 'new_conversation' &&
       (conversationId ||
@@ -683,6 +705,24 @@ export default function ResourceSetup({
       const current = conversationId
         ? await controller.workspaceFor(conversationId)
         : null;
+      // A clone downloads from the internet: under Ask (a new conversation's
+      // level too) the person confirms it first; Block is refused by the server.
+      const level = approvalLevel(
+        current?.controls?.approval_mode ?? 'approve',
+      );
+      if (
+        cloning &&
+        !downloadConfirmed &&
+        level !== 'auto' &&
+        level !== 'full'
+      ) {
+        if (alive.current) setConfirmClone(true);
+        return;
+      }
+      const chosen =
+        folder?.root !== undefined
+          ? { root_folder: folder.root }
+          : { folder_grant: folder?.grant };
       const payload =
         mode === 'create'
           ? {
@@ -708,11 +748,14 @@ export default function ResourceSetup({
                           // "Code folder".
                           ...(name.trim() ? { draft_name: name.trim() } : {}),
                         }
-                      : { folder_grant: folder?.grant }),
+                      : chosen),
                     ...(workspaceMode === 'empty_folder'
                       ? { empty_workspace: { folder_name: name.trim() } }
                       : workspaceMode === 'clone_repository'
-                        ? { clone_workspace: { repo_url: repoUrl.trim() } }
+                        ? {
+                            clone_workspace: { repo_url: repoUrl.trim() },
+                            confirm_network: true,
+                          }
                         : {}),
                   }),
             }
@@ -726,6 +769,7 @@ export default function ResourceSetup({
                 ? { expected_origin_id: selected.origin_conversation_id }
                 : {}),
             };
+      setConfirmClone(false);
       setupSessions.reserve(scope, commandId);
       const result = await controller.intent(
         conversationId,
@@ -799,7 +843,9 @@ export default function ResourceSetup({
             ? { expected_resource_revision: previous.resource_revision }
             : {}),
           ...(previous.folder_reselection_required
-            ? { folder_grant: folder?.grant }
+            ? folder?.root !== undefined
+              ? { root_folder: folder.root }
+              : { folder_grant: folder?.grant }
             : {}),
           ...(previous.setup_intent === 'repair' &&
           selected?.origin_conversation_id
@@ -849,6 +895,8 @@ export default function ResourceSetup({
       setConfirmed(true);
       setReview(null);
       setFolder(null);
+      setBrowsing(false);
+      setConfirmClone(false);
       setError('');
     } catch {
       setError(
@@ -856,6 +904,51 @@ export default function ResourceSetup({
       );
     }
   }
+  // A clone waiting for its confirmation: Cancel and Clone take the dialog
+  // footer's place, so Clone is always in view (also on a phone).
+  const confirmingClone =
+    confirmClone &&
+    mode === 'create' &&
+    kind === 'workspace' &&
+    workspaceMode === 'clone_repository';
+  const cloneActions = confirmingClone ? (
+    <>
+      <Button disabled={busy} onClick={() => setConfirmClone(false)}>
+        Cancel
+      </Button>
+      <Button
+        variant="primary"
+        disabled={busy}
+        onClick={() => void perform('default', true)}
+      >
+        Clone
+      </Button>
+    </>
+  ) : null;
+  const cloneFooter = useDialogFooter(confirmingClone);
+  const confirmRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (confirmingClone)
+      confirmRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [confirmingClone]);
+  // Row-Bot's workspace folder, folder by folder, where no picker can choose.
+  const folderBrowser = (purpose: 'folder' | 'parent') => (
+    <FolderBrowser
+      purpose={purpose}
+      title={purpose === 'parent' ? 'Choose where' : 'Choose a folder'}
+      busy={busy}
+      dock
+      onCancel={() => setBrowsing(false)}
+      onUse={(choice) => {
+        setFolder({
+          root: choice.path,
+          name: choice.name,
+          label: choice.label,
+        });
+        setBrowsing(false);
+      }}
+    />
+  );
   return (
     <div className="stack resource-setup">
       {receipt ? (
@@ -890,13 +983,19 @@ export default function ResourceSetup({
                     ? 'The clone may be incomplete. Select the same parent folder to inspect the saved stage. Row-Bot will not repeat an uncertain clone.'
                     : 'The folder was created. Select the same parent folder to verify it and continue registration.'}
                 </p>
-                <Button
-                  disabled={busy || !confirmed}
-                  onClick={() => void pickFolder()}
-                >
-                  Choose parent folder again
-                </Button>
-                {folder && <p>Selected parent: {folder.name}</p>}
+                {browsing ? (
+                  folderBrowser('parent')
+                ) : (
+                  <Button
+                    disabled={busy || !confirmed}
+                    onClick={() => void pickFolder()}
+                  >
+                    Choose parent folder again
+                  </Button>
+                )}
+                {folder && (
+                  <p>Selected parent: {folder.label ?? folder.name}</p>
+                )}
               </div>
             )}
           {receipt.status === 'partial' && !receipt.resource_id && (
@@ -972,8 +1071,12 @@ export default function ResourceSetup({
                         (profile) => profile.id === review.controls.profile_id,
                       )?.label ??
                         (review.controls.profile_id || 'Default profile')}{' '}
-                      · Runtime: {review.controls.runtime_mode} · Approval:{' '}
-                      {review.controls.approval_mode}
+                      · Runtime: {review.controls.runtime_mode} · Approvals:{' '}
+                      {
+                        APPROVAL_LABELS[
+                          approvalLevel(review.controls.approval_mode)
+                        ]
+                      }
                     </p>
                     <p>
                       Target:{' '}
@@ -1238,41 +1341,28 @@ export default function ResourceSetup({
                 <Select
                   value={workspaceMode}
                   disabled={busy}
-                  aria-describedby={
-                    foldersNeedDesktop ? desktopNoteId : undefined
-                  }
                   onChange={(event) => {
                     update({
                       workspaceMode: event.target
                         .value as SetupDraft['workspaceMode'],
                     });
                     setFolder(null);
+                    setBrowsing(false);
+                    setConfirmClone(false);
                   }}
                 >
                   <option value="draft_folder">
                     New draft in the configured workspace
                   </option>
-                  <option value="existing_folder" disabled={foldersNeedDesktop}>
+                  <option value="existing_folder">
                     Register an existing folder
                   </option>
-                  <option value="empty_folder" disabled={foldersNeedDesktop}>
+                  <option value="empty_folder">
                     Create a new empty folder
                   </option>
-                  <option
-                    value="clone_repository"
-                    disabled={foldersNeedDesktop}
-                  >
-                    Clone a repository
-                  </option>
+                  <option value="clone_repository">Clone a repository</option>
                 </Select>
               </Field>
-              {foldersNeedDesktop && (
-                <p className="muted" id={desktopNoteId}>
-                  Choosing a folder on this computer needs the Row-Bot desktop
-                  app. In the browser, start a new draft or ask Row-Bot in the
-                  chat.
-                </p>
-              )}
               {workspaceMode === 'draft_folder' && (
                 <Field label="Name (optional)">
                   <Input
@@ -1301,7 +1391,10 @@ export default function ResourceSetup({
                     maxLength={2048}
                     disabled={busy}
                     placeholder="https://example.com/team/repository.git"
-                    onChange={(event) => setRepoUrl(event.target.value)}
+                    onChange={(event) => {
+                      setRepoUrl(event.target.value);
+                      setConfirmClone(false);
+                    }}
                   />
                 </Field>
               )}
@@ -1309,30 +1402,69 @@ export default function ResourceSetup({
                 {workspaceMode === 'draft_folder'
                   ? 'Create an empty folder under Drafts in your workspace folder, named as above or “Code folder”. It stays on disk if this conversation is deleted.'
                   : workspaceMode === 'empty_folder'
-                    ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
+                    ? foldersNeedDesktop
+                      ? 'Choose where in Row-Bot’s workspace folder. Create one empty folder with the name above and save it as a coding workspace.'
+                      : 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
                     : workspaceMode === 'clone_repository'
-                      ? 'Choose a parent folder on this computer. Cloning downloads the repository into a new named folder there. An interrupted clone is retained for inspection and is never run again automatically.'
-                      : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
+                      ? foldersNeedDesktop
+                        ? 'Choose where in Row-Bot’s workspace folder. Cloning downloads the repository into a new named folder there. An interrupted clone is retained for inspection and is never run again automatically.'
+                        : 'Choose a parent folder on this computer. Cloning downloads the repository into a new named folder there. An interrupted clone is retained for inspection and is never run again automatically.'
+                      : foldersNeedDesktop
+                        ? 'Choose a folder in Row-Bot’s workspace folder, on the computer Row-Bot runs on. Registration saves its name and location. Source files and Git state remain unchanged.'
+                        : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
               </p>
               <p className="muted">
                 Tools follow the conversation’s approval policy. The Inspector
                 is read-only.
               </p>
-              {workspaceMode !== 'draft_folder' && (
-                <Button disabled={busy} onClick={() => void pickFolder()}>
-                  {workspaceMode === 'empty_folder' ||
-                  workspaceMode === 'clone_repository'
-                    ? 'Choose parent folder'
-                    : 'Choose existing folder'}
-                </Button>
+              {workspaceMode !== 'draft_folder' &&
+                (browsing && !receipt ? (
+                  folderBrowser(
+                    workspaceMode === 'existing_folder' ? 'folder' : 'parent',
+                  )
+                ) : (
+                  <Button disabled={busy} onClick={() => void pickFolder()}>
+                    {folder
+                      ? 'Change folder'
+                      : workspaceMode === 'empty_folder' ||
+                          workspaceMode === 'clone_repository'
+                        ? 'Choose parent folder'
+                        : 'Choose existing folder'}
+                  </Button>
+                ))}
+              {folder && !browsing && (
+                <p>Selected: {folder.label ?? folder.name}</p>
               )}
-              {folder && <p>Selected: {folder.name}</p>}
             </div>
           )}
-          {selected?.origin_status === 'repair_required' && !conversationId ? (
+          {browsing &&
+          kind === 'workspace' &&
+          mode === 'create' ? null : selected?.origin_status ===
+              'repair_required' && !conversationId ? (
             <Button disabled={busy} onClick={() => void perform('repair')}>
               Repair missing origin
             </Button>
+          ) : confirmingClone ? (
+            <div
+              ref={confirmRef}
+              className="folder-browser-confirm"
+              role="group"
+              aria-label="Confirm the download"
+            >
+              <p>
+                <strong>Clone {cloneName(repoUrl)}?</strong> Row-Bot downloads
+                it
+                {cloneHost(repoUrl)
+                  ? ` from ${cloneHost(repoUrl)}`
+                  : ''} into {folder?.label ?? 'the folder you chose'}, with
+                this computer&apos;s own Git sign-in.
+              </p>
+              {cloneFooter ? (
+                createPortal(cloneActions, cloneFooter)
+              ) : (
+                <div className="action-cluster">{cloneActions}</div>
+              )}
+            </div>
           ) : (
             <Button
               variant="primary"

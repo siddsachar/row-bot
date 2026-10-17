@@ -214,3 +214,24 @@ def test_the_composer_offers_the_brain_list_with_the_same_availability(saved_sta
     assert composer[SOL]["billing"] == "subscription"
     assert composer[MYSTERY]["unavailable_reason"] == "metadata_missing"
     assert composer[UNCONNECTED]["unavailable_reason"] == "configuration_required"
+
+
+def test_every_picker_marks_favourites_and_hidden_models_alike(saved_state, monkeypatch, tmp_path):
+    """F10: one preference for every list; the options themselves don't change."""
+    from row_bot.providers import model_visibility
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    before = _options("brain")
+    model_visibility.update_model_visibility("favourite", SONNET)
+    model_visibility.update_model_visibility("favourite", LUNA)
+    model_visibility.update_model_visibility("hide", SOL)
+    brain, vision = _options("brain"), _options("vision")
+
+    assert set(brain) == set(before)
+    for options in (brain, vision):
+        assert options[SONNET]["favourite_rank"] == 1 and options[LUNA]["favourite_rank"] == 2
+        assert options[SOL]["hidden"] is True and options[SOL]["available"] is True
+    assert "favourite_rank" not in brain[MYSTERY] and "hidden" not in brain[MYSTERY]
+    # A hidden model can still be chosen.
+    owner.update_model_surface("vision", "default", selection_ref=SOL, validate=lambda: None)
+    assert saved_state.model == SOL

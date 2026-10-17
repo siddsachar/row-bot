@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "description": "An address on this computer one conversation's browser may open (F4): one origin, for an hour.",
+  "properties": {
+    "address": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Address",
+      "type": "string"
+    },
+    "expires_at": {
+      "maxLength": 80,
+      "title": "Expires At",
+      "type": "string"
+    },
+    "grant_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Grant Id",
+      "type": "string"
+    },
+    "granted_at": {
+      "maxLength": 80,
+      "title": "Granted At",
+      "type": "string"
+    },
+    "origin": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Origin",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "you",
+        "reviewer",
+        "hands_off",
+        "row_bot_server"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "grant_id",
+    "address",
+    "origin",
+    "source",
+    "granted_at",
+    "expires_at"
+  ],
+  "title": "LocalAddressGrantView",
+  "type": "object"
+}

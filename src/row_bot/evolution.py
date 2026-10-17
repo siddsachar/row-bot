@@ -301,12 +301,20 @@ def _validate_skill_name(name: str) -> str | None:
     return None
 
 
-def redact_text(text: str, *, max_chars: int | None = None) -> str:
-    """Redact secrets, user-local paths, emails, and oversized content."""
+def redact_secrets(text: str) -> str:
+    """Replace secret-shaped text (API keys, tokens, bearer credentials, ``key=value``
+    secrets) with ``[redacted-secret]``; everything else is kept."""
 
     value = str(text or "")
     for pattern in _SECRET_PATTERNS:
         value = pattern.sub("[redacted-secret]", value)
+    return value
+
+
+def redact_text(text: str, *, max_chars: int | None = None) -> str:
+    """Redact secrets, user-local paths, emails, and oversized content."""
+
+    value = redact_secrets(text)
     value = _WINDOWS_USER_PATH_RE.sub("[local-user-path]", value)
     value = _POSIX_USER_PATH_RE.sub("[local-user-path]", value)
     value = _EMAIL_RE.sub("[redacted-email]", value)

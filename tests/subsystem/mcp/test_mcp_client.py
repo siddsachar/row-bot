@@ -591,14 +591,25 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("STRUCTURED_CONTENT", output)
         self.assertEqual(runtime.get_destructive_tool_names(), set())
 
-    def test_allow_all_still_asks_where_the_apps_access_says_to(self) -> None:
-        """§3: a routine change asks unless the person chose Full access for the app (or let that tool run);
-        the chat's or workflow's Allow all never broadens an app. A high-impact tool asks even then."""
+    def test_the_approval_level_decides_what_an_apps_access_says_to_ask_about(self) -> None:
+        """§3 and A0: a routine change needs approval unless the person chose Full access for the app (or let
+        that tool run); a high-impact tool needs it whatever the access. Ask asks the person; Auto shows it to
+        the reviewer, saying the app's access asks, and asks the person only when the reviewer does; Full
+        autonomy allows it and records that."""
         import row_bot.agent as agent
+        import row_bot.approval_review as approval_review
         import row_bot.mcp_client.runtime as mcp_runtime
         from langchain_core.tools import StructuredTool
+        from row_bot.approval_review import ReviewVerdict
 
         interrupt_calls: list[dict] = []
+        reviewed: list[tuple[dict, tuple]] = []
+        verdict = {"value": ReviewVerdict("ask", "You didn't ask to change notes.")}
+
+        def review(payload, *, risks=(), **_kwargs):
+            reviewed.append((payload, tuple(risks)))
+            return verdict["value"]
+
         captured_tools: dict[str, object] = {}
         tools = [{"name": "update_note", "description": "Update a note.", "inputSchema": {"type": "object"}},
                  {"name": "delete_note", "description": "Delete a note for good.", "inputSchema": {"type": "object"}}]
@@ -643,6 +654,7 @@ class McpClientFoundationTests(unittest.TestCase):
                      patch.object(agent, "get_agent_system_prompt", return_value="test prompt"), \
                      patch.object(agent, "create_react_agent", side_effect=_capture_agent), \
                      patch.object(agent, "interrupt", side_effect=lambda payload: interrupt_calls.append(payload) or True), \
+                     patch.object(approval_review, "review", side_effect=review),                      patch.object(agent, "register_exact_tool_request", return_value="allow"), \
                      patch.object(mcp_runtime, "get_langchain_tools", return_value=[tool]), \
                      patch.object(mcp_runtime, "_get_effective_config",
                                   return_value={"enabled": True, "servers": {"Manual": cfg}}):
@@ -656,24 +668,41 @@ class McpClientFoundationTests(unittest.TestCase):
                 with mcp_runtime._runtime_lock:
                     mcp_runtime._catalog.pop("Manual", None)
 
-        asked = "Approval: asked; approved by you\nran"  # An approved result leads with its approval line (B235).
+        asked = ("Approval: asked; approved by you. The reviewer asked you: You didn't ask to change notes\nran")
         full_access = {"run_without_asking": ["update_note", "delete_note"]}
         for background in (True, False):  # A workflow's run, and a chat.
-            # Ask before changes (the default): Allow all still asks before a routine change, so a run waits.
-            self.assertEqual(_build_graph_and_call("allow_all", "update_note", {}, background), asked)
-            self.assertIs(interrupt_calls.pop()["always_ask"], True)
-            # Full access: the same change runs without asking...
-            self.assertEqual(_build_graph_and_call("allow_all", "update_note", full_access, background), "ran")
-            self.assertEqual(interrupt_calls, [])
-            # ...unless that one tool is set to ask first; and a high-impact tool asks whatever the access.
-            self.assertEqual(_build_graph_and_call("allow_all", "update_note",
+            # Auto, Ask before changes (the default): the reviewer sees the routine change, told the app asks.
+            verdict["value"] = ReviewVerdict("ask", "You didn't ask to change notes.")
+            self.assertEqual(_build_graph_and_call("auto", "update_note", {}, background), asked)
+            self.assertEqual(interrupt_calls.pop()["review"]["reason"], "You didn't ask to change notes.")
+            payload, risks = reviewed.pop()
+            self.assertEqual(payload["tool"], "mcp_manual_update_note")
+            self.assertTrue(any("app's access says to ask" in risk for risk in risks))
+            # ...and runs it without asking the person when it clearly matches the request.
+            verdict["value"] = ReviewVerdict("approve", "You asked to update the note.")
+            self.assertEqual(_build_graph_and_call("auto", "update_note", {}, background),
+                             "Approval: approved by the reviewer: You asked to update the note\nran")
+            self.assertEqual((interrupt_calls, len(reviewed)), ([], 1))
+            reviewed.clear()
+            # Full access: the same change needs no approval at all, so nothing reviews it...
+            self.assertEqual(_build_graph_and_call("auto", "update_note", full_access, background), "ran")
+            self.assertEqual((interrupt_calls, reviewed), ([], []))
+            # ...unless that one tool is set to ask first; and a high-impact tool needs approval whatever the access.
+            verdict["value"] = ReviewVerdict("ask", "You didn't ask to change notes.")
+            self.assertEqual(_build_graph_and_call("auto", "update_note",
                                                    {**full_access, "require_approval": ["update_note"]}, background), asked)
-            self.assertIs(interrupt_calls.pop()["always_ask"], True)
-            self.assertEqual(_build_graph_and_call("allow_all", "delete_note", full_access, background), asked)
-            self.assertIs(interrupt_calls.pop()["always_ask"], True)
-        self.assertEqual(_build_graph_and_call("approve", "update_note", {}), asked)
+            interrupt_calls.clear()
+            self.assertEqual(_build_graph_and_call("auto", "delete_note", full_access, background), asked)
+            interrupt_calls.clear()
+            reviewed.clear()
+            # Hands-off allows even the high-impact one, asks no one, and records it.
+            self.assertEqual(_build_graph_and_call("full", "delete_note", full_access, background),
+                             "Approval: allowed by Hands-off\nran")
+            self.assertEqual((interrupt_calls, reviewed), ([], []))
+        # Ask asks the person, never the reviewer.
+        self.assertEqual(_build_graph_and_call("approve", "update_note", {}), "Approval: asked; approved by you\nran")
         self.assertEqual(interrupt_calls.pop()["tool"], "mcp_manual_update_note")
-        self.assertEqual(interrupt_calls, [])
+        self.assertEqual((interrupt_calls, reviewed), ([], []))
 
     def test_mcp_dynamic_tool_display_name_uses_actual_tool(self) -> None:
         import row_bot.agent as agent
