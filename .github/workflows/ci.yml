@@ -131,7 +131,7 @@ jobs:
   platform:
     name: Platform (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -163,18 +163,18 @@ jobs:
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
 
-      - name: DIAGNOSTIC gmail test alone, no xdist, faulthandler
+      - name: DIAGNOSTIC tools folder serially, faulthandler
         if: runner.os == 'macOS'
         continue-on-error: true
         run: |
-          uv run python -X faulthandler -m pytest tests/subsystem/tools/test_gmail_tool_contracts.py -p no:xdist -v -s 2>&1 | tail -150
+          uv run python -X faulthandler -m pytest tests/subsystem/tools -p no:xdist -q -m "not slow and not live_provider and not e2e" 2>&1 | tail -80
 
-      - name: DIAGNOSTIC import alone, then email cleaning in threads
+      - name: DIAGNOSTIC whole deterministic tier serially, faulthandler
         if: runner.os == 'macOS'
         continue-on-error: true
+        timeout-minutes: 70
         run: |
-          uv run python -X faulthandler -c "import langchain_google_community; print('imported')"
-          uv run python -X faulthandler -c "from concurrent.futures import ThreadPoolExecutor; import langchain_google_community; from langchain_google_community.gmail.utils import clean_email_body; print(list(ThreadPoolExecutor(4).map(clean_email_body, ['<b>x</b>']*8)))"
+          uv run python -X faulthandler -m pytest tests --ignore=tests/docs --ignore=tests/marketing -p no:xdist -q -x -m "not slow and not live_provider and not e2e" 2>&1 | tail -120
 
       - name: Runtime dependencies, platform tests and the launcher smoke
         if: runner.os != 'macOS'
