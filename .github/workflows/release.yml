@@ -737,7 +737,17 @@ jobs:
             flags=(--draft --verify-tag --title "$(cat title.txt)" --notes-file notes.md)
             case "$ROW_BOT_VERSION" in *-*) flags+=(--prerelease) ;; esac
             gh release create "$TAG" "${flags[@]}"
-            release_id="$(gh api "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id")"
+            # A new draft can take a moment to appear in the list (B354): look again before giving up.
+            release_id=""
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              release_id="$(gh api "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id")"
+              if [ -n "$release_id" ]; then break; fi
+              sleep 3
+            done
+            if [ -z "$release_id" ]; then
+              echo "::error::The draft for $TAG was created but GitHub doesn't list it yet; run this job again"
+              exit 1
+            fi
           fi
           gh release upload "$TAG" files/* --clobber
           # A DMG notarize-finish.yml attached for this very run (a re-run of this job) stays.
@@ -748,13 +758,14 @@ jobs:
             gh run download "$record_run" -n "$record" -D record
             keep="sha256:$(jq -r .sha256 record/*.json)"
           fi
-          gh api "repos/$GH_REPO/releases/$release_id/assets?per_page=100" --jq '.[] | "\(.id) \(.name) \(.digest)"' |
+          # Listed to a file first: a failed call stops here instead of feeding its error to the loop.
+          gh api "repos/$GH_REPO/releases/$release_id/assets?per_page=100" --jq '.[] | "\(.id) \(.name) \(.digest)"' > draft-assets.txt
           while read -r asset_id name digest; do
             if [ -e "files/$name" ]; then continue; fi
             if [ "$name" = "$DMG" ] && [ -n "$keep" ] && [ "$digest" = "$keep" ]; then continue; fi
             echo "Removing $name from the draft: this run did not build it"
-            gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id"
-          done
+            gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" < /dev/null
+          done < draft-assets.txt
           {
             echo "### Draft release $TAG"
             echo ""
