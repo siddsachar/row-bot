@@ -5252,6 +5252,12 @@ _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]
 )
 
 
+def _tool_group_label(entry: dict[str, Any]) -> str:
+    """The name the person sees for a built-in tool's group ("🧮 Calculator"): tool search finds the tool by it."""
+    owner = tool_registry.get_tool(str(entry["parent"])) if entry["source"] == "core" else None
+    return str(getattr(owner, "display_name", "") or "")
+
+
 def _has_code_folder() -> bool:
     """Whether this turn can use Developer tools: a captured code folder, or (outside a client turn) the
     thread's workspace, as the Developer tools themselves resolve it."""
@@ -5906,6 +5912,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                             entry["tool"],
                             source=entry["source"],
                             parent=entry["parent"],
+                            label=_tool_group_label(entry),
                         )
                         for entry in on_demand_entries + (
                             external_entries if effective_loading_mode == "auto" else [])

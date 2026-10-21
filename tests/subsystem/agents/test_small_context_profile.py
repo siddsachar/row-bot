@@ -187,6 +187,22 @@ def test_a_small_window_binds_core_tools_and_offers_the_rest_through_tool_search
     assert "delegate_work" in bound["tool_search"].description  # the catalog names what is offered
 
 
+def test_a_small_windows_tool_search_finds_tools_by_their_word_forms_and_group_names(local_model):
+    """L2v: small models searched for "calculator" and got nothing back, so they never reached `calculate`."""
+    graph, _on_demand = local_model.graph()
+    search = graph.tools.tools_by_name["tool_search"]
+
+    def first(query: str) -> str | None:
+        results = json.loads(search.invoke({"query": query}))["results"]
+        return results[0]["name"] if results else None
+
+    assert first("calculator") == "calculate"
+    assert first("transcripts") == "youtube_transcript"
+    assert first("vision") == "analyze_image"  # its group's name in Settings ("👁️ Vision")
+    assert first("file delivery") == "send_file"  # its group ("file_delivery")
+    assert first("Mezze House") is None
+
+
 def test_a_small_window_sends_guides_as_an_index_and_task_and_memory_guidance_with_their_tools(local_model):
     prepared = local_model.request([HumanMessage(content="hello", id="person-1")])
     root = str(next(m for m in prepared.messages if isinstance(m, SystemMessage)).content)
