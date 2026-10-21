@@ -21,6 +21,7 @@ from row_bot.prompt_cache import (
     prompt_cache_lifetime,
     with_conversation_cache,
 )
+from row_bot.providers import deferred_tools
 from row_bot.providers.capabilities import PROMPT_CACHE_SYSTEM_BREAKPOINT_ROUTES, prompt_cache_route
 from row_bot import prompt_prefix_diff
 from row_bot.providers.stop_reason import stop_reason as provider_stop_reason, stopped_at_output_limit
@@ -5287,6 +5288,7 @@ def _on_demand_parents_used(messages: list[Any]) -> set[str]:
 def _activate_agent_cache_metadata(cache_key: frozenset[str]) -> None:
     metadata = _agent_cache_metadata.get(cache_key, {})
     _current_on_demand_tools_var.set(dict(metadata.get("on_demand_tools") or {}))
+    deferred_tools.offer(metadata.get("deferred_tool_names") or ())
     _current_effective_tool_parent_names_var.set(tuple(metadata.get("tool_parents") or ()))
     _current_bound_tool_schema_tokens_var.set(int(metadata.get("bound_schema_tokens") or 0))
     _current_canonical_tools_var.set(tuple(metadata.get("canonical_tools") or ()))
@@ -5897,6 +5899,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 eager_core_entries = [entry for entry in eager_core_entries if entry not in on_demand_entries]
                 eager_core_tools = [entry["tool"] for entry in eager_core_entries]
             on_demand_tools = [entry["tool"] for entry in on_demand_entries]
+            deferred_names: frozenset[str] = frozenset()  # offered only through the bridge
             if on_demand_entries or (effective_loading_mode == "auto" and (external_tools or force_external_discovery)):
                 try:
                     from row_bot.tools.discovery import build_tool_discovery_tools
@@ -5927,6 +5930,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     lc_tools = eager_core_tools + bridges
                     if effective_loading_mode != "auto":
                         lc_tools += external_tools
+                    deferred_names = frozenset(record.name for record in bridge_records)
                 except Exception as exc:
                     logger.warning(
                         "External tool discovery assembly failed; using eager compatibility snapshot: %s",
@@ -6012,6 +6016,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     for entry in on_demand_entries
                     if str(getattr(entry["tool"], "name", "") or "") not in bound_names
                 },
+                "deferred_tool_names": frozenset(name for name in deferred_names if name not in bound_names),
                 "tool_parents": tuple(sorted(effective_parent_names)),
                 "bound_schema_tokens": estimate_bound_tool_schema_tokens(lc_tools),
                 "canonical_tools": tuple(convert_to_openai_tool(tool) for tool in lc_tools),
@@ -6214,6 +6219,9 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
             return _handle_agent_terminal(agent, config, exc)
         except Exception as exc:
+            if stop_event.is_set():
+                # Stop ended the model call (it closes a request mid-way): stopped, not failed.
+                raise TaskStoppedError("Task stopped during execution") from exc
             exc_str = str(exc)
             if "tool_call" in exc_str and ("do not have a corresponding" in exc_str
                                             or "did not have response" in exc_str
@@ -7683,6 +7691,8 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
     except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
         return _handle_agent_terminal(agent, config, exc)
     except Exception as exc:
+        if stop_event and stop_event.is_set():
+            raise TaskStoppedError("Task stopped during resume") from exc
         exc_str = str(exc)
         _err_msg = _friendly_api_error(exc_str)
         logger.error(
@@ -8475,6 +8485,10 @@ def _stream_graph(agent, input_data, config: dict,
         yield ("done", terminal["message"])
         return
     except Exception as exc:
+        if stop_event and stop_event.is_set():
+            # Stop ended the model call (it closes a request mid-way): stopped, not an API error.
+            logger.info("_stream_graph: the model call ended after Stop (%s)", type(exc).__name__)
+            return
         exc_str = str(exc)
         # Auto-repair orphaned tool calls and retry once. Never replay overflow (its retry was in the call).
         if _is_context_overflow_error(exc):
