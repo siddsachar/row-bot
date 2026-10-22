@@ -603,6 +603,23 @@ def test_a_rare_tool_called_by_its_own_name_still_runs(monkeypatch):
     assert [tool.name for tool in seen] == ["row_bot_status"]
 
 
+def test_the_tools_offered_only_through_tool_search_are_recorded_for_the_transport(monkeypatch):
+    """A local Ollama transport stubs these when Ollama drops a call to one (providers/deferred_tools)."""
+    from contextvars import copy_context
+
+    from row_bot.providers import deferred_tools
+
+    agent = _prepare_graph(monkeypatch)
+    status, memory = _lc_tool("row_bot_status"), _lc_tool("search_memory")
+    _registry_with(monkeypatch, agent, {"row_bot_status": [status], "memory": [memory]})
+
+    context = copy_context()
+    graph = context.run(agent.get_agent_graph, ["row_bot_status", "memory"])
+
+    assert "row_bot_status" not in _bound_tools(graph)
+    assert context.run(deferred_tools.offered) == {"row_bot_status"}
+
+
 def test_a_large_window_binds_every_group_and_developer_tools_with_a_code_folder(monkeypatch):
     agent = _prepare_graph(monkeypatch)
     monkeypatch.setattr(agent, "get_context_size", lambda model_name=None: 131_072)
