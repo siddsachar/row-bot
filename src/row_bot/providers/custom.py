@@ -262,13 +262,41 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
     last_probe = endpoint.get("last_probe")
     if isinstance(last_probe, dict):
         normalized["last_probe"] = dict(last_probe)
+    model_probes = endpoint.get("model_probes")
+    if isinstance(model_probes, dict):
+        kept = [(str(key), dict(value)) for key, value in model_probes.items() if isinstance(value, dict)]
+        normalized["model_probes"] = dict(kept[-MODEL_PROBES_KEPT:])
     extra_body = endpoint.get("extra_body")
     if isinstance(extra_body, dict):
         normalized["extra_body"] = dict(extra_body)
     scope = endpoint.get("credential_scope")
     if isinstance(scope, str) and re.fullmatch(r"[a-f0-9]{32}", scope):
         normalized["credential_scope"] = scope
+    if endpoint.get("managed") in MANAGED_SERVERS:
+        normalized["managed"] = str(endpoint["managed"])
     return normalized
+
+
+# Local servers Row-Bot runs itself, by owner (Learning's llama.cpp server for personal models, O75). Such
+# a server runs only while it is needed, on a loopback port with a key it is given at each start, so
+# requests and probes ask its owner for the address and key each time (the owner starts it then).
+MANAGED_SERVERS = {"learning": "row_bot.learning.training.llama_server"}
+# A managed server runs several models (a version, the starting model, older versions), so each model keeps
+# its own probe evidence (``model_probes``) beside the endpoint's last probe; the newest few are kept.
+MODEL_PROBES_KEPT = 16
+
+
+def managed_connection(endpoint: dict[str, Any] | None, *, start: bool = True) -> tuple[str, str] | None:
+    """``(base_url, api_key)`` of a managed endpoint's server now (started when ``start``), or None:
+    not a managed endpoint, or its server can't run."""
+
+    owner = MANAGED_SERVERS.get(str((endpoint or {}).get("managed") or ""))
+    if owner is None:
+        return None
+    import importlib
+
+    found = importlib.import_module(owner).endpoint_connection(start=start)
+    return (str(found[0]), str(found[1])) if found else None
 
 
 def list_custom_endpoints() -> list[dict]:
@@ -338,6 +366,7 @@ def save_custom_endpoint(endpoint: dict, *, expected_revision: str | None = None
             replacement.pop("thinking_budget", None)
         if old and endpoint_configuration_revision(old) != endpoint_configuration_revision(replacement):
             replacement.pop("last_probe", None)
+            replacement.pop("model_probes", None)
             replacement.pop("models", None)
         cfg["custom_endpoints"] = [item for item in endpoints if not isinstance(item, dict) or item.get("id") != endpoint_id] + [replacement]
         validate()
@@ -359,6 +388,9 @@ def endpoint_configuration_revision(endpoint: dict) -> str:
     value = normalize_custom_endpoint(endpoint)
     value.pop("models", None)
     value.pop("last_probe", None)
+    value.pop("model_probes", None)
+    if value.get("managed"):
+        value.pop("base_url", None)  # the server's address now, which its owner gives at each request
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -528,10 +560,13 @@ def custom_probe_for_model(
     )
     if not endpoint:
         return {}
+    requested_model = str(model_id or "").strip()
+    own = (endpoint.get("model_probes") or {}).get(requested_model) if requested_model else None
+    if isinstance(own, dict) and own:
+        return dict(own)
     probe = endpoint.get("last_probe")
     if not isinstance(probe, dict) or not probe:
         return {}
-    requested_model = str(model_id or "").strip()
     if not requested_model:
         return {}
     probed_model = str(probe.get("model_id") or probe.get("vision_model") or "").strip()
@@ -1256,6 +1291,12 @@ def _stream_line_has_usable_delta(line: str) -> bool:
 
 def _custom_endpoint_headers(endpoint: dict[str, Any]) -> dict[str, str]:
     headers = dict(endpoint.get("headers") or {})
+    if endpoint.get("managed"):
+        live = managed_connection(endpoint)
+        if live is None:
+            raise ValueError("Row-Bot's own model server isn't available on this computer.")
+        headers["Authorization"] = f"Bearer {live[1]}"
+        return headers
     secret = custom_endpoint_secret(str(endpoint["provider_id"])) if endpoint.get("auth_required") else ""
     if endpoint.get("auth_required") and not secret:
         raise ValueError(custom_endpoint_auth_missing_message(endpoint))
@@ -1313,6 +1354,11 @@ def _store_custom_endpoint_probe(endpoint_or_provider_id: str, probe: dict[str, 
     for item in endpoints:
         if normalize_custom_endpoint(item).get("id") == endpoint_id:
             item["last_probe"] = dict(probe)
+            model = str(probe.get("model_id") or "")
+            if model and item.get("managed") in MANAGED_SERVERS:
+                probes = {key: value for key, value in dict(item.get("model_probes") or {}).items() if key != model}
+                probes[model] = dict(probe)
+                item["model_probes"] = dict(list(probes.items())[-MODEL_PROBES_KEPT:])
             break
     cfg["custom_endpoints"] = endpoints
     validate()

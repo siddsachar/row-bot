@@ -91,7 +91,8 @@ MANUAL_CHECKS: tuple[ManualCheck, ...] = (
     ),
     ManualCheck(
         "oauth-providers-ledger", "B1/B2",
-        "Codex, xAI OAuth and Claude Subscription cannot be configured from environment variables. Start Row-Bot "
+        "xAI OAuth and Claude Subscription cannot be configured from environment variables (Codex, the ChatGPT "
+        "subscription, has its own lane through an eval profile: ROW_BOT_LIVE_EVAL_CODEX_PROFILE). Start Row-Bot "
         "with ROW_BOT_DATA_DIR set to a separate validation folder (never the everyday ~/.row-bot), sign in to the "
         "provider there, and run a short Agent conversation with two tool rounds and a second turn, plus one Chat "
         "Only turn. Then run `uv run python scripts/live_eval.py ledger --data-dir <that folder>`.",

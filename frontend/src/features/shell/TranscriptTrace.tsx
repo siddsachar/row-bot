@@ -19,6 +19,7 @@ import type {
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, CopyGlyph, useCopyFeedback } from '../../ui/primitives';
+import { TEACH_ICON, useTeach } from '../learning/chat-learning';
 import { AppIcon } from '../apps/parts';
 import {
   activityLabel,
@@ -181,6 +182,8 @@ function TraceItem({
   item: TranscriptTraceItem;
 }) {
   const { controller, platform } = useRuntime();
+  // Teach Row-Bot about a step that failed (Learning preview, when it uses this chat).
+  const teach = useTeach();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(item.safe_summary);
   const [cursor, setCursor] = useState<string | undefined>();
@@ -395,6 +398,15 @@ function TraceItem({
           )}
           {cursor && pages >= MAX_RESULT_PAGES && (
             <small>Result display limited to {MAX_RESULT_PAGES} pages.</small>
+          )}
+          {teach && isAttention(item.status) && (
+            <Button
+              variant="ghost"
+              className="activity-copy"
+              onClick={() => teach({ toolCallId: item.call_id })}
+            >
+              <TEACH_ICON size={14} aria-hidden /> Teach Row-Bot
+            </Button>
           )}
         </div>
       </details>

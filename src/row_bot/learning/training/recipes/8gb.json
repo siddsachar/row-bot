@@ -1,0 +1,36 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "8gb",
+  "tier": "8gb",
+  "certified": true,
+  "title": "8 GB graphics cards",
+  "starting_model": "qwen3.5-2b",
+  "method": "lora_sft",
+  "evidence": "O23: Qwen3.5 2B, bf16 LoRA at 16K, measured on an RTX 5070 Laptop (8,151 MiB) in L0d and L2b: 7,580-7,700 MiB reserved under the 95% cap, so with the CUDA context it fills the 8 GB card (its need, 8,192 MiB, is the whole card: it starts when no more than 160 MiB is in use); about 41 minutes per epoch of 360 conversations. L2x, measured on an RTX 5090 under an 8 GB cap: 90 rows in 23 steps at 2.5 s/step with a pause and resume, 8,006 MiB on the card at its peak, 13.8 GB of the computer's commit (Windows) at its peak (need 15 GB with a 1 GB margin), gradient norms 0.3-1.0, loss 0.46, no spill; exported Q8_0 and ready in Row-Bot's own server.",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 16,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 3,
+  "checkpoint_every": 10,
+  "min_examples": 90,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q8_0",
+  "reasoning": "off",
+  "memory_mib": 8192,
+  "system_memory_mib": {
+    "windows": 15360
+  }
+}

@@ -1,0 +1,282 @@
+{
+  "$defs": {
+    "LearningGpu": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 160,
+          "title": "Label",
+          "type": "string"
+        },
+        "memory_gb": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Memory Gb",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "memory_gb",
+        "label"
+      ],
+      "title": "LearningGpu",
+      "type": "object"
+    },
+    "LearningMemory": {
+      "additionalProperties": false,
+      "properties": {
+        "free_gb": {
+          "maximum": 65536,
+          "minimum": 0,
+          "title": "Free Gb",
+          "type": "integer"
+        },
+        "limit_gb": {
+          "maximum": 65536,
+          "minimum": 0,
+          "title": "Limit Gb",
+          "type": "integer"
+        },
+        "system": {
+          "enum": [
+            "windows",
+            "linux",
+            "other"
+          ],
+          "title": "System",
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit_gb",
+        "free_gb",
+        "system"
+      ],
+      "title": "LearningMemory",
+      "type": "object"
+    },
+    "LearningStartingModel": {
+      "additionalProperties": false,
+      "properties": {
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 64,
+          "title": "Id",
+          "type": "string"
+        },
+        "licence": {
+          "maxLength": 64,
+          "title": "Licence",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "licence",
+        "download_bytes"
+      ],
+      "title": "LearningStartingModel",
+      "type": "object"
+    },
+    "LearningTier": {
+      "additionalProperties": false,
+      "properties": {
+        "card_need_gb": {
+          "anyOf": [
+            {
+              "maximum": 4096,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Card Need Gb"
+        },
+        "certified": {
+          "title": "Certified",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 32,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 32,
+          "title": "Label",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 256,
+          "title": "Summary",
+          "type": "string"
+        },
+        "system_memory_gb": {
+          "anyOf": [
+            {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "System Memory Gb"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "certified",
+        "summary"
+      ],
+      "title": "LearningTier",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "card_free_gb": {
+      "anyOf": [
+        {
+          "maximum": 4096,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Card Free Gb"
+    },
+    "engine_download_bytes": {
+      "minimum": 0,
+      "title": "Engine Download Bytes",
+      "type": "integer"
+    },
+    "free_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Free Bytes"
+    },
+    "gpu": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningGpu"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "larger_tiers": {
+      "items": {
+        "$ref": "#/$defs/LearningTier"
+      },
+      "maxItems": 8,
+      "title": "Larger Tiers",
+      "type": "array"
+    },
+    "memory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningMemory"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "memory_short": {
+      "items": {
+        "$ref": "#/$defs/LearningTier"
+      },
+      "maxItems": 8,
+      "title": "Memory Short",
+      "type": "array"
+    },
+    "recommended": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningTier"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "starting_models": {
+      "items": {
+        "$ref": "#/$defs/LearningStartingModel"
+      },
+      "maxItems": 8,
+      "title": "Starting Models",
+      "type": "array"
+    },
+    "state": {
+      "enum": [
+        "gpu",
+        "old_driver",
+        "small_gpu",
+        "low_memory",
+        "no_gpu",
+        "container",
+        "unknown"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "tier": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningTier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "state",
+    "gpu",
+    "tier",
+    "larger_tiers",
+    "starting_models",
+    "engine_download_bytes"
+  ],
+  "title": "LearningHardware",
+  "type": "object"
+}

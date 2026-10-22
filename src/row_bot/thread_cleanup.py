@@ -322,6 +322,39 @@ def _clear_in_memory_state(thread_id: str) -> None:
         pass
 
 
+def _purge_learning_state(thread_id: str) -> int:
+    """Learning's step: purge what the conversation owns and mark what was derived
+    from it. Only when Learning has a store: while it has none this is one path
+    check, and nothing else from Learning is imported."""
+
+    from row_bot import learning
+
+    if not learning.store_exists():
+        return 0
+    from row_bot.learning.store import LearningStore
+
+    removed = LearningStore().purge_thread(thread_id).total
+    _forget_in_training_runs([thread_id])
+    return removed
+
+
+def _forget_in_training_runs(thread_ids: list[str]) -> int:
+    """A personal-model run that hasn't finished training on a deleted conversation is discarded
+    (L2c). One path check while there are no runs; nothing else is imported then."""
+
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    if not (get_row_bot_data_dir(create=False) / "learning_models" / "runs").is_dir():
+        return 0
+    try:
+        from row_bot.learning.training.dataset import forget_conversations
+
+        return forget_conversations(thread_ids)
+    except Exception:
+        logger.warning("Learning couldn't check its training runs for a deleted chat", exc_info=True)
+        return 0
+
+
 def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
     """Run idempotent database/file purges and return changes plus warnings."""
 
@@ -368,6 +401,12 @@ def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
         delete_thread_usage(thread_id)
     except Exception:
         logger.debug("Usage ledger cleanup failed for %s", thread_id, exc_info=True)
+    try:
+        changed += _purge_learning_state(thread_id)
+    except Exception:
+        # Every purge pass retries it; idle maintenance sweeps what is left.
+        warnings.append("Some Learning data could not be removed.")
+        logger.warning("Learning cleanup failed for thread %s", thread_id, exc_info=True)
     return changed, tuple(warnings)
 
 
@@ -997,6 +1036,33 @@ def sweep_data_dir_leftovers(
     return removed
 
 
+def _sweep_orphaned_learning_threads(owners: set[str], *, older_than: float) -> int:
+    """Learning data of conversations that are gone (a deletion whose Learning step
+    failed). Only when Learning has a store; nothing is imported otherwise."""
+
+    from row_bot import learning
+
+    if not learning.store_exists():
+        return 0
+    from row_bot.learning.store import LearningStore
+
+    purged = LearningStore().purge_missing_threads(owners, older_than=older_than)
+    if purged:
+        from row_bot.data_paths import get_row_bot_data_dir
+
+        runs = get_row_bot_data_dir(create=False) / "learning_models" / "runs"
+        if runs.is_dir():
+            from row_bot.learning.training.dataset import read_manifest
+
+            gone = set()
+            for entry in runs.iterdir():
+                manifest = read_manifest(entry / "data") or {}
+                gone.update(str(item) for item in manifest.get("conversations") or () if str(item) not in owners)
+            if gone:
+                _forget_in_training_runs(sorted(gone))
+    return purged
+
+
 def sweep_orphaned_thread_artifacts(
     *,
     now: datetime | None = None,
@@ -1102,6 +1168,10 @@ def sweep_orphaned_thread_artifacts(
         logger.debug("Could not clean imported sandbox orphans", exc_info=True)
 
     cutoff = maintenance_now - STALE_TEMP_FILE_AGE
+    try:
+        stats["learning_threads"] = _sweep_orphaned_learning_threads(owners, older_than=cutoff.timestamp())
+    except Exception:
+        logger.warning("Could not clean Learning data of deleted conversations", exc_info=True)
     try:
         from row_bot.tool_outputs import sweep_orphaned_outputs
 

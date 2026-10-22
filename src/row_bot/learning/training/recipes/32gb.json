@@ -1,0 +1,36 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "32gb",
+  "tier": "32gb",
+  "certified": true,
+  "title": "32 GB graphics cards",
+  "starting_model": "qwen3.5-9b",
+  "method": "lora_sft",
+  "evidence": "L2x (O121): Qwen3.5 9B, 4-bit QLoRA at 16K, as the 24 GB recipe, measured on an RTX 5090 (this tier's own card: 32 GB, also driving the display): three passes on 90 rows, 69 steps at 8.14 s/step, 20,018 MiB on the card at its peak with room to spare, 29.5 GB of the computer's commit (Windows), gradient norms 0.12-2.3, loss 0.15 over the last ten steps, no spill; the last pass ready in Row-Bot's own server in 218 s. Its need (20,480 MiB free on the card, 30.5 GB of commit) fits any 32 GB card with the display's share. 16-bit LoRA also trains here (7.8 s/step, 26,401 MiB on the card at its peak, 35.9 GB of commit, no spill) but needs 26,880 MiB free; whether 32 GB cards use it where they have that free is decided from night-time free-memory samples. Qwen3.8 27B needs a card with nothing else on it: not certified for 5.4 (O107).",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 4,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 3,
+  "checkpoint_every": 10,
+  "min_examples": 90,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q8_0",
+  "reasoning": "off",
+  "memory_mib": 20480,
+  "system_memory_mib": {
+    "windows": 31232
+  }
+}

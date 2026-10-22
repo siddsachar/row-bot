@@ -447,10 +447,11 @@ class ChatOpenAICompatible(BaseChatModel):
         owns_client = self.http_client is None
         request_timeout = _httpx_timeout(self.timeout)
         try:
+            base_url, api_key = self._target()
             response = client.post(
-                _chat_url(self.base_url),
+                _chat_url(base_url),
                 json=body,
-                headers=self._headers(),
+                headers=self._headers(api_key),
                 timeout=request_timeout,
             )
             _raise_for_status(response, self.endpoint)
@@ -511,16 +512,17 @@ class ChatOpenAICompatible(BaseChatModel):
         decoded_events = 0
         done_seen = False
         try:
+            base_url, api_key = self._target()
             context = client.stream(
                 "POST",
-                _chat_url(self.base_url),
+                _chat_url(base_url),
                 json=body,
-                headers=self._headers(),
+                headers=self._headers(api_key),
                 timeout=request_timeout,
             ) if hasattr(client, "stream") else nullcontext(client.post(
-                _chat_url(self.base_url),
+                _chat_url(base_url),
                 json=body,
-                headers=self._headers(),
+                headers=self._headers(api_key),
                 timeout=request_timeout,
             ))
             with context as response:
@@ -578,11 +580,26 @@ class ChatOpenAICompatible(BaseChatModel):
             if owns_client:
                 client.close()
 
-    def _headers(self) -> dict[str, str]:
+    def _target(self) -> tuple[str, str]:
+        """Where this request goes and its key. A server Row-Bot runs itself (a personal model's,
+        ``managed``) answers on an address and key that exist only while it runs: they are asked for
+        now, and it starts if it isn't running."""
+
+        if not self.endpoint.get("managed"):
+            return self.base_url, self.api_key
+        from row_bot.providers.custom import managed_connection
+
+        found = managed_connection(self.endpoint)
+        if found is None:
+            raise RuntimeError("Row-Bot couldn't start the server that runs your personal model.")
+        return found
+
+    def _headers(self, api_key: str | None = None) -> dict[str, str]:
         headers = dict(self.endpoint.get("headers") or {})
-        if self.api_key:
+        key = self.api_key if api_key is None else api_key
+        if key:
             header_name = str(self.endpoint.get("api_key_header") or "Authorization")
-            headers[header_name] = f"Bearer {self.api_key}" if header_name.lower() == "authorization" else self.api_key
+            headers[header_name] = f"Bearer {key}" if header_name.lower() == "authorization" else key
         headers.setdefault("Accept", "application/json")
         headers.setdefault("Content-Type", "application/json")
         if self.endpoint.get("profile") == "opencode":

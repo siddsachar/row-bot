@@ -25,12 +25,25 @@ _KEY_SHAPED = re.compile(
 )
 
 
+# Credentials this process holds only in memory (the ChatGPT lane's OAuth tokens): never written anywhere.
+_IN_MEMORY_SECRETS: set[str] = set()
+
+
+def register_secret(value: str) -> None:
+    """Have :func:`redact` remove a credential that is not in the environment."""
+    if value and len(value) >= 12:
+        _IN_MEMORY_SECRETS.add(value)
+
+
 def redact(text: str) -> str:
-    """Remove credentials from text a record keeps: every key in the environment, and key-shaped words."""
+    """Remove credentials from text a record keeps: every key in the environment, credentials held in
+    memory, and key-shaped words."""
     cleaned = str(text or "")
     for name, value in os.environ.items():
         if value and len(value) >= 12 and (name.endswith("_API_KEY") or name.endswith("_TOKEN")):
             cleaned = cleaned.replace(value, "[redacted]")
+    for value in sorted(_IN_MEMORY_SECRETS, key=len, reverse=True):
+        cleaned = cleaned.replace(value, "[redacted]")
     return _KEY_SHAPED.sub("[redacted]", cleaned)
 
 
@@ -316,9 +329,12 @@ def render_markdown(report: Report, *, rates: Mapping[str, Rates] | None = None,
     if report.providers:
         lines += ["## Providers", "", "| Provider | Model | Status | Reason |", "|---|---|---|---|"]
         for entry in report.providers:
+            reason = str(entry.get("reason") or "")
+            if entry.get("credentials"):
+                reason = f"{reason} (sign-in tokens: {entry['credentials']})".strip()
             lines.append(
                 f"| {_cell(entry.get('provider'))} | {_cell(entry.get('model', ''))} | "
-                f"{_cell(entry.get('status', ''))} | {_cell(entry.get('reason', ''))} |"
+                f"{_cell(entry.get('status', ''))} | {_cell(reason)} |"
             )
         lines.append("")
     summaries = provider_summaries(report.tasks, rates)
