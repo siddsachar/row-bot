@@ -1357,7 +1357,9 @@ def fetch_trending_ollama_models() -> list[str]:
 
     Row-Bot no longer fetches public Ollama model listings or offers downloads.
     Local model management lives in Ollama; this app only reads daemon-exposed
-    tags.
+    tags. The one exception is Learning's starting model for the personal model
+    (D13, ``learning/training/weights.py``): pinned, and downloaded only after
+    the person agrees inside personal-model setup.
     """
     global _trending_ollama_cache, _trending_fetched
     _trending_ollama_cache = []

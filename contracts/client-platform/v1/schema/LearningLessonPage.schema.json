@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "LearningLessonView": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "origin": {
+          "const": "agent_saved",
+          "title": "Origin",
+          "type": "string"
+        },
+        "status": {
+          "const": "not_tested",
+          "title": "Status",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 600,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 64,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "text",
+        "origin",
+        "status",
+        "updated_at"
+      ],
+      "title": "LearningLessonView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/LearningLessonView"
+      },
+      "maxItems": 200,
+      "title": "Items",
+      "type": "array"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "total"
+  ],
+  "title": "LearningLessonPage",
+  "type": "object"
+}

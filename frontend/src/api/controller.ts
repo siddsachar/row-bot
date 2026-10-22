@@ -4449,6 +4449,41 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     return result;
   };
+  /** Learning (preview): only when the handshake offers `learning:preview`. */
+  learning = (signal?: AbortSignal) =>
+    this.query(() => this.transport.learning?.(signal));
+  learningTraining = (signal?: AbortSignal) =>
+    this.query(() => this.transport.learningTraining?.(signal));
+  learningDownload = (signal?: AbortSignal) =>
+    this.query(() => this.transport.learningDownload?.(signal));
+  learningHardware = (refresh = false, signal?: AbortSignal) =>
+    this.query(() => this.transport.learningHardware?.(refresh, signal));
+  learningConversation = (conversation: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.learningConversation?.(conversation, signal),
+    );
+  learningLessons = (signal?: AbortSignal) =>
+    this.query(() => this.transport.learningLessons?.(signal));
+  learningReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.learningReceipt?.(command, signal));
+  executeLearning = async (
+    original: Omit<import('./types').LearningCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').LearningCommand>(
+      'LearningCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeLearning)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeLearning(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   customToolReceipt = (
     conversation: string,
     binding: string,

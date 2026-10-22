@@ -49,6 +49,8 @@ LEFT_OUT = (
     "Browser, WhatsApp and device sessions",
     "Caches, logs and downloaded runtimes",
 )
+# Learning (preview, O39): named only when the profile has personal-model files.
+LEFT_OUT_PERSONAL_MODEL = "Personal model files (they download or train again)"
 
 
 class BackupError(Exception):
@@ -233,7 +235,8 @@ def create_backup(data_dir: Path, destination: Path, *, now: datetime | None = N
                 "created_at": moment.isoformat(timespec="seconds"),
                 "files": files,
                 "bytes": total,
-                "left_out": list(LEFT_OUT),
+                "left_out": [*LEFT_OUT, *((LEFT_OUT_PERSONAL_MODEL,)
+                                          if (data_dir / "learning_models").is_dir() else ())],
                 "sign_in_again": _sign_in_again(data_dir, mcp, webhooks),
                 "skipped": skipped,
             }
