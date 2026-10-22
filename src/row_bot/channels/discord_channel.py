@@ -1439,6 +1439,9 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
     thread_id = _get_or_create_thread(channel.id, name=_conversation_name(channel, name_text),
                                       shared=_channel_kind(channel) != "dm")
     config = {"configurable": {"thread_id": thread_id}}
+    # Learning (preview) tells the owner's own DM by its sender (O3); off: one check.
+    from row_bot import learning
+    learning.note_channel_sender(thread_id, user_id)
 
     # Add reaction to show processing + typing indicator
     try:

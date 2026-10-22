@@ -5,6 +5,7 @@ import {
   Activity,
   Brain,
   GitBranch,
+  GraduationCap,
   LayoutGrid,
   Lightbulb,
 } from 'lucide-react';
@@ -33,6 +34,11 @@ import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { neverUsed } from './new-chat';
+import LearningHome, {
+  LEARNING_VIEWS,
+  type LearningView,
+} from '../learning/LearningHome';
+import { learningIsOn, useLearning } from '../learning/learning-state';
 
 const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
 /** Snapshots read in the last few seconds are reused when switching tabs. */
@@ -77,8 +83,16 @@ export default function Home({
     [controller, navigate],
   );
   const [search, setSearch] = useSearchParams();
+  // A sixth tab while Learning (preview) is on (D23).
+  const learning = useLearning();
+  const learningTab = learningIsOn(learning);
+  const tabs = learningTab ? [...homeTabs, 'learning'] : homeTabs;
   const requestedTab = search.get('tab')?.toLowerCase() ?? '';
-  const tab = homeTabs.includes(requestedTab) ? requestedTab : 'overview';
+  const tab = tabs.includes(requestedTab) ? requestedTab : 'overview';
+  const requestedView = search.get('view') ?? '';
+  const learningView: LearningView =
+    LEARNING_VIEWS.find((item) => item.value === requestedView)?.value ??
+    'overview';
   const [knowledge, setKnowledge] = useState<KnowledgeGraphSnapshot | null>(
     null,
   );
@@ -670,6 +684,36 @@ export default function Home({
               />
             ),
           },
+          ...(learning && learningTab
+            ? [
+                {
+                  id: 'learning',
+                  label: (
+                    <>
+                      <GraduationCap size={16} aria-hidden />
+                      Learning
+                    </>
+                  ),
+                  content: (
+                    <LearningHome
+                      io={learning}
+                      view={learningView}
+                      onViewChange={(view) =>
+                        chooseTab(
+                          'learning',
+                          view === 'overview' ? {} : { view },
+                        )
+                      }
+                      onOpenSettings={(anchor) =>
+                        navigate(
+                          `/settings/learning${anchor ? `#${anchor}` : ''}`,
+                        )
+                      }
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
       {knowledgeOwner?.get() && (

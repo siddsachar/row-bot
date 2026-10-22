@@ -1,0 +1,400 @@
+{
+  "$defs": {
+    "LearningChannelNote": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "maxLength": 64,
+          "title": "Channel",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 256,
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "name",
+        "note"
+      ],
+      "title": "LearningChannelNote",
+      "type": "object"
+    },
+    "LearningData": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exists",
+        "bytes"
+      ],
+      "title": "LearningData",
+      "type": "object"
+    },
+    "LearningPastChats": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "none",
+            "reading",
+            "waiting",
+            "stopped",
+            "done",
+            "failed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "state",
+        "total",
+        "done"
+      ],
+      "title": "LearningPastChats",
+      "type": "object"
+    },
+    "LearningPersonalModel": {
+      "additionalProperties": false,
+      "properties": {
+        "download": {
+          "enum": [
+            "not_asked",
+            "waiting",
+            "not_now"
+          ],
+          "title": "Download",
+          "type": "string"
+        },
+        "engine": {
+          "const": "not_downloaded",
+          "title": "Engine",
+          "type": "string"
+        },
+        "engine_download_bytes": {
+          "minimum": 0,
+          "title": "Engine Download Bytes",
+          "type": "integer"
+        },
+        "starting_model": {
+          "$ref": "#/$defs/LearningStartingModel"
+        },
+        "train_in_quiet_hours": {
+          "title": "Train In Quiet Hours",
+          "type": "boolean"
+        },
+        "train_where": {
+          "enum": [
+            "this_computer",
+            "hugging_face"
+          ],
+          "title": "Train Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "train_in_quiet_hours",
+        "train_where",
+        "starting_model",
+        "download",
+        "engine",
+        "engine_download_bytes"
+      ],
+      "title": "LearningPersonalModel",
+      "type": "object"
+    },
+    "LearningQuietHours": {
+      "additionalProperties": false,
+      "properties": {
+        "next_look_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Look At"
+        },
+        "window_end": {
+          "maximum": 23,
+          "minimum": 0,
+          "title": "Window End",
+          "type": "integer"
+        },
+        "window_start": {
+          "maximum": 23,
+          "minimum": 0,
+          "title": "Window Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_start",
+        "window_end"
+      ],
+      "title": "LearningQuietHours",
+      "type": "object"
+    },
+    "LearningSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "apply_mode": {
+          "enum": [
+            "ask_first",
+            "automatic"
+          ],
+          "title": "Apply Mode",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/LearningData"
+        },
+        "opted_out_conversations": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 2000,
+          "title": "Opted Out Conversations",
+          "type": "array"
+        },
+        "owner_unset_channels": {
+          "items": {
+            "$ref": "#/$defs/LearningChannelNote"
+          },
+          "maxItems": 8,
+          "title": "Owner Unset Channels",
+          "type": "array"
+        },
+        "past_chats": {
+          "$ref": "#/$defs/LearningPastChats"
+        },
+        "personal_model": {
+          "$ref": "#/$defs/LearningPersonalModel"
+        },
+        "quiet_hours": {
+          "$ref": "#/$defs/LearningQuietHours"
+        },
+        "readable": {
+          "title": "Readable",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "sources": {
+          "$ref": "#/$defs/LearningSourcesSnapshot"
+        },
+        "spending": {
+          "$ref": "#/$defs/LearningSpending"
+        },
+        "state": {
+          "enum": [
+            "off",
+            "on",
+            "paused"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "state",
+        "readable",
+        "sources",
+        "apply_mode",
+        "spending",
+        "quiet_hours",
+        "past_chats",
+        "personal_model",
+        "data",
+        "opted_out_conversations",
+        "owner_unset_channels"
+      ],
+      "title": "LearningSnapshot",
+      "type": "object"
+    },
+    "LearningSourcesSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "my_chats": {
+          "title": "My Chats",
+          "type": "boolean"
+        },
+        "past_chats": {
+          "title": "Past Chats",
+          "type": "boolean"
+        },
+        "workflows_and_goals": {
+          "title": "Workflows And Goals",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "my_chats",
+        "workflows_and_goals",
+        "past_chats"
+      ],
+      "title": "LearningSourcesSnapshot",
+      "type": "object"
+    },
+    "LearningSpending": {
+      "additionalProperties": false,
+      "properties": {
+        "limit_reached": {
+          "title": "Limit Reached",
+          "type": "boolean"
+        },
+        "limit_tokens": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Limit Tokens",
+          "type": "integer"
+        },
+        "model_name": {
+          "maxLength": 256,
+          "title": "Model Name",
+          "type": "string"
+        },
+        "resets_on": {
+          "maxLength": 16,
+          "title": "Resets On",
+          "type": "string"
+        },
+        "used_tokens": {
+          "minimum": 0,
+          "title": "Used Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used_tokens",
+        "limit_tokens",
+        "resets_on",
+        "model_name",
+        "limit_reached"
+      ],
+      "title": "LearningSpending",
+      "type": "object"
+    },
+    "LearningStartingModel": {
+      "additionalProperties": false,
+      "properties": {
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 64,
+          "title": "Id",
+          "type": "string"
+        },
+        "licence": {
+          "maxLength": 64,
+          "title": "Licence",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "licence",
+        "download_bytes"
+      ],
+      "title": "LearningStartingModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "signal_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signal Id"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/LearningSnapshot"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 1024,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "summary",
+    "snapshot"
+  ],
+  "title": "LearningReceipt",
+  "type": "object"
+}

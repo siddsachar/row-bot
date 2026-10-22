@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
 import { AgentAvatar } from '../../ui/AgentAvatar';
 import { TranscriptMessage } from './TranscriptMessage';
+import { TeachContext } from '../learning/chat-learning';
 import { SpeakersContext, type Speakers } from './TurnMarker';
 
 const mock = vi.hoisted(() => ({
@@ -165,4 +172,64 @@ it('gives an agent’s replies its own icon in its conversation (B271)', () => {
   expect(
     marker.querySelector('.agent-avatar')?.getAttribute('data-avatar'),
   ).toBe(expected);
+});
+
+it('offers Teach Row-Bot after Copy, Read aloud and Retry while Learning uses the chat', () => {
+  const teach = vi.fn();
+  const row = {
+    id: 'assistant:teach',
+    message_id: 'reply-7',
+    role: 'assistant',
+    blocks: [{ id: 'b', type: 'markdown', text: 'It is the draft budget.' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  render(
+    <TeachContext.Provider value={teach}>
+      <TranscriptMessage
+        row={row}
+        conversationId="conversation-a"
+        onRetry={vi.fn()}
+      />
+    </TeachContext.Provider>,
+  );
+  const toolbar = screen.getByRole('toolbar', {
+    name: 'Row-Bot message actions',
+  });
+  expect(
+    within(toolbar)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label')),
+  ).toEqual(['Copy message', 'Read aloud', 'Retry', 'Teach Row-Bot']);
+  fireEvent.click(
+    within(toolbar).getByRole('button', { name: 'Teach Row-Bot' }),
+  );
+  expect(teach).toHaveBeenCalledWith({ messageId: 'reply-7' });
+});
+
+it('has no Teach without Learning, nor on your own messages', () => {
+  const reply = {
+    id: 'assistant:plain',
+    message_id: 'reply-8',
+    role: 'assistant',
+    blocks: [{ id: 'b', type: 'markdown', text: 'Done.' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  const mine = {
+    ...reply,
+    id: 'user:plain',
+    message_id: 'mine-1',
+    role: 'user',
+  } as unknown as TranscriptRow;
+  const { rerender } = render(
+    <TranscriptMessage row={reply} conversationId="conversation-a" />,
+  );
+  expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
+  rerender(
+    <TeachContext.Provider value={vi.fn()}>
+      <TranscriptMessage row={mine} conversationId="conversation-a" />
+    </TeachContext.Provider>,
+  );
+  expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
 });

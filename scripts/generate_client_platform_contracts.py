@@ -71,6 +71,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "DataBackupUploadRequest", "DataBackupUploadView",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
+    "LearningSnapshot", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
     "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "DeliveryView", "DeliveryPage", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
@@ -327,6 +328,12 @@ OPERATIONS = (
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
+    ("get", "/learning", None, "LearningSnapshot"),
+    ("get", "/learning/hardware", None, "LearningHardware"),
+    ("get", "/learning/conversations/{conversation_id}", None, "LearningConversation"),
+    ("get", "/learning/lessons", None, "LearningLessonPage"),
+    ("get", "/learning/commands/{command_id}", None, "LearningReceipt"),
+    ("post", "/learning/commands", "LearningCommand", "LearningReceipt"),
     ("post", "/settings/mcp/policy/review", "McpPolicyRequest", "McpPolicyReview"),
     ("get", "/settings/mcp/chat", None, "McpChatState"),
     ("post", "/settings/mcp/chat/review", "McpChatReviewRequest", "McpChatReview"),
@@ -1103,6 +1110,18 @@ export const getInsightReceipt = (base: string, proof: SessionProof, command: st
   jsonRequest(base, `/insights/commands/${id(command)}`, 'InsightReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendInsightCommand = (base: string, proof: SessionProof, command: InsightCommand, signal?: AbortSignal): Promise<InsightReceipt> =>
   jsonRequest(base, '/insights/commands', 'InsightReceipt', proof, 'POST', validateWire('InsightCommand', command), command.command_id, signal);
+export const getLearning = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LearningSnapshot> =>
+  jsonRequest(base, '/learning', 'LearningSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getLearningHardware = (base: string, proof: SessionProof, refresh = false, signal?: AbortSignal): Promise<LearningHardware> =>
+  jsonRequest(base, '/learning/hardware' + query({refresh: refresh ? 'true' : undefined}), 'LearningHardware', proof, 'GET', undefined, undefined, signal);
+export const getLearningConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<LearningConversation> =>
+  jsonRequest(base, `/learning/conversations/${id(conversation)}`, 'LearningConversation', proof, 'GET', undefined, undefined, signal);
+export const getLearningLessons = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LearningLessonPage> =>
+  jsonRequest(base, '/learning/lessons', 'LearningLessonPage', proof, 'GET', undefined, undefined, signal);
+export const getLearningReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<LearningReceipt> =>
+  jsonRequest(base, `/learning/commands/${id(command)}`, 'LearningReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendLearningCommand = (base: string, proof: SessionProof, command: LearningCommand, signal?: AbortSignal): Promise<LearningReceipt> =>
+  jsonRequest(base, '/learning/commands', 'LearningReceipt', proof, 'POST', validateWire('LearningCommand', command), command.command_id, signal);
 export const getConversationActions = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationActionSnapshot> =>
   jsonRequest(base, `/conversations/${id(conversation)}/actions`, 'ConversationActionSnapshot', proof, 'GET', undefined, undefined, signal);
 export const reviewConversationAction = (base: string, proof: SessionProof, conversation: string, body: ConversationActionReviewRequest, signal?: AbortSignal): Promise<ConversationActionReview> =>

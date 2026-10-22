@@ -1557,6 +1557,10 @@ def _n4_resume(enabled_tools: list[str], config: dict, approved: bool, *, interr
 
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
+    if text.startswith("l1a ") and text.rstrip().endswith("fixture"):
+        # Learning (L1a): a reply to Teach on, after a step that failed.
+        yield from _l1a_stream(text, config)
+        return
     if text.startswith("n4 ") and text.rstrip().endswith("fixture"):
         # Row-Bot asks questions with options (N4): one question, or two as steps.
         yield from _n4_stream(text, config)
@@ -4128,6 +4132,92 @@ def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
     facts.invalidate()
     return {"removed": True}
 
+
+# ── Learning (preview), L1a: the flag, the hardware check and the Overview's states ──
+
+_l1a_saved: dict[str, object] = {}
+
+
+def _l1a_stream(text: str, config: dict):
+    from row_bot.threads import append_checkpoint_messages
+    call = predecessor._record("submit", config, "l1a")
+    thread = call["conversation_id"]
+    identity = f"l1a:{call['generation_id']}"
+    try:
+        tool_id = fixture_id(identity + ":tool")
+        result_id = fixture_id(identity + ":result")
+        args = {"path": "budgets/2026-draft.md"}
+        append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":call"), content="",
+            tool_calls=[{"id": tool_id, "name": "workspace_read_file", "args": args}])])
+        yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": "workspace_read_file",
+                            "args": args}
+        result = "Error: budgets/2026-draft.md was not found."
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id,
+                                                      name="workspace_read_file", content=result, status="error")])
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "workspace_read_file",
+                            "args": args, "content": result, "status": "error"}
+        yield from _natural_final(call, thread, "The 2026 budget for travel is 1,200 (from the draft).", "l1a")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__l1a_fixture/learning/{action}")
+def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L1a spec: the start-up flag, a faked hardware check and the
+    Overview's states. Nothing reaches a GPU, a download or a provider."""
+    predecessor._authorize(x_fixture_token)
+    import time as _time
+
+    from row_bot import learning
+    from row_bot.learning import spending
+    from row_bot.learning.training import hardware
+
+    if "check" not in _l1a_saved:
+        _l1a_saved["check"] = hardware.check
+        _l1a_saved["used"] = spending.used_this_month
+    if action == "preview":
+        learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
+        learning.invalidate()
+    elif action in {"gpu", "no-gpu"}:
+        found = (hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 5070 Laptop GPU", 8151, "596.08")])
+                 if action == "gpu" else hardware.HardwareCheck("no_gpu"))
+        hardware.check = lambda *, refresh=False, detector=None: found
+    elif action == "paused":
+        from row_bot.application.settings_commands import write_learning_settings
+        write_learning_settings({"paused": True})
+    elif action == "limit":
+        limit = learning.read_settings().monthly_token_limit
+        spending.used_this_month = lambda **_kwargs: limit
+    elif action == "reading":
+        from row_bot.learning import past_chats
+        past_chats.stop_background(10)  # the real import of the fixture's chats, if still running
+        from row_bot.learning.contracts import Job
+        from row_bot.learning.store import LearningStore
+        now = _time.time()
+        LearningStore().put(Job(id=past_chats.JOB_ID, kind="past_chat_import", created_at=now, updated_at=now,
+                                state="running", steps_total=214, steps_done=61))
+    elif action == "restore":
+        from row_bot.learning.store import LearningStore
+        hardware.check = _l1a_saved["check"]
+        spending.used_this_month = _l1a_saved["used"]
+        past = sys.modules.get("row_bot.learning.past_chats")
+        if past is not None:
+            past.stop_background(10)
+        capture = sys.modules.get("row_bot.learning.capture")
+        if capture is not None:
+            capture.learning_turned_off()
+        store = LearningStore()
+        if store.exists():
+            for thread in store.opted_out_chats():
+                store.set_chat_opt_out(thread, False)
+            store.delete_all()
+        for leftover in (learning.store_path(), learning.settings_path()):
+            leftover.unlink(missing_ok=True)
+        learning._PREVIEW = False
+        learning.invalidate()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
 
 
 # ── S11: helpers ────────────────────────────────────────────────────────────

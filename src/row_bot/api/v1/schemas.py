@@ -1208,6 +1208,28 @@ class PreferenceSettingsSnapshot(WireModel):
     migration: MigrationSettingsSnapshot
 
 
+class LearningSourcesSnapshot(WireModel):
+    my_chats: bool
+    workflows_and_goals: bool
+    past_chats: bool
+
+
+class LearningSettingsSnapshot(WireModel):
+    """Learning (preview): saved settings only; nothing acts on most of them yet."""
+
+    availability: Literal["available", "unavailable"]
+    enabled: bool
+    # On but paused: nothing new is recorded, tested or trained.
+    paused: bool
+    sources: LearningSourcesSnapshot
+    apply_mode: Literal["ask_first", "automatic"]
+    monthly_token_limit: int = Field(ge=0, le=1_000_000_000)
+    train_in_quiet_hours: bool
+    train_where: Literal["this_computer", "hugging_face"]
+    # Learning data is on this computer (kept after Learning is turned off).
+    has_data: bool
+
+
 SettingsMutationPage = Literal[
     "voice",
     "system",
@@ -1218,6 +1240,7 @@ SettingsMutationPage = Literal[
     "accounts",
     "utilities",
     "preferences",
+    "learning",
 ]
 SettingsMutationValue = str | bool | int | float | list[str] | None
 
@@ -1237,6 +1260,7 @@ class SettingsSnapshot(WireModel):
     utilities: UtilitySettingsSnapshot
     plugins: SettingsPluginSummary
     preferences: PreferenceSettingsSnapshot
+    learning: LearningSettingsSnapshot
     # Per page, what each saved field reads on a fresh profile; clients show
     # a "modified" mark and a reset for fields that differ.
     defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(
@@ -3895,6 +3919,165 @@ class InsightReceipt(WireModel):
     status: Literal["completed", "failed", "uncertain"]
     summary: str = Field(max_length=1024)
     snapshot: InsightsSnapshot
+
+
+# Learning (preview, O34): only in a build started with ROW_BOT_LEARNING_PREVIEW=1.
+
+
+class LearningSpending(WireModel):
+    used_tokens: int = Field(ge=0)
+    limit_tokens: int = Field(ge=0, le=1_000_000_000)
+    # The 1st of next month (local date): when the limit starts again.
+    resets_on: str = Field(max_length=16)
+    # The default chat model's name; Learning's own model calls use it. "" when none is chosen.
+    model_name: str = Field(max_length=256)
+    limit_reached: bool
+
+
+class LearningQuietHours(WireModel):
+    # Dream Cycle's hours, shared with Learning (D12).
+    window_start: int = Field(ge=0, le=23)
+    window_end: int = Field(ge=0, le=23)
+    # When Learning next looks for improvements, once something runs then (L3a); null until.
+    next_look_at: str | None = Field(default=None, max_length=64)
+
+
+class LearningPastChats(WireModel):
+    state: Literal["none", "reading", "waiting", "stopped", "done", "failed"]
+    total: int = Field(ge=0)
+    done: int = Field(ge=0)
+
+
+class LearningStartingModel(WireModel):
+    id: str = Field(max_length=64)
+    name: str = Field(max_length=128)
+    licence: str = Field(max_length=64)
+    download_bytes: int = Field(ge=0)
+
+
+class LearningPersonalModel(WireModel):
+    train_in_quiet_hours: bool
+    train_where: Literal["this_computer", "hugging_face"]
+    starting_model: LearningStartingModel
+    # The answer to the download ask: Download waits until the engine can be installed (L2b).
+    download: Literal["not_asked", "waiting", "not_now"]
+    engine: Literal["not_downloaded"]
+    engine_download_bytes: int = Field(ge=0)
+
+
+class LearningData(WireModel):
+    exists: bool
+    bytes: int = Field(ge=0)
+
+
+class LearningChannelNote(WireModel):
+    channel: str = Field(max_length=64)
+    name: str = Field(max_length=64)
+    # "Telegram chats are used once your Telegram user ID is set in Settings › Apps › Telegram."
+    note: str = Field(max_length=256)
+
+
+class LearningSnapshot(WireModel):
+    schema_version: Literal[1]
+    # Covers the saved choices and the switched-off chats, not progress or spending.
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal["off", "on", "paused"]
+    # False when the saved settings can't be read (Learning is then off).
+    readable: bool
+    sources: LearningSourcesSnapshot
+    apply_mode: Literal["ask_first", "automatic"]
+    spending: LearningSpending
+    quiet_hours: LearningQuietHours
+    past_chats: LearningPastChats
+    personal_model: LearningPersonalModel
+    data: LearningData
+    opted_out_conversations: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=2000)
+    owner_unset_channels: list[LearningChannelNote] = Field(max_length=8)
+
+
+class LearningGpu(WireModel):
+    name: str = Field(max_length=128)
+    memory_gb: int = Field(ge=0, le=4096)
+    # "NVIDIA GeForce RTX 5070 Laptop (8 GB)"
+    label: str = Field(max_length=160)
+
+
+class LearningTier(WireModel):
+    id: str = Field(max_length=32)
+    label: str = Field(max_length=32)
+    certified: bool
+    summary: str = Field(max_length=256)
+
+
+class LearningHardware(WireModel):
+    state: Literal["gpu", "small_gpu", "no_gpu", "unknown"]
+    gpu: LearningGpu | None
+    # The certified recipe tier this computer trains with, and larger ones still being measured.
+    tier: LearningTier | None
+    larger_tiers: list[LearningTier] = Field(max_length=8)
+    starting_models: list[LearningStartingModel] = Field(max_length=8)
+    engine_download_bytes: int = Field(ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+
+
+class LearningConversation(WireModel):
+    conversation_id: str = Field(max_length=256)
+    # learning: Teach is offered; opted_out: "Don't learn from this chat" is ticked;
+    # not_used: never recorded (`reason` says why); paused / off: nothing is recorded now.
+    state: Literal["learning", "opted_out", "not_used", "paused", "off"]
+    reason: str = Field(max_length=256)
+
+
+class LearningLessonView(WireModel):
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=200)
+    text: str = Field(max_length=600)
+    # Row-Bot saved it for itself during a chat; nothing has tested it yet.
+    origin: Literal["agent_saved"]
+    status: Literal["not_tested"]
+    updated_at: str = Field(max_length=64)
+
+
+class LearningLessonPage(WireModel):
+    items: list[LearningLessonView] = Field(max_length=200)
+    total: int = Field(ge=0)
+
+
+class LearningSetupChoices(WireModel):
+    sources: LearningSourcesSnapshot
+    apply_mode: Literal["ask_first", "automatic"]
+    monthly_token_limit: int = Field(ge=0, le=1_000_000_000)
+    train_in_quiet_hours: bool
+    train_where: Literal["this_computer", "hugging_face"]
+    starting_model: Literal["qwen3.5-2b"] = "qwen3.5-2b"
+
+
+class LearningCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal[
+        "turn_on", "turn_off", "pause", "resume", "delete_data", "opt_out", "opt_in", "teach",
+        "undo_teach", "answer_download",
+    ]
+    setup: LearningSetupChoices | None = None
+    conversation_id: str = Field(default="", max_length=256)
+    # Teach: the reply (its message id) or the failed step (its tool call id).
+    message_id: str = Field(default="", max_length=256)
+    tool_call_id: str = Field(default="", max_length=256)
+    category: Literal["wrong_answer", "wrong_tool_or_step", "ignored_instructions", "other"] | None = None
+    note: str = Field(default="", max_length=2000)
+    signal_id: str = Field(default="", max_length=128)
+    download: Literal["download", "not_now"] | None = None
+
+
+class LearningReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    summary: str = Field(max_length=1024)
+    snapshot: LearningSnapshot
+    # The Teach that was saved, for its Undo.
+    signal_id: str | None = Field(default=None, max_length=128)
 
 
 class DeveloperRepositoryRevisionInput(WireModel):

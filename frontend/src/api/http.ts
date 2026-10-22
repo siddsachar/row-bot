@@ -2225,6 +2225,29 @@ export class HttpTransport implements ClientTransport {
   executeInsight(command: wire.InsightCommand, signal?: AbortSignal) {
     return wire.sendInsightCommand(this.base, this.session(), command, signal);
   }
+  learning(signal?: AbortSignal) {
+    return wire.getLearning(this.base, this.session(), signal);
+  }
+  learningHardware(refresh = false, signal?: AbortSignal) {
+    return wire.getLearningHardware(this.base, this.session(), refresh, signal);
+  }
+  learningConversation(conversation: string, signal?: AbortSignal) {
+    return wire.getLearningConversation(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
+  learningLessons(signal?: AbortSignal) {
+    return wire.getLearningLessons(this.base, this.session(), signal);
+  }
+  learningReceipt(command: string, signal?: AbortSignal) {
+    return wire.getLearningReceipt(this.base, this.session(), command, signal);
+  }
+  executeLearning(command: wire.LearningCommand, signal?: AbortSignal) {
+    return wire.sendLearningCommand(this.base, this.session(), command, signal);
+  }
   customToolReceipt(
     conversation: string,
     binding: string,
