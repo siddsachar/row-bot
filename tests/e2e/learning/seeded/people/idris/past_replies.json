@@ -1,0 +1,801 @@
+{
+ "format": "row_bot.learning.seeded_past_replies",
+ "model": "gpt-6.1-sol",
+ "note": "The past's replies in the main model's own words (tests/e2e/learning/seeded/phrasing.py). Made-up people; nothing here comes from a real person.",
+ "replies": {
+  "idris-p01-0-0": {
+   "reply": "Done: `late_fee` is in `scripts/fees_4.py`.\n\nIt calculates the late fee rounded to two decimal places and returns zero when the payment is not late. Uses only the Python standard library.",
+   "template": "Done: late_fee is in scripts/fees_4.py."
+  },
+  "idris-p01-0-1": {
+   "reply": "Brindle & Moss have **30 days from the invoice date** to pay, under their current bookkeeping agreement.",
+   "template": "It's 30."
+  },
+  "idris-p01-1-0": {
+   "reply": "Done: `days_late` is in `scripts/dates.py`.\n\nIt uses Python’s standard-library `datetime` module to compare the ISO dates and returns the days overdue, or zero if paid on time or early.",
+   "template": "Done: days_late is in scripts/dates.py."
+  },
+  "idris-p01-1-1": {
+   "reply": "Sent to sol@quaysidecycles.example, letting them know invoice INV-1293 is now late and the late fee applies.",
+   "template": "Sent to sol@quaysidecycles.example."
+  },
+  "idris-p01-2-0": {
+   "reply": "The VAT is **GBP 453.00**.",
+   "template": "That comes to 453.00."
+  },
+  "idris-p01-2-1": {
+   "reply": "Brindle & Moss’s payment terms are **30 days from the invoice date**, under their current bookkeeping agreement.",
+   "template": "It's 30."
+  },
+  "idris-p01-3-0": {
+   "reply": "The total is **GBP 747.00**, including the extra work and retainer.",
+   "template": "That comes to 747.00."
+  },
+  "idris-p02-0-0": {
+   "reply": "Brindle & Moss spent **117.89 on packaging** during the requested period, including both start and end dates.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 117.89."
+  },
+  "idris-p02-0-1": {
+   "reply": "The late fee is **£27.00**, assuming simple interest rather than compounding.",
+   "template": "That comes to 27.00."
+  },
+  "idris-p02-1-0": {
+   "reply": "Quayside have **21 days from the invoice date** to pay, according to their bookkeeping agreement.",
+   "template": "It's 21."
+  },
+  "idris-p02-1-1": {
+   "reply": "Done: `receipts/receipts-2026-10-31.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-31.csv has 3 rows."
+  },
+  "idris-p02-1-2": {
+   "reply": "Sent an email to ines@copperkettle.example asking for the card terminal statements for invoice INV-1193.",
+   "template": "Sent to ines@copperkettle.example."
+  },
+  "idris-p02-2-0": {
+   "reply": "Done: `late_fee` is in `scripts/fees_3.py`.\n\nIt calculates the late fee rounded to two decimal places and returns zero when the payment is not late. It uses only built-in Python functionality.",
+   "template": "Done: late_fee is in scripts/fees_3.py."
+  },
+  "idris-p03-0-0": {
+   "reply": "Done: `receipts/receipts-2026-10-30.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-30.csv has 5 rows."
+  },
+  "idris-p03-1-0": {
+   "reply": "Quayside Cycles’ payment terms are **21 days from the invoice date**.",
+   "template": "It's 21."
+  },
+  "idris-p03-2-0": {
+   "reply": "The Copper Kettle’s monthly retainer is **£180**.",
+   "template": "It's 180."
+  },
+  "idris-p03-2-1": {
+   "reply": "Created `bm-spend-2026-10-17.json` with Brindle & Moss’s total spend per category for the requested date range, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-17.json has the totals per category."
+  },
+  "idris-p03-2-2": {
+   "reply": "The fuel total for Brindle & Moss over the requested date range (inclusive) is **126.14**, across two fuel transactions.",
+   "template": "The total is 126.14."
+  },
+  "idris-p04-0-0": {
+   "reply": "The Copper Kettle Cafe has been VAT registered since **1 August 2026**. Before that, it wasn’t registered.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p04-0-1": {
+   "reply": "Added **Copper Kettle payroll** to your calendar for **2026-11-02**.",
+   "template": "Added Copper Kettle payroll on 2026-11-02."
+  },
+  "idris-p04-0-2": {
+   "reply": "Done: `bm-spend-2026-10-18.json` has Brindle & Moss’s totals per category for the requested date range, calculated from `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-18.json has the totals per category."
+  },
+  "idris-p04-1-0": {
+   "reply": "Brindle & Moss spent **889.94** on wholesale flowers during the requested period, including both start and end dates.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 889.94."
+  },
+  "idris-p04-2-0": {
+   "reply": "The Copper Kettle Cafe is registered for VAT from **1 August 2026**, according to `clients/copper-kettle/notes.md`. Before that, the cafe was not VAT registered.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p04-2-1": {
+   "reply": "The Copper Kettle’s monthly retainer is **£180**.",
+   "template": "It's 180."
+  },
+  "idris-p04-2-2": {
+   "reply": "Sent an email to accounts@brindlemoss.example reminding them that invoice INV-1151 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p04-3-0": {
+   "reply": "Done: `invoice_total` is in `scripts/invoices_6.py`.\n\nIt totals each line’s quantity × unit price after applying its optional percentage discount, then rounds the total to 2 decimal places. No external dependencies.",
+   "template": "Done: invoice_total is in scripts/invoices_6.py."
+  },
+  "idris-p04-3-1": {
+   "reply": "The VAT is **GBP 336.00**.",
+   "template": "That comes to 336.00."
+  },
+  "idris-p04-4-0": {
+   "reply": "Archived 2 emails from promo@ledgerly.example.",
+   "template": "Archived 2 emails from promo@ledgerly.example."
+  },
+  "idris-p04-4-1": {
+   "reply": "Brindle & Moss spent **290.78 on utilities** between 2026-10-23 and 2026-10-27, inclusive.\n\n| Date | Payee | Amount |\n|---|---|---:|\n| 2026-10-23 | Brightwater Energy | 56.83 |\n| 2026-10-26 | Clearline Water | 89.05 |\n| 2026-10-27 | Brightwater Energy | 144.90 |\n| **Total** | | **290.78** |\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 290.78."
+  },
+  "idris-p04-4-2": {
+   "reply": "Done: `bm-spend-2026-10-20.json` has Brindle & Moss’s spending totals per category, saved as JSON.",
+   "template": "Done: bm-spend-2026-10-20.json has the totals per category."
+  },
+  "idris-p05-0-0": {
+   "reply": "Created `bm-spend-2026-10-14.json` with Brindle & Moss’s total spend per category for the requested period, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-14.json has the totals per category."
+  },
+  "idris-p05-0-1": {
+   "reply": "The late fee is **GBP 34.00**, using simple interest.",
+   "template": "That comes to 34.00."
+  },
+  "idris-p05-0-2": {
+   "reply": "Done: `bm-spend-2026-10-17.json` has the totals per category as JSON.",
+   "template": "Done: bm-spend-2026-10-17.json has the totals per category."
+  },
+  "idris-p05-1-0": {
+   "reply": "The Copper Kettle Cafe has been VAT registered since **1 August 2026**. Before that, it wasn’t registered.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p05-1-1": {
+   "reply": "The wholesale flowers total for Brindle & Moss over the requested date range is **754.31**, across four matching transactions.",
+   "template": "The total is 754.31."
+  },
+  "idris-p05-2-0": {
+   "reply": "Brindle & Moss’s monthly retainer is **£275**, covering bank reconciliation, sales and purchase ledgers, and quarterly VAT returns.",
+   "template": "It's 275."
+  },
+  "idris-p06-0-0": {
+   "reply": "The packaging lines for Brindle & Moss in the requested date range total **218.31**, including both start and end dates.",
+   "template": "The total is 218.31."
+  },
+  "idris-p06-1-0": {
+   "reply": "Brindle & Moss’s monthly retainer is **£275**, covering bank reconciliation, sales and purchase ledgers, and quarterly VAT returns.",
+   "template": "It's 275."
+  },
+  "idris-p06-1-1": {
+   "reply": "The packaging total for Brindle & Moss is **192.41** for the requested date range, inclusive.",
+   "template": "The total is 192.41."
+  },
+  "idris-p06-2-0": {
+   "reply": "The packaging lines for Brindle & Moss total **134.59** for the requested date range, inclusive.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 134.59."
+  },
+  "idris-p06-2-1": {
+   "reply": "Done: `receipts/receipts-2026-10-27.csv` has 4 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-27.csv has 4 rows."
+  },
+  "idris-p07-0-0": {
+   "reply": "The late fee is **GBP 72.00**, assuming simple interest rather than compounding.",
+   "template": "That comes to 72.00."
+  },
+  "idris-p07-1-0": {
+   "reply": "Sent an email to ines@copperkettle.example asking for the card terminal statements for invoice INV-1371.",
+   "template": "Sent to ines@copperkettle.example."
+  },
+  "idris-p07-1-1": {
+   "reply": "The late fee is **£63.00**.",
+   "template": "That comes to 63.00."
+  },
+  "idris-p07-1-2": {
+   "reply": "Done: `receipts/receipts-2026-10-25.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-25.csv has 3 rows."
+  },
+  "idris-p07-2-0": {
+   "reply": "Brindle & Moss’s monthly retainer is **£275**, according to the current bookkeeping agreement.",
+   "template": "It's 275."
+  },
+  "idris-p07-2-1": {
+   "reply": "Sent an email to accounts@brindlemoss.example reminding them that invoice INV-1115 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p08-0-0": {
+   "reply": "Added **Quayside Cycles payroll** to your calendar on **2026-11-05**.",
+   "template": "Added Quayside Cycles payroll on 2026-11-05."
+  },
+  "idris-p08-0-1": {
+   "reply": "Done: `invoice_total` is in `scripts/invoices_5.py`.\n\nIt applies each line’s optional discount, adds the amounts, and rounds the total to 2 decimal places. Uses only the Python standard library.",
+   "template": "Done: invoice_total is in scripts/invoices_5.py."
+  },
+  "idris-p08-1-0": {
+   "reply": "The Copper Kettle Cafe’s year end is **31 March**.",
+   "template": "It's 31 March."
+  },
+  "idris-p08-2-0": {
+   "reply": "The total comes to **GBP 778.00**, including the extra work and retainer.",
+   "template": "That comes to 778.00."
+  },
+  "idris-p08-3-0": {
+   "reply": "Sent an email to ines@copperkettle.example asking for the card terminal statements for invoice INV-1056.",
+   "template": "Sent to ines@copperkettle.example."
+  },
+  "idris-p08-4-0": {
+   "reply": "Done: `bm-spend-2026-10-17.json` has the totals per category.",
+   "template": "Done: bm-spend-2026-10-17.json has the totals per category."
+  },
+  "idris-p08-4-1": {
+   "reply": "Brindle & Moss spent **464.91** on wholesale flowers during the requested period, based on `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 464.91."
+  },
+  "idris-p09-0-0": {
+   "reply": "Done: `late_fee` is in `scripts/fees_2.py`.\n\nIt calculates the fee rounded to 2 decimal places and returns `0.0` when `months_late` is 0 or less. Uses only built-in Python functions—no dependencies.",
+   "template": "Done: late_fee is in scripts/fees_2.py."
+  },
+  "idris-p09-0-1": {
+   "reply": "Sent a reminder to Juniper at accounts@brindlemoss.example that invoice INV-1170 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p09-1-0": {
+   "reply": "The **wholesale flowers total is 1332.78** for Brindle & Moss over the requested date range, including both start and end dates.",
+   "template": "The total is 1332.78."
+  },
+  "idris-p09-1-1": {
+   "reply": "Archived 3 emails from promo@ledgerly.example.",
+   "template": "Archived 3 emails from promo@ledgerly.example."
+  },
+  "idris-p09-1-2": {
+   "reply": "Brindle & Moss spent **206.65 on utilities** during the requested period.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 206.65."
+  },
+  "idris-p09-2-0": {
+   "reply": "The VAT is **GBP 321.00**.",
+   "template": "That comes to 321.00."
+  },
+  "idris-p09-2-1": {
+   "reply": "The fuel total for Brindle & Moss over the requested period is **167.79**.\n\nSummed the matching fuel lines in `bank/brindle-moss-transactions.csv`, including both the start and end dates. No files were changed.",
+   "template": "The total is 167.79."
+  },
+  "idris-p09-2-2": {
+   "reply": "Archived 2 emails from promo@ledgerly.example.",
+   "template": "Archived 2 emails from promo@ledgerly.example."
+  },
+  "idris-p09-3-0": {
+   "reply": "The fuel total for Brindle & Moss is **126.12** for the requested period, inclusive.\n\nSummed the matching fuel entries in `bank/brindle-moss-transactions.csv`. No files were changed.",
+   "template": "The total is 126.12."
+  },
+  "idris-p10-0-0": {
+   "reply": "Done: `receipts/receipts-2026-10-23.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-23.csv has 3 rows."
+  },
+  "idris-p10-1-0": {
+   "reply": "Done — saved Brindle & Moss’s spending totals by category to `bm-spend-2026-10-16.json` as JSON.",
+   "template": "Done: bm-spend-2026-10-16.json has the totals per category."
+  },
+  "idris-p10-1-1": {
+   "reply": "That comes to **GBP 720.00**, including the extra work and retainer.",
+   "template": "That comes to 720.00."
+  },
+  "idris-p10-2-0": {
+   "reply": "Done: `receipts/receipts-2026-10-22.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-22.csv has 3 rows."
+  },
+  "idris-p10-2-1": {
+   "reply": "The wholesale flowers total for Brindle & Moss over the requested period is **2023.14**.",
+   "template": "The total is 2023.14."
+  },
+  "idris-p10-3-0": {
+   "reply": "You charge **GBP 42 an hour** for extra work under the current Brindle & Moss agreement.",
+   "template": "It's 42."
+  },
+  "idris-p11-0-0": {
+   "reply": "Brindle & Moss spent **101.51** on fuel during the requested period.\n\nSource: `bank/brindle-moss-transactions.csv`, filtered to the `fuel` category and including both start and end dates.",
+   "template": "The total is 101.51."
+  },
+  "idris-p11-1-0": {
+   "reply": "The fuel total for Brindle & Moss over the requested period is **128.73**.\n\nI summed the fuel-category entries in `bank/brindle-moss-transactions.csv`, including both the start and end dates.",
+   "template": "The total is 128.73."
+  },
+  "idris-p11-2-0": {
+   "reply": "Sent to sol@quaysidecycles.example, confirming invoice INV-1053 is now late and the late fee applies.",
+   "template": "Sent to sol@quaysidecycles.example."
+  },
+  "idris-p11-3-0": {
+   "reply": "The packaging lines for Brindle & Moss total **218.31** for the requested date range, inclusive.\n\nSource: `bank/brindle-moss-transactions.csv`. No files were changed.",
+   "template": "The total is 218.31."
+  },
+  "idris-p11-4-0": {
+   "reply": "Done: `invoice_total` is in `scripts/invoices_4.py`.\n\nIt totals each line’s quantity × unit price after applying any optional discount, then rounds the final total to 2 decimal places. No external dependencies.",
+   "template": "Done: invoice_total is in scripts/invoices_4.py."
+  },
+  "idris-p12-0-0": {
+   "reply": "Brindle & Moss’s payment terms are **30 days from the invoice date**, under their current bookkeeping agreement.",
+   "template": "It's 30."
+  },
+  "idris-p12-0-1": {
+   "reply": "The Copper Kettle Cafe has been VAT registered since **1 August 2026**. Before that, it wasn’t registered.\n\nConfirmed in `clients/copper-kettle/notes.md`.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p12-0-2": {
+   "reply": "Quayside Cycles’ payment terms are **21 days from the invoice date**, as stated in their bookkeeping agreement.",
+   "template": "It's 21."
+  },
+  "idris-p12-1-0": {
+   "reply": "Sent to ines@copperkettle.example, asking for the card terminal statements for invoice INV-1141.",
+   "template": "Sent to ines@copperkettle.example."
+  },
+  "idris-p12-1-1": {
+   "reply": "Done: `receipts/receipts-2026-10-21.csv` has 4 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-21.csv has 4 rows."
+  },
+  "idris-p12-2-0": {
+   "reply": "Sent Juniper a reminder at accounts@brindlemoss.example that invoice INV-1164 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p12-2-1": {
+   "reply": "The Copper Kettle Cafe’s year end is **31 March**, according to its client notes.",
+   "template": "It's 31 March."
+  },
+  "idris-p12-2-2": {
+   "reply": "Added **Copper Kettle payroll** to your calendar on **2026-10-29**.",
+   "template": "Added Copper Kettle payroll on 2026-10-29."
+  },
+  "idris-p13-0-0": {
+   "reply": "Done: `receipts/receipts-2026-10-20.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-20.csv has 3 rows."
+  },
+  "idris-p13-1-0": {
+   "reply": "Quayside Cycles’ payment terms are **21 days from the invoice date**, according to their bookkeeping agreement.",
+   "template": "It's 21."
+  },
+  "idris-p13-1-1": {
+   "reply": "The Copper Kettle’s monthly retainer is **£180**.",
+   "template": "It's 180."
+  },
+  "idris-p13-2-0": {
+   "reply": "Done: `receipts/receipts-2026-10-20.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-20.csv has 3 rows."
+  },
+  "idris-p14-0-0": {
+   "reply": "Done: `receipts/receipts-2026-10-19.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-19.csv has 5 rows."
+  },
+  "idris-p14-1-0": {
+   "reply": "The Copper Kettle’s monthly retainer is **£180**.",
+   "template": "It's 180."
+  },
+  "idris-p14-2-0": {
+   "reply": "The fuel total for Brindle & Moss over the requested period is **41.65**. There was one matching fuel transaction, from Station Road Fuel.",
+   "template": "The total is 41.65."
+  },
+  "idris-p14-2-1": {
+   "reply": "Created `bm-spend-2026-10-04.json` with Brindle & Moss’s total spend per category for the requested period, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-04.json has the totals per category."
+  },
+  "idris-p14-3-0": {
+   "reply": "The Copper Kettle’s monthly retainer is **£180**.",
+   "template": "It's 180."
+  },
+  "idris-p14-4-0": {
+   "reply": "The Copper Kettle Cafe has been VAT registered since **1 August 2026**. Before that, it wasn’t registered.\n\nConfirmed in `clients/copper-kettle/notes.md`.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p14-4-1": {
+   "reply": "Brindle & Moss spent **44.91 on utilities** during the requested period (inclusive).\n\nThe only matching transaction was a payment to Clearline Water, recorded in `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 44.91."
+  },
+  "idris-p15-0-0": {
+   "reply": "Brindle & Moss spent **44.91** on utilities during the requested period, all from one payment to Clearline Water.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 44.91."
+  },
+  "idris-p15-0-1": {
+   "reply": "Done: `bm-spend-2026-10-12.json` has the totals per category.",
+   "template": "Done: bm-spend-2026-10-12.json has the totals per category."
+  },
+  "idris-p15-1-0": {
+   "reply": "The late fee is **GBP 32.00**.",
+   "template": "That comes to 32.00."
+  },
+  "idris-p15-1-1": {
+   "reply": "Archived 2 emails from updates@tax-bulletin.example.",
+   "template": "Archived 2 emails from updates@tax-bulletin.example."
+  },
+  "idris-p15-2-0": {
+   "reply": "Done: `bm-spend-2026-10-12.json` has Brindle & Moss’s totals per category for the requested date range, calculated from `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-12.json has the totals per category."
+  },
+  "idris-p15-3-0": {
+   "reply": "Created `bm-spend-2026-10-06.json` with Brindle & Moss’s total spend per category for the requested period, using the bank export.",
+   "template": "Done: bm-spend-2026-10-06.json has the totals per category."
+  },
+  "idris-p15-3-1": {
+   "reply": "Done: `receipts/receipts-2026-10-18.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-18.csv has 5 rows."
+  },
+  "idris-p15-4-0": {
+   "reply": "Brindle & Moss’s monthly retainer is **£275**, confirmed in the current bookkeeping agreement.",
+   "template": "It's 275."
+  },
+  "idris-p15-4-1": {
+   "reply": "Done: `receipts/receipts-2026-10-17.csv` has 4 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-17.csv has 4 rows."
+  },
+  "idris-p16-0-0": {
+   "reply": "Brindle & Moss’s current retainer is **£275 per month**, covering bank reconciliation, sales and purchase ledgers, and quarterly VAT returns.",
+   "template": "It's 275."
+  },
+  "idris-p16-1-0": {
+   "reply": "Archived 2 emails from updates@tax-bulletin.example.",
+   "template": "Archived 2 emails from updates@tax-bulletin.example."
+  },
+  "idris-p16-1-1": {
+   "reply": "Brindle & Moss’s monthly retainer is **£275**, confirmed in their current bookkeeping agreement.",
+   "template": "It's 275."
+  },
+  "idris-p16-1-2": {
+   "reply": "Brindle & Moss now have **30 days from the invoice date** to pay, under their current bookkeeping agreement, which replaces the previous one.",
+   "template": "It's 30."
+  },
+  "idris-p16-2-0": {
+   "reply": "The fuel total for Brindle & Moss over the requested date range is **68.87**.\n\nIncluded the Harbour Services and Station Road Fuel entries in `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 68.87."
+  },
+  "idris-p16-3-0": {
+   "reply": "Brindle & Moss’s payment terms are **30 days from the invoice date**, under their current bookkeeping agreement.",
+   "template": "It's 30."
+  },
+  "idris-p16-4-0": {
+   "reply": "Brindle & Moss spent **206.65 on utilities** during the requested period, inclusive.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 206.65."
+  },
+  "idris-p17-0-0": {
+   "reply": "Done: `receipts/receipts-2026-10-16.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-16.csv has 3 rows."
+  },
+  "idris-p17-1-0": {
+   "reply": "The late fee is **£32.00**, using simple interest.",
+   "template": "That comes to 32.00."
+  },
+  "idris-p17-2-0": {
+   "reply": "The Copper Kettle’s monthly retainer is **£180**.",
+   "template": "It's 180."
+  },
+  "idris-p17-2-1": {
+   "reply": "Done: `invoice_total` is in `scripts/invoices_3.py`.\n\nIt applies each line’s optional discount, sums the amounts, and rounds the final total to two decimal places. Uses only standard Python.",
+   "template": "Done: invoice_total is in scripts/invoices_3.py."
+  },
+  "idris-p17-3-0": {
+   "reply": "The late fee is **GBP 192.00**, assuming simple interest rather than compounding.",
+   "template": "That comes to 192.00."
+  },
+  "idris-p18-0-0": {
+   "reply": "Sent an email to accounts@brindlemoss.example reminding them that invoice INV-1100 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p18-1-0": {
+   "reply": "The VAT at 20% is **GBP 93.00**.",
+   "template": "That comes to 93.00."
+  },
+  "idris-p18-2-0": {
+   "reply": "Your rate for extra work for Brindle & Moss is **£42 an hour**, according to your current bookkeeping agreement.",
+   "template": "It's 42."
+  },
+  "idris-p18-2-1": {
+   "reply": "Done: `receipts/receipts-2026-10-15.csv` has 4 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-15.csv has 4 rows."
+  },
+  "idris-p18-3-0": {
+   "reply": "The late fee is **GBP 66.00**.",
+   "template": "That comes to 66.00."
+  },
+  "idris-p18-3-1": {
+   "reply": "Done: `receipts/receipts-2026-10-14.csv` has 4 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-14.csv has 4 rows."
+  },
+  "idris-p18-3-2": {
+   "reply": "Sent to ines@copperkettle.example, asking for the card terminal statements for invoice INV-1061.",
+   "template": "Sent to ines@copperkettle.example."
+  },
+  "idris-p19-0-0": {
+   "reply": "Brindle & Moss spent **182.83 on fuel** during the requested period, inclusive of both dates.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 182.83."
+  },
+  "idris-p19-0-1": {
+   "reply": "Brindle & Moss spent **1465.71** on wholesale flowers during the requested period, including both start and end dates.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 1465.71."
+  },
+  "idris-p19-0-2": {
+   "reply": "The Brindle & Moss fuel total for the requested date range is **182.83**, including both start and end dates.",
+   "template": "The total is 182.83."
+  },
+  "idris-p19-1-0": {
+   "reply": "Brindle & Moss’s current retainer is **£275 per month**, according to their bookkeeping agreement.",
+   "template": "It's 275."
+  },
+  "idris-p19-1-1": {
+   "reply": "The Copper Kettle Cafe is registered for VAT from **1 August 2026**. Before that date, it was not VAT registered.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p19-1-2": {
+   "reply": "You charge **£42 an hour** for extra work under the current Brindle & Moss agreement.",
+   "template": "It's 42."
+  },
+  "idris-p19-2-0": {
+   "reply": "Quayside have **21 days from the invoice date** to pay, according to their agreement.",
+   "template": "It's 21."
+  },
+  "idris-p19-2-1": {
+   "reply": "Created `bm-spend-2026-10-05.json` with Brindle & Moss’s total spend per category for the requested date range, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-05.json has the totals per category."
+  },
+  "idris-p19-2-2": {
+   "reply": "Brindle & Moss now have **30 days from the invoice date** to pay, under their current bookkeeping agreement, which replaces the previous one.",
+   "template": "It's 30."
+  },
+  "idris-p19-3-0": {
+   "reply": "Created `bm-spend-2026-10-07.json` with Brindle & Moss’s total spend per category for the requested period, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-07.json has the totals per category."
+  },
+  "idris-p20-0-0": {
+   "reply": "That comes to **GBP 337.00** in total, including the extra work and retainer.",
+   "template": "That comes to 337.00."
+  },
+  "idris-p20-1-0": {
+   "reply": "Sent a reminder to Juniper at accounts@brindlemoss.example that invoice INV-1104 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p20-2-0": {
+   "reply": "Sent an email to accounts@brindlemoss.example reminding them that invoice INV-1090 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p20-3-0": {
+   "reply": "The packaging total for Brindle & Moss is **220.88** for the requested date range, including both start and end dates.\n\nIncluded four packaging transactions from `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 220.88."
+  },
+  "idris-p21-0-0": {
+   "reply": "You can charge Quayside Cycles **3% of the invoice amount per month late** on this month’s invoice.\n\nThat’s the updated rate in the agreement amendment; the payment terms remain unchanged.",
+   "template": "It's 3."
+  },
+  "idris-p21-0-1": {
+   "reply": "Sent an overdue invoice reminder to accounts@brindlemoss.example.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p21-1-0": {
+   "reply": "Archived 2 emails from updates@tax-bulletin.example.",
+   "template": "Archived 2 emails from updates@tax-bulletin.example."
+  },
+  "idris-p21-1-1": {
+   "reply": "The VAT is **GBP 168.00**.",
+   "template": "That comes to 168.00."
+  },
+  "idris-p21-2-0": {
+   "reply": "Done: `receipts/receipts-2026-10-12.csv` has 4 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-12.csv has 4 rows."
+  },
+  "idris-p21-2-1": {
+   "reply": "Done: `bm-spend-2026-10-05.json` has the totals per category.",
+   "template": "Done: bm-spend-2026-10-05.json has the totals per category."
+  },
+  "idris-p22-0-0": {
+   "reply": "Brindle & Moss spent **545.34** on utilities during the requested period, including both start and end dates.\n\nSource: `bank/brindle-moss-transactions.csv`, filtered to the `utilities` category.",
+   "template": "The total is 545.34."
+  },
+  "idris-p22-0-1": {
+   "reply": "Done: `receipts/receipts-2026-10-10.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-10.csv has 3 rows."
+  },
+  "idris-p22-1-0": {
+   "reply": "Done: `receipts/receipts-2026-10-09.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-09.csv has 5 rows."
+  },
+  "idris-p22-2-0": {
+   "reply": "Archived 5 emails from promo@ledgerly.example.",
+   "template": "Archived 5 emails from promo@ledgerly.example."
+  },
+  "idris-p22-3-0": {
+   "reply": "Done: `receipts/receipts-2026-10-11.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-11.csv has 5 rows."
+  },
+  "idris-p22-3-1": {
+   "reply": "Added **Quayside Cycles quarterly review** to your calendar for **2026-10-16**.",
+   "template": "Added Quayside Cycles quarterly review on 2026-10-16."
+  },
+  "idris-p22-3-2": {
+   "reply": "Archived 4 emails from updates@tax-bulletin.example.",
+   "template": "Archived 4 emails from updates@tax-bulletin.example."
+  },
+  "idris-p23-0-0": {
+   "reply": "Created `bm-spend-2026-10-06.json` with Brindle & Moss’s total spend per category for the requested date range, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-10-06.json has the totals per category."
+  },
+  "idris-p23-1-0": {
+   "reply": "The late fee is **£61.50**.",
+   "template": "That comes to 61.50."
+  },
+  "idris-p23-1-1": {
+   "reply": "Sent to sol@quaysidecycles.example, letting Sol know that invoice INV-1186 is now late and the late fee applies.",
+   "template": "Sent to sol@quaysidecycles.example."
+  },
+  "idris-p23-2-0": {
+   "reply": "Brindle & Moss spent **2498.79** on wholesale flowers during the requested period, including both start and end dates.\n\nSource: `bank/brindle-moss-transactions.csv`, filtered to the `wholesale flowers` category.",
+   "template": "The total is 2498.79."
+  },
+  "idris-p23-2-1": {
+   "reply": "That comes to **GBP 780.00** in total, including the retainer.",
+   "template": "That comes to 780.00."
+  },
+  "idris-p23-3-0": {
+   "reply": "Quayside Cycles’ payment terms are **21 days from the invoice date**, according to their bookkeeping agreement.",
+   "template": "It's 21."
+  },
+  "idris-p23-4-0": {
+   "reply": "Done: `bm-spend-2026-09-27.json` has Brindle & Moss’s spending totals per category, formatted as JSON.",
+   "template": "Done: bm-spend-2026-09-27.json has the totals per category."
+  },
+  "idris-p24-0-0": {
+   "reply": "The Copper Kettle Cafe has been VAT registered since **1 August 2026**. The client notes confirm it was not registered before then.",
+   "template": "It's 1 August 2026."
+  },
+  "idris-p24-1-0": {
+   "reply": "Added **Brindle & Moss quarterly review** to your calendar on **2026-10-19**.",
+   "template": "Added Brindle & Moss quarterly review on 2026-10-19."
+  },
+  "idris-p24-1-1": {
+   "reply": "That comes to **GBP 675.00** in total, including the extra work and retainer.",
+   "template": "That comes to 675.00."
+  },
+  "idris-p24-2-0": {
+   "reply": "The wholesale flowers total for Brindle & Moss is **1595.96** for the requested date range, including both start and end dates.",
+   "template": "The total is 1595.96."
+  },
+  "idris-p25-0-0": {
+   "reply": "Done: `receipts/receipts-2026-10-08.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-08.csv has 5 rows."
+  },
+  "idris-p25-1-0": {
+   "reply": "Done: `receipts/receipts-2026-10-08.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-08.csv has 5 rows."
+  },
+  "idris-p25-1-1": {
+   "reply": "Done: `receipts/receipts-2026-10-08.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-08.csv has 5 rows."
+  },
+  "idris-p25-1-2": {
+   "reply": "Done: `receipts/receipts-2026-10-08.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-08.csv has 5 rows."
+  },
+  "idris-p25-2-0": {
+   "reply": "That comes to **GBP 779.00**, including the extra work and retainer.",
+   "template": "That comes to 779.00."
+  },
+  "idris-p25-2-1": {
+   "reply": "Done: `invoice_total` is in `scripts/invoices_2.py`.\n\nIt applies each line’s optional `discount_pct` (defaulting to zero), sums the discounted amounts, and returns the total rounded to 2 decimal places. Uses only the Python standard library.",
+   "template": "Done: invoice_total is in scripts/invoices_2.py."
+  },
+  "idris-p25-2-2": {
+   "reply": "Sent an email to accounts@brindlemoss.example reminding them that invoice INV-1183 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p25-3-0": {
+   "reply": "Done — created `bm-spend-2026-09-30.json` with Brindle & Moss’s total spend per category for the requested date range, using `bank/brindle-moss-transactions.csv`.",
+   "template": "Done: bm-spend-2026-09-30.json has the totals per category."
+  },
+  "idris-p26-0-0": {
+   "reply": "Sent a reminder to Juniper at accounts@brindlemoss.example that invoice INV-1218 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p26-0-1": {
+   "reply": "Done: `receipts/receipts-2026-10-07.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-07.csv has 5 rows."
+  },
+  "idris-p26-0-2": {
+   "reply": "The wholesale flowers lines for Brindle & Moss total **3054.08** for the requested date range, including both start and end dates.",
+   "template": "The total is 3054.08."
+  },
+  "idris-p26-1-0": {
+   "reply": "You can charge **3% of the invoice amount per month late** on Quayside Cycles’ invoice from this month.\n\nI checked the agreement amendment: it updates the late-payment rate, while the payment terms remain unchanged. The fee applies once the invoice is overdue.",
+   "template": "It's 3."
+  },
+  "idris-p26-1-1": {
+   "reply": "Sent an email to accounts@brindlemoss.example reminding them that invoice INV-1161 is overdue.",
+   "template": "Sent to accounts@brindlemoss.example."
+  },
+  "idris-p26-2-0": {
+   "reply": "Done: `receipts/receipts-2026-10-07.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-07.csv has 5 rows."
+  },
+  "idris-p26-3-0": {
+   "reply": "Done: `bm-spend-2026-09-29.json` has the totals per category.",
+   "template": "Done: bm-spend-2026-09-29.json has the totals per category."
+  },
+  "idris-p26-3-1": {
+   "reply": "Done: `bm-spend-2026-09-27.json` has Brindle & Moss’s totals per category for the requested date range, calculated from the bank export.",
+   "template": "Done: bm-spend-2026-09-27.json has the totals per category."
+  },
+  "idris-p27-0-0": {
+   "reply": "Done: `bm-spend-2026-09-26.json` has the totals per category.",
+   "template": "Done: bm-spend-2026-09-26.json has the totals per category."
+  },
+  "idris-p27-1-0": {
+   "reply": "Done: `receipts/receipts-2026-10-05.csv` has 3 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-05.csv has 3 rows."
+  },
+  "idris-p27-2-0": {
+   "reply": "Done: `bm-spend-2026-09-27.json` has the totals per category as JSON.",
+   "template": "Done: bm-spend-2026-09-27.json has the totals per category."
+  },
+  "idris-p27-2-1": {
+   "reply": "Done: `receipts/receipts-2026-10-04.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-04.csv has 5 rows."
+  },
+  "idris-p27-3-0": {
+   "reply": "Done: `receipts/receipts-2026-10-06.csv` has 5 rows, with columns `supplier`, `amount`, and `currency`.",
+   "template": "Done: receipts/receipts-2026-10-06.csv has 5 rows."
+  },
+  "idris-p28-0-0": {
+   "reply": "You can charge **3% of the invoice amount per month late**, once it’s overdue.\n\nThat’s the updated rate in Quayside Cycles’ agreement amendment. The payment terms are unchanged.",
+   "template": "It's 3."
+  },
+  "idris-p28-0-1": {
+   "reply": "Done: `invoice_total` is in `scripts/invoices.py`.\n\nIt applies each line’s optional discount, sums the amounts, and rounds the total to 2 decimal places. No external libraries are used.",
+   "template": "Done: invoice_total is in scripts/invoices.py."
+  },
+  "idris-p28-1-0": {
+   "reply": "Done: `bm-spend-2026-09-22.json` has Brindle & Moss’s totals per category for the requested date range, calculated from the bank export.",
+   "template": "Done: bm-spend-2026-09-22.json has the totals per category."
+  },
+  "idris-p28-2-0": {
+   "reply": "The fuel lines for Brindle & Moss total **143.46** for the requested period, inclusive.\n\nSource: `bank/brindle-moss-transactions.csv`. No files were changed.",
+   "template": "The total is 143.46."
+  },
+  "idris-p28-3-0": {
+   "reply": "Done: `bm-spend-2026-09-22.json` has the totals per category for Brindle & Moss’s spending over the requested date range.",
+   "template": "Done: bm-spend-2026-09-22.json has the totals per category."
+  },
+  "idris-p28-4-0": {
+   "reply": "The Copper Kettle Cafe’s year end is **31 March**.",
+   "template": "It's 31 March."
+  },
+  "idris-p29-0-0": {
+   "reply": "Quayside Cycles’ payment terms are **21 days from the invoice date**.",
+   "template": "It's 21."
+  },
+  "idris-p29-1-0": {
+   "reply": "Done: `bm-spend-2026-09-23.json` has the totals per category.",
+   "template": "Done: bm-spend-2026-09-23.json has the totals per category."
+  },
+  "idris-p29-2-0": {
+   "reply": "Brindle & Moss spent **79.11** on fuel during the requested period, including both start and end dates.\n\nSource: `bank/brindle-moss-transactions.csv`.",
+   "template": "The total is 79.11."
+  },
+  "idris-p29-2-1": {
+   "reply": "Sent to sol@quaysidecycles.example, letting Sol know invoice INV-1237 is now late and the late fee applies.",
+   "template": "Sent to sol@quaysidecycles.example."
+  },
+  "idris-p29-2-2": {
+   "reply": "Quayside Cycles’ payment terms are **21 days from the invoice date**.",
+   "template": "It's 21."
+  },
+  "idris-p30-0-0": {
+   "reply": "Brindle & Moss’s monthly retainer is **£275**, covering bank reconciliation, sales and purchase ledgers, and quarterly VAT returns.",
+   "template": "It's 275."
+  },
+  "idris-p30-1-0": {
+   "reply": "Quayside Cycles’ year end is **30 June**, according to their bookkeeping agreement.",
+   "template": "It's 30 June."
+  },
+  "idris-p30-1-1": {
+   "reply": "Done: `bm-spend-2026-09-28.json` has Brindle & Moss’s totals per category for the requested period, calculated from the bank export.",
+   "template": "Done: bm-spend-2026-09-28.json has the totals per category."
+  },
+  "idris-p30-1-2": {
+   "reply": "Done: `late_fee` is in `scripts/fees.py`.\n\nIt returns the calculated fee rounded to two decimal places, or zero if the payment is not late. Uses only the standard library.",
+   "template": "Done: late_fee is in scripts/fees.py."
+  },
+  "idris-p30-2-0": {
+   "reply": "Archived 2 emails from updates@tax-bulletin.example.",
+   "template": "Archived 2 emails from updates@tax-bulletin.example."
+  },
+  "idris-p30-2-1": {
+   "reply": "Added **Brindle & Moss payroll** to your calendar for **2026-10-16**.",
+   "template": "Added Brindle & Moss payroll on 2026-10-16."
+  },
+  "idris-p30-2-2": {
+   "reply": "Archived 2 emails from updates@tax-bulletin.example.",
+   "template": "Archived 2 emails from updates@tax-bulletin.example."
+  }
+ },
+ "seed": 20261022,
+ "version": 1
+}

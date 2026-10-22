@@ -1,0 +1,127 @@
+{
+  "id": "idris",
+  "name": "Idris Fenwick",
+  "fictional": true,
+  "about": "A freelance bookkeeper (made up for Row-Bot's tests) with three small-business clients: Brindle & Moss Florists, Quayside Cycles and The Copper Kettle Cafe. He reconciles bank exports, chases invoices and keeps filing deadlines.",
+  "uses": "His workspace holds each client's agreement (one replaced in 2026, one amended), client notes, a bank export that grows every day and the receipts notes clients send him. Apps: his mailbox and his calendar.",
+  "asks": "Precise, numbers first, usually naming the client and the period.",
+  "corrects": "Exactly: he quotes the right figure or the rule that was missed ('that total should leave out the refunded line'), and uses Teach when a step was wrong.",
+  "tools": ["filesystem", "memory", "task", "calculator", "chart"],
+  "approval_mode": "full",
+  "policy": {
+    "requests_per_day": [1, 3],
+    "teach_share": 0.5,
+    "patience_tool_calls": 18,
+    "patience_seconds": 300,
+    "past_conversations_per_day": [3, 5],
+    "past_mistake_share": 0.1
+  },
+  "work": {
+    "fact_lookup": 4,
+    "ledger_total": 3,
+    "ledger_json": 2,
+    "note_to_csv": 2,
+    "mail_send": 2,
+    "mail_archive": 1,
+    "calendar_add": 1,
+    "arithmetic": 2,
+    "code_function": 1
+  },
+  "facts": [
+    {"id": "bm_terms", "answer": 30, "match": "number", "decoy": "14 days", "files": ["clients/brindle-moss/agreement-2026.md"],
+     "phrasings": ["What are Brindle & Moss's payment terms under their current agreement?",
+                   "How many days do Brindle & Moss have to pay an invoice now?"],
+     "intent": "The 2026 agreement's payment terms (30 days), not the 2024 one's."},
+    {"id": "bm_rate", "answer": 42, "match": "number", "decoy": "GBP 38 an hour", "files": ["clients/brindle-moss/agreement-2026.md"],
+     "phrasings": ["What's my hourly rate for extra work for Brindle & Moss?",
+                   "According to the current Brindle & Moss agreement, what do I charge an hour for extra work?"],
+     "intent": "The 2026 hourly rate."},
+    {"id": "bm_retainer", "answer": 275, "match": "number", "decoy": "GBP 250", "files": ["clients/brindle-moss/agreement-2026.md"],
+     "phrasings": ["What's the Brindle & Moss monthly retainer now?"],
+     "intent": "The 2026 retainer."},
+    {"id": "qc_late_fee", "answer": 3, "match": "number", "decoy": "2% a month", "files": ["clients/quayside-cycles/amendment-2026-05.md"],
+     "phrasings": ["What late payment fee can I charge Quayside Cycles on an invoice from this month?",
+                   "Quayside paid late again - what's the late fee percentage per month for invoices dated after June 2026?"],
+     "intent": "The amended late fee (3%) for invoices from 1 June 2026."},
+    {"id": "qc_terms", "answer": 21, "match": "number", "decoy": "30 days", "files": ["clients/quayside-cycles/agreement.md"],
+     "phrasings": ["What are Quayside Cycles' payment terms?", "How long do Quayside have to pay, according to their agreement?"],
+     "intent": "Quayside's payment terms in days."},
+    {"id": "qc_year_end", "answer": "30 June", "match": "contains", "decoy": "31 December", "files": ["clients/quayside-cycles/agreement.md"],
+     "phrasings": ["When is Quayside Cycles' year end?"],
+     "intent": "Quayside's year end date."},
+    {"id": "ck_vat_from", "answer": "1 August 2026", "match": "contains", "decoy": "not registered", "files": ["clients/copper-kettle/notes.md"],
+     "phrasings": ["Since when has the Copper Kettle been VAT registered?", "From what date is The Copper Kettle Cafe registered for VAT?"],
+     "intent": "The VAT registration date in the client notes."},
+    {"id": "ck_retainer", "answer": 180, "match": "number", "decoy": "GBP 40", "files": ["clients/copper-kettle/notes.md"],
+     "phrasings": ["What's the Copper Kettle's monthly retainer?"],
+     "intent": "The cafe's retainer in pounds."},
+    {"id": "ck_year_end", "answer": "31 March", "match": "contains", "decoy": "31 December", "files": ["clients/copper-kettle/notes.md"],
+     "phrasings": ["When is the Copper Kettle's year end?"],
+     "intent": "The cafe's year end."}
+  ],
+  "ledger": {
+    "path": "bank/brindle-moss-transactions.csv",
+    "columns": ["date", "payee", "category", "amount"],
+    "party_column": "payee",
+    "category_column": "category",
+    "amount_column": "amount",
+    "noun": "spending",
+    "categories": {
+      "wholesale flowers": {"parties": ["Dutch Stem Imports", "Greenfield Growers"], "amount": [80, 420], "per_day": [0, 2]},
+      "packaging": {"parties": ["WrapRight Ltd", "Kraft & Co"], "amount": [12, 90], "per_day": [0, 1]},
+      "fuel": {"parties": ["Station Road Fuel", "Harbour Services"], "amount": [25, 70], "per_day": [0, 1]},
+      "utilities": {"parties": ["Brightwater Energy", "Clearline Water"], "amount": [40, 160], "per_day": [0, 1]}
+    },
+    "phrasings_total": ["How much did Brindle & Moss spend on {category} between {start} and {end}? Use bank/brindle-moss-transactions.csv.",
+                        "Total the {category} lines in the Brindle & Moss bank export from {start} to {end}."],
+    "phrasings_json": ["Write a JSON file bm-spend-{start}.json with Brindle & Moss's total spend per category from {start} to {end} (from the bank export).",
+                       "Put Brindle & Moss's spending by category for {start} to {end} in bm-spend-{start}.json, category to total, as JSON."],
+    "out_dir": "reports"
+  },
+  "notes": {
+    "dir": "inbox",
+    "prefix": "receipts",
+    "title": "Receipts from Juniper",
+    "out_dir": "receipts",
+    "columns": {"supplier": "item", "amount": "quantity", "currency": "unit"},
+    "line": "{item} - {unit} {quantity}",
+    "decimals": 2,
+    "items": [
+      {"item": "Dutch Stem Imports", "unit": "GBP", "quantity": [60, 300]},
+      {"item": "WrapRight Ltd", "unit": "GBP", "quantity": [10, 60]},
+      {"item": "Station Road Fuel", "unit": "GBP", "quantity": [20, 65]},
+      {"item": "Office Basics", "unit": "GBP", "quantity": [5, 40]},
+      {"item": "Greenfield Growers", "unit": "GBP", "quantity": [40, 200]}
+    ],
+    "phrasings": ["Juniper sent {note}. Make it a CSV at {out} with columns supplier,amount,currency.",
+                  "Turn {note} into {out} (CSV: supplier, amount, currency)."]
+  },
+  "calendar": {
+    "whos": ["Brindle & Moss", "Quayside Cycles", "Copper Kettle"],
+    "whats": [
+      {"name": "VAT return deadline", "title": "{who} VAT return due", "start": "09:00", "end": "09:30", "weekend": false},
+      {"name": "payroll run", "title": "{who} payroll", "start": "10:00", "end": "11:00", "weekend": false},
+      {"name": "quarterly review call", "title": "{who} quarterly review", "start": "14:00", "end": "15:00", "weekend": false}
+    ],
+    "phrasings": ["Add the {who} {what} on {date} to my calendar.", "Put a calendar entry in for {who}: {what}, {date}."]
+  },
+  "mail": {
+    "contacts": [
+      {"name": "Juniper at Brindle & Moss", "email": "accounts@brindlemoss.example", "purpose": "remind them that invoice INV-{quantity} is overdue", "must": "INV-{quantity}"},
+      {"name": "Sol at Quayside Cycles", "email": "sol@quaysidecycles.example", "purpose": "say invoice INV-{quantity} is now late and the late fee applies", "must": "INV-{quantity}"},
+      {"name": "Ines at the Copper Kettle", "email": "ines@copperkettle.example", "purpose": "ask for the card terminal statements for invoice INV-{quantity}", "must": "INV-{quantity}"}
+    ],
+    "phrasings": ["Email {name} ({email}) to {purpose}.", "Send {email} an email to {purpose}."],
+    "newsletters": [
+      {"from": "updates@tax-bulletin.example", "subject": "Tax bulletin"},
+      {"from": "promo@ledgerly.example", "subject": "Ledgerly product news"}
+    ],
+    "archive_phrasings": ["Archive the emails from {sender} in my inbox.", "Archive every {sender} email in the inbox, please."]
+  },
+  "arithmetic": [
+    {"phrasing": "What's the VAT at 20% on a net amount of GBP {a}?", "a": [120, 2400, 15], "answer": "a*0.2", "decimals": 2},
+    {"phrasing": "Invoice for GBP {a}, paid {b} months late at {c}% a month: what's the late fee?", "a": [300, 3000, 50], "b": [1, 4, 1], "c": [2, 3, 1], "answer": "a*b*c/100", "decimals": 2},
+    {"phrasing": "If I bill {a} hours of extra work at GBP {b} an hour, plus the GBP {c} retainer, what's the total?", "a": [2, 12, 0.5], "b": [38, 42, 2], "c": [180, 320, 5], "answer": "a*b+c", "decimals": 2}
+  ],
+  "coding": {"domain": "finance", "dir": "scripts"}
+}

@@ -1,0 +1,17 @@
+{
+  "calendar": {
+    "events": [
+      {"id": "evt_1", "title": "Quayside Cycles year-end review", "date": "2026-11-03", "start": "10:00", "end": "11:30", "attendees": ["Idris", "Sol"], "location": "Video call"},
+      {"id": "evt_2", "title": "Brindle & Moss payroll", "date": "2026-10-27", "start": "10:00", "end": "11:00", "attendees": [], "location": ""}
+    ]
+  },
+  "mail": {
+    "messages": [
+      {"id": "msg_1", "folder": "inbox", "from": "accounts@brindlemoss.example", "to": "me@example.test", "subject": "Receipts for October", "body": "Hi Idris, I'll send the receipts notes as they come in. Juniper", "date": "2026-10-20"},
+      {"id": "msg_2", "folder": "inbox", "from": "updates@tax-bulletin.example", "to": "me@example.test", "subject": "Tax bulletin", "body": "This month: payroll thresholds, VAT reminders.", "date": "2026-10-19"},
+      {"id": "msg_3", "folder": "inbox", "from": "promo@ledgerly.example", "to": "me@example.test", "subject": "Ledgerly product news", "body": "New bank feeds for small firms.", "date": "2026-10-18"},
+      {"id": "msg_4", "folder": "inbox", "from": "sol@quaysidecycles.example", "to": "me@example.test", "subject": "Year end", "body": "Can we move the review to the afternoon?", "date": "2026-10-21"}
+    ]
+  },
+  "issues": {"issues": []}
+}

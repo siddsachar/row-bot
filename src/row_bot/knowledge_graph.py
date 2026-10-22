@@ -2536,6 +2536,36 @@ def update_entity_properties_pair(first: tuple[dict, dict], second: tuple[dict, 
     return rows
 
 
+def _learning_memories_deleted(entities: Iterable[Any] = (), *, everything: bool = False) -> None:
+    """Mark Learning's lessons whose ``self_knowledge`` memory was deleted (E5).
+
+    Only when Learning has a store: otherwise one path check at most, and nothing
+    else from Learning is imported. Never raises into the deletion.
+    """
+
+    try:
+        ids = [
+            str(entity["id"])
+            for entity in entities
+            if entity and str(entity["entity_type"] or "") == "self_knowledge"
+        ]
+        if not (everything or ids):
+            return
+        from row_bot import learning
+
+        if not learning.store_exists():
+            return
+        from row_bot.learning.store import LearningStore
+
+        store = LearningStore()
+        if everything:
+            store.mark_all_lesson_memories_deleted()
+        else:
+            store.mark_lesson_memories_deleted(ids)
+    except Exception:
+        logger.warning("Learning could not mark the lessons of deleted memories", exc_info=True)
+
+
 def delete_entity(entity_id: str) -> bool:
     """Delete an entity and its relations.  Returns True if deleted."""
     # Capture entity data before deletion for wiki cleanup
@@ -2554,6 +2584,7 @@ def delete_entity(entity_id: str) -> bool:
             _remove_from_index(entity_id)
         # Wiki vault cleanup
         if entity_data:
+            _learning_memories_deleted([entity_data])
             _wiki_delete_entity(entity_data)
     return deleted
 
@@ -2632,6 +2663,7 @@ def delete_reviewed_entities(
     global _graph_ready
     with _graph_lock:
         _graph_ready = False
+    _learning_memories_deleted(captured, everything=delete_all)
     cleanup = {"lexical_index": "completed", "vector_index": "completed", "wiki": "completed"}
     if delete_all:
         try:
@@ -2722,6 +2754,7 @@ def delete_entities_by_source(source: str, *, retry_entities: list[dict] | None 
         conn.commit()
     finally:
         conn.close()
+    _learning_memories_deleted(rows)
 
 
     if validate is None:
@@ -3878,6 +3911,7 @@ def delete_all_entities() -> int:
     with _graph_lock:
         _graph = nx.MultiDiGraph()
         _graph_ready = True
+    _learning_memories_deleted(everything=True)
 
     if count:
         rebuild_index()

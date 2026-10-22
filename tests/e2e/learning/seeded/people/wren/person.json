@@ -1,0 +1,121 @@
+{
+  "id": "wren",
+  "name": "Wren Achterberg",
+  "fictional": true,
+  "about": "Tools programmer at Puddlejump Games, a six-person studio (made up for Row-Bot's tests). Wren writes small Python helpers for the level pipeline, triages the bug tracker and keeps the build docs straight.",
+  "uses": "The workspace holds the build guide (current and a 2025 one), the style guide, the release checklist, the bug-fix log and incoming level files. Apps: the studio's issue tracker, a calendar for playtests and a mailbox for the publisher.",
+  "asks": "Terse and technical, often one line with a file or function name.",
+  "corrects": "Tersely, with the failing case or the rule that was broken ('fails on an empty list', 'that's the 2025 guide'). Uses Teach for wrong steps.",
+  "tools": ["filesystem", "memory", "task", "calculator", "shell"],
+  "approval_mode": "approve",
+  "policy": {
+    "requests_per_day": [1, 3],
+    "teach_share": 0.4,
+    "patience_tool_calls": 18,
+    "patience_seconds": 360,
+    "past_conversations_per_day": [3, 5],
+    "past_mistake_share": 0.1
+  },
+  "work": {
+    "code_function": 3,
+    "issue_close": 2,
+    "issue_label": 2,
+    "note_to_csv": 2,
+    "fact_lookup": 2,
+    "ledger_total": 1,
+    "calendar_add": 1,
+    "arithmetic": 1,
+    "move_file": 1
+  },
+  "facts": [
+    {"id": "py_version", "answer": "3.12", "match": "contains", "decoy": "Python 3.10", "files": ["docs/BUILDING.md"],
+     "phrasings": ["Which Python version do the tools need, per the current build guide?", "Min Python for the tools? Check BUILDING.md."],
+     "intent": "The current guide's Python version (3.12), not the 2025 guide's."},
+    {"id": "bundle_size", "answer": 180, "match": "number", "decoy": "240 MB", "files": ["docs/BUILDING.md"],
+     "phrasings": ["How big is the release bundle, according to the build docs?"],
+     "intent": "The current bundle size in MB."},
+    {"id": "build_cmd", "answer": "make dist", "match": "contains", "decoy": "python build.py --release", "files": ["docs/BUILDING.md"],
+     "phrasings": ["What's the command to build a release bundle now?", "How do I build the release bundle? Look up the current build guide."],
+     "intent": "The current build command."},
+    {"id": "line_length", "answer": 100, "match": "number", "decoy": "88 characters", "files": ["docs/style-guide.md"],
+     "phrasings": ["What's our max line length in the style guide?"],
+     "intent": "The style guide's line length since 2026."},
+    {"id": "test_cmd", "answer": "unittest discover", "match": "contains", "decoy": "pytest tools", "files": ["docs/BUILDING.md"],
+     "phrasings": ["How do we run the tools' unit tests these days?"],
+     "intent": "The current test command (python -m unittest discover tools/tests)."},
+    {"id": "assets_minutes", "answer": 4, "match": "number", "decoy": "11 minutes", "files": ["docs/BUILDING.md"],
+     "phrasings": ["How long does rebuilding the asset cache take on the build machine?"],
+     "intent": "The current asset rebuild time."},
+    {"id": "freeze_days", "answer": 5, "match": "number", "decoy": "3 days", "files": ["docs/release-checklist.md"],
+     "phrasings": ["How many working days before release do we freeze the level list?"],
+     "intent": "The release checklist's level freeze."},
+    {"id": "screenshot_size", "answer": "1920", "match": "contains", "decoy": "1280 x 720", "files": ["docs/release-checklist.md"],
+     "phrasings": ["What resolution does the publisher want the store screenshots at?"],
+     "intent": "The screenshot size in the release checklist."}
+  ],
+  "ledger": {
+    "path": "bugs/bug-log.csv",
+    "columns": ["date", "reporter", "area", "minutes"],
+    "party_column": "reporter",
+    "category_column": "area",
+    "amount_column": "minutes",
+    "decimals": 0,
+    "noun": "bug-fix time",
+    "categories": {
+      "physics": {"parties": ["Ash", "Bo", "Cy"], "amount": [15, 180], "per_day": [0, 2]},
+      "rendering": {"parties": ["Ash", "Dee"], "amount": [20, 240], "per_day": [0, 2]},
+      "audio": {"parties": ["Bo", "Eli"], "amount": [10, 90], "per_day": [0, 1]},
+      "ui": {"parties": ["Cy", "Dee", "Eli"], "amount": [10, 120], "per_day": [0, 2]}
+    },
+    "phrasings_total": ["How many minutes went on {category} bugs from {start} to {end}? It's in bugs/bug-log.csv.",
+                        "Sum the minutes for {category} in the bug log between {start} and {end}."],
+    "phrasings_json": ["Write bug-minutes-{start}.json: total minutes per area from {start} to {end}, from bugs/bug-log.csv.",
+                       "Put the bug-fix minutes per area for {start} to {end} into bug-minutes-{start}.json (area to minutes)."],
+    "out_dir": "reports"
+  },
+  "notes": {
+    "dir": "levels/incoming",
+    "prefix": "level",
+    "title": "Level",
+    "format": "json_tiles",
+    "out_dir": "levels/csv",
+    "columns": ["x", "y", "type"],
+    "types": ["grass", "water", "stone", "sand", "lava"],
+    "tiles": [6, 12],
+    "phrasings": ["Convert {note} into {out} - CSV with x,y,type, one row per tile.",
+                  "Need {note} as a CSV at {out} (columns x, y, type)."]
+  },
+  "calendar": {
+    "whos": ["Ash", "Bo", "Cy", "Dee", "Eli"],
+    "whats": [
+      {"name": "playtest", "title": "Playtest with {who}", "start": "15:00", "end": "16:30", "weekend": false},
+      {"name": "code review", "title": "Code review with {who}", "start": "11:00", "end": "11:45", "weekend": false}
+    ],
+    "phrasings": ["Book a {what} with {who} on {date}.", "Calendar: {what} with {who}, {date}."]
+  },
+  "mail": {
+    "contacts": [],
+    "phrasings": [],
+    "newsletters": [],
+    "archive_phrasings": []
+  },
+  "issues": {
+    "fixes": ["fixed in the level loader", "can't reproduce on main, closing", "fixed by the new collision mask", "duplicate of an older bug"],
+    "labels": ["crash", "regression", "needs-repro", "level-pipeline"],
+    "assignees": ["ash", "bo", "cy", "dee", "eli"],
+    "new_titles": ["Crash when a level has no tiles", "Water tiles render above the player", "Footstep sound plays twice", "Pause menu ignores the gamepad", "Level loader rejects lava at the edge", "Physics jitter on slopes", "Save file path breaks with spaces", "Minimap shows the wrong colours"],
+    "phrasings": ["Close #{id} ({title}) with a comment: {fix}.", "#{id} - close it, comment '{fix}'."],
+    "label_phrasings": ["Label #{id} as {label} and assign it to {assignee}.", "Tag issue #{id} with {label}, assignee {assignee}."]
+  },
+  "arithmetic": [
+    {"phrasing": "At {a} fps, how many milliseconds is one frame? Round to 2 decimals.", "a": [24, 144, 6], "answer": "1000/a", "decimals": 2},
+    {"phrasing": "A level is {a} by {b} tiles and {c}% of them are water. How many water tiles?", "a": [20, 80, 4], "b": [10, 40, 2], "c": [10, 40, 5], "answer": "a*b*c/100", "decimals": 0},
+    {"phrasing": "The build takes {a} minutes and we run it {b} times a day. How many hours a week (5 days)?", "a": [6, 30, 2], "b": [2, 8, 1], "answer": "a*b*5/60", "decimals": 2}
+  ],
+  "moves": {
+    "from_dir": "levels/incoming",
+    "to_dir": "levels/archive",
+    "phrasings": ["Move {file} to {to_dir}/, it's been converted.", "Archive {file} into {to_dir}/."]
+  },
+  "coding": {"domain": "games", "dir": "tools"}
+}

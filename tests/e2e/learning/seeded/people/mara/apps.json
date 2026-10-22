@@ -1,0 +1,27 @@
+{
+  "calendar": {
+    "events": [
+      {"id": "evt_1", "title": "Trustees meeting", "date": "2026-10-28", "start": "18:30", "end": "20:00", "attendees": ["Mara", "Priyanka", "Olu"], "location": "Back office"},
+      {"id": "evt_2", "title": "Hartwell delivery", "date": "2026-10-23", "start": "08:00", "end": "09:00", "attendees": [], "location": "Loading bay"},
+      {"id": "evt_3", "title": "Food hygiene refresher", "date": "2026-11-05", "start": "14:00", "end": "16:00", "attendees": ["Mara", "Grace", "Dev"], "location": "Hall"}
+    ]
+  },
+  "mail": {
+    "messages": [
+      {"id": "msg_1", "folder": "inbox", "from": "orders@hartwell-produce.example", "to": "me@example.test", "subject": "Friday order", "body": "Hi Mara, please confirm Friday's quantities by 15:00 Thursday. Thanks, Hartwell Produce.", "date": "2026-10-21"},
+      {"id": "msg_2", "folder": "inbox", "from": "news@fooddrive-network.example", "to": "me@example.test", "subject": "Food Drive Network weekly", "body": "This week: winter coat drive, new members, volunteer tips.", "date": "2026-10-20"},
+      {"id": "msg_3", "folder": "inbox", "from": "offers@catering-supplies.example", "to": "me@example.test", "subject": "This week's catering offers", "body": "20% off gloves and aprons.", "date": "2026-10-19"},
+      {"id": "msg_4", "folder": "inbox", "from": "grace@lanternlane.example", "to": "me@example.test", "subject": "Swap request", "body": "Can I swap Thursday lunch for Saturday?", "date": "2026-10-21"}
+    ]
+  },
+  "issues": {
+    "issues": [
+      {"id": "11", "title": "Walk-in fridge door seal is loose", "state": "open", "labels": ["kitchen"], "assignee": "", "comments": []},
+      {"id": "12", "title": "Van front tyre keeps losing pressure", "state": "open", "labels": ["van"], "assignee": "", "comments": []},
+      {"id": "13", "title": "Hand-wash sink tap drips", "state": "open", "labels": ["kitchen"], "assignee": "", "comments": []},
+      {"id": "14", "title": "Hall light flickers", "state": "open", "labels": ["building"], "assignee": "", "comments": []},
+      {"id": "15", "title": "Dishwasher error E4", "state": "open", "labels": ["kitchen"], "assignee": "", "comments": []},
+      {"id": "16", "title": "Back door lock sticks", "state": "open", "labels": ["building"], "assignee": "", "comments": []}
+    ]
+  }
+}

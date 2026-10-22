@@ -1,0 +1,32 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "24gb",
+  "tier": "24gb",
+  "certified": false,
+  "title": "24 GB graphics cards",
+  "starting_model": "qwen3.5-9b",
+  "method": "lora_sft",
+  "evidence": "Not certified: a candidate until the RTX 5090 results (scripts/learning_gpu_check.py) are read (L2c2). Qwen3.5 9B as QLoRA at 16K, served at Q4_K_M (O26).",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 4,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 1,
+  "checkpoint_every": 10,
+  "min_examples": 100,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q4_K_M",
+  "reasoning": "off"
+}

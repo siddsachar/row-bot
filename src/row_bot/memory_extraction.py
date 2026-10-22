@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import sys
 import threading
 import time
 from contextlib import closing
@@ -49,6 +50,30 @@ _activity_lock = threading.Lock()
 _last_activity_ts = time.monotonic()
 _idle_once_thread: threading.Thread | None = None
 _open_thread: str | None = None
+# The model a running extraction uses (None while none runs). Learning's resource lease reads it
+# (O41): with a local model, extraction and personal-model training would share the graphics card.
+_running_lock = threading.Lock()
+_running_model: str | None = None
+
+
+def running_model() -> str | None:
+    """The model ref of the extraction running now, or None."""
+    with _running_lock:
+        return _running_model
+
+
+def _personal_model_training_here(model_ref: str) -> bool:
+    """A personal model is training (Learning's lease) and this extraction's model is local too.
+
+    Read only through ``sys.modules``: it costs nothing while Learning never loaded.
+    """
+    lease = sys.modules.get("row_bot.learning.lease")
+    if lease is None:
+        return False
+    try:
+        return bool(lease.training_holds()) and bool(lease.model_is_local(model_ref))
+    except Exception:
+        return False
 
 
 def mark_conversation_open(thread_id: str) -> None:
@@ -920,6 +945,37 @@ def _conversation_window(messages: list[dict], start: int) -> str:
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def run_extraction(
+    on_status=None,
+    exclude_thread_ids: set[str] | None = None,
+    *,
+    should_continue=None,
+) -> int:
+    """Read what was said in each conversation since its watermark and save new memories.
+
+    While it runs it says which model it uses (``running_model``), so personal-model training
+    waits for it; with a local model it waits instead while a personal model trains (O41).
+    The parameters and result are ``_read_conversations``'.
+    """
+    global _running_model
+    from row_bot.models import get_current_model
+
+    model = str(get_current_model() or "").strip()
+    with _running_lock:
+        # Set first: training checks it before it starts, so the two never both begin.
+        _running_model = model or None
+    try:
+        if model and _personal_model_training_here(model):
+            logger.info("Memory extraction deferred — a personal model is training on this computer")
+            if on_status:
+                on_status("Waiting while your personal model trains")
+            return 0
+        return _read_conversations(on_status, exclude_thread_ids, should_continue=should_continue)
+    finally:
+        with _running_lock:
+            _running_model = None
+
+
+def _read_conversations(
     on_status=None,
     exclude_thread_ids: set[str] | None = None,
     *,

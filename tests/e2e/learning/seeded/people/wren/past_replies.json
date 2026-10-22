@@ -1,0 +1,769 @@
+{
+ "format": "row_bot.learning.seeded_past_replies",
+ "model": "gpt-6.1-sol",
+ "note": "The past's replies in the main model's own words (tests/e2e/learning/seeded/phrasing.py). Made-up people; nothing here comes from a real person.",
+ "replies": {
+  "wren-p01-0-0": {
+   "reply": "Done: `clamp` is in `tools/mathutil_4.py`.\n\nIt limits `value` to the inclusive range `low..high` and raises `ValueError` when `low > high`. No imports or external dependencies.",
+   "template": "Done: clamp is in tools/mathutil_4.py."
+  },
+  "wren-p01-0-1": {
+   "reply": "Moved `levels/incoming/level-2026-10-15.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-15.json to levels/archive/."
+  },
+  "wren-p01-0-2": {
+   "reply": "Done: `levels/csv/level-2026-11-01.csv` has 8 rows, with columns `x`, `y`, and `type`.",
+   "template": "Done: levels/csv/level-2026-11-01.csv has 8 rows."
+  },
+  "wren-p01-1-0": {
+   "reply": "Updated #231: added the `level-pipeline` label and assigned it to bo.",
+   "template": "#231: level-pipeline, bo."
+  },
+  "wren-p01-2-0": {
+   "reply": "One frame at 30 fps is **33.33 milliseconds**.",
+   "template": "That comes to 33.33."
+  },
+  "wren-p01-2-1": {
+   "reply": "Closed #231 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #231 with your comment."
+  },
+  "wren-p01-3-0": {
+   "reply": "Done: `version_bump` is in `tools/release_5.py`.\n\nIt bumps `major`, `minor`, or `patch`, resets subsequent parts to zero, and raises `ValueError` for any other part. No external dependencies.",
+   "template": "Done: version_bump is in tools/release_5.py."
+  },
+  "wren-p01-3-1": {
+   "reply": "Updated #232: labeled **level-pipeline** and assigned to **cy**.",
+   "template": "#232: level-pipeline, cy."
+  },
+  "wren-p01-3-2": {
+   "reply": "Freeze the level list **5 working days before release**, per `docs/release-checklist.md`.",
+   "template": "It's 5."
+  },
+  "wren-p02-0-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-14.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-14.json to levels/archive/."
+  },
+  "wren-p02-1-0": {
+   "reply": "Closed #227 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #227 with your comment."
+  },
+  "wren-p02-2-0": {
+   "reply": "**87 minutes** logged for audio between 2026-10-25 and 2026-10-27 (inclusive) in `bugs/bug-log.csv`.",
+   "template": "The total is 87."
+  },
+  "wren-p02-3-0": {
+   "reply": "Closed #230 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #230 with your comment."
+  },
+  "wren-p02-4-0": {
+   "reply": "Done: `parse_version` is in `tools/versions_9.py`.\n\nIt accepts an optional leading `v`, fills missing components with zeros, and returns a tuple of three integers. Invalid formats raise `ValueError`. Standard library only; no tests were run.",
+   "template": "Done: parse_version is in tools/versions_9.py."
+  },
+  "wren-p03-0-0": {
+   "reply": "Closed #228 and added your comment: “can't reproduce on main, closing”.",
+   "template": "Closed #228 with your comment."
+  },
+  "wren-p03-1-0": {
+   "reply": "Done: `levels/csv/level-2026-10-30.csv` has 7 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-30.csv has 7 rows."
+  },
+  "wren-p03-2-0": {
+   "reply": "One frame takes **7.58 ms**.",
+   "template": "That comes to 7.58."
+  },
+  "wren-p03-2-1": {
+   "reply": "Done: `grid_rows` is in `tools/preview_2.py`.\n\nIt returns the grid as a list of strings, using the first letter of each tile’s type and `.` for empty cells. No external dependencies.",
+   "template": "Done: grid_rows is in tools/preview_2.py."
+  },
+  "wren-p03-3-0": {
+   "reply": "Done: `frames_to_timecode` is in `tools/timecode_3.py`. It converts a frame count and fps to `MM:SS:FF`, with each field padded to two digits, using only Python’s standard library.",
+   "template": "Done: frames_to_timecode is in tools/timecode_3.py."
+  },
+  "wren-p04-0-0": {
+   "reply": "Updated #228: added `needs-repro` and assigned to eli.",
+   "template": "#228: needs-repro, eli."
+  },
+  "wren-p04-0-1": {
+   "reply": "Added `bounding_box(points)` to `tools/geometry_5.py`.\n\n- Returns `(min_x, min_y, max_x, max_y)` for `(x, y)` pairs.\n- Returns `None` for an empty list.\n- Uses no external dependencies.\n\nTests weren’t run.",
+   "template": "Done: bounding_box is in tools/geometry_5.py."
+  },
+  "wren-p04-0-2": {
+   "reply": "Done: `levels/csv/level-2026-10-29.csv` has 8 rows, with columns `x`, `y`, and `type`.",
+   "template": "Done: levels/csv/level-2026-10-29.csv has 8 rows."
+  },
+  "wren-p04-1-0": {
+   "reply": "Labeled #227 as **regression** and assigned it to **cy**.",
+   "template": "#227: regression, cy."
+  },
+  "wren-p04-1-1": {
+   "reply": "Updated #227: added the **crash** label and assigned it to **dee**.",
+   "template": "#227: crash, dee."
+  },
+  "wren-p04-2-0": {
+   "reply": "Closed #229 with your comment: “fixed in the level loader”.",
+   "template": "Closed #229 with your comment."
+  },
+  "wren-p04-2-1": {
+   "reply": "Added **Playtest with Bo** to your calendar on **2026-11-05**.",
+   "template": "Added Playtest with Bo on 2026-11-05."
+  },
+  "wren-p05-0-0": {
+   "reply": "Done: `neighbours` is in `tools/grid_5.py`.\n\nIt returns the in-bounds up, down, left and right neighbours as a sorted list of `(x, y)` tuples. No external dependencies.",
+   "template": "Done: neighbours is in tools/grid_5.py."
+  },
+  "wren-p05-0-1": {
+   "reply": "Done: `bounding_box` is in `tools/geometry_4.py`.\n\nIt returns `(min_x, min_y, max_x, max_y)` for the given `(x, y)` pairs, or `None` for an empty list. No external dependencies.",
+   "template": "Done: bounding_box is in tools/geometry_4.py."
+  },
+  "wren-p05-1-0": {
+   "reply": "That comes to **494 water tiles**.",
+   "template": "That comes to 494."
+  },
+  "wren-p05-1-1": {
+   "reply": "That’s **3.33 hours a week** spent running builds.",
+   "template": "That comes to 3.33."
+  },
+  "wren-p05-1-2": {
+   "reply": "Done: `lerp` is in `tools/easing_6.py`. It clamps `t` to the requested range before interpolating linearly from `a` to `b`. No external dependencies.",
+   "template": "Done: lerp is in tools/easing_6.py."
+  },
+  "wren-p05-2-0": {
+   "reply": "Run the tools’ unit tests with:\n\n```sh\npython -m unittest discover tools/tests\n```\n\nThat’s the current command in `docs/BUILDING.md`.",
+   "template": "It's unittest discover."
+  },
+  "wren-p05-2-1": {
+   "reply": "Created `levels/csv/level-2026-10-27.csv` with 8 data rows and columns `x,y,type`, preserving the tile order from the source JSON.",
+   "template": "Done: levels/csv/level-2026-10-27.csv has 8 rows."
+  },
+  "wren-p06-0-0": {
+   "reply": "Closed #225 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #225 with your comment."
+  },
+  "wren-p06-1-0": {
+   "reply": "Done: `parse_version` is in `tools/versions_8.py`.\n\nIt returns a tuple of three integers, pads missing parts with zeros, accepts a leading `v`, and raises `ValueError` for invalid input. Uses only the standard library.",
+   "template": "Done: parse_version is in tools/versions_8.py."
+  },
+  "wren-p06-2-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-13.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-13.json to levels/archive/."
+  },
+  "wren-p06-2-1": {
+   "reply": "Closed #226 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #226 with your comment."
+  },
+  "wren-p06-3-0": {
+   "reply": "Tagged #227 with `regression` and assigned it to dee.",
+   "template": "#227: regression, dee."
+  },
+  "wren-p06-4-0": {
+   "reply": "Done: `clamp` is in `tools/mathutil_3.py`.\n\nIt returns the value limited to the inclusive range `low..high` and raises `ValueError` when `low > high`. No external dependencies.",
+   "template": "Done: clamp is in tools/mathutil_3.py."
+  },
+  "wren-p06-4-1": {
+   "reply": "There are **160 water tiles**.",
+   "template": "That comes to 160."
+  },
+  "wren-p06-4-2": {
+   "reply": "Added **Code review with Bo** to your calendar for **2026-11-02**.",
+   "template": "Added Code review with Bo on 2026-11-02."
+  },
+  "wren-p07-0-0": {
+   "reply": "Labeled #225 as **regression** and assigned it to **cy**.",
+   "template": "#225: regression, cy."
+  },
+  "wren-p07-0-1": {
+   "reply": "Done: `levels/csv/level-2026-10-26.csv` has 8 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-26.csv has 8 rows."
+  },
+  "wren-p07-1-0": {
+   "reply": "Added **Code review with Ash** to your calendar on **2026-11-02**.\n\nAsh hasn’t been invited yet.",
+   "template": "Added Code review with Ash on 2026-11-02."
+  },
+  "wren-p07-1-1": {
+   "reply": "Done: `bounding_box` is in `tools/geometry_2.py`.\n\nIt takes `(x, y)` pairs and returns `(min_x, min_y, max_x, max_y)`, or `None` for an empty list. No external dependencies.",
+   "template": "Done: bounding_box is in tools/geometry_2.py."
+  },
+  "wren-p07-2-0": {
+   "reply": "Implemented `bounding_box(points)` in `tools/geometry_3.py`.\n\n- Returns `(min_x, min_y, max_x, max_y)` for non-empty lists of coordinate pairs.\n- Returns `None` for an empty list.\n- Uses only Python built-ins, with no imports.",
+   "template": "Done: bounding_box is in tools/geometry_3.py."
+  },
+  "wren-p07-3-0": {
+   "reply": "Done: `frames_to_timecode(frames, fps)` is in `tools/timecode_2.py`.\n\nIt uses standard-library-only Python to return `MM:SS:FF`, with minutes, seconds, and the frame within the second zero-padded to two digits.",
+   "template": "Done: frames_to_timecode is in tools/timecode_2.py."
+  },
+  "wren-p07-3-1": {
+   "reply": "The release bundle is about **180 MB**, according to the build docs.",
+   "template": "It's 180."
+  },
+  "wren-p07-3-2": {
+   "reply": "Done: `clamp` is in `tools/mathutil_2.py`. It limits `value` to the inclusive range `low..high` and raises `ValueError` if `low > high`. No external dependencies.",
+   "template": "Done: clamp is in tools/mathutil_2.py."
+  },
+  "wren-p07-4-0": {
+   "reply": "Done: `levels/csv/level-2026-10-26.csv` has 8 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-26.csv has 8 rows."
+  },
+  "wren-p08-0-0": {
+   "reply": "Added **Playtest with Bo** to your calendar on **2026-10-27**.",
+   "template": "Added Playtest with Bo on 2026-10-27."
+  },
+  "wren-p08-0-1": {
+   "reply": "Done: `levels/csv/level-2026-10-25.csv` has 9 rows, with columns `x`, `y`, and `type`.",
+   "template": "Done: levels/csv/level-2026-10-25.csv has 9 rows."
+  },
+  "wren-p08-1-0": {
+   "reply": "Closed #224 and added the comment: “duplicate of an older bug”.",
+   "template": "Closed #224 with your comment."
+  },
+  "wren-p08-2-0": {
+   "reply": "**280 minutes** logged for audio in `bugs/bug-log.csv` over the requested date range, including both endpoints.",
+   "template": "The total is 280."
+  },
+  "wren-p09-0-0": {
+   "reply": "**389 minutes** went on rendering bugs over the requested date range, per `bugs/bug-log.csv`.",
+   "template": "The total is 389."
+  },
+  "wren-p09-1-0": {
+   "reply": "Closed #223 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #223 with your comment."
+  },
+  "wren-p09-1-1": {
+   "reply": "**615 minutes** went on rendering bugs over the requested date range (inclusive), according to `bugs/bug-log.csv`.",
+   "template": "The total is 615."
+  },
+  "wren-p09-1-2": {
+   "reply": "**515 minutes** went on rendering bugs during the requested date range, inclusive, according to `bugs/bug-log.csv`.",
+   "template": "The total is 515."
+  },
+  "wren-p09-2-0": {
+   "reply": "Done: `parse_version()` is in `tools/versions_7.py`.\n\nIt accepts an optional leading `v`, pads missing components with zeros, and returns a tuple of three integers. Invalid formats raise `ValueError`. It uses only the standard library.",
+   "template": "Done: parse_version is in tools/versions_7.py."
+  },
+  "wren-p09-2-1": {
+   "reply": "Done: `lerp` is in `tools/easing_5.py`. It clamps `t` to the requested range before interpolating linearly from `a` to `b`. No external dependencies.",
+   "template": "Done: lerp is in tools/easing_5.py."
+  },
+  "wren-p09-2-2": {
+   "reply": "Added **Playtest with Ash** to your calendar on **2026-11-03**.",
+   "template": "Added Playtest with Ash on 2026-11-03."
+  },
+  "wren-p10-0-0": {
+   "reply": "Done: `levels/csv/level-2026-10-23.csv` has 9 rows, with columns `x`, `y`, `type`.",
+   "template": "Done: levels/csv/level-2026-10-23.csv has 9 rows."
+  },
+  "wren-p10-0-1": {
+   "reply": "Updated #223: added `needs-repro` and assigned to eli.",
+   "template": "#223: needs-repro, eli."
+  },
+  "wren-p10-1-0": {
+   "reply": "Updated #223: added `level-pipeline` and assigned to ash.",
+   "template": "#223: level-pipeline, ash."
+  },
+  "wren-p10-2-0": {
+   "reply": "Tagged #223 with **regression** and assigned it to **eli**.",
+   "template": "#223: regression, eli."
+  },
+  "wren-p11-0-0": {
+   "reply": "One frame at 144 fps takes **6.94 ms**.",
+   "template": "That comes to 6.94."
+  },
+  "wren-p11-0-1": {
+   "reply": "Done: `levels/csv/level-2026-10-18.csv` has 10 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-18.csv has 10 rows."
+  },
+  "wren-p11-0-2": {
+   "reply": "Moved `levels/incoming/level-2026-10-12.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-12.json to levels/archive/."
+  },
+  "wren-p11-1-0": {
+   "reply": "Tagged #223 with `regression` and assigned it to cy.",
+   "template": "#223: regression, cy."
+  },
+  "wren-p11-1-1": {
+   "reply": "Updated #223: added `level-pipeline` and assigned it to ash.",
+   "template": "#223: level-pipeline, ash."
+  },
+  "wren-p11-2-0": {
+   "reply": "Added **Code review with Bo** to your calendar on **2026-10-29**.",
+   "template": "Added Code review with Bo on 2026-10-29."
+  },
+  "wren-p11-2-1": {
+   "reply": "Done: `levels/csv/level-2026-10-13.csv` has 9 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-13.csv has 9 rows."
+  },
+  "wren-p11-3-0": {
+   "reply": "Done: `parse_version` is in `tools/versions_5.py`.\n\nIt returns a tuple of three integers, pads missing components with zeros, accepts a leading `v`, and raises `ValueError` for invalid versions. Uses only built-in Python features.",
+   "template": "Done: parse_version is in tools/versions_5.py."
+  },
+  "wren-p11-4-0": {
+   "reply": "Done: `parse_version()` is in `tools/versions_6.py`.\n\nIt returns a tuple of three integers, pads missing parts with zeros, accepts a leading `v`, and raises `ValueError` for invalid version strings. Standard library only.",
+   "template": "Done: parse_version is in tools/versions_6.py."
+  },
+  "wren-p12-0-0": {
+   "reply": "That comes to **120 water tiles**.",
+   "template": "That comes to 120."
+  },
+  "wren-p12-0-1": {
+   "reply": "The total is **124 minutes** for audio in the requested date range, including both endpoints.",
+   "template": "The total is 124."
+  },
+  "wren-p12-1-0": {
+   "reply": "Run the tools’ unit tests with:\n\n```sh\npython -m unittest discover tools/tests\n```\n\nThat’s the current command in `docs/BUILDING.md`.",
+   "template": "It's unittest discover."
+  },
+  "wren-p12-1-1": {
+   "reply": "About **4 minutes** on the studio build machine. Run `make assets` to rebuild the asset cache.",
+   "template": "It's 4."
+  },
+  "wren-p12-1-2": {
+   "reply": "Done: `version_bump` is in `tools/release_4.py`.\n\nSupports `major`, `minor`, and `patch`, resets trailing components to zero, and raises `ValueError` for any other part. Uses only the standard library.",
+   "template": "Done: version_bump is in tools/release_4.py."
+  },
+  "wren-p12-2-0": {
+   "reply": "Closed #221 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #221 with your comment."
+  },
+  "wren-p12-3-0": {
+   "reply": "**487 minutes** went on physics bugs during the requested date range, including both endpoints, in `bugs/bug-log.csv`.",
+   "template": "The total is 487."
+  },
+  "wren-p12-4-0": {
+   "reply": "Closed #222 with your comment: “can't reproduce on main, closing”.",
+   "template": "Closed #222 with your comment."
+  },
+  "wren-p13-0-0": {
+   "reply": "Done: `parse_version` is in `tools/versions_4.py`.\n\nIt returns a tuple of three integers, fills missing parts with zeros, and accepts a leading `v`. Invalid formats raise `ValueError`. It also strips surrounding whitespace and uses no external dependencies.",
+   "template": "Done: parse_version is in tools/versions_4.py."
+  },
+  "wren-p13-0-1": {
+   "reply": "Updated #220: labeled **needs-repro** and assigned to **dee**.",
+   "template": "#220: needs-repro, dee."
+  },
+  "wren-p13-1-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-10.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-10.json to levels/archive/."
+  },
+  "wren-p13-2-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-11.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-11.json to levels/archive/."
+  },
+  "wren-p13-3-0": {
+   "reply": "Closed #220 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #220 with your comment."
+  },
+  "wren-p13-4-0": {
+   "reply": "That comes to **524 water tiles**, rounded to the nearest whole tile.",
+   "template": "That comes to 524."
+  },
+  "wren-p13-4-1": {
+   "reply": "Done: `lerp(a, b, t)` is in `tools/easing_4.py`. It clamps `t` to the range 0..1 before linearly interpolating from `a` to `b`. No external dependencies.",
+   "template": "Done: lerp is in tools/easing_4.py."
+  },
+  "wren-p14-0-0": {
+   "reply": "Added **Playtest with Dee** to your calendar on **2026-10-22**.",
+   "template": "Added Playtest with Dee on 2026-10-22."
+  },
+  "wren-p14-1-0": {
+   "reply": "Closed #219 and added your comment: “can't reproduce on main, closing”.",
+   "template": "Closed #219 with your comment."
+  },
+  "wren-p14-2-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-09.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-09.json to levels/archive/."
+  },
+  "wren-p14-2-1": {
+   "reply": "**216 minutes** went on physics bugs during the requested date range, inclusive, according to `bugs/bug-log.csv`.",
+   "template": "The total is 216."
+  },
+  "wren-p15-0-0": {
+   "reply": "Added `clamp(value, low, high)` to `tools/mathutil.py`.\n\n- Returns `value` limited to the inclusive range `low..high`.\n- Raises `ValueError` if `low > high`.\n- Uses only Python built-ins; no dependencies.",
+   "template": "Done: clamp is in tools/mathutil.py."
+  },
+  "wren-p15-1-0": {
+   "reply": "One frame is **13.89 ms**.",
+   "template": "That comes to 13.89."
+  },
+  "wren-p15-1-1": {
+   "reply": "One frame takes **7.25 ms**.",
+   "template": "That comes to 7.25."
+  },
+  "wren-p15-2-0": {
+   "reply": "Closed #218 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #218 with your comment."
+  },
+  "wren-p16-0-0": {
+   "reply": "Done: `version_bump` is in `tools/release_3.py`.\n\nIt bumps `major`, `minor`, or `patch`, resets subsequent parts to zero, and raises `ValueError` for any other part. Standard library only.",
+   "template": "Done: version_bump is in tools/release_3.py."
+  },
+  "wren-p16-0-1": {
+   "reply": "Done: `neighbours` is in `tools/grid_3.py`.\n\nIt returns the in-bounds up, down, left, and right neighbours as a sorted list of `(x, y)` tuples. No external dependencies.",
+   "template": "Done: neighbours is in tools/grid_3.py."
+  },
+  "wren-p16-1-0": {
+   "reply": "Closed #215 and added your comment: “can't reproduce on main, closing”.",
+   "template": "Closed #215 with your comment."
+  },
+  "wren-p16-2-0": {
+   "reply": "Closed #216 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #216 with your comment."
+  },
+  "wren-p16-3-0": {
+   "reply": "Done: `levels/csv/level-2026-10-17.csv` has 9 rows, with columns `x`, `y`, `type`.",
+   "template": "Done: levels/csv/level-2026-10-17.csv has 9 rows."
+  },
+  "wren-p16-4-0": {
+   "reply": "Done: `levels/csv/level-2026-10-16.csv` has 8 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-16.csv has 8 rows."
+  },
+  "wren-p16-4-1": {
+   "reply": "Done: `neighbours` is in `tools/grid_4.py`.\n\nIt returns the in-bounds up, down, left, and right neighbours as a sorted list of `(x, y)` tuples. No external dependencies.",
+   "template": "Done: neighbours is in tools/grid_4.py."
+  },
+  "wren-p16-4-2": {
+   "reply": "Closed #217 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #217 with your comment."
+  },
+  "wren-p17-0-0": {
+   "reply": "Freeze the level list **5 working days before release**, per `docs/release-checklist.md`.",
+   "template": "It's 5."
+  },
+  "wren-p17-1-0": {
+   "reply": "Done: `parse_version` is in `tools/versions_2.py`.\n\nIt accepts an optional leading `v`, pads missing components with zeros, and returns a tuple of three integers. Invalid version strings raise `ValueError`. Uses only the Python standard library.",
+   "template": "Done: parse_version is in tools/versions_2.py."
+  },
+  "wren-p17-1-1": {
+   "reply": "Closed #212 and added your comment: “fixed in the level loader”.",
+   "template": "Closed #212 with your comment."
+  },
+  "wren-p17-1-2": {
+   "reply": "Done: `parse_version()` is in `tools/versions_3.py`.\n\nIt returns a three-integer tuple, fills missing parts with zeros, accepts a leading `v`, and raises `ValueError` for invalid formats. Standard library only.",
+   "template": "Done: parse_version is in tools/versions_3.py."
+  },
+  "wren-p17-2-0": {
+   "reply": "Done: `neighbours` is in `tools/grid_2.py`.\n\nIt returns the in-bounds up, down, left, and right neighbours as a sorted list of `(x, y)` tuples, using no external dependencies.",
+   "template": "Done: neighbours is in tools/grid_2.py."
+  },
+  "wren-p17-3-0": {
+   "reply": "Closed #213 and added your comment: “fixed in the level loader”.",
+   "template": "Closed #213 with your comment."
+  },
+  "wren-p17-3-1": {
+   "reply": "**574 minutes** went on UI bugs for the requested date range, inclusive, according to `bugs/bug-log.csv`.",
+   "template": "The total is 574."
+  },
+  "wren-p17-3-2": {
+   "reply": "Closed #214 and added your comment: “fixed in the level loader”.",
+   "template": "Closed #214 with your comment."
+  },
+  "wren-p18-0-0": {
+   "reply": "Run the tools’ unit tests with:\n\n```sh\npython -m unittest discover tools/tests\n```\n\nThat’s the current command in `docs/BUILDING.md`.",
+   "template": "It's unittest discover."
+  },
+  "wren-p18-0-1": {
+   "reply": "**254 minutes** total for `ui` in the requested date range (inclusive), from `bugs/bug-log.csv`.",
+   "template": "The total is 254."
+  },
+  "wren-p18-1-0": {
+   "reply": "Done: `levels/csv/level-2026-10-15.csv` has 9 rows, with columns `x`, `y`, and `type`.",
+   "template": "Done: levels/csv/level-2026-10-15.csv has 9 rows."
+  },
+  "wren-p18-2-0": {
+   "reply": "**530 minutes** were logged on rendering bugs for the requested date range (inclusive) in `bugs/bug-log.csv`.",
+   "template": "The total is 530."
+  },
+  "wren-p19-0-0": {
+   "reply": "Our max line length is **100 characters**, per `docs/style-guide.md`.",
+   "template": "It's 100."
+  },
+  "wren-p19-1-0": {
+   "reply": "**130 minutes** total for audio in the requested date range, including both endpoints, from `bugs/bug-log.csv`.",
+   "template": "The total is 130."
+  },
+  "wren-p19-1-1": {
+   "reply": "Done: `levels/csv/level-2026-10-14.csv` has 8 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-14.csv has 8 rows."
+  },
+  "wren-p19-1-2": {
+   "reply": "Closed #211 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #211 with your comment."
+  },
+  "wren-p19-2-0": {
+   "reply": "Updated #212: added `regression` and assigned to `cy`.",
+   "template": "#212: regression, cy."
+  },
+  "wren-p19-3-0": {
+   "reply": "Rebuilding the asset cache takes about **4 minutes** on the studio build machine, using `make assets`, according to `docs/BUILDING.md`.",
+   "template": "It's 4."
+  },
+  "wren-p19-4-0": {
+   "reply": "The tools require **Python 3.12 or newer**, per `docs/BUILDING.md`.",
+   "template": "It's 3.12."
+  },
+  "wren-p20-0-0": {
+   "reply": "Closed #205 with your comment:\n> fixed by the new collision mask",
+   "template": "Closed #205 with your comment."
+  },
+  "wren-p20-1-0": {
+   "reply": "Done: `bounding_box` is in `tools/geometry.py`.\n\nIt returns `(min_x, min_y, max_x, max_y)` for the supplied `(x, y)` pairs, or `None` for an empty list. No external dependencies.",
+   "template": "Done: bounding_box is in tools/geometry.py."
+  },
+  "wren-p20-2-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-08.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-08.json to levels/archive/."
+  },
+  "wren-p20-3-0": {
+   "reply": "Closed #209 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #209 with your comment."
+  },
+  "wren-p20-3-1": {
+   "reply": "The release bundle is about **180 MB**, according to `docs/BUILDING.md`.",
+   "template": "It's 180."
+  },
+  "wren-p20-3-2": {
+   "reply": "Closed #210 and added your comment: “fixed by the new collision mask”.",
+   "template": "Closed #210 with your comment."
+  },
+  "wren-p21-0-0": {
+   "reply": "Done: `levels/csv/level-2026-10-12.csv` has 10 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-12.csv has 10 rows."
+  },
+  "wren-p21-1-0": {
+   "reply": "Updated #209: added `regression` and assigned to `cy`.",
+   "template": "#209: regression, cy."
+  },
+  "wren-p21-1-1": {
+   "reply": "Done: `neighbours` is in `tools/grid.py`.\n\nIt returns the in-bounds up, down, left and right neighbours as a sorted list of `(x, y)` tuples. No external dependencies.",
+   "template": "Done: neighbours is in tools/grid.py."
+  },
+  "wren-p21-1-2": {
+   "reply": "One frame takes **27.78 milliseconds**.",
+   "template": "That comes to 27.78."
+  },
+  "wren-p21-2-0": {
+   "reply": "Updated #205: added **regression** and assigned to **ash**.",
+   "template": "#205: regression, ash."
+  },
+  "wren-p21-3-0": {
+   "reply": "Run:\n\n```sh\nmake dist\n```\n\nThe release bundle lands in `dist/`. Confirmed in the current `docs/BUILDING.md`.",
+   "template": "It's make dist."
+  },
+  "wren-p21-3-1": {
+   "reply": "Closed #203 with your comment:\n> can't reproduce on main, closing",
+   "template": "Closed #203 with your comment."
+  },
+  "wren-p22-0-0": {
+   "reply": "One frame takes **6.94 ms**.",
+   "template": "That comes to 6.94."
+  },
+  "wren-p22-0-1": {
+   "reply": "Implemented `version_bump(version, part)` in `tools/release_2.py`.\n\n- Supports `\"major\"`, `\"minor\"`, and `\"patch\"`, resetting subsequent parts to zero.\n- Raises `ValueError` for unsupported parts.\n- Uses only the standard library.\n\nTests haven’t been run.",
+   "template": "Done: version_bump is in tools/release_2.py."
+  },
+  "wren-p22-1-0": {
+   "reply": "Closed #208 with your comment: “fixed by the new collision mask”.",
+   "template": "Closed #208 with your comment."
+  },
+  "wren-p22-2-0": {
+   "reply": "That’s **12.00 hours per week** of build time.",
+   "template": "That comes to 12.00."
+  },
+  "wren-p23-0-0": {
+   "reply": "Added **Code review with Bo** to your calendar on **2026-10-21**.\n\nBo hasn’t been invited—the event is on your calendar only.",
+   "template": "Added Code review with Bo on 2026-10-21."
+  },
+  "wren-p23-0-1": {
+   "reply": "Done: `parse_version` is in `tools/versions.py`.\n\nIt returns a three-integer tuple, fills missing parts with zeros, accepts a leading `v`, and raises `ValueError` for invalid formats. Uses only built-in Python functionality.\n\nTests weren’t run.",
+   "template": "Done: parse_version is in tools/versions.py."
+  },
+  "wren-p23-1-0": {
+   "reply": "Closed #201 and added your comment: “fixed in the level loader”.",
+   "template": "Closed #201 with your comment."
+  },
+  "wren-p23-1-1": {
+   "reply": "Done: `version_bump` is in `tools/release.py`.\n\nIt bumps `major`, `minor`, or `patch`, resets subsequent parts to zero, and raises `ValueError` for any other part. Uses only the Python standard library.",
+   "template": "Done: version_bump is in tools/release.py."
+  },
+  "wren-p23-1-2": {
+   "reply": "Added **Code review with Cy** to your calendar for **2026-10-15**.",
+   "template": "Added Code review with Cy on 2026-10-15."
+  },
+  "wren-p23-2-0": {
+   "reply": "**62 minutes** went on audio bugs over the requested date range, inclusive, in `bugs/bug-log.csv`.",
+   "template": "The total is 62."
+  },
+  "wren-p23-3-0": {
+   "reply": "Updated #203: added **needs-repro** and assigned it to **cy**.",
+   "template": "#203: needs-repro, cy."
+  },
+  "wren-p23-4-0": {
+   "reply": "Updated #205: added `level-pipeline` and assigned to `cy`.",
+   "template": "#205: level-pipeline, cy."
+  },
+  "wren-p24-0-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-06.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-06.json to levels/archive/."
+  },
+  "wren-p24-1-0": {
+   "reply": "Done: `lerp` is in `tools/easing_3.py`. It clamps `t` to `0..1` before interpolating linearly from `a` to `b`. Standard library only, with no imports needed.",
+   "template": "Done: lerp is in tools/easing_3.py."
+  },
+  "wren-p24-1-1": {
+   "reply": "Added **Code review with Ash** to your calendar on **2026-10-21**.",
+   "template": "Added Code review with Ash on 2026-10-21."
+  },
+  "wren-p24-2-0": {
+   "reply": "Done: `levels/csv/level-2026-10-09.csv` has 7 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-09.csv has 7 rows."
+  },
+  "wren-p24-3-0": {
+   "reply": "Updated #203: added `level-pipeline` and assigned to ash.",
+   "template": "#203: level-pipeline, ash."
+  },
+  "wren-p24-4-0": {
+   "reply": "Done: `levels/csv/level-2026-10-08.csv` has 7 rows, one per tile, with an `x,y,type` header.",
+   "template": "Done: levels/csv/level-2026-10-08.csv has 7 rows."
+  },
+  "wren-p25-0-0": {
+   "reply": "Done: `tile_counts` is in `tools/tiles.py`. It counts tiles by their lower-cased `'type'` values and returns a dict, using only built-in Python functionality.",
+   "template": "Done: tile_counts is in tools/tiles.py."
+  },
+  "wren-p25-1-0": {
+   "reply": "Added `lerp(a, b, t)` to `tools/easing_2.py`. It clamps `t` to the range `0..1` before interpolating linearly from `a` to `b`. Standard library only; no imports needed.",
+   "template": "Done: lerp is in tools/easing_2.py."
+  },
+  "wren-p25-2-0": {
+   "reply": "Done: `frames_to_timecode` is in `tools/timecode.py`.\n\nIt converts a frame count to `MM:SS:FF`, padding each component to two digits, using only the Python standard library.",
+   "template": "Done: frames_to_timecode is in tools/timecode.py."
+  },
+  "wren-p25-2-1": {
+   "reply": "Added **Code review with Eli** to your calendar on **2026-10-20**. Eli hasn’t been sent an invitation.",
+   "template": "Added Code review with Eli on 2026-10-20."
+  },
+  "wren-p26-0-0": {
+   "reply": "The rendering total is **1207 minutes** for the requested date range, including both endpoints.",
+   "template": "The total is 1207."
+  },
+  "wren-p26-1-0": {
+   "reply": "Closed #204 and added your comment: “fixed in the level loader”.",
+   "template": "Closed #204 with your comment."
+  },
+  "wren-p26-2-0": {
+   "reply": "Closed #207 with your comment:\n> can't reproduce on main, closing",
+   "template": "Closed #207 with your comment."
+  },
+  "wren-p26-2-1": {
+   "reply": "Done: `grid_rows` is in `tools/preview.py`.\n\nIt returns a list of `height` strings, each `width` characters long, using the first letter of each tile’s type and `.` for empty cells. No external dependencies.",
+   "template": "Done: grid_rows is in tools/preview.py."
+  },
+  "wren-p26-2-2": {
+   "reply": "Moved `levels/incoming/level-2026-10-04.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-04.json to levels/archive/."
+  },
+  "wren-p26-3-0": {
+   "reply": "**655 minutes** went on rendering bugs in the requested date range, inclusive, according to `bugs/bug-log.csv`.",
+   "template": "The total is 655."
+  },
+  "wren-p26-3-1": {
+   "reply": "Moved `levels/incoming/level-2026-10-05.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-05.json to levels/archive/."
+  },
+  "wren-p27-0-0": {
+   "reply": "Done: `levels/csv/level-2026-10-06.csv` has 8 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-06.csv has 8 rows."
+  },
+  "wren-p27-1-0": {
+   "reply": "Moved `levels/incoming/level-2026-10-03.json` to `levels/archive/`.",
+   "template": "Moved levels/incoming/level-2026-10-03.json to levels/archive/."
+  },
+  "wren-p27-2-0": {
+   "reply": "Created `levels/csv/level-2026-10-06.csv` with 8 data rows and the columns `x`, `y`, `type`.",
+   "template": "Done: levels/csv/level-2026-10-06.csv has 8 rows."
+  },
+  "wren-p27-2-1": {
+   "reply": "Labeled #201 as **crash** and assigned it to **ash**.",
+   "template": "#201: crash, ash."
+  },
+  "wren-p27-3-0": {
+   "reply": "Closed #206 and added the comment: “duplicate of an older bug”.",
+   "template": "Closed #206 with your comment."
+  },
+  "wren-p28-0-0": {
+   "reply": "Created `levels/csv/level-2026-10-05.csv` with 6 data rows and columns `x`, `y`, `type`.",
+   "template": "Done: levels/csv/level-2026-10-05.csv has 6 rows."
+  },
+  "wren-p28-0-1": {
+   "reply": "**471 minutes** went on rendering bugs in the requested date range, inclusive, according to `bugs/bug-log.csv`.",
+   "template": "The total is 471."
+  },
+  "wren-p28-0-2": {
+   "reply": "Done: `lerp` is in `tools/easing.py`. It clamps `t` to the range 0..1 before interpolating linearly from `a` to `b`. No external dependencies.",
+   "template": "Done: lerp is in tools/easing.py."
+  },
+  "wren-p28-1-0": {
+   "reply": "Done: `levels/csv/level-2026-10-05.csv` has 6 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-05.csv has 6 rows."
+  },
+  "wren-p28-2-0": {
+   "reply": "Updated #201: added `needs-repro` and assigned to dee.",
+   "template": "#201: needs-repro, dee."
+  },
+  "wren-p29-0-0": {
+   "reply": "Done: `levels/csv/level-2026-10-04.csv` has 9 rows, one per tile, with the header `x,y,type`.",
+   "template": "Done: levels/csv/level-2026-10-04.csv has 9 rows."
+  },
+  "wren-p29-0-1": {
+   "reply": "One frame takes **9.26 ms**.",
+   "template": "That comes to 9.26."
+  },
+  "wren-p29-0-2": {
+   "reply": "**561 minutes** went on physics bugs over the requested date range, inclusive, according to `bugs/bug-log.csv`.",
+   "template": "The total is 561."
+  },
+  "wren-p29-1-0": {
+   "reply": "Closed #202 and added your comment: “duplicate of an older bug”.",
+   "template": "Closed #202 with your comment."
+  },
+  "wren-p29-2-0": {
+   "reply": "Done: `levels/csv/level-2026-10-04.csv` has 9 rows, with columns `x`, `y`, and `type`.",
+   "template": "Done: levels/csv/level-2026-10-04.csv has 9 rows."
+  },
+  "wren-p30-0-0": {
+   "reply": "Done: `levels/csv/level-2026-10-03.csv` has 11 rows, one per tile, with an `x,y,type` header.",
+   "template": "Done: levels/csv/level-2026-10-03.csv has 11 rows."
+  },
+  "wren-p30-0-1": {
+   "reply": "Updated #203: added `needs-repro` and assigned to bo.",
+   "template": "#203: needs-repro, bo."
+  },
+  "wren-p30-0-2": {
+   "reply": "**1506 minutes** total for rendering in the bug log over the requested date range, inclusive.",
+   "template": "The total is 1506."
+  },
+  "wren-p30-1-0": {
+   "reply": "About **4 minutes** on the studio build machine, using `make assets`, according to `docs/BUILDING.md`.",
+   "template": "It's 4."
+  },
+  "wren-p30-1-1": {
+   "reply": "One frame is **16.67 ms**.",
+   "template": "That comes to 16.67."
+  },
+  "wren-p30-2-0": {
+   "reply": "That comes to **4.17 hours per week** spent running builds.",
+   "template": "That comes to 4.17."
+  },
+  "wren-p30-3-0": {
+   "reply": "Updated #205: added the `regression` label and assigned it to eli.",
+   "template": "#205: regression, eli."
+  },
+  "wren-p30-3-1": {
+   "reply": "Done: `levels/csv/level-2026-10-03.csv` has 11 rows, with columns `x`, `y`, and `type`. Tile order is preserved from the source JSON.",
+   "template": "Done: levels/csv/level-2026-10-03.csv has 11 rows."
+  },
+  "wren-p30-3-2": {
+   "reply": "Done: `levels/csv/level-2026-10-03.csv` has 11 rows, with columns `x`, `y`, and `type`.",
+   "template": "Done: levels/csv/level-2026-10-03.csv has 11 rows."
+  }
+ },
+ "seed": 20261022,
+ "version": 1
+}

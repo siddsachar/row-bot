@@ -337,7 +337,7 @@ def test_providers_are_available_from_environment_keys_only() -> None:
     chosen = provider_registry.select({"ANTHROPIC_API_KEY": "k", "OPENAI_API_KEY": "k", "ROW_BOT_LIVE_EVAL_PROVIDERS": "openai"})
     assert [s.target.provider_id for s in chosen.chosen] == ["openai"]
     with pytest.raises(ValueError, match="OAuth-only"):
-        provider_registry.select({"ROW_BOT_LIVE_EVAL_PROVIDERS": "codex"})
+        provider_registry.select({"ROW_BOT_LIVE_EVAL_PROVIDERS": "xai_oauth"})
 
 
 def test_the_dry_run_plans_tasks_by_provider_without_spending(monkeypatch: pytest.MonkeyPatch,
@@ -371,6 +371,7 @@ def test_a_worker_gets_its_own_data_folder_and_a_closed_keychain(tmp_path: Path,
     env = orchestrate.child_env(tmp_path / "data", tmp_path / "ws")
     assert env["ROW_BOT_DATA_DIR"] == str(tmp_path / "data")
     assert env["ROW_BOT_TEST_MODE"] == "true" and "PYTEST_XDIST_WORKER" not in env
+    assert env["ROW_BOT_DESKTOP_NOTIFICATIONS"] == "off"  # a failed eval turn never reaches the desktop
     from tests.e2e.live_eval import worker
 
     home = tmp_path / "home"  # a stand-in home: the real everyday folder is never named, even briefly

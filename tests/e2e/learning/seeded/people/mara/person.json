@@ -1,0 +1,161 @@
+{
+  "id": "mara",
+  "name": "Mara Quillon",
+  "fictional": true,
+  "about": "Operations coordinator at Lantern Lane Community Kitchen, a small charity kitchen (made up for Row-Bot's tests). She runs the volunteer rota, orders food from three suppliers, logs donations and keeps the kitchen's maintenance tickets moving.",
+  "uses": "Her workspace holds the rota policy (an old and a current version), the food-safety handbook (and an unapproved draft), supplier agreements, the donations log and the daily delivery notes. Apps: the kitchen calendar, her mailbox and the maintenance tracker.",
+  "asks": "Short, informal messages, often typed between shifts. She names the file or the person when she knows it.",
+  "corrects": "Plainly and kindly: she says what was wrong and what she meant, sometimes pointing at the right document ('no, that's the old policy - use the March one').",
+  "tools": ["filesystem", "memory", "task", "calculator", "chart", "duckduckgo"],
+  "approval_mode": "approve",
+  "policy": {
+    "requests_per_day": [1, 3],
+    "teach_share": 0.3,
+    "patience_tool_calls": 16,
+    "patience_seconds": 300,
+    "past_conversations_per_day": [3, 5],
+    "past_mistake_share": 0.1
+  },
+  "work": {
+    "fact_lookup": 4,
+    "ledger_total": 2,
+    "ledger_json": 1,
+    "note_to_csv": 2,
+    "calendar_add": 2,
+    "mail_send": 2,
+    "mail_archive": 1,
+    "issue_close": 1,
+    "arithmetic": 1,
+    "move_file": 1
+  },
+  "facts": [
+    {"id": "rota_lunch", "answer": 5, "match": "number", "decoy": "4 volunteers", "files": ["policies/volunteer-rota-policy-2026.md"],
+     "phrasings": ["How many volunteers do we need on a weekday lunch shift under the current rota policy?",
+                   "Check the rota policy for me: how many people on a weekday lunch shift now?",
+                   "What's the number of volunteers for weekday lunch, according to the current policy?"],
+     "intent": "The current (March 2026) rota policy's number for weekday lunch, not the superseded 2025 one."},
+    {"id": "rota_dinner", "answer": 6, "match": "number", "decoy": "5 volunteers", "files": ["policies/volunteer-rota-policy-2026.md"],
+     "phrasings": ["How many volunteers does a weekday dinner shift need now?",
+                   "According to the rota policy, how many people should be on weekday dinner?"],
+     "intent": "The current rota policy's number for weekday dinner."},
+    {"id": "rota_weekend", "answer": 7, "match": "number", "decoy": "6 volunteers", "files": ["policies/volunteer-rota-policy-2026.md"],
+     "phrasings": ["How many volunteers for a Saturday shift under the current policy?",
+                   "What does the rota policy say about weekend shift numbers these days?"],
+     "intent": "The current rota policy's weekend number."},
+    {"id": "min_age", "answer": 17, "match": "number", "decoy": "16", "files": ["policies/volunteer-rota-policy-2026.md"],
+     "phrasings": ["A 16-year-old asked to help cook. What's the minimum age for a cooking shift in the current policy?",
+                   "What's the youngest someone can be to volunteer on a cooking shift now?"],
+     "intent": "The current minimum age for cooking shifts (17); 16 is the old rule."},
+    {"id": "swap_notice", "answer": 48, "match": "number", "decoy": "24 hours", "files": ["policies/volunteer-rota-policy-2026.md"],
+     "phrasings": ["How much notice do volunteers have to give to swap a shift?",
+                   "Someone wants to swap tomorrow's shift - how many hours' notice does the current rota policy ask for?"],
+     "intent": "The current swap notice in hours."},
+    {"id": "max_shifts", "answer": 3, "match": "number", "decoy": "There's no limit", "files": ["policies/volunteer-rota-policy-2026.md"],
+     "phrasings": ["Is there a limit on how many shifts one volunteer can do in a week?",
+                   "What's the most shifts a volunteer can do per week under the current policy?"],
+     "intent": "The weekly shift limit from the current policy."},
+    {"id": "fridge_temp", "answer": 5, "match": "number", "decoy": "8 degrees", "files": ["handbook/food-safety.md"],
+     "phrasings": ["What temperature should the fridges be at, per the approved food-safety handbook?",
+                   "Fridge log question: what's the maximum fridge temperature we allow?"],
+     "intent": "The approved handbook's fridge limit, not the draft's."},
+    {"id": "leftover_days", "answer": 2, "match": "number", "decoy": "3 days", "files": ["handbook/food-safety.md"],
+     "phrasings": ["How many days can we keep cooked leftovers?",
+                   "According to the food-safety handbook, how long are leftovers kept?"],
+     "intent": "The approved leftover limit in days."},
+    {"id": "hot_hold", "answer": 63, "match": "number", "decoy": "60 degrees", "files": ["handbook/food-safety.md"],
+     "phrasings": ["What temperature does hot food have to be held at when we serve it?"],
+     "intent": "The approved hot-holding temperature."},
+    {"id": "bread_price", "answer": 2.05, "match": "number", "decoy": "GBP 1.80", "files": ["suppliers/agreements.md"],
+     "phrasings": ["What does Sandgate charge per large loaf now?",
+                   "Look up the current price of a large loaf from Sandgate Bakery."],
+     "intent": "Sandgate's price from 1 October 2026."},
+    {"id": "hartwell_minimum", "answer": 120, "match": "number", "decoy": "GBP 40", "files": ["suppliers/agreements.md"],
+     "phrasings": ["What's Hartwell Produce's minimum order?",
+                   "How much do we have to order from Hartwell at least, according to the supplier agreements?"],
+     "intent": "Hartwell's minimum order in pounds."},
+    {"id": "dairy_days", "answer": "Thursday", "match": "contains", "decoy": "Tuesdays and Fridays", "files": ["suppliers/agreements.md"],
+     "phrasings": ["Which days does Coldharbour Dairy deliver?",
+                   "When does the dairy come? Check the supplier agreements."],
+     "intent": "Coldharbour Dairy's delivery days (Mondays and Thursdays)."}
+  ],
+  "ledger": {
+    "path": "records/donations.csv",
+    "columns": ["date", "donor", "donor_type", "amount"],
+    "party_column": "donor",
+    "category_column": "donor_type",
+    "amount_column": "amount",
+    "noun": "donations",
+    "categories": {
+      "individual": {"parties": ["A. Okafor", "B. Lindqvist", "C. Haddad", "D. Moreau", "E. Tanaka", "F. Ruiz"], "amount": [5, 60], "per_day": [0, 3]},
+      "business": {"parties": ["Lark Street Pharmacy", "Pell & Daughters Hardware", "Northgate Cinema"], "amount": [40, 250], "per_day": [0, 1]},
+      "church": {"parties": ["St Brannoc's", "Elm Road Chapel"], "amount": [30, 150], "per_day": [0, 1]},
+      "school": {"parties": ["Fernhill Primary", "Riverbend Academy"], "amount": [20, 90], "per_day": [0, 1]}
+    },
+    "phrasings_total": ["How much did {category} donors give in total between {start} and {end}? It's in records/donations.csv.",
+                        "From the donations log, what's the total from {category} donors from {start} to {end}?"],
+    "phrasings_json": ["Write donations-{start}.json: a JSON object of total donations per donor_type from {start} to {end}, using records/donations.csv.",
+                       "Can you put the donation totals by donor type for {start} to {end} into donations-{start}.json (JSON, donor_type to total)?"],
+    "out_dir": "reports"
+  },
+  "notes": {
+    "dir": "inbox",
+    "prefix": "delivery",
+    "title": "Delivery note",
+    "out_dir": "deliveries",
+    "columns": ["item", "quantity", "unit"],
+    "line": "{quantity} {unit} {item}",
+    "items": [
+      {"item": "carrots", "unit": "kg", "quantity": [5, 20]},
+      {"item": "onions", "unit": "kg", "quantity": [5, 25]},
+      {"item": "potatoes", "unit": "kg", "quantity": [10, 40]},
+      {"item": "tinned tomatoes", "unit": "tins", "quantity": [12, 48]},
+      {"item": "large loaves", "unit": "loaves", "quantity": [10, 30]},
+      {"item": "milk", "unit": "litres", "quantity": [10, 30]},
+      {"item": "apples", "unit": "kg", "quantity": [4, 15]},
+      {"item": "rice", "unit": "kg", "quantity": [5, 20]},
+      {"item": "lentils", "unit": "kg", "quantity": [3, 12]}
+    ],
+    "phrasings": ["Turn today's delivery note ({note}) into {out}: a CSV with the columns item,quantity,unit.",
+                  "Can you make a CSV of {note} at {out}? Columns item, quantity, unit please."]
+  },
+  "calendar": {
+    "whos": ["Ayo", "Bella", "Chidi", "Dev", "Elif", "Finn", "Grace", "Hamza"],
+    "whats": [
+      {"name": "weekday lunch shift", "title": "{who} - lunch shift", "start": "11:00", "end": "14:30", "weekend": false},
+      {"name": "weekday dinner shift", "title": "{who} - dinner shift", "start": "16:30", "end": "20:00", "weekend": false},
+      {"name": "weekend shift", "title": "{who} - weekend shift", "start": "10:00", "end": "15:00", "weekend": true}
+    ],
+    "phrasings": ["Put {who} on the {what} on {date} in the kitchen calendar.",
+                  "Add a calendar entry for {who}'s {what} on {date}, please."]
+  },
+  "mail": {
+    "contacts": [
+      {"name": "Hartwell Produce orders", "email": "orders@hartwell-produce.example", "purpose": "confirm Friday's order of {quantity} kg of potatoes", "must": "{quantity} kg"},
+      {"name": "Sandgate Bakery", "email": "hello@sandgate-bakery.example", "purpose": "ask them to add {quantity} extra large loaves to tomorrow's delivery", "must": "{quantity}"},
+      {"name": "the volunteer list", "email": "volunteers@lanternlane.example", "purpose": "remind everyone that shift swaps now need 48 hours' notice", "must": "48 hours"},
+      {"name": "Coldharbour Dairy", "email": "accounts@coldharbour-dairy.example", "purpose": "say we're returning {quantity} unopened packs of butter", "must": "{quantity}"}
+    ],
+    "phrasings": ["Email {name} ({email}) to {purpose}.", "Send a quick email to {email} - {purpose}."],
+    "newsletters": [
+      {"from": "news@fooddrive-network.example", "subject": "Food Drive Network weekly"},
+      {"from": "offers@catering-supplies.example", "subject": "This week's catering offers"}
+    ],
+    "archive_phrasings": ["Archive all the emails from {sender} in my inbox.", "Clear out the {sender} emails from my inbox - archive them."]
+  },
+  "issues": {
+    "fixes": ["the engineer replaced the part", "fixed and tested this morning", "sorted by the landlord's contractor", "done, checked twice"],
+    "new_titles": ["Extractor fan is noisy", "Freezer 2 alarm beeps at night", "Trolley wheel is stuck", "Store-room shelf bracket bent", "Oven 1 door hinge loose", "Fire blanket missing from hall", "Gutter over the loading bay leaks", "Van wiper blade split"],
+    "phrasings": ["Close maintenance ticket #{id} ({title}) and add a comment that {fix}.",
+                  "#{id} is done - close it and comment '{fix}'."]
+  },
+  "arithmetic": [
+    {"phrasing": "We cook {a} meals a day at about GBP {b} a meal. What's that for {c} days?", "a": [60, 140, 5], "b": [1.2, 2.4, 0.1], "c": [5, 14, 1], "answer": "a*b*c", "decimals": 2},
+    {"phrasing": "If {a} volunteers each do {b} shifts of {c} hours this month, how many volunteer hours is that?", "a": [8, 30, 1], "b": [2, 6, 1], "c": [3.5, 5, 0.5], "answer": "a*b*c", "decimals": 1},
+    {"phrasing": "A {a} kg sack of rice makes about {b} portions per kg. How many portions from {c} sacks?", "a": [10, 25, 5], "b": [8, 12, 1], "c": [2, 6, 1], "answer": "a*b*c", "decimals": 0}
+  ],
+  "moves": {
+    "from_dir": "inbox",
+    "to_dir": "archive/deliveries",
+    "phrasings": ["Move {file} into {to_dir}/ - it's been processed.", "{file} is done with; move it to {to_dir}/."]
+  }
+}

@@ -347,3 +347,36 @@ it('has no row menu where a list only chooses', async () => {
     screen.queryByRole('button', { name: /^More for /, hidden: true }),
   ).toBeNull();
 });
+
+it('offers a ready personal model with a Personal tag; it can be a favourite or hidden like any model (Learning, D11)', async () => {
+  const onVisibility = vi.fn();
+  const personal = local('row-bot-personal-v1:ab12cd34', {
+    label: 'Personal model v1 - Ollama Local',
+    personal: true,
+  });
+  show(
+    'model:codex:gpt-5.6-sol',
+    { state: 'ready' },
+    { open: true, models: [...shelf, personal], onVisibility },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  const row = within(list).getByRole('option', { name: /^Personal model v1/ });
+  expect(row).toHaveTextContent('Personal');
+  expect(row).not.toHaveTextContent('row-bot-personal');
+  const menu = await screen.findByRole('button', {
+    name: 'More for Personal model v1',
+    hidden: true,
+  });
+  await act(async () => {
+    fireEvent.pointerDown(menu, { button: 0, pointerType: 'mouse' });
+  });
+  await act(async () =>
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: /Add to favourites/ }),
+    ),
+  );
+  expect(onVisibility).toHaveBeenCalledWith(
+    expect.objectContaining({ model_ref: personal.model_ref }),
+    'favourite',
+  );
+});

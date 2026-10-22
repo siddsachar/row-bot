@@ -1,0 +1,99 @@
+{
+  "additionalProperties": false,
+  "description": "The personal model's download (L2b): the training engine, then the starting model.",
+  "properties": {
+    "done_bytes": {
+      "minimum": 0,
+      "title": "Done Bytes",
+      "type": "integer"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "enum": [
+            "network",
+            "mismatch",
+            "install_failed",
+            "check_failed",
+            "no_cuda",
+            "refused"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure"
+    },
+    "free_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Free Bytes"
+    },
+    "needs_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Needs Bytes"
+    },
+    "phase": {
+      "anyOf": [
+        {
+          "enum": [
+            "engine",
+            "installing",
+            "checking",
+            "model"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Phase"
+    },
+    "state": {
+      "enum": [
+        "none",
+        "ready",
+        "downloading",
+        "paused",
+        "not_enough_disk",
+        "failed"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "total_bytes": {
+      "minimum": 0,
+      "title": "Total Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "state",
+    "done_bytes",
+    "total_bytes"
+  ],
+  "title": "LearningDownload",
+  "type": "object"
+}

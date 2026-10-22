@@ -1,0 +1,909 @@
+{
+ "format": "row_bot.learning.seeded_past_replies",
+ "model": "gpt-6.1-sol",
+ "note": "The past's replies in the main model's own words (tests/e2e/learning/seeded/phrasing.py). Made-up people; nothing here comes from a real person.",
+ "replies": {
+  "mara-p01-0-0": {
+   "reply": "Sent to orders@hartwell-produce.example, confirming Friday’s order of 9 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p01-0-1": {
+   "reply": "The total from individual donors for the requested date range is **290.98**, according to the donations log.",
+   "template": "The total is 290.98."
+  },
+  "mara-p01-0-2": {
+   "reply": "Archived 2 emails from offers@catering-supplies.example.",
+   "template": "Archived 2 emails from offers@catering-supplies.example."
+  },
+  "mara-p01-1-0": {
+   "reply": "Sent to volunteers@lanternlane.example, reminding everyone that shift swaps now need 48 hours’ notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p01-2-0": {
+   "reply": "Added **Dev - lunch shift** to the kitchen calendar on **2026-11-13**.",
+   "template": "Added Dev - lunch shift on 2026-11-13."
+  },
+  "mara-p01-2-1": {
+   "reply": "Created `donations-2026-10-22.json` with total donations per `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-22.json has the totals per donor_type."
+  },
+  "mara-p01-2-2": {
+   "reply": "That comes to about **GBP 2184.00** for the full period.",
+   "template": "That comes to 2184.00."
+  },
+  "mara-p01-3-0": {
+   "reply": "Sent to volunteers@lanternlane.example, reminding everyone that shift swaps now need 48 hours’ notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p01-3-1": {
+   "reply": "Added **Ayo - weekend shift** to the calendar on **2026-11-14**.",
+   "template": "Added Ayo - weekend shift on 2026-11-14."
+  },
+  "mara-p01-4-0": {
+   "reply": "Sent to volunteers@lanternlane.example, reminding everyone that shift swaps now need 48 hours' notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p01-4-1": {
+   "reply": "Added **Dev - weekend shift** to the kitchen calendar on **2026-11-14**.",
+   "template": "Added Dev - weekend shift on 2026-11-14."
+  },
+  "mara-p01-4-2": {
+   "reply": "Sent to accounts@coldharbour-dairy.example to let them know we’re returning 4 unopened packs of butter.",
+   "template": "Sent to accounts@coldharbour-dairy.example."
+  },
+  "mara-p02-0-0": {
+   "reply": "School donors gave **198.51** in total during the requested date range, including both start and end dates, according to `records/donations.csv`.",
+   "template": "The total is 198.51."
+  },
+  "mara-p02-1-0": {
+   "reply": "Closed #28 and added the comment: “the engineer replaced the part”.",
+   "template": "Closed #28 with your comment."
+  },
+  "mara-p02-1-1": {
+   "reply": "Added **Ayo - dinner shift** to the calendar on **2026-11-09**.",
+   "template": "Added Ayo - dinner shift on 2026-11-09."
+  },
+  "mara-p02-2-0": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** to arrange a swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p02-3-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-31.csv` has 3 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-31.csv has 3 rows."
+  },
+  "mara-p02-3-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-29.csv` has 4 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-29.csv has 4 rows."
+  },
+  "mara-p02-3-2": {
+   "reply": "Added **Finn - dinner shift** to the kitchen calendar on **2026-11-04**.",
+   "template": "Added Finn - dinner shift on 2026-11-04."
+  },
+  "mara-p02-4-0": {
+   "reply": "Done: `donations-2026-10-21.json` has the totals per `donor_type`, calculated from `records/donations.csv` for the requested date range.",
+   "template": "Done: donations-2026-10-21.json has the totals per donor_type."
+  },
+  "mara-p02-4-1": {
+   "reply": "Done — created `donations-2026-10-19.json` with the donation totals per `donor_type`, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-19.json has the totals per donor_type."
+  },
+  "mara-p03-0-0": {
+   "reply": "**5 volunteers** are needed for a weekday lunch shift under the current rota policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 5."
+  },
+  "mara-p03-1-0": {
+   "reply": "Individual donors gave a total of **385.51** during the requested period, including both start and end dates.\n\nSource: `records/donations.csv`, counting only entries marked `individual`.",
+   "template": "The total is 385.51."
+  },
+  "mara-p03-1-1": {
+   "reply": "Moved `inbox/delivery-2026-10-16.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-16.txt to archive/deliveries/."
+  },
+  "mara-p03-2-0": {
+   "reply": "That comes to about **GBP 588.00** for the week.",
+   "template": "That comes to 588.00."
+  },
+  "mara-p03-3-0": {
+   "reply": "Closed #29 and added your comment: “done, checked twice”.",
+   "template": "Closed #29 with your comment."
+  },
+  "mara-p03-3-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-30.csv` has 6 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-30.csv has 6 rows."
+  },
+  "mara-p03-4-0": {
+   "reply": "Yes — each volunteer can do **at most 3 shifts per week**, to help prevent burnout.\n\nThat’s the limit in the current rota policy: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 3."
+  },
+  "mara-p04-0-0": {
+   "reply": "That comes to **308.0 volunteer hours** this month.",
+   "template": "That comes to 308.0."
+  },
+  "mara-p04-0-1": {
+   "reply": "Added **Ayo - weekend shift** to your calendar on **2026-11-07**.",
+   "template": "Added Ayo - weekend shift on 2026-11-07."
+  },
+  "mara-p04-1-0": {
+   "reply": "Added **Ayo - lunch shift** to the kitchen calendar on **2026-11-02**.",
+   "template": "Added Ayo - lunch shift on 2026-11-02."
+  },
+  "mara-p04-1-1": {
+   "reply": "The current rota policy asks for **at least 48 hours’ notice** before the shift—volunteers should tell the coordinator about the swap. If the shift is tomorrow, it’s already inside that notice window.",
+   "template": "It's 48."
+  },
+  "mara-p04-2-0": {
+   "reply": "The total from individual donors for **2026-10-21 to 2026-10-23**, inclusive, is **206.13**, according to `records/donations.csv`.",
+   "template": "The total is 206.13."
+  },
+  "mara-p04-3-0": {
+   "reply": "The total from school donors for the requested period is **222.58**, based on the donations log (including both start and end dates).",
+   "template": "The total is 222.58."
+  },
+  "mara-p04-3-1": {
+   "reply": "Sent to orders@hartwell-produce.example, confirming Friday’s order of 36 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p04-4-0": {
+   "reply": "Done — saved the totals by donor type to `donations-2026-10-16.json` as a JSON object mapping `donor_type` to total.",
+   "template": "Done: donations-2026-10-16.json has the totals per donor_type."
+  },
+  "mara-p05-0-0": {
+   "reply": "That comes to **391.5 volunteer hours** this month.",
+   "template": "That comes to 391.5."
+  },
+  "mara-p05-0-1": {
+   "reply": "Done — created `deliveries/delivery-2026-10-28.csv` with 6 rows and the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-28.csv has 6 rows."
+  },
+  "mara-p05-1-0": {
+   "reply": "Added **Hamza - lunch shift** to the calendar on **2026-11-04**.",
+   "template": "Added Hamza - lunch shift on 2026-11-04."
+  },
+  "mara-p05-2-0": {
+   "reply": "Done — created `donations-2026-10-13.json` with donation totals by `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-13.json has the totals per donor_type."
+  },
+  "mara-p05-2-1": {
+   "reply": "Cooked leftovers are kept for **at most 2 days** and must be labelled with the date, according to the food-safety handbook.",
+   "template": "It's 2."
+  },
+  "mara-p05-2-2": {
+   "reply": "The total from school donors for the requested period is **111.99**.\n\nFrom `records/donations.csv`:\n- Fernhill Primary: 36.35\n- Riverbend Academy: 75.64",
+   "template": "The total is 111.99."
+  },
+  "mara-p05-3-0": {
+   "reply": "Added **Ayo - weekend shift** to the kitchen calendar on **2026-11-01**.",
+   "template": "Added Ayo - weekend shift on 2026-11-01."
+  },
+  "mara-p05-3-1": {
+   "reply": "That comes to **240 portions**.",
+   "template": "That comes to 240."
+  },
+  "mara-p05-3-2": {
+   "reply": "Hartwell’s minimum order is **£120**, according to `suppliers/agreements.md`.",
+   "template": "It's 120."
+  },
+  "mara-p05-4-0": {
+   "reply": "Closed #16 (Back door lock sticks) and added the comment: “the engineer replaced the part”.",
+   "template": "Closed #16 with your comment."
+  },
+  "mara-p06-0-0": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** to arrange a swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p06-1-0": {
+   "reply": "Added **Finn - lunch shift** to your calendar for **2026-11-09**.",
+   "template": "Added Finn - lunch shift on 2026-11-09."
+  },
+  "mara-p06-2-0": {
+   "reply": "That comes to **480.0 volunteer hours** this month.",
+   "template": "That comes to 480.0."
+  },
+  "mara-p06-2-1": {
+   "reply": "Archived 2 emails from news@fooddrive-network.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@fooddrive-network.example."
+  },
+  "mara-p06-2-2": {
+   "reply": "Added **Bella - weekend shift** to the kitchen calendar on **2026-11-08**.",
+   "template": "Added Bella - weekend shift on 2026-11-08."
+  },
+  "mara-p06-3-0": {
+   "reply": "Closed #27 and added the comment: “the engineer replaced the part”.",
+   "template": "Closed #27 with your comment."
+  },
+  "mara-p07-0-0": {
+   "reply": "That comes to about **720 portions**.",
+   "template": "That comes to 720."
+  },
+  "mara-p07-0-1": {
+   "reply": "Archived 2 emails from offers@catering-supplies.example from your inbox.",
+   "template": "Archived 2 emails from offers@catering-supplies.example."
+  },
+  "mara-p07-1-0": {
+   "reply": "Cooked leftovers can be kept for **at most 2 days**, according to the approved food-safety handbook. Label them with the date and keep them refrigerated.",
+   "template": "It's 2."
+  },
+  "mara-p07-2-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-26.csv` has 3 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-26.csv has 3 rows."
+  },
+  "mara-p07-3-0": {
+   "reply": "Hot food must be held at **63 °C or above** when served, according to the approved food-safety handbook.",
+   "template": "It's 63."
+  },
+  "mara-p07-4-0": {
+   "reply": "Sent to orders@hartwell-produce.example, confirming Friday’s order of 22 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p07-4-1": {
+   "reply": "Moved `inbox/delivery-2026-10-15.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-15.txt to archive/deliveries/."
+  },
+  "mara-p08-0-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-23.csv` has 3 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-23.csv has 3 rows."
+  },
+  "mara-p08-1-0": {
+   "reply": "Added **Ayo - dinner shift** to the calendar on **2026-11-04**.",
+   "template": "Added Ayo - dinner shift on 2026-11-04."
+  },
+  "mara-p08-2-0": {
+   "reply": "Created `donations-2026-10-16.json` with total donations per `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-16.json has the totals per donor_type."
+  },
+  "mara-p08-3-0": {
+   "reply": "Created `donations-2026-10-15.json` with total donations per `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-15.json has the totals per donor_type."
+  },
+  "mara-p08-3-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-18.csv` has 6 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-18.csv has 6 rows."
+  },
+  "mara-p09-0-0": {
+   "reply": "Archived 2 emails from news@fooddrive-network.example. They’re now out of your inbox.",
+   "template": "Archived 2 emails from news@fooddrive-network.example."
+  },
+  "mara-p09-0-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-24.csv` has 5 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-24.csv has 5 rows."
+  },
+  "mara-p09-1-0": {
+   "reply": "Added **Bella - lunch shift** to your calendar for **2026-10-30**.",
+   "template": "Added Bella - lunch shift on 2026-10-30."
+  },
+  "mara-p09-1-1": {
+   "reply": "Added **Ayo - lunch shift** to the calendar on **2026-10-27**.",
+   "template": "Added Ayo - lunch shift on 2026-10-27."
+  },
+  "mara-p09-2-0": {
+   "reply": "Sent to orders@hartwell-produce.example, confirming Friday’s order of 22 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p09-2-1": {
+   "reply": "Added **Bella - lunch shift** to the kitchen calendar on **2026-10-30**.",
+   "template": "Added Bella - lunch shift on 2026-10-30."
+  },
+  "mara-p10-0-0": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 31 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p10-0-1": {
+   "reply": "Added **Bella - lunch shift** to the calendar on **2026-10-28**.",
+   "template": "Added Bella - lunch shift on 2026-10-28."
+  },
+  "mara-p10-0-2": {
+   "reply": "Added **Chidi - weekend shift** to the kitchen calendar on **2026-10-31**.",
+   "template": "Added Chidi - weekend shift on 2026-10-31."
+  },
+  "mara-p10-1-0": {
+   "reply": "The total from church donors for the requested period is **181.67**, according to the donations log.",
+   "template": "The total is 181.67."
+  },
+  "mara-p10-2-0": {
+   "reply": "School donors gave **36.35** in total during the requested period, according to `records/donations.csv`. The only matching donation was from Fernhill Primary.",
+   "template": "The total is 36.35."
+  },
+  "mara-p10-3-0": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** to arrange a swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p10-4-0": {
+   "reply": "Hartwell Produce’s minimum order is **£120**, according to `suppliers/agreements.md`.",
+   "template": "It's 120."
+  },
+  "mara-p10-4-1": {
+   "reply": "Added **Chidi - dinner shift** to the calendar on **2026-11-03**.",
+   "template": "Added Chidi - dinner shift on 2026-11-03."
+  },
+  "mara-p11-0-0": {
+   "reply": "Sandgate charges **£2.05 per large loaf**, according to `suppliers/agreements.md`.",
+   "template": "It's 2.05."
+  },
+  "mara-p11-0-1": {
+   "reply": "School donors gave **110.22** in total during the requested period, according to `records/donations.csv`.",
+   "template": "The total is 110.22."
+  },
+  "mara-p11-0-2": {
+   "reply": "Cooked leftovers are kept for **at most 2 days** and must be labelled with the date, according to the food-safety handbook.",
+   "template": "It's 2."
+  },
+  "mara-p11-1-0": {
+   "reply": "Volunteers need to tell the coordinator **at least 48 hours before the shift** to arrange a swap, under the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p11-2-0": {
+   "reply": "Archived 3 emails from offers@catering-supplies.example. They’re out of your inbox.",
+   "template": "Archived 3 emails from offers@catering-supplies.example."
+  },
+  "mara-p11-2-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-22.csv` has 6 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-22.csv has 6 rows."
+  },
+  "mara-p11-3-0": {
+   "reply": "That’s **77.0 volunteer hours** in total this month.",
+   "template": "That comes to 77.0."
+  },
+  "mara-p11-3-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-20.csv` has 4 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-20.csv has 4 rows."
+  },
+  "mara-p11-3-2": {
+   "reply": "Done: `deliveries/delivery-2026-10-19.csv` has 6 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-19.csv has 6 rows."
+  },
+  "mara-p11-4-0": {
+   "reply": "Church donors gave a total of **212.37** during the requested period, inclusive, according to `records/donations.csv`.",
+   "template": "The total is 212.37."
+  },
+  "mara-p11-4-1": {
+   "reply": "The current rota policy asks for **at least 48 hours’ notice** before the shift. The volunteer should tell the coordinator about the swap.",
+   "template": "It's 48."
+  },
+  "mara-p12-0-0": {
+   "reply": "That comes to **GBP 2394.00** in total.",
+   "template": "That comes to 2394.00."
+  },
+  "mara-p12-1-0": {
+   "reply": "The current rota policy asks for **at least 48 hours’ notice** before the shift. The volunteer should tell the coordinator about the swap.",
+   "template": "It's 48."
+  },
+  "mara-p12-2-0": {
+   "reply": "Sent an email to accounts@coldharbour-dairy.example letting them know we’re returning 33 unopened packs of butter.",
+   "template": "Sent to accounts@coldharbour-dairy.example."
+  },
+  "mara-p12-2-1": {
+   "reply": "Moved `inbox/delivery-2026-10-14.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-14.txt to archive/deliveries/."
+  },
+  "mara-p12-2-2": {
+   "reply": "That comes to about **£1728.00** in total.",
+   "template": "That comes to 1728.00."
+  },
+  "mara-p12-3-0": {
+   "reply": "A volunteer can do at most **3 shifts per week** under the current policy, to help prevent burnout.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 3."
+  },
+  "mara-p12-4-0": {
+   "reply": "That comes to about **GBP 1540.00** in total.",
+   "template": "That comes to 1540.00."
+  },
+  "mara-p12-4-1": {
+   "reply": "Added **Hamza - weekend shift** to the kitchen calendar on **2026-10-25**.",
+   "template": "Added Hamza - weekend shift on 2026-10-25."
+  },
+  "mara-p13-0-0": {
+   "reply": "Moved `inbox/delivery-2026-10-12.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-12.txt to archive/deliveries/."
+  },
+  "mara-p13-1-0": {
+   "reply": "Closed #24 and added your comment: “done, checked twice”.",
+   "template": "Closed #24 with your comment."
+  },
+  "mara-p13-2-0": {
+   "reply": "That comes to **£2688.00** in total at your estimated cost per meal.",
+   "template": "That comes to 2688.00."
+  },
+  "mara-p13-3-0": {
+   "reply": "Added **Bella - dinner shift** to the kitchen calendar on **2026-10-22**.",
+   "template": "Added Bella - dinner shift on 2026-10-22."
+  },
+  "mara-p13-4-0": {
+   "reply": "Done: `donations-2026-10-17.json` has the totals per `donor_type`, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-17.json has the totals per donor_type."
+  },
+  "mara-p14-0-0": {
+   "reply": "Sent to accounts@coldharbour-dairy.example, letting them know we’re returning 34 unopened packs of butter.",
+   "template": "Sent to accounts@coldharbour-dairy.example."
+  },
+  "mara-p14-0-1": {
+   "reply": "Added **Ayo - dinner shift** to the calendar on **2026-10-27**.",
+   "template": "Added Ayo - dinner shift on 2026-10-27."
+  },
+  "mara-p14-0-2": {
+   "reply": "Added **Grace - lunch shift** to the kitchen calendar on **2026-10-23**.",
+   "template": "Added Grace - lunch shift on 2026-10-23."
+  },
+  "mara-p14-1-0": {
+   "reply": "Hartwell Produce’s minimum order is **£120**, according to `suppliers/agreements.md`.",
+   "template": "It's 120."
+  },
+  "mara-p14-2-0": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 4 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p14-2-1": {
+   "reply": "Added **Ayo - dinner shift** to the calendar on **2026-10-26**.",
+   "template": "Added Ayo - dinner shift on 2026-10-26."
+  },
+  "mara-p14-2-2": {
+   "reply": "Business donors gave **231.46** in total during the requested period, according to `records/donations.csv`. The only matching donation was from Pell & Daughters Hardware.",
+   "template": "The total is 231.46."
+  },
+  "mara-p14-3-0": {
+   "reply": "Yes — each volunteer can do **at most 3 shifts per week**, to help prevent burnout.\n\nThat’s the limit in the current volunteer rota policy (`policies/volunteer-rota-policy-2026.md`).",
+   "template": "It's 3."
+  },
+  "mara-p15-0-0": {
+   "reply": "Added **Hamza - lunch shift** to the kitchen calendar on **2026-10-19**.",
+   "template": "Added Hamza - lunch shift on 2026-10-19."
+  },
+  "mara-p15-0-1": {
+   "reply": "Individual donors gave **358.52** in total during the requested period, inclusive, according to `records/donations.csv`.",
+   "template": "The total is 358.52."
+  },
+  "mara-p15-0-2": {
+   "reply": "Cooked leftovers are kept for **at most 2 days** and must be labelled with the date, according to the food-safety handbook.",
+   "template": "It's 2."
+  },
+  "mara-p15-1-0": {
+   "reply": "Weekday lunch shifts now need **5 volunteers**, according to the current rota policy in `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 5."
+  },
+  "mara-p15-1-1": {
+   "reply": "A Saturday shift needs **7 volunteers** under the current policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 7."
+  },
+  "mara-p15-2-0": {
+   "reply": "Coldharbour Dairy delivers on **Mondays and Thursdays**, so today (Thursday) is a delivery day.",
+   "template": "It's Thursday."
+  },
+  "mara-p15-3-0": {
+   "reply": "That comes to about **1375 portions**.",
+   "template": "That comes to 1375."
+  },
+  "mara-p15-4-0": {
+   "reply": "Moved `inbox/delivery-2026-10-11.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-11.txt to archive/deliveries/."
+  },
+  "mara-p15-4-1": {
+   "reply": "Added **Bella - weekend shift** to the kitchen calendar on **2026-10-25**.",
+   "template": "Added Bella - weekend shift on 2026-10-25."
+  },
+  "mara-p15-4-2": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 11 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p16-0-0": {
+   "reply": "Business donors gave **214.04** in total during the requested period. This was a single donation from Lark Street Pharmacy.",
+   "template": "The total is 214.04."
+  },
+  "mara-p16-0-1": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** to arrange a swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p16-1-0": {
+   "reply": "Added **Finn - dinner shift** to your calendar on **2026-10-28**.",
+   "template": "Added Finn - dinner shift on 2026-10-28."
+  },
+  "mara-p16-2-0": {
+   "reply": "The minimum age for a cooking shift is **17** under the current volunteer rota policy. They can help **front of house** instead.",
+   "template": "It's 17."
+  },
+  "mara-p16-2-1": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 17 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p16-3-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-17.csv` has 3 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-17.csv has 3 rows."
+  },
+  "mara-p16-3-1": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 5 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p16-3-2": {
+   "reply": "Moved `inbox/delivery-2026-10-10.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-10.txt to archive/deliveries/."
+  },
+  "mara-p17-0-0": {
+   "reply": "Yes — each volunteer can do **at most 3 shifts per week**, to help prevent burnout.\n\nThat’s the limit in the current volunteer rota policy (`policies/volunteer-rota-policy-2026.md`).",
+   "template": "It's 3."
+  },
+  "mara-p17-0-1": {
+   "reply": "A weekday dinner shift now needs **6 volunteers**, according to the current rota policy in `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 6."
+  },
+  "mara-p17-1-0": {
+   "reply": "Archived 3 emails from news@fooddrive-network.example.",
+   "template": "Archived 3 emails from news@fooddrive-network.example."
+  },
+  "mara-p17-1-1": {
+   "reply": "Added **Grace - dinner shift** to the kitchen calendar on **2026-10-23**.",
+   "template": "Added Grace - dinner shift on 2026-10-23."
+  },
+  "mara-p17-1-2": {
+   "reply": "A large loaf from Sandgate Bakery costs **GBP 2.05**, according to `suppliers/agreements.md`.",
+   "template": "It's 2.05."
+  },
+  "mara-p17-2-0": {
+   "reply": "Added **Grace - dinner shift** to the calendar on **2026-10-19**.",
+   "template": "Added Grace - dinner shift on 2026-10-19."
+  },
+  "mara-p18-0-0": {
+   "reply": "Closed #21 (Oven 1 door hinge loose) and added your comment: “done, checked twice”.",
+   "template": "Closed #21 with your comment."
+  },
+  "mara-p18-1-0": {
+   "reply": "A Saturday shift needs **7 volunteers** under the current policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 7."
+  },
+  "mara-p18-2-0": {
+   "reply": "The total from school donors for the requested period is **88.54**, based on the donations log.",
+   "template": "The total is 88.54."
+  },
+  "mara-p18-3-0": {
+   "reply": "Added **Hamza - dinner shift** to the calendar on **2026-10-28**.",
+   "template": "Added Hamza - dinner shift on 2026-10-28."
+  },
+  "mara-p19-0-0": {
+   "reply": "Sent to accounts@coldharbour-dairy.example, letting them know we’re returning 18 unopened packs of butter.",
+   "template": "Sent to accounts@coldharbour-dairy.example."
+  },
+  "mara-p19-1-0": {
+   "reply": "Moved `inbox/delivery-2026-10-06.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-06.txt to archive/deliveries/."
+  },
+  "mara-p19-1-1": {
+   "reply": "Moved `inbox/delivery-2026-10-07.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-07.txt to archive/deliveries/."
+  },
+  "mara-p19-2-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-14.csv` has 5 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-14.csv has 5 rows."
+  },
+  "mara-p19-2-1": {
+   "reply": "Cooked leftovers can be kept for **at most 2 days**. Label them with the date and keep them refrigerated.\n\nThat’s the rule in the kitchen’s approved food-safety handbook.",
+   "template": "It's 2."
+  },
+  "mara-p20-0-0": {
+   "reply": "Business donors contributed a total of **557.83** during the requested period, inclusive, according to the donations log.",
+   "template": "The total is 557.83."
+  },
+  "mara-p20-1-0": {
+   "reply": "The total from individual donors for the requested date range, inclusive, is **130.25**, based on the donations log.",
+   "template": "The total is 130.25."
+  },
+  "mara-p20-1-1": {
+   "reply": "Church donors contributed a total of **104.47** during the requested period, inclusive, according to the donations log.",
+   "template": "The total is 104.47."
+  },
+  "mara-p20-2-0": {
+   "reply": "The total from church donors for the requested period is **71.55**, from a single donation by St Brannoc's.",
+   "template": "The total is 71.55."
+  },
+  "mara-p20-2-1": {
+   "reply": "Done: `donations-2026-10-07.json` has the totals per `donor_type`, calculated from `records/donations.csv` for the requested date range.",
+   "template": "Done: donations-2026-10-07.json has the totals per donor_type."
+  },
+  "mara-p21-0-0": {
+   "reply": "Hartwell Produce’s minimum order is **£120**, according to `suppliers/agreements.md`.",
+   "template": "It's 120."
+  },
+  "mara-p21-1-0": {
+   "reply": "Archived 2 emails from offers@catering-supplies.example. They’re now out of your inbox.",
+   "template": "Archived 2 emails from offers@catering-supplies.example."
+  },
+  "mara-p21-1-1": {
+   "reply": "The total from school donors for the requested date range (inclusive) is **89.62**, from `records/donations.csv`.",
+   "template": "The total is 89.62."
+  },
+  "mara-p21-2-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-12.csv` has 4 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-12.csv has 4 rows."
+  },
+  "mara-p21-2-1": {
+   "reply": "Added **Grace - dinner shift** to the kitchen calendar on **2026-10-20**.",
+   "template": "Added Grace - dinner shift on 2026-10-20."
+  },
+  "mara-p21-2-2": {
+   "reply": "Coldharbour Dairy delivers on **Mondays and Thursdays**.",
+   "template": "It's Thursday."
+  },
+  "mara-p21-3-0": {
+   "reply": "Added **Grace - dinner shift** to your calendar on **2026-10-20**.",
+   "template": "Added Grace - dinner shift on 2026-10-20."
+  },
+  "mara-p21-4-0": {
+   "reply": "Sent to volunteers@lanternlane.example, reminding everyone that shift swaps now need 48 hours' notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p21-4-1": {
+   "reply": "Created `donations-2026-10-03.json` with total donations per `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-10-03.json has the totals per donor_type."
+  },
+  "mara-p21-4-2": {
+   "reply": "Moved `inbox/delivery-2026-10-05.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-05.txt to archive/deliveries/."
+  },
+  "mara-p22-0-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-11.csv` has 6 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-11.csv has 6 rows."
+  },
+  "mara-p22-0-1": {
+   "reply": "Sent to volunteers@lanternlane.example, reminding everyone that shift swaps now need 48 hours’ notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p22-1-0": {
+   "reply": "Sent the reminder to volunteers@lanternlane.example that shift swaps now need 48 hours’ notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p22-2-0": {
+   "reply": "Done — created `donations-2026-09-29.json` with donation totals by `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-09-29.json has the totals per donor_type."
+  },
+  "mara-p23-0-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-10.csv` has 5 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-10.csv has 5 rows."
+  },
+  "mara-p23-0-1": {
+   "reply": "You need **5 volunteers** for a weekday lunch shift under the current rota policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 5."
+  },
+  "mara-p23-1-0": {
+   "reply": "Sent to hello@sandgate-bakery.example, asking them to add 37 extra large loaves to tomorrow’s delivery.",
+   "template": "Sent to hello@sandgate-bakery.example."
+  },
+  "mara-p23-1-1": {
+   "reply": "Closed #15 (Dishwasher error E4) and added your comment: “sorted by the landlord's contractor”.",
+   "template": "Closed #15 with your comment."
+  },
+  "mara-p23-2-0": {
+   "reply": "The total from school donors for the requested period is **92.94**, from `records/donations.csv`.",
+   "template": "The total is 92.94."
+  },
+  "mara-p23-2-1": {
+   "reply": "The dairy is due **today, Thursday**. Coldharbour Dairy’s supplier agreement lists deliveries on **Mondays and Thursdays**, but doesn’t specify a delivery time.",
+   "template": "It's Thursday."
+  },
+  "mara-p23-2-2": {
+   "reply": "Done: `deliveries/delivery-2026-10-10.csv` has 5 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-10.csv has 5 rows."
+  },
+  "mara-p23-3-0": {
+   "reply": "Closed #14 and added your comment: “sorted by the landlord's contractor”.",
+   "template": "Closed #14 with your comment."
+  },
+  "mara-p23-3-1": {
+   "reply": "Weekday lunch requires **5 volunteers**, according to the current policy in `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 5."
+  },
+  "mara-p23-4-0": {
+   "reply": "Done: `deliveries/delivery-2026-10-10.csv` has 5 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-10.csv has 5 rows."
+  },
+  "mara-p23-4-1": {
+   "reply": "Hot food must be held at **63 °C or above** when served, according to the kitchen’s approved food safety handbook.",
+   "template": "It's 63."
+  },
+  "mara-p24-0-0": {
+   "reply": "Cooked leftovers can be kept for **at most 2 days**, according to the approved food-safety handbook (`handbook/food-safety.md`). Label them with the date and keep them refrigerated.",
+   "template": "It's 2."
+  },
+  "mara-p24-1-0": {
+   "reply": "Added **Finn - weekend shift** to the kitchen calendar on **2026-10-17**.",
+   "template": "Added Finn - weekend shift on 2026-10-17."
+  },
+  "mara-p24-2-0": {
+   "reply": "Sent to hello@sandgate-bakery.example, asking them to add 23 extra large loaves to tomorrow’s delivery.",
+   "template": "Sent to hello@sandgate-bakery.example."
+  },
+  "mara-p24-2-1": {
+   "reply": "Done — saved the donation totals by `donor_type` to `donations-2026-09-25.json` in JSON format.",
+   "template": "Done: donations-2026-09-25.json has the totals per donor_type."
+  },
+  "mara-p24-3-0": {
+   "reply": "Business donors gave **654.83** in total during the requested period, including both start and end dates, according to `records/donations.csv`.",
+   "template": "The total is 654.83."
+  },
+  "mara-p24-4-0": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** if they want to swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p24-4-1": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 39 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p25-0-0": {
+   "reply": "Done — saved the donation totals by `donor_type` to `donations-2026-10-03.json` as a JSON object, using `records/donations.csv` for the requested date range.",
+   "template": "Done: donations-2026-10-03.json has the totals per donor_type."
+  },
+  "mara-p25-1-0": {
+   "reply": "Done: `donations-2026-10-02.json` has the totals per `donor_type` for the requested date range, calculated from `records/donations.csv`.",
+   "template": "Done: donations-2026-10-02.json has the totals per donor_type."
+  },
+  "mara-p25-1-1": {
+   "reply": "Fridges should be at **5 °C or below**, per the approved handbook in `handbook/food-safety.md`.\n\nCheck and log the temperature at the start of every shift.",
+   "template": "It's 5."
+  },
+  "mara-p25-2-0": {
+   "reply": "Sent to hello@sandgate-bakery.example, asking them to add 14 extra large loaves to tomorrow’s delivery.",
+   "template": "Sent to hello@sandgate-bakery.example."
+  },
+  "mara-p25-3-0": {
+   "reply": "Business donors gave a total of **787.37** during the requested period, inclusive, according to the donations log.",
+   "template": "The total is 787.37."
+  },
+  "mara-p25-4-0": {
+   "reply": "Done — saved the donation totals by `donor_type` to `donations-2026-09-27.json` as JSON, using `records/donations.csv` for the requested date range.",
+   "template": "Done: donations-2026-09-27.json has the totals per donor_type."
+  },
+  "mara-p25-4-1": {
+   "reply": "Archived 3 emails from news@fooddrive-network.example. They’re out of your inbox.",
+   "template": "Archived 3 emails from news@fooddrive-network.example."
+  },
+  "mara-p26-0-0": {
+   "reply": "Yes — each volunteer can do **at most 3 shifts per week**, to help prevent burnout.\n\nThat’s the limit in the current volunteer rota policy (`policies/volunteer-rota-policy-2026.md`).",
+   "template": "It's 3."
+  },
+  "mara-p26-0-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-07.csv` has 3 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-07.csv has 3 rows."
+  },
+  "mara-p26-1-0": {
+   "reply": "Added **Ayo - dinner shift** to the calendar on **2026-10-20**.",
+   "template": "Added Ayo - dinner shift on 2026-10-20."
+  },
+  "mara-p26-1-1": {
+   "reply": "Closed #18 and added the comment: “sorted by the landlord's contractor”.",
+   "template": "Closed #18 with your comment."
+  },
+  "mara-p26-2-0": {
+   "reply": "Sandgate charges **£2.05 per large loaf**, according to `suppliers/agreements.md`.",
+   "template": "It's 2.05."
+  },
+  "mara-p26-2-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-06.csv` has 5 rows, with the columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-06.csv has 5 rows."
+  },
+  "mara-p26-2-2": {
+   "reply": "You need **7 volunteers** for a Saturday shift under the current policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 7."
+  },
+  "mara-p26-3-0": {
+   "reply": "Done — saved the donation totals by donor type to `donations-2026-09-22.json` as a JSON object mapping each `donor_type` to its total, using `records/donations.csv`.",
+   "template": "Done: donations-2026-09-22.json has the totals per donor_type."
+  },
+  "mara-p26-4-0": {
+   "reply": "Moved `inbox/delivery-2026-10-04.txt` to `archive/deliveries/`.",
+   "template": "Moved inbox/delivery-2026-10-04.txt to archive/deliveries/."
+  },
+  "mara-p26-4-1": {
+   "reply": "Done: `deliveries/delivery-2026-10-05.csv` has 3 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-05.csv has 3 rows."
+  },
+  "mara-p26-4-2": {
+   "reply": "Done: `deliveries/delivery-2026-10-07.csv` has 3 rows, with columns `item`, `quantity`, and `unit`.",
+   "template": "Done: deliveries/delivery-2026-10-07.csv has 3 rows."
+  },
+  "mara-p27-0-0": {
+   "reply": "Done: `donations-2026-09-27.json` has the totals per `donor_type`, calculated from `records/donations.csv` for the requested date range.",
+   "template": "Done: donations-2026-09-27.json has the totals per donor_type."
+  },
+  "mara-p27-0-1": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** if they want to swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p27-0-2": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 4 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p27-1-0": {
+   "reply": "That comes to about **540 portions**.",
+   "template": "That comes to 540."
+  },
+  "mara-p27-2-0": {
+   "reply": "Business donors gave **219.80** in total over the requested period, including both start and end dates.",
+   "template": "The total is 219.80."
+  },
+  "mara-p27-3-0": {
+   "reply": "Church donors gave **211.54** in total during the requested period, according to `records/donations.csv`.",
+   "template": "The total is 211.54."
+  },
+  "mara-p27-3-1": {
+   "reply": "Closed #12 and added your comment: “the engineer replaced the part”.",
+   "template": "Closed #12 with your comment."
+  },
+  "mara-p27-4-0": {
+   "reply": "The total from business donors for the requested period is **415.95**, from `records/donations.csv`.",
+   "template": "The total is 415.95."
+  },
+  "mara-p27-4-1": {
+   "reply": "Cooked leftovers can be kept for **at most 2 days**. Label them with the date and keep them refrigerated, per the approved food-safety handbook.",
+   "template": "It's 2."
+  },
+  "mara-p28-0-0": {
+   "reply": "Added **Chidi - weekend shift** to the calendar for **2026-10-10**.",
+   "template": "Added Chidi - weekend shift on 2026-10-10."
+  },
+  "mara-p28-0-1": {
+   "reply": "Sent to volunteers@lanternlane.example, reminding everyone that shift swaps now need 48 hours’ notice.",
+   "template": "Sent to volunteers@lanternlane.example."
+  },
+  "mara-p28-1-0": {
+   "reply": "That comes to **320.0 volunteer hours** this month.",
+   "template": "That comes to 320.0."
+  },
+  "mara-p28-2-0": {
+   "reply": "School donors contributed **177.36** in total for the requested period, inclusive, according to `records/donations.csv`.",
+   "template": "The total is 177.36."
+  },
+  "mara-p28-3-0": {
+   "reply": "School donors gave **97.71** in total during the requested period, including both start and end dates.\n\nSource: `records/donations.csv`.",
+   "template": "The total is 97.71."
+  },
+  "mara-p28-3-1": {
+   "reply": "That comes to about **GBP 2016.00** in total.",
+   "template": "That comes to 2016.00."
+  },
+  "mara-p28-3-2": {
+   "reply": "Sent to orders@hartwell-produce.example to confirm Friday’s order of 14 kg of potatoes.",
+   "template": "Sent to orders@hartwell-produce.example."
+  },
+  "mara-p29-0-0": {
+   "reply": "A Saturday shift needs **7 volunteers** under the current policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 7."
+  },
+  "mara-p29-0-1": {
+   "reply": "Sent to accounts@coldharbour-dairy.example to let them know we’re returning 25 unopened packs of butter.",
+   "template": "Sent to accounts@coldharbour-dairy.example."
+  },
+  "mara-p29-1-0": {
+   "reply": "A weekday dinner shift now needs **6 volunteers**, according to the current rota policy in `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 6."
+  },
+  "mara-p29-1-1": {
+   "reply": "Business donors gave **654.83** in total during the requested period, including both start and end dates.",
+   "template": "The total is 654.83."
+  },
+  "mara-p29-2-0": {
+   "reply": "You need **5 volunteers** for a weekday lunch shift under the current rota policy.\n\nSource: `policies/volunteer-rota-policy-2026.md`.",
+   "template": "It's 5."
+  },
+  "mara-p29-2-1": {
+   "reply": "Archived 2 emails from offers@catering-supplies.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from offers@catering-supplies.example."
+  },
+  "mara-p29-3-0": {
+   "reply": "Volunteers must tell the coordinator **at least 48 hours before the shift** to arrange a swap, according to the current volunteer rota policy.",
+   "template": "It's 48."
+  },
+  "mara-p29-3-1": {
+   "reply": "Created `donations-2026-09-25.json` with total donations per `donor_type` for the requested date range, using `records/donations.csv`.",
+   "template": "Done: donations-2026-09-25.json has the totals per donor_type."
+  },
+  "mara-p30-0-0": {
+   "reply": "That comes to **GBP 840.00** for the five days.",
+   "template": "That comes to 840.00."
+  },
+  "mara-p30-1-0": {
+   "reply": "A weekday dinner shift now needs **6 volunteers**, according to the current volunteer rota policy.",
+   "template": "It's 6."
+  },
+  "mara-p30-2-0": {
+   "reply": "That’s **264.0 volunteer hours** in total.",
+   "template": "That comes to 264.0."
+  }
+ },
+ "seed": 20261022,
+ "version": 1
+}
