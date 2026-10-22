@@ -733,6 +733,8 @@ def _chat_ollama(model: str, **kwargs):
         except ImportError as exc:
             raise RuntimeError("langchain-ollama is not installed") from exc
         ChatOllama = _ChatOllama
+    if "reasoning" not in kwargs and local_model_settings(model).get("reasoning") == "off":
+        kwargs["reasoning"] = False  # a non-thinking model (O24): Ollama is asked not to think
     if "reasoning" not in kwargs:
         try:
             from row_bot.providers.reasoning import resolve_reasoning_capabilities
@@ -798,6 +800,8 @@ def _local_num_ctx_for(model_name: str | None) -> int:
     """Return the Ollama ``num_ctx`` after applying native model caps."""
     model_max = get_model_max_context(model_name)
     requested = LOCAL_AUTO_TARGET_CONTEXT if _local_context_mode == "auto" else _num_ctx
+    own = local_model_settings(model_name).get("context")  # served as it was trained (O30)
+    requested = own or requested
     user_ctx = _coerce_context_size(requested, DEFAULT_CONTEXT_SIZE, minimum=CONTEXT_SIZE_OPTIONS[0])
     model_ctx = _coerce_context_size(model_max, 0) if model_max else None
     runtime_model = _ollama_runtime_model_name(model_name)
@@ -1050,8 +1054,9 @@ def get_context_policy(model_name: str | None = None, *, allow_probe: bool = Tru
             else None
         )
     else:
+        own_context = local_model_settings(runtime_model).get("context") if provider_id == "ollama" else None
         requested_limit = _coerce_context_size(
-            LOCAL_AUTO_TARGET_CONTEXT if _local_context_mode == "auto" else _num_ctx,
+            own_context or (LOCAL_AUTO_TARGET_CONTEXT if _local_context_mode == "auto" else _num_ctx),
             DEFAULT_CONTEXT_SIZE,
             minimum=CONTEXT_SIZE_OPTIONS[0],
         )
@@ -1254,6 +1259,86 @@ def set_context_size_auto() -> None:
     _save_settings(_context_settings_payload())
 
 
+# ── Per-model serving settings for local models ─────────────────────────────
+# A model registered by Row-Bot itself (a personal model, L2c) is served the way it was trained:
+# at its own context (O30: Row-Bot otherwise uses its local auto target, 64K, which a model trained
+# at 16K and served at 32K loses itself in) and, for a non-thinking model, with thinking off (O24).
+# Kept in ``model_settings.json`` beside the context settings; read once at start-up.
+LOCAL_MODEL_SETTINGS_KEY = "local_model_settings"
+_LOCAL_REASONING = frozenset({"off"})
+
+
+def _clean_local_model_settings(raw: object) -> dict[str, dict]:
+    found: dict[str, dict] = {}
+    if not isinstance(raw, dict):
+        return found
+    for name, value in list(raw.items())[:256]:
+        if not isinstance(name, str) or not name or len(name) > 256 or not isinstance(value, dict):
+            continue
+        entry: dict = {}
+        context = value.get("context")
+        if isinstance(context, int) and not isinstance(context, bool) and MIN_CONTEXT_SIZE <= context <= MAX_CONTEXT_SIZE:
+            entry["context"] = context
+        if value.get("reasoning") in _LOCAL_REASONING:
+            entry["reasoning"] = value["reasoning"]
+        if entry:
+            found[name] = entry
+    return found
+
+
+_local_model_settings: dict[str, dict] = _clean_local_model_settings(_saved.get(LOCAL_MODEL_SETTINGS_KEY))
+
+
+def local_model_settings(model_name: str | None) -> dict:
+    """The saved serving settings of a local model (``context``, ``reasoning``), or ``{}``."""
+    if not model_name:
+        return {}
+    return dict(_local_model_settings.get(_ollama_tag(model_name)) or {})
+
+
+def set_local_model_settings(model_name: str, *, context: int | None = None, reasoning: str | None = None) -> None:
+    """Serve this local model at ``context`` tokens and/or with thinking ``"off"`` (saved)."""
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
+
+    tag = _ollama_tag(model_name)
+    entry: dict = {}
+    if context is not None:
+        entry["context"] = validate_context_size(context)
+    if reasoning is not None:
+        if reasoning not in _LOCAL_REASONING:
+            raise ValueError("Only thinking off can be saved for a local model.")
+        entry["reasoning"] = reasoning
+    if not tag or not entry:
+        raise ValueError("Name a local model and a setting.")
+
+    def merge(existing: dict) -> dict:
+        settings = _clean_local_model_settings(existing.get(LOCAL_MODEL_SETTINGS_KEY))
+        settings[tag] = entry
+        return {**existing, LOCAL_MODEL_SETTINGS_KEY: settings}
+
+    update_saved_model_settings(merge, path=_SETTINGS_PATH)
+    _local_model_settings[tag] = entry
+    _override_llm_cache.clear()
+
+
+def clear_local_model_settings(model_name: str) -> None:
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
+
+    tag = _ollama_tag(model_name)
+
+    def merge(existing: dict) -> dict:
+        settings = _clean_local_model_settings(existing.get(LOCAL_MODEL_SETTINGS_KEY))
+        settings.pop(tag, None)
+        merged = {key: value for key, value in existing.items() if key != LOCAL_MODEL_SETTINGS_KEY}
+        if settings:
+            merged[LOCAL_MODEL_SETTINGS_KEY] = settings
+        return merged
+
+    update_saved_model_settings(merge, path=_SETTINGS_PATH)
+    _local_model_settings.pop(tag, None)
+    _override_llm_cache.clear()
+
+
 def record_observed_local_context(model_name: str, context_length: int | None) -> None:
     """Record an already-observed Ollama allocation without performing I/O."""
     runtime_model = _ollama_runtime_model_name(model_name)
@@ -1357,7 +1442,9 @@ def fetch_trending_ollama_models() -> list[str]:
 
     Row-Bot no longer fetches public Ollama model listings or offers downloads.
     Local model management lives in Ollama; this app only reads daemon-exposed
-    tags.
+    tags. The one exception is Learning's starting model for the personal model
+    (D13, ``learning/training/weights.py``): pinned, and downloaded only after
+    the person agrees inside personal-model setup.
     """
     global _trending_ollama_cache, _trending_fetched
     _trending_ollama_cache = []

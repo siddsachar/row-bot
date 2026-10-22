@@ -93,3 +93,19 @@ Costs are reported in one of three ways:
 
 CI runs the same suite only by manual dispatch of `.github/workflows/live-e2e.yml`
 (`run_live_eval`), using repository secrets.
+
+**Learning tier** (`--tier learning`, `tests/e2e/live_eval/learning.py`): Learning's
+four task packs (visible splits, `ROW_BOT_LIVE_EVAL_LEARNING_PER_PACK` per pack,
+default 8, `all` for 16) and replay fixtures, each checked by its pack's verifier.
+Two lanes besides the API-key providers:
+
+- **ChatGPT** (`codex`): its sign-in comes from a dedicated eval profile outside the
+  repo (`ROW_BOT_LIVE_EVAL_CODEX_PROFILE`), handed to the worker through a pipe;
+  only refreshed tokens are written back to the profile, and nothing secret reaches
+  the run folder. Token cap per run: `ROW_BOT_LIVE_EVAL_CODEX_MAX_TOKENS` (default
+  1,500,000). The model is GPT-6.1 Sol if the live catalog lists it, else GPT-5.6 Sol.
+- **Local Ollama** (`ROW_BOT_LIVE_EVAL_OLLAMA_MODEL`): free, so the caps never hold it.
+
+```bash
+ROW_BOT_LIVE_EVAL_CODEX_PROFILE=<eval profile> uv run python scripts/live_eval.py plan --tier learning --providers codex
+```

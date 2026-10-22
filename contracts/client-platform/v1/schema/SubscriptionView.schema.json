@@ -685,6 +685,19 @@
     "TranscriptRow": {
       "additionalProperties": false,
       "properties": {
+        "answered_by": {
+          "anyOf": [
+            {
+              "const": "personal_model",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answered By"
+        },
         "approval_id": {
           "anyOf": [
             {
@@ -796,7 +809,8 @@
               "enum": [
                 "continuation",
                 "agent_task",
-                "agent_guidance"
+                "agent_guidance",
+                "personal_model_fallback"
               ],
               "type": "string"
             },

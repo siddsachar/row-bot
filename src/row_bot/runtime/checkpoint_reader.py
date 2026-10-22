@@ -342,6 +342,15 @@ class BlobReader:
                         note = candidate
                 if "platform_attachments" in metadata:
                     attachments = self.safe_attachments(metadata["platform_attachments"])
+                if "row_bot_ui" in metadata:
+                    ui = self.fields(metadata["row_bot_ui"], {"learning_fallback"})
+                    if "learning_fallback" in ui:
+                        # Learning (preview): the main model finished a stuck personal model's turn. The
+                        # row is the note's public sentence; the handover's own text (written for the
+                        # model) never shows.
+                        sentence = self.fields(ui["learning_fallback"], {"text"})
+                        if "text" in sentence and self.node(sentence["text"]).kind == "str":
+                            note, content_position = "personal_model_fallback", sentence["text"]
             elif name == "AIMessage" and "row_bot_ui" in metadata:
                 # A delegated agent's approval notice in its parent (B162):
                 # the row names the approval, so React answers it in place.
@@ -358,13 +367,28 @@ class BlobReader:
                     if candidate in {"payload_too_large", "media_unavailable"}:
                         media_error = candidate
         cut_short = name == "AIMessage" and "response_metadata" in fields and self.cut_short(fields["response_metadata"])
+        # Only the personal model's answer says so: never a step that calls a tool (a stuck run's).
+        answered_by = ("personal_model" if name == "AIMessage" and not note and not tool_ids and not tool_ids_lazy
+                       and "response_metadata" in fields and self.personal_model(fields["response_metadata"]) else "")
         return {"message_id": identity, "role": roles[name], "content_position": content_position,
                 "tool_call_ids": tool_ids, "tool_calls": tool_calls,
-                "tool_calls_position": fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
+                "tool_calls_position": None if note else fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
                 "tool_call_id": self.text(fields["tool_call_id"]) if "tool_call_id" in fields else "",
                 "attachments": attachments, "media": media, "media_error": media_error, "note": note,
                 "approval_id": approval_id, "chart_position": chart_position, "chart_label": chart_label,
-                "cut_short": cut_short}
+                "cut_short": cut_short, "answered_by": answered_by}
+
+    def personal_model(self, position: int) -> bool:
+        """Whether a reply came from a Learning personal-model version (its model's reserved name),
+        for the chat's quiet "Answered by your personal model" line (L2c2). Never the untouched
+        starting model Learning compares against."""
+        keys = self.fields(position, {"model", "model_name"})
+        for key in ("model", "model_name"):
+            if key in keys:
+                value = self.text(keys[key], 256).lower()
+                if re.search(r"row-bot-personal-v\d+", value):
+                    return True
+        return False
 
     def cut_short(self, position: int) -> bool:
         """Whether a reply's provider metadata says the output token limit ended it (F17)."""
@@ -551,6 +575,8 @@ class BlobReader:
             row["approval_id"] = record["approval_id"]
         if record.get("cut_short"):
             row["cut_short"] = True
+        if record.get("answered_by"):
+            row["answered_by"] = record["answered_by"]
         content = bytearray()
         for chunk in self.content_chunks(record):
             if len(content) + len(chunk) > maximum:
