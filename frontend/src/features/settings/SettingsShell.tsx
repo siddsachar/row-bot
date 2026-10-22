@@ -17,6 +17,7 @@ import {
   Cpu,
   Database,
   FileText,
+  GraduationCap,
   KeyRound,
   Mic,
   Palette,
@@ -37,8 +38,8 @@ import {
   searchSettings,
   searchSettingsRows,
   settingsGroups,
-  settingsLeaves,
   settingsRowHref,
+  visibleLeaves,
   type SettingsLeaf,
 } from './model';
 import {
@@ -54,6 +55,7 @@ const icons: Record<string, Icon> = {
   preferences: SlidersHorizontal,
   appearance: Palette,
   buddy: Bot,
+  learning: GraduationCap,
   providers: Cloud,
   models: Cpu,
   voice: Mic,
@@ -74,6 +76,8 @@ const descriptions: Record<string, string> = {
   preferences: 'How Row-Bot introduces itself, opens and tidies up overnight.',
   appearance: 'Theme, accent colour and density on this device.',
   buddy: 'Your companion’s look, personality and motion.',
+  learning:
+    'How Row-Bot learns from your work, and the personal model it can train.',
   providers: 'Where Row-Bot’s models come from. Defaults live in Models.',
   models: 'Which model does each job.',
   voice: 'Talk, dictation and read-aloud.',
@@ -106,9 +110,12 @@ function typingTarget(target: EventTarget | null) {
 
 export default function SettingsShell({
   leaf,
+  learning = false,
   children,
 }: {
   leaf: SettingsLeaf;
+  /** A build with Learning (preview): its page is listed (O34). */
+  learning?: boolean;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -147,12 +154,13 @@ export default function SettingsShell({
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, []);
+  const leaves = visibleLeaves(learning);
   const searching = Boolean(query.trim());
-  const pages = searching ? searchSettings(query) : [];
-  const rows = searching ? searchSettingsRows(query) : [];
+  const pages = searching ? searchSettings(query, learning) : [];
+  const rows = searching ? searchSettingsRows(query, learning) : [];
   const profileLibrary = searching && searchFindsAgentProfiles(query);
   const leafLabel = (id: string) =>
-    settingsLeaves.find((item) => item.id === id)?.label ?? id;
+    leaves.find((item) => item.id === id)?.label ?? id;
   // Every result in reading order: pages, then rows, then the Agents dialog.
   const results = [
     ...pages.map((item) => item.href),
@@ -222,7 +230,7 @@ export default function SettingsShell({
             >
               {settingsGroups.map((group) => (
                 <optgroup key={group.id} label={group.label}>
-                  {settingsLeaves
+                  {leaves
                     .filter((item) => item.group === group.id)
                     .map((item) => (
                       <option value={item.id} key={item.id}>
@@ -354,7 +362,7 @@ export default function SettingsShell({
                     {group.label}
                   </span>
                   <ul aria-label={group.label}>
-                    {settingsLeaves
+                    {leaves
                       .filter((item) => item.group === group.id)
                       .map((item) => (
                         <li key={item.id}>

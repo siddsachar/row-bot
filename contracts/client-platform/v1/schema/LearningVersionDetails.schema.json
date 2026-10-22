@@ -1,0 +1,289 @@
+{
+  "$defs": {
+    "LearningDetailsData": {
+      "additionalProperties": false,
+      "properties": {
+        "conversations": {
+          "minimum": 0,
+          "title": "Conversations",
+          "type": "integer"
+        },
+        "examples": {
+          "minimum": 0,
+          "title": "Examples",
+          "type": "integer"
+        },
+        "first_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First At"
+        },
+        "last_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last At"
+        },
+        "left_out": {
+          "items": {
+            "$ref": "#/$defs/LearningLeftOut"
+          },
+          "maxItems": 32,
+          "title": "Left Out",
+          "type": "array"
+        },
+        "providers": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Providers",
+          "type": "array"
+        },
+        "terms_note": {
+          "title": "Terms Note",
+          "type": "boolean"
+        },
+        "validation": {
+          "minimum": 0,
+          "title": "Validation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "examples",
+        "validation",
+        "conversations",
+        "providers",
+        "left_out",
+        "terms_note"
+      ],
+      "title": "LearningDetailsData",
+      "type": "object"
+    },
+    "LearningDetailsMethod": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "minimum": 0,
+          "title": "Context",
+          "type": "integer"
+        },
+        "epochs": {
+          "minimum": 0,
+          "title": "Epochs",
+          "type": "integer"
+        },
+        "learning_rate": {
+          "minimum": 0,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "name": {
+          "maxLength": 64,
+          "title": "Name",
+          "type": "string"
+        },
+        "quantization": {
+          "maxLength": 16,
+          "title": "Quantization",
+          "type": "string"
+        },
+        "rank": {
+          "minimum": 0,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 80,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "rank",
+        "learning_rate",
+        "epochs",
+        "context",
+        "quantization"
+      ],
+      "title": "LearningDetailsMethod",
+      "type": "object"
+    },
+    "LearningDetailsRun": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "maxLength": 128,
+          "title": "Arm",
+          "type": "string"
+        },
+        "passed": {
+          "minimum": 0,
+          "title": "Passed",
+          "type": "integer"
+        },
+        "suite": {
+          "maxLength": 80,
+          "title": "Suite",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "suite",
+        "arm",
+        "passed",
+        "total"
+      ],
+      "title": "LearningDetailsRun",
+      "type": "object"
+    },
+    "LearningFile": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "bytes"
+      ],
+      "title": "LearningFile",
+      "type": "object"
+    },
+    "LearningLeftOut": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 80,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "count"
+      ],
+      "title": "LearningLeftOut",
+      "type": "object"
+    },
+    "LearningNamedValue": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 200,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "LearningNamedValue",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Experiment details of one version (UX \u00a74, \u00a77): data, method, versions, every test run (counts\nonly) and its files.",
+  "properties": {
+    "budget_tokens_per_task": {
+      "minimum": 0,
+      "title": "Budget Tokens Per Task",
+      "type": "integer"
+    },
+    "comparison_note": {
+      "maxLength": 400,
+      "title": "Comparison Note",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/LearningDetailsData"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/LearningFile"
+      },
+      "maxItems": 16,
+      "title": "Files",
+      "type": "array"
+    },
+    "method": {
+      "$ref": "#/$defs/LearningDetailsMethod"
+    },
+    "runs": {
+      "items": {
+        "$ref": "#/$defs/LearningDetailsRun"
+      },
+      "maxItems": 12,
+      "title": "Runs",
+      "type": "array"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/LearningNamedValue"
+      },
+      "maxItems": 8,
+      "title": "Versions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "version",
+    "data",
+    "method",
+    "versions",
+    "runs",
+    "files",
+    "budget_tokens_per_task",
+    "comparison_note"
+  ],
+  "title": "LearningVersionDetails",
+  "type": "object"
+}

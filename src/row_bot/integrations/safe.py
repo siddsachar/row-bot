@@ -223,6 +223,59 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
                 return bytes(data)
 
 
+def _reviewed(host: str, allowed: frozenset[str]) -> bool:
+    """An exact reviewed name, or a subdomain of a reviewed ``.suffix`` (a download's CDN)."""
+    host = host.lower().rstrip(".")
+    return host in allowed or any(entry.startswith(".") and host.endswith(entry) for entry in allowed)
+
+
+@contextmanager
+def open_stream(url: str, *, hosts: Iterable[str], timeout: float = 30, headers: Mapping[str, str] | None = None,
+                redirects: int = 3, refused: str = "download_source_refused",
+                check: Callable[[], None] | None = None) -> Iterator[httpx.Response]:
+    """A reviewed https GET whose body the caller reads in chunks (large downloads that resume).
+
+    The same rules as :func:`fetch`, without holding the body: ``hosts`` is the reviewed list
+    (exact names, or ``.example.org`` for its subdomains, as a download's CDN needs); a direct
+    connection goes only to a checked global address, a reviewed host may go through the
+    system or environment proxy; each redirect hop is checked again and nothing but the
+    reviewed headers (a ``Range``, say) is ever sent, so no credential crosses a host. Yields
+    the final response (2xx); ``timeout`` bounds each read, not the whole download.
+    """
+    check = check or _CHECK.get() or (lambda: None)
+    allowed = frozenset(item.lower() for item in hosts)
+    sent = {key: value for key, value in dict(headers or {}).items() if key.lower() not in _CREDENTIALS}
+    budget = redirects
+    while True:
+        check()
+        parts = urlsplit(url)
+        if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
+                or parts.fragment or parts.port not in {None, 443} or not _reviewed(parts.hostname, allowed)):
+            raise ValueError(refused)
+        options: dict[str, Any] = {"timeout": timeout, "follow_redirects": False, "trust_env": False}
+        proxy = proxy_for(parts.hostname)
+        if proxy:
+            options["proxy"] = proxy
+        else:
+            options["transport"] = _Pinned(parts.hostname, _public_addresses(parts.hostname, refused),
+                                           time.monotonic() + timeout * 6)
+        with httpx.Client(**options) as client:
+            with client.stream("GET", url, headers={"User-Agent": "Row-Bot", **sent,
+                                                    "Accept-Encoding": "identity"}) as response:
+                if response.status_code in _REDIRECTS:
+                    location = response.headers.get("location", "")
+                    if budget < 1 or not location:
+                        raise ValueError(refused)
+                    budget -= 1
+                    url = urljoin(url, location)
+                    continue
+                response.raise_for_status()
+                if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+                    raise ValueError(refused)
+                yield response
+                return
+
+
 class TtlCache:
     """Short-lived, owner-keyed values. Full caches evict the oldest, or refuse."""
 

@@ -92,10 +92,11 @@ def detect_local_runtime() -> dict[str, Any]:
     suggests it first (F10); Setup and Settings › Models list them that way.
     """
     from row_bot.models import is_tool_compatible
-    from row_bot.providers.model_visibility import annotate, read_model_visibility
+    from row_bot.providers.model_visibility import annotate, read_model_visibility, withheld
 
     running = ollama_running()
-    names = local_models() if running else []
+    # Learning's personal models are offered by Learning itself, never here (L2c).
+    names = [name for name in (local_models() if running else []) if not withheld("ollama", name)]
     models = []
     for name in names[:256]:
         # The family list only knows some models; an unknown one is not "Chat

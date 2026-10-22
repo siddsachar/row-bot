@@ -28,6 +28,9 @@ Priorities, in order:
   Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or
   channel content. The reviewed, opt-in Cua Driver integration is the only
   currently approved exception; future dependencies require a separate review.
+  The Learning (preview) training engine, installed only after the download
+  ask, with every library's usage reporting switched off and a network guard
+  (`docs/LEARNING_ENGINE_TELEMETRY.md`), is the second reviewed exception.
 - Do not commit secrets, API keys, provider tokens, private local paths, or real
   user data in code, tests, docs, fixtures, snapshots, or logs.
 - Do not make default tests depend on live providers, live MCP servers, real
@@ -63,6 +66,17 @@ Priorities, in order:
 - `src/row_bot/designer/`: Designer Studio state, export, templates, rendering,
   previews, thumbnails, and AI content.
 - `src/row_bot/plugins/`, `skills_hub/`, `skills.py`: plugin and skill systems.
+- `src/row_bot/learning/`: Learning (preview): the switch (`is_enabled`), versioned
+  records, the `learning.db` store and blobs, scope (what may be recorded), capture
+  (the seams' queue and writer, with redaction), the past-chat import, evaluation
+  (replay, task packs in throwaway sandboxes, equal-budget arms), the sealed audit
+  vault (only `evaluation` reads it) and the task packs. Off by default; while off
+  or paused its seams cost one check, and it creates no file and imports nothing
+  beyond the switch. Until the 5.4 cut it exists only in a build started with
+  `ROW_BOT_LEARNING_PREVIEW=1`; its surfaces live in `frontend/src/features/learning/`
+  and `application/client_learning.py`. The training engine is its own locked project
+  (`src/row_bot/learning_engine/`), downloaded only when the person agrees into the
+  data folder's `runtimes/learning/`, never into Row-Bot's environment or installers.
 - `frontend/`: the React client (the only UI), served at `/app-v2/`.
 - `src/row_bot/server.py` and `src/row_bot/app.py`: the FastAPI app, its
   routes, middleware and start-up sequence, run by uvicorn.
@@ -177,6 +191,9 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 - Developer Studio: `tests/subsystem/developer/`.
 - Designer: `tests/subsystem/designer/` and `tests/snapshots/`.
 - Plugins: `tests/contracts/plugins/` and `tests/subsystem/plugins/`.
+- Learning: `tests/contracts/learning/test_learning_contract.py`,
+  `tests/subsystem/learning/` and `tests/integration/learning/`; Learning-off
+  inertness stays in the pull request lane.
 - App start-up, server and native host: `tests/subsystem/client_host/`; the
   React client's API: `tests/subsystem/client_protocol/`.
 - Installer, CLI, packaging, updater, GitHub workflow contracts:

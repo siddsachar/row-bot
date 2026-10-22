@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 256,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 256,
+      "title": "Reason",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "learning",
+        "opted_out",
+        "not_used",
+        "paused",
+        "off"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "state",
+    "reason"
+  ],
+  "title": "LearningConversation",
+  "type": "object"
+}
