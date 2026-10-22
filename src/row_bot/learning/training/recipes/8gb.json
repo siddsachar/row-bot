@@ -1,0 +1,32 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "8gb",
+  "tier": "8gb",
+  "certified": true,
+  "title": "8 GB graphics cards",
+  "starting_model": "qwen3.5-2b",
+  "method": "lora_sft",
+  "evidence": "O23: Qwen3.5 2B, bf16 LoRA at 16K, measured on an RTX 5070 Laptop (8 GB) in L0d and through Row-Bot's engine in L2b: 7.46-7.70 GB peak, about 41 minutes per epoch of 360 conversations, a 43.7 MB adapter.",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 16,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 1,
+  "checkpoint_every": 10,
+  "min_examples": 100,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q8_0",
+  "reasoning": "off"
+}

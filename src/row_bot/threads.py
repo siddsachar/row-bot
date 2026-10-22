@@ -2141,7 +2141,9 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_
         if not isinstance(existing, list):
             existing = []
         retried = _retried_turn(existing, retry_text) if retry_text else None
+        replaced: list = []
         if retried is not None:
+            replaced = existing[retried:]
             existing = existing[:retried]
         by_id = {str(message.id): message for message in existing if getattr(message, "id", None)}
         accepted = []
@@ -2180,6 +2182,11 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_
             {"messages": next_version},
         )
         logger.debug("Appended %d checkpoint message(s) for thread %s", len(messages), str(thread_id)[:8])
+        if retried is not None:
+            # Learning (preview): Retry is an implicit signal on the reply it replaced (off: one check).
+            from row_bot import learning
+
+            learning.note_retry(str(thread_id), replaced)
         return True
     except Exception:
         logger.warning("Failed to append checkpoint messages for thread %s", thread_id, exc_info=True)

@@ -381,6 +381,12 @@ export default function ModelList({
         onClick={() => choose(row)}
       >
         <span className="model-picker-option-name">{label.name}</span>
+        {row.model.personal && (
+          // Learning (preview, D11): one of the person's own trained models.
+          <span className="model-billing" data-billing="personal">
+            Personal
+          </span>
+        )}
         {row.model.detail && (
           <span className="model-picker-option-provider">
             {row.model.detail}

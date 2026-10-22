@@ -1,6 +1,8 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   CornerDownRight,
+  Cpu,
+  GraduationCap,
   Pencil,
   Repeat2,
   RotateCcw,
@@ -29,6 +31,7 @@ import { TranscriptCards, type TranscriptCard } from './TranscriptCards';
 import type { TracedAgent } from './transcript-model';
 import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
+import { useTeach } from '../learning/chat-learning';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
 const NO_MEDIA: GeneratedMedia[] = [];
@@ -123,6 +126,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   children?: ReactNode;
 }) {
   const { controller, platform } = useRuntime();
+  // Teach Row-Bot, while Learning (preview) is on and uses this chat.
+  const teach = useTeach();
   const [expanded, setExpanded] = useState('');
   const [cursor, setCursor] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -225,6 +230,21 @@ export const TranscriptMessage = memo(function TranscriptMessage({
         data-row-id={row.id}
       >
         <Repeat2 aria-hidden />
+        <span>{visibleText(shown)}</span>
+      </div>
+    );
+  if (row.note === 'personal_model_fallback')
+    // Learning (preview): the person's personal model got stuck on this turn
+    // and their main model finished it (a quiet line, like a continuation).
+    return (
+      <div
+        className="transcript-note"
+        role="note"
+        data-note={row.note}
+        data-message-id={row.message_id ?? row.id}
+        data-row-id={row.id}
+      >
+        <Cpu aria-hidden />
         <span>{visibleText(shown)}</span>
       </div>
     );
@@ -344,6 +364,17 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             {stop.label}
           </span>
         )}
+        {row.answered_by === 'personal_model' && hasText && !failure && (
+          // Learning (preview): a quiet line, never a badge on the reply.
+          <span
+            className="turn-chip"
+            data-tone="neutral"
+            data-kind="personal-model"
+          >
+            <Cpu aria-hidden />
+            Answered by your personal model
+          </span>
+        )}
         {row.cut_short && (
           // The provider stopped this reply at its output token limit.
           <span
@@ -425,6 +456,15 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 onClick={onRetry}
               >
                 <RotateCcw size={15} aria-hidden />
+              </IconButton>
+            )}
+            {row.role === 'assistant' && teach && row.message_id && (
+              <IconButton
+                size="sm"
+                label="Teach Row-Bot"
+                onClick={() => teach({ messageId: row.message_id ?? '' })}
+              >
+                <GraduationCap size={15} aria-hidden />
               </IconButton>
             )}
             {row.role === 'user' && onEdit && (

@@ -24,6 +24,9 @@ from row_bot.prompt_cache import (
 )
 from row_bot.providers.capabilities import PROMPT_CACHE_SYSTEM_BREAKPOINT_ROUTES, prompt_cache_route
 from row_bot import prompt_prefix_diff
+# Learning (preview): only the switch. Its seams call learning.is_enabled() first and import
+# nothing else of it while it is off.
+from row_bot import learning
 from row_bot.providers.stop_reason import stop_reason as provider_stop_reason, stopped_at_output_limit
 from row_bot.providers.usage_ledger import with_usage_purpose
 from row_bot import external_content as _external_content
@@ -51,6 +54,7 @@ from row_bot.agent_budget import (
     complete_budget_finalization,
     ExecutionBudgetExhausted,
     InvalidExecutionBudget,
+    ModelCallRefused,
     RowBotAgentState,
     exact_repeat_block_payload,
     framework_recursion_limit,
@@ -754,18 +758,23 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
                 if not content:
                     continue
                 if str(item.get("role") or "") == "human":
+                    ui: dict[str, Any] = {
+                        "thread_event": True,
+                        "source_event_id": str(item.get("source_event_id") or ""),
+                    }
+                    # Learning (preview): the main model finishing a stuck personal model's turn. The
+                    # transcript shows only the note's public sentence, never this event's text.
+                    fallback = (item.get("row_bot_ui") or {}).get("learning_fallback") if isinstance(
+                        item.get("row_bot_ui"), dict) else None
+                    if isinstance(fallback, dict) and isinstance(fallback.get("text"), str):
+                        ui["learning_fallback"] = {
+                            "text": fallback["text"][:300],
+                            "version": int(fallback.get("version") or 0),
+                            "kind": str(fallback.get("kind") or "")[:64],
+                            "reason": str(fallback.get("reason") or "")[:64],
+                        }
                     event_messages.append(
-                        HumanMessage(
-                            content=content,
-                            additional_kwargs={
-                                "row_bot_ui": {
-                                    "thread_event": True,
-                                    "source_event_id": str(
-                                        item.get("source_event_id") or ""
-                                    ),
-                                }
-                            },
-                        )
+                        HumanMessage(content=content, additional_kwargs={"row_bot_ui": ui})
                     )
                 else:
                     event_messages.append(
@@ -1159,6 +1168,19 @@ def _is_transient_stream_disconnect(exc_str: str) -> bool:
         "server disconnected without sending a response",
     )
     return any(marker in s for marker in markers)
+
+
+def _refused_by_caller(exc: BaseException) -> bool:
+    """Whether a failed turn is a model call its caller's own limit refused (``ModelCallRefused``,
+    possibly wrapped): it ends quietly, never as an API error."""
+    current: BaseException | None = exc
+    for _ in range(8):
+        if current is None:
+            return False
+        if isinstance(current, ModelCallRefused):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _notify_api_error(friendly_msg: str) -> None:
@@ -4366,18 +4388,47 @@ class _AgentModelCall:
             if resumed is not None:
                 messages, _created, _inputs, prepared = _prepare_agent_request(resumed, config)
                 _remember_request_estimate(config, getattr(prepared, "raw_estimated_input_tokens", 0))
+            # Learning (preview): the request as sent, the response raw and as kept (off: one check).
+            turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+            sent, run_config, ledger_id, refused = messages, config, None, None
+            if turn is not None:
+                run_config, ledger_id = _learning_ledger_config(config)
+                started = time.perf_counter()
             try:
-                response = model.invoke(messages, config)
+                response = model.invoke(messages, run_config)
             except Exception as exc:
                 if not _is_context_overflow_error(exc):
+                    if turn is not None:
+                        _learning_model_call(turn, sent, inputs=_last_preparation_inputs(config), error=exc,
+                                             latency_ms=(time.perf_counter() - started) * 1000, ledger_call_id=ledger_id)
                     raise
+                if turn is not None:
+                    refused = _learning_model_call(turn, sent, inputs=_last_preparation_inputs(config), error=exc,
+                                                   latency_ms=(time.perf_counter() - started) * 1000,
+                                                   ledger_call_id=ledger_id)
                 retry = _request_after_overflow(exc, config)
                 if retry is None:
                     raise
-                response = model.invoke(retry, config)
+                sent, run_config = retry, config
+                if turn is not None:
+                    run_config, ledger_id = _learning_ledger_config(config)
+                    started = time.perf_counter()
+                try:
+                    response = model.invoke(retry, run_config)
+                except Exception as retry_exc:
+                    if turn is not None:
+                        _learning_model_call(turn, sent, inputs=_last_preparation_inputs(config), error=retry_exc,
+                                             latency_ms=(time.perf_counter() - started) * 1000,
+                                             ledger_call_id=ledger_id, retry_of=refused)
+                    raise
+            latency_ms = (time.perf_counter() - started) * 1000 if turn is not None else None
             _observe_request_size(config, response)
             inputs = _last_preparation_inputs(config)
-            return _with_inline_thinking_moved(response, getattr(inputs, "provider_id", None))
+            kept = _with_inline_thinking_moved(response, getattr(inputs, "provider_id", None))
+            if turn is not None:
+                _learning_model_call(turn, sent, response=response, kept=kept, inputs=inputs,
+                                     latency_ms=latency_ms, ledger_call_id=ledger_id, retry_of=refused)
+            return kept
 
         return RunnableLambda(call, name="row_bot_model_call")
 
@@ -4518,6 +4569,133 @@ def current_person_rules() -> dict | None:
     """The running workflow's "Always ask me" rules (N9), for an agent it starts: they go with it."""
     rules = _current_person_rules_var.get(None)
     return dict(rules) if rules else None
+
+
+# ── Learning (preview) seams ────────────────────────────────────────────────────────────────────
+# Each seam checks learning.is_enabled() first: while Learning is off it does nothing else and
+# imports nothing else of Learning. On, it hands cheap references to learning.capture, which
+# serialises and writes them on its own thread; a seam never waits on it and never raises.
+
+# This run's Learning turn (learning.capture.Turn), or None.
+_current_learning_turn_var: _contextvars.ContextVar[Any] = _contextvars.ContextVar(
+    "current_learning_turn", default=None
+)
+# The tool call running in this context, so an approval it asks for is linked to it.
+_current_learning_tool_call_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_learning_tool_call", default=""
+)
+# Surfaces where a turn starts with the person's own message (a next-message marker).
+_LEARNING_PERSON_SURFACES = frozenset({"normal_chat", "remote_client", "channel"})
+# The stream's last event says how the turn ended.
+_LEARNING_TURN_STATUS = {"done": "completed", "interrupt": "waiting", "error": "failed"}
+
+
+def _learning_begin_turn(configurable: dict | None, *, resumed: bool = False) -> None:
+    """Open this run's Learning turn (a resumed run carries on the turn its approval paused)."""
+    if not learning.is_enabled():
+        return
+    try:
+        from row_bot.learning import capture
+
+        values = configurable if isinstance(configurable, dict) else {}
+        surface = str(values.get("runtime_surface") or "")
+        started_by_row_bot = bool(values.get("internal_goal_continuation")
+                                  or values.get("orchestration_internal_wake")
+                                  or values.get("thread_event_context"))
+        _current_learning_turn_var.set(capture.begin_turn(
+            thread_id=str(values.get("thread_id") or ""),
+            generation_id=str(values.get("generation_id") or ""),
+            surface=surface,
+            agent_run_id=str(values.get("agent_run_id") or ""),
+            goal=bool(values.get("internal_goal_continuation")),
+            person_message=surface in _LEARNING_PERSON_SURFACES and not started_by_row_bot,
+            resumed=resumed,
+        ))
+    except Exception as exc:
+        logger.debug("Learning could not open a turn (%s)", type(exc).__name__)
+
+
+def _learning_end_turn(status: str, stop_event: threading.Event | None = None) -> None:
+    """Close this run's Learning turn: completed, waiting at an approval, failed or stopped."""
+    turn = _current_learning_turn_var.get()
+    if turn is None:
+        return
+    _current_learning_turn_var.set(None)
+    try:
+        from row_bot.learning import capture
+
+        by_person = False
+        if status == "stopped" or (stop_event is not None and stop_event.is_set()):
+            status = "stopped"
+            from row_bot.runtime.executions import current_execution
+
+            # Only the person's Stop is a signal; a deletion, a deadline or shutdown is not.
+            handle = current_execution()
+            by_person = handle is not None and str(handle.cancel_scope.reason or "") == "user"
+        capture.end_turn(turn, status, stopped_by_person=by_person)
+    except Exception as exc:
+        logger.debug("Learning could not close a turn (%s)", type(exc).__name__)
+
+
+def _learning_model_call(turn: Any, messages: list, *, response: Any = None, kept: Any = None,
+                         inputs: Any = None, purpose: str = "agent", latency_ms: float | None = None,
+                         ledger_call_id: str | None = None, error: BaseException | None = None,
+                         retry_of: str | None = None, stopped: bool = False) -> str | None:
+    """Hand one model call to Learning: the request as sent and the response, raw and as kept."""
+    try:
+        from row_bot.learning import capture
+
+        status = "stopped" if stopped else "ok"
+        if error is not None:
+            status = "stopped" if isinstance(error, (InterruptedError, TaskStoppedError)) else "error"
+        model_ref = str(getattr(inputs, "model_ref", "") or _active_model_override.get() or "")
+        return capture.model_call(
+            turn,
+            messages=messages,
+            response=response,
+            kept=kept,
+            tools=getattr(inputs, "canonical_tools", None),
+            model_ref=model_ref,
+            provider_id=str(getattr(inputs, "provider_id", "") or ""),
+            purpose=purpose,
+            latency_ms=latency_ms,
+            ledger_call_id=ledger_call_id,
+            status=status,
+            error=error,
+            retry_of=retry_of,
+        )
+    except Exception as exc:
+        logger.debug("Learning could not capture a model call (%s)", type(exc).__name__)
+        return None
+
+
+def _learning_ledger_config(config: dict | None) -> tuple[dict, str]:
+    """The call's config with its own run id: the usage ledger records it as the call's id."""
+    run_id = uuid.uuid4()
+    return {**(config or {}), "run_id": run_id}, str(run_id)
+
+
+def note_learning_approval(payload: dict, mode: object, response: Any, line: str, *,
+                           blocked: bool = False) -> None:
+    """The approval gate's decision, for Learning (read only: nothing Learning keeps reaches
+    the reviewer, E8). Called only while Learning is on."""
+    turn = _current_learning_turn_var.get()
+    if turn is None:
+        return
+    try:
+        from row_bot.learning import capture
+
+        capture.approval(
+            turn,
+            payload=dict(payload or {}),
+            mode=normalize_approval_mode(mode),
+            response=response,
+            line=str(line or ""),
+            blocked=blocked,
+            tool_call_id=_current_learning_tool_call_var.get() or None,
+        )
+    except Exception as exc:
+        logger.debug("Learning could not capture an approval (%s)", type(exc).__name__)
 
 
 def current_app_scope() -> dict | None:
@@ -4681,6 +4859,7 @@ def _set_active_runtime_context(
     _current_last_preparation_var.set(None)
     _current_stop_event_var.set(None)
     _current_pending_context_events_var.set(())
+    _current_learning_turn_var.set(None)
 
 
 def _agent_profile_system_context(thread_id: str = "") -> str:
@@ -6310,6 +6489,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
     if stop_event and stop_event.is_set():
         raise TaskStoppedError("Task stopped before execution")
     config, initial_input = _new_agent_graph_input(user_input, config, agent=agent)
+    _learning_begin_turn(config.get("configurable"))  # closed by invoke_agent
 
     # Use node-level streaming so we can check stop_event between nodes
     if stop_event is not None:
@@ -6332,6 +6512,10 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
                 # Stop ended the model call (it closes a request mid-way): stopped, not failed.
                 raise TaskStoppedError("Task stopped during execution") from exc
             exc_str = str(exc)
+            if _refused_by_caller(exc):
+                logger.info("invoke_agent: a model call was refused by its caller's limit: %s", exc_str)
+                _learning_end_turn("failed", stop_event)
+                return exc_str
             if "tool_call" in exc_str and ("do not have a corresponding" in exc_str
                                             or "did not have response" in exc_str
                                             or "must be followed by tool" in exc_str):
@@ -6358,6 +6542,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
                         exc_info=True,
                     )
                 _notify_api_error(_err_msg)
+                _learning_end_turn("failed", stop_event)
                 return _err_msg
 
         # Read final state from checkpoint
@@ -6582,14 +6767,29 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
             "type": "orchestration_waiting",
             "orchestration_id": str(routed.get("id") or ""),
         }
-    result = _invoke_agent_graph(
-        user_input,
-        enabled_tool_names,
-        config,
-        stop_event=stop_event,
-    )
+    learning_status = "failed"
+    try:
+        result = _invoke_agent_graph(
+            user_input,
+            enabled_tool_names,
+            config,
+            stop_event=stop_event,
+        )
+        learning_status = _learning_invoke_status(result)
+    except TaskStoppedError:
+        learning_status = "stopped"
+        raise
+    finally:
+        _learning_end_turn(learning_status, stop_event)
     _complete_unified_parent_pass(result, enabled_tool_names, config)
     return result
+
+
+def _learning_invoke_status(result: Any) -> str:
+    """How an invoked run ended, for Learning: paused at an approval, or done."""
+    if isinstance(result, dict) and result.get("type") == "interrupt":
+        return "waiting"
+    return "completed"
 
 
 import re as _re  # noqa: E402
@@ -6704,8 +6904,42 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
 
     Untrusted results (third-party text, plugin and custom tools) are stamped once here, when
     they enter the checkpoint (see ``_untrusted_result_stamp``); generated media is bound to the
-    exact ToolMessage in parallel tool batches.
+    exact ToolMessage in parallel tool batches. With Learning (preview) on, the call and its
+    capped result are captured too.
     """
+    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+    if turn is None:
+        return _platform_tool_call(request, execute, None)
+    token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+    try:
+        return _platform_tool_call(request, execute, turn)
+    finally:
+        _current_learning_tool_call_var.reset(token)
+
+
+def _learning_tool_call(turn: Any, request: Any, result: Any = None, *, untrusted: bool = False,
+                        error: BaseException | None = None) -> None:
+    """Hand one tool call to Learning: its arguments, capped result, status and untrusted stamp."""
+    try:
+        if error is not None:
+            from langgraph.errors import GraphBubbleUp
+
+            if isinstance(error, GraphBubbleUp):
+                return  # Paused for an approval: the call is captured when it runs.
+        from row_bot.learning import capture
+
+        call = dict(request.tool_call or {})
+        if error is not None:
+            status = "stopped" if isinstance(error, (InterruptedError, TaskStoppedError)) else "error"
+        else:
+            status = "error" if getattr(result, "status", "success") == "error" else "ok"
+        capture.tool_call(turn, call=call, runtime_name=_tool_call_runtime_name(call), result=result,
+                          status=status, untrusted=untrusted)
+    except Exception as exc:
+        logger.debug("Learning could not capture a tool call (%s)", type(exc).__name__)
+
+
+def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     from row_bot.application.attachment_context import tool_attachment_scope
     from row_bot.runtime.executions import current_execution, generation_registry
     handle = current_execution()
@@ -6718,7 +6952,12 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
     with tool_attachment_scope() as caches:
-        result = execute(request)
+        try:
+            result = execute(request)
+        except BaseException as exc:
+            if learning_turn is not None:
+                _learning_tool_call(learning_turn, request, error=exc)
+            raise
         if handle is not None:
             handle.external_outcome = "sent"
         if not isinstance(result, ToolMessage):
@@ -6729,6 +6968,7 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
 
         # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
         result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
+        stamp_failed = False
         try:
             call = dict(request.tool_call or {})
             stamp = _untrusted_result_stamp(_tool_call_runtime_name(call), result.content, call.get("args"))
@@ -6736,10 +6976,14 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
             # The request still fences it: an unstamped result is decided when the request is built.
             logger.warning("Tool result fence decision failed; it is made per request instead", exc_info=True)
             stamp = None
+            stamp_failed = True
         if stamp is not None:
             result = result.model_copy(update={
                 "additional_kwargs": {**dict(result.additional_kwargs), _UNTRUSTED_RESULT_KEY: stamp},
             })
+        if learning_turn is not None:
+            # Undecided counts as untrusted for Learning: the request fences it anyway.
+            _learning_tool_call(learning_turn, request, result, untrusted=stamp is not None or stamp_failed)
         if caches is None:
             return result
         from row_bot.application.generated_media import capture_generated_media
@@ -6985,6 +7229,26 @@ def stream_chat_only(
     phase_timings: dict[str, Any] | None = None,
 ):
     """Stream a normal chat response without constructing a ReAct graph or tools."""
+    learning_status = "cancelled"
+    try:
+        for event in _stream_chat_only_events(user_input, config, stop_event=stop_event,
+                                              phase_timings=phase_timings):
+            learning_status = _LEARNING_TURN_STATUS.get(event[0], learning_status)
+            yield event
+    except Exception:
+        learning_status = "failed"
+        raise
+    finally:
+        _learning_end_turn(learning_status, stop_event)
+
+
+def _stream_chat_only_events(
+    user_input: str,
+    config: dict,
+    *,
+    stop_event: threading.Event | None = None,
+    phase_timings: dict[str, Any] | None = None,
+):
     from row_bot.providers.readiness import evaluate_chat_readiness
     from row_bot.threads import append_checkpoint_messages
 
@@ -7088,6 +7352,30 @@ def stream_chat_only(
     thinking_signalled = False
     decoder = _ReasoningTextStreamDecoder()
 
+    # Learning (preview): this turn's one model call, captured when it ends (off: one check).
+    _learning_begin_turn(configurable)
+    learning_turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+    learning_call: list[Any] = [None, None]  # [run config, ledger id] of the call being made
+
+    def learn(error: BaseException | None = None) -> None:
+        if learning_turn is None:
+            return
+        response = None if error is not None else AIMessage(
+            content="".join(full_answer),
+            additional_kwargs={"reasoning_content": "".join(full_reasoning)} if full_reasoning else {},
+            response_metadata=dict(latest_response_metadata),
+        )
+        _learning_model_call(learning_turn, messages, response=response, inputs=preparation_inputs,
+                             purpose="chat_only", latency_ms=(time.perf_counter() - _provider_started) * 1000,
+                             ledger_call_id=learning_call[1], error=error,
+                             stopped=bool(stop_event is not None and stop_event.is_set()))
+
+    def provider_stream() -> Any:
+        if learning_turn is None:
+            return llm.stream(messages)
+        learning_call[:] = _learning_ledger_config(None)
+        return llm.stream(messages, learning_call[0])
+
     _provider_started = time.perf_counter()
     provider_call: dict[str, Any] = {
         "index": 1,
@@ -7104,7 +7392,7 @@ def stream_chat_only(
     overflow_retried = False
     while True:
         try:
-            stream_iter = llm.stream(messages)
+            stream_iter = provider_stream()
             phase_timings["generation.provider_stream_create_ms"] = (
                 time.perf_counter() - _provider_started
             ) * 1000.0
@@ -7118,6 +7406,7 @@ def stream_chat_only(
                     yield from _take_pending_context_events()
                     continue
                 _mark_context_overflow(preparation_inputs)
+                learn(exc)
                 yield ("error", _friendly_api_error(str(exc), model_label))
                 return
             stream_iter = None
@@ -7169,7 +7458,11 @@ def stream_chat_only(
                 _provider_started = time.perf_counter()
                 if execution is not None:
                     generation_registry.check_dispatch(execution)
-                result = llm.invoke(messages)
+                if learning_turn is None:
+                    result = llm.invoke(messages)
+                else:
+                    learning_call[:] = _learning_ledger_config(None)
+                    result = llm.invoke(messages, learning_call[0])
                 response_metadata = getattr(result, "response_metadata", None) or {}
                 if isinstance(response_metadata, dict) and response_metadata:
                     latest_response_metadata.update(response_metadata)
@@ -7211,9 +7504,11 @@ def stream_chat_only(
                     continue
             if _is_context_overflow_error(exc):
                 _mark_context_overflow(preparation_inputs)
+            learn(exc)
             yield ("error", _friendly_api_error(str(exc), model_label))
             return
         break
+    learn()
 
     try:
         from row_bot import context_calibration
@@ -7546,10 +7841,13 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
 
     # The graph pre-model hook prepares and accounts every primary model call.
     config, initial_input = _new_agent_graph_input(user_input, config, agent=agent)
+    _learning_begin_turn(config.get("configurable"))
+    learning_status = "cancelled"
     try:
         for event in _stream_graph(agent, initial_input, config,
                                    stop_event=stop_event,
                                    phase_timings=phase_timings):
+            learning_status = _LEARNING_TURN_STATUS.get(event[0], learning_status)
             yield from _memory_recall_warning_events(config)
             yield event
             if event[0] == "done":
@@ -7567,8 +7865,12 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                             "output_kind": parent_pass.output_kind,
                         },
                     )
+    except Exception:
+        learning_status = "failed"
+        raise
     finally:
         _forget_preparation_inputs(config)
+        _learning_end_turn(learning_status, stop_event)
     yield from _memory_recall_warning_events(config)
 
 
@@ -7709,6 +8011,8 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         yield ("error", f"This paused agent run cannot be resumed safely: {exc}")
         return
     resume_val = _resume_value(approved, interrupt_ids, resume_values)
+    _learning_begin_turn(config.get("configurable"), resumed=True)
+    learning_status = "cancelled"
     try:
         for event in _stream_graph(
             agent,
@@ -7716,6 +8020,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
             config,
             stop_event=stop_event,
         ):
+            learning_status = _LEARNING_TURN_STATUS.get(event[0], learning_status)
             yield from _memory_recall_warning_events(config)
             yield event
             if event[0] == "done":
@@ -7733,8 +8038,12 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
                             "output_kind": parent_pass.output_kind,
                         },
                     )
+    except Exception:
+        learning_status = "failed"
+        raise
     finally:
         _forget_preparation_inputs(config)
+        _learning_end_turn(learning_status, stop_event)
     yield from _memory_recall_warning_events(config)
 
 
@@ -7799,6 +8108,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
 
     resume_val = _resume_value(approved, interrupt_ids, resume_values)
 
+    _learning_begin_turn(config.get("configurable"), resumed=True)  # closed by resume_invoke_agent
     try:
         for _event in agent.stream(
             Command(resume=resume_val),
@@ -7849,14 +8159,22 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
                         stop_event: threading.Event | None = None) -> str | dict:
     """Resume the shared graph and apply the durable orchestration guard."""
 
-    result = _resume_invoke_agent_graph(
-        enabled_tool_names,
-        config,
-        approved,
-        interrupt_ids=interrupt_ids,
-        resume_values=resume_values,
-        stop_event=stop_event,
-    )
+    learning_status = "failed"
+    try:
+        result = _resume_invoke_agent_graph(
+            enabled_tool_names,
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            resume_values=resume_values,
+            stop_event=stop_event,
+        )
+        learning_status = _learning_invoke_status(result)
+    except TaskStoppedError:
+        learning_status = "stopped"
+        raise
+    finally:
+        _learning_end_turn(learning_status, stop_event)
     _complete_unified_parent_pass(result, enabled_tool_names, config)
     return result
 
@@ -8029,6 +8347,7 @@ def _run_tool_result_finalization(
     messages = _tool_result_finalization_messages(user_text, tool_messages)
     decoder = _ReasoningTextStreamDecoder()
     parts: list[dict[str, Any]] = []
+    started = time.perf_counter()
     try:
         stream_iter = llm.stream(messages)
     except Exception:
@@ -8041,7 +8360,18 @@ def _run_tool_result_finalization(
         parts.extend(decode_ai_stream_parts(result, decoder))
     answer = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text")
     reasoning = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "reasoning")
+    _learning_finalization_call(messages, answer, reasoning, started)
     return answer, reasoning, parts
+
+
+def _learning_finalization_call(messages: list, answer: str, reasoning: str, started: float) -> None:
+    """A finalization call (an answer written from tool results) is the turn's model call too."""
+    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+    if turn is None:
+        return
+    response = AIMessage(content=answer, additional_kwargs={"reasoning_content": reasoning} if reasoning else {})
+    _learning_model_call(turn, messages, response=response, purpose="finalization",
+                         latency_ms=(time.perf_counter() - started) * 1000)
 
 
 def _terminal_surface(config: dict) -> str:
@@ -8117,6 +8447,7 @@ def _handle_agent_terminal(
             )
             decoder = _ReasoningTextStreamDecoder()
             parts: list[dict[str, Any]] = []
+            started = time.perf_counter()
             try:
                 stream_iter = llm.stream(messages)
             except Exception:
@@ -8130,6 +8461,7 @@ def _handle_agent_terminal(
             reasoning = "".join(
                 str(part.get("text") or "") for part in parts if part.get("type") == "reasoning"
             )
+            _learning_finalization_call(messages, answer, reasoning, started)
         except Exception:
             logger.warning("Agent budget finalization call failed", exc_info=True)
     if not answer:
@@ -8609,6 +8941,11 @@ def _stream_graph(agent, input_data, config: dict,
             logger.info("_stream_graph: the model call ended after Stop (%s)", type(exc).__name__)
             return
         exc_str = str(exc)
+        if _refused_by_caller(exc):
+            # The caller's own limit (Learning's evaluation budget), not the provider: no API-error notice.
+            logger.info("A model call was refused by its caller's limit: %s", exc_str)
+            yield ("error", exc_str)
+            return
         # Auto-repair orphaned tool calls and retry once. Never replay overflow (its retry was in the call).
         if _is_context_overflow_error(exc):
             _mark_context_overflow(_last_preparation_inputs(config))
@@ -8688,6 +9025,10 @@ def _stream_graph(agent, input_data, config: dict,
                             full_answer.append(content)
                             yield ("token", content)
             except Exception as retry_exc:
+                if _refused_by_caller(retry_exc):
+                    logger.info("A model call was refused by its caller's limit: %s", retry_exc)
+                    yield ("error", str(retry_exc))
+                    return
                 _rmsg = _friendly_api_error(str(retry_exc))
                 logger.error(
                     "_stream_graph retry failed during iteration: %s diagnostics=%s",

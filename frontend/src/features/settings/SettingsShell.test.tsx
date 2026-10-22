@@ -129,9 +129,13 @@ it('lists every group with its leaves and marks the open page', () => {
       .getAllByRole('list')
       .map((list) => list.getAttribute('aria-label')),
   ).toEqual(settingsGroups.map((group) => group.label));
+  // Learning (preview) is listed only in a build with its flag (O34).
   expect(within(navigation).getAllByRole('link')).toHaveLength(
     settingsLeaves.length,
   );
+  expect(
+    within(navigation).queryByRole('link', { name: 'Learning' }),
+  ).toBeNull();
   for (const group of settingsGroups)
     expect(
       within(
