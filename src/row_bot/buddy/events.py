@@ -35,6 +35,8 @@ class BuddyEventType(StrEnum):
     WORKFLOW_CANCELLED = "workflow.cancelled"
     BACKGROUND_COMMAND = "background.command"
     RECORDING = "recording"
+    # Learning (preview): a personal model training in the background.
+    LEARNING_TRAINING = "learning.training"
     NOTIFICATION = "notification"
     VOICE_LISTENING = "voice.listening"
     IDLE = "idle"

@@ -18,6 +18,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from . import eval_profile
 from . import providers as provider_registry
 from . import variants
 from .budget import BudgetConfigError, BudgetGuard, Caps, Spend
@@ -25,6 +26,7 @@ from .checks import CHECKS
 from .ledger import everyday_data_folder, summarize_folder
 from .manual import MANUAL_CHECKS
 from .pricing import RATES_ENV, load_rates
+from .runner_limits import FREE_PROVIDERS
 from .report import (
     BUDGET,
     ERROR,
@@ -81,22 +83,31 @@ def build_plan(env: Mapping[str, str] | None = None) -> dict[str, Any]:
     for state in selection.chosen:
         pid = state.target.provider_id
         tasks = select_tasks(pid, source)
-        estimates = [(task.task_id, *estimate(task, context, rates, pid, state.model)) for task in tasks]
+        planned_model = eval_profile.PREFERRED_MODELS[-1] if pid == "codex" and state.model == "auto" else state.model
+        estimates = [(task.task_id, *estimate(task, context, rates, pid, planned_model)) for task in tasks]
         tokens = sum(item[1] for item in estimates)
         usd_values = [item[2] for item in estimates]
         usd = None if any(value is None for value in usd_values) else sum(usd_values)  # type: ignore[arg-type]
-        total_tokens += tokens
-        total_usd = None if total_usd is None or usd is None else total_usd + usd
-        rows.append({
+        free = pid in FREE_PROVIDERS
+        if not free:
+            total_tokens += tokens
+            total_usd = None if total_usd is None or usd is None else total_usd + usd
+        row = {
             "provider": pid,
-            "model": state.model,
+            "model": "gpt-6.1-sol or gpt-5.6-sol (live catalog)" if pid == "codex" and state.model == "auto"
+            else state.model,
             "status": "run",
             "reason": state.reason,
             "tasks": [{"task": task_id, "tokens": tok, "usd": usd_item} for task_id, tok, usd_item in estimates],
             "tokens": tokens,
-            "usd": usd,
-            "priced_by": "provider" if state.target.reports_cost else ("rates" if usd is not None else "unpriced"),
-        })
+            "usd": None if free else usd,
+            "priced_by": "free (local)" if free else (
+                "provider" if state.target.reports_cost else ("rates" if usd is not None else "unpriced")),
+        }
+        if pid == "codex":
+            row["cap_tokens"] = eval_profile.max_tokens(source)
+            row["fits_cap"] = tokens <= row["cap_tokens"]
+        rows.append(row)
     skipped = [{"provider": s.target.provider_id, "status": "skip", "reason": s.reason} for s in selection.skipped]
     guard = BudgetGuard(caps)
     over = guard.over_by(total_tokens, total_usd)
@@ -135,8 +146,11 @@ def render_plan(plan: Mapping[str, Any]) -> str:
         "Providers:",
     ]
     for row in plan["providers"]:
-        usd = "unpriced" if row["usd"] is None else f"<= ${row['usd']:.2f}"
+        usd = row["priced_by"] if row["usd"] is None else f"<= ${row['usd']:.2f}"
         note = f"  ({row['reason']})" if row["reason"] else ""
+        if "cap_tokens" in row:
+            note += (f"  [lane cap {row['cap_tokens']:,} tokens: "
+                     + ("fits" if row["fits_cap"] else "the run stops before passing it") + "]")
         lines.append(f"  RUN   {row['provider']:<13} {row['model']:<32} {len(row['tasks']):>2} tasks  "
                      f"~{row['tokens']:>10,} tokens  {usd}{note}")
     for row in plan["skipped"]:
@@ -208,7 +222,8 @@ def child_env(data_dir: Path, workspace: Path, base: Mapping[str, str] | None = 
 
 
 def run_provider(state: provider_registry.Availability, task_ids: Sequence[str], run_dir: Path, guard: BudgetGuard,
-                 *, variant_text: str = "", label: str = "baseline") -> dict[str, Any]:
+                 *, variant_text: str = "", label: str = "baseline",
+                 bridge: eval_profile.Runner = eval_profile.run_bridge) -> dict[str, Any]:
     """One provider's tasks in a worker process; charges the guard with what it spent."""
     pid = state.target.provider_id
     if pid == "ollama":
@@ -216,10 +231,30 @@ def run_provider(state: provider_registry.Availability, task_ids: Sequence[str],
         if why:
             return {"provider": pid, "model": state.model, "status": "skipped", "reason": why, "tasks": []}
     remaining = guard.remaining()
-    if (remaining.max_tokens is not None and remaining.max_tokens <= 0) or (
+    if pid not in FREE_PROVIDERS and ((remaining.max_tokens is not None and remaining.max_tokens <= 0) or (
         remaining.max_usd is not None and remaining.max_usd <= 0
-    ):
+    )):
         return {"provider": pid, "model": state.model, "status": "skipped", "reason": "budget used up", "tasks": []}
+    stdin: str | None = None
+    profile: Path | None = None
+    bundle: eval_profile.CodexBundle | None = None
+    if pid == "codex":
+        # The ChatGPT lane: the sign-in comes from the eval profile, through a pipe, never a file.
+        ready, why = eval_profile.availability()
+        if not ready:
+            return {"provider": pid, "model": state.model, "status": "skipped", "reason": why, "tasks": []}
+        profile = eval_profile.profile_folder()
+        try:
+            bundle = eval_profile.read_bundle(profile, runner=bridge) if profile is not None else None
+        except eval_profile.EvalProfileError as exc:
+            return {"provider": pid, "model": state.model, "status": "skipped", "reason": str(exc), "tasks": []}
+        if bundle is None:
+            reason = f"the eval profile has no ChatGPT sign-in: {eval_profile.sign_in_hint()}"
+            return {"provider": pid, "model": state.model, "status": "skipped", "reason": reason, "tasks": []}
+        lane_cap = eval_profile.max_tokens()
+        remaining = Caps(max_usd=remaining.max_usd, max_tokens=lane_cap if remaining.max_tokens is None
+                         else min(remaining.max_tokens, lane_cap))
+        stdin = json.dumps({key: value for key, value in bundle.payload().items() if key != "revision"})
     stem = f"{label}-{pid}".replace(":", "_").replace("/", "_").replace("=", "_").replace(",", "_")
     data_dir = run_dir / "data" / stem
     workspace = run_dir / "workspace" / stem
@@ -234,16 +269,31 @@ def run_provider(state: provider_registry.Availability, task_ids: Sequence[str],
         "--max-usd", "" if remaining.max_usd is None else f"{remaining.max_usd:.6f}",
         "--max-tokens", "" if remaining.max_tokens is None else str(remaining.max_tokens),
     ]
+    if stdin is not None:
+        argv += ["--credentials", "stdin"]
     timeout = 60 * float(os.environ.get(TIMEOUT_ENV, "") or DEFAULT_TIMEOUT_MIN)
+    stdout = ""
     try:
         completed = subprocess.run(argv, cwd=REPO_ROOT, env=child_env(data_dir, workspace), timeout=timeout,
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", input=stdin)
+        stdout = completed.stdout or ""
         stderr_tail = redact(completed.stderr[-2000:])
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
         stderr_tail = f"worker timed out after {timeout / 60:.0f} minutes"
+    credentials = ""
+    if profile is not None and bundle is not None:
+        # Only tokens the run refreshed go back, so the profile's sign-in survives a rotation.
+        try:
+            credentials = eval_profile.write_back(profile, bundle, eval_profile.refreshed_from(stdout), runner=bridge)
+        except eval_profile.EvalProfileError as exc:
+            credentials = f"not written: {exc}"
+        eval_profile.scrub_worker_folder(data_dir)
     result = json.loads(out.read_text(encoding="utf-8")) if out.is_file() else {
         "provider": pid, "model": state.model, "status": "error", "tasks": [], "spent": {},
     }
+    if credentials:
+        result["credentials"] = credentials
     if result.get("status") != "ran":
         result.setdefault("reason", stderr_tail.strip().splitlines()[-1] if stderr_tail.strip() else "worker failed")
         result["stderr_tail"] = stderr_tail
@@ -284,9 +334,11 @@ def run(env: Mapping[str, str] | None = None, *, run_dir: Path | None = None, gu
         result = run_provider(state, task_ids, folder, guard, variant_text=source.get(variants.VARIANT_ENV, ""),
                               label=variant.label)
         report.providers.append({
-            "provider": state.target.provider_id, "model": state.model, "status": result.get("status"),
-            "reason": result.get("reason", ""), "setup": result.get("setup_notes", []),
-            "variant_changes": result.get("variant_changes", []),
+            "provider": state.target.provider_id, "model": result.get("model") or state.model,
+            "status": result.get("status"), "reason": result.get("reason", ""),
+            "setup": result.get("setup_notes", []), "variant_changes": result.get("variant_changes", []),
+            # The ChatGPT lane: whether refreshed tokens went back to the eval profile (never the tokens).
+            "credentials": result.get("credentials", ""),
         })
         report.tasks.extend(TaskRecord.from_dict(task).finish(rates) for task in result.get("tasks") or [])
     for row in plan["skipped"]:
@@ -373,7 +425,7 @@ def _apply_flags(args: argparse.Namespace) -> None:
 def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--providers", help=f"comma list (sets {provider_registry.PROVIDERS_ENV})")
     parser.add_argument("--tasks", help="comma list of task ids (sets ROW_BOT_LIVE_EVAL_TASKS)")
-    parser.add_argument("--tier", choices=("core", "full"))
+    parser.add_argument("--tier", choices=("core", "full", "learning"))
     parser.add_argument("--max-usd", dest="max_usd")
     parser.add_argument("--max-tokens", dest="max_tokens")
     parser.add_argument("--rates", help="rates file (USD per million tokens)")

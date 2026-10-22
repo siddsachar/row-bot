@@ -47,6 +47,9 @@ _EVENT_REACTIONS: dict[BuddyEventType, tuple[BuddyMood, str, int, int, int, str]
     BuddyEventType.BACKGROUND_COMMAND: (BuddyMood.FOCUSED, "step_check", 68, 58, 0, "Command running"),
     # Row-Bot's browser or the screen being recorded (F2): watchful while it lasts.
     BuddyEventType.RECORDING: (BuddyMood.FOCUSED, "listen", 70, 60, 6, "Recording"),
+    # Learning (preview): quiet, below everything the person started.
+    BuddyEventType.LEARNING_TRAINING: (BuddyMood.FOCUSED, "step_check", 58, 40, 0,
+                                       "Learning: training your personal model"),
     BuddyEventType.NOTIFICATION: (BuddyMood.EXCITED, "ping", 80, 35, 36, "Notification"),
     BuddyEventType.VOICE_LISTENING: (BuddyMood.CURIOUS, "listen", 78, 62, 8, "Listening"),
     BuddyEventType.IDLE: (BuddyMood.CURIOUS, "idle_breathe", 64, 20, 0, "Idle"),
@@ -55,7 +58,8 @@ _EVENT_REACTIONS: dict[BuddyEventType, tuple[BuddyMood, str, int, int, int, str]
 _IDLE_GRACE_SECONDS = 2.0
 _STALE_ACTIVITY_SECONDS = 120.0
 _DURABLE_RECONCILE_SECONDS = 5.0
-_ACTIVE_PRIORITY = ("approval", "tool", "generation", "orchestration", "workflow", "voice", "recording", "command")
+_ACTIVE_PRIORITY = ("approval", "tool", "generation", "orchestration", "workflow", "voice", "recording", "command",
+                    "learning")
 _ACTIVITY_STARTS: dict[BuddyEventType, str] = {
     BuddyEventType.GENERATION_STARTED: "generation",
     BuddyEventType.THINKING: "generation",
@@ -499,8 +503,9 @@ class BuddyBrain:
         # Long commands carrying on in the background (F6), while Row-Bot runs any.
         command_owners = self._active.setdefault("command", {})
         command_owners.clear()
-        processes = sys.modules.get("row_bot.background_processes")
-        for record in processes.running_commands() if processes is not None else ():
+        # A module another thread is still importing has no functions yet: read it next time.
+        running_commands = getattr(sys.modules.get("row_bot.background_processes"), "running_commands", None)
+        for record in running_commands() if running_commands is not None else ():
             command_owners[record.process_id] = _Activity(
                 kind="command",
                 event_type=BuddyEventType.BACKGROUND_COMMAND,
@@ -517,8 +522,8 @@ class BuddyBrain:
         # Recordings of Row-Bot's browser or the screen (F2), while one runs.
         recording_owners = self._active.setdefault("recording", {})
         recording_owners.clear()
-        recordings = sys.modules.get("row_bot.recordings")
-        for record in recordings.active_recordings() if recordings is not None else ():
+        active_recordings = getattr(sys.modules.get("row_bot.recordings"), "active_recordings", None)
+        for record in active_recordings() if active_recordings is not None else ():
             label = "Recording the screen" if record.kind == "screen" else "Recording the browser"
             recording_owners[record.recording_id] = _Activity(
                 kind="recording",
@@ -532,6 +537,30 @@ class BuddyBrain:
             )
         if not recording_owners:
             self._active.pop("recording", None)
+
+        # Learning (preview): a personal model training, while its worker runs. Read only
+        # when Learning's runner was ever loaded (never while Learning is off).
+        learning_owners = self._active.setdefault("learning", {})
+        learning_owners.clear()
+        training_now = getattr(sys.modules.get("row_bot.learning.runner"), "training_now", None)
+        try:
+            training = bool(training_now()) if training_now is not None else False
+        except Exception:
+            training = False
+        if training:
+            label = _EVENT_REACTIONS[BuddyEventType.LEARNING_TRAINING][5]
+            learning_owners["training"] = _Activity(
+                kind="learning",
+                event_type=BuddyEventType.LEARNING_TRAINING,
+                owner_id="training",
+                source="learning.reconcile",
+                label=label,
+                payload={"label": label},
+                updated_at=now,
+                reconciled=True,
+            )
+        if not learning_owners:
+            self._active.pop("learning", None)
 
     def tick(self) -> BuddyState:
         events = get_buddy_event_bus().recent(after_id=self._last_event_id, limit=512)

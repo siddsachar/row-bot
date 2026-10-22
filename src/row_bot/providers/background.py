@@ -9,7 +9,8 @@ None of them is the person's answer, so each one runs
 - on the **thread's own model** when it belongs to a thread (compaction,
   contradiction, condition, verifier). On local Ollama that means it never
   loads a different model in the middle of a turn (F13);
-- on the **default chat model** when it runs unattended (extraction, Dream);
+- on the **default chat model** when it runs unattended (extraction, Dream,
+  Learning's ``learning_*`` calls, which may instead name the model they test);
 - at the **lowest reasoning effort** the provider supports, with no setting:
   Anthropic ``effort: low`` without turning thinking on (Claude 5 models think
   adaptively anyway, Opus 4.x without thinking stays without); OpenAI, Gemini,
@@ -59,6 +60,10 @@ logger = logging.getLogger(__name__)
 
 # Unattended jobs use the default chat model; every other call belongs to a thread.
 UNATTENDED_PURPOSES = frozenset({"extraction", "dream"})
+# Learning's own calls (E13): the default chat model at the lowest effort (D1), unless the
+# call names the model under test (an evaluation arm or a personal-model version). They
+# never belong to a conversation, so the running turn's model is never borrowed.
+LEARNING_PURPOSES = frozenset({"learning_diagnosis", "learning_test", "learning_teacher", "learning_meta"})
 # Replies the person reads: the conversation's reasoning setting, not the lowest, and no cap.
 USER_FACING_PURPOSES = frozenset({"synthesis"})
 # Purposes whose caller sizes the reply itself: room for reasoning only when it is
@@ -210,6 +215,8 @@ def background_model_ref(
 
     if purpose in UNATTENDED_PURPOSES:
         base = str(models.get_current_model() or "")
+    elif purpose in LEARNING_PURPOSES:
+        base = str(task_model or models.get_current_model() or "")
     else:
         base = str(task_model or thread_model or active_thread_model() or "")
     try:

@@ -48,6 +48,11 @@ PURPOSES: tuple[str, ...] = (
     "child",
     "synthesis",
     "finalization",
+    # Learning (preview, E13): its own model calls, counted against its monthly token limit.
+    "learning_diagnosis",
+    "learning_test",
+    "learning_teacher",
+    "learning_meta",
     "other",
 )
 RETENTION_DAYS = 90

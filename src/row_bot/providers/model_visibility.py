@@ -52,6 +52,17 @@ class ModelVisibility:
         return {"schema_version": 1, "favourites": list(self.favourites), "hidden": list(self.hidden)}
 
 
+# Learning's personal models (L2c) run under reserved names (an Ollama model or a local endpoint
+# called ``row-bot-personal…``). Model lists leave them out: a version is offered only once Learning
+# offers it itself, after its comparison (the model picker entry, L2c2).
+WITHHELD_NAME = "row-bot-personal"
+
+
+def withheld(provider_id: object, model_id: object = "") -> bool:
+    """Whether a model (or a whole endpoint) is one of Learning's personal models, not offered in lists."""
+    return WITHHELD_NAME in f"{provider_id or ''}:{model_id or ''}".lower()
+
+
 def canonical_ref(value: object) -> str | None:
     """``model:<provider>:<model>`` with the provider's canonical id, or None."""
     from row_bot.providers.selection import model_ref, parse_model_ref

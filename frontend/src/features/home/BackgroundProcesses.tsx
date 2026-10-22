@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Square, Terminal } from 'lucide-react';
 import type { BackgroundProcessView } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { useOverlay } from '../../ui/overlays';
+import { useNotify, useOverlay } from '../../ui/overlays';
 import {
   Button,
   Disclosure,
@@ -27,10 +27,22 @@ import {
   ProcessDetails,
   ProcessOutputDrawer,
 } from '../shell/BackgroundProcess';
+import {
+  downloadLive,
+  learningIsOn,
+  trainingLive,
+  useDownloadWatch,
+  useTrainingWatch,
+  type LearningIO,
+} from '../learning/learning-state';
+import { DownloadMonitorRow } from '../learning/PersonalModelDownload';
+import { TrainingMonitorRow } from '../learning/TrainingMonitorRow';
 
 export type BackgroundProcessesIo = ProcessIo & {
   /** Open the conversation that started a process. */
   openConversation?: (conversationId: string) => void;
+  /** Open the Personal model view (Learning, preview): its training run's row links there. */
+  openLearning?: () => void;
 };
 
 /**
@@ -41,10 +53,14 @@ export type BackgroundProcessesIo = ProcessIo & {
  */
 export default function BackgroundProcesses({
   io,
+  learning = null,
 }: {
   io: BackgroundProcessesIo;
+  /** Learning (preview), when this build has it: the personal model's training run and download. */
+  learning?: LearningIO | null;
 }) {
   const overlay = useOverlay();
+  const notify = useNotify();
   const feed = useBackgroundProcesses(io);
   const [openId, setOpenId] = useState('');
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
@@ -53,6 +69,66 @@ export default function BackgroundProcesses({
   const finished = feed.items.filter((item) => !processLive(item)).slice(0, 20);
   const now = useNow(running.length > 0);
   const opened = feed.items.find((item) => item.process_id === openId);
+  // Learning (preview): the personal model's training run, one row while it runs.
+  useTrainingWatch(learning);
+  const training = learning?.snapshot?.training;
+  const trainingRow =
+    learning && training && learningIsOn(learning) && trainingLive(training)
+      ? training
+      : null;
+  const [stoppingTraining, setStoppingTraining] = useState(false);
+  // …and its download (the training engine, the starting model), one row while it runs.
+  useDownloadWatch(learning);
+  const personal = learning?.snapshot?.personal_model;
+  const downloadRow =
+    learning &&
+    personal &&
+    learningIsOn(learning) &&
+    downloadLive(personal.download_state)
+      ? personal
+      : null;
+  const [stoppingDownload, setStoppingDownload] = useState(false);
+  const live = running.length + (trainingRow ? 1 : 0) + (downloadRow ? 1 : 0);
+
+  // O49: Stop says what stopped and where it continues.
+  function stopped(summary: string, how: string) {
+    notify(
+      `${summary} ${how} it in Learning › Personal model.`,
+      undefined,
+      io.openLearning
+        ? { label: 'Open', onAction: io.openLearning }
+        : undefined,
+    );
+  }
+
+  async function stopDownload() {
+    if (!learning || !downloadRow) return;
+    setStoppingDownload(true);
+    setError('');
+    try {
+      stopped((await learning.run('stop_download')).summary, 'Resume');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setStoppingDownload(false);
+    }
+  }
+
+  async function stopTraining() {
+    if (!learning || !trainingRow) return;
+    setStoppingTraining(true);
+    setError('');
+    try {
+      const receipt = await learning.run('stop_training', {
+        job_id: trainingRow.job_id ?? '',
+      });
+      stopped(receipt.summary, 'Continue or discard');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setStoppingTraining(false);
+    }
+  }
 
   async function stop(views: readonly BackgroundProcessView[]) {
     const ids = views.map((view) => view.process_id);
@@ -130,28 +206,25 @@ export default function BackgroundProcesses({
     >
       <header className="monitor-section-head">
         <h3 id="processes-heading">Background processes</h3>
-        {running.length > 0 && (
-          <StatusDot
-            tone="accent"
-            pulse
-            showLabel
-            label={`${running.length} running`}
-          />
+        {live > 0 && (
+          <StatusDot tone="accent" pulse showLabel label={`${live} running`} />
         )}
-        {running.length > 1 && (
+        {live > 1 && (
           <Button
             variant="ghost"
             className="small"
             onClick={() =>
               overlay.open({
                 kind: 'alert',
-                title: `Stop ${running.length} background processes?`,
+                title: `Stop ${live} background processes?`,
                 description:
                   'Each one stops with everything it started. Row-Bot can start them again when you ask.',
                 confirmLabel: 'Stop all',
                 onConfirm: () => {
                   overlay.close();
                   void stop(running);
+                  if (trainingRow) void stopTraining();
+                  if (downloadRow) void stopDownload();
                 },
               })
             }
@@ -174,8 +247,24 @@ export default function BackgroundProcesses({
         >
           Row-Bot couldn&apos;t read them just now.
         </ErrorState>
-      ) : running.length ? (
+      ) : live ? (
         <EntityList label="Running background processes">
+          {trainingRow && (
+            <TrainingMonitorRow
+              training={trainingRow}
+              busy={stoppingTraining}
+              onStop={() => void stopTraining()}
+              onOpen={io.openLearning}
+            />
+          )}
+          {downloadRow && (
+            <DownloadMonitorRow
+              model={downloadRow}
+              busy={stoppingDownload}
+              onStop={() => void stopDownload()}
+              onOpen={io.openLearning}
+            />
+          )}
           {running.map(row)}
         </EntityList>
       ) : (
