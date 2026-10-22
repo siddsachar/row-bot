@@ -63,6 +63,9 @@ Priorities, in order:
 - `src/row_bot/designer/`: Designer Studio state, export, templates, rendering,
   previews, thumbnails, and AI content.
 - `src/row_bot/plugins/`, `skills_hub/`, `skills.py`: plugin and skill systems.
+- `src/row_bot/learning/`: Learning (preview): the switch (`is_enabled`), versioned
+  records, the `learning.db` store and blobs, and scope (what may be recorded). Off
+  by default; while off it creates no file and imports nothing beyond the switch.
 - `frontend/`: the React client (the only UI), served at `/app-v2/`.
 - `src/row_bot/server.py` and `src/row_bot/app.py`: the FastAPI app, its
   routes, middleware and start-up sequence, run by uvicorn.
@@ -177,6 +180,9 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 - Developer Studio: `tests/subsystem/developer/`.
 - Designer: `tests/subsystem/designer/` and `tests/snapshots/`.
 - Plugins: `tests/contracts/plugins/` and `tests/subsystem/plugins/`.
+- Learning: `tests/contracts/learning/test_learning_contract.py`,
+  `tests/subsystem/learning/` and `tests/integration/learning/`; Learning-off
+  inertness stays in the pull request lane.
 - App start-up, server and native host: `tests/subsystem/client_host/`; the
   React client's API: `tests/subsystem/client_protocol/`.
 - Installer, CLI, packaging, updater, GitHub workflow contracts:
