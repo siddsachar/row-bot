@@ -78,6 +78,7 @@ def test_live_eval_provider(provider_id: str, live_run: _Run) -> None:
     live_run.report.providers.append({
         "provider": provider_id, "model": state.model, "status": result.get("status"),
         "reason": result.get("reason", ""), "setup": result.get("setup_notes", []),
+        "credentials": result.get("credentials", ""),
     })
     records = [TaskRecord.from_dict(task).finish(live_run.rates) for task in result.get("tasks") or []]
     live_run.report.tasks.extend(records)
