@@ -25,6 +25,7 @@ from .budget import BudgetExceeded, BudgetGuard, Caps, Spend, estimate_call
 from .capture import HttpCapture
 from .pricing import Rates, price_call, rates_for, upper_bound_usd
 from .report import BUDGET, ERROR, FAIL, PASS, SKIPPED, TaskRecord
+from .runner_limits import FREE_PROVIDERS
 from .tasks import (
     MEMORY_FACT,
     SAFE_DEFAULT_EXCLUDE,
@@ -95,6 +96,8 @@ def install_log_tally() -> LogTally:
     return tally
 
 
+
+
 # ── Budget gate on every model call ────────────────────────────────────────
 
 
@@ -122,6 +125,8 @@ class BudgetGate:
     def spent(self) -> Spend:
         spend = Spend(self.carried.tokens, self.carried.usd, self.carried.unpriced_tokens, self.carried.calls)
         for call in ledger_reader.rows_after(self.ledger_path(), self.baseline_id):
+            if call.provider in FREE_PROVIDERS:
+                continue
             tokens = call.tokens()
             price = price_call(tokens, rates_for(self.rates, call.provider, call.model))
             spend.calls += 1
@@ -133,6 +138,8 @@ class BudgetGate:
         return spend
 
     def before_call(self, provider: str, model: str, messages: Any, invocation: Mapping[str, Any]) -> None:
+        if provider in FREE_PROVIDERS:
+            return
         max_output = invocation.get("max_tokens") or invocation.get("max_output_tokens") or invocation.get("num_predict")
         estimated_in, estimated_out = estimate_call(
             _flatten(messages), tools=invocation.get("tools"), max_output=max_output if isinstance(max_output, int) else None
@@ -245,12 +252,26 @@ class Runtime:
         from row_bot import models
 
         self.tally = install_log_tally()
+        from .learning import register_tools
+
+        register_tools()
+        if self.provider_id == "codex" and self.model_id in {"", "auto"}:
+            # The ChatGPT lane (D31): GPT-6.1 Sol if the live catalog lists it, otherwise GPT-5.6 Sol.
+            from row_bot.providers import codex
+
+            from .eval_profile import choose_model
+
+            listed = [info.model_id for info in codex.fetch_codex_model_infos()]
+            self.model_id = choose_model(listed)
+            self.setup_notes.append(f"model {self.model_id} (the live catalog lists {len(listed)} models)")
         if self.provider_id != "ollama":
             try:
                 result = models.refresh_cloud_provider_models(self.provider_id)
                 self.setup_notes.append(f"catalog refresh: {getattr(result, 'status', None) or 'done'}")
             except Exception as exc:  # the readiness error on the first task tells the rest
                 self.setup_notes.append(f"catalog refresh failed: {type(exc).__name__}: {exc}"[:300])
+        else:
+            self.setup_notes.append(refresh_local_catalog())
         models.adopt_saved_default(self.model_ref)
         changes: list[str] = []
         if variant is not None:
@@ -419,6 +440,14 @@ class Runtime:
             collected["memory_has_fact"] = any(MEMORY_FACT in json.dumps(item, default=str) for item in items)
         if "workflow" in task.collect:
             collected["workflow"] = self._wait_for_workflow()
+        if "learning_apps" in task.collect:
+            from .learning import CURRENT
+
+            collected["fake_apps"] = CURRENT.apps.state() if CURRENT.apps is not None else {}
+        if "learning_replay" in task.collect:
+            from .learning import run_replay
+
+            collected["replay"] = run_replay(task.task_id, self.model_ref)
         return collected
 
     def _wait_for_workflow(self) -> dict[str, Any]:
@@ -478,6 +507,24 @@ class Runtime:
                 VisionService().analyze(tiny_png(), "What colour is this image?", chat_model=self.model_ref)
             except Exception:
                 logger.debug("live eval: vision call failed", exc_info=True)
+
+
+def refresh_local_catalog() -> str:
+    """Record what the local Ollama says each installed model can do (``/api/show``: tools, thinking,
+    context), as the app's catalog refresh does, without its network calls. Without it a model whose name
+    isn't in Row-Bot's family list (a personal model, say) reads as not tool-capable."""
+    from dataclasses import replace
+
+    from row_bot.providers.model_catalog import load_ollama_catalog_rows
+    from row_bot.providers.model_catalog_cache import read_model_catalog_cache, write_model_catalog_cache
+
+    try:
+        rows = [dict(row) for row in load_ollama_catalog_rows()]
+        write_model_catalog_cache(replace(read_model_catalog_cache(), ollama_rows=rows, generated_at=time.time(),
+                                          reason="live eval"))
+    except Exception as exc:  # the readiness error on the first task tells the rest
+        return f"local catalog refresh failed: {type(exc).__name__}: {exc}"[:300]
+    return f"local catalog: {len(rows)} Ollama models with their own capability answers"
 
 
 def tiny_png(colour: tuple[int, int, int] = (200, 30, 30), size: int = 8) -> bytes:
@@ -558,13 +605,15 @@ def run_tasks(runtime: Runtime, tasks: list[Task], guard: BudgetGuard, *, label:
             record.status, record.reason = SKIPPED, f"needs {task.depends_on} to pass first"
         else:
             tokens, usd = estimate(task, runtime.context, runtime.rates, runtime.provider_id, runtime.model_id)
-            reason = guard.over_by(tokens, usd)
+            reason = "" if runtime.provider_id in FREE_PROVIDERS else guard.over_by(tokens, usd)
             if reason:
                 stopped = f"run stopped before {task.task_id}: {reason}"
                 record.status, record.reason = BUDGET, stopped
             else:
                 record = runtime.run_task(task, label=label)
                 for call in record.calls:
+                    if call.provider in FREE_PROVIDERS:
+                        continue
                     tokens_used = call.tokens()
                     guard.charge(tokens_used, price_call(tokens_used, rates_for(runtime.rates, call.provider, call.model)))
                 if record.status == PASS:

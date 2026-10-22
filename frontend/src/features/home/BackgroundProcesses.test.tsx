@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import type { BackgroundProcessView } from '../../api/types';
+import type { BackgroundProcessView, LearningTraining } from '../../api/types';
+import { fakeIO, learningSnapshot, runningRun } from '../learning/test-data';
 import { OverlayProvider } from '../../ui/overlays';
 import BackgroundProcesses, {
   type BackgroundProcessesIo,
@@ -168,4 +169,70 @@ it('opens the output and the conversation from a row', async () => {
     'Waiting for output…',
   );
   expect(within(drawer).getByText('Fix the login page')).toBeInTheDocument();
+});
+
+function setupTraining(training: LearningTraining) {
+  const io = {
+    load: vi.fn(async () => ({
+      items: [],
+      running: 0,
+      limit_per_conversation: 5,
+      limit_total: 12,
+    })),
+    output: vi.fn(),
+    stop: vi.fn(),
+    openLearning: vi.fn(),
+  } as unknown as BackgroundProcessesIo;
+  const learning = fakeIO(learningSnapshot({ state: 'on', training }));
+  render(
+    <OverlayProvider>
+      <BackgroundProcesses io={io} learning={learning} />
+    </OverlayProvider>,
+  );
+  return { io, learning };
+}
+
+it('shows the personal model training as one row with its step, time left and Stop', async () => {
+  const { learning } = setupTraining(runningRun());
+  const row = (await screen.findByText('Personal model v1')).closest(
+    'li',
+  ) as HTMLElement;
+  expect(
+    within(row).getByText('Training · step 340 of 1,000'),
+  ).toBeInTheDocument();
+  expect(
+    within(row).getByText('about 40 min left · pauses when you use Row-Bot'),
+  ).toBeInTheDocument();
+  expect(screen.getByText('1 running')).toBeInTheDocument();
+  expect(screen.queryByText(/Nothing is running in the background/)).toBeNull();
+  await userEvent.click(
+    within(row).getByRole('button', {
+      name: 'Stop training personal model v1',
+    }),
+  );
+  expect(learning.run).toHaveBeenCalledWith('stop_training', {
+    job_id: 'job_1',
+  });
+});
+
+it('says the training is pausing until it really has', async () => {
+  setupTraining(runningRun({ state: 'pausing', seconds_left: null }));
+  const row = (await screen.findByText('Personal model v1')).closest(
+    'li',
+  ) as HTMLElement;
+  expect(within(row).getByText('Pausing after this step…')).toBeInTheDocument();
+});
+
+it('shows no training row once training has paused or stopped', async () => {
+  setupTraining(
+    runningRun({
+      state: 'paused',
+      pause_reason: 'in_use',
+      resumes: 'when_free',
+    }),
+  );
+  expect(
+    await screen.findByText(/Nothing is running in the background/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText('Personal model v1')).toBeNull();
 });

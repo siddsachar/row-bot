@@ -2749,6 +2749,50 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   insight_unavailable: ['This insight is no longer available.', 'none'],
+  // Learning (preview).
+  learning_unavailable: [
+    "Learning isn't part of this version of Row-Bot.",
+    'none',
+  ],
+  invalid_learning_command: ["That Learning action isn't valid.", 'review'],
+  learning_revision_conflict: [
+    'Learning changed on another device. Try again.',
+    'retry',
+    RETRY,
+  ],
+  learning_off: ['Learning is off. Turn it on in Settings › Learning.', 'none'],
+  learning_paused: ['Learning is paused. Resume it to teach Row-Bot.', 'none'],
+  learning_chat_not_used: [
+    "Row-Bot doesn't learn from this chat, so there's nothing to teach here.",
+    'none',
+  ],
+  learning_data_missing: ['There is no learning data to delete.', 'none'],
+  learning_data_busy: [
+    'Learning data is in use right now. Try again in a moment.',
+    'retry',
+    RETRY,
+  ],
+  learning_settings_unavailable: [
+    "Row-Bot can't read Learning's saved settings. Nothing was changed.",
+    'none',
+  ],
+  learning_save_unconfirmed: [
+    "Row-Bot couldn't confirm that Learning change. Check Learning before trying again.",
+    'retry',
+    RETRY,
+  ],
+  learning_receipt_unavailable: [
+    "Row-Bot can't find the earlier step for this. Check Learning before trying again.",
+    'review',
+  ],
+  learning_nothing_to_train: [
+    "There's nothing to train yet. Training starts once Row-Bot has enough examples from your work.",
+    'none',
+  ],
+  learning_training_changed: [
+    'Training changed meanwhile. Check it and try again.',
+    'review',
+  ],
   knowledge_changed: [
     'This memory changed. Try again with its current version.',
     'retry',

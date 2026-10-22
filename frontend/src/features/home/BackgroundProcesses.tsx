@@ -27,10 +27,19 @@ import {
   ProcessDetails,
   ProcessOutputDrawer,
 } from '../shell/BackgroundProcess';
+import {
+  learningIsOn,
+  trainingLive,
+  useTrainingWatch,
+  type LearningIO,
+} from '../learning/learning-state';
+import { TrainingMonitorRow } from '../learning/TrainingMonitorRow';
 
 export type BackgroundProcessesIo = ProcessIo & {
   /** Open the conversation that started a process. */
   openConversation?: (conversationId: string) => void;
+  /** Open the Personal model view (Learning, preview): its training run's row links there. */
+  openLearning?: () => void;
 };
 
 /**
@@ -41,8 +50,11 @@ export type BackgroundProcessesIo = ProcessIo & {
  */
 export default function BackgroundProcesses({
   io,
+  learning = null,
 }: {
   io: BackgroundProcessesIo;
+  /** Learning (preview), when this build has it: the personal model's training run. */
+  learning?: LearningIO | null;
 }) {
   const overlay = useOverlay();
   const feed = useBackgroundProcesses(io);
@@ -53,6 +65,28 @@ export default function BackgroundProcesses({
   const finished = feed.items.filter((item) => !processLive(item)).slice(0, 20);
   const now = useNow(running.length > 0);
   const opened = feed.items.find((item) => item.process_id === openId);
+  // Learning (preview): the personal model's training run, one row while it runs.
+  useTrainingWatch(learning);
+  const training = learning?.snapshot?.training;
+  const trainingRow =
+    learning && training && learningIsOn(learning) && trainingLive(training)
+      ? training
+      : null;
+  const [stoppingTraining, setStoppingTraining] = useState(false);
+  const live = running.length + (trainingRow ? 1 : 0);
+
+  async function stopTraining() {
+    if (!learning || !trainingRow) return;
+    setStoppingTraining(true);
+    setError('');
+    try {
+      await learning.run('stop_training', { job_id: trainingRow.job_id ?? '' });
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setStoppingTraining(false);
+    }
+  }
 
   async function stop(views: readonly BackgroundProcessView[]) {
     const ids = views.map((view) => view.process_id);
@@ -130,28 +164,24 @@ export default function BackgroundProcesses({
     >
       <header className="monitor-section-head">
         <h3 id="processes-heading">Background processes</h3>
-        {running.length > 0 && (
-          <StatusDot
-            tone="accent"
-            pulse
-            showLabel
-            label={`${running.length} running`}
-          />
+        {live > 0 && (
+          <StatusDot tone="accent" pulse showLabel label={`${live} running`} />
         )}
-        {running.length > 1 && (
+        {live > 1 && (
           <Button
             variant="ghost"
             className="small"
             onClick={() =>
               overlay.open({
                 kind: 'alert',
-                title: `Stop ${running.length} background processes?`,
+                title: `Stop ${live} background processes?`,
                 description:
                   'Each one stops with everything it started. Row-Bot can start them again when you ask.',
                 confirmLabel: 'Stop all',
                 onConfirm: () => {
                   overlay.close();
                   void stop(running);
+                  if (trainingRow) void stopTraining();
                 },
               })
             }
@@ -174,8 +204,16 @@ export default function BackgroundProcesses({
         >
           Row-Bot couldn&apos;t read them just now.
         </ErrorState>
-      ) : running.length ? (
+      ) : live ? (
         <EntityList label="Running background processes">
+          {trainingRow && (
+            <TrainingMonitorRow
+              training={trainingRow}
+              busy={stoppingTraining}
+              onStop={() => void stopTraining()}
+              onOpen={io.openLearning}
+            />
+          )}
           {running.map(row)}
         </EntityList>
       ) : (
