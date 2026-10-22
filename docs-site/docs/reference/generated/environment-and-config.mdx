@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Environment And Config
 
 <!-- generated-from: src/row_bot/brand.py -->
-<!-- inventory-hash: c18eeb0fc7c8b865 -->
+<!-- inventory-hash: eb290e7839014a49 -->
 
 <GeneratedNotice source="src/row_bot/brand.py" />
 
@@ -16,7 +16,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 
 | Variable | Purpose | Source |
 | --- | --- | --- |
-| ROW_BOT_DATA_DIR | Override the local Row-Bot data directory for this process. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/brand.py, src/row_bot/docs_capture.py, src/row_bot/launcher.py, src/row_bot/payload_trim.py, src/row_bot/tools/registry.py, src/row_bot/updates/stager.py, src/row_bot/wiki_vault.py` |
+| ROW_BOT_DATA_DIR | Override the local Row-Bot data directory for this process. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/brand.py, src/row_bot/docs_capture.py, src/row_bot/launcher.py, src/row_bot/learning/eval_worker.py, src/row_bot/payload_trim.py, src/row_bot/tools/registry.py, src/row_bot/updates/stager.py, src/row_bot/wiki_vault.py` |
 | ROW_BOT_WORKSPACE | Override the default workspace used by file-oriented tools. | `src/row_bot/brand.py, src/row_bot/designer/export.py` |
 | ROW_BOT_HOST | Choose the interface bound by the local application server. | `src/row_bot/access/access_routes.py, src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/routes.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py` |
 | ROW_BOT_PORT | Choose the preferred local application port. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py` |
@@ -30,7 +30,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | ROW_BOT_EPHEMERAL_DATA | Tell access diagnostics that server data is intentionally ephemeral. | `src/row_bot/access/diagnostics.py` |
 | ROW_BOT_SECRETS_DIR | Read allowlisted externally managed secrets from individual files. | `src/row_bot/secret_store.py` |
 | ROW_BOT_NATIVE | Select native-window behaviour for advanced launch scenarios. | `src/row_bot/brand.py, src/row_bot/launcher.py` |
-| ROW_BOT_AUTO_START_OLLAMA | Allow or suppress launcher attempts to start Ollama automatically. | `src/row_bot/access/cli.py, src/row_bot/brand.py` |
+| ROW_BOT_AUTO_START_OLLAMA | Allow or suppress launcher attempts to start Ollama automatically. | `src/row_bot/access/cli.py, src/row_bot/brand.py, src/row_bot/learning/eval_worker.py` |
 | ROW_BOT_STARTUP_TIMEOUT | Set the launcher startup timeout in seconds. | `src/row_bot/brand.py` |
 | ROW_BOT_WEBVIEW_STORAGE_PATH | Override native webview storage for advanced troubleshooting. | `src/row_bot/brand.py, src/row_bot/launcher.py` |
 | ROW_BOT_INSTALL_ROOT | The install root (state.json and its versions), set by the native launchers. | `src/row_bot/install_layout.py` |

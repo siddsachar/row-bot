@@ -93,3 +93,37 @@ Costs are reported in one of three ways:
 
 CI runs the same suite only by manual dispatch of `.github/workflows/live-e2e.yml`
 (`run_live_eval`), using repository secrets.
+
+**Learning tier** (`--tier learning`, `tests/e2e/live_eval/learning.py`): Learning's
+four task packs (visible splits, `ROW_BOT_LIVE_EVAL_LEARNING_PER_PACK` per pack,
+default 8, `all` for 16) and replay fixtures, each checked by its pack's verifier.
+Two lanes besides the API-key providers:
+
+- **ChatGPT** (`codex`): its sign-in comes from a dedicated eval profile outside the
+  repo (`ROW_BOT_LIVE_EVAL_CODEX_PROFILE`), handed to the worker through a pipe;
+  only refreshed tokens are written back to the profile, and nothing secret reaches
+  the run folder. Token cap per run: `ROW_BOT_LIVE_EVAL_CODEX_MAX_TOKENS` (default
+  1,500,000). The model is GPT-6.1 Sol if the live catalog lists it, else GPT-5.6 Sol.
+- **Local Ollama** (`ROW_BOT_LIVE_EVAL_OLLAMA_MODEL`): free, so the caps never hold it.
+
+```bash
+ROW_BOT_LIVE_EVAL_CODEX_PROFILE=<eval profile> uv run python scripts/live_eval.py plan --tier learning --providers codex
+```
+
+**Learning release check** (`tests/e2e/learning/seeded/`, PLAN O92): made-up people
+with plain-file data (`people/`) and a deterministic generator (a 30-day past for the
+past-chat import, then a live stream of requests with a hidden intent and a checkable
+right outcome; the past's replies are the main model's own words, written once by
+`phrasing.py` and kept in `people/<id>/past_replies.json`), run one at a time through
+the real runtime in scratch profiles, with a
+simulated person on the ChatGPT lane (the eval profile above) and simulated days and
+nights. One command runs the whole Learning loop and writes `report.md`/`report.json`
+(rates with denominators and 95% intervals, tokens, GPU-hours, survival checks, and the
+stages not built yet); it resumes where it stopped. Its deterministic parts are in
+`tests/subsystem/learning/test_learning_seeded_*.py`.
+
+```bash
+uv run python scripts/learning_release_check.py --plan --out <folder> --scratch <folder>
+uv run python scripts/learning_release_check.py --people all --days 30 --tiers 8gb --out <folder> \
+  --scratch <folder> --eval-profile <eval profile> --runtimes-from <data folder with the engine>
+```

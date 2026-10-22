@@ -434,6 +434,30 @@ export interface ClientTransport {
     command: Wire.InsightCommand,
     signal?: AbortSignal,
   ): Promise<Wire.InsightReceipt>;
+  learning?(signal?: AbortSignal): Promise<Wire.LearningSnapshot>;
+  learningTraining?(signal?: AbortSignal): Promise<Wire.LearningTraining>;
+  learningDownload?(signal?: AbortSignal): Promise<Wire.LearningDownload>;
+  learningHardware?(
+    refresh?: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningHardware>;
+  learningConversation?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningConversation>;
+  learningLessons?(signal?: AbortSignal): Promise<Wire.LearningLessonPage>;
+  learningVersion?(
+    version: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningVersionDetails>;
+  learningReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningReceipt>;
+  executeLearning?(
+    command: Wire.LearningCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningReceipt>;
   customToolReceipt?(
     conversation: string,
     binding: string,

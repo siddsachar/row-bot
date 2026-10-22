@@ -1682,6 +1682,10 @@ def _n4_resume(enabled_tools: list[str], config: dict, approved: bool, *, interr
 
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
+    if text.startswith("l1a ") and text.rstrip().endswith("fixture"):
+        # Learning (L1a): a reply to Teach on, after a step that failed.
+        yield from _l1a_stream(text, config)
+        return
     if text.startswith("n12 ") and text.rstrip().endswith("fixture"):
         # Row-Bot's browser in the app (N12-A): a turn that uses the browser, then asks to pay.
         yield from _n12_stream(text, config)
@@ -4257,6 +4261,901 @@ def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
     facts.invalidate()
     return {"removed": True}
 
+
+# ── Learning (preview), L1a: the flag, the hardware check and the Overview's states ──
+
+_l1a_saved: dict[str, object] = {}
+
+
+def _l1a_stream(text: str, config: dict):
+    from row_bot.threads import append_checkpoint_messages
+    call = predecessor._record("submit", config, "l1a")
+    thread = call["conversation_id"]
+    identity = f"l1a:{call['generation_id']}"
+    try:
+        tool_id = fixture_id(identity + ":tool")
+        result_id = fixture_id(identity + ":result")
+        args = {"path": "budgets/2026-draft.md"}
+        append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":call"), content="",
+            tool_calls=[{"id": tool_id, "name": "workspace_read_file", "args": args}])])
+        yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": "workspace_read_file",
+                            "args": args}
+        result = "Error: budgets/2026-draft.md was not found."
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id,
+                                                      name="workspace_read_file", content=result, status="error")])
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "workspace_read_file",
+                            "args": args, "content": result, "status": "error"}
+        yield from _natural_final(call, thread, "The 2026 budget for travel is 1,200 (from the draft).", "l1a")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__l1a_fixture/learning/{action}")
+def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L1a spec: the start-up flag, a faked hardware check and the
+    Overview's states. Nothing reaches a GPU, a download or a provider."""
+    predecessor._authorize(x_fixture_token)
+    import time as _time
+
+    from row_bot import learning
+    from row_bot.learning import spending
+    from row_bot.learning.training import hardware
+
+    if "check" not in _l1a_saved:
+        _l1a_saved["check"] = hardware.check
+        _l1a_saved["peek"] = hardware.peek
+        _l1a_saved["used"] = spending.used_this_month
+    if action == "preview":
+        learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
+        learning.invalidate()
+        # The personal model's download (L2b): a stand-in whose states the specs set; never a real one.
+        from row_bot.learning.training import downloads as _downloads
+        _downloads._downloads = _FixtureDownloads()
+    elif action in {"gpu", "no-gpu"}:
+        found = (hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 5070 Laptop GPU", 8151, "596.08")])
+                 if action == "gpu" else hardware.HardwareCheck("no_gpu"))
+        hardware.check = lambda *, refresh=False, detector=None: found
+        hardware.peek = lambda: found  # what reads that mustn't wait see (Runs in, the recipe's need)
+    elif action == "paused":
+        from row_bot.application.settings_commands import write_learning_settings
+        write_learning_settings({"paused": True})
+    elif action == "limit":
+        limit = learning.read_settings().monthly_token_limit
+        spending.used_this_month = lambda **_kwargs: limit
+    elif action == "reading":
+        from row_bot.learning import past_chats
+        past_chats.stop_background(10)  # the real import of the fixture's chats, if still running
+        from row_bot.learning.contracts import Job
+        from row_bot.learning.store import LearningStore
+        now = _time.time()
+        LearningStore().put(Job(id=past_chats.JOB_ID, kind="past_chat_import", created_at=now, updated_at=now,
+                                state="running", steps_total=214, steps_done=61))
+    elif action == "restore":
+        from row_bot.learning.store import LearningStore
+        hardware.check = _l1a_saved["check"]
+        hardware.peek = _l1a_saved["peek"]
+        spending.used_this_month = _l1a_saved["used"]
+        past = sys.modules.get("row_bot.learning.past_chats")
+        if past is not None:
+            past.stop_background(10)
+        capture = sys.modules.get("row_bot.learning.capture")
+        if capture is not None:
+            capture.learning_turned_off()
+        store = LearningStore()
+        if store.exists():
+            for thread in store.opted_out_chats():
+                store.set_chat_opt_out(thread, False)
+            store.delete_all()
+        for leftover in (learning.store_path(), learning.settings_path()):
+            leftover.unlink(missing_ok=True)
+        from row_bot.learning.training import downloads as _downloads
+        _downloads._downloads = None
+        learning._PREVIEW = False
+        learning.invalidate()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+# ── Learning (preview), L3a: last night's look and the changes it drafted ──
+
+
+def _l3a_drafts() -> None:
+    """Two drafted changes (a lesson and a way of working) and a kind that needs more examples."""
+
+    import time as _time
+
+    from row_bot import evolution
+    from row_bot.learning.contracts import Attempt
+    from row_bot.learning.store import LearningStore
+
+    drafts = [
+        ("lesson", "Use the current policy", "document_lookups",
+         "When two versions of a policy exist, answer from the newest approved one and say which you used.",
+         {"chats": 3, "corrections": 2, "stops": 1, "retries": 0, "denials": 0, "failures": 0, "imported": 1},
+         False, {}),
+        ("behaviour", "Check the calendar before booking", "tool_workflows",
+         "Before adding an event, look at that day's calendar and say if it overlaps another event.",
+         {"chats": 2, "corrections": 0, "stops": 2, "retries": 1, "denials": 0, "failures": 0, "imported": 0},
+         True, {"slot": "tool_guidance"}),
+    ]
+    for number, (kind, title, work, text, why, never, extra) in enumerate(drafts):
+        evolution.create_proposal(
+            insight_ids=[], proposal_type=kind, title=title, rationale="Fixture draft.", status="draft",
+            payload={"text": text, "kind_of_work": work, **extra,
+                     "learning": {"issue": f"{work}:fixture{number}", "attempt_id": f"att_fixture{number}",
+                                  "kind_of_work": work, "state": "waiting_to_test", "never_automatic": never,
+                                  "why": why}})
+    LearningStore().put(Attempt(id="att_fixture_examples", change_kind="wait", hypothesis="Not enough yet.",
+                                created_at=_time.time(), kind_of_work="small_coding", reason="needs_examples",
+                                issue="small_coding:corrected"))
+
+
+def _l3a_forget_drafts() -> None:
+    from row_bot import evolution
+
+    store = evolution._load_store()
+    store["proposals"] = [item for item in store["proposals"]
+                          if not isinstance((item.get("payload") or {}).get("learning"), dict)]
+    evolution._save_store(store)
+
+
+@app.post("/__l3a_fixture/learning/{action}")
+def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L3a spec: last night's look in each of its states, and the changes it
+    drafted. Nothing reaches a model, a GPU or a download: the reports and drafts are written directly."""
+    predecessor._authorize(x_fixture_token)
+    from datetime import date
+
+    from row_bot.learning import diagnosis
+    from row_bot.learning.store import LearningStore
+
+    night = date.today().isoformat()
+    if action == "night":
+        diagnosis._save(LearningStore(), diagnosis.NightReport(night, found=3, drafted=2, refused=1,
+                                                               needs_examples=1, bugs=1))
+        _l3a_drafts()
+    elif action in {"claude_plan", "stopped", "nothing", "unavailable"}:
+        diagnosis._save(LearningStore(), diagnosis.NightReport(
+            night, state=action, found=2 if action == "stopped" else 0, drafted=1 if action == "stopped" else 0,
+            diagnosed=1 if action == "stopped" else 0))
+    elif action == "restore":
+        _l3a_forget_drafts()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+# ── Learning (preview), L2b: the personal model's download, its states set by the spec ──
+
+_GB = 1_000_000_000
+
+
+class _FixtureDownloads:
+    """Stands in for ``training.downloads.Downloads``: what the surfaces read and the commands do,
+    with states the specs set. Nothing is downloaded or installed."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.state, self.phase, self.failure = "none", None, None
+        self.done, self.total, self.needs, self.free = 0, 0, None, 512 * _GB
+        self.engine_state, self.engine_bytes = "not_installed", 0
+        self.model_state, self.model_bytes = "not_downloaded", 0
+
+    def set(self, name: str) -> None:
+        self.reset()
+        if name == "installed":
+            self.engine_state, self.engine_bytes = "installed", 4_033_251_988
+            self.model_state, self.model_bytes = "downloaded", 4_571_279_000
+        elif name == "damaged":
+            self.engine_state, self.engine_bytes = "damaged", 0
+            self.model_state, self.model_bytes = "downloaded", 4_571_279_000
+        elif name in ("downloading", "model", "installing"):
+            self.state = "downloading"
+            self.phase = {"downloading": "engine", "model": "model", "installing": "installing"}[name]
+            self.done = {"engine": 1_190_000_000, "model": 4_930_000_000, "installing": 2_218_000_000}[self.phase]
+            self.total = 6_789_270_885
+        elif name == "paused":
+            self.state, self.done, self.total = "paused", 3_120_000_000, 6_789_270_885
+        elif name == "disk":
+            self.state, self.needs, self.free = "not_enough_disk", 9_420_000_000, 6_030_000_000
+            self.total = 6_789_270_885
+        elif name == "failed":
+            self.state, self.failure, self.done, self.total = "failed", "network", 2_480_000_000, 6_789_270_885
+        elif name == "server":  # L2x: an engine from before Row-Bot's own model server, only that missing
+            self.engine_state, self.engine_bytes = "installed", 4_033_251_988
+            self.model_state, self.model_bytes = "downloaded", 4_571_279_000
+            self.state, self.total = "ready", 578_117_583
+        elif name != "ready":
+            raise HTTPException(404, "Unknown download state")
+
+    def view(self):
+        from row_bot import learning
+        from row_bot.learning.training.downloads import DownloadView
+
+        state = self.state
+        missing = not (self.engine_state == "installed" and self.model_state == "downloaded")
+        if state == "none" and missing and learning.read_settings().model_download == "waiting":
+            state = "ready"
+        return DownloadView(state, self.phase, self.done, self.total, needs_bytes=self.needs, free_bytes=self.free,
+                            failure=self.failure, engine_state=self.engine_state, engine_bytes=self.engine_bytes,
+                            engine_download_bytes=2_217_998_432, model_state=self.model_state,
+                            model_bytes=self.model_bytes)
+
+    def running(self) -> bool:
+        return self.state == "downloading"
+
+    def start(self):
+        from row_bot import learning
+        from row_bot.learning.training.downloads import DownloadError
+
+        settings = learning.read_settings()
+        if not settings.enabled:
+            raise DownloadError("learning_off")
+        if settings.paused:
+            raise DownloadError("learning_paused")
+        self.set("downloading")
+        return self.view()
+
+    def stop(self, reason: str = "you"):
+        from row_bot.learning.training.downloads import DownloadError
+
+        if self.state != "downloading":
+            raise DownloadError("changed")
+        self.state, self.phase = "paused", None
+        return self.view()
+
+    def cancel(self):
+        self.reset()
+        return self.view()
+
+    def forget(self) -> None:
+        if self.state != "downloading":
+            self.state = "none"
+
+    def stop_quietly(self, reason: str) -> None:
+        if self.state == "downloading":
+            self.state, self.phase = "paused", None
+
+    def shutdown(self) -> None:
+        return None
+
+
+@app.post("/__l2b_fixture/learning/{action}")
+def l2b_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """The personal model's download for the L2b spec: its states, and an NVIDIA driver too old
+    to train. Nothing reaches the network, a GPU or a provider."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.learning.training import downloads, hardware
+
+    current = downloads.loaded()
+    if action == "state":
+        if not isinstance(current, _FixtureDownloads):
+            raise HTTPException(409, "Turn on the preview first")
+        current.set(name)
+    elif action == "old-driver":
+        found = hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 3080 Laptop GPU", 8192, "560.94")])
+        hardware.check = lambda *, refresh=False, detector=None: found
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+# ── Learning (preview), L2x: Row-Bot's own model server, "Runs in" and the larger tiers ──
+
+_l2x: dict[str, object] = {}
+
+
+@app.post("/__l2x_fixture/learning/{action}")
+def l2x_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """Row-Bot's own model server for the L2x spec: an RTX 5090 (or no NVIDIA card), the server's
+    files installed or not, and a version at each of its states there. Nothing starts a server,
+    reaches the network or needs a GPU."""
+    predecessor._authorize(x_fixture_token)
+    from dataclasses import replace as _replace
+
+    from row_bot.learning.training import hardware, lockfile, releases, server_files
+
+    if action == "restore":
+        for module, attribute in (("hardware", "check"), ("hardware", "peek"), ("lockfile", "tools_platform"),
+                                  ("server_files", "status")):
+            original = _l2x.pop(f"{module}.{attribute}", None)
+            if original is not None:
+                setattr({"hardware": hardware, "lockfile": lockfile, "server_files": server_files}[module],
+                        attribute, original)
+        _l2x.clear()
+        from row_bot.learning import runner as runner_module
+
+        runner_module.forget_card_room()
+        return {"action": action}
+    for module, attribute, owner in (("hardware", "check", hardware), ("hardware", "peek", hardware),
+                                     ("lockfile", "tools_platform", lockfile),
+                                     ("server_files", "status", server_files)):
+        _l2x.setdefault(f"{module}.{attribute}", getattr(owner, attribute))
+    if action == "card":
+        # name: 5090 (the 32 GB tier, with 128 GB of RAM and virtual memory), 5090-short (memory that can't
+        # hold its largest certified tier, O105), 4060-low (an 8 GB card on a computer whose memory can't
+        # hold even the 8 GB tier), 4080-busy (a 16 GB card whose display and apps hold 6.5 GB: Row-Bot
+        # recommends the 2B, O112) or none (no NVIDIA card: not on this computer)
+        needs = sorted(tier.system_memory_mib for tier in hardware.TIERS if tier.certified and tier.system_memory_mib)
+        # 5090-short: room for the smallest tier only (the next one would offer a larger model).
+        limit = {"5090-short": needs[1] - 1024, "4060-low": needs[0] - 3072}.get(name, 131_072)
+        memory = hardware.SystemMemory(limit_mib=limit, free_mib=min(limit, 90_000) // 2)
+        gpus = ([] if name == "none" else [hardware.Gpu("NVIDIA GeForce RTX 4060", 8_188, "596.08", 300)]
+                if name == "4060-low" else [hardware.Gpu("NVIDIA GeForce RTX 4080", 16_376, "596.08", 6_600)]
+                if name == "4080-busy" else [hardware.Gpu("NVIDIA GeForce RTX 5090", 32_607, "610.60", 2_400)])
+        found = hardware.classify(gpus, memory)
+        hardware.check = lambda *, refresh=False, detector=None: found
+        hardware.peek = lambda: found
+        lockfile.tools_platform = lambda platforms=None: "windows-x64"  # a build for this computer
+    elif action == "room":  # O112: two quiet-hours nights without room on the card for the 9B
+        import json as _json
+
+        from row_bot.application.settings_commands import write_learning_settings
+        from row_bot.learning import runner as runner_module
+        from row_bot.learning.training import jobs as jobs_module
+        from row_bot.learning.training import recipes as recipe_files
+
+        write_learning_settings({"starting_model": "qwen3.5-9b"})
+        nine = recipe_files.for_model("qwen3.5-9b", hardware.peek())
+        path = jobs_module.models_dir() / runner_module.ROOM_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps({"nights": ["2026-10-21", "2026-10-22"], "free_mib": 9_830,
+                                     "need_mib": nine.memory_mib if nine else 15_616, "model": "qwen3.5-9b"}),
+                        encoding="utf-8")
+    elif action == "server":  # name: installed or missing
+        state = "installed" if name == "installed" else "not_installed"
+        found_files = server_files.ServerFiles(state, "cu130", bytes=747_386_477 if state == "installed" else 0)
+        server_files.status = lambda root=None, **kwargs: found_files
+    elif action == "version":  # name: starting, ready, missing, memory, unavailable (v1 in Row-Bot's server)
+        _l2c_version({"starting": "making-ready"}.get(name, "ready"))
+        folder = releases.version_dir(1)
+        state = releases.read_state(folder)
+        from row_bot.application.settings_commands import write_learning_settings
+
+        write_learning_settings({"serve_runtime": "row_bot"})
+        if name == "starting":
+            state = _replace(state, runtime="row_bot")
+        elif name == "ready":
+            state = _replace(state, runtime="row_bot",
+                             model_ref="model:custom_openai_row-bot-personal-row-bot:row-bot-personal-v1")
+        else:
+            failure = {"missing": "server_missing", "memory": "load_failed", "unavailable": "server_unavailable"}
+            if name not in failure:
+                raise HTTPException(404, "Unknown version state")
+            state = _replace(state, phase=releases.RUNTIME_FAILED, runtime="row_bot", failure=failure[name],
+                             model_ref=None)
+        releases.write_state(folder, state)
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+# ── Learning (preview), L2a: training with the fake trainer, driven step by step ──
+
+_l2a: dict[str, object] = {}
+
+
+@app.post("/__l2a_fixture/learning/{action}")
+def l2a_learning(action: str, steps: int = 0, x_fixture_token: str = Header(default="")) -> dict:
+    """The personal model's training for the L2a spec: the fake trainer as the training engine,
+    a planned run, steps taken on request, the person using Row-Bot, Row-Bot closing, running out
+    of GPU memory. No GPU, no download, no provider."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.learning import runner
+    from row_bot.learning.training import jobs as training_jobs
+    from tests.fixtures.learning import FakeDataset, FakeEngine, FakeLease
+
+    if action == "restore":
+        runner.shutdown(10)
+        runner._runner = None  # a fresh runner for the next spec
+        runner._thread = None
+        lease = sys.modules.get("row_bot.learning.lease")
+        if lease is not None:
+            lease.release_training()
+        training_jobs.remove_all_runs()
+        _l2a.clear()
+        return {"action": action}
+    supervisor = runner.get().supervisor
+    if action == "engine":
+        from datetime import datetime
+
+        from row_bot.learning.runner import QuietHours
+
+        lease = FakeLease(since_activity=3600.0)
+        engine = FakeEngine()
+        _l2a.update(lease=lease, engine=engine)
+        runner.configure(engine=engine, dataset=FakeDataset(), lease=lease)
+        # An afternoon, whatever the hour the spec runs: nothing starts by itself in quiet hours.
+        runner.get().hours = QuietHours(now=lambda: datetime(2026, 10, 16, 14, 0))
+        supervisor.jobs.plan(steps_total=1000, checkpoint_every=10)
+        return {"action": action}
+    lease = _l2a["lease"]
+    engine = _l2a["engine"]
+    job = supervisor.jobs.current()
+    if action == "advance":
+        target = job.steps_done + max(1, steps)
+        supervisor.live_worker().advance(max(1, steps))
+        supervisor.wait_for(lambda found: found.steps_done >= target or found.state not in ("preparing", "running"))
+    elif action == "use":  # the person chats (on a cloud model): pause at the next step
+        lease.set(chat_cloud=True, since_activity=0.0)
+        supervisor.watch()
+        supervisor.wait_for(lambda found: found.state == "pausing")
+    elif action == "step":  # the step in progress ends: it saves and pauses
+        supervisor.live_worker().advance(1)
+        supervisor.wait_for(lambda found: found.state == "paused")
+        supervisor.wait_idle(10)
+    elif action == "free":  # the chat ended a while ago: Train now's run continues
+        lease.set(since_activity=3600.0)
+        runner.get().check()
+        supervisor.wait_for(lambda found: found.state == "running")
+    elif action == "closed":  # Row-Bot closed while it trained (it asks on the next start)
+        supervisor.stop_now("app_closed")
+    elif action == "oom":  # a run that doesn't fit the graphics card
+        if job is not None and job.state not in ("failed", "evaluating"):
+            supervisor.discard(job.id)
+        engine.options["oom_at_step"] = 4
+        planned = supervisor.jobs.plan(steps_total=1000, checkpoint_every=10)
+        supervisor.train_now(planned.id)
+        supervisor.wait_for(lambda found: found.state == "running")
+        supervisor.live_worker().advance(5)
+        supervisor.wait_for(lambda found: found.state == "failed")
+        supervisor.wait_idle(10)
+        engine.options.pop("oom_at_step", None)
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+# ── Learning (preview), L2c: the dataset's count, a version made ready, where it runs ──
+
+_l2c: dict[str, object] = {}
+# The 5070's own run (L2c's e2e): 154 examples, 39 steps of about 28 s, a 2.0 GB Q8_0 file.
+_L2C_EXAMPLES, _L2C_STEPS, _L2C_SECONDS, _L2C_GGUF = 154, 39, 28.1, 2_012_012_128
+
+
+class _FixturePlanner:
+    """Stands in for ``training.planner.Planner``: the example count the spec sets."""
+
+    def __init__(self) -> None:
+        self.engine = None
+        self.counts = (37, 100, 37, 4)
+
+    def summary(self, *, compute: bool = True):
+        from row_bot.learning.training.dataset import DatasetSummary
+
+        examples, needed, new, left = self.counts
+        return DatasetSummary(examples=examples, needed=needed, new_examples=new, left_out=left, at=0.0)
+
+    def due(self) -> bool:
+        return False
+
+    def plan(self, *, force: bool = False, retrain: bool = False):
+        from row_bot.learning.training.planner import PlanOutcome
+
+        return PlanOutcome(reason="later", summary=self.summary())
+
+    def recipe(self):
+        from row_bot.learning.training import recipes
+
+        return recipes.load("8gb")
+
+    def forget(self) -> None:
+        return None
+
+
+class _FixtureReleases:
+    """Stands in for ``training.releases.ReleaseMaker``: Try again and Runs in move the version to
+    "making ready" there; nothing is exported, registered or checked."""
+
+    def busy(self) -> bool:
+        return False
+
+    def start(self, job, *, quiet: bool = False, runtime: str | None = None) -> bool:
+        from dataclasses import replace
+
+        from row_bot import learning
+        from row_bot.learning.training import releases
+
+        folder = releases.version_dir(int(job.version or 1))
+        state = releases.read_state(folder)
+        if state is not None:
+            releases.write_state(folder, replace(state, phase=releases.MAKING_READY, failure=None, command=None,
+                                                 runtime=runtime or learning.read_settings().serve_runtime))
+        return True
+
+    def tick(self) -> bool:
+        return False
+
+    def shutdown(self) -> None:
+        return None
+
+    def wait(self, timeout: float = 30.0) -> bool:
+        return True
+
+
+def _l2c_version(phase: str) -> None:
+    """Write the newest version's state (v1, from the finished run) as the spec names it."""
+
+    from row_bot.application.settings_commands import write_learning_settings
+    from row_bot.learning import runner
+    from row_bot.learning.training import releases
+
+    jobs = runner.get().supervisor.jobs
+    job = jobs.current() or next(iter(jobs.all()), None)
+    if job is None:
+        raise HTTPException(409, "Train v1 first")
+    folder = releases.version_dir(1)
+    gguf = "row-bot-personal-v1-Q8_0.gguf"
+    base = {"version": 1, "job_id": job.id, "examples": _L2C_EXAMPLES, "adapter_bytes": 43_676_816,
+            "trained_at": 1_792_180_800.0, "quantization": "Q8_0"}
+    runtime = "ollama"
+    if phase == "exporting":
+        state = releases.VersionState(phase=releases.EXPORTING, step="convert", **base)
+    elif phase == "export-failed":
+        state = releases.VersionState(phase=releases.EXPORT_FAILED, failure="not_enough_disk",
+                                      needs_bytes=9_420_000_000, free_bytes=6_030_000_000, **base)
+    elif phase == "making-ready":
+        state = releases.VersionState(phase=releases.MAKING_READY, gguf=gguf, gguf_bytes=_L2C_GGUF, **base)
+    elif phase == "ready":
+        state = releases.VersionState(phase=releases.READY, gguf=gguf, gguf_bytes=_L2C_GGUF,
+                                      model_ref="model:ollama:row-bot-personal-v1:fixture0", **base)
+    elif phase == "runtime-failed":
+        runtime = "lmstudio"
+        state = releases.VersionState(phase=releases.RUNTIME_FAILED, failure="probe_failed", runtime=runtime,
+                                      gguf=gguf, gguf_bytes=_L2C_GGUF, **base)
+    elif phase == "waiting":
+        runtime = "llama_cpp"
+        command = (f'llama-server -m "{(folder / gguf).absolute()}" -a row-bot-personal-v1 --host 127.0.0.1 '
+                   "--port 8181 -c 32768 -ngl 99 --jinja --offline --no-webui --reasoning off")
+        state = releases.VersionState(phase=releases.WAITING, failure="not_running", runtime=runtime,
+                                      command=command, gguf=gguf, gguf_bytes=_L2C_GGUF, **base)
+    else:
+        raise HTTPException(404, "Unknown version state")
+    write_learning_settings({"serve_runtime": runtime})
+    releases.write_state(folder, state)
+    if phase == "ready" and job.state == "evaluating":
+        jobs.move(job.id, "ready", reason="made_ready")
+
+
+@app.post("/__l2c_fixture/learning/{action}")
+def l2c_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """The personal model's dataset, training and versions for the L2c spec: the example count, a
+    run with the 5070's numbers (the fake trainer), a version at each phase, Runs in, a graphics
+    card another app holds, and the Docker image. No GPU, no download, no runtime, no provider."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.learning import runner
+    from row_bot.learning.training import downloads, hardware, releases
+    from tests.fixtures.learning import FakeDataset, FakeEngine, FakeLease
+
+    if action == "restore":
+        import shutil
+
+        runner.shutdown(10)
+        runner._runner = None
+        runner._thread = None
+        lease = sys.modules.get("row_bot.learning.lease")
+        if lease is not None:
+            lease.release_training()
+        from row_bot.learning.training import jobs as training_jobs
+
+        training_jobs.remove_all_runs()
+        shutil.rmtree(releases.versions_dir(), ignore_errors=True)
+        if "executable" in _l2c:
+            from row_bot.learning.training import serving
+
+            serving.OllamaRuntime.executable = _l2c["executable"]
+        _l2c.clear()
+        return {"action": action}
+    if action == "container":
+        found = hardware.HardwareCheck("container")
+        hardware.check = lambda *, refresh=False, detector=None: found
+        return {"action": action}
+    if action == "setup":
+        from datetime import datetime
+
+        from row_bot.learning.runner import QuietHours
+
+        current = downloads.loaded()
+        if not isinstance(current, _FixtureDownloads):
+            raise HTTPException(409, "Turn on the preview first")
+        current.set("installed")
+        planner, makes, engine = _FixturePlanner(), _FixtureReleases(), FakeEngine(seconds_per_step=_L2C_SECONDS)
+        lease = FakeLease(since_activity=3600.0)
+        runner.configure(engine=engine, dataset=FakeDataset(examples=_L2C_EXAMPLES), lease=lease, planner=planner,
+                         releases=makes, comparisons=_FixtureComparisons())
+        runner.get().hours = QuietHours(now=lambda: datetime(2026, 10, 16, 14, 0))
+        # Ollama reads as installed whatever the machine running the spec has (CI has none).
+        from row_bot.learning.training import serving
+
+        _l2c.update(planner=planner, engine=engine, lease=lease, executable=serving.OllamaRuntime.executable)
+        serving.OllamaRuntime.executable = lambda self: "ollama"
+        return {"action": action}
+    planner = _l2c["planner"]
+    supervisor = runner.get().supervisor
+    if action == "examples":  # name: "37" (needs more) or "154" (enough)
+        count = int(name or 37)
+        planner.counts = (count, 100, count if count < 100 else 0, 4 if count < 100 else 11)
+    elif action == "train":  # v1 planned from 154 examples, started, at step 17 of 39
+        job = supervisor.jobs.plan(steps_total=_L2C_STEPS, checkpoint_every=10,
+                                   dataset={"id": "ds_" + "e" * 32, "examples": _L2C_EXAMPLES})
+        planner.counts = (_L2C_EXAMPLES, 100, _L2C_EXAMPLES, 11)
+        supervisor.train_now(job.id)
+        supervisor.wait_for(lambda found: found.state == "running")
+        supervisor.live_worker().advance(17)
+        supervisor.wait_for(lambda found: found.steps_done >= 17)
+    elif action == "finish":
+        job = supervisor.jobs.current()
+        supervisor.live_worker().advance(_L2C_STEPS - job.steps_done)
+        supervisor.wait_for(lambda found: found.state == "evaluating")
+        supervisor.wait_idle(10)
+        planner.counts = (_L2C_EXAMPLES, 100, 0, 11)
+    elif action == "version":
+        _l2c_version(name)
+    elif action in ("gpu-busy", "memory-busy"):
+        # A local model still loaded in Ollama holds the card, or other apps hold the computer's memory
+        # (O105): Train now waits.
+        if action == "gpu-busy":
+            supervisor.gpu_free = lambda: False
+        else:
+            supervisor.memory_free = lambda: False
+        planner.counts = (_L2C_EXAMPLES, 100, _L2C_EXAMPLES, 11)
+        job = supervisor.jobs.plan(steps_total=_L2C_STEPS, checkpoint_every=10,
+                                   dataset={"id": "ds_" + "e" * 32, "examples": _L2C_EXAMPLES})
+        supervisor.train_now(job.id)
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+# ── Learning (preview), L2c2: compare, trial and use the personal model ──
+
+_L2C2_CHAT = "l2c2-travel-policy"
+_L2C2_REF = "model:ollama:row-bot-personal-v1:fixture0"
+_l2c2: dict[str, object] = {}
+
+
+class _FixtureComparisons:
+    """Stands in for ``model_compare.Comparisons``: never runs a model. Compare now starts a
+    comparison that stays at its first task until the spec moves it (``progress``) or finishes it
+    (``compared``); Stop stops it."""
+
+    def __init__(self) -> None:
+        self.version: int | None = None
+
+    def running(self) -> bool:
+        return self.version is not None
+
+    def tick(self) -> bool:
+        return False
+
+    def _progress(self, version: int, **values) -> None:
+        import time
+
+        from row_bot.learning import model_compare
+
+        current = model_compare.read_progress(version) or {}
+        model_compare._write_json(model_compare.progress_path(version), {  # noqa: SLF001
+            **current, **values, "updated_at": time.time()})
+
+    def start(self, version: int) -> bool:
+        self.version = int(version)
+        self._progress(self.version, state="running", phase="visible", done=0, total=96)
+        return True
+
+    def stop(self, timeout: float = 15.0) -> None:
+        if self.version is not None:
+            self._progress(self.version, state="stopped", reason="stopped")
+        self.version = None
+
+    def wait(self, timeout: float = 30.0) -> bool:
+        return True
+
+
+def _l2c2_files() -> None:
+    """v1's files and records as a real release leaves them (the GGUF a sparse file of its real size):
+    what Experiment details, Export… and Retrain without it read."""
+
+    import time
+
+    from row_bot.learning.store import LearningStore
+    from row_bot.learning.training import releases
+    from tests.fixtures.learning import release
+
+    folder = releases.version_dir(1)
+    state = releases.read_state(folder)
+    if state is None or state.phase != releases.READY:
+        raise HTTPException(409, "Make v1 ready first")
+    (folder / "adapter").mkdir(parents=True, exist_ok=True)
+    (folder / "adapter" / "adapter_model.safetensors").write_bytes(b"\0" * 43_676)
+    (folder / "adapter" / "adapter_config.json").write_text('{"r": 16}', encoding="utf-8")
+    with open(folder / str(state.gguf), "wb") as handle:
+        handle.truncate(_L2C_GGUF)
+    (folder / releases.MODEL_CARD_FILE).write_text("# Personal model v1\n", encoding="utf-8")
+    now = time.time()
+    (folder / releases.MANIFEST_FILE).write_text(json.dumps({"identity": {
+        "base": {"name": "Qwen3.5 2B", "version": "a1b2c3d4e5f6a7b8"},
+        "recipe": {"name": "8gb-v1"}, "runtime": {"name": "Ollama", "version": "0.40.4"}}}), encoding="utf-8")
+    (folder / releases.DATASET_FILE).write_text(json.dumps({
+        "examples": _L2C_EXAMPLES, "validation": 17, "conversations": [f"chat-{i:02d}" for i in range(41)],
+        "first_at": now - 15 * 86400, "last_at": now - 3600, "providers": ["openai"],
+        "left_out": {"too_long": 3, "held_out": 11}, "terms_note": True}), encoding="utf-8")
+    store = LearningStore()
+    store.create()
+    if store.get("release", "rel_l2c2") is None:
+        store.put(release("rel_l2c2", version=1, source_thread_ids=("l2c2-deleted-chat",)))
+    releases.write_state(folder, replace(state, release_id="rel_l2c2"))
+
+
+def _l2c2_main() -> str:
+    """The main model's name, as Learning shows it (the profile's default model)."""
+
+    from row_bot.application.client_learning import _default_model_name
+
+    return _default_model_name() or "your main model"
+
+
+def _l2c2_comparison(verdict: str) -> dict:
+    """A finished comparison of v1 with the starting model and the main model."""
+
+    import time
+
+    main = _l2c2_main()
+
+    from row_bot.learning import model_compare
+
+    passed = {"document_lookups": {"base": 6, "v1": 10, "main": 11},
+              "structured_transforms": {"base": 7, "v1": 7, "main": 9},
+              "tool_workflows": {"base": 3, "v1": 4, "main": 7},
+              "own_work": {"base": 4, "v1": 5, "main": 8}}
+    totals = {"document_lookups": 12, "structured_transforms": 10, "tool_workflows": 8, "own_work": 10}
+    labels = {"document_lookups": "Document lookups", "structured_transforms": "Structured transforms",
+              "tool_workflows": "Tool workflows", "own_work": "Your own work"}
+    if verdict == "no_difference":
+        passed["document_lookups"]["v1"] = 7
+    rows = []
+    for kind, total in totals.items():
+        counted = {key: total for key in ("base", "v1", "main")}
+        if kind == "structured_transforms":
+            counted["v1"] = 9  # one task the personal model's runtime failed: left out of its count (O19)
+        better = verdict == "better" and kind == "document_lookups"
+        rows.append({"kind": kind, "label": labels[kind], "total": total, "passed": passed[kind],
+                     "counted": counted, "verdict": "better" if better else "same"})
+    overall = ({"verdict": "better", "recommend": "document_lookups",
+                "line": "Better at document lookups than the starting model: 10 of 12 passed, against 6."}
+               if verdict == "better" else
+               {"verdict": "no_difference", "recommend": None,
+                "line": "No clear difference from the starting model. Not used."})
+    table = {key: {labels[kind]: [passed[kind][key], totals[kind]] for kind in totals if kind != "own_work"}
+             for key in ("base", "v1", "main")}
+    return {
+        "format": model_compare.FORMAT, "schema_version": 1, "version": 1, "release_id": "rel_l2c2",
+        "compared_at": time.time() - 600, "seconds": 2950.0,
+        "arms": [
+            {"key": "base", "label": "the starting model", "role": "baseline", "ran": 40, "cached": 0,
+             "seconds_per_task": 6.2, "cloud_tokens_per_task": 0},
+            {"key": "v1", "label": "v1 (new)", "role": "new", "ran": 40, "cached": 0, "seconds_per_task": 4.8,
+             "cloud_tokens_per_task": 0},
+            {"key": "main", "label": main, "role": "main", "ran": 40, "cached": 40,
+             "seconds_per_task": 21.5, "cloud_tokens_per_task": 18_400},
+        ],
+        "rows": rows, "overall": overall,
+        "note": f"Testing used 590K tokens (and 1.1M on this computer); {main}\u2019s results were reused.",
+        "stopped": "", "left_out": [model_compare.CODING_NOTE], "baseline_unavailable": None,
+        "main_unavailable": None,
+        "details": {"visible": table, "hidden": {key: {"Your own work": [passed["own_work"][key], 10]}
+                                                 for key in ("base", "v1", "main")}},
+        "runs": {}, "budget": {"task_tokens": 150_000}, "visible_per_pack": 16, "hidden": True,
+        "worker_notes": [], "write_backs": [], "metric_version": 1, "reviewed_at": None,
+    }
+
+
+def _l2c2_chat() -> None:
+    """A chat where v1 answered one turn and got stuck on the next, which the main model finished."""
+
+    from row_bot import threads
+    from row_bot.learning import routing
+
+    if not threads._thread_exists(_L2C2_CHAT):  # noqa: SLF001
+        threads.create_thread("Travel policy", thread_id=_L2C2_CHAT, seed_default_skills=False)
+    note = f"Your personal model got stuck; {_l2c2_main()} finished this."
+    personal = {"model": "row-bot-personal-v1:fixture0"}
+    threads.append_checkpoint_messages(_L2C2_CHAT, [
+        HumanMessage(id="l2c2-ask-1", content="What is the client dinner limit in the travel policy?"),
+        AIMessage(id="l2c2-personal", content="The client dinner limit is 85 EUR a person (TRV-014, section 3).",
+                  response_metadata=personal),
+        HumanMessage(id="l2c2-ask-2", content="And for a dinner with 12 people?"),
+        AIMessage(id="l2c2-stuck", content="", response_metadata=personal, tool_calls=[
+            {"id": "l2c2-call-1", "name": "calculate", "args": {"expression": "85 * 12"}}]),
+        ToolMessage(tool_call_id="l2c2-call-1", content="The personal model stopped here."),
+        HumanMessage(id="l2c2-handover", content=routing._HANDOVER.format(  # noqa: SLF001
+            why="it repeated the same step", request=routing._quoted("And for a dinner with 12 people?")),  # noqa: SLF001
+                     additional_kwargs={"row_bot_ui": {"thread_event": True, "source_event_id": "",
+                                                       "learning_fallback": {
+                                                           "text": note, "version": 1, "kind": "document_lookups",
+                                                           "reason": "tool_loop"}}}),
+        AIMessage(id="l2c2-main", content="For 12 people the limit is 1,020 EUR (85 EUR \u00d7 12).",
+                  response_metadata={"model_name": "gpt-6.1-sol"}),
+    ])
+
+
+@app.post("/__l2c2_fixture/learning/{action}")
+def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """The personal model compared, on trial, kept, in a chat and in the picker for the L2c2 spec. Uses
+    L2c's fixture (setup, train, finish, version ready) first. No model, runtime or provider runs."""
+
+    predecessor._authorize(x_fixture_token)
+    import time
+
+    from row_bot import learning
+    from row_bot.learning import model_compare, runner, use, versions
+
+    if action == "restore":
+        import shutil
+
+        models = learning.data_dir() / learning.MODELS_FOLDER
+        for name_ in (learning.USE_FILE, "needs_you.json"):
+            (models / name_).unlink(missing_ok=True)
+        (learning.data_dir() / "learning_advanced.json").unlink(missing_ok=True)
+        if "suggested" in _l2c2:
+            versions.suggested_folder = _l2c2["suggested"]
+        try:
+            from row_bot.thread_cleanup import delete_thread
+
+            delete_thread(_L2C2_CHAT)
+        except Exception:
+            logging.getLogger(__name__).debug("L2c2 fixture chat already gone", exc_info=True)
+        shutil.rmtree(models / "base", ignore_errors=True)
+        _l2c2.clear()
+        return {"action": action}
+    if "suggested" not in _l2c2:
+        # Export… offers a folder that names no real person's home.
+        _l2c2["suggested"] = versions.suggested_folder
+        versions.suggested_folder = lambda: str(Path("C:/Users/you/Documents/Row-Bot personal models")) \
+            if os.name == "nt" else "/home/you/Documents/Row-Bot personal models"
+    if action == "files":
+        _l2c2_files()
+    elif action == "progress":  # name: tasks done of 96
+        comparisons = runner.get().comparisons
+        if not isinstance(comparisons, _FixtureComparisons) or comparisons.version is None:
+            raise HTTPException(409, "Compare now first")
+        comparisons._progress(comparisons.version, done=int(name or 0))  # noqa: SLF001
+    elif action == "compared":  # name: better | no_difference
+        comparisons = runner.get().comparisons
+        if isinstance(comparisons, _FixtureComparisons):
+            comparisons.version = None
+        model_compare._write_json(model_compare.comparison_path(1), _l2c2_comparison(name or "better"))  # noqa: SLF001
+        model_compare.progress_path(1).unlink(missing_ok=True)
+    elif action == "keep-due":  # v1 on trial for four days, with 18 requests (one finished by the main model)
+        kind = name or "document_lookups"
+        use.start_trial(1, kind, _L2C2_REF, clock=lambda: time.time() - 4 * 86400)
+        for outcome in ["answered"] * 17 + ["fallback"]:
+            use.record(kind, 1, outcome, 4.2)
+    elif action == "retrain":  # a chat v1 was trained on is deleted
+        from row_bot.learning.store import LearningStore
+
+        LearningStore().purge_thread("l2c2-deleted-chat")
+    elif action == "chat":
+        _l2c2_chat()
+    elif action == "picker":  # v1 in the composer's picker, beside the synthetic local models (s8's seed first)
+        from row_bot.providers import model_catalog_cache as cache
+        from row_bot.providers.selection import add_quick_choice_for_model
+
+        snapshot = cache.read_model_catalog_cache()
+        tag = _L2C2_REF.split(":", 2)[2]
+        rows = [row for row in snapshot.ollama_rows if row.get("model_id") != tag]
+        rows.append({"provider_id": "ollama", "model_id": tag, "display_name": tag, "installed": True,
+                     "capabilities_snapshot": _S8_CHAT})
+        cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+            1, snapshot.generated_at + 1, snapshot.cloud_cache, rows,
+            {"ollama": {"status": "ok", "count": len(rows)}}, (), "synthetic-browser"))
+        add_quick_choice_for_model(tag, provider_id="ollama", display_name=tag, capabilities_snapshot=_S8_CHAT,
+                                   surface="chat")
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
 
 
 # ── S11: helpers ────────────────────────────────────────────────────────────

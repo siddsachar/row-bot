@@ -1,0 +1,622 @@
+/* Learning (preview): the setup sheet, Settings › Learning, the Learning tab, Teach and the
+   review sheet. Layout only, on the shared tokens: no colours or radii of its own. */
+
+/* Sheets and dialogs ------------------------------------------------------ */
+.learning-sheet {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.learning-section {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.learning-section + .learning-section {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-hairline);
+}
+.learning-section h3,
+.learning-section legend h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+  font-weight: var(--weight-semibold);
+}
+.learning-section p,
+.learning-stack-tight p {
+  margin: 0;
+}
+.learning-stack-tight {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.learning-muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.learning-label {
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+}
+.learning-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.learning-field > .select {
+  width: 100%;
+  max-width: 420px;
+}
+.learning-check {
+  align-items: flex-start;
+  min-height: 0;
+  padding-block: var(--space-1);
+}
+.learning-check > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.learning-check > span > small {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.learning-check input {
+  flex: none;
+  margin-top: 1px;
+}
+.learning-actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.learning-fieldset {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.learning-fieldset > legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+/* The dialog's own actions, along its bottom edge. */
+.learning-sheet-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-2) -24px -24px;
+  padding: var(--space-3) 24px;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-overlay);
+}
+/* The setup sheet scrolls its choices and keeps Turn on Learning in view. */
+.dialog.learning-setup > .dialog-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.learning-sheet-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 0 -24px;
+  padding: 0 24px var(--space-4);
+}
+.dialog.learning-setup .learning-sheet-actions {
+  margin: 0 -24px;
+}
+@media (max-width: 767px) {
+  .learning-sheet-actions {
+    margin: var(--space-2) -16px -20px;
+    padding: var(--space-3) 16px
+      calc(var(--space-3) + env(safe-area-inset-bottom));
+  }
+  .learning-sheet-scroll {
+    margin: 0 -16px;
+    padding: 0 16px var(--space-4);
+  }
+  .dialog.learning-setup .learning-sheet-actions {
+    margin: 0 -16px;
+  }
+  .learning-sheet-actions > .button {
+    flex: 1 1 0;
+  }
+}
+.learning-error {
+  margin: 0;
+  color: var(--status-danger-text);
+}
+.learning-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 1.25em;
+}
+.learning-delete-details {
+  display: grid;
+  gap: var(--space-2);
+}
+.learning-delete-details p,
+.learning-delete-details ul {
+  margin: 0;
+}
+.learning-delete-details ul {
+  display: grid;
+  gap: 2px;
+  padding-left: 1.25em;
+}
+
+/* Settings › Learning ---------------------------------------------------- */
+.learning-off-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.learning-off-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.learning-off-text {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.learning-off-text h3,
+.learning-off-text p {
+  margin: 0;
+}
+.learning-off-text h3 {
+  font-size: var(--text-15);
+  line-height: var(--leading-15);
+  font-weight: var(--weight-semibold);
+}
+.learning-off-text > .learning-muted .button {
+  margin-left: var(--space-1);
+}
+.learning-inline-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.learning-group-note {
+  padding: var(--space-2) 16px var(--space-3);
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* The Learning tab ------------------------------------------------------- */
+.learning-home .learning-views {
+  justify-self: start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.learning-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-info-border);
+  border-radius: var(--radius-card);
+  background: var(--status-info-background);
+  color: var(--text-primary);
+}
+.learning-banner[data-tone='warning'] {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-background);
+}
+.learning-banner > p {
+  flex: 1 1 260px;
+  margin: 0;
+}
+.learning-progress {
+  display: grid;
+  gap: var(--space-1);
+}
+.learning-progress progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent-solid);
+}
+.learning-section-list {
+  display: grid;
+  gap: var(--space-6);
+}
+/* The personal model's training run: its words, the way on, and its progress. */
+.learning-training {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.learning-training-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.learning-training-words {
+  display: grid;
+  flex: 1 1 280px;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.learning-training-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.learning-training progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent-solid);
+}
+/* The one command that loads a version where the person starts the runtime themselves. */
+.learning-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.learning-command-text {
+  flex: 1 1 280px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font-size: var(--text-12);
+  line-height: var(--leading-13);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.learning-empty-lead {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+.learning-empty-lead > p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.learning-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.learning-facts {
+  display: grid;
+  margin: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.learning-facts > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+.learning-facts > div + div {
+  border-top: 1px solid var(--border-hairline);
+}
+.learning-facts dt {
+  color: var(--text-muted);
+}
+.learning-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+.learning-facts dd.learning-fact-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.learning-facts dd.learning-fact-action > .button {
+  margin-block: calc(-1 * var(--space-1));
+}
+.learning-facts .learning-fact-note {
+  display: block;
+  margin-top: var(--space-1);
+}
+@media (max-width: 767px) {
+  .learning-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Teach ------------------------------------------------------------------ */
+.learning-teach .segmented {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.learning-teach textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+}
+
+/* The review sheet (L3b fills it) ---------------------------------------- */
+.drawer-panel.learning-review {
+  width: min(480px, calc(100vw - 24px));
+}
+.learning-review .drawer-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.learning-review-body {
+  display: grid;
+  align-content: start; /* short content stays together, never spread over the sheet */
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.learning-review-body section {
+  display: grid;
+  gap: var(--space-2);
+}
+.learning-review-body h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+.learning-review-body p {
+  margin: 0;
+}
+.learning-review-quote {
+  margin: 0;
+  padding: var(--space-3);
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+}
+.learning-results {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.learning-results th,
+.learning-results td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border-hairline);
+  text-align: right;
+}
+.learning-results th:first-child,
+.learning-results td:first-child {
+  text-align: left;
+}
+.learning-results thead th {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.learning-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-overlay);
+}
+.learning-review-actions .learning-review-more {
+  margin-left: auto;
+}
+@media (max-width: 767px) {
+  .drawer-panel.learning-review {
+    inset: 0;
+    width: 100vw;
+    border-radius: 0;
+  }
+  .learning-review-actions {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  }
+}
+
+/* Using the personal model (L2c2): versions, its comparison, in use, Needs you, Advanced. */
+.learning-versions {
+  gap: var(--space-3);
+}
+.learning-versions > p {
+  margin: 0;
+}
+.learning-section-more {
+  margin-left: auto;
+}
+.learning-compare th[scope='row'] {
+  font-weight: var(--weight-regular);
+}
+.learning-verdict {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-13);
+}
+.learning-verdict[data-verdict='better'] {
+  color: var(--status-success-text);
+}
+.learning-verdict[data-verdict='worse'] {
+  color: var(--status-danger-text);
+}
+.learning-compare-row .learning-verdict {
+  display: inline;
+}
+.learning-compare-line {
+  margin: 0;
+  color: var(--text-primary);
+}
+.learning-compare-rows {
+  display: grid;
+  gap: var(--space-2);
+}
+.learning-compare-row {
+  display: grid;
+  gap: 2px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.learning-compare-row p {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.learning-compare-row-title {
+  color: var(--text-primary);
+}
+.learning-uses,
+.learning-needs {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.learning-use,
+.learning-need {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+.learning-use + .learning-use,
+.learning-need + .learning-need {
+  border-top: 1px solid var(--border-hairline);
+}
+.learning-use-words {
+  display: grid;
+  flex: 1 1 260px;
+  gap: 2px;
+  min-width: 0;
+}
+.learning-use-words p {
+  margin: 0;
+}
+.learning-details {
+  display: grid;
+  gap: var(--space-3);
+}
+.learning-details section {
+  display: grid;
+  gap: var(--space-1);
+}
+.learning-details-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.learning-details-list > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.4fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.learning-details-list dt {
+  color: var(--text-muted);
+}
+.learning-details-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.learning-files code {
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+.learning-advanced .disclosure-body {
+  padding-top: var(--space-3);
+}
+.learning-advanced-row > .select {
+  width: 100%;
+  max-width: 320px;
+}
+.learning-review-details {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* One line per empty state, the icon beside its words even on a phone. */
+.learning-home .inline-empty {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.learning-home .inline-empty-icon {
+  flex: none;
+  margin-top: 2px;
+}
+/* L3a: last night's look (Overnight) and a drafted change's details. */
+.learning-overnight {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.learning-overnight > li {
+  color: var(--text-primary);
+  line-height: var(--leading-13);
+  overflow-wrap: anywhere;
+}
+.learning-overnight > li[data-tone='warning'] {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-card);
+  background: var(--status-warning-background);
+}
+.learning-change-details {
+  display: grid;
+  gap: var(--space-2);
+}
+.learning-change-details > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* A drafted change's state and kind wrap on a phone rather than cut "Waiting to be tested" short. */
+.learning-change-row .entity-row-meta {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 0;
+}
+.learning-change-row .entity-row-meta .status-indicator {
+  flex: none;
+}

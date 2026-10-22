@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import re
+import sys
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -325,7 +326,21 @@ def _should_dream() -> bool:
             len(active),
         )
         return False
+    # Personal-model training (Learning, preview) holds the computer: Dream waits for it.
+    # Read only when Learning's lease was ever loaded, so this costs nothing otherwise.
+    training_holds = getattr(sys.modules.get("row_bot.learning.lease"), "training_holds", None)
+    if training_holds is not None and training_holds():
+        logger.info("Dream cycle deferred — a personal model is training")
+        return False
     return True
+
+
+_dreaming = threading.Event()
+
+
+def is_dreaming() -> bool:
+    """Whether a dream cycle is running now (Learning's training starts after it)."""
+    return _dreaming.is_set()
 
 
 # ── LLM helper ───────────────────────────────────────────────────────────────
@@ -1527,6 +1542,14 @@ def run_dream_cycle(on_status=None) -> dict:
     on_status : callable, optional
         Called with status strings for UI/logging feedback.
     """
+    _dreaming.set()
+    try:
+        return _run_dream_cycle(on_status)
+    finally:
+        _dreaming.clear()
+
+
+def _run_dream_cycle(on_status=None) -> dict:
     import row_bot.knowledge_graph as kg
 
     cycle_id = uuid.uuid4().hex[:8]

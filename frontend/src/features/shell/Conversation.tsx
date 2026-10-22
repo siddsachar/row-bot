@@ -129,6 +129,11 @@ import { registerPromptSender } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import ErrorFix from './ErrorFix';
 import { TranscriptMessage } from './TranscriptMessage';
+import {
+  TeachContext,
+  useChatTeach,
+  useLearningChatMenu,
+} from '../learning/chat-learning';
 import { publicBlockText } from './TranscriptBlocks';
 import {
   answerStreaming,
@@ -286,6 +291,9 @@ export default function Conversation({
   const overlay = useOverlay();
   const navigate = useNavigate();
   const id = state.selectedConversationId;
+  // Learning (preview): Teach on replies and failed steps, the chat menu's item.
+  const learningChat = useChatTeach(id);
+  const learningMenuItem = useLearningChatMenu();
   const historyReady =
     Boolean(id) && !state.loadingConversation && state.conversation?.id === id;
   const draft = controller.getDraft(id ?? 'new');
@@ -3126,6 +3134,10 @@ export default function Conversation({
             actions={headerActions}
             leading={headerLeading}
             menuActions={headerMenu}
+            trailingMenuActions={(() => {
+              const item = id ? learningMenuItem({ id, title }) : null;
+              return item ? [item] : [];
+            })()}
             breadcrumb={breadcrumb}
           >
             {missingReceipt &&
@@ -3212,7 +3224,7 @@ export default function Conversation({
               {state.loadingConversation ? (
                 <Skeleton label="Opening conversation" />
               ) : items.length || pending?.conversation === id ? (
-                <>
+                <TeachContext.Provider value={learningChat.teach}>
                   {earlierIds.size > 0 && (
                     // Loaded history is not announced as new conversation.
                     <div className="transcript-earlier" aria-live="off">
@@ -3275,7 +3287,7 @@ export default function Conversation({
                       />
                     ),
                   )}
-                </>
+                </TeachContext.Provider>
               ) : (
                 <ChatEmpty
                   conversationId={id}
@@ -3534,6 +3546,7 @@ export default function Conversation({
               )}
             </div>
           </div>
+          {learningChat.sheet}
           {(state.history || showLatest) && (
             <button
               type="button"

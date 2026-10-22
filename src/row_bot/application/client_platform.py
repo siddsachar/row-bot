@@ -1406,6 +1406,21 @@ class ClientPlatformService:
             restore_resume_reasoning(config["configurable"], conversation_id,
                                      pass_id=str((approval_context or {}).get("pass_id") or ""))
         freeze_reasoning(config["configurable"], conversation_id, revalidate=frozen_context is not None)
+        # Learning (preview, L2c2): a new message of a kind of work the person gave their personal model
+        # runs on it, with the main model finishing a stuck turn. Nothing in use: one path check.
+        learning_route = None
+        if not resume and frozen_context is None and followup is None:
+            from row_bot import learning
+            learning_route = learning.route_turn(
+                conversation_id=conversation_id, text=text, model_ref=model_ref, surface=effective_surface,
+                attachments=[str(view.get("name") or "") for view in attachment_views],
+                apps=[str(app) for app in (narrowed.get("focus") or ())] if isinstance(narrowed, dict) else [],
+                code_folder=any(binding.kind == "workspace" for binding in captured_bindings))
+            if learning_route is not None:
+                routed = {**deepcopy(config["configurable"]), "model_override": learning_route.personal_ref}
+                routed.pop("reasoning_snapshot", None)
+                freeze_reasoning(routed, conversation_id)
+                learning_route = learning_route.with_configurable(routed)
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
         if frozen_context is not None:  # Remembered for a resume: this turn's own apps, not those it was queued behind.
             kept = {key: value for key, value in queue_context["configurable"].items() if key != "app_scope"}
@@ -1498,14 +1513,20 @@ class ClientPlatformService:
                             descriptor = describe(binding)
                             if not descriptor.available or descriptor.resource_revision != target["resource_revision"]:
                                 raise ClientPlatformError("resource_revision_conflict")
-                    # A question's answer resumes its own interrupt only (N4).
-                    answered = ({"resume_values": approval_context["resume_values"]}
-                                if (approval_context or {}).get("resume_values") else {})
-                    events = ((self.resume_factory or resume_stream_agent)(enabled, config,
-                              bool((approval_context or {}).get("approved")),
-                              interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event,
-                              **answered)
-                              if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
+                    if learning_route is not None:
+                        from row_bot.learning import routing as learning_routing
+                        events = learning_routing.stream(
+                            learning_route, self.stream_factory or stream_agent, prepared_text, enabled, config,
+                            stop_event=handle.cancel_scope.stop_event)
+                    else:
+                        # A question's answer resumes its own interrupt only (N4).
+                        answered = ({"resume_values": approval_context["resume_values"]}
+                                    if (approval_context or {}).get("resume_values") else {})
+                        events = ((self.resume_factory or resume_stream_agent)(enabled, config,
+                                  bool((approval_context or {}).get("approved")),
+                                  interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event,
+                                  **answered)
+                                  if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
                     if approval_context is not None and not approval_context.get("approved"):
                         events = _settled_denial(
                             events, conversation_id=conversation_id,

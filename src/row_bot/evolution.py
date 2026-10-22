@@ -26,6 +26,10 @@ VALID_PROPOSAL_TYPES = {
     "send_feedback",
     "settings_change",
     "memory_correction",
+    # Learning (E6): a lesson (a self_knowledge memory once used) and a way of working (a versioned
+    # overlay of whitelisted slots). Learning drafts them; testing and use come from Learning (L3b).
+    "lesson",
+    "behaviour",
 }
 VALID_PROPOSAL_STATUSES = {
     "draft",
@@ -45,7 +49,12 @@ MUTATING_PROPOSAL_TYPES = {
     "send_feedback",
     "settings_change",
     "memory_correction",
+    "lesson",
+    "behaviour",
 }
+# The whitelisted ways-of-working slots a behaviour draft may name (D18; L3b wires each one).
+BEHAVIOUR_SLOTS = ("guidance", "tool_guidance", "recall", "delegation", "step_budget")
+LEARNING_DRAFT_TYPES = {"lesson", "behaviour", "create_skill", "patch_skill"}
 SKILL_MUTATION_TYPES = {"create_skill", "patch_skill", "consolidate_skills"}
 # What applying can carry out. The other kinds are review proposals: the
 # person makes the change, so applying one is refused, never marked applied (B124).
@@ -301,12 +310,106 @@ def _validate_skill_name(name: str) -> str | None:
     return None
 
 
-def redact_text(text: str, *, max_chars: int | None = None) -> str:
-    """Redact secrets, user-local paths, emails, and oversized content."""
+# E9: text Learning drafts reaches the model's context, so it may not add recipients, links,
+# credentials or permissions, whoever's evidence it rests on.
+_E9_RECIPIENT = re.compile(
+    r"[\w.+-]+@[\w-]+\.[\w.-]+|(?<![\w@])@[A-Za-z0-9_]{2,}\b|\+?\d[\d ().-]{7,}\d"
+    r"|\b(?:cc|bcc)\b|\bforward(?:ed|ing)? (?:it |them |this |that |emails? |messages? )?to\b"
+    r"|\b(?:also|always) send (?:\w+ ){0,3}to\b|\badd (?:\w+ ){0,2}(?:to|as) (?:the )?recipients?\b"
+    r"|\bcopy (?:\w+ ){0,2}in on\b",
+    re.IGNORECASE,
+)
+_E9_URL = re.compile(
+    r"\b(?:https?|ftp)://|\bwww\.|\b[a-z0-9-]+\.(?:com|org|net|io|ai|dev|app|co|uk|info|biz|me|gov|edu|example|test"
+    r"|xyz|site|online)\b",
+    re.IGNORECASE,
+)
+_E9_CREDENTIAL = re.compile(
+    r"\b(?:passwords?|passcodes?|passphrases?|pin (?:codes?|numbers?)|api[ _-]?keys?|secrets?|(?:access|auth|api"
+    r"|bearer|refresh|session) tokens?|bearer|private keys?|ssh keys?"
+    r"|credentials?|log ?in details|sign[- ]in details)\b",
+    re.IGNORECASE,
+)
+_E9_PERMISSION = re.compile(
+    r"\bwithout (?:asking|approval|confirmation|checking|permission)\b|\bskip(?:ping)? (?:the )?(?:approvals?"
+    r"|confirmations?|reviews?|checks?)\b|\bauto[- ]?approv\w*|\b(?:don'?t|do not|never) ask (?:for )?(?:approval"
+    r"|permission|first|before)\b|\bno need to (?:ask|confirm)\b|\bfull autonomy\b|\bhands[- ]off\b"
+    r"|\bgrant(?:ed|ing)? (?:\w+ )?(?:access|permissions?)\b|\bgive (?:\w+ ){0,2}(?:access|permissions?)\b"
+    r"|\bbypass\w*|\b(?:disable|turn off|switch off) (?:the )?(?:approvals?|reviews?|safety|guards?|checks?)\b"
+    r"|\balways (?:allow|approve)\b",
+    re.IGNORECASE,
+)
+
+
+def injection_problems(text: str) -> list[str]:
+    """What a Learning draft's text adds that E9 forbids: ``recipient``, ``url``, ``credential`` and
+    ``permission`` (empty when none). An unredacted secret counts as a credential."""
+
+    value = str(text or "")
+    found = []
+    if _E9_RECIPIENT.search(value):
+        found.append("recipient")
+    if _E9_URL.search(value):
+        found.append("url")
+    if _E9_CREDENTIAL.search(value) or contains_unredacted_sensitive_text(value):
+        found.append("credential")
+    if _E9_PERMISSION.search(value):
+        found.append("permission")
+    return found
+
+
+def learning_draft(proposal: dict[str, Any]) -> bool:
+    """A change Learning drafted: it is shown, tested and used in Learning, never in the other lists."""
+
+    return isinstance(_safe_payload(proposal.get("payload")).get("learning"), dict)
+
+
+def learning_untested(proposal: dict[str, Any]) -> bool:
+    """A change Learning drafted that hasn't passed its tests yet: never applied (L3b tests and uses it)."""
+
+    learning = _safe_payload(proposal.get("payload")).get("learning")
+    return isinstance(learning, dict) and learning.get("state") != "tested"
+
+
+def remove_learning_drafts(attempt_ids: set[str] | None = None) -> int:
+    """Remove the changes Learning drafted that were never used (and their rejection memory): all of them
+    ("Delete learning data"), or those drafted from ``attempt_ids`` (their source chat was deleted or
+    switched off). Text derived from the person's chats never outlives them. Returns how many went."""
+
+    store = _load_store()
+    gone: set[str] = set()
+    kept = []
+    for proposal in store.get("proposals", []):
+        learning = _safe_payload(proposal.get("payload")).get("learning")
+        if (isinstance(learning, dict) and proposal.get("status") not in ("applied", "verified")
+                and (attempt_ids is None or learning.get("attempt_id") in attempt_ids)):
+            gone.add(str(proposal.get("id")))
+            continue
+        kept.append(proposal)
+    if not gone:
+        return 0
+    store["proposals"] = kept
+    store["rejected_proposals"] = [item for item in store.get("rejected_proposals", [])
+                                   if str(item.get("proposal_id")) not in gone]
+    store["outcomes"] = [item for item in store.get("outcomes", []) if str(item.get("proposal_id")) not in gone]
+    _save_store(store)
+    return len(gone)
+
+
+def redact_secrets(text: str) -> str:
+    """Replace secret-shaped text (API keys, tokens, bearer credentials, ``key=value``
+    secrets) with ``[redacted-secret]``; everything else is kept."""
 
     value = str(text or "")
     for pattern in _SECRET_PATTERNS:
         value = pattern.sub("[redacted-secret]", value)
+    return value
+
+
+def redact_text(text: str, *, max_chars: int | None = None) -> str:
+    """Redact secrets, user-local paths, emails, and oversized content."""
+
+    value = redact_secrets(text)
     value = _WINDOWS_USER_PATH_RE.sub("[local-user-path]", value)
     value = _POSIX_USER_PATH_RE.sub("[local-user-path]", value)
     value = _EMAIL_RE.sub("[redacted-email]", value)
@@ -1274,6 +1377,15 @@ def validate_proposal(proposal: dict[str, Any]) -> dict[str, Any]:
         if len(body) > MAX_FEEDBACK_BODY_CHARS:
             warnings.append("Feedback draft body is long and will be trimmed before saving.")
 
+    elif proposal_type in {"lesson", "behaviour"}:
+        text = str(payload.get("text") or "")
+        if not text.strip():
+            errors.append("A Learning draft needs its text.")
+        if proposal_type == "behaviour" and payload.get("slot") not in BEHAVIOUR_SLOTS:
+            errors.append("A way of working names one of the whitelisted slots.")
+        for problem in injection_problems(text + "\n" + str(proposal.get("title") or "")):
+            errors.append(f"Learning drafts may not add a {problem} (E9).")
+
     elif proposal_type == "consolidate_skills":
         targets = payload.get("skill_names")
         if not isinstance(targets, list) or len(targets) < 2:
@@ -1342,6 +1454,8 @@ def apply_proposal(
     if proposal.get("status") in {"applied", "verified", "rejected"}:
         return {"ok": False, "message": f"Proposal is already {proposal.get('status')}", "action_run": None}
     proposal_type = str(proposal.get("proposal_type") or "")
+    if learning_untested(proposal):
+        return {"ok": False, "message": "Learning hasn't tested this change yet.", "action_run": None}
     if proposal_type not in EXECUTABLE_PROPOSAL_TYPES:
         return {
             "ok": False,
@@ -1762,7 +1876,7 @@ def review_skill_library_dry_run(*, create_proposals: bool = True) -> dict[str, 
 
 
 def evolution_summary() -> str:
-    proposals = list_proposals()
+    proposals = [proposal for proposal in list_proposals() if not learning_draft(proposal)]
     runs = list_action_runs(limit=8)
     reports = list_curator_reports(limit=3)
     active = [p for p in proposals if p.get("status") not in TERMINAL_PROPOSAL_STATUSES]

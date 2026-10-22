@@ -1,0 +1,356 @@
+{
+  "$defs": {
+    "LearningAdvancedValues": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "maximum": 1048576,
+          "minimum": 512,
+          "title": "Context",
+          "type": "integer"
+        },
+        "epochs": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Epochs",
+          "type": "integer"
+        },
+        "learning_rate": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "method": {
+          "const": "standard",
+          "default": "standard",
+          "title": "Method",
+          "type": "string"
+        },
+        "rank": {
+          "maximum": 512,
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "starting_model": {
+          "maxLength": 64,
+          "title": "Starting Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "starting_model",
+        "rank",
+        "learning_rate",
+        "epochs",
+        "context"
+      ],
+      "title": "LearningAdvancedValues",
+      "type": "object"
+    },
+    "LearningSetupChoices": {
+      "additionalProperties": false,
+      "properties": {
+        "apply_mode": {
+          "enum": [
+            "ask_first",
+            "automatic"
+          ],
+          "title": "Apply Mode",
+          "type": "string"
+        },
+        "monthly_token_limit": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Monthly Token Limit",
+          "type": "integer"
+        },
+        "sources": {
+          "$ref": "#/$defs/LearningSourcesSnapshot"
+        },
+        "starting_model": {
+          "default": "qwen3.5-2b",
+          "enum": [
+            "qwen3.5-2b",
+            "qwen3.5-9b"
+          ],
+          "title": "Starting Model",
+          "type": "string"
+        },
+        "train_in_quiet_hours": {
+          "title": "Train In Quiet Hours",
+          "type": "boolean"
+        },
+        "train_where": {
+          "enum": [
+            "this_computer",
+            "hugging_face"
+          ],
+          "title": "Train Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sources",
+        "apply_mode",
+        "monthly_token_limit",
+        "train_in_quiet_hours",
+        "train_where"
+      ],
+      "title": "LearningSetupChoices",
+      "type": "object"
+    },
+    "LearningSourcesSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "my_chats": {
+          "title": "My Chats",
+          "type": "boolean"
+        },
+        "past_chats": {
+          "title": "Past Chats",
+          "type": "boolean"
+        },
+        "workflows_and_goals": {
+          "title": "Workflows And Goals",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "my_chats",
+        "workflows_and_goals",
+        "past_chats"
+      ],
+      "title": "LearningSourcesSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "turn_on",
+        "turn_off",
+        "pause",
+        "resume",
+        "delete_data",
+        "opt_out",
+        "opt_in",
+        "teach",
+        "undo_teach",
+        "answer_download",
+        "train_now",
+        "stop_training",
+        "continue_training",
+        "discard_training",
+        "use_recommended",
+        "start_download",
+        "stop_download",
+        "cancel_download",
+        "remove_engine",
+        "delete_starting_model",
+        "make_ready",
+        "choose_runtime",
+        "compare_version",
+        "stop_compare",
+        "use_version",
+        "keep_version",
+        "keep_not_now",
+        "undo_use",
+        "export_version",
+        "delete_version",
+        "save_advanced",
+        "reset_advanced",
+        "retrain_without",
+        "dismiss",
+        "review_version",
+        "use_smaller_model"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "advanced": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningAdvancedValues"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "category": {
+      "anyOf": [
+        {
+          "enum": [
+            "wrong_answer",
+            "wrong_tool_or_step",
+            "ignored_instructions",
+            "other"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Category"
+    },
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "download": {
+      "anyOf": [
+        {
+          "enum": [
+            "download",
+            "not_now"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Download"
+    },
+    "folder": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Folder",
+      "type": "string"
+    },
+    "item_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Item Id",
+      "type": "string"
+    },
+    "job_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Job Id",
+      "type": "string"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "document_lookups",
+            "structured_transforms",
+            "small_coding",
+            "tool_workflows"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kind"
+    },
+    "message_id": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Message Id",
+      "type": "string"
+    },
+    "model": {
+      "default": "",
+      "enum": [
+        "",
+        "qwen3.5-2b",
+        "qwen3.5-9b"
+      ],
+      "title": "Model",
+      "type": "string"
+    },
+    "note": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Note",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "runtime": {
+      "default": "",
+      "enum": [
+        "",
+        "row_bot",
+        "ollama",
+        "lmstudio",
+        "llama_cpp",
+        "vllm"
+      ],
+      "title": "Runtime",
+      "type": "string"
+    },
+    "setup": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningSetupChoices"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "signal_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Signal Id",
+      "type": "string"
+    },
+    "tool_call_id": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Tool Call Id",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "revision",
+    "action"
+  ],
+  "title": "LearningCommand",
+  "type": "object"
+}

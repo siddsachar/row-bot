@@ -6,8 +6,11 @@ reads, ``row_bot.providers.auth_store.PROVIDER_API_KEY_ENV``). This module
 imports nothing from Row-Bot, so planning a run (``--dry-run``) touches no data
 folder and no network.
 
-Codex, xAI OAuth and Claude Subscription sign in with OAuth and have no
-environment-variable credentials; they are in the manual checklist.
+xAI OAuth and Claude Subscription sign in with OAuth and have no
+environment-variable credentials; they are in the manual checklist. The ChatGPT
+subscription (``codex``) has its own lane (D31): its sign-in comes from a
+dedicated eval profile outside the repo (``eval_profile``), decided here from
+local files only.
 """
 from __future__ import annotations
 
@@ -60,10 +63,12 @@ TARGETS: tuple[ProviderTarget, ...] = (
     ProviderTarget("ollama_cloud", "OLLAMA_API_KEY", "gpt-oss:120b-cloud"),
     ProviderTarget(
         "ollama", "", "",
-        notes=f"local Ollama: runs when {OLLAMA_MODEL_ENV} names an installed model and OLLAMA_HOST answers",
+        notes=f"local Ollama: runs when {OLLAMA_MODEL_ENV} names an installed model and OLLAMA_HOST answers; free",
     ),
+    # The ChatGPT lane (D31): "auto" is GPT-6.1 Sol if the live catalog lists it, else GPT-5.6 Sol.
+    ProviderTarget("codex", "", "auto", notes="the ChatGPT subscription, signed in once in the eval profile"),
 )
-OAUTH_ONLY = ("codex", "xai_oauth", "claude_subscription")
+OAUTH_ONLY = ("xai_oauth", "claude_subscription")
 # Claude models the cache-marker checks use on the gateways (override with the variables).
 OPENROUTER_CLAUDE_ENV = "ROW_BOT_LIVE_EVAL_OPENROUTER_CLAUDE"
 OPENROUTER_CLAUDE_DEFAULT = "anthropic/claude-haiku-4.5"
@@ -99,6 +104,11 @@ def target(provider_id: str) -> ProviderTarget:
 def availability(item: ProviderTarget, env: Mapping[str, str] | None = None) -> Availability:
     """Whether *item* can run, decided from the environment alone (no network)."""
     source = os.environ if env is None else env
+    if item.provider_id == "codex":
+        from .eval_profile import availability as lane
+
+        ready, reason = lane(source)
+        return Availability(item, item.model(source), ready, reason)
     if item.provider_id == "ollama":
         model = str(source.get(OLLAMA_MODEL_ENV, "") or "").strip()
         if not model:

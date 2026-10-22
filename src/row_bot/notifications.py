@@ -9,6 +9,7 @@ it over the event stream).
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import subprocess
 import sys
@@ -18,6 +19,15 @@ from row_bot.runtime_paths import sounds_dir
 logger = logging.getLogger(__name__)
 
 _LEVELS = {"negative": "error", "warning": "warning"}
+#: "off" for a process that must never reach the person's desktop: Learning's evaluation worker and the
+#: live eval's worker run Row-Bot's real runtime in a throwaway profile, and a failed test turn there is not
+#: the person's to hear about (no desktop notification, no sound; the in-app notice stays in that process).
+DESKTOP_SWITCH = "ROW_BOT_DESKTOP_NOTIFICATIONS"
+
+
+def desktop_enabled() -> bool:
+    """Whether this process may show desktop notifications and play sounds (read on every call)."""
+    return os.environ.get(DESKTOP_SWITCH, "").strip().lower() not in {"off", "0", "false", "no"}
 
 # ── Sound files ──────────────────────────────────────────────────────────────
 _SOUNDS_DIR = sounds_dir()
@@ -68,11 +78,12 @@ def notify(
     except Exception:
         logger.debug("Buddy notification event failed", exc_info=True)
 
-    # 1. Desktop notification (plyer) — immediate
-    _desktop_notify(title, f"{message} ({timestamp})")
+    if desktop_enabled():
+        # 1. Desktop notification (plyer) — immediate
+        _desktop_notify(title, f"{message} ({timestamp})")
 
-    # 2. Sound — immediate, non-blocking
-    _play_sound(sound)
+        # 2. Sound — immediate, non-blocking
+        _play_sound(sound)
 
     # 3. In-app notice for every open client
     try:

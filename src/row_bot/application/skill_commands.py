@@ -355,7 +355,7 @@ def read_skill_detail(skill_id: str, *, validate: Callable[[], None]) -> dict:
 
 def _proposal_store() -> tuple[list[dict], str]:
     from row_bot.data_paths import get_row_bot_data_dir
-    from row_bot.evolution import redact_text
+    from row_bot.evolution import learning_draft, redact_text
 
     def public_preview(value: object, depth: int = 0) -> object:
         if depth > 4:
@@ -394,6 +394,8 @@ def _proposal_store() -> tuple[list[dict], str]:
                 "consolidate_skills",
             }:
                 continue
+            if learning_draft(value):
+                continue  # Learning's own draft: it's tested and offered in Learning (L3b), not here
             public = {
                 "id": _text(value.get("id"), 128, required=True),
                 "type": value["proposal_type"],

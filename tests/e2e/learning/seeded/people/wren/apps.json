@@ -1,0 +1,19 @@
+{
+  "calendar": {
+    "events": [
+      {"id": "evt_1", "title": "Studio stand-up", "date": "2026-10-23", "start": "09:30", "end": "09:45", "attendees": ["Ash", "Bo", "Cy", "Dee", "Eli", "Wren"], "location": "Main room"},
+      {"id": "evt_2", "title": "Publisher check-in", "date": "2026-10-29", "start": "16:00", "end": "16:30", "attendees": ["Wren", "Dee"], "location": "Video call"}
+    ]
+  },
+  "mail": {"messages": []},
+  "issues": {
+    "issues": [
+      {"id": "201", "title": "Crash loading levels with unicode names", "state": "open", "labels": ["crash"], "assignee": "", "comments": []},
+      {"id": "202", "title": "Lava tiles not damaging the player", "state": "open", "labels": [], "assignee": "", "comments": []},
+      {"id": "203", "title": "Build script fails on a clean checkout", "state": "open", "labels": ["level-pipeline"], "assignee": "", "comments": []},
+      {"id": "204", "title": "Sand tiles use the stone footstep sound", "state": "open", "labels": [], "assignee": "", "comments": []},
+      {"id": "205", "title": "Tile editor loses undo history", "state": "open", "labels": [], "assignee": "", "comments": []},
+      {"id": "206", "title": "Level CSV export drops the last row", "state": "open", "labels": ["level-pipeline"], "assignee": "", "comments": []}
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "24gb",
+  "tier": "24gb",
+  "certified": true,
+  "title": "24 GB graphics cards",
+  "starting_model": "qwen3.5-9b",
+  "method": "lora_sft",
+  "evidence": "L2x, measured on an RTX 5090 under a 22,117 MiB cap (90% of 24 GB): Qwen3.5 9B, 4-bit QLoRA at 16K. A real run on 90 rows (23 steps, paused at step 4 and continued): 8.1 s/step, 528 s, 20,018 MiB on the card at its peak (with room PyTorch keeps more than the 16 GB run needed), 29.5 GB of the computer's commit (Windows), gradient norms 0.36-0.73, loss 0.34, no spill (the card had 8.8 GB free). Need: 20,480 MiB free on the card (its peak plus 256 MiB) and 30.5 GB of commit; a card with less free trains the same model with the 16 GB recipe. Exported Q8_0 (9.8 GB) and ready in Row-Bot's own server (probe and a tool turn) in 214 s. 16-bit LoRA also fits at 16K (21,890 MiB in a fit, 12.6 s/step on full 16K rows) but needs about 32 GB of commit. Three passes (O119): 69 steps at 8.14 s/step on the same 90 rows; the last pass ready in Row-Bot's own server in 218 s (export and checks), so a fall-back to an earlier pass costs about 4 minutes.",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 4,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 3,
+  "checkpoint_every": 10,
+  "min_examples": 90,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q8_0",
+  "reasoning": "off",
+  "memory_mib": 20480,
+  "system_memory_mib": {
+    "windows": 31232
+  }
+}

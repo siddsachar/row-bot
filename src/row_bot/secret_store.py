@@ -707,3 +707,31 @@ def _set_backend_for_tests(backend: Any | None) -> None:
     """Install a fake backend for focused tests."""
     global _backend_override
     _backend_override = backend
+
+
+class MemoryBackend:
+    """A keyring that lives only in this process's memory: nothing is written anywhere."""
+
+    def __init__(self) -> None:
+        self._values: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, account: str) -> str | None:
+        return self._values.get((service, account))
+
+    def set_password(self, service: str, account: str, value: str) -> None:
+        self._values[(service, account)] = str(value)
+
+    def delete_password(self, service: str, account: str) -> None:
+        if (service, account) not in self._values:
+            raise KeyError("not found")
+        del self._values[(service, account)]
+
+
+def use_memory_backend() -> MemoryBackend:
+    """Keep this process's secrets in memory only, never in the OS credential store or a file.
+
+    For an owned worker process with its own throwaway data folder (Learning's evaluation worker,
+    L2c2): credentials it is handed live and die with it. Call before anything reads a secret."""
+    backend = MemoryBackend()
+    _set_backend_for_tests(backend)
+    return backend

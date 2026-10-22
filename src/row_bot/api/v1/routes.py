@@ -71,6 +71,12 @@ _LOCAL_APPLICATION_CAPABILITIES = (
     "computer:interactive",
 )
 _PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
+
+
+def _learning_preview() -> bool:
+    from row_bot import learning
+
+    return learning.preview_enabled()
 # Settings actions that act on this computer's screen (Computer Use's test
 # opens Calculator; the others open macOS System Settings): desktop app only.
 _SCREEN_SETTINGS_ACTIONS = frozenset({
@@ -363,6 +369,27 @@ _STATUS.update(
         "insight_proposal_finished": 409,
         "insight_proposal_draft_only": 409,
         "insight_receipt_unavailable": 404,
+        "learning_unavailable": 404,
+        "invalid_learning_command": 422,
+        "learning_revision_conflict": 409,
+        "learning_off": 409,
+        "learning_paused": 409,
+        "learning_chat_not_used": 409,
+        "learning_data_missing": 409,
+        "learning_data_busy": 409,
+        "learning_settings_unavailable": 409,
+        "learning_save_unconfirmed": 503,
+        "learning_receipt_unavailable": 404,
+        "learning_nothing_to_train": 409,
+        "learning_training_changed": 409,
+        "learning_download_unavailable": 409,
+        "learning_not_enough_disk": 409,
+        "learning_download_busy": 409,
+        "learning_download_changed": 409,
+        "learning_version_changed": 409,
+        "learning_version_busy": 409,
+        "learning_compare_unavailable": 409,
+        "learning_export_unavailable": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
@@ -1221,7 +1248,7 @@ def cached_choices() -> dict:
     """Read existing caches/catalogues; opening a client never refreshes a provider."""
     from row_bot.providers.model_catalog_cache import read_model_catalog_cache
     from row_bot.providers.client_status import picker_choices
-    from row_bot.providers.model_visibility import annotate
+    from row_bot.providers.model_visibility import annotate, withheld
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
@@ -1238,6 +1265,8 @@ def cached_choices() -> dict:
                 "available": option["available"],
                 "unavailable_reason": option["unavailable_reason"],
                 "billing": option["billing"],
+                # Learning (preview, D11): a personal-model version, tagged Personal in the picker.
+                "personal": withheld(option["provider_id"], option["selection_ref"]),
             }
             for option in picker_choices("chat")
         ),
@@ -1520,6 +1549,8 @@ def create_router(
                 "application_capabilities": [
                     *_APPLICATION_CAPABILITIES,
                     *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                    # Learning (preview) surfaces exist only in a build with its flag (O34).
+                    *(("learning:preview",) if _learning_preview() else ()),
                 ],
                 "presentation_capabilities": sorted(
                     set(body.presentation_features) & _PRESENTATION_FEATURES
@@ -9481,6 +9512,125 @@ def create_router(
             validate=dispatch_validation(request, current),
         )
         return await respond(request, dto.InsightReceipt, result)
+
+    # Learning (preview): every route answers learning_unavailable without the flag (O34).
+    @router.get("/learning")
+    async def learning_snapshot(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning
+
+        return await respond(
+            request,
+            dto.LearningSnapshot,
+            await call(read_learning, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/training")
+    async def learning_training(request: Request) -> JSONResponse:
+        # Polled by Monitor's row and the Personal model view while a run is live.
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_training
+
+        return await respond(
+            request,
+            dto.LearningTraining,
+            await call(read_learning_training, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/download")
+    async def learning_download(request: Request) -> JSONResponse:
+        # Polled by Monitor's row and the Personal model view while the download runs.
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_download
+
+        return await respond(
+            request,
+            dto.LearningDownload,
+            await call(read_learning_download, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/hardware")
+    async def learning_hardware(request: Request, refresh: bool = False) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_hardware
+
+        return await respond(
+            request,
+            dto.LearningHardware,
+            await call(
+                read_learning_hardware,
+                validate=dispatch_validation(request, current),
+                refresh=refresh,
+            ),
+        )
+
+    @router.get("/learning/conversations/{conversation_id}")
+    async def learning_conversation(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_conversation
+
+        return await respond(
+            request,
+            dto.LearningConversation,
+            await call(
+                read_learning_conversation,
+                conversation_id,
+                validate=dispatch_validation(request, current),
+            ),
+        )
+
+    @router.get("/learning/lessons")
+    async def learning_lessons(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_lessons
+
+        return await respond(
+            request,
+            dto.LearningLessonPage,
+            await call(read_learning_lessons, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/versions/{version}")
+    async def learning_version(version: int, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_version
+
+        return await respond(
+            request,
+            dto.LearningVersionDetails,
+            await call(read_learning_version, version, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/learning/commands/{command_id}")
+    async def learning_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_receipt
+
+        result = await call(
+            read_learning_receipt,
+            str(command_id),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.LearningReceipt, result)
+
+    @router.post("/learning/commands")
+    async def learning_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.LearningCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_learning import execute_learning
+
+        result = await call(
+            execute_learning,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.LearningReceipt, result)
 
     # Settings › Data (decision 21), from any signed-in device.
     _DATA_RECEIPTS: dict[str, dict] = {}

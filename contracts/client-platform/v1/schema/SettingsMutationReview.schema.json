@@ -27,7 +27,8 @@
         "tools",
         "accounts",
         "utilities",
-        "preferences"
+        "preferences",
+        "learning"
       ],
       "title": "Page",
       "type": "string"

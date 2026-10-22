@@ -443,7 +443,27 @@ def request_approval(
     mode = current_approval_mode() if approval_mode is None else approval_mode
     response, line = _decide(payload, approval_mode=mode, risks=risks, approval_callback=approval_callback)
     _record(line)
+    _note_for_learning(payload, mode, response, line)
     return response
+
+
+def _note_for_learning(payload: dict[str, Any], mode: object, response: Any, line: str, *,
+                       blocked: bool = False) -> None:
+    """Learning (preview) reads the decision made here; it never takes part in it (E8).
+
+    Off: one cached check, nothing else imported.
+    """
+
+    from row_bot import learning
+
+    if not learning.is_enabled():
+        return
+    try:
+        from row_bot.agent import note_learning_approval
+
+        note_learning_approval(payload, mode, response, line, blocked=blocked)
+    except Exception as exc:
+        logger.debug("Learning did not see an approval decision (%s)", type(exc).__name__)
 
 
 def _outcome(response: Any) -> GateOutcome:
@@ -468,6 +488,7 @@ def resolve_approval_line(
     if decision == "allow":
         return "allow", APPROVAL_NOT_NEEDED_READ_ONLY
     if decision == "block":
+        _note_for_learning(payload, approval_mode, False, "", blocked=True)
         return "block", ""
     response, line = _decide(payload, approval_mode=approval_mode, risks=risks,
                              approval_callback=approval_callback)
@@ -475,6 +496,7 @@ def resolve_approval_line(
     if not line:
         line = APPROVAL_GIVEN if outcome == "allow" else APPROVAL_DENIED
     _record(line)
+    _note_for_learning(payload, approval_mode, response, line)
     return outcome, line
 
 

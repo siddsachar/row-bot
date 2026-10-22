@@ -273,6 +273,11 @@ export type MenuAction = {
   /** Destructive actions render last, in red, after a separator. */
   danger?: boolean;
   selected?: boolean;
+  /**
+   * A check item ("Don't learn from this chat"): announced as a checkbox in
+   * the menu, ticked while true. Choosing it calls `onSelect`.
+   */
+  checked?: boolean;
   /** A 16px monochrome glyph shown before the label. */
   icon?: ReactNode;
   /** A shortcut such as "Mod+K", shown as keycaps at the end of the row. */
@@ -295,6 +300,20 @@ export function orderMenuActions(actions: MenuAction[]): MenuAction[] {
     ? [...safe, { ...danger[0], separatorBefore: true }, ...danger.slice(1)]
     : actions;
 }
+/** A menu row: a check item when `checked` is set, a plain item otherwise. */
+const MenuItem = forwardRef<
+  HTMLDivElement,
+  Omit<Dropdown.DropdownMenuCheckboxItemProps, 'checked'> & {
+    checked?: boolean;
+  }
+>(function MenuItem({ checked, ...props }, ref) {
+  return checked === undefined ? (
+    <Dropdown.Item ref={ref} {...props} />
+  ) : (
+    <Dropdown.CheckboxItem ref={ref} checked={checked} {...props} />
+  );
+});
+
 export function Menu({
   label,
   actions,
@@ -385,9 +404,10 @@ export function Menu({
               {action.separatorBefore && index > 0 && (
                 <Dropdown.Separator className="menu-separator" />
               )}
-              <Dropdown.Item
+              <MenuItem
                 className={`menu-item ${action.icon || action.shortcut ? 'menu-item-rich' : ''} ${action.danger ? 'danger-text' : ''}`}
                 disabled={action.disabled}
+                checked={action.checked}
                 aria-current={action.selected ? true : undefined}
                 aria-describedby={
                   action.description ? `${descriptions}-${index}` : undefined
@@ -422,8 +442,10 @@ export function Menu({
                     <Kbd keys={action.shortcut} />
                   </span>
                 )}
-                {action.selected && <Check size={16} aria-hidden />}
-              </Dropdown.Item>
+                {(action.selected || action.checked) && (
+                  <Check size={16} aria-hidden />
+                )}
+              </MenuItem>
             </Fragment>
           ))}
         </Dropdown.Content>

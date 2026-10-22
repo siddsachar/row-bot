@@ -728,6 +728,15 @@ async def _run_startup_sequence():
     with _startup_phase("dream_cycle_daemon"):
         await asyncio.to_thread(start_dream_loop)
 
+    # Learning (preview): an unfinished past-chat import carries on. Off: one check, nothing else.
+    from row_bot import learning as _learning
+
+    if _learning.is_enabled():
+        await asyncio.to_thread(_learning.start_past_chat_import)
+        # Training left running when Row-Bot closed pauses at its newest checkpoint; the
+        # quiet-hours runner starts (L2a).
+        await asyncio.to_thread(_learning.start_runner)
+
     _set("⬆ Starting auto-update scheduler…")
     try:
         from row_bot.updater import start_update_scheduler
@@ -819,6 +828,15 @@ async def _run_startup_sequence():
             await asyncio.to_thread(cleanup_app_processes)
     except Exception as exc:
         logger.warning("Owned app process cleanup skipped (non-fatal): %s", exc)
+    # Learning's model server (O75) a crashed run left running: stopped only when its record exists,
+    # so Learning itself isn't imported.
+    try:
+        from row_bot import owned_processes
+        _server_ledger = owned_processes.ledger_path("learning-model-server.json")
+        if _server_ledger.is_file():
+            await asyncio.to_thread(owned_processes.cleanup, _server_ledger, tree=True)
+    except Exception as exc:
+        logger.warning("Learning model server cleanup skipped (non-fatal): %s", exc)
     try:
         from row_bot.mcp_client.runtime import discover_enabled_servers
         with _startup_phase("mcp_discovery"):
@@ -1161,6 +1179,22 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
         _shutdown_cleanup_started = False
         return False
     stop_performance_monitor()
+    # Learning (preview), only if it ran: the past-chat import stops, training stops with its
+    # whole process tree (it continues from its newest checkpoint next time), the model server
+    # stops with the models it loaded, a download stops
+    # (it shows as paused next time), and capture writes what it holds (a few seconds at most)
+    # and stops.
+    for _learning_name, _learning_stop in (("row_bot.learning.past_chats", "stop_background"),
+                                           ("row_bot.learning.runner", "shutdown"),
+                                           ("row_bot.learning.training.llama_server", "shutdown"),
+                                           ("row_bot.learning.training.downloads", "shutdown"),
+                                           ("row_bot.learning.capture", "shutdown")):
+        _learning_module = sys.modules.get(_learning_name)
+        if _learning_module is not None:
+            try:
+                await asyncio.to_thread(getattr(_learning_module, _learning_stop), 5.0)
+            except Exception:
+                logger.debug("Stopping Learning's %s failed", _learning_name, exc_info=True)
     mark_shutdown(reason)
     _safe_console_print(f"[shutdown] Cleaning up sessions ({reason})...")
     try:

@@ -57,6 +57,12 @@ class InvalidExecutionBudget(ExecutionBudgetError):
     pass
 
 
+class ModelCallRefused(RuntimeError):
+    """A model call refused before it was sent by its caller's own limit (Learning's evaluation worker
+    gives every task the same token budget). The turn ends quietly with the reason: it is never
+    reported as a provider or API error (no desktop notification, no error sound)."""
+
+
 @dataclass(frozen=True)
 class ExecutionBudget:
     """Small constructor used by runtime plumbing and deterministic tests."""

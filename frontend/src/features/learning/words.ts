@@ -1,0 +1,445 @@
+/**
+ * Learning's words and numbers, one name per thing (designs/learning-ux.md, "Words").
+ * Never shown: self-improvement, RSI, candidate, adapter, LoRA, eval, audit, cron.
+ */
+import type {
+  LearningChangeView,
+  LearningCommand,
+  LearningKindState,
+  LearningOvernight,
+} from '../../api/types';
+
+export type TeachCategory = NonNullable<LearningCommand['category']>;
+
+export const TEACH_CATEGORIES: { value: TeachCategory; label: string }[] = [
+  { value: 'wrong_answer', label: 'Wrong answer' },
+  { value: 'wrong_tool_or_step', label: 'Wrong tool or step' },
+  { value: 'ignored_instructions', label: 'Ignored my instructions' },
+  { value: 'other', label: 'Other' },
+];
+
+/** 2,000,000 → "2M", 240,000 → "240K", 1,100,000 → "1.1M". */
+export function tokenWords(count: number): string {
+  const value = Math.max(0, Math.round(count));
+  const short = (amount: number, unit: string) =>
+    `${Number.isInteger(amount) ? amount : amount.toFixed(1).replace(/\.0$/, '')}${unit}`;
+  if (value >= 1_000_000) return short(Math.round(value / 100_000) / 10, 'M');
+  if (value >= 1_000) return short(Math.round(value / 1_000), 'K');
+  return String(value);
+}
+
+/** 4,570,000,000 → "4.6 GB", 43,700,000 → "44 MB" (number and unit kept together). */
+export function sizeWords(bytes: number): string {
+  const value = Math.max(0, bytes);
+  if (value >= 1_000_000_000) {
+    const amount = value / 1_000_000_000;
+    return `${amount >= 100 ? Math.round(amount) : amount.toFixed(1).replace(/\.0$/, '')}\u00a0GB`;
+  }
+  if (value >= 1_000_000)
+    return `${Math.max(1, Math.round(value / 1_000_000))}\u00a0MB`;
+  if (value >= 1_000)
+    return `${Math.max(1, Math.round(value / 1_000))}\u00a0KB`;
+  return value === 1 ? '1\u00a0byte' : `${value}\u00a0bytes`;
+}
+
+/** The monthly limit's choices; the saved value shows even when it isn't one of them. */
+export const LIMIT_CHOICES = [
+  500_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000,
+];
+
+export function limitOptions(saved: number) {
+  const values = LIMIT_CHOICES.includes(saved)
+    ? LIMIT_CHOICES
+    : [...LIMIT_CHOICES, saved].sort((left, right) => left - right);
+  return [
+    ...values.map((value) => ({
+      value: String(value),
+      label: value === 0 ? 'No model calls' : `${tokenWords(value)} tokens`,
+    })),
+    ...(values.includes(0) ? [] : [{ value: '0', label: 'No model calls' }]),
+  ];
+}
+
+/** "About 20 tests of a change" (a change's test takes about 100K tokens). */
+export function limitMeaning(limit: number): string {
+  if (limit <= 0)
+    return 'Learning makes no model calls. Local models still work.';
+  const tests = Math.max(1, Math.round(limit / 100_000));
+  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change. Local models don't count.`;
+}
+
+/** "1:00 AM" (the reader's own clock), as Dream Cycle's hours show. */
+export function hourWords(hour: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(2000, 0, 1, hour));
+}
+
+export function quietHoursWords(start: number, end: number): string {
+  return `${hourWords(start)}–${hourWords(end)}`;
+}
+
+/** "1 Nov" for a local ISO date. */
+export function dayWords(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  if (!year || !month || !day) return isoDate;
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(year, month - 1, day));
+}
+
+export function plural(count: number, one: string, many = `${one}s`) {
+  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
+/** "about 40 min left", "about 1 h 40 min left", "less than a minute left". */
+export function timeLeftWords(seconds: number): string {
+  const minutes = Math.round(Math.max(0, seconds) / 60);
+  if (minutes < 1) return 'less than a minute left';
+  if (minutes < 60) return `about ${minutes} min left`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `about ${hours} h ${rest} min left` : `about ${hours} h left`;
+}
+
+/** "step 340 of 1,000" (or "step 340" while the plan isn't known). */
+export function stepWords(step: number, total: number | null | undefined) {
+  return total
+    ? `step ${step.toLocaleString()} of ${total.toLocaleString()}`
+    : `step ${step.toLocaleString()}`;
+}
+
+/** Why training stopped, and the way out (designs/learning-ux.md §9). */
+export const TRAINING_FAILURES: Record<
+  string,
+  { text: string; action: string }
+> = {
+  out_of_gpu_memory: {
+    text: 'Training stopped: not enough GPU memory. A smaller starting model or shorter tasks fit. Earlier versions are kept.',
+    action: 'Use recommended settings',
+  },
+  out_of_disk: {
+    text: 'Training stopped: there isn’t enough free disk space to save its progress. Free some space, then try again.',
+    action: 'Try again',
+  },
+  data_unreadable: {
+    text: 'Training stopped: Row-Bot couldn’t read the examples it prepared. Trying again prepares them afresh.',
+    action: 'Try again',
+  },
+  cannot_resume: {
+    text: 'Training stopped: it couldn’t continue from its saved steps. Trying again starts it afresh.',
+    action: 'Try again',
+  },
+  engine_error: {
+    text: 'Training stopped: something went wrong in the training engine. Earlier versions are kept.',
+    action: 'Try again',
+  },
+};
+
+/** Where the personal model's download comes from, and what is switched off (E14, AGENTS.md). */
+export const ENGINE_SOURCES =
+  'From PyPI, PyTorch, Hugging Face and GitHub (llama.cpp).';
+export const ENGINE_TELEMETRY =
+  'The training engine’s own usage reporting is switched off.';
+
+/** "3.1 of 6.8 GB": both in the total's unit, so the two numbers compare at a glance. */
+export function progressWords(done: number, total: number): string {
+  const whole = Math.max(0, total);
+  const part = Math.min(Math.max(0, done), whole);
+  const unit = whole >= 1_000_000_000 ? 1_000_000_000 : 1_000_000;
+  const name = unit === 1_000_000_000 ? 'GB' : 'MB';
+  const show = (value: number) =>
+    unit === 1_000_000_000
+      ? (value / unit).toFixed(1).replace(/\.0$/, '')
+      : String(Math.round(value / unit));
+  return `${show(part)} of ${show(whole)}\u00a0${name}`;
+}
+
+/** "45%": whole percent, never 100% before the last byte. */
+export function percentWords(done: number, total: number): string {
+  if (!total) return '0%';
+  const share = Math.floor((Math.max(0, done) / total) * 100);
+  return `${Math.min(done >= total ? 100 : 99, share)}%`;
+}
+
+/** Where a personal model runs ("Runs in", designs/learning-ux.md §5). */
+export const RUNTIME_NAMES: Record<string, string> = {
+  row_bot: 'Row-Bot',
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+  llama_cpp: 'llama.cpp server',
+  vllm: 'vLLM',
+};
+
+export function runtimeName(runtime: string | null | undefined) {
+  return RUNTIME_NAMES[runtime ?? 'ollama'] ?? 'Ollama';
+}
+
+/** Preparing a version to run: what each of its three steps does. */
+export const EXPORT_STEPS: Record<string, { number: number; text: string }> = {
+  merge: {
+    number: 1,
+    text: 'Combining what it learned with its starting model',
+  },
+  convert: { number: 2, text: 'Building a ready-to-run file' },
+  quantize: { number: 3, text: 'Making the file smaller to run' },
+};
+
+/** Why a version couldn't be prepared or couldn't start (designs/learning-ux.md §9). */
+export const VERSION_FAILURES: Record<string, string> = {
+  not_enough_disk: 'There isn’t enough free disk space to prepare it.',
+  adapter_missing:
+    'The files its training made are missing, so it can’t be prepared.',
+  engine_missing: 'The training engine or starting model is missing.',
+  tools_missing:
+    'The training engine needs an update before it can prepare it.',
+  export_failed: 'Something went wrong while preparing it.',
+  not_installed: 'Ollama isn’t installed on this computer.',
+  not_running: 'Ollama isn’t running. Start it, then try again.',
+  not_local: 'Ollama is set up on another computer; personal models stay here.',
+  create_failed: 'Ollama couldn’t load its file.',
+  not_loaded: 'It isn’t loaded there yet.',
+  probe_failed: 'It loaded, but didn’t pass Row-Bot’s check.',
+  tool_turn_failed:
+    'It started, but couldn’t finish a short task that uses a tool.',
+  server_missing:
+    'Row-Bot needs one more part of the training engine to run it.',
+  server_unavailable:
+    'Row-Bot can run it only on a computer with an NVIDIA graphics card.',
+  server_failed: 'Row-Bot’s runner stopped while starting it.',
+  load_failed:
+    'It didn’t load. The graphics card may not have enough free memory.',
+};
+
+/** "Needs more examples · 46 of 100 so far". */
+export function examplesWords(count: number, needed: number) {
+  return `${count.toLocaleString()} of ${needed.toLocaleString()} so far`;
+}
+
+/** Kinds of work (learning/kinds.py): the four the personal model can be used for. */
+export const KINDS_OF_WORK: { value: KindOfWork; label: string }[] = [
+  { value: 'document_lookups', label: 'Document lookups' },
+  { value: 'structured_transforms', label: 'Structured transforms' },
+  { value: 'small_coding', label: 'Small coding tasks' },
+  { value: 'tool_workflows', label: 'Tool workflows' },
+];
+export type KindOfWork = NonNullable<LearningCommand['kind']>;
+
+export function kindLabel(kind: string | null | undefined) {
+  if (kind === 'own_work') return 'Your own work';
+  return KINDS_OF_WORK.find((item) => item.value === kind)?.label ?? 'Other';
+}
+
+/** "document lookups", inside a sentence. */
+export function kindPhrase(kind: string | null | undefined) {
+  const label = kindLabel(kind);
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+/** A row of the versions table: the new version against its baseline. */
+export const VERDICT_WORDS: Record<string, string> = {
+  better: 'Better',
+  same: 'No clear difference',
+  worse: 'Worse',
+  too_few: 'Too few tasks to tell',
+};
+
+/** "3 s" / "1 min 5 s": time per task. */
+export function secondsWords(seconds: number | null | undefined) {
+  if (seconds == null) return '–';
+  const value = Math.max(0, seconds);
+  if (value < 10) return `${value.toFixed(1).replace(/\.0$/, '')}\u00a0s`;
+  if (value < 60) return `${Math.round(value)}\u00a0s`;
+  const minutes = Math.floor(value / 60);
+  const rest = Math.round(value % 60);
+  return rest ? `${minutes}\u00a0min ${rest}\u00a0s` : `${minutes}\u00a0min`;
+}
+
+/** Why the main model wasn't in a comparison. */
+export const MAIN_UNAVAILABLE: Record<string, string> = {
+  no_main_model:
+    'Your main model wasn’t compared: choose a default model in Settings › Models.',
+  sign_in_unsupported:
+    'Your main model wasn’t compared: Row-Bot can’t use its sign-in for tests yet.',
+  main_failed:
+    'Your main model wasn’t compared: it couldn’t run the test tasks here. Check it works in a chat, then Compare again.',
+};
+
+/** Why the personal model's download stopped (designs/learning-ux.md §9). */
+export const DOWNLOAD_FAILURES: Record<string, string> = {
+  network:
+    'The download stopped: Row-Bot couldn’t reach the download server. Check the internet connection, then try again.',
+  mismatch:
+    'The download stopped: a file didn’t match the one Row-Bot expects, so it wasn’t used. Try again.',
+  refused:
+    'The download stopped: the download server refused it. Try again later.',
+  install_failed: 'The training engine couldn’t be installed. Try again.',
+  check_failed:
+    'The training engine was installed but didn’t start. Try again; if it happens again, remove it in Learning settings and download it afresh.',
+  no_cuda:
+    'The training engine couldn’t use the graphics card. Update your NVIDIA driver, then try again.',
+};
+
+/** What a tier's training needs of the computer's memory, measured (O105). */
+export function memoryNeedWords(gb: number | null | undefined): string {
+  return gb
+    ? `Training needs about ${gb} GB of this computer’s memory free (RAM and virtual memory).`
+    : '';
+}
+
+/** How to give training more memory on this system (O105): never "close Row-Bot". */
+export function memoryAdvice(system: string | null | undefined): string {
+  if (system === 'windows')
+    return 'Raise Windows’ virtual memory (Advanced system settings › Performance › Virtual memory), then check again.';
+  if (system === 'linux') return 'Add swap space or RAM, then check again.';
+  return 'Add RAM, then check again.';
+}
+
+/** "once", "twice", "3 times". */
+export function timesWords(count: number): string {
+  if (count === 1) return 'once';
+  if (count === 2) return 'twice';
+  return `${count.toLocaleString()} times`;
+}
+
+/**
+ * "Next look tonight at 1:00 AM" within the next day, else "Next look Fri 1:00 AM"
+ * (designs/learning-ux.md §3). Never a time already past: then it looks once Row-Bot is free.
+ */
+export function nextLookWords(iso: string, now: Date = new Date()): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return '';
+  if (when.getTime() <= now.getTime() + 60_000)
+    return 'Looks for things to improve once Row-Bot is free';
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(when);
+  if (when.getTime() - now.getTime() <= 24 * 3_600_000)
+    return `Next look tonight at ${time}`;
+  const day = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(
+    when,
+  );
+  return `Next look ${day} ${time}`;
+}
+
+export type OvernightLine = { text: string; tone?: 'warning' };
+
+/** Last night's look for things to improve, as Overnight lines (designs §3, §9). */
+export function overnightLines(night: LearningOvernight): OvernightLine[] {
+  switch (night.state) {
+    case 'claude_plan':
+      return [
+        {
+          text: 'Learning’s improvement work needs a model other than your Claude plan. Choose another default model in Settings › Models.',
+          tone: 'warning',
+        },
+      ];
+    case 'no_model':
+      return [
+        {
+          text: 'Choose a default model in Settings › Models so Learning can look for things to improve.',
+          tone: 'warning',
+        },
+      ];
+    case 'limit':
+      return [
+        {
+          text: 'Didn’t look for things to improve: this month’s limit was reached.',
+        },
+      ];
+    case 'unavailable':
+      return [
+        {
+          text: 'Couldn’t look for things to improve: the model wasn’t available. Trying again tonight.',
+        },
+      ];
+    case 'failed':
+      return [
+        {
+          text: 'Couldn’t look for things to improve. Trying again tonight.',
+        },
+      ];
+    case 'nothing':
+      return [{ text: 'Looked for things to improve: nothing new.' }];
+    default:
+      break;
+  }
+  const lines: OvernightLine[] = [];
+  if (night.found === 0) {
+    lines.push({ text: 'Looked for things to improve: nothing new.' });
+  } else {
+    lines.push({
+      text: `Found ${plural(night.found, 'thing')} to improve · ${
+        night.drafted
+          ? `drafted ${night.drafted.toLocaleString()}`
+          : 'nothing drafted'
+      }`,
+    });
+  }
+  if (night.needs_examples)
+    lines.push({
+      text: `${plural(night.needs_examples, 'kind of work')} ${
+        night.needs_examples === 1 ? 'needs' : 'need'
+      } more examples`,
+    });
+  if (night.looks_like_bug)
+    lines.push({
+      text:
+        night.looks_like_bug === 1
+          ? '1 of them looks like a bug in Row-Bot itself'
+          : `${night.looks_like_bug} of them look like bugs in Row-Bot itself`,
+    });
+  if (night.left_out)
+    lines.push({
+      text: `Left out ${plural(night.left_out, 'idea')}: Learning needs your feedback first, and never adds addresses, links, passwords or permissions`,
+    });
+  if (night.state === 'stopped')
+    lines.push({
+      text: 'Stopped when you came back to Row-Bot; it carries on when you’re away.',
+    });
+  return lines;
+}
+
+export const CHANGE_NAMES: Record<LearningChangeView['change'], string> = {
+  lesson: 'Lesson',
+  way_of_working: 'Way of working',
+  skill: 'Skill',
+};
+
+/** The issue's "Why" in plain words, counts only (designs §4): never anyone's words. */
+export function whyWords(change: LearningChangeView): string {
+  const { why } = change;
+  const parts: string[] = [];
+  if (why.corrections)
+    parts.push(`you corrected Row-Bot ${timesWords(why.corrections)}`);
+  if (why.stops) parts.push(`you stopped it ${timesWords(why.stops)}`);
+  if (why.retries)
+    parts.push(`you asked it to try again ${timesWords(why.retries)}`);
+  if (why.denials)
+    parts.push(
+      `you turned down an action it asked to take ${timesWords(why.denials)}`,
+    );
+  if (why.failures) parts.push(`a step failed ${timesWords(why.failures)}`);
+  const what = parts.length
+    ? parts.length === 1
+      ? parts[0]
+      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+    : 'something went wrong';
+  const where =
+    change.kind === 'other'
+      ? `In ${plural(why.chats, 'chat')}`
+      : `In ${plural(why.chats, 'chat')} about ${kindPhrase(change.kind)}`;
+  const past = why.imported
+    ? ` (${why.imported.toLocaleString()} from past chats Learning read)`
+    : '';
+  return `${where}, ${what}${past}.`;
+}
+
+/** "What Row-Bot is learning" beside the personal model's rows (designs §3). */
+export const KIND_STATE_WORDS: Record<LearningKindState['state'], string> = {
+  testing_change: 'A change waits to be tested',
+  needs_examples: 'Needs more examples',
+};

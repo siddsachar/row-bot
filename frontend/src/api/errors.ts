@@ -2710,6 +2710,82 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   insight_unavailable: ['This insight is no longer available.', 'none'],
+  // Learning (preview).
+  learning_unavailable: [
+    "Learning isn't part of this version of Row-Bot.",
+    'none',
+  ],
+  invalid_learning_command: ["That Learning action isn't valid.", 'review'],
+  learning_revision_conflict: [
+    'Learning changed on another device. Try again.',
+    'retry',
+    RETRY,
+  ],
+  learning_off: ['Learning is off. Turn it on in Settings › Learning.', 'none'],
+  learning_paused: ['Learning is paused. Resume it to teach Row-Bot.', 'none'],
+  learning_chat_not_used: [
+    "Row-Bot doesn't learn from this chat, so there's nothing to teach here.",
+    'none',
+  ],
+  learning_data_missing: ['There is no learning data to delete.', 'none'],
+  learning_data_busy: [
+    'Learning data is in use right now. Try again in a moment.',
+    'retry',
+    RETRY,
+  ],
+  learning_settings_unavailable: [
+    "Row-Bot can't read Learning's saved settings. Nothing was changed.",
+    'none',
+  ],
+  learning_save_unconfirmed: [
+    "Row-Bot couldn't confirm that Learning change. Check Learning before trying again.",
+    'retry',
+    RETRY,
+  ],
+  learning_receipt_unavailable: [
+    "Row-Bot can't find the earlier step for this. Check Learning before trying again.",
+    'review',
+  ],
+  learning_nothing_to_train: [
+    "There's nothing to train yet. Training starts once Row-Bot has enough examples from your work.",
+    'none',
+  ],
+  learning_training_changed: [
+    'Training changed meanwhile. Check it and try again.',
+    'review',
+  ],
+  learning_download_unavailable: [
+    "This computer can't train a personal model, so nothing was downloaded.",
+    'none',
+  ],
+  learning_not_enough_disk: [
+    "There isn't enough free disk space for the download. Free some space, then try again.",
+    'none',
+  ],
+  learning_download_busy: [
+    'Something is downloading or training right now. Stop it first, then try again.',
+    'review',
+  ],
+  learning_download_changed: [
+    'The download changed meanwhile. Check it and try again.',
+    'review',
+  ],
+  learning_version_changed: [
+    'Your personal model changed meanwhile. Check it and try again.',
+    'review',
+  ],
+  learning_version_busy: [
+    'Row-Bot is already preparing your personal model. It says here when it’s done.',
+    'none',
+  ],
+  learning_compare_unavailable: [
+    'Your personal model can’t be compared while it trains. Row-Bot compares it once training ends.',
+    'none',
+  ],
+  learning_export_unavailable: [
+    'Row-Bot couldn’t save the files there. Choose a folder outside Row-Bot’s own data, then try again.',
+    'review',
+  ],
   knowledge_changed: [
     'This memory changed. Try again with its current version.',
     'retry',

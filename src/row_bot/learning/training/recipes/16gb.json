@@ -1,0 +1,36 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "16gb",
+  "tier": "16gb",
+  "certified": true,
+  "title": "16 GB graphics cards",
+  "starting_model": "qwen3.5-9b",
+  "method": "lora_sft",
+  "evidence": "L2x, measured on an RTX 5090 under a 14,744 MiB cap (90% of 16 GB): Qwen3.5 9B, 4-bit QLoRA at 16K. A real run on 90 rows (23 steps, paused at step 4 and continued): 7.8 s/step, 478 s, 15,154 MiB on the card at its peak with the CUDA context, 24.7 GB of the computer's commit (Windows), gradient norms 0.34-0.52, loss 0.34, no spill. Headroom is small: a 4-step fit on full 16K rows reached the cap (14,744 of 14,744 MiB reserved, 15,312 MiB on the card), so its need is 15,616 MiB free on the card (its peak plus 256 MiB) and 26 GB of commit (plus 1 GB): a 16 GB card that also drives a display rarely has that free, and setup then recommends the 2B. Exported Q8_0 (9.8 GB) and ready in Row-Bot's own server (probe and a tool turn) in 195 s. Qwen3.5 4B is not offered (O111): in this engine (Unsloth 2026.10.6, Transformers 5.17, PyTorch 2.12.1+cu130) its gradient norms reached 6e4-7e7 from the first step as bf16 LoRA and 1e7-4e8 as QLoRA (the 2B and 9B on the same rows and settings: 0.2-1.4), and its loss rose from 0.3 to 7.3 (bf16) and 3.1 (QLoRA) within one epoch (bf16, 3 epochs: 11.7 after the first); cause not found (its linear-attention value width, 4,096, is wider than its hidden size, 2,560). Three passes, the last one that can finish a short task kept (O119; the same per-step speed and memory).",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 4,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 3,
+  "checkpoint_every": 10,
+  "min_examples": 90,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q8_0",
+  "reasoning": "off",
+  "memory_mib": 15616,
+  "system_memory_mib": {
+    "windows": 26624
+  }
+}
