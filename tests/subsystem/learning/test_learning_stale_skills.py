@@ -527,3 +527,50 @@ def test_an_edit_moves_both_times_once_when_the_new_end_is_the_old_start():
                         {"start": "10:00", "end": "11:00"}, world.EDIT)
     edited, replaced = world.edit_skill_text(procedure, "Book it from 09:00 to 10:00 (or 9am-10am).", edit)
     assert (edited, replaced) == ("Book it from 10:00 to 11:00 (or 10:00-11:00).", True)
+
+
+def test_phase_3s_analysis_tests_ratios_with_holm_and_a_paired_bootstrap():
+    import math
+
+    from tests.e2e.learning.stale_skills import analysis
+
+    people = [(f"p{i}", f"c{j}") for i in range(6) for j in range(8)]
+    n_arm = {key: (2, 4) for key in people}  # 50%
+    r_arm = {key: (0, 4) if index % 4 else (1, 4) for index, key in enumerate(people)}  # 1/16 of runs
+    f_arm = dict(n_arm)
+    tests = analysis.holm({"R/N": analysis.bootstrap({"R": r_arm, "N": n_arm}, analysis.ratio("R", "N"), resamples=2000),
+                           "R/F": analysis.bootstrap({"R": r_arm, "F": f_arm}, analysis.ratio("R", "F"),
+                                                     resamples=2000)})
+    assert all(item["upper_below_1"] for item in tests.values())
+    assert sorted(item["level"] for item in tests.values()) == [0.95, 0.975]
+    # The same arm twice: the ratio sits at 1 and its interval holds 1.
+    same = analysis.holm({"R/N": analysis.bootstrap({"R": n_arm, "N": dict(n_arm)}, analysis.ratio("R", "N"),
+                                                      resamples=2000)})
+    assert same["R/N"]["interval"][0] <= 1 <= same["R/N"]["interval"][1] and not same["R/N"]["upper_below_1"]
+    # A denominator arm with no stale run makes the ratio infinite (it counts against R), never a drop.
+    assert analysis.ratio("R", "N")({"R": 0.1, "N": 0.0}) == math.inf
+    assert analysis.ratio("R", "N")({"R": 0.0, "N": 0.0}) is None
+    # Paired: one draw of clusters serves both arms, so identical arms give a difference of exactly 0 every time.
+    assert set(analysis.bootstrap({"A": n_arm, "B": dict(n_arm)}, analysis.difference("A", "B"), resamples=200)) == {0.0}
+
+
+def test_phase_3s_decision_follows_section_8():
+    from tests.e2e.learning.stale_skills import analysis
+
+    def blocks(n_rate_runs: tuple[int, int], r_runs: tuple[int, int], false: int) -> dict:
+        def block(k: int, n: int) -> dict:
+            clusters = {(f"p{i}", f"c{j}"): (k, n) for i in range(6) for j in range(8)}
+            controls = {(f"p{i}", f"u{j}"): (15, 17) for i in range(6) for j in range(6)}
+            return {"_clusters": clusters, "_reached": clusters, "_controls": controls, "_edits": {},
+                    "stale_execution": {"k": 48 * k, "n": 48 * n, "rate": k / n},
+                    "patches": {"false_rate": false / 40, "own_applied": 40, "false": false},
+                    "wrong_switch_all_after_edit": analysis.rate(0, 80), "wrong_switch_14_days": analysis.rate(0, 20)}
+
+        return {("q9b", "N"): block(*n_rate_runs), ("q9b", "F"): block(*n_rate_runs), ("q9b", "R"): block(*r_runs),
+                ("q9b", "A"): block(*r_runs), ("q9b", "D"): block(*n_rate_runs)}
+
+    held = analysis.analyse(blocks((1, 4), (0, 4), 1), resamples=1000)
+    assert held["h_a1_holds"] and held["decision"].startswith("H-A1 holds")
+    too_many_false = analysis.analyse(blocks((1, 4), (0, 4), 3), resamples=1000)
+    assert not too_many_false["h_a1_holds"] and "measurement paper" in too_many_false["decision"]
+    assert "stop" in analysis.analyse(blocks((1, 20), (1, 20), 0), resamples=1000)["decision"]

@@ -105,10 +105,17 @@ def progress(folder: Path) -> dict[str, Any]:
         state = json.loads((folder / "run" / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"days": 0, "steps": 0, "tokens": 0, "gpu_seconds": 0.0, "finished": False}
+    return progress_from_state(state, folder / "data")
+
+
+def progress_from_state(state: dict[str, Any], data: Path | None) -> dict[str, Any]:
+    """:func:`progress` from a loaded ``state.json`` (and the cell's data folder, for the usage ledger)."""
+
     days = sum(1 for night in (state.get("nights") or {}).values() if night.get("done"))
     steps = sum(len(state.get(key) or ()) for key in ("runs", "tells", "probes", "evenings", "mornings")) + days
     sim = state.get("sim_tokens") or {}
-    tokens = int(sim.get("input_tokens") or 0) + int(sim.get("output_tokens") or 0) + ledger_cloud(folder / "data")
+    tokens = int(sim.get("input_tokens") or 0) + int(sim.get("output_tokens") or 0) + (
+        ledger_cloud(data) if data is not None else 0)
     return {"days": days, "steps": steps, "tokens": tokens,
             "gpu_seconds": float((state.get("gpu") or {}).get("seconds") or 0.0),
             "finished": bool((state.get("stages") or {}).get("days"))}
