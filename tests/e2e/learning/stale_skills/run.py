@@ -118,13 +118,17 @@ def limit_error(text: str) -> bool:
     return any(word in lowered for word in _LIMIT_WORDS)
 
 
-def quiet_soon(now: datetime | None = None) -> str | None:
-    """No card booking from 00:25 to 05:00: a simulated day takes minutes and must end before 00:40."""
+def quiet_soon(now: datetime | None = None, start: tuple[int, int] = NO_NEW_DAY_FROM) -> str | None:
+    """No card booking from ``start`` (00:25 by default; earlier for a slower model) to 05:00: a simulated day must
+    end before 00:40. A ``start`` in the evening (after 12:00) covers the hours to midnight too."""
 
     current = now or datetime.now()
     minute = current.hour * 60 + current.minute
-    if NO_NEW_DAY_FROM[0] * 60 + NO_NEW_DAY_FROM[1] <= minute < 5 * 60:
-        return "the person's quiet hours (no new simulated day from 00:25; none 00:40-05:00)"
+    first = start[0] * 60 + start[1]
+    quiet = (first <= minute or minute < 5 * 60) if first >= 12 * 60 else first <= minute < 5 * 60
+    if quiet:
+        return (f"the person's quiet hours (no new simulated day from {start[0]:02d}:{start[1]:02d}; none "
+                "00:40-05:00)")
     return None
 
 
@@ -260,8 +264,12 @@ class StaleRun(PersonRun):
                                     smoke=args.smoke)
         self.history = replace(self.timeline.history, stream=self.timeline.runs)
         self.person["tools"] = [*self.person["tools"], "row_bot_status"]
-        self.gpu.label = f"SA2 stale skills ({self.study_arm}, {self.lane})"
-        self.gpu.quiet = quiet_soon
+        self.blind = bool(getattr(args, "blind", False))
+        self.gpu.label = f"SA3 stale skills ({self.study_arm}, {self.lane}{', ' + args.local_model if self.lane == 'local' else ''})"
+        cutoff = tuple(int(part) for part in str(getattr(args, "no_new_day_from", "") or "00:25").split(":"))
+        self.gpu.quiet = lambda: quiet_soon(start=cutoff)
+        if self.lane == "local":
+            self.gpu.say = self._say_and_unload
         self._recalled: list[list[str]] = []
         self._errors: list[str] = []
         data = self.state.data
@@ -416,6 +424,13 @@ class StaleRun(PersonRun):
             self._unload_local_model()
         self.gpu.acquire(what, expect=expect)
 
+    def _say_and_unload(self, text: str) -> None:
+        """The gate waits (another lane booked the card, the person trains, the quiet hours): our block has ended, so
+        our model leaves the card first."""
+
+        self._unload_local_model()
+        print(text, flush=True)
+
     def _unload_local_model(self) -> None:
         import httpx
 
@@ -531,7 +546,8 @@ class StaleRun(PersonRun):
             self.state.data["approvals"].append({"day": day, "proposal": proposal["id"], "skill": target,
                                                  "ok": bool(result.get("ok")),
                                                  "message": str(result.get("message") or "")[:300]})
-            self.note(f"day {day}: approved reconciliation of {target!r}: {result.get('message')}")
+            self.note(f"day {day}: approved a reconciliation proposal" if self.blind
+                      else f"day {day}: approved reconciliation of {target!r}: {result.get('message')}")
 
     # ── A turn and what it did ──────────────────────────────────────────
 
@@ -593,7 +609,8 @@ class StaleRun(PersonRun):
                   "turns": turns, "saved_memory": sum(1 for turn in turns for name in turn["tools"]
                                                       if name in ("save_memory", "update_memory", "memory_save")),
                   "tokens": self.cloud_tokens() - tokens}
-        self.note(f"day {item.day} told ({item.what} {item.about}): tools {[t['tools'] for t in turns]}")
+        self.note(f"day {item.day} told ({item.what} {item.about})" if self.blind
+                  else f"day {item.day} told ({item.what} {item.about}): tools {[t['tools'] for t in turns]}")
         return record
 
     def _place_apps(self, day: int) -> None:
@@ -679,6 +696,9 @@ class StaleRun(PersonRun):
         if made:
             self.state.data["unprompted_skills"].append({"run": request.id, "day": request.day, "made": made})
         record["tokens"] = self.cloud_tokens() - tokens_before
+        if self.blind:  # phase 3: no outcome is shown before every run is done
+            self.note(f"day {request.day} {procedure.id}: done; {record['tokens']:,} tokens")
+            return record
         self.note(f"day {request.day} {procedure.id}: {scored.verdict}{' (in window)' if scored.in_window else ''}"
                   f", first {'ok' if record['passed_first'] else 'wrong'}, skill "
                   f"{'loaded' if record['skill_loaded'] else 'not loaded'}"
@@ -702,7 +722,8 @@ class StaleRun(PersonRun):
             repair["applied"] = {"ok": bool(result.get("ok")), "message": str(result.get("message") or "")[:300]}
         self.state.data["repairs"].append(repair)
         record["repair"] = repair
-        self.note(f"day {request.day}: repair of {name!r}: {outcome.get('outcome')}")
+        self.note(f"day {request.day}: repair step done" if self.blind
+                  else f"day {request.day}: repair of {name!r}: {outcome.get('outcome')}")
 
     def _probe(self, probe: world.Probe) -> dict[str, Any]:
         self.check_cap()
@@ -713,7 +734,8 @@ class StaleRun(PersonRun):
         result, seen = self._observed(thread_id, probe.question, _Asked())
         self.clock.advance(minutes=2)
         verdict = scorer.score_probe(probe, result.answer)
-        self.note(f"day {probe.day} probe {probe.category} ({probe.fact}): {verdict}")
+        self.note(f"day {probe.day} probe {probe.category}: done" if self.blind
+                  else f"day {probe.day} probe {probe.category} ({probe.fact}): {verdict}")
         return {"id": probe.id, "day": probe.day, "category": probe.category, "fact": probe.fact,
                 "question": probe.question, "expected": list(probe.expected), "wrong": list(probe.wrong),
                 "kind": probe.kind, "answer": result.answer[:3000], "tools": seen["tools"], "verdict": verdict,
@@ -813,6 +835,19 @@ class StaleRun(PersonRun):
         from row_bot import stale_skills
 
         data = self.state.data
+        if self.blind:
+            # Phase 3: nothing scored here; the grid's report scores every run from state.json and the op log once
+            # every run is done.
+            return {"format": "row_bot.learning.stale_skills_arm", "version": 2, "blind": True, "arm": data.get("arm"),
+                    "person": self.person_id, "seed": self.args.seed, "days_asked": self.args.days,
+                    "days_done": len([day for day, night in data["nights"].items() if night.get("done")]),
+                    "timeline": self.timeline.fingerprint(), "phrasing": self.timeline.phrasing,
+                    "tokens": {"ledger": self.ledger_tokens(), "sim_person": self.sim.tokens.to_dict(),
+                               "cloud_total": self.cloud_tokens()},
+                    "gpu": data["gpu"], "write_backs": list(self.sign_in.write_backs) if self.sign_in else [],
+                    "limit_errors": data.get("limit_errors", []), "started": data["started"], "redone": data["redone"],
+                    "night_errors": {day: [step for step, value in (night.get("steps") or {}).items()
+                                           if (value or {}).get("error")] for day, night in data["nights"].items()}}
         scored = [{**item["score"], "skill_loaded": item["skill_loaded"], "recalled_new": item["recalled_new"],
                    "passed_first": item["passed_first"], "at": item.get("at")} for item in data["runs"]]
         operations = stale_skills.operations()
@@ -890,6 +925,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gpu-booking", default="")
     parser.add_argument("--stages", default=",".join(STAGES))
     parser.add_argument("--sim-date", action="store_true", help="the turn context says the simulated date")
+    parser.add_argument("--blind", action="store_true",
+                        help="phase 3: no verdict in the notes and nothing scored in stale.json (no peeking)")
+    parser.add_argument("--no-new-day-from", default="00:25",
+                        help="HH:MM: no new simulated day on the card from then until 05:00 (earlier for a slow model)")
     args = parser.parse_args(argv)
     args.lane_model = args.model
     if args.smoke:
@@ -903,8 +942,8 @@ def main(argv: list[str] | None = None) -> int:
             reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     data = check_scratch(Path(args.data), Path(args.eval_profile))
-    if not re.search(r"(^|/)sa2?_", data.as_posix().lower()):
-        raise ScratchError(f"{data}: the stale-skills profiles live under an sa_ or sa2_ folder")
+    if not re.search(r"(^|/)sa[23]?_", data.as_posix().lower()):
+        raise ScratchError(f"{data}: the stale-skills profiles live under an sa_, sa2_ or sa3_ folder")
     run = StaleRun(args)
     run.boot()
     wanted = [stage.strip() for stage in args.stages.split(",") if stage.strip()]

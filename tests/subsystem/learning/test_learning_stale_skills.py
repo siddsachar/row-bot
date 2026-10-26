@@ -321,6 +321,36 @@ def test_the_quiet_hours_stop_new_days_before_00_40():
     assert run.quiet_soon(datetime(2026, 10, 26, 5, 0)) is None
     assert run.quiet_soon(datetime(2026, 10, 25, 23, 50)) is None
     assert run.limit_error("⚠️ Rate limit reached — please wait") and not run.limit_error("recursion limit")
+    # A slower model stops taking new days earlier, through midnight.
+    assert run.quiet_soon(datetime(2026, 10, 25, 23, 55), start=(23, 50))
+    assert run.quiet_soon(datetime(2026, 10, 26, 0, 10), start=(23, 50))
+    assert run.quiet_soon(datetime(2026, 10, 25, 23, 40), start=(23, 50)) is None
+    assert run.quiet_soon(datetime(2026, 10, 26, 12, 0), start=(23, 50)) is None
+
+
+def test_phase_3s_grid_is_the_pre_registered_one(tmp_path):
+    from tests.e2e.learning.stale_skills import grid
+
+    def arms(queue: str, model: str) -> dict[str, set[str]]:
+        found: dict[str, set[str]] = {}
+        for cell in grid.cells(queue):
+            if cell.model == model:
+                found.setdefault(cell.arm, set()).add(cell.person)
+        return found
+
+    everyone = set(world.PEOPLE)
+    assert arms("main", "main") == {arm: everyone for arm in ("N", "R", "D")}
+    assert arms("local", "q9b") == {arm: everyone for arm in ("N", "R", "D", "F", "A")}
+    assert arms("local", "q4b") == arms("local", "q27b") == {arm: everyone for arm in ("N", "R")}
+    names = [cell.name for queue in ("main", "local") for cell in grid.cells(queue)]
+    assert len(names) == len(set(names)) == 72 and all(name.startswith("sa3_") for name in names)
+    # Every run is blind; the main model's runs never touch the booking file (they would close lane B's booking).
+    main = grid.command(grid.cells("main")[0], tmp_path, "profile", "booking.txt")
+    local = grid.command(grid.cells("local")[0], tmp_path, "profile", "booking.txt")
+    assert "--blind" in main and "--blind" in local
+    assert "--gpu-booking" not in main and local[local.index("--gpu-booking") + 1] == "booking.txt"
+    assert grid.progress(tmp_path / "nothing") == {"days": 0, "steps": 0, "tokens": 0, "gpu_seconds": 0.0,
+                                                   "finished": False}
 
 
 def test_the_turn_context_can_say_the_simulated_date():
