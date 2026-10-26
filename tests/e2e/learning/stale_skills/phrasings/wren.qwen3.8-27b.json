@@ -1,0 +1,311 @@
+{
+ "format": "row_bot.learning.stale_skills_phrasings",
+ "model": "qwen3.8-27b",
+ "note": "The person's wording for the stale-skills world, written once by a phrasing model (tests/e2e/learning/stale_skills/phrasing.py). Made-up people; no fact comes from here.",
+ "person": "wren",
+ "slots": {
+  "short/asset_budget/0": {
+   "template": "Send finance the asset-store budget request for the week of {date}.",
+   "variants": [
+    "dispatch budget_request finance week={date}",
+    "finance.send asset-store budget week={date}",
+    "run finance_budget_send week={date}",
+    "send asset-store budget req finance week={date}"
+   ]
+  },
+  "short/asset_budget/1": {
+   "template": "Can you ask finance for this week's asset budget? Week of {date}.",
+   "variants": []
+  },
+  "short/audio_request/0": {
+   "template": "Send {alias} our request for {n} new sound effects.",
+   "variants": [
+    "Email {alias} requesting {n} new sound effects.",
+    "Ping {alias} with our need for {n} new sounds.",
+    "Send {alias} a ticket asking for {n} new sfx."
+   ]
+  },
+  "short/audio_request/1": {
+   "template": "Ask {alias} for {n} new sound effects.",
+   "variants": [
+    "ask {alias} for {n} new sounds",
+    "ping {alias} to add {n} new SFX",
+    "request {n} new SFX from {alias}",
+    "tell {alias} to make {n} new sound effects"
+   ]
+  },
+  "short/build_credits/0": {
+   "template": "Top up {n} build hours with the build-server supplier.",
+   "variants": [
+    "add {n} to build-server account",
+    "procure {n} build-server capacity",
+    "renew {n} build-server credits",
+    "top up build-server {n} units"
+   ]
+  },
+  "short/build_credits/1": {
+   "template": "We need {n} more build hours - order them please.",
+   "variants": [
+    "add {n} build hours to queue",
+    "bump build hours by {n}, process order",
+    "need {n} more build hours, order them",
+    "procure {n} additional build hours"
+   ]
+  },
+  "short/build_freeze/0": {
+   "template": "Book the build freeze window for {date} in the calendar.",
+   "variants": [
+    "add {date} to calendar for the build freeze",
+    "calendar: book {date} as freeze window",
+    "mark {date} in cal for the freeze",
+    "put the freeze for {date} on the cal"
+   ]
+  },
+  "short/build_freeze/1": {
+   "template": "Build freeze on {date} - put it in the calendar.",
+   "variants": [
+    "add build freeze {date} to calendar",
+    "cal: freeze {date}",
+    "note build freeze {date} in events",
+    "schedule build freeze {date}"
+   ]
+  },
+  "short/build_health/0": {
+   "template": "Send the build pipeline owner this week's build-health report: {n} failed builds.",
+   "variants": [
+    "forward to build-pipeline-owner: {n} failed builds",
+    "notify build-pipeline-owner: {n} failed builds",
+    "ping build-pipeline-owner: {n} failed builds this week",
+    "send to build-pipeline-owner: {n} failed builds"
+   ]
+  },
+  "short/build_health/1": {
+   "template": "Build-health report to the pipeline owner - {n} failed builds.",
+   "variants": [
+    "alert: {n} broken builds in the queue",
+    "heads up: {n} builds failing",
+    "ping, we have {n} failed builds on the pipeline",
+    "triage: {n} failed builds"
+   ]
+  },
+  "short/build_notice/0": {
+   "template": "Tell {alias} that build {n} is uploaded.",
+   "variants": [
+    "doc update: build {n} uploaded, tell {alias}",
+    "note for {alias}: upload complete for {n}",
+    "ping {alias}: build {n} is on the server"
+   ]
+  },
+  "short/build_notice/1": {
+   "template": "Build {n} is up - let {alias} know please.",
+   "variants": [
+    "build {n} live. notify {alias}",
+    "build {n} ready. tell {alias}",
+    "build {n} up. cc {alias}",
+    "ping {alias} re build {n}"
+   ]
+  },
+  "short/device_rental/0": {
+   "template": "Rent {n} test phones for next week's playtest.",
+   "variants": [
+    "add {n} test phones to next week's playtest checklist",
+    "book {n} test phones for the next week playtest session",
+    "note: {n} test phones needed for next week's playtest",
+    "reserve {n} test phones for the playtest scheduled next week"
+   ]
+  },
+  "short/device_rental/1": {
+   "template": "Book {n} test phones for the playtest please.",
+   "variants": [
+    "add {n} test phones to the playtest booking",
+    "book {n} test phones for the playtest please.",
+    "need to reserve {n} phones for the playtest session",
+    "schedule {n} test devices for the playtest"
+   ]
+  },
+  "short/freeze_reminder/0": {
+   "template": "Email the team the release reminder about the level freeze.",
+   "variants": [
+    "compose team email about level freeze",
+    "email team regarding level freeze",
+    "send release reminder to team about level freeze"
+   ]
+  },
+  "short/freeze_reminder/1": {
+   "template": "Send the team the level-freeze reminder for this release.",
+   "variants": []
+  },
+  "short/playtest_reminder/0": {
+   "template": "Email the testers the playtest reminder with the minimum length.",
+   "variants": []
+  },
+  "short/playtest_reminder/1": {
+   "template": "Send the testers the playtest reminder please.",
+   "variants": []
+  },
+  "short/rating_update/0": {
+   "template": "Send {alias} the content update for patch {n}.",
+   "variants": [
+    "dm {alias} the content update for patch {n}",
+    "notify {alias} content update patch {n}",
+    "ping {alias} re: content update patch {n}",
+    "send {alias} content update patch {n}"
+   ]
+  },
+  "short/rating_update/1": {
+   "template": "Content update for patch {n} to {alias} please.",
+   "variants": [
+    "add content patch {n} for {alias}",
+    "bump {alias} to patch {n}",
+    "set patch {n} content to {alias}",
+    "update {alias} patch {n} content"
+   ]
+  },
+  "short/review_reminder/0": {
+   "template": "Email the team this week's code-review reminder.",
+   "variants": []
+  },
+  "short/review_reminder/1": {
+   "template": "Send the team the review-rule reminder please.",
+   "variants": []
+  },
+  "short/snacks_allowance/0": {
+   "template": "Ask the office for the playtest snacks allowance for the week of {date}.",
+   "variants": [
+    "get playtest snacks allowance for {date} from office",
+    "ping office re: playtest snacks allowance {date}",
+    "query office: playtest_snacks_allowance for {date}"
+   ]
+  },
+  "short/snacks_allowance/1": {
+   "template": "Snacks allowance for the playtest please, week of {date}.",
+   "variants": [
+    "add entry to pipeline scripts: snacks allowance, playtest week {date}",
+    "flag bug tracker: snacks allowance for playtest week {date}",
+    "log snack allowance request for playtest week {date} in tracker",
+    "update build_docs.md with snacks budget for playtest week {date}"
+   ]
+  },
+  "short/sprint_summary/0": {
+   "template": "Send the producer the sprint summary: {n} tickets closed.",
+   "variants": [
+    "dm producer: sprint wrap, {n} closed",
+    "ping the producer: sprint done, {n} closed",
+    "push sprint summary to producer: {n} tickets",
+    "send producer the summary: {n} tickets closed"
+   ]
+  },
+  "short/sprint_summary/1": {
+   "template": "Sprint summary to the producer please - {n} tickets closed.",
+   "variants": [
+    "note for producer: sprint wrapped, {n} tickets done",
+    "ping the producer: sprint summary, {n} tickets closed",
+    "tell producer sprint summary is {n} tickets closed"
+   ]
+  },
+  "short/tools_demo/0": {
+   "template": "Put the tools demo on {date} in the studio calendar.",
+   "variants": [
+    "add tools demo on {date} to studio calendar",
+    "create calendar event: tools demo on {date}",
+    "put {date} tools demo in studio cal",
+    "schedule tools demo for {date} in studio calendar"
+   ]
+  },
+  "short/tools_demo/1": {
+   "template": "Add {date}'s tools demo to the calendar please.",
+   "variants": [
+    "add {date} tools demo to cal",
+    "cal add {date} tools demo",
+    "create event: {date} tools demo",
+    "put {date} tools demo on calendar"
+   ]
+  },
+  "short/translation_order/0": {
+   "template": "Send the translators {n} new strings.",
+   "variants": [
+    "dispatch {n} new strings for translation",
+    "push the {n} new strings to the translators",
+    "queue the translation batch for those {n} new strings",
+    "send {n} new strings to the translation team"
+   ]
+  },
+  "short/translation_order/1": {
+   "template": "{n} new strings for the translators please.",
+   "variants": [
+    "add {n} strings to the translation batch",
+    "bump the translator list by {n} items",
+    "note {n} new strings for loc",
+    "ping the localization queue with {n} new entries"
+   ]
+  },
+  "short/walkthrough/0": {
+   "template": "{who} is starting - add their tools walkthrough on {date} to the calendar.",
+   "variants": [
+    "add calendar entry for {who}'s walkthrough on {date}",
+    "book {who} tools walk on {date} in cal",
+    "create event: {who} tools walkthrough, {date}",
+    "new event: {who} tools walkthrough ({date})"
+   ]
+  },
+  "short/walkthrough/1": {
+   "template": "Can you put {who}'s tools walkthrough in the calendar for {date}?",
+   "variants": [
+    "add {who}'s tools walkthrough to calendar for {date}",
+    "put {who}'s tools walkthrough in the calendar for {date}",
+    "schedule {who}'s tools walkthrough on {date}"
+   ]
+  },
+  "tell/address": {
+   "template": "Heads up: {party} have a new address - from today use {new}. The old one ({old}) isn't checked any more.",
+   "variants": [
+    "config update: {party} -> {new}, {old} deprecated",
+    "fix {party} target: {new} (old: {old})",
+    "note: {party} addr update: use {new}, drop {old}",
+    "routing {party} to {new}; {old} is dead"
+   ]
+  },
+  "tell/amount": {
+   "template": "Finance have changed {fact}: it's {new} from this week (it was {old}).",
+   "variants": [
+    "Finance tweak: {fact} changed from {old} to {new} effective this week.",
+    "Finance updated {fact}: now {new} (was {old}) effective this week.",
+    "Heads up: Finance changed {fact} from {old} to {new} starting this week.",
+    "Note for docs: {fact} is now {new} (previously {old}) per Finance, effective this week."
+   ]
+  },
+  "tell/hours": {
+   "template": "From now on {fact} are {new} instead of {old}.",
+   "variants": [
+    "fix: {fact} are {new} not {old}",
+    "patch: set {fact} to {new} instead of {old}",
+    "triage: {fact} status changed to {new} (was {old})",
+    "update docs: {fact} are now {new}, replacing {old}"
+   ]
+  },
+  "tell/policy": {
+   "template": "{policy_by} changed {fact}: it's now {new} (it was {old}). The policy document is updated.",
+   "variants": [
+    "Policy doc updated: {policy_by} now has {fact}={new} (prev {old}).",
+    "Policy {policy_by} flipped {fact} from {old} to {new}; doc updated.",
+    "Update: {policy_by} set {fact} to {new} (was {old}); policy doc synced.",
+    "{policy_by} changed {fact}: {old} -> {new}; policy doc reflects this."
+   ]
+  },
+  "tell/role": {
+   "template": "{new_name} has taken over as {party} from {old_name} - their email is {new_email}.",
+   "variants": [
+    "docs: {new_name} owns {party} now (was {old_name}), email {new_email}",
+    "reassign {party}: {old_name} to {new_name}, contact {new_email}",
+    "swap {old_name} -> {new_name} on {party} tickets, cc {new_email}"
+   ]
+  },
+  "tell/supplier": {
+   "template": "We've switched {party}: from today it's {new_name}, not {old_name}. Orders go to {new_email}.",
+   "variants": [
+    "{party} rename: {new_name} (not {old_name}), email {new_email}"
+   ]
+  }
+ },
+ "version": 1
+}

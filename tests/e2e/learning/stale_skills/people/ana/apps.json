@@ -1,0 +1,70 @@
+{
+ "calendar": {
+  "events": [
+   {
+    "id": "evt_1",
+    "title": "Governors' meeting",
+    "date": "2026-10-28",
+    "start": "18:00",
+    "end": "19:30",
+    "attendees": [
+     "Ana",
+     "Helen"
+    ],
+    "location": "Library"
+   },
+   {
+    "id": "evt_2",
+    "title": "Harvest assembly",
+    "date": "2026-10-23",
+    "start": "09:00",
+    "end": "09:45",
+    "attendees": [],
+    "location": "Hall"
+   }
+  ]
+ },
+ "mail": {
+  "messages": [
+   {
+    "id": "msg_1",
+    "folder": "inbox",
+    "from": "orders@brightplate.example",
+    "to": "me@example.test",
+    "subject": "Trip lunches",
+    "body": "Hi Ana, please confirm the trip lunch numbers.",
+    "date": "2026-10-21"
+   },
+   {
+    "id": "msg_2",
+    "folder": "inbox",
+    "from": "news@schools-bulletin.example",
+    "to": "me@example.test",
+    "subject": "Schools Bulletin",
+    "body": "This week: funding news.",
+    "date": "2026-10-20"
+   },
+   {
+    "id": "msg_3",
+    "folder": "inbox",
+    "from": "offers@classroom-deals.example",
+    "to": "me@example.test",
+    "subject": "Classroom deals this week",
+    "body": "Two for one on paint.",
+    "date": "2026-10-19"
+   },
+   {
+    "id": "msg_4",
+    "folder": "inbox",
+    "from": "helen@kestrelhill.example",
+    "to": "me@example.test",
+    "subject": "Safeguarding training",
+    "body": "Can we book the refresher?",
+    "date": "2026-10-21"
+   }
+  ]
+ },
+ "issues": {
+  "issues": []
+ }
+}

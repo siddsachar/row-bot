@@ -415,6 +415,11 @@ def build_skill_discovery_tools(
             # The body arrives here, appended to the conversation, instead of being edited into
             # the system prompt mid-turn: the cached start of the request stays as it was (F5).
             result["instructions"] = record.instructions
+            from row_bot import stale_skills
+
+            note = stale_skills.date_note(record.canonical_id) if record.source == "manual" else ""
+            if note:
+                result["date_check"] = note
         if reference_text is not None:
             # A long reference keeps its head and tail here; the rest stays readable by handle.
             from row_bot.tool_outputs import bounded

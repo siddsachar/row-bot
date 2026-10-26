@@ -1,0 +1,693 @@
+{
+ "format": "row_bot.learning.stale_skills_catalogue",
+ "version": 1,
+ "person": "mara",
+ "first_name": "Mara",
+ "policy_by": "The trustees",
+ "seed": 20261022,
+ "runbook": {
+  "path": "admin/kitchen-runbook.md",
+  "title": "Kitchen runbook",
+  "intro": "Lantern Lane Community Kitchen: who we deal with and the numbers we use."
+ },
+ "whos": [
+  "Ayo",
+  "Bella",
+  "Chidi",
+  "Dev",
+  "Elif",
+  "Finn",
+  "Grace",
+  "Hamza",
+  "Ines",
+  "Jonah",
+  "Kemi",
+  "Luca"
+ ],
+ "procedures": [
+  {
+   "id": "bread_order",
+   "kind": "address",
+   "title": "the bread order",
+   "fact": "Sandgate Bakery's orders address",
+   "party": "Sandgate Bakery",
+   "aliases": [
+    "Sandgate",
+    "the bakery"
+   ],
+   "pool": [
+    {
+     "name": "Sandgate Bakery",
+     "email": "hello@sandgate-bakery.example"
+    },
+    {
+     "name": "Sandgate Bakery",
+     "email": "orders@sandgate-bakery.example"
+    },
+    {
+     "name": "Sandgate Bakery",
+     "email": "bread@sandgate-bakery.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Can you send tomorrow's bread order to Sandgate Bakery? {n} large loaves. Their orders address is {value}.",
+   "short": [
+    "Send {alias} tomorrow's bread order: {n} large loaves.",
+    "Bread order to {alias} for tomorrow please - {n} large loaves.",
+    "Can you do tomorrow's bread order with {alias}? {n} large loaves."
+   ],
+   "variable": "n",
+   "low": 14,
+   "high": 40,
+   "unit": "large loaves",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "waste_collection",
+   "kind": "address",
+   "title": "the extra bin collection",
+   "fact": "the council's trade-waste booking address",
+   "party": "Harbourside Council trade waste",
+   "aliases": [
+    "the council",
+    "trade waste"
+   ],
+   "pool": [
+    {
+     "name": "Harbourside Council trade waste",
+     "email": "tradewaste@harbourside-council.example"
+    },
+    {
+     "name": "Harbourside Council trade waste",
+     "email": "waste.bookings@harbourside-council.example"
+    },
+    {
+     "name": "Harbourside Council trade waste",
+     "email": "bins@harbourside-council.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Can you book {n} extra bin collections this week with the council's trade waste team? Email them at {value}.",
+   "short": [
+    "Book {n} extra bin collections with {alias} for this week.",
+    "We need {n} extra bin pickups this week - can you book them with {alias}?"
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 5,
+   "unit": "extra bin collections",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "newsletter_update",
+   "kind": "address",
+   "title": "the weekly newsletter update",
+   "fact": "the Food Drive Network's newsletter address",
+   "party": "Food Drive Network newsletter",
+   "aliases": [
+    "the network",
+    "the Food Drive Network"
+   ],
+   "pool": [
+    {
+     "name": "Food Drive Network newsletter",
+     "email": "submissions@fooddrive-network.example"
+    },
+    {
+     "name": "Food Drive Network newsletter",
+     "email": "newsdesk@fooddrive-network.example"
+    },
+    {
+     "name": "Food Drive Network newsletter",
+     "email": "stories@fooddrive-network.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send this week's kitchen update to the Food Drive Network newsletter at {value}: we served {n} meals.",
+   "short": [
+    "Send this week's kitchen update to {alias} newsletter: we served {n} meals.",
+    "Newsletter update for {alias} please - {n} meals served this week."
+   ],
+   "variable": "n",
+   "low": 300,
+   "high": 900,
+   "unit": "meals",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "veg_order",
+   "kind": "supplier",
+   "title": "the weekly veg order",
+   "fact": "our veg supplier",
+   "party": "the veg supplier",
+   "aliases": [
+    "our veg people",
+    "the veg supplier"
+   ],
+   "pool": [
+    {
+     "name": "Hartwell Produce",
+     "email": "orders@hartwell-produce.example"
+    },
+    {
+     "name": "Greenacre Growers",
+     "email": "orders@greenacre-growers.example"
+    },
+    {
+     "name": "Fenwick Farm Supplies",
+     "email": "sales@fenwick-farm.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Can you send the weekly veg order? {n} kg of potatoes. Our veg supplier is {name} - orders go to {value}.",
+   "short": [
+    "Do the weekly veg order: {n} kg of potatoes.",
+    "Veg order time - {n} kg of potatoes please, send it to {alias}.",
+    "Weekly veg order: {n} kg of potatoes."
+   ],
+   "variable": "n",
+   "low": 10,
+   "high": 40,
+   "unit": "kg of potatoes",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "dry_goods_order",
+   "kind": "supplier",
+   "title": "the dry-goods order",
+   "fact": "our dry-goods supplier",
+   "party": "the dry-goods supplier",
+   "aliases": [
+    "the wholesaler",
+    "the dry-goods supplier"
+   ],
+   "pool": [
+    {
+     "name": "Bramble Wholesale",
+     "email": "orders@bramble-wholesale.example"
+    },
+    {
+     "name": "Northway Cash & Carry",
+     "email": "trade@northway-cc.example"
+    },
+    {
+     "name": "Pantry Direct",
+     "email": "orders@pantrydirect.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Please send the dry-goods order: {n} kg of rice. We buy dry goods from {name} - orders to {value}.",
+   "short": [
+    "Dry-goods order please: {n} kg of rice.",
+    "Can you order {n} kg of rice from {alias}?"
+   ],
+   "variable": "n",
+   "low": 5,
+   "high": 25,
+   "unit": "kg of rice",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "cleaning_order",
+   "kind": "supplier",
+   "title": "the cleaning-supplies order",
+   "fact": "our cleaning-supplies supplier",
+   "party": "the cleaning-supplies supplier",
+   "aliases": [
+    "the cleaning supplier"
+   ],
+   "pool": [
+    {
+     "name": "Brightwell Hygiene",
+     "email": "orders@brightwell-hygiene.example"
+    },
+    {
+     "name": "Kestrel Cleaning Supplies",
+     "email": "sales@kestrel-clean.example"
+    },
+    {
+     "name": "Ashby Janitorial",
+     "email": "orders@ashby-janitorial.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Order {n} boxes of gloves for the kitchen, please. Cleaning supplies come from {name} ({value}).",
+   "short": [
+    "Order {n} boxes of gloves from {alias}.",
+    "We're low on gloves - order {n} boxes please."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 10,
+   "unit": "boxes of gloves",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "foodbank_session",
+   "kind": "hours",
+   "title": "the food-bank session",
+   "fact": "the food-bank session's hours",
+   "party": "the food-bank session",
+   "aliases": [
+    "the food bank"
+   ],
+   "pool": [
+    {
+     "start": "13:00",
+     "end": "16:00"
+    },
+    {
+     "start": "14:00",
+     "end": "17:00"
+    },
+    {
+     "start": "12:00",
+     "end": "15:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Put the food bank session on {date} in the kitchen calendar - it runs {value}.",
+   "short": [
+    "Put the food bank session on {date} in the kitchen calendar.",
+    "Add {date}'s food bank session to the calendar please."
+   ],
+   "variable": "date",
+   "event": "Food bank session",
+   "keyword": "food bank",
+   "letter_from": "trustees@lanternlane.example"
+  },
+  {
+   "id": "deep_clean",
+   "kind": "hours",
+   "title": "the kitchen deep clean",
+   "fact": "the deep-clean slot's hours",
+   "party": "the kitchen deep clean",
+   "aliases": [
+    "the deep clean"
+   ],
+   "pool": [
+    {
+     "start": "06:00",
+     "end": "08:00"
+    },
+    {
+     "start": "07:00",
+     "end": "09:00"
+    },
+    {
+     "start": "05:30",
+     "end": "07:30"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book the kitchen deep clean for {date} in the calendar. The cleaners come {value}.",
+   "short": [
+    "Book the kitchen deep clean for {date} in the calendar.",
+    "Deep clean on {date} - put it in the calendar."
+   ],
+   "variable": "date",
+   "event": "Kitchen deep clean",
+   "keyword": "deep clean",
+   "letter_from": "trustees@lanternlane.example"
+  },
+  {
+   "id": "induction",
+   "kind": "hours",
+   "title": "a volunteer induction",
+   "fact": "the volunteer induction's hours",
+   "party": "volunteer inductions",
+   "aliases": [
+    "the induction"
+   ],
+   "pool": [
+    {
+     "start": "17:00",
+     "end": "18:00"
+    },
+    {
+     "start": "18:00",
+     "end": "19:00"
+    },
+    {
+     "start": "16:30",
+     "end": "17:30"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "{who} is starting with us - add their volunteer induction on {date} to the calendar. Inductions run {value}.",
+   "short": [
+    "{who} is starting - add their volunteer induction on {date} to the calendar.",
+    "Can you put {who}'s induction in the calendar for {date}?"
+   ],
+   "variable": "who_date",
+   "event": "{who} - volunteer induction",
+   "keyword": "induction",
+   "letter_from": "trustees@lanternlane.example"
+  },
+  {
+   "id": "petty_cash",
+   "kind": "amount",
+   "title": "the petty-cash float request",
+   "fact": "the weekly petty-cash float",
+   "party": "the petty-cash float",
+   "aliases": [
+    "the float"
+   ],
+   "pool": [
+    {
+     "amount": 150
+    },
+    {
+     "amount": 200
+    },
+    {
+     "amount": 175
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email finance ({to}) the petty-cash float request for the week of {date}. The float is {value}.",
+   "short": [
+    "Send finance the petty-cash float request for the week of {date}.",
+    "Can you ask finance for this week's float? Week of {date}."
+   ],
+   "variable": "date",
+   "to": "finance@lanternlane.example",
+   "letter_from": "finance@lanternlane.example"
+  },
+  {
+   "id": "van_fuel",
+   "kind": "amount",
+   "title": "the van fuel request",
+   "fact": "the van's weekly fuel allowance",
+   "party": "the van fuel allowance",
+   "aliases": [
+    "the fuel money"
+   ],
+   "pool": [
+    {
+     "amount": 60
+    },
+    {
+     "amount": 85
+    },
+    {
+     "amount": 70
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Ask finance ({to}) for the van's fuel allowance for the week of {date} - it's {value} a week.",
+   "short": [
+    "Ask finance for the van's fuel allowance for the week of {date}.",
+    "Fuel allowance request for the van please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "finance@lanternlane.example",
+   "letter_from": "finance@lanternlane.example"
+  },
+  {
+   "id": "donations_report",
+   "kind": "role",
+   "title": "the donations summary",
+   "fact": "who our treasurer is",
+   "party": "the treasurer",
+   "aliases": [
+    "the treasurer"
+   ],
+   "pool": [
+    {
+     "name": "Olu Adeyemi",
+     "email": "olu@lanternlane.example"
+    },
+    {
+     "name": "Priyanka Rao",
+     "email": "priyanka@lanternlane.example"
+    },
+    {
+     "name": "Tomasz Wilk",
+     "email": "tomasz@lanternlane.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the treasurer this week's donations summary: GBP {n} in total. Our treasurer is {name} ({value}).",
+   "short": [
+    "Send the treasurer this week's donations summary: GBP {n} in total.",
+    "Donations summary to the treasurer please - GBP {n} this week."
+   ],
+   "variable": "n",
+   "low": 210,
+   "high": 940,
+   "unit": "pounds",
+   "letter_from": "chair@lanternlane.example"
+  },
+  {
+   "id": "maintenance_summary",
+   "kind": "role",
+   "title": "the maintenance summary",
+   "fact": "who the building manager is",
+   "party": "the building manager",
+   "aliases": [
+    "the building manager"
+   ],
+   "pool": [
+    {
+     "name": "Hal Brennan",
+     "email": "hal@lanternlane.example"
+    },
+    {
+     "name": "Rosa Lind",
+     "email": "rosa@lanternlane.example"
+    },
+    {
+     "name": "Joel Mensah",
+     "email": "joel@lanternlane.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the building manager the weekly maintenance summary: {n} tickets still open. That's {name} ({value}).",
+   "short": [
+    "Send the building manager the weekly maintenance summary: {n} tickets still open.",
+    "Maintenance summary to the building manager - {n} open tickets."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 9,
+   "unit": "open tickets",
+   "letter_from": "chair@lanternlane.example"
+  },
+  {
+   "id": "swap_reminder",
+   "kind": "policy",
+   "title": "the rota reminder",
+   "fact": "the shift-swap notice rule",
+   "party": "the shift-swap rule",
+   "aliases": [
+    "the swap rule"
+   ],
+   "pool": [
+    {
+     "number": 48,
+     "unit": "hours"
+    },
+    {
+     "number": 72,
+     "unit": "hours"
+    },
+    {
+     "number": 36,
+     "unit": "hours"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send the volunteers ({to}) this week's rota reminder, with the swap rule: swaps need {value}' notice.",
+   "short": [
+    "Send the volunteers this week's rota reminder, with the swap-notice rule.",
+    "Rota reminder to the volunteers please - remind them how much notice a swap needs."
+   ],
+   "variable": "none",
+   "to": "volunteers@lanternlane.example",
+   "doc": "policies/volunteer-rota-policy-2026.md",
+   "letter_from": "trustees@lanternlane.example",
+   "doc_rule": "at least {n} hours before the shift"
+  },
+  {
+   "id": "fridge_reminder",
+   "kind": "policy",
+   "title": "the fridge-log reminder",
+   "fact": "the maximum fridge temperature",
+   "party": "the fridge temperature rule",
+   "aliases": [
+    "the fridge rule"
+   ],
+   "pool": [
+    {
+     "number": 5,
+     "unit": "°C"
+    },
+    {
+     "number": 4,
+     "unit": "°C"
+    },
+    {
+     "number": 3,
+     "unit": "°C"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send the volunteers ({to}) the weekly fridge-log reminder: fridges must be at {value} or below.",
+   "short": [
+    "Send the volunteers the weekly fridge-log reminder with the fridge temperature limit.",
+    "Fridge-log reminder to the volunteers please, with the temperature limit."
+   ],
+   "variable": "none",
+   "to": "volunteers@lanternlane.example",
+   "doc": "handbook/food-safety.md",
+   "letter_from": "trustees@lanternlane.example",
+   "doc_rule": "Fridges run at {n} °C or below"
+  },
+  {
+   "id": "shift_limit_reminder",
+   "kind": "policy",
+   "title": "the shift-limit reminder",
+   "fact": "the weekly shift limit per volunteer",
+   "party": "the shift-limit rule",
+   "aliases": [
+    "the shift limit"
+   ],
+   "pool": [
+    {
+     "number": 3,
+     "unit": "shifts"
+    },
+    {
+     "number": 4,
+     "unit": "shifts"
+    },
+    {
+     "number": 2,
+     "unit": "shifts"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the volunteers ({to}) the weekly reminder that each person may do at most {value} a week.",
+   "short": [
+    "Email the volunteers the weekly reminder about how many shifts each person may do.",
+    "Send the volunteers the shift-limit reminder for this week."
+   ],
+   "variable": "none",
+   "to": "volunteers@lanternlane.example",
+   "doc": "policies/volunteer-rota-policy-2026.md",
+   "letter_from": "trustees@lanternlane.example",
+   "doc_rule": "At most {n} shifts per volunteer per week"
+  }
+ ],
+ "preferences": [
+  {
+   "id": "pref_summary",
+   "fact": "how Mara wants weekly summaries laid out",
+   "values": [
+    "a short paragraph",
+    "a bullet list"
+   ],
+   "markers": [
+    "paragraph",
+    "bullet"
+   ],
+   "say_first": "I like weekly summaries as {value}.",
+   "say_change": "Actually, I'd rather have weekly summaries as {value} from now on."
+  },
+  {
+   "id": "pref_tea",
+   "fact": "which tea Mara likes at trustee meetings",
+   "values": [
+    "peppermint",
+    "rooibos"
+   ],
+   "markers": [
+    "peppermint",
+    "rooibos"
+   ],
+   "say_first": "For the record, I drink {value} tea at the trustee meetings.",
+   "say_change": "I've gone off peppermint - it's {value} tea for me at trustee meetings now."
+  }
+ ],
+ "misstated": [
+  {
+   "id": "van_mot",
+   "fact": "the date of the van's MOT",
+   "pairs": [
+    [
+     "14 January",
+     "15 January"
+    ],
+    [
+     "21 January",
+     "22 January"
+    ],
+    [
+     "3 February",
+     "4 February"
+    ]
+   ],
+   "say": "The van's MOT is booked for {wrong}.",
+   "fix": "Sorry, I misread the letter - the MOT is {right}, not {wrong}."
+  },
+  {
+   "id": "hygiene_visit",
+   "fact": "the date of the food hygiene inspection",
+   "pairs": [
+    [
+     "9 February",
+     "10 February"
+    ],
+    [
+     "16 February",
+     "17 February"
+    ],
+    [
+     "23 February",
+     "24 February"
+    ]
+   ],
+   "say": "The food hygiene inspector is coming on {wrong}.",
+   "fix": "Correction: the inspection is on {right}. I had the wrong week day."
+  }
+ ],
+ "homonyms": [
+  {
+   "id": "sam_okafor",
+   "name": "Sam Okafor",
+   "email": "sam.okafor@lanternlane.example",
+   "role": "our new van driver",
+   "say": "Sam Okafor has joined as our new van driver (volunteer). Their email is sam.okafor@lanternlane.example."
+  },
+  {
+   "id": "sam_reyes",
+   "name": "Sam Reyes",
+   "email": "sam.reyes@bramble-wholesale.example",
+   "role": "the account manager at Bramble Wholesale",
+   "say": "Our account manager at Bramble Wholesale is Sam Reyes now - sam.reyes@bramble-wholesale.example."
+  }
+ ],
+ "unknown": [
+  {
+   "id": "okafor_phone",
+   "question": "What's Sam Okafor's phone number?"
+  },
+  {
+   "id": "bakery_driver",
+   "question": "What's the name of Sandgate Bakery's delivery driver?"
+  },
+  {
+   "id": "hal_mobile",
+   "question": "What's the building manager's mobile number?"
+  },
+  {
+   "id": "council_ref",
+   "question": "What's our trade-waste account reference number with the council?"
+  },
+  {
+   "id": "reyes_phone",
+   "question": "What's Sam Reyes's direct phone line?"
+  }
+ ]
+}

@@ -1700,7 +1700,10 @@ def _apply_patch_skill(proposal: dict[str, Any], action_id: str) -> dict[str, An
             allow_override_existing_bundled=True,
         )
     else:
-        patched = update_skill(name=skill.name, instructions=updated)
+        from row_bot import stale_skills
+
+        with stale_skills.cause(f"proposal:{proposal.get('id')}"):
+            patched = update_skill(name=skill.name, instructions=updated)
     if not patched:
         raise ValueError("Skill patch failed.")
     refs = [str(patched.path / "SKILL.md")] if patched.path else []

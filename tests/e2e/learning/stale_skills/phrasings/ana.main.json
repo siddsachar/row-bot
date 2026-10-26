@@ -1,0 +1,349 @@
+{
+ "format": "row_bot.learning.stale_skills_phrasings",
+ "model": "main",
+ "note": "The person's wording for the stale-skills world, written once by a phrasing model (tests/e2e/learning/stale_skills/phrasing.py). Made-up people; no fact comes from here.",
+ "person": "ana",
+ "slots": {
+  "short/absence_reminder/0": {
+   "template": "Email the staff the reminder about absence-request notice.",
+   "variants": [
+    "Can you email staff a quick reminder about notice for absence requests, please?",
+    "Could you remind staff by email about giving notice for absence requests?",
+    "Email staff a reminder about the notice needed for absence requests, please.",
+    "Please send the staff an email reminding them about absence-request notice."
+   ]
+  },
+  "short/absence_reminder/1": {
+   "template": "Send the staff the absence-rule reminder please.",
+   "variants": [
+    "Can you send the absence-rule reminder to staff, please?",
+    "Could you remind the staff about the absence rules, please?",
+    "Please send staff a quick reminder of the absence rules.",
+    "Please send the reminder about absence rules round to staff."
+   ]
+  },
+  "short/admissions_return/0": {
+   "template": "Send {alias} this month's return: {n} pupils on roll.",
+   "variants": [
+    "Can you send this month's return to {alias}, please? {n} pupils on roll.",
+    "Could you get this month's return sent to {alias}? It's {n} pupils on roll.",
+    "Please send {alias} this month's return: {n} pupils on roll.",
+    "Send over this month's return to {alias}: {n} pupils on roll. Thanks!"
+   ]
+  },
+  "short/admissions_return/1": {
+   "template": "Monthly return to {alias} please - {n} pupils on roll.",
+   "variants": [
+    "Can you get the monthly return over to {alias}, please? {n} pupils on roll.",
+    "Monthly return for {alias}, please, with {n} pupils on roll.",
+    "Please send the monthly return to {alias} — {n} pupils on roll.",
+    "Please sort the monthly return to {alias} — we've got {n} pupils on roll."
+   ]
+  },
+  "short/breakfast_club/0": {
+   "template": "Book the breakfast club for {date} in the calendar.",
+   "variants": [
+    "Can you pop breakfast club in the calendar for {date}, please?",
+    "Could you book breakfast club in the calendar for {date}?",
+    "Please add breakfast club to the calendar for {date}.",
+    "Put breakfast club in the calendar for {date}, thanks."
+   ]
+  },
+  "short/breakfast_club/1": {
+   "template": "Breakfast club on {date} - put it in the calendar.",
+   "variants": [
+    "Breakfast club is on {date} — can you put it in the calendar?",
+    "Can you pop breakfast club on {date} in the calendar, please?",
+    "Could you put breakfast club in the calendar for {date}? Thanks!",
+    "Please add breakfast club to the calendar for {date}."
+   ]
+  },
+  "short/club_fee/0": {
+   "template": "Send the parents the after-school club reminder for the week of {date}.",
+   "variants": [
+    "Can you send parents the after-school club reminder for the week of {date}, please?",
+    "Could you remind parents about after-school clubs for the week of {date}?",
+    "Please get the after-school club reminder out to parents for the week of {date}.",
+    "Send parents the reminder about after-school clubs for the week of {date}, please."
+   ]
+  },
+  "short/club_fee/1": {
+   "template": "After-school club reminder to parents please, week of {date}.",
+   "variants": [
+    "After-school club reminder for parents please, for the week of {date}.",
+    "Can you remind parents about after-school club for the week of {date}, please?",
+    "Please remind parents about after-school club, week of {date}.",
+    "Please send parents an after-school club reminder for the week of {date}."
+   ]
+  },
+  "short/coach_booking/0": {
+   "template": "Book a coach for {n} children for next week's trip.",
+   "variants": [
+    "Can you book a coach for {n} children for next week's trip, please?",
+    "Could you get a coach booked for next week's trip for {n} children?",
+    "Please sort a coach for {n} children for the trip next week.",
+    "We need a coach for {n} children for next week's trip — can you book it, please?"
+   ]
+  },
+  "short/coach_booking/1": {
+   "template": "Coach for the trip please - {n} children.",
+   "variants": [
+    "Can you book a coach for the trip please, for {n} children?",
+    "Could you sort a coach for the trip please? {n} children.",
+    "Please arrange a coach for the trip – {n} children.",
+    "We need a coach for the trip please – {n} children."
+   ]
+  },
+  "short/fruit_order/0": {
+   "template": "Do the weekly fruit order: {n} kg of apples.",
+   "variants": [
+    "Can you put through the weekly fruit order for {n} kg of apples, please?",
+    "Could you sort the weekly fruit order: {n} kg of apples?",
+    "Please order {n} kg of apples for our weekly fruit order.",
+    "Weekly fruit order, please — {n} kg of apples."
+   ]
+  },
+  "short/fruit_order/1": {
+   "template": "Fruit order time - {n} kg of apples please.",
+   "variants": [
+    "Can you order {n} kg of apples for the fruit order, please?",
+    "Fruit order: {n} kg of apples please, thanks!",
+    "Please put in the fruit order for {n} kg of apples.",
+    "Time for the fruit order — {n} kg of apples, please."
+   ]
+  },
+  "short/governor_visit/0": {
+   "template": "{who} is visiting as a governor - add the visit on {date} to the calendar.",
+   "variants": [
+    "Can you add {who}'s governor visit on {date} to the calendar, please?",
+    "Please put {who}'s visit as a governor in the calendar for {date}.",
+    "{who} is coming in as a governor on {date} — pop the visit in the calendar, please.",
+    "{who} is visiting as a governor — could you add it to the calendar for {date}?"
+   ]
+  },
+  "short/governor_visit/1": {
+   "template": "Can you put {who}'s governor visit in the calendar for {date}?",
+   "variants": [
+    "Can you add {who}'s governor visit to the calendar for {date}, please?",
+    "Can you get {who}'s governor visit into the calendar for {date}?",
+    "Could you put {who}'s governor visit in the calendar on {date}?",
+    "Please pop {who}'s governor visit in the calendar for {date}."
+   ]
+  },
+  "short/lunch_numbers/0": {
+   "template": "Send {alias} tomorrow's lunch numbers: {n} hot dinners.",
+   "variants": [
+    "Can you send {alias} tomorrow’s lunch numbers please — {n} hot dinners.",
+    "Could you pass tomorrow’s lunch numbers to {alias} please? {n} hot dinners.",
+    "Send tomorrow’s lunch count over to {alias}: {n} hot dinners."
+   ]
+  },
+  "short/lunch_numbers/1": {
+   "template": "Lunch numbers to {alias} for tomorrow - {n} hot dinners.",
+   "variants": [
+    "Let {alias} have the lunch numbers for tomorrow, please - {n} hot dinners.",
+    "Please send tomorrow's lunch numbers to {alias} - {n} hot dinners.",
+    "Tomorrow's lunch count for {alias} - {n} hot dinners. Please pass that on."
+   ]
+  },
+  "short/parents_evening/0": {
+   "template": "Put a parents' evening on {date} in the school calendar.",
+   "variants": [
+    "Can you put parents' evening in the school calendar for {date}?",
+    "Please add parents' evening on {date} to the school calendar.",
+    "Please put parents' evening down for {date} in the school calendar.",
+    "Pop parents' evening on {date} into the school calendar, please."
+   ]
+  },
+  "short/parents_evening/1": {
+   "template": "Add a parents' evening on {date} to the calendar please.",
+   "variants": [
+    "Can you add parents' evening to the calendar for {date}, please?",
+    "Could you get parents' evening on {date} added to the calendar? Thanks!",
+    "Parents' evening is on {date} — could you put it in the calendar please?",
+    "Please pop parents' evening on {date} in the calendar."
+   ]
+  },
+  "short/ratio_reminder/0": {
+   "template": "Email the staff the trips reminder with the ratio.",
+   "variants": [
+    "Can you email staff the trips reminder, including the ratio, please?",
+    "Could you email the trips reminder to staff with the ratio included?",
+    "Email staff a reminder about trips, making sure the ratio is in there.",
+    "Please send staff the reminder about trips and include the ratio."
+   ]
+  },
+  "short/ratio_reminder/1": {
+   "template": "Send the staff the trip-ratio reminder.",
+   "variants": [
+    "Can you send the staff a reminder about trip ratios, please?",
+    "Could you remind staff about the trip ratios?",
+    "Please send the trip-ratio reminder round to staff.",
+    "Send staff the reminder about trip ratios, thanks."
+   ]
+  },
+  "short/safeguarding_log/0": {
+   "template": "Send the safeguarding lead this week's log summary: {n} entries.",
+   "variants": [
+    "Can you send this week's log summary to the safeguarding lead? {n} entries.",
+    "Please pass this week's log summary on to the safeguarding lead: {n} entries.",
+    "Please send the safeguarding lead this week's log summary: {n} entries.",
+    "Send over this week's log summary to the safeguarding lead, please: {n} entries."
+   ]
+  },
+  "short/safeguarding_log/1": {
+   "template": "Log summary to the safeguarding lead - {n} entries.",
+   "variants": [
+    "Can you send a log summary to the safeguarding lead for {n} entries?",
+    "Log summary for the safeguarding lead, please – {n} entries.",
+    "Please share a summary of the log with the safeguarding lead – {n} entries.",
+    "Send the safeguarding lead a log summary covering {n} entries, please."
+   ]
+  },
+  "short/sickness_reminder/0": {
+   "template": "Send the parents the reminder about staying off after sickness.",
+   "variants": [
+    "Can you send parents a quick reminder about keeping children off school after sickness, please?",
+    "Could you send the reminder to parents about children staying off after sickness?",
+    "Please remind parents that children need to stay off school after sickness.",
+    "Pop a reminder out to parents about keeping children off after sickness, please."
+   ]
+  },
+  "short/sickness_reminder/1": {
+   "template": "Sickness-rule reminder to the parents please.",
+   "variants": [
+    "A quick reminder to parents about the sickness rules, please.",
+    "Can you send parents a quick reminder about the sickness rules, please?",
+    "Could you put out a sickness-rule reminder to parents, please?",
+    "Please remind parents of the sickness rules."
+   ]
+  },
+  "short/site_report/0": {
+   "template": "Send the site manager the weekly site report: {n} jobs open.",
+   "variants": [
+    "Can you send the weekly site report to the site manager, please? {n} jobs open.",
+    "Could you send the site manager the weekly site report showing {n} jobs open?",
+    "Please send the site manager this week’s site report: {n} jobs open.",
+    "Send over the weekly site report to the site manager — {n} jobs open."
+   ]
+  },
+  "short/site_report/1": {
+   "template": "Site report to the site manager please - {n} jobs open.",
+   "variants": [
+    "Can you get the site report over to the site manager please? {n} jobs open.",
+    "Please pass the site report to the site manager — there are {n} jobs open.",
+    "Please send the site report to the site manager — {n} jobs open.",
+    "Site report for the site manager please, showing {n} open jobs."
+   ]
+  },
+  "short/stationery_order/0": {
+   "template": "Order {n} packs of exercise books.",
+   "variants": [
+    "Can you order {n} packs of exercise books, please?",
+    "Could you put in an order for {n} packs of exercise books?",
+    "Order {n} packs of exercise books for me, thanks.",
+    "Please order {n} packs of exercise books."
+   ]
+  },
+  "short/stationery_order/1": {
+   "template": "We're low on exercise books - order {n} packs please.",
+   "variants": [
+    "Can you order {n} packs of exercise books please? We're low.",
+    "Exercise books are running low – could you get {n} packs ordered please?",
+    "Please order {n} packs of exercise books, we're getting low.",
+    "We're running low on exercise books – can you order {n} packs please?"
+   ]
+  },
+  "short/trip_deposit/0": {
+   "template": "Send the parents the trip deposit reminder for the week of {date}.",
+   "variants": [
+    "Can you send parents the trip deposit reminder for the week of {date}, please?",
+    "Could you get the trip deposit reminder sent to parents for the week of {date}?",
+    "Please send out the trip deposit reminder to parents for the week of {date}.",
+    "Send parents a reminder about the trip deposit for the week of {date}, please."
+   ]
+  },
+  "short/trip_deposit/1": {
+   "template": "Can you remind the parents about the trip deposit? Week of {date}.",
+   "variants": [
+    "Can you pop a trip deposit reminder out to parents in the week of {date}?",
+    "Can you remind parents about the trip deposit in the week of {date}, please?",
+    "Could you give parents a nudge about the trip deposit the week of {date}?",
+    "Please send parents a reminder about the trip deposit, week of {date}."
+   ]
+  },
+  "short/uniform_order/0": {
+   "template": "Order {n} spare jumpers from {alias}.",
+   "variants": [
+    "Can you order {n} spare jumpers from {alias}, please?",
+    "Could you get {n} spare jumpers ordered from {alias}?",
+    "Please put an order in with {alias} for {n} spare jumpers.",
+    "We need {n} spare jumpers — please order them from {alias}."
+   ]
+  },
+  "short/uniform_order/1": {
+   "template": "Can you get {n} spare jumpers from {alias}?",
+   "variants": [
+    "Can you sort {n} spare jumpers from {alias}?",
+    "Could you arrange to get {n} spare jumpers from {alias}?",
+    "Could you get {n} spare jumpers from {alias}, please?",
+    "Please can you get {n} spare jumpers from {alias}?"
+   ]
+  },
+  "tell/address": {
+   "template": "Heads up: {party} have a new address - from today use {new}. The old one ({old}) isn't checked any more.",
+   "variants": [
+    "Can you use {new} for {party} from today, please? They've changed address and the old one ({old}) is no longer checked.",
+    "Just a heads up, {party} have a new address. Please use {new} from today — the old one ({old}) isn't checked any more.",
+    "Please switch to {new} for {party} from today. That's their new address — the old one ({old}) is no longer checked.",
+    "Quick update: {party} have changed their address to {new}. Use that from today, as the old one ({old}) isn't checked any more."
+   ]
+  },
+  "tell/amount": {
+   "template": "Finance have changed {fact}: it's {new} from this week (it was {old}).",
+   "variants": [
+    "Finance have let us know {fact} is changing to {new} this week — it was {old}.",
+    "Finance have updated {fact} — it’s {new} from this week, rather than {old}.",
+    "Just to flag, Finance have changed {fact} from {old} to {new}, starting this week.",
+    "Quick update from Finance: {fact} is now {new} from this week. It was {old}."
+   ]
+  },
+  "tell/hours": {
+   "template": "From now on {fact} are {new} instead of {old}.",
+   "variants": [
+    "A quick heads-up: {fact} are {new} from now on, replacing {old}.",
+    "Going forward, {fact} are {new} rather than {old}.",
+    "Just a quick update: from now on, {fact} are {new}, not {old}.",
+    "Please note, {fact} are now {new} instead of {old}."
+   ]
+  },
+  "tell/policy": {
+   "template": "{policy_by} changed {fact}: it's now {new} (it was {old}). The policy document is updated.",
+   "variants": [
+    "Just a heads-up, {policy_by} has changed {fact} from {old} to {new}. The policy document is updated.",
+    "Quick update: {policy_by} changed {fact}. It was {old}, but it’s now {new}. The policy document has been updated.",
+    "{fact} is now {new} instead of {old}, following a change by {policy_by}. The policy document is updated.",
+    "{policy_by} has updated {fact} — it’s now {new}, rather than {old}. The policy document is updated too."
+   ]
+  },
+  "tell/role": {
+   "template": "{new_name} has taken over as {party} from {old_name} - their email is {new_email}.",
+   "variants": [
+    "Hi, {new_name} has taken over from {old_name} as {party}. Their email is {new_email}.",
+    "Just to let you know, {new_name} is now {party}, taking over from {old_name}. Their email is {new_email}.",
+    "Quick update: {new_name} has replaced {old_name} as {party}. Their email is {new_email}.",
+    "{new_name} is taking over as {party} from {old_name} — you can reach them at {new_email}."
+   ]
+  },
+  "tell/supplier": {
+   "template": "We've switched {party}: from today it's {new_name}, not {old_name}. Orders go to {new_email}.",
+   "variants": [
+    "For {party}, we're now using {new_name}, not {old_name}, as of today. Orders need to go to {new_email}.",
+    "From today, {party} has switched to {new_name} from {old_name}. Please use {new_email} for orders.",
+    "Just a quick update — we've switched {party}. From today it's {new_name}, not {old_name}, and orders go to {new_email}.",
+    "We've changed {party} from today: {new_name} instead of {old_name}. Please send orders to {new_email}."
+   ]
+  }
+ },
+ "version": 1
+}

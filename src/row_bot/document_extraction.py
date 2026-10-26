@@ -19,6 +19,7 @@ from typing import Any
 
 from langchain_core.documents import Document
 
+from row_bot import stale_skills
 from row_bot.document_jobs import (
     REDUCTION_GROUP_SIZE,
     DocumentCancelled,
@@ -625,7 +626,7 @@ def _commit_knowledge(
     # Processing was approved with its embedding work: build an index the profile's saves deferred, so the
     # batch's dedup can compare against existing knowledge instead of failing the document (B331).
     kg.build_missing_index()
-    with kg.projection_batch(drain_on_exit=False):
+    with kg.projection_batch(drain_on_exit=False), stale_skills.origin(f"document:{job.id}"):
         return _commit_knowledge_rows(job, article, window_count=window_count, summary_count=summary_count)
 
 

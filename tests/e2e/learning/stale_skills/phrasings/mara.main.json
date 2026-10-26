@@ -1,0 +1,361 @@
+{
+ "format": "row_bot.learning.stale_skills_phrasings",
+ "model": "main",
+ "note": "The person's wording for the stale-skills world, written once by a phrasing model (tests/e2e/learning/stale_skills/phrasing.py). Made-up people; no fact comes from here.",
+ "person": "mara",
+ "slots": {
+  "short/bread_order/0": {
+   "template": "Send {alias} tomorrow's bread order: {n} large loaves.",
+   "variants": [
+    "Can you send tomorrow's bread order to {alias}? {n} large loaves.",
+    "Message {alias} with tomorrow's bread order: {n} large loaves.",
+    "Send {alias} the bread order for tomorrow: {n} large loaves."
+   ]
+  },
+  "short/bread_order/1": {
+   "template": "Bread order to {alias} for tomorrow please - {n} large loaves.",
+   "variants": [
+    "Can you order {n} large loaves from {alias} for tomorrow please?",
+    "Need {n} large loaves from {alias} for tomorrow please.",
+    "Order {n} large loaves from {alias} for tomorrow please.",
+    "Please put tomorrow's bread order in with {alias} - {n} large loaves."
+   ]
+  },
+  "short/bread_order/2": {
+   "template": "Can you do tomorrow's bread order with {alias}? {n} large loaves.",
+   "variants": [
+    "Can you put tomorrow's bread order through with {alias}? {n} large loaves.",
+    "Can you sort {n} large loaves with {alias} for tomorrow?",
+    "Order {n} large loaves from {alias} for tomorrow, please.",
+    "Please do tomorrow's order with {alias} — {n} large loaves."
+   ]
+  },
+  "short/cleaning_order/0": {
+   "template": "Order {n} boxes of gloves from {alias}.",
+   "variants": [
+    "Can you order {n} boxes of gloves from {alias}?",
+    "Get {n} boxes of gloves ordered from {alias}, please.",
+    "Order {n} boxes of gloves from {alias} for me.",
+    "Put in an order for {n} boxes of gloves from {alias}."
+   ]
+  },
+  "short/cleaning_order/1": {
+   "template": "We're low on gloves - order {n} boxes please.",
+   "variants": [
+    "Can you put an order in for {n} boxes of gloves? We're running low.",
+    "Gloves are low — please order {n} boxes.",
+    "Need more gloves — order {n} boxes please.",
+    "Running low on gloves, can you order {n} boxes please?"
+   ]
+  },
+  "short/deep_clean/0": {
+   "template": "Book the kitchen deep clean for {date} in the calendar.",
+   "variants": [
+    "Add the kitchen deep clean to the calendar on {date}.",
+    "Can you book the kitchen deep clean for {date} in the calendar?",
+    "Get the kitchen deep clean booked in the calendar for {date}.",
+    "Put the kitchen deep clean in the calendar for {date}."
+   ]
+  },
+  "short/deep_clean/1": {
+   "template": "Deep clean on {date} - put it in the calendar.",
+   "variants": [
+    "Add deep clean to the calendar on {date}, please.",
+    "Deep clean on {date} — can you put it in the calendar?",
+    "Pop the deep clean in the calendar for {date}.",
+    "Put the deep clean on the calendar for {date}."
+   ]
+  },
+  "short/donations_report/0": {
+   "template": "Send the treasurer this week's donations summary: GBP {n} in total.",
+   "variants": [
+    "Can you send this week's donations summary to the treasurer? Total is GBP {n}.",
+    "Get this week's donations summary over to the treasurer — total GBP {n}.",
+    "Please send the treasurer the donations summary for this week. GBP {n} total.",
+    "Send the treasurer this week's donations summary — GBP {n} in total."
+   ]
+  },
+  "short/donations_report/1": {
+   "template": "Donations summary to the treasurer please - GBP {n} this week.",
+   "variants": [
+    "Can you get the donations summary to the treasurer? GBP {n} this week.",
+    "Donations summary for the treasurer please. GBP {n} this week.",
+    "Pass the donations summary to the treasurer please - GBP {n} this week.",
+    "Send the treasurer the donations summary please - GBP {n} this week."
+   ]
+  },
+  "short/dry_goods_order/0": {
+   "template": "Dry-goods order please: {n} kg of rice.",
+   "variants": [
+    "Can you order {n} kg of rice for dry goods please?",
+    "Dry-goods order: {n} kg rice, please.",
+    "Need {n} kg of rice for the dry-goods order please.",
+    "Please put {n} kg of rice on the dry-goods order."
+   ]
+  },
+  "short/dry_goods_order/1": {
+   "template": "Can you order {n} kg of rice from {alias}?",
+   "variants": [
+    "Can you get {n} kg of rice ordered from {alias}?",
+    "Can you put in an order for {n} kg of rice from {alias}?",
+    "Order {n} kg of rice from {alias}, please.",
+    "Please order {n} kg of rice from {alias}."
+   ]
+  },
+  "short/foodbank_session/0": {
+   "template": "Put the food bank session on {date} in the kitchen calendar.",
+   "variants": [
+    "Add the food bank session on {date} to the kitchen calendar.",
+    "Can you put the food bank session on the kitchen calendar for {date}?",
+    "Get the food bank session on {date} into the kitchen calendar.",
+    "Pop the food bank session in the kitchen calendar for {date}."
+   ]
+  },
+  "short/foodbank_session/1": {
+   "template": "Add {date}'s food bank session to the calendar please.",
+   "variants": [
+    "Can you put the food bank session on the calendar for {date} please?",
+    "Please add the food bank session for {date} to the calendar.",
+    "Pop {date}'s food bank session in the calendar please.",
+    "Stick {date}'s food bank session on the calendar please."
+   ]
+  },
+  "short/fridge_reminder/0": {
+   "template": "Send the volunteers the weekly fridge-log reminder with the fridge temperature limit.",
+   "variants": [
+    "Can you send volunteers their weekly fridge-log reminder with the fridge temperature limit?",
+    "Get the weekly fridge-log reminder out to the volunteers, with the fridge temperature limit in it.",
+    "Please remind the volunteers about the fridge log this week and include the fridge temperature limit.",
+    "Send the volunteers the weekly fridge-log reminder and include the fridge temperature limit."
+   ]
+  },
+  "short/fridge_reminder/1": {
+   "template": "Fridge-log reminder to the volunteers please, with the temperature limit.",
+   "variants": [
+    "Can you remind the volunteers about the fridge log, with the temperature limit?",
+    "Please remind the volunteers to fill in the fridge log and include the temperature limit in the reminder.",
+    "Quick fridge-log reminder for the volunteers please, with the temperature limit included.",
+    "Send the volunteers a fridge-log reminder please, and include the temperature limit."
+   ]
+  },
+  "short/induction/0": {
+   "template": "{who} is starting - add their volunteer induction on {date} to the calendar.",
+   "variants": [
+    "Add a volunteer induction for {who} on {date} to the calendar, they're starting.",
+    "Pop {who}'s volunteer induction in the calendar on {date} — they're starting.",
+    "{who} is joining us — book their volunteer induction in the calendar for {date}.",
+    "{who} is starting, can you add their volunteer induction to the calendar for {date}?"
+   ]
+  },
+  "short/induction/1": {
+   "template": "Can you put {who}'s induction in the calendar for {date}?",
+   "variants": [
+    "Can you add {who}'s induction to the calendar for {date}?",
+    "Please book {who}'s induction into the calendar for {date}.",
+    "Pop {who}'s induction in the calendar for {date}, please.",
+    "Put {who}'s induction on the calendar for {date}, please."
+   ]
+  },
+  "short/maintenance_summary/0": {
+   "template": "Send the building manager the weekly maintenance summary: {n} tickets still open.",
+   "variants": [
+    "Can you send the weekly maintenance summary to the building manager? {n} tickets still open.",
+    "Get the weekly maintenance summary over to the building manager: {n} tickets still open.",
+    "Pass the weekly maintenance summary to the building manager — {n} tickets still open.",
+    "Send the building manager this week's maintenance summary: {n} tickets still open."
+   ]
+  },
+  "short/maintenance_summary/1": {
+   "template": "Maintenance summary to the building manager - {n} open tickets.",
+   "variants": [
+    "Can you summarise maintenance for the building manager? {n} tickets still open.",
+    "Write a maintenance summary for the building manager — {n} open tickets."
+   ]
+  },
+  "short/newsletter_update/0": {
+   "template": "Send this week's kitchen update to {alias} newsletter: we served {n} meals.",
+   "variants": [
+    "Can you send {alias} newsletter this week's kitchen update? We served {n} meals.",
+    "Get this week's kitchen update over to {alias} newsletter — we served {n} meals.",
+    "Send over the kitchen update for this week to {alias} newsletter. We served {n} meals."
+   ]
+  },
+  "short/newsletter_update/1": {
+   "template": "Newsletter update for {alias} please - {n} meals served this week.",
+   "variants": [
+    "Newsletter for {alias} — please add {n} meals served this week.",
+    "Please put {n} meals served this week in the newsletter update for {alias}.",
+    "Update for {alias}'s newsletter please — {n} meals served this week."
+   ]
+  },
+  "short/petty_cash/0": {
+   "template": "Send finance the petty-cash float request for the week of {date}.",
+   "variants": [
+    "Can you send the petty-cash float request for the week of {date} to finance?",
+    "Get the petty-cash float request for the week of {date} over to finance.",
+    "Please send finance the request for the petty-cash float for the week of {date}.",
+    "Send finance the petty-cash float request for the week of {date}, please."
+   ]
+  },
+  "short/petty_cash/1": {
+   "template": "Can you ask finance for this week's float? Week of {date}.",
+   "variants": [
+    "Ask finance for this week's float please. Week of {date}.",
+    "Can you ask finance for the float for the week of {date}?",
+    "Can you put in a request to finance for this week's float? Week of {date}.",
+    "Please chase finance for this week's float, week of {date}."
+   ]
+  },
+  "short/shift_limit_reminder/0": {
+   "template": "Email the volunteers the weekly reminder about how many shifts each person may do.",
+   "variants": [
+    "Can you email the volunteers the weekly reminder about how many shifts each of them may do?",
+    "Email the volunteers the weekly reminder about how many shifts each person can do.",
+    "Send out the weekly reminder by email so volunteers know how many shifts they can each do.",
+    "Send the volunteers their weekly email reminder on how many shifts they’re allowed to do."
+   ]
+  },
+  "short/shift_limit_reminder/1": {
+   "template": "Send the volunteers the shift-limit reminder for this week.",
+   "variants": [
+    "Can you send the volunteers this week’s shift-limit reminder?",
+    "Please get this week’s shift-limit reminder out to the volunteers.",
+    "Remind the volunteers about the shift limit for this week.",
+    "Send out the shift-limit reminder to the volunteers for this week, please."
+   ]
+  },
+  "short/swap_reminder/0": {
+   "template": "Send the volunteers this week's rota reminder, with the swap-notice rule.",
+   "variants": [
+    "Can you send this week's rota reminder to the volunteers? Include the swap-notice rule.",
+    "Remind the volunteers about this week's rota and the swap-notice rule.",
+    "Send out this week's rota reminder to the volunteers, with the rule on giving notice for swaps.",
+    "Send the volunteers a reminder about this week's rota, including the swap-notice rule."
+   ]
+  },
+  "short/swap_reminder/1": {
+   "template": "Rota reminder to the volunteers please - remind them how much notice a swap needs.",
+   "variants": [
+    "Can you send the volunteers a rota reminder please, including how much notice they need to give for a swap?",
+    "Please remind the volunteers about the rota and how much notice a swap needs.",
+    "Rota reminder for the volunteers please — include how much notice they need for swaps.",
+    "Send a quick rota reminder to the volunteers please. Remind them how much notice to give if they need a swap."
+   ]
+  },
+  "short/van_fuel/0": {
+   "template": "Ask finance for the van's fuel allowance for the week of {date}.",
+   "variants": [
+    "Get the van’s fuel allowance for the week of {date} from finance, please.",
+    "Message finance and ask for the van’s fuel allowance for the week of {date}."
+   ]
+  },
+  "short/van_fuel/1": {
+   "template": "Fuel allowance request for the van please, week of {date}.",
+   "variants": [
+    "Can you put in the van fuel allowance request for the week of {date} please?",
+    "Need a fuel allowance request for the van for the week of {date}, please.",
+    "Please request the fuel allowance for the van, week of {date}.",
+    "Sort the van fuel allowance request for the week of {date} please."
+   ]
+  },
+  "short/veg_order/0": {
+   "template": "Do the weekly veg order: {n} kg of potatoes.",
+   "variants": [
+    "Can you do the weekly veg order — {n} kg of potatoes?",
+    "Order {n} kg of potatoes for this week's veg order.",
+    "Put in the weekly veg order for {n} kg of potatoes.",
+    "Sort the weekly veg order: {n} kg of potatoes."
+   ]
+  },
+  "short/veg_order/1": {
+   "template": "Veg order time - {n} kg of potatoes please, send it to {alias}.",
+   "variants": [
+    "Can you send the veg order to {alias}? {n} kg of potatoes please.",
+    "Please order {n} kg of potatoes and send the order to {alias}.",
+    "Time for the veg order — {n} kg of potatoes please, send it to {alias}.",
+    "Veg order please: {n} kg of potatoes. Send it to {alias}."
+   ]
+  },
+  "short/veg_order/2": {
+   "template": "Weekly veg order: {n} kg of potatoes.",
+   "variants": [
+    "Add potatoes to the weekly veg order — {n} kg.",
+    "For the weekly veg order, we need {n} kg of potatoes.",
+    "Put {n} kg of potatoes on the weekly veg order.",
+    "Weekly veg order: potatoes, {n} kg."
+   ]
+  },
+  "short/waste_collection/0": {
+   "template": "Book {n} extra bin collections with {alias} for this week.",
+   "variants": [
+    "Book in {n} extra bin collections for this week with {alias}.",
+    "Can you book {n} extra bin collections with {alias} for this week?",
+    "Get {n} extra bin collections booked with {alias} for this week.",
+    "Please sort {n} extra bin collections with {alias} this week."
+   ]
+  },
+  "short/waste_collection/1": {
+   "template": "We need {n} extra bin pickups this week - can you book them with {alias}?",
+   "variants": [
+    "Can you ask {alias} to book us {n} extra bin pickups this week?",
+    "Can you book {n} extra bin pickups with {alias} for this week?",
+    "Need {n} extra bin pickups this week. Can you sort with {alias}?",
+    "We need {n} more bin pickups this week — can you get them booked with {alias}?"
+   ]
+  },
+  "tell/address": {
+   "template": "Heads up: {party} have a new address - from today use {new}. The old one ({old}) isn't checked any more.",
+   "variants": [
+    "From today, use {new} for {party}. They've changed address and aren't checking {old} any more.",
+    "Heads up, {party} have changed address. Use {new} from today — {old} isn't checked any more.",
+    "Quick update: {party} are now on {new}. Use it from today — their old address ({old}) isn't checked any more.",
+    "{party} have a new address: {new}. Use that from today, the old one ({old}) isn't checked now."
+   ]
+  },
+  "tell/amount": {
+   "template": "Finance have changed {fact}: it's {new} from this week (it was {old}).",
+   "variants": [
+    "Finance have updated {fact} — it's {new} from this week, was {old}.",
+    "Finance say {fact} is now {new} from this week. It was {old}.",
+    "Just flagging Finance's change to {fact}: {new} from this week instead of {old}.",
+    "Quick update: Finance have changed {fact} from {old} to {new}, starting this week."
+   ]
+  },
+  "tell/hours": {
+   "template": "From now on {fact} are {new} instead of {old}.",
+   "variants": [
+    "From now on, {fact} are {new}, not {old}.",
+    "Going forward, {fact} are {new} instead of {old}.",
+    "Quick update: {fact} are now {new}, not {old}.",
+    "Use {new} instead of {old} for {fact} from now on."
+   ]
+  },
+  "tell/policy": {
+   "template": "{policy_by} changed {fact}: it's now {new} (it was {old}). The policy document is updated.",
+   "variants": [
+    "Policy doc's updated. {policy_by} changed {fact}: now {new}, previously {old}.",
+    "Quick heads-up: {policy_by} changed {fact}. It's {new} now, was {old}. Policy doc's updated.",
+    "{fact} is now {new}, not {old} — {policy_by} made the change. Policy document is updated.",
+    "{policy_by} changed {fact} from {old} to {new}. Policy doc is updated."
+   ]
+  },
+  "tell/role": {
+   "template": "{new_name} has taken over as {party} from {old_name} - their email is {new_email}.",
+   "variants": [
+    "{new_name} has taken over as {party} from {old_name}. Their email is {new_email}.",
+    "{new_name} has taken over from {old_name} as {party} — email is {new_email}.",
+    "{new_name} is now {party}, replacing {old_name}. Their email is {new_email}."
+   ]
+  },
+  "tell/supplier": {
+   "template": "We've switched {party}: from today it's {new_name}, not {old_name}. Orders go to {new_email}.",
+   "variants": [
+    "For {party}, it's now {new_name} instead of {old_name}, starting today. Orders to {new_email}.",
+    "Quick update on {party}: {new_name} replaces {old_name} from today. Orders go to {new_email}.",
+    "We've switched {party} — from today it's {new_name}, not {old_name}. Send orders to {new_email}.",
+    "{party} has changed. From today use {new_name}, not {old_name}, and send orders to {new_email}."
+   ]
+  }
+ },
+ "version": 1
+}

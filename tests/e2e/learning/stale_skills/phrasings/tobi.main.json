@@ -1,0 +1,347 @@
+{
+ "format": "row_bot.learning.stale_skills_phrasings",
+ "model": "main",
+ "note": "The person's wording for the stale-skills world, written once by a phrasing model (tests/e2e/learning/stale_skills/phrasing.py). Made-up people; no fact comes from here.",
+ "person": "tobi",
+ "slots": {
+  "short/cancellation_reminder/0": {
+   "template": "Email the team this week's cancellation-rule reminder.",
+   "variants": [
+    "Can you email this week's cancellation-rule reminder to the team?",
+    "Email the team a reminder of this week's cancellation rule.",
+    "Please email the team the cancellation-rule reminder for this week.",
+    "Send the team this week's cancellation-rule reminder by email."
+   ]
+  },
+  "short/cancellation_reminder/1": {
+   "template": "Send the team the reminder about cancellation notice.",
+   "variants": [
+    "Can you send the cancellation notice reminder to the team?",
+    "Please send the team the reminder about cancellation notice.",
+    "Remind the team about cancellation notice.",
+    "Send the team a reminder about cancellation notice."
+   ]
+  },
+  "short/cleaning_order/0": {
+   "template": "Order {n} tubs of surface wipes.",
+   "variants": [
+    "Can you order {n} tubs of surface wipes?",
+    "Get {n} tubs of surface wipes ordered, please.",
+    "Please order {n} tubs of surface wipes.",
+    "Put in an order for {n} tubs of surface wipes."
+   ]
+  },
+  "short/cleaning_order/1": {
+   "template": "Surface wipes again - {n} tubs please.",
+   "variants": [
+    "Can you get {n} tubs of surface wipes again please?",
+    "Need surface wipes again — {n} tubs please.",
+    "Please reorder surface wipes, {n} tubs.",
+    "Surface wipes again please, {n} tubs."
+   ]
+  },
+  "short/compliance_report/0": {
+   "template": "Send the compliance lead this week's compliance report: {n} checks done.",
+   "variants": [
+    "Forward this week's compliance report to the compliance lead, showing {n} checks done.",
+    "Get this week's compliance report over to the compliance lead: {n} checks done.",
+    "Please send the compliance lead this week's compliance report: {n} checks completed.",
+    "Send this week's compliance report to the compliance lead: {n} checks done."
+   ]
+  },
+  "short/compliance_report/1": {
+   "template": "Compliance report to the compliance lead - {n} checks done.",
+   "variants": [
+    "Compliance report for the compliance lead — {n} checks completed.",
+    "Let the compliance lead know in the compliance report that {n} checks are done.",
+    "Report to the compliance lead: {n} compliance checks done.",
+    "Send the compliance lead a compliance report with {n} checks done."
+   ]
+  },
+  "short/cpd_session/0": {
+   "template": "{who} needs a CPD session - add it on {date} to the calendar.",
+   "variants": [
+    "Add a CPD session for {who} to the calendar on {date}.",
+    "Book a CPD session into the calendar for {who} on {date}.",
+    "Put a CPD session in the calendar for {who} on {date}.",
+    "{who} needs a CPD session. Add it to the calendar for {date}."
+   ]
+  },
+  "short/cpd_session/1": {
+   "template": "Can you put {who}'s CPD session in the calendar for {date}?",
+   "variants": [
+    "Add {who}'s CPD session to the calendar for {date}, please.",
+    "Can you book {who}'s CPD session into the calendar for {date}?",
+    "Please put {who}'s CPD session in the calendar on {date}.",
+    "Pop {who}'s CPD session in the calendar for {date}, please."
+   ]
+  },
+  "short/fire_drill/0": {
+   "template": "Book the fire drill for {date} in the calendar.",
+   "variants": [
+    "Add the fire drill to the calendar on {date}.",
+    "Book in the fire drill for {date} on the calendar.",
+    "Put the fire drill in the calendar for {date}.",
+    "Schedule the fire drill for {date} in the calendar."
+   ]
+  },
+  "short/fire_drill/1": {
+   "template": "Fire drill on {date} - put it in the calendar.",
+   "variants": [
+    "Add fire drill on {date} to the calendar.",
+    "Calendar the fire drill for {date}, please.",
+    "Fire drill {date} — add it to the calendar.",
+    "Put the fire drill in the calendar for {date}."
+   ]
+  },
+  "short/gloves_order/0": {
+   "template": "Order {n} boxes of nitrile gloves.",
+   "variants": [
+    "Can you order {n} boxes of nitrile gloves?",
+    "Get {n} boxes of nitrile gloves ordered, please.",
+    "Please order {n} boxes of nitrile gloves.",
+    "Put in an order for {n} boxes of nitrile gloves."
+   ]
+  },
+  "short/gloves_order/1": {
+   "template": "We're low on gloves - order {n} boxes please.",
+   "variants": [
+    "Gloves are low — can you order {n} boxes please?",
+    "Please order {n} boxes of gloves, we're running low.",
+    "Running low on gloves. Please order {n} boxes.",
+    "We're short on gloves. Order {n} boxes please."
+   ]
+  },
+  "short/hygiene_clinic/0": {
+   "template": "Put the hygiene clinic on {date} in the practice calendar.",
+   "variants": [
+    "Add the hygiene clinic to the practice calendar for {date}.",
+    "Book the hygiene clinic into the practice calendar for {date}.",
+    "Pop the hygiene clinic on the practice calendar for {date}.",
+    "Put the hygiene clinic in the practice calendar on {date}."
+   ]
+  },
+  "short/hygiene_clinic/1": {
+   "template": "Add {date}'s hygiene clinic to the calendar please.",
+   "variants": [
+    "Add the hygiene clinic for {date} to the calendar please.",
+    "Can you calendar the hygiene clinic for {date} please?",
+    "Please pop {date}'s hygiene clinic on the calendar.",
+    "Please put {date}'s hygiene clinic in the calendar."
+   ]
+  },
+  "short/it_ticket/0": {
+   "template": "Log an IT ticket: {n} workstations need the imaging update.",
+   "variants": [
+    "Can you log an IT ticket? {n} workstations need the imaging update.",
+    "Log an IT ticket for the imaging update on {n} workstations.",
+    "Raise an IT ticket: {n} workstations need the imaging update."
+   ]
+  },
+  "short/it_ticket/1": {
+   "template": "{n} workstations need the update - raise it with IT support.",
+   "variants": [
+    "Can you raise the update for {n} workstations with IT support?",
+    "Please contact IT support — {n} workstations need the update.",
+    "{n} workstations need the update. Get IT support onto it, please.",
+    "{n} workstations need updating. Please raise it with IT support."
+   ]
+  },
+  "short/lab_case/0": {
+   "template": "Send {alias} the crown case for patient ref {n}.",
+   "variants": [
+    "Can you send the crown case for patient ref {n} to {alias}?",
+    "Forward the crown case for patient ref {n} to {alias}.",
+    "Please send {alias} the crown case for patient ref {n}.",
+    "Send the crown case for patient ref {n} to {alias}."
+   ]
+  },
+  "short/lab_case/1": {
+   "template": "Crown case for ref {n} to {alias} please.",
+   "variants": [
+    "Can you send the crown case for ref {n} to {alias}?",
+    "Crown case, ref {n}, to {alias} please.",
+    "Please get the crown case for ref {n} over to {alias}.",
+    "Please send the crown case for ref {n} to {alias}."
+   ]
+  },
+  "short/new_patient_reminder/0": {
+   "template": "Email the dentists the weekly reminder about the new-patient limit.",
+   "variants": [
+    "Can you email the dentists their weekly new-patient limit reminder?",
+    "Send out the weekly email reminder to the dentists about the new-patient limit.",
+    "Send the dentists this week’s reminder about the new-patient limit by email."
+   ]
+  },
+  "short/new_patient_reminder/1": {
+   "template": "Send the dentists the new-patient limit reminder.",
+   "variants": [
+    "Get the new-patient limit reminder out to the dentists.",
+    "Please send the new-patient limit reminder to the dentists.",
+    "Remind the dentists of the new-patient limit.",
+    "Send the dentists a reminder about the new-patient limit."
+   ]
+  },
+  "short/petty_cash/0": {
+   "template": "Send accounts the petty-cash request for the week of {date}.",
+   "variants": [
+    "Forward the petty-cash request for the week of {date} to accounts.",
+    "Get the petty-cash request for the week of {date} sent over to accounts.",
+    "Please send accounts the petty-cash request for the week of {date}.",
+    "Send the petty-cash request for the week of {date} to accounts."
+   ]
+  },
+  "short/petty_cash/1": {
+   "template": "Can you ask accounts for this week's float? Week of {date}.",
+   "variants": [
+    "Ask accounts for this week's float please, week of {date}.",
+    "Can you ask accounts for the float for the week of {date}?",
+    "Could you get onto accounts about this week's float? Week of {date}.",
+    "Please ask accounts for this week's float. Week of {date}."
+   ]
+  },
+  "short/recall_letters/0": {
+   "template": "Send {alias} this month's recall letters: {n} patients.",
+   "variants": [
+    "Forward this month's recall letters to {alias} for {n} patients.",
+    "Get this month's recall letters over to {alias}: {n} patients.",
+    "Send this month's recall letters to {alias} — {n} patients.",
+    "Send {alias} the recall letters for this month: {n} patients."
+   ]
+  },
+  "short/recall_letters/1": {
+   "template": "Recall letters to {alias} - {n} patients.",
+   "variants": [
+    "Get recall letters ready to {alias} for {n} patients.",
+    "Prepare recall letters to {alias} – {n} patients.",
+    "Recall letters for {alias} – {n} patients.",
+    "Sort recall letters to {alias} for {n} patients."
+   ]
+  },
+  "short/rota_summary/0": {
+   "template": "Send the head nurse next week's rota summary: {n} shifts.",
+   "variants": [
+    "Get next week's rota summary over to the head nurse: {n} shifts.",
+    "Pass next week's rota summary to the head nurse: {n} shifts.",
+    "Send over next week's rota summary to the head nurse: {n} shifts.",
+    "Send the head nurse a summary of next week's rota: {n} shifts."
+   ]
+  },
+  "short/rota_summary/1": {
+   "template": "Rota summary to the head nurse please - {n} shifts.",
+   "variants": [
+    "Get the rota summary over to the head nurse please — {n} shifts.",
+    "Please send the head nurse a rota summary covering {n} shifts.",
+    "Rota summary for the head nurse please. {n} shifts.",
+    "Send the rota summary to the head nurse please — {n} shifts."
+   ]
+  },
+  "short/steriliser_reminder/0": {
+   "template": "Send the nurses the weekly steriliser reminder with the cycle temperature.",
+   "variants": [
+    "Get the weekly steriliser reminder out to the nurses with the cycle temperature.",
+    "Remind the nurses about the steriliser this week and include the cycle temperature.",
+    "Send the nurses their weekly steriliser reminder, including the cycle temperature.",
+    "Send this week’s steriliser reminder to the nurses. Include the cycle temperature."
+   ]
+  },
+  "short/steriliser_reminder/1": {
+   "template": "Steriliser reminder to the nurses please, with the temperature.",
+   "variants": [
+    "Please remind the nurses about the steriliser and include the temperature.",
+    "Please send a reminder about the steriliser to the nurses, with the temperature.",
+    "Send the nurses a steriliser reminder please, with the temperature included.",
+    "Steriliser reminder for the nurses please. Include the temperature."
+   ]
+  },
+  "short/uniform_allowance/0": {
+   "template": "Claim the uniform-laundry allowance from HR for the week of {date}.",
+   "variants": [
+    "Get the uniform-laundry allowance claimed through HR for the week of {date}.",
+    "Put in the uniform-laundry allowance claim with HR for the week of {date}.",
+    "Submit the uniform-laundry allowance claim to HR for the week of {date}."
+   ]
+  },
+  "short/uniform_allowance/1": {
+   "template": "Laundry allowance claim please, week of {date}.",
+   "variants": [
+    "Can you claim my laundry allowance for the week of {date}?",
+    "Laundry allowance claim for week of {date}, please.",
+    "Please put in my laundry allowance claim for the week of {date}.",
+    "Please sort the laundry allowance claim for the week of {date}."
+   ]
+  },
+  "short/waste_booking/0": {
+   "template": "Book {n} clinical-waste bags for collection with {alias}.",
+   "variants": [
+    "Arrange for {alias} to collect {n} clinical-waste bags.",
+    "Book a clinical-waste collection with {alias} for {n} bags.",
+    "Get {n} clinical-waste bags booked in for collection with {alias}.",
+    "Please book {alias} to collect {n} clinical-waste bags."
+   ]
+  },
+  "short/waste_booking/1": {
+   "template": "We need {n} waste bags collected this week - book it with {alias}.",
+   "variants": [
+    "Book {alias} to collect {n} waste bags this week.",
+    "Can you arrange collection of {n} waste bags with {alias} this week?",
+    "Please get {alias} booked in to collect {n} waste bags this week.",
+    "We have {n} waste bags for collection this week. Book with {alias}."
+   ]
+  },
+  "tell/address": {
+   "template": "Heads up: {party} have a new address - from today use {new}. The old one ({old}) isn't checked any more.",
+   "variants": [
+    "Address update for {party}: use {new} from today. The old address ({old}) is no longer checked.",
+    "Heads up, {party} have changed address. Use {new} from today — the old one ({old}) isn't checked any more.",
+    "Please use {new} for {party} from today. They've changed address and the old one ({old}) isn't checked any more.",
+    "{party} have a new address: {new}. Use it from today, as {old} is no longer checked."
+   ]
+  },
+  "tell/amount": {
+   "template": "Finance have changed {fact}: it's {new} from this week (it was {old}).",
+   "variants": [
+    "Finance have changed {fact} from {old} to {new}, starting this week.",
+    "Finance have updated {fact}. It's {new} from this week, previously {old}.",
+    "Finance update: {fact} is now {new} from this week, not {old}.",
+    "From this week, Finance have changed {fact} to {new}. It was {old}."
+   ]
+  },
+  "tell/hours": {
+   "template": "From now on {fact} are {new} instead of {old}.",
+   "variants": [
+    "From now on, {fact} are {new}, not {old}.",
+    "Going forward, {fact} are {new} instead of {old}.",
+    "Please use {new} rather than {old} for {fact} from now on.",
+    "Update {fact} to {new} instead of {old} from now on."
+   ]
+  },
+  "tell/policy": {
+   "template": "{policy_by} changed {fact}: it's now {new} (it was {old}). The policy document is updated.",
+   "variants": [
+    "The policy document is updated. {policy_by} changed {fact} to {new} from {old}.",
+    "{fact} is now {new}, not {old}. {policy_by} made the change and the policy document is updated.",
+    "{policy_by} changed {fact} from {old} to {new}. The policy document is updated.",
+    "{policy_by} updated {fact}: now {new}, previously {old}. The policy document is updated too."
+   ]
+  },
+  "tell/role": {
+   "template": "{new_name} has taken over as {party} from {old_name} - their email is {new_email}.",
+   "variants": [
+    "{new_name} has replaced {old_name} as {party}. Their email is {new_email}.",
+    "{new_name} has taken over the {party} role from {old_name}. Their email is {new_email}.",
+    "{new_name} is now {party}, taking over from {old_name}. Email: {new_email}."
+   ]
+  },
+  "tell/supplier": {
+   "template": "We've switched {party}: from today it's {new_name}, not {old_name}. Orders go to {new_email}.",
+   "variants": [
+    "From today, use {new_name} for {party}, not {old_name}. Send orders to {new_email}.",
+    "We've changed {party}. From today it's {new_name}, not {old_name}. Send orders to {new_email}.",
+    "We've switched {party} from {old_name} to {new_name} as of today. Orders to {new_email}.",
+    "{party} is now {new_name}, not {old_name}, from today. Orders go to {new_email}."
+   ]
+  }
+ },
+ "version": 1
+}

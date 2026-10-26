@@ -29,6 +29,7 @@ from typing import Optional
 
 import yaml
 
+from row_bot import stale_skills
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime_paths import bundled_skills_dir, tool_guides_dir
 
@@ -791,6 +792,7 @@ def create_skill(
         _enabled[skill.name] = enabled
         _save_config()
         logger.info("Created skill '%s' at %s", name, skill_dir)
+        stale_skills.skill_saved(skill, created=True)
 
     return skill
 
@@ -857,6 +859,7 @@ def update_skill(
     if updated:
         _skills_cache[updated.name] = updated
         logger.info("Updated skill '%s'", name)
+        stale_skills.skill_saved(updated, created=False)
     return updated
 
 

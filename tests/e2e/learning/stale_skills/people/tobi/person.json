@@ -1,0 +1,251 @@
+{
+ "id": "tobi",
+ "name": "Tobi Okonkwo",
+ "fictional": true,
+ "about": "Practice manager at Harbour Lane Dental, a four-chair dental practice (made up for Row-Bot's tests). Tobi runs the rota, orders supplies, books the lab work and keeps the practice's compliance paperwork up to date.",
+ "uses": "Their workspace holds the practice handbook (and last year's), the infection-control checklist and supplier notes. Apps: the practice calendar and Tobi's mailbox.",
+ "asks": "Brief and practical, often between patients. Tobi names the supplier or the person when they know it.",
+ "corrects": "Calmly and exactly: says what was wrong and what the right value is ('no - the lab's address changed').",
+ "tools": [
+  "filesystem",
+  "memory",
+  "task",
+  "calculator",
+  "chart",
+  "duckduckgo"
+ ],
+ "approval_mode": "approve",
+ "policy": {
+  "requests_per_day": [
+   1,
+   3
+  ],
+  "teach_share": 0.3,
+  "patience_tool_calls": 16,
+  "patience_seconds": 300,
+  "past_conversations_per_day": [
+   3,
+   5
+  ],
+  "past_mistake_share": 0.1
+ },
+ "work": {
+  "fact_lookup": 4,
+  "calendar_add": 2,
+  "mail_send": 2,
+  "mail_archive": 1,
+  "arithmetic": 1
+ },
+ "facts": [
+  {
+   "id": "chairs",
+   "answer": 4,
+   "match": "number",
+   "decoy": "3 chairs",
+   "files": [
+    "handbook/practice-handbook.md"
+   ],
+   "phrasings": [
+    "How many dental chairs do we run now?",
+    "Check the handbook: how many surgery chairs does the practice have?"
+   ],
+   "intent": "The current handbook's number of chairs (4)."
+  },
+  {
+   "id": "open_late",
+   "answer": "Thursday",
+   "match": "contains",
+   "decoy": "Wednesday",
+   "files": [
+    "handbook/practice-handbook.md"
+   ],
+   "phrasings": [
+    "Which evening are we open late?",
+    "What's our late-opening day according to the handbook?"
+   ],
+   "intent": "The late evening in the current handbook (Thursday), not last year's."
+  },
+  {
+   "id": "emergency_slots",
+   "answer": 3,
+   "match": "number",
+   "decoy": "2 slots",
+   "files": [
+    "handbook/practice-handbook.md"
+   ],
+   "phrasings": [
+    "How many emergency slots do we keep each day?",
+    "How many same-day emergency appointments does the handbook say?"
+   ],
+   "intent": "The current number of emergency slots a day."
+  },
+  {
+   "id": "hand_hygiene",
+   "answer": 20,
+   "match": "number",
+   "decoy": "15 seconds",
+   "files": [
+    "infection-control/checklist.md"
+   ],
+   "phrasings": [
+    "How long is the hand wash in our infection-control checklist?",
+    "Per the infection-control checklist, how many seconds for a hand wash?"
+   ],
+   "intent": "The checklist's hand-wash time in seconds."
+  },
+  {
+   "id": "instrument_log",
+   "answer": "daily",
+   "match": "contains",
+   "decoy": "weekly",
+   "files": [
+    "infection-control/checklist.md"
+   ],
+   "phrasings": [
+    "How often do we fill in the instrument log?"
+   ],
+   "intent": "The checklist's instrument-log frequency."
+  },
+  {
+   "id": "lab_turnaround",
+   "answer": 7,
+   "match": "number",
+   "decoy": "10 working days",
+   "files": [
+    "suppliers/notes.md"
+   ],
+   "phrasings": [
+    "What's Northpoint Lab's turnaround for a crown?",
+    "How many working days does the lab take for a crown?"
+   ],
+   "intent": "The lab's crown turnaround in working days."
+  },
+  {
+   "id": "glove_minimum",
+   "answer": 10,
+   "match": "number",
+   "decoy": "5 boxes",
+   "files": [
+    "suppliers/notes.md"
+   ],
+   "phrasings": [
+    "What's the minimum glove order from Medisure?"
+   ],
+   "intent": "Medisure's minimum glove order in boxes."
+  }
+ ],
+ "calendar": {
+  "whos": [
+   "Amara",
+   "Ben",
+   "Chloe",
+   "Dami",
+   "Erin",
+   "Felix",
+   "Gita",
+   "Hugo"
+  ],
+  "whats": [
+   {
+    "name": "morning surgery",
+    "title": "{who} - morning surgery",
+    "start": "08:30",
+    "end": "12:30",
+    "weekend": false
+   },
+   {
+    "name": "afternoon surgery",
+    "title": "{who} - afternoon surgery",
+    "start": "13:30",
+    "end": "17:30",
+    "weekend": false
+   }
+  ],
+  "phrasings": [
+   "Put {who} on the {what} on {date} in the practice calendar.",
+   "Add a calendar entry for {who}'s {what} on {date}, please."
+  ]
+ },
+ "mail": {
+  "contacts": [
+   {
+    "name": "Northpoint Dental Lab",
+    "email": "cases@northpoint-lab.example",
+    "purpose": "confirm the {quantity} crown cases due back this week",
+    "must": "{quantity}"
+   },
+   {
+    "name": "Medisure Supplies",
+    "email": "orders@medisure.example",
+    "purpose": "ask them to add {quantity} boxes of masks to the next delivery",
+    "must": "{quantity}"
+   },
+   {
+    "name": "the practice team",
+    "email": "team@harbourlanedental.example",
+    "purpose": "remind everyone that cancellations need 24 hours' notice",
+    "must": "24 hours"
+   }
+  ],
+  "phrasings": [
+   "Email {name} ({email}) to {purpose}.",
+   "Send a quick email to {email} - {purpose}."
+  ],
+  "newsletters": [
+   {
+    "from": "news@dental-practice-weekly.example",
+    "subject": "Dental Practice Weekly"
+   },
+   {
+    "from": "offers@clinicsupply-deals.example",
+    "subject": "This week's clinic supply deals"
+   }
+  ],
+  "archive_phrasings": [
+   "Archive all the emails from {sender} in my inbox.",
+   "Clear out the {sender} emails from my inbox - archive them."
+  ]
+ },
+ "arithmetic": [
+  {
+   "phrasing": "We see {a} patients a day across {b} chairs. How many patient visits is that in {c} days?",
+   "a": [
+    30,
+    70,
+    5
+   ],
+   "b": [
+    3,
+    4,
+    1
+   ],
+   "c": [
+    5,
+    20,
+    1
+   ],
+   "answer": "a*c",
+   "decimals": 0
+  },
+  {
+   "phrasing": "A box of gloves holds {a} pairs and we use {b} pairs a day. How many days do {c} boxes last?",
+   "a": [
+    50,
+    100,
+    50
+   ],
+   "b": [
+    40,
+    90,
+    10
+   ],
+   "c": [
+    5,
+    20,
+    5
+   ],
+   "answer": "a*c/b",
+   "decimals": 1
+  }
+ ]
+}

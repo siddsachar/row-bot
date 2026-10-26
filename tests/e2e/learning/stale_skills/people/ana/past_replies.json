@@ -1,0 +1,749 @@
+{
+ "format": "row_bot.learning.seeded_past_replies",
+ "model": "main",
+ "note": "The past's replies in the main model's own words (tests/e2e/learning/seeded/phrasing.py). Made-up people; nothing here comes from a real person.",
+ "replies": {
+  "ana-p01-0-0": {
+   "reply": "Sent to staff@kestrelhill.example — a quick reminder that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p01-0-1": {
+   "reply": "We have **7 classes** this year.",
+   "template": "It's 7."
+  },
+  "ana-p01-1-0": {
+   "reply": "The autumn term ends on **18 December**.\n\nSource: `admin/term-dates.md`",
+   "template": "It's 18 December."
+  },
+  "ana-p01-2-0": {
+   "reply": "Added **Willow class assembly** to the calendar on **2026-11-11**.",
+   "template": "Added Willow class assembly on 2026-11-11."
+  },
+  "ana-p01-3-0": {
+   "reply": "Added **Maple class library visit** to the calendar on **2026-11-06**.",
+   "template": "Added Maple class library visit on 2026-11-06."
+  },
+  "ana-p02-0-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 25 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p02-1-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 8 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p02-1-1": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p02-2-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p02-2-1": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p02-3-0": {
+   "reply": "That comes to **£297.00** for the week.",
+   "template": "That comes to 297.00."
+  },
+  "ana-p03-0-0": {
+   "reply": "Added **Rowan class assembly** to the school calendar for **2026-11-06**.",
+   "template": "Added Rowan class assembly on 2026-11-06."
+  },
+  "ana-p03-1-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p03-1-1": {
+   "reply": "Added **Birch class assembly** to the calendar on **2026-11-04**.",
+   "template": "Added Birch class assembly on 2026-11-04."
+  },
+  "ana-p03-1-2": {
+   "reply": "The coach cost comes to **£10.56 per child**.",
+   "template": "That comes to 10.56."
+  },
+  "ana-p03-2-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p04-0-0": {
+   "reply": "The big coach from Coastline has **53 seats**, according to `suppliers/list.md`.",
+   "template": "It's 53."
+  },
+  "ana-p04-0-1": {
+   "reply": "Added **Maple class assembly** to the school calendar on **2026-11-10**.",
+   "template": "Added Maple class assembly on 2026-11-10."
+  },
+  "ana-p04-1-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p04-1-1": {
+   "reply": "Added **Maple class assembly** to the calendar on **2026-11-10**.",
+   "template": "Added Maple class assembly on 2026-11-10."
+  },
+  "ana-p04-2-0": {
+   "reply": "Archived 3 emails from offers@classroom-deals.example. They’re no longer in your inbox.",
+   "template": "Archived 3 emails from offers@classroom-deals.example."
+  },
+  "ana-p05-0-0": {
+   "reply": "We have **7 classes** this year.",
+   "template": "It's 7."
+  },
+  "ana-p05-1-0": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example from your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p05-2-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p05-3-0": {
+   "reply": "The current minimum is **1 adult for every 6 children**.\n\nThat’s from the **Educational visits policy (2026)**, which replaces the previous policy. A first-aider must also go on every trip.",
+   "template": "It's 6."
+  },
+  "ana-p05-3-1": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p05-4-0": {
+   "reply": "Added **Hazel class library visit** to the calendar on **2026-10-30**.",
+   "template": "Added Hazel class library visit on 2026-10-30."
+  },
+  "ana-p06-0-0": {
+   "reply": "Added **Willow class library visit** to the calendar on **2026-11-04**.",
+   "template": "Added Willow class library visit on 2026-11-04."
+  },
+  "ana-p06-0-1": {
+   "reply": "The next INSET day is **5 January**.\n\nSource: `admin/term-dates.md`.",
+   "template": "It's 5 January."
+  },
+  "ana-p06-1-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p06-1-1": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p06-1-2": {
+   "reply": "The coach cost is **£6.13 per child** for the trip.",
+   "template": "That comes to 6.13."
+  },
+  "ana-p06-2-0": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p06-2-1": {
+   "reply": "Added **Birch class library visit** to the calendar on **2026-10-29**.",
+   "template": "Added Birch class library visit on 2026-10-29."
+  },
+  "ana-p06-2-2": {
+   "reply": "The current policy requires **at least 1 adult for every 6 children**.\n\nSource: `policies/trips-2026.md`.",
+   "template": "It's 6."
+  },
+  "ana-p06-3-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p06-3-1": {
+   "reply": "The coach cost per child is **£15.91** for the trip.",
+   "template": "That comes to 15.91."
+  },
+  "ana-p06-3-2": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p06-4-0": {
+   "reply": "The autumn term ends on **18 December**.\n\nSource: `admin/term-dates.md`.",
+   "template": "It's 18 December."
+  },
+  "ana-p07-0-0": {
+   "reply": "Added **Maple class assembly** to the school calendar on **2026-11-05**.",
+   "template": "Added Maple class assembly on 2026-11-05."
+  },
+  "ana-p07-0-1": {
+   "reply": "Added **Rowan class library visit** to the school calendar for **2026-11-03**.",
+   "template": "Added Rowan class library visit on 2026-11-03."
+  },
+  "ana-p07-1-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 22 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p07-1-1": {
+   "reply": "That comes to **£24.11 per child** for all the trips combined.",
+   "template": "That comes to 24.11."
+  },
+  "ana-p07-1-2": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example from your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p07-2-0": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example. They’re now out of your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p07-3-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p07-3-1": {
+   "reply": "Added **Willow class library visit** to the calendar for **2026-11-09**.",
+   "template": "Added Willow class library visit on 2026-11-09."
+  },
+  "ana-p07-4-0": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p08-0-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p08-1-0": {
+   "reply": "Sent to staff@kestrelhill.example — a quick reminder that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p08-1-1": {
+   "reply": "Added **Maple class library visit** to the calendar on **2026-10-29**.",
+   "template": "Added Maple class library visit on 2026-10-29."
+  },
+  "ana-p08-2-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p08-3-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 22 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p08-3-1": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p09-0-0": {
+   "reply": "Added **Birch class library visit** to the calendar on **2026-11-06**.",
+   "template": "Added Birch class library visit on 2026-11-06."
+  },
+  "ana-p09-1-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p09-2-0": {
+   "reply": "The autumn term ends on **18 December**.",
+   "template": "It's 18 December."
+  },
+  "ana-p09-2-1": {
+   "reply": "The current ratio is **at least one adult for every 6 children**, according to the school’s educational visits policy.\n\nA first-aider must also go on every trip.",
+   "template": "It's 6."
+  },
+  "ana-p09-3-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, under the school’s current educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p09-3-1": {
+   "reply": "The current policy requires **at least 1 adult for every 6 children**.\n\nSource: `policies/trips-2026.md`.",
+   "template": "It's 6."
+  },
+  "ana-p10-0-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 9 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p10-0-1": {
+   "reply": "Sent to orders@brightplate.example, confirming 30 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p10-1-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 5 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p10-1-1": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p10-1-2": {
+   "reply": "The current policy requires **at least one adult for every 6 children**.\n\nSource: the current Educational visits policy.",
+   "template": "It's 6."
+  },
+  "ana-p10-2-0": {
+   "reply": "Added **Rowan class assembly** to the school calendar on **2026-11-04**.",
+   "template": "Added Rowan class assembly on 2026-11-04."
+  },
+  "ana-p10-2-1": {
+   "reply": "That comes to **£874.80** for the free school meals.",
+   "template": "That comes to 874.80."
+  },
+  "ana-p11-0-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p11-1-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p11-2-0": {
+   "reply": "Added **Maple class assembly** to the calendar on **2026-11-03**.",
+   "template": "Added Maple class assembly on 2026-11-03."
+  },
+  "ana-p11-3-0": {
+   "reply": "Added **Hazel class assembly** to the school calendar on **2026-10-23**.",
+   "template": "Added Hazel class assembly on 2026-10-23."
+  },
+  "ana-p11-4-0": {
+   "reply": "That comes to **GBP 1820.00** for the full period.",
+   "template": "That comes to 1820.00."
+  },
+  "ana-p12-0-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 28 packed lunches for Thursday's trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p12-1-0": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example from your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p12-2-0": {
+   "reply": "The autumn term ends on **18 December**.",
+   "template": "It's 18 December."
+  },
+  "ana-p13-0-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the current educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p13-0-1": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p13-0-2": {
+   "reply": "Added **Oak class library visit** to the school calendar for **2026-10-21**.",
+   "template": "Added Oak class library visit on 2026-10-21."
+  },
+  "ana-p13-1-0": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p13-2-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p13-2-1": {
+   "reply": "Added **Maple class library visit** to the school calendar on **2026-10-26**.",
+   "template": "Added Maple class library visit on 2026-10-26."
+  },
+  "ana-p13-2-2": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p13-3-0": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p13-4-0": {
+   "reply": "Added **Rowan class assembly** to the school calendar on **2026-11-02**.",
+   "template": "Added Rowan class assembly on 2026-11-02."
+  },
+  "ana-p13-4-1": {
+   "reply": "Sent to orders@brightplate.example, confirming 39 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p14-0-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 25 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p14-1-0": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example from your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p14-2-0": {
+   "reply": "Added **Birch class library visit** to the school calendar on **2026-10-21**.",
+   "template": "Added Birch class library visit on 2026-10-21."
+  },
+  "ana-p14-2-1": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p14-2-2": {
+   "reply": "At least **one adult for every 6 children**, under the current educational visits policy.\n\nA first-aider must also go on every trip.",
+   "template": "It's 6."
+  },
+  "ana-p14-3-0": {
+   "reply": "Added **Willow class library visit** to the school calendar on **2026-10-28**.",
+   "template": "Added Willow class library visit on 2026-10-28."
+  },
+  "ana-p15-0-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 21 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p15-0-1": {
+   "reply": "Added **Oak class assembly** to the calendar for **2026-10-22**.",
+   "template": "Added Oak class assembly on 2026-10-22."
+  },
+  "ana-p15-1-0": {
+   "reply": "That comes to **£24.36 per child** for both trips.",
+   "template": "That comes to 24.36."
+  },
+  "ana-p15-2-0": {
+   "reply": "The fruit delivery comes on **Monday**, from Orchard Lane Produce.",
+   "template": "It's Monday."
+  },
+  "ana-p16-0-0": {
+   "reply": "The last day of this term is **18 December**, according to the school’s term dates.",
+   "template": "It's 18 December."
+  },
+  "ana-p16-1-0": {
+   "reply": "The next INSET day is **5 January**.",
+   "template": "It's 5 January."
+  },
+  "ana-p16-2-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p16-2-1": {
+   "reply": "Added **Oak class library visit** to the calendar on **2026-10-26**.",
+   "template": "Added Oak class library visit on 2026-10-26."
+  },
+  "ana-p16-2-2": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p17-0-0": {
+   "reply": "Archived 2 emails from offers@classroom-deals.example.",
+   "template": "Archived 2 emails from offers@classroom-deals.example."
+  },
+  "ana-p17-1-0": {
+   "reply": "Added **Hazel class assembly** to the calendar on **2026-10-19**.",
+   "template": "Added Hazel class assembly on 2026-10-19."
+  },
+  "ana-p17-2-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p17-3-0": {
+   "reply": "Archived 3 emails from news@schools-bulletin.example.",
+   "template": "Archived 3 emails from news@schools-bulletin.example."
+  },
+  "ana-p18-0-0": {
+   "reply": "Added **Hazel class library visit** to the calendar on **2026-10-22**.",
+   "template": "Added Hazel class library visit on 2026-10-22."
+  },
+  "ana-p18-1-0": {
+   "reply": "The fruit delivery comes on **Monday**, from Orchard Lane Produce.",
+   "template": "It's Monday."
+  },
+  "ana-p18-2-0": {
+   "reply": "The last day of this term is **18 December**.\n\nI checked the school’s term dates file.",
+   "template": "It's 18 December."
+  },
+  "ana-p18-3-0": {
+   "reply": "Added **Maple class assembly** to the calendar for **2026-10-16**.",
+   "template": "Added Maple class assembly on 2026-10-16."
+  },
+  "ana-p18-4-0": {
+   "reply": "Added **Hazel class library visit** to the calendar on **2026-10-26**.",
+   "template": "Added Hazel class library visit on 2026-10-26."
+  },
+  "ana-p19-0-0": {
+   "reply": "At least **one adult for every 6 children**, under the current educational visits policy. A first-aider must also go on every trip.",
+   "template": "It's 6."
+  },
+  "ana-p19-0-1": {
+   "reply": "That comes to **GBP 972.00** for the free meals over that period.",
+   "template": "That comes to 972.00."
+  },
+  "ana-p19-1-0": {
+   "reply": "Sent an email to orders@edusupply.example asking them to add 38 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p19-2-0": {
+   "reply": "Added **Rowan class assembly** to the calendar on **2026-10-26**.",
+   "template": "Added Rowan class assembly on 2026-10-26."
+  },
+  "ana-p19-3-0": {
+   "reply": "The minimum is **an adult for every 6 children**, under the current educational visits policy. A first-aider must also go on every trip.",
+   "template": "It's 6."
+  },
+  "ana-p20-0-0": {
+   "reply": "Added **Oak class library visit** to the calendar on **2026-10-22**.",
+   "template": "Added Oak class library visit on 2026-10-22."
+  },
+  "ana-p20-1-0": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p20-1-1": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 31 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p20-1-2": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p20-2-0": {
+   "reply": "Added **Rowan class library visit** to the calendar on **2026-10-27**.",
+   "template": "Added Rowan class library visit on 2026-10-27."
+  },
+  "ana-p21-0-0": {
+   "reply": "At least **one adult for every 6 children**, under the current educational visits policy. A first-aider must also go on every trip.",
+   "template": "It's 6."
+  },
+  "ana-p21-0-1": {
+   "reply": "That comes to **GBP 735.00** for the free meals over the period.",
+   "template": "That comes to 735.00."
+  },
+  "ana-p21-1-0": {
+   "reply": "Added **Rowan class library visit** to the school calendar on **2026-10-16**.",
+   "template": "Added Rowan class library visit on 2026-10-16."
+  },
+  "ana-p21-2-0": {
+   "reply": "The next INSET day is **5 January**.",
+   "template": "It's 5 January."
+  },
+  "ana-p21-2-1": {
+   "reply": "The autumn term ends on **18 December**.",
+   "template": "It's 18 December."
+  },
+  "ana-p22-0-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 2 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p22-1-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p22-1-1": {
+   "reply": "We have **7 classes** this year, according to `admin/term-dates.md`.",
+   "template": "It's 7."
+  },
+  "ana-p22-1-2": {
+   "reply": "We have **7 classes** this year.",
+   "template": "It's 7."
+  },
+  "ana-p22-2-0": {
+   "reply": "Added **Willow class assembly** to the calendar on **2026-10-12**.",
+   "template": "Added Willow class assembly on 2026-10-12."
+  },
+  "ana-p22-3-0": {
+   "reply": "Added **Hazel class assembly** to the calendar on **2026-10-22**.",
+   "template": "Added Hazel class assembly on 2026-10-22."
+  },
+  "ana-p23-0-0": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p23-1-0": {
+   "reply": "The coach cost comes to **£13.07 per child** for the trip.",
+   "template": "That comes to 13.07."
+  },
+  "ana-p23-2-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 15 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p23-3-0": {
+   "reply": "The next INSET day is **5 January**.",
+   "template": "It's 5 January."
+  },
+  "ana-p23-3-1": {
+   "reply": "That comes to **£459.00** for five days of free school meals.",
+   "template": "That comes to 459.00."
+  },
+  "ana-p23-4-0": {
+   "reply": "The fruit delivery comes on **Monday**, from Orchard Lane Produce.",
+   "template": "It's Monday."
+  },
+  "ana-p24-0-0": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p24-1-0": {
+   "reply": "Archived 2 emails from offers@classroom-deals.example. They’re now out of your inbox.",
+   "template": "Archived 2 emails from offers@classroom-deals.example."
+  },
+  "ana-p24-2-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 4 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p24-2-1": {
+   "reply": "Added **Oak class assembly** to the school calendar for **2026-10-23**.",
+   "template": "Added Oak class assembly on 2026-10-23."
+  },
+  "ana-p24-3-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p24-3-1": {
+   "reply": "Added **Oak class library visit** to the calendar on **2026-10-20**.",
+   "template": "Added Oak class library visit on 2026-10-20."
+  },
+  "ana-p24-4-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p25-0-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p25-1-0": {
+   "reply": "That comes to **£687.50** for the week.",
+   "template": "That comes to 687.50."
+  },
+  "ana-p25-1-1": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example. They’re out of your inbox; everything else was left untouched.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p25-2-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days’ notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p25-3-0": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the school’s educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p26-0-0": {
+   "reply": "The fruit delivery comes on **Monday**, from Orchard Lane Produce.",
+   "template": "It's Monday."
+  },
+  "ana-p26-0-1": {
+   "reply": "Added **Rowan class library visit** to the calendar on **2026-10-13**.",
+   "template": "Added Rowan class library visit on 2026-10-13."
+  },
+  "ana-p26-0-2": {
+   "reply": "Sent to orders@brightplate.example, confirming 36 packed lunches for Thursday's trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p26-1-0": {
+   "reply": "Sent to staff@kestrelhill.example, reminding everyone that term-time absence requests need 10 days' notice.",
+   "template": "Sent to staff@kestrelhill.example."
+  },
+  "ana-p26-1-1": {
+   "reply": "Added **Hazel class library visit** to the school calendar on **2026-10-20**.",
+   "template": "Added Hazel class library visit on 2026-10-20."
+  },
+  "ana-p26-2-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 33 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p26-2-1": {
+   "reply": "Added **Oak class assembly** to the school calendar on **2026-10-19**.",
+   "template": "Added Oak class assembly on 2026-10-19."
+  },
+  "ana-p26-3-0": {
+   "reply": "Sent to orders@brightplate.example, confirming 32 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p26-3-1": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p26-4-0": {
+   "reply": "Added **Oak class library visit** to the calendar on **2026-10-09**.",
+   "template": "Added Oak class library visit on 2026-10-09."
+  },
+  "ana-p26-4-1": {
+   "reply": "Added **Oak class library visit** to the school calendar on **2026-10-20**.",
+   "template": "Added Oak class library visit on 2026-10-20."
+  },
+  "ana-p27-0-0": {
+   "reply": "Added **Willow class library visit** to the calendar on **2026-10-15**.",
+   "template": "Added Willow class library visit on 2026-10-15."
+  },
+  "ana-p27-0-1": {
+   "reply": "Added **Rowan class library visit** to the school calendar for **2026-10-20**.",
+   "template": "Added Rowan class library visit on 2026-10-20."
+  },
+  "ana-p27-1-0": {
+   "reply": "Archived 2 emails from offers@classroom-deals.example. They’re now out of your inbox.",
+   "template": "Archived 2 emails from offers@classroom-deals.example."
+  },
+  "ana-p27-1-1": {
+   "reply": "The next INSET day is **5 January**.",
+   "template": "It's 5 January."
+  },
+  "ana-p27-2-0": {
+   "reply": "We have **7 classes** this year, according to the term dates file.",
+   "template": "It's 7."
+  },
+  "ana-p27-2-1": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p27-2-2": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p27-3-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 24 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p27-4-0": {
+   "reply": "The next INSET day is **5 January**, according to `admin/term-dates.md`.",
+   "template": "It's 5 January."
+  },
+  "ana-p27-4-1": {
+   "reply": "Archived 2 emails from news@schools-bulletin.example.",
+   "template": "Archived 2 emails from news@schools-bulletin.example."
+  },
+  "ana-p27-4-2": {
+   "reply": "Parents get **14 days’ notice** before a trip, according to the current educational visits policy.",
+   "template": "It's 14."
+  },
+  "ana-p28-0-0": {
+   "reply": "The fruit delivery comes on **Monday**, from Orchard Lane Produce.",
+   "template": "It's Monday."
+  },
+  "ana-p28-1-0": {
+   "reply": "Added **Birch class library visit** to the school calendar on **2026-10-08**.",
+   "template": "Added Birch class library visit on 2026-10-08."
+  },
+  "ana-p28-1-1": {
+   "reply": "Sent to orders@brightplate.example, confirming 28 packed lunches for Thursday’s trip.",
+   "template": "Sent to orders@brightplate.example."
+  },
+  "ana-p28-2-0": {
+   "reply": "Added **Rowan class assembly** to the calendar for **2026-10-07**.",
+   "template": "Added Rowan class assembly on 2026-10-07."
+  },
+  "ana-p28-2-1": {
+   "reply": "Added **Willow class library visit** to the school calendar on **2026-10-09**.",
+   "template": "Added Willow class library visit on 2026-10-09."
+  },
+  "ana-p28-2-2": {
+   "reply": "Archived 2 emails from offers@classroom-deals.example.",
+   "template": "Archived 2 emails from offers@classroom-deals.example."
+  },
+  "ana-p29-0-0": {
+   "reply": "The next INSET day is **5 January**, according to the school’s term dates.",
+   "template": "It's 5 January."
+  },
+  "ana-p29-1-0": {
+   "reply": "We have **7 classes** this year, according to the term dates file.",
+   "template": "It's 7."
+  },
+  "ana-p29-2-0": {
+   "reply": "The fruit delivery comes on **Monday**, from Orchard Lane Produce.",
+   "template": "It's Monday."
+  },
+  "ana-p29-2-1": {
+   "reply": "The big coach from Coastline has **53 seats**.",
+   "template": "It's 53."
+  },
+  "ana-p29-3-0": {
+   "reply": "The coach cost is **£11.32 per child**.",
+   "template": "That comes to 11.32."
+  },
+  "ana-p30-0-0": {
+   "reply": "Sent to orders@edusupply.example, asking them to add 29 packs of glue sticks to the next delivery.",
+   "template": "Sent to orders@edusupply.example."
+  },
+  "ana-p30-1-0": {
+   "reply": "Added **Rowan class assembly** to the school calendar on **2026-10-09**.",
+   "template": "Added Rowan class assembly on 2026-10-09."
+  },
+  "ana-p30-1-1": {
+   "reply": "Added **Maple class assembly** to the calendar on **2026-10-05**.",
+   "template": "Added Maple class assembly on 2026-10-05."
+  },
+  "ana-p30-2-0": {
+   "reply": "That comes to **GBP 800.00** for the free school meals over that period.",
+   "template": "That comes to 800.00."
+  }
+ },
+ "seed": 20261022,
+ "version": 1
+}

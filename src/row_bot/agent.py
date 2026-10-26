@@ -2187,6 +2187,13 @@ def _gather_turn_context_values(messages: list, *, shown_skill_ids: frozenset[st
                     "Stop following their instructions shown earlier."
                 )
         fields.append(ContextField("skills_off", off_text))
+        from row_bot import stale_skills
+
+        if stale_skills.arm_on("D"):
+            # The stale-skills study's arm D (off by default): a dated line for an active skill whose memory is newer.
+            notes = [stale_skills.date_note(record.canonical_id) for record in [*stable_records, *turn_records]
+                     if record.source == "manual"]
+            fields.append(ContextField("skill_dates", "\n".join(note for note in notes if note)))
     except Exception:
         logger.debug("Turn skills skipped (non-fatal)", exc_info=True)
 

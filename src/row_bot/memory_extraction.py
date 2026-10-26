@@ -25,6 +25,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 
+from row_bot import stale_skills
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.prompts import EXTRACTION_PROMPT
 
@@ -451,8 +452,9 @@ def _dedup_and_save(
     strict = {"validate":validate} if validate is not None else {}
     if validate is not None:
         validate()
-    # Only this extraction context defers projections; source work is durable.
-    with kg.projection_batch(drain_on_exit=False):
+    # Only this extraction context defers projections; source work is durable. (The stale-skills study records
+    # where these writes came from; nothing while its setting is off.)
+    with kg.projection_batch(drain_on_exit=False), stale_skills.origin(stale_skills.origin_for(source, source_context)):
 
         # ── Pass 1: save/update entities and build a subject→id map ──────
         subject_to_id: dict[str, str] = {}

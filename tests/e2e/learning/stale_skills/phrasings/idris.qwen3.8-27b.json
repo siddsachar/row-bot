@@ -1,0 +1,302 @@
+{
+ "format": "row_bot.learning.stale_skills_phrasings",
+ "model": "qwen3.8-27b",
+ "note": "The person's wording for the stale-skills world, written once by a phrasing model (tests/e2e/learning/stale_skills/phrasing.py). Made-up people; no fact comes from here.",
+ "person": "idris",
+ "slots": {
+  "short/admin_fee/0": {
+   "template": "Invoice Quayside the payroll admin fee for the week of {date}.",
+   "variants": [
+    "Billing task for Quayside Cycles: payroll admin fee for week of {date}",
+    "Quayside Cycles payroll admin fee for week of {date}: issue invoice",
+    "Quayside Cycles: generate invoice for payroll admin fee for week of {date}",
+    "Send invoice to Quayside Cycles for week of {date} covering payroll admin fee"
+   ]
+  },
+  "short/admin_fee/1": {
+   "template": "Payroll admin fee to Quayside please, week of {date}.",
+   "variants": [
+    "Due: Quayside Cycles payroll admin fee, cycle: {date}",
+    "Log the admin charge to Quayside Cycles, week of {date}",
+    "Quayside Cycles, {date}: book the payroll admin fee",
+    "Settle the payroll admin fee for Quayside Cycles, period: {date}"
+   ]
+  },
+  "short/bank_reconciliation/0": {
+   "template": "Book the Brindle & Moss bank reconciliation for {date} in my calendar.",
+   "variants": [
+    "Add Brindle & Moss bank rec {date}",
+    "Calendar: Brindle & Moss reconciliation {date}",
+    "Insert Brindle & Moss reconciliation task {date}",
+    "Schedule {date} for Brindle & Moss recon"
+   ]
+  },
+  "short/bank_reconciliation/1": {
+   "template": "Brindle & Moss bank rec on {date} - put it in the calendar.",
+   "variants": [
+    "Add a reminder to complete the Brindle & Moss bank rec for {date} to my calendar.",
+    "Create a calendar event for the Brindle & Moss bank rec due {date}.",
+    "Log the Brindle & Moss bank rec deadline for {date} into my schedule.",
+    "Please insert the Brindle & Moss bank rec on {date} into my calendar."
+   ]
+  },
+  "short/intro_call/0": {
+   "template": "{who} might become a client - add an intro call on {date} to my calendar.",
+   "variants": [
+    "Add intro call with {who} to my calendar for {date}.",
+    "Please calendar an intro call with {who} on {date}.",
+    "Put an intro call with {who} in my calendar at {date}.",
+    "Schedule {date} for an intro call with {who}."
+   ]
+  },
+  "short/intro_call/1": {
+   "template": "Can you put an intro call with {who} in my calendar for {date}?",
+   "variants": [
+    "Can you block out time for an introductory call with {who} on {date}?",
+    "Create a calendar entry for an intro call with {who} scheduled for {date}.",
+    "Please add a new appointment: intro call with {who} at {date}.",
+    "Schedule an intro call with {who} for {date} on my calendar."
+   ]
+  },
+  "short/invoice_reminder/0": {
+   "template": "Remind {alias} about invoice {n}.",
+   "variants": [
+    "Action needed: chase {n} with {alias}",
+    "Could you remind {alias} that {n} is pending?",
+    "Please flag {alias} to follow up on {n}",
+    "Send a gentle nudge to {alias} regarding {n}"
+   ]
+  },
+  "short/invoice_reminder/1": {
+   "template": "Chase {alias} on invoice {n} please.",
+   "variants": [
+    "Can you chase {alias} on invoice {n}?",
+    "I need you to nudge {alias} about invoice {n}.",
+    "Please follow up with {alias} on the payment for invoice {n}.",
+    "Send a reminder to {alias} regarding invoice {n}."
+   ]
+  },
+  "short/kettle_call/0": {
+   "template": "Put the Copper Kettle catch-up call on {date} in my calendar.",
+   "variants": [
+    "Add The Copper Kettle Cafe catch-up call for {date} to my calendar.",
+    "Book the call with The Copper Kettle Cafe on {date} in my calendar.",
+    "Put a slot in the diary on {date} for the Copper Kettle call.",
+    "Schedule the The Copper Kettle Cafe catch-up on {date}."
+   ]
+  },
+  "short/kettle_call/1": {
+   "template": "Add {date}'s Copper Kettle catch-up to the calendar please.",
+   "variants": [
+    "Add the {date} The Copper Kettle Cafe meeting to my schedule.",
+    "Calendar the Copper Kettle catch-up for {date} please.",
+    "Put the {date} Copper Kettle client sync on the calendar.",
+    "Schedule the Copper Kettle catch-up on {date} now."
+   ]
+  },
+  "short/late_fee_reminder/0": {
+   "template": "Send my clients the reminder about the late-payment fee.",
+   "variants": []
+  },
+  "short/late_fee_reminder/1": {
+   "template": "Late-fee reminder to the clients please.",
+   "variants": []
+  },
+  "short/payroll_figures/0": {
+   "template": "Send {alias} the Copper Kettle payroll figures: {n} staff this period.",
+   "variants": [
+    "Action: email {alias} the Copper Kettle payroll totals, which cover {n} staff for this period.",
+    "Could you forward the {n} staff payroll figures for The Copper Kettle to {alias}?",
+    "Please get {alias} the current period payroll data for Copper Kettle, noting {n} staff."
+   ]
+  },
+  "short/payroll_figures/1": {
+   "template": "Copper Kettle payroll to {alias} please, {n} staff.",
+   "variants": [
+    "Copper Kettle Cafe: pay {n} staff via payroll to {alias}.",
+    "Please run payroll for The Copper Kettle Cafe ({n} staff) and route it to {alias}.",
+    "Process Copper Kettle payroll for {n} staff and send it to {alias}."
+   ]
+  },
+  "short/print_job/0": {
+   "template": "Send the year-end pack to {alias}: {n} copies.",
+   "variants": [
+    "Dispatch {n} copies of the year-end pack to {alias}.",
+    "Forward the year-end pack to {alias}: need {n} copies.",
+    "Get {n} copies of the year-end pack out to {alias}.",
+    "Send the year-end pack to {alias}, {n} copies."
+   ]
+  },
+  "short/print_job/1": {
+   "template": "Print run for the year-end pack please - {n} copies.",
+   "variants": [
+    "Output {n} units of the year-end pack for printing.",
+    "Please print {n} copies of the year-end pack.",
+    "Produce {n} copies of the year-end pack.",
+    "Run the year-end pack print job for {n} sets."
+   ]
+  },
+  "short/receipts_summary/0": {
+   "template": "Send {alias} this week's receipts summary: {n} receipts logged.",
+   "variants": [
+    "Dispatch {alias} the current receipts summary for this week, listing {n} receipts logged.",
+    "Email {alias} the weekly receipts summary: {n} receipts logged.",
+    "Please forward {alias} this week's receipts summary, noting {n} receipts logged.",
+    "Send {alias} the receipts summary for this week: {n} receipts logged."
+   ]
+  },
+  "short/receipts_summary/1": {
+   "template": "Receipts summary to {alias} please - {n} receipts this week.",
+   "variants": [
+    "Please send {alias} a summary of {n} receipts for the current week.",
+    "Send {alias} the weekly receipts summary covering {n} items.",
+    "Summary of {n} receipts this week for {alias}, please.",
+    "{alias} needs the receipts summary: {n} receipts this week."
+   ]
+  },
+  "short/records_reminder/0": {
+   "template": "Email my clients the reminder about how long to keep their records.",
+   "variants": []
+  },
+  "short/records_reminder/1": {
+   "template": "Send the clients the records-keeping reminder.",
+   "variants": []
+  },
+  "short/software_renewal/0": {
+   "template": "Renew the software licence: {n} seats.",
+   "variants": []
+  },
+  "short/software_renewal/1": {
+   "template": "Software renewal time - {n} seats please.",
+   "variants": [
+    "Authorize the {n}-seat software renewal so I can continue chasing invoices and filing deadlines.",
+    "Need to renew our bookkeeping suite with {n} seats to maintain compliance for the current period.",
+    "Process the software renewal for {n} seats across all three clients to keep the ledger reconciled.",
+    "Renew the accounting software for {n} seats for Brindle & Moss Florists, Quayside Cycles, and The Copper Kettle Cafe."
+   ]
+  },
+  "short/stationery_order/0": {
+   "template": "Order {n} boxes of envelopes.",
+   "variants": [
+    "Can you order {n} boxes of envelopes for Quayside Cycles?",
+    "Need {n} boxes of envelopes ordered for The Copper Kettle Cafe.",
+    "Order {n} boxes of envelopes for Brindle & Moss Florists, please.",
+    "Please place an order for {n} boxes of envelopes for our general office supplies."
+   ]
+  },
+  "short/stationery_order/1": {
+   "template": "We're low on envelopes - order {n} boxes please.",
+   "variants": [
+    "Envelopes are low; please order {n} boxes.",
+    "Procurement needed: order {n} boxes of envelopes.",
+    "Stock is low on envelopes; order {n} boxes.",
+    "We are running out of envelopes, order {n} boxes."
+   ]
+  },
+  "short/terms_reminder/0": {
+   "template": "Email my clients the monthly reminder of my payment terms.",
+   "variants": [
+    "Email the standing payment terms to Brindle & Moss, Quayside Cycles, and The Copper Kettle.",
+    "Prepare and send the recurring payment terms reminder to all client accounts.",
+    "Send payment terms reminder emails to all three clients."
+   ]
+  },
+  "short/terms_reminder/1": {
+   "template": "Send the clients the payment-terms reminder for this month.",
+   "variants": []
+  },
+  "short/till_float/0": {
+   "template": "Send the Copper Kettle the till float request for the week of {date}.",
+   "variants": [
+    "Action needed: send the till float request to The Copper Kettle Cafe for the week of {date}.",
+    "Copper Kettle: send the till float request for the week of {date}.",
+    "Week of {date} for Copper Kettle: please send the till float request."
+   ]
+  },
+  "short/till_float/1": {
+   "template": "Can you do the Copper Kettle till float for the week of {date}?",
+   "variants": [
+    "Can you process the float reconciliation for Copper Kettle, week of {date}?",
+    "Copper Kettle Cafe: reconcile till float for week of {date}",
+    "Run the float recon for Copper Kettle, week of {date}"
+   ]
+  },
+  "short/vat_summary/0": {
+   "template": "Send the Brindle & Moss books contact this quarter's VAT summary: GBP {n} due.",
+   "variants": [
+    "Brindle & Moss VAT, this quarter: GBP {n} due, send to books contact.",
+    "Brindle & Moss: email this quarter's VAT summary, GBP {n} due.",
+    "Send Brindle & Moss their books contact the VAT summary for this quarter, GBP {n} due."
+   ]
+  },
+  "short/vat_summary/1": {
+   "template": "VAT summary to the Brindle & Moss books contact please - GBP {n}.",
+   "variants": [
+    "Books contact at Brindle & Moss needs the GBP {n} VAT summary.",
+    "Brindle & Moss: GBP {n} VAT summary due to the books contact.",
+    "Please deliver the Brindle & Moss VAT summary (GBP {n}) to the books contact.",
+    "Send the VAT summary for Brindle & Moss to the books contact: GBP {n}."
+   ]
+  },
+  "short/wage_summary/0": {
+   "template": "Send the Copper Kettle's manager the weekly wage summary: GBP {n}.",
+   "variants": [
+    "Action for The Copper Kettle Cafe: transmit the weekly wage summary totaling GBP {n} to the manager.",
+    "Copper Kettle Cafe file: issue the weekly wage summary of GBP {n} to the manager.",
+    "Quayside Cycles aside, please dispatch The Copper Kettle's weekly wage summary of GBP {n} to their manager.",
+    "The Copper Kettle Cafe: send the manager the weekly wage summary for GBP {n}."
+   ]
+  },
+  "short/wage_summary/1": {
+   "template": "Wage summary to the cafe manager - GBP {n} this week.",
+   "variants": [
+    "Notify The Copper Kettle Cafe manager: {n} GBP due this week.",
+    "Prepare note for cafe manager: {n} GBP wages summary, current week.",
+    "Send The Copper Kettle Cafe wage summary: {n} GBP this week."
+   ]
+  },
+  "tell/address": {
+   "template": "Heads up: {party} have a new address - from today use {new}. The old one ({old}) isn't checked any more.",
+   "variants": [
+    "For {party}, replace the old address ({old}) with {new} immediately for all current and future periods.",
+    "Heads up on {party}: their address is now {new} starting today; please stop referencing the previous location ({old}).",
+    "Note for {party}: switch billing address to {new} effective today; the old one ({old}) is retired and should not be used.",
+    "Update records for {party}: use {new} as the current address from today onward, as {old} is no longer valid."
+   ]
+  },
+  "tell/amount": {
+   "template": "Finance have changed {fact}: it's {new} from this week (it was {old}).",
+   "variants": []
+  },
+  "tell/hours": {
+   "template": "From now on {fact} are {new} instead of {old}.",
+   "variants": [
+    "Going forward, {fact} should be set to {new} rather than {old}.",
+    "Please change {fact} from {old} to {new} going forward.",
+    "Revise the entry for {fact}: replace {old} with {new}."
+   ]
+  },
+  "tell/policy": {
+   "template": "{policy_by} changed {fact}: it's now {new} (it was {old}). The policy document is updated.",
+   "variants": [
+    "Noting {policy_by} changed {fact} from {old} to {new}; doc is current.",
+    "Recorded: {policy_by} modified {fact} from {old} to {new}; docs synced.",
+    "Update filed: {policy_by} set {fact} to {new} (was {old}).",
+    "{policy_by} adjusted {fact} to {new} instead of {old}; policy doc updated."
+   ]
+  },
+  "tell/role": {
+   "template": "{new_name} has taken over as {party} from {old_name} - their email is {new_email}.",
+   "variants": [
+    "Handover complete: {new_name} is now {party} instead of {old_name}; ensure {new_email} is on file.",
+    "Note for the next cycle: {new_name} replaces {old_name} in the {party} role, with email {new_email}.",
+    "Please log that {new_name} has assumed the {party} position from {old_name}, and add {new_email} as their address."
+   ]
+  },
+  "tell/supplier": {
+   "template": "We've switched {party}: from today it's {new_name}, not {old_name}. Orders go to {new_email}.",
+   "variants": []
+  }
+ },
+ "version": 1
+}

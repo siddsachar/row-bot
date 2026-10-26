@@ -1,0 +1,688 @@
+{
+ "format": "row_bot.learning.stale_skills_catalogue",
+ "version": 1,
+ "person": "rhys",
+ "first_name": "Rhys",
+ "policy_by": "The board",
+ "seed": 20261022,
+ "runbook": {
+  "path": "admin/theatre-contacts.md",
+  "title": "Theatre contacts",
+  "intro": "Old Mill Playhouse: who we deal with and the numbers we use."
+ },
+ "whos": [
+  "Alys",
+  "Bryn",
+  "Carys",
+  "Dylan",
+  "Efa",
+  "Gethin",
+  "Hari",
+  "Iolo",
+  "Jac",
+  "Lowri"
+ ],
+ "procedures": [
+  {
+   "id": "seat_release",
+   "kind": "address",
+   "title": "the held-seats release",
+   "fact": "the ticketing firm's support address",
+   "party": "Tixline",
+   "aliases": [
+    "the ticketing people",
+    "Tixline"
+   ],
+   "pool": [
+    {
+     "name": "Tixline",
+     "email": "support@tixline.example"
+    },
+    {
+     "name": "Tixline",
+     "email": "venues@tixline.example"
+    },
+    {
+     "name": "Tixline",
+     "email": "help@tixline.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Ask Tixline to release {n} held seats for Saturday. Their support address is {value}.",
+   "short": [
+    "Ask {alias} to release {n} held seats for Saturday.",
+    "Release {n} held seats with {alias} please."
+   ],
+   "variable": "n",
+   "low": 4,
+   "high": 30,
+   "unit": "seats",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "listings",
+   "kind": "address",
+   "title": "the listings entry",
+   "fact": "the Gazette's listings address",
+   "party": "the Harbourside Gazette",
+   "aliases": [
+    "the Gazette",
+    "the paper"
+   ],
+   "pool": [
+    {
+     "name": "Harbourside Gazette",
+     "email": "listings@harbourside-gazette.example"
+    },
+    {
+     "name": "Harbourside Gazette",
+     "email": "whatson@harbourside-gazette.example"
+    },
+    {
+     "name": "Harbourside Gazette",
+     "email": "events@harbourside-gazette.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the Gazette our listings entry: {n} performances next month. Their listings address is {value}.",
+   "short": [
+    "Send {alias} our listings entry: {n} performances next month.",
+    "Listings entry to {alias} please - {n} performances."
+   ],
+   "variable": "n",
+   "low": 6,
+   "high": 24,
+   "unit": "performances",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "licence_return",
+   "kind": "address",
+   "title": "the licence return",
+   "fact": "the council licensing team's address",
+   "party": "the licensing team",
+   "aliases": [
+    "licensing",
+    "the council"
+   ],
+   "pool": [
+    {
+     "name": "Harbourside licensing",
+     "email": "licensing@harbourside-council.example"
+    },
+    {
+     "name": "Harbourside licensing",
+     "email": "premises@harbourside-council.example"
+    },
+    {
+     "name": "Harbourside licensing",
+     "email": "licences@harbourside-council.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the licensing team this month's return: {n} events held. Email them at {value}.",
+   "short": [
+    "Send {alias} this month's return: {n} events held.",
+    "Licence return to {alias} - {n} events."
+   ],
+   "variable": "n",
+   "low": 8,
+   "high": 30,
+   "unit": "events",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "costume_hire",
+   "kind": "supplier",
+   "title": "the costume hire",
+   "fact": "our costume hire firm",
+   "party": "the costume hire firm",
+   "aliases": [
+    "the costume people"
+   ],
+   "pool": [
+    {
+     "name": "Curtain Call Costumes",
+     "email": "hire@curtaincall.example"
+    },
+    {
+     "name": "Wardrobe Works",
+     "email": "orders@wardrobeworks.example"
+    },
+    {
+     "name": "Stagecraft Hire",
+     "email": "bookings@stagecrafthire.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Hire {n} costumes for the next show. Costumes come from {name} ({value}).",
+   "short": [
+    "Hire {n} costumes for the next show.",
+    "We need {n} costumes for the next show - book them please."
+   ],
+   "variable": "n",
+   "low": 4,
+   "high": 26,
+   "unit": "costumes",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "lighting_hire",
+   "kind": "supplier",
+   "title": "the lighting hire",
+   "fact": "our lighting hire firm",
+   "party": "the lighting hire firm",
+   "aliases": [
+    "the lighting people"
+   ],
+   "pool": [
+    {
+     "name": "Lumen Stage Hire",
+     "email": "hire@lumenstage.example"
+    },
+    {
+     "name": "BrightRig",
+     "email": "rentals@brightrig.example"
+    },
+    {
+     "name": "Spotline",
+     "email": "sales@spotline.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Hire {n} extra moving lights for the tech. We hire from {name} - bookings to {value}.",
+   "short": [
+    "Hire {n} extra moving lights for the tech.",
+    "Book {n} more moving lights for the tech please."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 10,
+   "unit": "lights",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "bar_order",
+   "kind": "supplier",
+   "title": "the bar order",
+   "fact": "our drinks supplier",
+   "party": "the drinks supplier",
+   "aliases": [
+    "the brewery",
+    "the drinks people"
+   ],
+   "pool": [
+    {
+     "name": "Millbrook Brewery",
+     "email": "orders@millbrook-brewery.example"
+    },
+    {
+     "name": "Harbour Drinks",
+     "email": "trade@harbourdrinks.example"
+    },
+    {
+     "name": "Cellar Direct",
+     "email": "orders@cellardirect.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send the weekly bar order: {n} cases of soft drinks. Drinks come from {name} - orders to {value}.",
+   "short": [
+    "Do the weekly bar order: {n} cases of soft drinks.",
+    "Bar order time - {n} cases of soft drinks."
+   ],
+   "variable": "n",
+   "low": 3,
+   "high": 15,
+   "unit": "cases",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "tech_rehearsal",
+   "kind": "hours",
+   "title": "the tech rehearsal",
+   "fact": "the tech rehearsals' hours",
+   "party": "tech rehearsals",
+   "aliases": [
+    "the tech"
+   ],
+   "pool": [
+    {
+     "start": "18:30",
+     "end": "22:00"
+    },
+    {
+     "start": "18:00",
+     "end": "21:30"
+    },
+    {
+     "start": "19:00",
+     "end": "22:30"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Put the tech rehearsal on {date} in the theatre calendar - techs run {value}.",
+   "short": [
+    "Put the tech rehearsal on {date} in the theatre calendar.",
+    "Add {date}'s tech rehearsal to the calendar please."
+   ],
+   "variable": "date",
+   "event": "Tech rehearsal",
+   "keyword": "tech rehearsal",
+   "letter_from": "cerys@oldmillplayhouse.example"
+  },
+  {
+   "id": "youth_workshop",
+   "kind": "hours",
+   "title": "the youth workshop",
+   "fact": "the youth workshop's hours",
+   "party": "the youth workshop",
+   "aliases": [
+    "the workshop"
+   ],
+   "pool": [
+    {
+     "start": "10:00",
+     "end": "12:00"
+    },
+    {
+     "start": "10:30",
+     "end": "12:30"
+    },
+    {
+     "start": "13:00",
+     "end": "15:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book the youth workshop for {date} in the calendar. Workshops run {value}.",
+   "short": [
+    "Book the youth workshop for {date} in the calendar.",
+    "Youth workshop on {date} - put it in the calendar."
+   ],
+   "variable": "date",
+   "event": "Youth workshop",
+   "keyword": "youth workshop",
+   "letter_from": "cerys@oldmillplayhouse.example"
+  },
+  {
+   "id": "box_office_shift",
+   "kind": "hours",
+   "title": "a box-office shift",
+   "fact": "the box-office shifts' hours",
+   "party": "box-office shifts",
+   "aliases": [
+    "the box-office shift"
+   ],
+   "pool": [
+    {
+     "start": "17:30",
+     "end": "20:00"
+    },
+    {
+     "start": "17:00",
+     "end": "19:30"
+    },
+    {
+     "start": "18:00",
+     "end": "20:30"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "{who} is helping out - add their box-office shift on {date} to the calendar. Shifts run {value}.",
+   "short": [
+    "{who} is helping out - add their box-office shift on {date} to the calendar.",
+    "Can you put {who}'s box-office shift in the calendar for {date}?"
+   ],
+   "variable": "who_date",
+   "event": "{who} - box office",
+   "keyword": "box office",
+   "letter_from": "tom@oldmillplayhouse.example"
+  },
+  {
+   "id": "room_hire",
+   "kind": "amount",
+   "title": "the room-hire note",
+   "fact": "the studio's hire rate per evening",
+   "party": "the room-hire rate",
+   "aliases": [
+    "the hire rate"
+   ],
+   "pool": [
+    {
+     "amount": 80
+    },
+    {
+     "amount": 95
+    },
+    {
+     "amount": 90
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the bookings team ({to}) the room-hire note for the week of {date}. The studio is {value} an evening.",
+   "short": [
+    "Send the bookings team the room-hire note for the week of {date}.",
+    "Room-hire note to bookings please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "bookings@oldmillplayhouse.example",
+   "letter_from": "board@oldmillplayhouse.example"
+  },
+  {
+   "id": "bar_float",
+   "kind": "amount",
+   "title": "the bar float request",
+   "fact": "the weekly bar float",
+   "party": "the bar float",
+   "aliases": [
+    "the float"
+   ],
+   "pool": [
+    {
+     "amount": 100
+    },
+    {
+     "amount": 150
+    },
+    {
+     "amount": 120
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Ask the treasurer ({to}) for the bar float for the week of {date} - it's {value}.",
+   "short": [
+    "Ask the treasurer for the bar float for the week of {date}.",
+    "Bar float request please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "treasurer@oldmillplayhouse.example",
+   "letter_from": "treasurer@oldmillplayhouse.example"
+  },
+  {
+   "id": "show_report",
+   "kind": "role",
+   "title": "the show report",
+   "fact": "who the stage manager is",
+   "party": "the stage manager",
+   "aliases": [
+    "the stage manager"
+   ],
+   "pool": [
+    {
+     "name": "Cerys Lloyd",
+     "email": "cerys@oldmillplayhouse.example"
+    },
+    {
+     "name": "Osian Jones",
+     "email": "osian@oldmillplayhouse.example"
+    },
+    {
+     "name": "Bea Hughes",
+     "email": "bea@oldmillplayhouse.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the stage manager the show report: {n} cues changed. That's {name} ({value}).",
+   "short": [
+    "Send the stage manager the show report: {n} cues changed.",
+    "Show report to the stage manager - {n} cues changed."
+   ],
+   "variable": "n",
+   "low": 1,
+   "high": 20,
+   "unit": "cues",
+   "letter_from": "board@oldmillplayhouse.example"
+  },
+  {
+   "id": "ushers_rota",
+   "kind": "role",
+   "title": "the ushers' rota",
+   "fact": "who the front-of-house manager is",
+   "party": "the front-of-house manager",
+   "aliases": [
+    "front of house"
+   ],
+   "pool": [
+    {
+     "name": "Tom Wade",
+     "email": "tom@oldmillplayhouse.example"
+    },
+    {
+     "name": "Lily Chen",
+     "email": "lily@oldmillplayhouse.example"
+    },
+    {
+     "name": "Aled Rees",
+     "email": "aled@oldmillplayhouse.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the front-of-house manager next week's ushers' rota: {n} shifts. That's {name} ({value}).",
+   "short": [
+    "Send the front-of-house manager next week's ushers' rota: {n} shifts.",
+    "Ushers' rota to front of house please - {n} shifts."
+   ],
+   "variable": "n",
+   "low": 6,
+   "high": 24,
+   "unit": "shifts",
+   "letter_from": "board@oldmillplayhouse.example"
+  },
+  {
+   "id": "arrival_reminder",
+   "kind": "policy",
+   "title": "the arrival reminder",
+   "fact": "how early volunteers arrive before doors",
+   "party": "the arrival rule",
+   "aliases": [
+    "the arrival rule"
+   ],
+   "pool": [
+    {
+     "number": 45,
+     "unit": "minutes"
+    },
+    {
+     "number": 60,
+     "unit": "minutes"
+    },
+    {
+     "number": 30,
+     "unit": "minutes"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the volunteers ({to}) this week's reminder: arrive {value} before doors.",
+   "short": [
+    "Email the volunteers this week's arrival reminder.",
+    "Send the volunteers the arrival reminder."
+   ],
+   "variable": "none",
+   "to": "volunteers@oldmillplayhouse.example",
+   "doc": "policies/house-rules.md",
+   "doc_rule": "Volunteers arrive {n} minutes before doors",
+   "letter_from": "board@oldmillplayhouse.example"
+  },
+  {
+   "id": "studio_capacity",
+   "kind": "policy",
+   "title": "the studio-capacity reminder",
+   "fact": "the most people allowed in the studio",
+   "party": "the studio capacity",
+   "aliases": [
+    "the studio limit"
+   ],
+   "pool": [
+    {
+     "number": 60,
+     "unit": "people"
+    },
+    {
+     "number": 80,
+     "unit": "people"
+    },
+    {
+     "number": 50,
+     "unit": "people"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the hirers ({to}) the reminder: the studio holds at most {value}.",
+   "short": [
+    "Email the hirers the studio-capacity reminder.",
+    "Send the hirers the reminder about the studio limit."
+   ],
+   "variable": "none",
+   "to": "hirers@oldmillplayhouse.example",
+   "doc": "policies/house-rules.md",
+   "doc_rule": "The studio holds at most {n} people",
+   "letter_from": "board@oldmillplayhouse.example"
+  },
+  {
+   "id": "interval_reminder",
+   "kind": "policy",
+   "title": "the interval reminder",
+   "fact": "how long the interval is",
+   "party": "the interval",
+   "aliases": [
+    "the interval"
+   ],
+   "pool": [
+    {
+     "number": 20,
+     "unit": "minutes"
+    },
+    {
+     "number": 15,
+     "unit": "minutes"
+    },
+    {
+     "number": 25,
+     "unit": "minutes"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the bar team ({to}) the reminder: the interval lasts {value}.",
+   "short": [
+    "Email the bar team the interval reminder.",
+    "Send the bar team the reminder about the interval."
+   ],
+   "variable": "none",
+   "to": "bar@oldmillplayhouse.example",
+   "doc": "policies/house-rules.md",
+   "doc_rule": "The interval lasts {n} minutes",
+   "letter_from": "board@oldmillplayhouse.example"
+  }
+ ],
+ "preferences": [
+  {
+   "id": "pref_running_order",
+   "fact": "how Rhys wants running orders laid out",
+   "values": [
+    "a table",
+    "a numbered list"
+   ],
+   "markers": [
+    "table",
+    "numbered"
+   ],
+   "say_first": "I like running orders as {value}.",
+   "say_change": "Actually, I'd rather have running orders as {value} from now on."
+  },
+  {
+   "id": "pref_drink",
+   "fact": "Rhys's drink at board meetings",
+   "values": [
+    "black coffee",
+    "mint tea"
+   ],
+   "markers": [
+    "black coffee",
+    "mint tea"
+   ],
+   "say_first": "For the record, I have {value} at board meetings.",
+   "say_change": "I've cut down on coffee - it's {value} for me at board meetings now."
+  }
+ ],
+ "misstated": [
+  {
+   "id": "fire_inspection",
+   "fact": "the date of the fire-safety inspection",
+   "pairs": [
+    [
+     "14 January",
+     "15 January"
+    ],
+    [
+     "21 January",
+     "22 January"
+    ],
+    [
+     "4 February",
+     "5 February"
+    ]
+   ],
+   "say": "The fire-safety inspection is on {wrong}.",
+   "fix": "Sorry, I misread the letter - the inspection is {right}, not {wrong}."
+  },
+  {
+   "id": "piano_tuning",
+   "fact": "the date of the piano tuning",
+   "pairs": [
+    [
+     "9 February",
+     "10 February"
+    ],
+    [
+     "16 February",
+     "17 February"
+    ],
+    [
+     "2 March",
+     "3 March"
+    ]
+   ],
+   "say": "The piano tuner is coming on {wrong}.",
+   "fix": "Correction: the piano tuning is on {right}."
+  }
+ ],
+ "homonyms": [
+  {
+   "id": "owen_price",
+   "name": "Owen Price",
+   "email": "owen@oldmillplayhouse.example",
+   "role": "our new lighting volunteer",
+   "say": "Owen Price has joined as a lighting volunteer. His email is owen@oldmillplayhouse.example."
+  },
+  {
+   "id": "owen_ellis",
+   "name": "Owen Ellis",
+   "email": "owen.ellis@tixline.example",
+   "role": "the venue manager at Tixline",
+   "say": "Our venue manager at Tixline is Owen Ellis now - owen.ellis@tixline.example."
+  }
+ ],
+ "unknown": [
+  {
+   "id": "price_phone",
+   "question": "What's Owen Price's phone number?"
+  },
+  {
+   "id": "tixline_account",
+   "question": "What's our venue number with Tixline?"
+  },
+  {
+   "id": "cerys_mobile",
+   "question": "What's the stage manager's mobile number?"
+  },
+  {
+   "id": "licence_no",
+   "question": "What's our premises licence number?"
+  },
+  {
+   "id": "ellis_phone",
+   "question": "What's Owen Ellis's direct phone line?"
+  }
+ ]
+}

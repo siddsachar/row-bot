@@ -28,6 +28,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from row_bot import stale_skills
 from row_bot.data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
@@ -1538,6 +1539,24 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
     return result
 
 
+# ── Stale skills (research, off by default): reconcile skills with memory ───
+
+def _reconcile_skills_phase(summary: dict, status) -> None:
+    """Arm R of the stale-skills study: patch proposals for skills whose linked memories changed since last night.
+
+    Runs only while ``stale_skills.json`` is on with arm R; otherwise the cycle is exactly as before.
+    """
+    if not stale_skills.arm_on("R"):
+        return
+    from row_bot.stale_skills import arms
+
+    status("Phase 6: Reconciling skills with memory…")
+    try:
+        summary["reconciled_skills"] = arms.reconcile(_llm_call)
+    except Exception as exc:
+        summary["errors"].append(f"Reconcile error: {exc}")
+
+
 # ── Main dream cycle ────────────────────────────────────────────────────────
 
 def run_dream_cycle(on_status=None) -> dict:
@@ -1593,6 +1612,7 @@ def _run_dream_cycle(on_status=None) -> dict:
         summary["summary"] = (
             f"Skipped — waits for {min_entities} saved memories; there are {entity_count} so far"
         )
+        _reconcile_skills_phase(summary, _status)
         summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
         _append_journal(summary)
         return summary
@@ -1627,7 +1647,8 @@ def _run_dream_cycle(on_status=None) -> dict:
 
         for entity_a, entity_b, score in candidates:
             try:
-                result = _merge_entities(entity_a, entity_b)
+                with stale_skills.cause("merge"):
+                    result = _merge_entities(entity_a, entity_b)
                 if result:
                     result["score"] = round(score, 4)
                     summary["merges"].append(result)
@@ -1661,7 +1682,8 @@ def _run_dream_cycle(on_status=None) -> dict:
                 continue  # Turned down before by this model, and nothing new to read
 
             try:
-                result = _enrich_entity(entity, excerpts, other_subjects)
+                with stale_skills.cause("enrich"):
+                    result = _enrich_entity(entity, excerpts, other_subjects)
                 if result:
                     summary["enrichments"].append(result)
                     _status(
@@ -1692,7 +1714,8 @@ def _run_dream_cycle(on_status=None) -> dict:
                 new_conf = round(old_conf * _DECAY_FACTOR, 4)
                 if new_conf < _DECAY_DELETE_BELOW:
                     # Prune: too low to be useful
-                    kg.delete_relation(row["id"])
+                    with stale_skills.cause("decay"):
+                        kg.delete_relation(row["id"])
                     summary["pruned"].append({
                         "relation_id": row["id"],
                         "relation_type": row["relation_type"],
@@ -1729,11 +1752,12 @@ def _run_dream_cycle(on_status=None) -> dict:
 
         for entity_a, entity_b, excerpt, co_count in pairs[:15]:  # Cap inferences per cycle
             try:
-                result = _infer_relation(
-                    entity_a, entity_b, excerpt,
-                    confidence=infer_confidence,
-                    co_occurrence_count=co_count,
-                )
+                with stale_skills.cause("infer"):
+                    result = _infer_relation(
+                        entity_a, entity_b, excerpt,
+                        confidence=infer_confidence,
+                        co_occurrence_count=co_count,
+                    )
                 if result:
                     summary["inferred_relations"].append(result)
                     _status(
@@ -1756,6 +1780,7 @@ def _run_dream_cycle(on_status=None) -> dict:
         except Exception as exc:
             summary["errors"].append(f"Insights error: {exc}")
 
+    _reconcile_skills_phase(summary, _status)
     try:
         projection = kg.repair_projections(max_entities=1000, cancelled=_dream_stop.is_set)
         if not projection["complete"]:

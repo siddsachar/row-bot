@@ -375,6 +375,9 @@ def mark_superseded(
         return updated_old, updated_new
     if validate is not None:
         validate()
+    from row_bot import stale_skills
+
+    stale_skills.entity_superseded(updated_old, updated_new)
     append_journal(
         "supersede",
         entity_ids=[old_id, new_id],
