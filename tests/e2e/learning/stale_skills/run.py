@@ -270,6 +270,10 @@ class StaleRun(PersonRun):
         self.gpu.quiet = lambda: quiet_soon(start=cutoff)
         if self.lane == "local":
             self.gpu.say = self._say_and_unload
+        # A multi-day block keeps its booking through S1's night (which releases the card at its end).
+        self._keep_through_night = False
+        release = self.gpu.release
+        self.gpu.release = lambda: None if self._keep_through_night else release()
         self._recalled: list[list[str]] = []
         self._errors: list[str] = []
         data = self.state.data
@@ -424,6 +428,27 @@ class StaleRun(PersonRun):
             self._unload_local_model()
         self.gpu.acquire(what, expect=expect)
 
+    def _keep_card(self, block_started: float) -> bool:
+        """Whether the next simulated day goes on in this booking (``--block-minutes``: blocks as long as the other
+        lanes' rather than one day each). Never past the block's length, never while another lane holds the card or
+        a priority lane (``--priority-lanes``) wrote that it waits, while the person's own Row-Bot trains, or in the
+        quiet hours' cut-off; another lane that waits gets the card at the block's end."""
+
+        from tests.e2e.learning.seeded.scratch import open_bookings, waiting_lanes
+
+        block = int(getattr(self.args, "block_minutes", 0) or 0)
+        if self.lane != "local" or not block or self.gpu.held is None:
+            return False
+        if time.monotonic() - block_started >= block * 60:
+            return False
+        text = self.gpu._read()  # noqa: SLF001 - the gate's own booking file
+        if any(lane != self.gpu.lane for lane in open_bookings(text)):
+            return False
+        priority = {item.strip() for item in str(getattr(self.args, "priority_lanes", "") or "").split(",") if item.strip()}
+        if priority & set(waiting_lanes(text)):
+            return False
+        return not (self.gpu.training() or self.gpu.quiet())
+
     def _say_and_unload(self, text: str) -> None:
         """The gate waits (another lane booked the card, the person trains, the quiet hours): our block has ended, so
         our model leaves the card first."""
@@ -449,7 +474,7 @@ class StaleRun(PersonRun):
     def stage_days(self) -> None:
         items = {item.id: item for item in (*self.timeline.tells, *self.timeline.runs, *self.timeline.probes)}
         started_day: int | None = None
-        clock_started = time.monotonic()
+        clock_started = block_started = time.monotonic()
         self.state.data["started"].append({"at": time.strftime("%Y-%m-%d %H:%M:%S"),
                                            "next": (remaining(self.timeline, self.state.data, self.args.days) or
                                                     [("done", 0, "")])[0][2]})
@@ -457,9 +482,11 @@ class StaleRun(PersonRun):
             self.state.data["redone"].append(interrupted)
         for what, day, step_id in remaining(self.timeline, self.state.data, self.args.days):
             if started_day != day:
-                if started_day is not None:
-                    self.gpu.release()
-                self._book(f"{self.args.local_model} arm {self.study_arm}, simulated day {day}", "6 min, 12 GB")
+                if self.gpu.held is None:
+                    block = int(getattr(self.args, "block_minutes", 0) or 0)
+                    self._book(f"{self.args.local_model} arm {self.study_arm}, simulated day {day}"
+                               + (" on" if block else ""), f"up to {block} min, 12 GB" if block else "6 min, 12 GB")
+                    block_started = time.monotonic()
                 started_day, clock_started = day, time.monotonic()
             if what == "morning":
                 self._morning(day)
@@ -477,11 +504,16 @@ class StaleRun(PersonRun):
                 self.state.data["evenings"].append({"day": day, **self._extract()})
                 self.save()
             else:
-                self.night(day)  # S1's: Dream (arm R's reconciliation is its phase), the vault's refresh
+                self._keep_through_night = self._keep_card(block_started)
+                try:
+                    self.night(day)  # S1's: Dream (arm R's reconciliation is its phase), the vault's refresh
+                finally:
+                    self._keep_through_night = False
                 self._check_limits()
                 self._card(f"simulated day {day}", time.monotonic() - clock_started)
                 self.save()
-                self.gpu.release()
+                if not self._keep_card(block_started):
+                    self.gpu.release()
                 started_day = None
                 self.check_cap()
         self.gpu.release()
@@ -927,6 +959,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sim-date", action="store_true", help="the turn context says the simulated date")
     parser.add_argument("--blind", action="store_true",
                         help="phase 3: no verdict in the notes and nothing scored in stale.json (no peeking)")
+    parser.add_argument("--block-minutes", type=int, default=0,
+                        help="local: keep the card for simulated days up to this long a booking (0: one day each)")
+    parser.add_argument("--priority-lanes", default="",
+                        help="comma-separated lanes that get the card at once when they write that they wait")
     parser.add_argument("--no-new-day-from", default="00:25",
                         help="HH:MM: no new simulated day on the card from then until 05:00 (earlier for a slow model)")
     args = parser.parse_args(argv)

@@ -590,3 +590,31 @@ def test_a_grid_cell_runs_under_one_supervisor_at_a_time(tmp_path):
     assert grid.lock(folder)
     grid.unlock(folder)
     assert not (folder / "grid.lock").exists()
+
+
+def test_a_local_run_keeps_the_card_for_a_block_and_yields_to_a_priority_lane(tmp_path):
+    import time
+    from types import SimpleNamespace
+
+    from tests.e2e.learning.seeded.scratch import GpuGate
+
+    booking = tmp_path / "gpu-booking.txt"
+    booking.write_text("20:00 lane-B START SA3 stale skills: day 1\n", encoding="utf-8")
+    gate = GpuGate(booking, "lane-B", training=lambda: False, quiet=lambda: None, sleep=lambda _s: None)
+    gate.held = "day 1"
+    me = SimpleNamespace(lane="local", gpu=gate, args=SimpleNamespace(block_minutes=40, priority_lanes="lane-C"))
+    now = time.monotonic()
+    assert run.StaleRun._keep_card(me, now)
+    assert not run.StaleRun._keep_card(me, now - 41 * 60)  # the block is over
+    with booking.open("a", encoding="utf-8") as handle:
+        handle.write("20:10 lane-A note: S1 waits for the card (next: generations)\n")
+    assert run.StaleRun._keep_card(me, now)  # an ordinary lane waits for the block's end
+    with booking.open("a", encoding="utf-8") as handle:
+        handle.write("20:11 lane-C note: C2 waits for the card (next: training)\n")
+    assert not run.StaleRun._keep_card(me, now)  # a priority lane gets it at once
+    gate.training = lambda: True
+    me.args.priority_lanes = ""
+    assert not run.StaleRun._keep_card(me, now)  # the person's own training always wins
+    gate.training, gate.quiet = (lambda: False), (lambda: "quiet hours")
+    assert not run.StaleRun._keep_card(me, now)
+    assert not run.StaleRun._keep_card(SimpleNamespace(lane="main", gpu=gate, args=me.args), now)

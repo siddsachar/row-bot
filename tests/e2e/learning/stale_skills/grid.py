@@ -45,6 +45,9 @@ CHECKOUT = HERE.parents[4]
 EXIT_TOKEN_CAP, EXIT_LIMIT = 75, 76
 LIMIT_WAITS = (30 * 60, 60 * 60, 120 * 60, 180 * 60)
 CRASH_PAUSE = 30 * 60
+#: A local run keeps the card for simulated days up to this long a booking (lane A's blocks are 40-90 min); lane C
+#: (paper-critical training) gets it at once when it writes that it waits.
+BLOCK_MINUTES = 40
 #: What each model label runs: the lane, the Ollama model, and from when no new simulated day starts on the card.
 MODELS: dict[str, dict[str, str]] = {
     "main": {"lane": "main", "label": "Main model (ChatGPT lane, eval profile)"},
@@ -89,7 +92,8 @@ def command(cell: Cell, root: Path, eval_profile: str, booking: str) -> list[str
              "--days", str(world.DAYS), "--phrasing", "main", "--sim-date", "--blind", "--eval-profile", eval_profile,
              "--cap-tokens", str(CAPS[model["lane"]])]
     if model["lane"] == "local":
-        found += ["--local-model", model["local"], "--no-new-day-from", model["cutoff"]]
+        found += ["--local-model", model["local"], "--no-new-day-from", model["cutoff"],
+                  "--block-minutes", str(BLOCK_MINUTES), "--priority-lanes", "lane-C"]
         if booking:
             found += ["--gpu-booking", booking]
     return found
