@@ -136,12 +136,13 @@ def ledger_cloud(data: Path) -> int:
 
 
 class Status:
-    """``status-<queue>.json`` and the combined ``status.md`` (atomic writes)."""
+    """``status-<name>.json`` (one per supervisor; the name starts with its queue) and the combined ``status.md``
+    (atomic writes)."""
 
-    def __init__(self, root: Path, queue: str) -> None:
+    def __init__(self, root: Path, queue: str, name: str = "") -> None:
         self.root = root
         self.queue = queue
-        self.path = root / f"status-{queue}.json"
+        self.path = root / f"status-{name or queue}.json"
         try:
             self.data: dict[str, Any] = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -179,15 +180,36 @@ def _atomic(path: Path, text: str) -> None:
     temporary.unlink(missing_ok=True)
 
 
+def merged(root: Path, queue: str) -> dict[str, Any] | None:
+    """Every supervisor's status of ``queue`` in one: per cell the entry that isn't pending (the last updated)."""
+
+    found = []
+    for path in sorted(root.glob(f"status-{queue}*.json")):
+        try:
+            found.append((path.stem.removeprefix("status-"), json.loads(path.read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            continue
+    if not found:
+        return None
+    found.sort(key=lambda item: str(item[1].get("updated") or ""))
+    cells_: dict[str, Any] = {}
+    for _, data in found:
+        for name, entry in (data.get("cells") or {}).items():
+            if entry.get("state") != "pending" or name not in cells_:
+                cells_[name] = entry
+    events = sorted(line for _, data in found for line in data.get("events") or ())
+    return {"cells": cells_, "events": events, "updated": found[-1][1].get("updated"),
+            "names": [name for name, _ in found]}
+
+
 def render(root: Path) -> str:
     lines = ["# Stale skills phase 3: run status (no outcomes)", ""]
     total_tokens, total_gpu = 0, 0.0
     for queue in ("main", "local"):
-        try:
-            data = json.loads((root / f"status-{queue}.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        data = merged(root, queue)
+        if data is None:
             continue
-        lines += [f"## Queue {queue} (updated {data.get('updated')})", "",
+        lines += [f"## Queue {queue} (updated {data.get('updated')}; supervisors {', '.join(data['names'])})", "",
                   "| Cell | State | Days done | Starts | Limit waits | Crashes | ChatGPT-lane tokens | GPU-hours |",
                   "|---|---|---|---|---|---|---|---|"]
         for cell in cells(queue):
@@ -206,6 +228,48 @@ def render(root: Path) -> str:
 
 
 # ── Running ──────────────────────────────────────────────────────────────────
+
+
+def _alive(pid: int) -> bool:
+    import psutil
+
+    try:
+        return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.Error:
+        return False
+
+
+def lock(folder: Path) -> bool:
+    """Take the cell for this supervisor (``grid.lock``: the pid that runs it). False while a live process holds it;
+    a lock whose process ended is taken over."""
+
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "grid.lock"
+    for _ in range(2):
+        try:
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                holder = int(json.loads(path.read_text(encoding="utf-8")).get("pid") or 0)
+            except (OSError, ValueError):
+                holder = 0
+            if holder and holder != os.getpid() and _alive(holder):
+                return False
+            path.unlink(missing_ok=True)
+            continue
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps({"pid": os.getpid(), "at": time.strftime("%Y-%m-%d %H:%M:%S")}))
+        return True
+    return False
+
+
+def unlock(folder: Path) -> None:
+    path = folder / "grid.lock"
+    try:
+        if int(json.loads(path.read_text(encoding="utf-8")).get("pid") or 0) == os.getpid():
+            path.unlink()
+    except (OSError, ValueError):
+        pass
 
 
 def ensure_model(cell: Cell, status: Status) -> None:
@@ -297,25 +361,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gpu-booking", default="")
     parser.add_argument("--rest-minutes", type=float, default=0.0, help="a pause between cells (spreads the use)")
     parser.add_argument("--only", default="", help="comma-separated cell names (default: the whole queue)")
+    parser.add_argument("--name", default="", help="this supervisor's status name (several may share a queue: "
+                        "each cell is locked by the one running it)")
     args = parser.parse_args(argv)
     if args.queue == "main":
         args.gpu_booking = ""  # see the module's docstring
     root = Path(args.root)
     root.mkdir(parents=True, exist_ok=True)
-    status = Status(root, args.queue)
+    name = args.name if args.name.startswith(args.queue) else f"{args.queue}{args.name}"
+    status = Status(root, args.queue, name)
     wanted = {item.strip() for item in args.only.split(",") if item.strip()}
     todo = [cell for cell in cells(args.queue) if not wanted or cell.name in wanted]
-    for cell in todo:
-        status.cell(cell)
-    status.event(f"queue {args.queue}: {len(todo)} cells (pid {os.getpid()})")
-    for number, cell in enumerate(todo):
-        if status.cell(cell).get("state") in ("capped", "failed"):
-            continue
-        outcome = run_cell(cell, args, status)
-        status.save()
-        if outcome == "done" and args.rest_minutes and number + 1 < len(todo):
-            time.sleep(args.rest_minutes * 60)
-    status.event(f"queue {args.queue}: finished")
+    status.event(f"queue {args.queue} ({name}): {len(todo)} cells (pid {os.getpid()})")
+    final = ("done", "capped", "failed")
+    while True:
+        ran = waiting = 0
+        for cell in todo:
+            folder = root / cell.name
+            if status.data["cells"].get(cell.name, {}).get("state") in final or progress(folder)["finished"]:
+                continue
+            if not lock(folder):
+                waiting += 1  # another supervisor (or a run left from before) holds it
+                continue
+            try:
+                outcome = run_cell(cell, args, status)
+            finally:
+                unlock(folder)
+            ran += 1
+            status.save()
+            if outcome == "done" and args.rest_minutes:
+                time.sleep(args.rest_minutes * 60)
+        if not ran and not waiting:
+            break
+        if not ran:
+            time.sleep(300)
+    status.event(f"queue {args.queue} ({name}): finished")
     return 0
 
 

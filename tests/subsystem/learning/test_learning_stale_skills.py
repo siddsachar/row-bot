@@ -574,3 +574,19 @@ def test_phase_3s_decision_follows_section_8():
     too_many_false = analysis.analyse(blocks((1, 4), (0, 4), 3), resamples=1000)
     assert not too_many_false["h_a1_holds"] and "measurement paper" in too_many_false["decision"]
     assert "stop" in analysis.analyse(blocks((1, 20), (1, 20), 0), resamples=1000)["decision"]
+
+
+def test_a_grid_cell_runs_under_one_supervisor_at_a_time(tmp_path):
+    import os
+
+    from tests.e2e.learning.stale_skills import grid
+
+    folder = tmp_path / "sa3_main_N_mara"
+    assert grid.lock(folder)
+    # Another live process holds it: not taken. A holder that ended: taken over.
+    (folder / "grid.lock").write_text(json.dumps({"pid": os.getppid()}), encoding="utf-8")
+    assert not grid.lock(folder)
+    (folder / "grid.lock").write_text(json.dumps({"pid": 999_999_999}), encoding="utf-8")
+    assert grid.lock(folder)
+    grid.unlock(folder)
+    assert not (folder / "grid.lock").exists()
