@@ -662,3 +662,49 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
+/* L4b: the quick question in full, its two answers and ✕ beside it, or under it on a phone. */
+.learning-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.learning-question .entity-row-title {
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+@media (max-width: 767px) {
+  .learning-question .entity-row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .learning-question .entity-row-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+/* L4c: who does each of Learning's own jobs, its latest test under it. */
+.learning-jobs {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.learning-jobs > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  overflow-wrap: break-word;
+}
+.learning-job-name {
+  font-weight: var(--weight-semibold);
+}
+.learning-jobs > li > .learning-muted {
+  grid-column: 1 / -1;
+}
+@media (max-width: 767px) {
+  .learning-jobs > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

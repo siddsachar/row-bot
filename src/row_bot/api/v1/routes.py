@@ -398,6 +398,7 @@ _STATUS.update(
         "learning_change_refused": 409,
         "learning_change_busy": 409,
         "learning_method_changed": 409,
+        "learning_question_changed": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,

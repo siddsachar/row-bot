@@ -11,6 +11,7 @@ import type {
 import { Button, InlineEmpty } from '../../ui/primitives';
 import { Drawer, useNotify } from '../../ui/overlays';
 import type { LearningIO } from './learning-state';
+import { LearningJobs } from './LearningJobs';
 import { dayWords, plural, tokenWords } from './words';
 import './learning.css';
 
@@ -266,6 +267,7 @@ export function MethodSheet({
             </p>
           )}
         </section>
+        <LearningJobs jobs={method.jobs} />
         <section aria-label="What it can never change">
           <h3>What it can never change</h3>
           <ul className="learning-method-never">

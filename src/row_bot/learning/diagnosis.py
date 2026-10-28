@@ -112,6 +112,8 @@ class Issue:
     facet: str
     evidence: list[Evidence] = field(default_factory=list)
     single: str | None = None  # the one signal it holds (the ablation's single-signal arm)
+    # The person's answers to quick questions about it (L4b): {question, answer, at}, their own feedback.
+    answers: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -132,7 +134,7 @@ class Issue:
 
     @property
     def feedback(self) -> int:
-        return sum(1 for item in self.evidence if item.from_person)
+        return sum(1 for item in self.evidence if item.from_person) + len(self.answers)
 
     def enough(self, method: Strategy | None = None) -> bool:
         """Whether there is enough evidence to diagnose it, by the learning method's thresholds."""
@@ -141,7 +143,7 @@ class Issue:
             return True
         issues = (method or strategy_module.FIRST).issues
         counts = self.counts()
-        if any(item.source == "teach" and item.note for item in self.evidence):
+        if self.answers or any(item.source == "teach" and item.note for item in self.evidence):
             return True
         if self.feedback >= issues.min_feedback:
             return True
@@ -157,7 +159,8 @@ class Issue:
                 + issues.failures * counts["failures"] + issues.chats * counts["chats"])
 
     def newest(self) -> float:
-        return max((item.at for item in self.evidence), default=0.0)
+        return max([*(item.at for item in self.evidence), *(float(item.get("at") or 0.0) for item in self.answers)],
+                   default=0.0)
 
 
 def _facet_of(signal: Signal) -> str:
@@ -241,6 +244,11 @@ def collect(store: LearningStore, *, now: float, book: corrections.Book | None =
             continue
         key = (kind, item.facet)
         groups.setdefault(key, Issue(kind, item.facet)).evidence.append(item)
+    from row_bot.learning import question
+
+    answered = question.answers_for(store)
+    for issue in groups.values():
+        issue.answers = answered.get(issue.key, []) if not issue.single else []
     return list(groups.values()), dict(left)
 
 
@@ -428,6 +436,9 @@ def describe(store: LearningStore, book: corrections.Book, issue: Issue, *, now:
                 done = f"called {', '.join(calls)}" if calls else f"answered: {_clip(answer, 300)}"
                 lines.append(f"   After that Row-Bot {done} (the person accepted it).")
         lines.append("")
+    for item in issue.answers:
+        lines.append(f"The person answered a quick question: {_clip(str(item.get('question') or ''), 200)} "
+                     f"→ {_clip(str(item.get('answer') or ''), 60)}")
     return "\n".join(lines).strip()
 
 

@@ -37,7 +37,7 @@ _ACTIONS = frozenset({
     "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
     "review_version", "use_smaller_model", "change_starting_model",
     "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-    "test_lesson", "delete_lesson", "undo_method",
+    "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
 })
 # Changes Learning drafted (L3b): test, use, undo, not now, don't suggest again, edit; a lesson Row-Bot saved
 # for itself tested, or deleted. Every one is the person's own choice (D24).
@@ -264,6 +264,46 @@ def _trial_night() -> dict[str, Any] | None:
         return None
 
 
+def _practice_night() -> dict[str, Any] | None:
+    if not learning.store_exists():
+        return None
+    try:
+        from row_bot.learning import practice
+
+        return practice.last_night(_store()) if practice.enabled() else None
+    except Exception:
+        logger.debug("Learning could not read last night's practice", exc_info=True)
+        return None
+
+
+def _practice_line(found: dict[str, Any] | None, night: str) -> dict[str, Any]:
+    """The night's practice for the Overnight lines (L4b): what it ran and passed, and its kind of work."""
+
+    if not found or found.get("night") != night:
+        return {}
+    kinds = [kind for kind, (ran, _passed) in (found.get("by_kind") or {}).items() if int(ran) > 0]
+    return {"practised": max(0, int(found.get("ran") or 0)), "practised_passed": max(0, int(found.get("passed") or 0)),
+            "practice_kind": kinds[0] if len(kinds) == 1 and kinds[0] in _KINDS[:-1] else None,
+            "practice_needs_container": bool(found.get("needs_container") or found.get("coding_left_out"))}
+
+
+def _quick_question() -> dict[str, Any] | None:
+    if not learning.store_exists():
+        return None
+    try:
+        from row_bot.learning import question
+
+        found = question.current(_store())
+    except Exception:
+        logger.debug("Learning could not read its quick question", exc_info=True)
+        return None
+    if not found:
+        return None
+    return {"id": _text(found.get("id"), 128), "question": _text(found.get("question"), 200),
+            "answers": [_text(item, 40) for item in found.get("answers") or ()][:2],
+            "kind": found.get("kind") if found.get("kind") in _KINDS else "other"}
+
+
 def _method_line(trial: dict[str, Any] | None, night: str) -> dict[str, Any]:
     """The night's strategy trial for the Overnight lines: a switch (with what it changes) or a kept method."""
 
@@ -280,8 +320,10 @@ def _method_line(trial: dict[str, Any] | None, night: str) -> dict[str, Any]:
 
 
 def _overnight(night: dict[str, Any] | None, today: date | None = None,
-               tests: dict[str, Any] | None = None, trial: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """Last night's look, its tests and its strategy trial (UX §3 Overnight): only a recent one, in counts."""
+               tests: dict[str, Any] | None = None, trial: dict[str, Any] | None = None,
+               practice: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Last night's look, its practice, its tests and its strategy trial (UX §3 Overnight): only a recent one, in
+    counts."""
 
     if not night or night.get("state") not in _OVERNIGHT_STATES:
         return None
@@ -303,7 +345,7 @@ def _overnight(night: dict[str, Any] | None, today: date | None = None,
             "tested": count("tested"), "ready": count("ready"), "not_better": count("not_better"),
             "used": count("used"),
             "tests_state": same.get("state") if same.get("state") in ("stopped", "limit", "claude_plan", "failed")
-            else None, **_method_line(trial, when.isoformat())}
+            else None, **_method_line(trial, when.isoformat()), **_practice_line(practice, when.isoformat())}
 
 
 def _testing_now() -> dict[str, Any] | None:
@@ -500,7 +542,41 @@ def _method_view(store: Any, now: float | None = None) -> dict[str, Any]:
             "description": _text(method.describe(), 600), "tried": tried, "kept": kept,
             "tokens": max(0, int(spending.used_this_month(now=now))), "trials": trial_rows, "history": history[:30],
             "can_undo": can_undo, "next_trial": {"state": state, "fresh": max(0, int(fresh)),
-                                                 "needed": evaluation.MIN_FRESH}}
+                                                 "needed": evaluation.MIN_FRESH}, "jobs": _jobs(store, now)}
+
+
+def _jobs(store: Any, now: float | None = None) -> list[dict[str, Any]]:
+    """Who does each of Learning's own jobs (L4c), with since when, the latest test and this month's use."""
+
+    from row_bot.learning import routing
+    from row_bot.learning.improver import jobs
+
+    offered = jobs.offered()
+    if not offered:
+        return []
+    found = jobs.state(store)
+    main = routing.model_name(routing.main_model_ref())
+    month = jobs.month_key(now if now is not None else store.now())
+    rows = []
+    for job in offered:
+        held = found.get(job) or {}
+        last = held.get("last") or {}
+        usage = held.get("usage") or {}
+        this_month = usage.get("month") == month
+        rows.append({
+            "job": job, "by": "personal" if held.get("by") == "personal" else "main",
+            "version": int(held["version"]) if held.get("by") == "personal" and held.get("version") else None,
+            "main_model": _text(main, 128), "since": _iso(held.get("since")),
+            "reason": held.get("reason") if held.get("reason") in ("not_matched", "new_version", "not_served") else "",
+            "last": {"at": _iso(last.get("at")) or "", "version": max(1, int(last.get("version") or 1)),
+                     "asked": max(0, int(last.get("asked") or 0)),
+                     "personal_passed": max(0, int(last.get("personal_passed") or 0)),
+                     "main_passed": max(0, int(last.get("main_passed") or 0)), "verdict": last["verdict"]}
+            if last.get("verdict") in ("qualified", "not_matched", "too_few", "limit", "unavailable") else None,
+            "tokens": max(0, int(usage.get("tokens") or 0)) if this_month else 0,
+            "seconds": max(0.0, float(usage.get("seconds") or 0.0)) if this_month else 0.0,
+        })
+    return rows
 
 
 def _kinds_learning(changes: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -1192,11 +1268,13 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
         "owner_unset_channels": _owner_unset_channels(),
         "needs_you": _needs_you(settings),
         "overnight": _overnight(night, tests=_tests() if settings.enabled else None,
-                                trial=_trial_night() if settings.enabled else None),
+                                trial=_trial_night() if settings.enabled else None,
+                                practice=_practice_night() if settings.enabled else None),
         "changes": changes,
         "testing_now": _testing_now() if settings.enabled else None,
         "kinds_learning": _kinds_learning(changes) if settings.enabled else [],
         "method": _method() if settings.enabled else None,
+        "quick_question": _quick_question() if settings.enabled else None,
     }
     data["revision"] = sha256(
         json.dumps(_control_state(settings, opted_out), sort_keys=True).encode("utf-8")
@@ -1588,6 +1666,8 @@ def _target(action: str, command: dict[str, Any]) -> str:
         return "learning:use"
     if action in _CHANGE_ACTIONS:
         return f"learning:change:{command.get('change_id', '')}"
+    if action in ("answer_question", "dismiss_question"):
+        return f"learning:question:{command.get('item_id', '')}"
     return "learning:settings"
 
 
@@ -1935,7 +2015,9 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
     if action == "save_advanced" and not isinstance(advanced_values, dict):
         raise ClientPlatformError("invalid_learning_command")
     item_id = _text(command.get("item_id"), 128)
-    if action == "dismiss" and not item_id:
+    if action in ("dismiss", "answer_question", "dismiss_question") and not item_id:
+        raise ClientPlatformError("invalid_learning_command")
+    if action == "answer_question" and not _text(command.get("answer"), 2000).strip():
         raise ClientPlatformError("invalid_learning_command")
     model_id = _text(command.get("model"), 32)
     if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS:
@@ -2086,6 +2168,19 @@ def _perform(
         summary = _use_action(action, wire)
     elif action in _CHANGE_ACTIONS:
         summary = _change_action(action, wire)
+    elif action in ("answer_question", "dismiss_question"):
+        from row_bot.learning import question
+
+        if not learning.store_exists() or not question.enabled():
+            raise ClientPlatformError("learning_question_changed")
+        try:
+            if action == "answer_question":
+                question.answer(_store(), wire["item_id"], wire["answer"])
+            else:
+                question.dismiss(_store(), wire["item_id"])
+        except question.QuestionError:
+            raise ClientPlatformError("learning_question_changed") from None
+        summary = "Thanks. Row-Bot will learn from this." if action == "answer_question" else "Row-Bot won’t ask that again."
     elif action == "undo_method":
         from row_bot.learning.improver import meta
 

@@ -2854,6 +2854,10 @@ const CATALOG: Record<string, Entry> = {
     'How Row-Bot learns changed meanwhile, so there’s nothing to undo. It shows the method in use now.',
     'none',
   ],
+  learning_question_changed: [
+    'This question was already answered or put away, maybe on another device.',
+    'none',
+  ],
   knowledge_changed: [
     'This memory changed. Try again with its current version.',
     'retry',

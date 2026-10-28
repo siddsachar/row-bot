@@ -105,6 +105,35 @@ def preview_enabled() -> bool:
     return _PREVIEW
 
 
+# L4b's switches, one per part, both off unless this build is started with them (and the preview flag): practice
+# changes the training mix and the tests, so whether it reaches someone's preview is decided apart from the code.
+PRACTICE_ENV = "ROW_BOT_LEARNING_PRACTICE"
+QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
+
+
+def practice_enabled() -> bool:
+    """Whether this build makes practice tasks and uses them in tests, trials and training data (L4b)."""
+
+    return _PREVIEW and os.environ.get(PRACTICE_ENV, "").strip() == "1"
+
+
+def quick_question_enabled() -> bool:
+    """Whether this build may ask the person a quick question (L4b)."""
+
+    return _PREVIEW and os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
+
+
+# L4c: whether the personal model may take over Learning's own jobs (who does a job changes the improver: a paper
+# decision, so it is decided apart from the code).
+JOBS_ENV = "ROW_BOT_LEARNING_JOBS"
+
+
+def jobs_enabled() -> bool:
+    """Whether this build lets the personal model qualify for and take over Learning's drafting and practice."""
+
+    return _PREVIEW and os.environ.get(JOBS_ENV, "").strip() == "1"
+
+
 DEFAULTS = LearningSettings()
 
 # (settings path, mtime_ns, size, inode) -> settings; one entry, swapped whole.
@@ -501,11 +530,14 @@ __all__ = [
     "DEFAULTS",
     "DEFAULT_MONTHLY_TOKEN_LIMIT",
     "FOLDER",
+    "JOBS_ENV",
     "LearningSettings",
     "MAX_MONTHLY_TOKEN_LIMIT",
     "MODELS_FOLDER",
     "MODEL_DOWNLOADS",
+    "PRACTICE_ENV",
     "PREVIEW_ENV",
+    "QUICK_QUESTION_ENV",
     "SERVE_RUNTIMES",
     "SETTINGS_FILE",
     "STARTING_MODELS",
@@ -517,10 +549,13 @@ __all__ = [
     "folder_path",
     "invalidate",
     "is_enabled",
+    "jobs_enabled",
     "note_channel_sender",
     "note_retry",
     "offered_personal_models",
+    "practice_enabled",
     "preview_enabled",
+    "quick_question_enabled",
     "read_settings",
     "route_turn",
     "settings_path",

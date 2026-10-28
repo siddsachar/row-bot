@@ -329,6 +329,7 @@
     "learning_nothing_to_train": 409,
     "learning_off": 409,
     "learning_paused": 409,
+    "learning_question_changed": 409,
     "learning_receipt_unavailable": 404,
     "learning_revision_conflict": 409,
     "learning_save_unconfirmed": 503,

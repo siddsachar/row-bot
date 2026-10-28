@@ -4296,6 +4296,21 @@ class LearningOvernight(WireModel):
     method: Literal["switched", "kept"] | None = None
     method_version: int | None = Field(default=None, ge=1)
     method_words: str = Field(default="", max_length=200)
+    # L4b (in a build with practice on): the practice tasks it made up and ran ("Practised 12 document tasks it made
+    # up: 9 passed"), their kind of work when there was one, and whether coding practice waited for a container.
+    practised: int = Field(default=0, ge=0)
+    practised_passed: int = Field(default=0, ge=0)
+    practice_kind: LearningKindOfWork | None = None
+    practice_needs_container: bool = False
+
+
+class LearningQuickQuestion(WireModel):
+    """The quick question (L4b; UX §3): at most one a day, two answers to tap, ✕ never asks it again."""
+
+    id: str = Field(max_length=128)
+    question: str = Field(max_length=200)
+    answers: list[str] = Field(min_length=2, max_length=2)
+    kind: LearningKindOfWork | Literal["other"]
 
 
 class LearningMethodArm(WireModel):
@@ -4344,6 +4359,36 @@ class LearningNextTrial(WireModel):
     needed: int = Field(ge=0)
 
 
+class LearningJobTest(WireModel):
+    """A job's latest test (L4c): the same items for the personal version and the main model, each output checked
+    the way the job's real output is."""
+
+    at: str = Field(max_length=64)
+    version: int = Field(ge=1)
+    # Items done by both (drafting: issues; practice: tasks asked), and how many passed for each.
+    asked: int = Field(ge=0)
+    personal_passed: int = Field(ge=0)
+    main_passed: int = Field(ge=0)
+    verdict: Literal["qualified", "not_matched", "too_few", "limit", "unavailable"]
+
+
+class LearningJob(WireModel):
+    """Who does one of Learning's own jobs (L4c; designs §6 "Jobs your personal model does")."""
+
+    job: Literal["drafting", "practice"]
+    by: Literal["personal", "main"]
+    version: int | None = Field(default=None, ge=1)
+    # The main model's name ("GPT-6.1 Sol"), whoever does the job now.
+    main_model: str = Field(max_length=128)
+    since: str | None = Field(default=None, max_length=64)
+    # Why it went back to the main model, when it did.
+    reason: Literal["", "not_matched", "new_version", "not_served"] = ""
+    last: LearningJobTest | None = None
+    # This month: the personal model's tokens and graphics-card time for this job.
+    tokens: int = Field(default=0, ge=0)
+    seconds: float = Field(default=0.0, ge=0)
+
+
 class LearningMethod(WireModel):
     """How Row-Bot learns (L4a; designs/learning-ux.md §6): the method in use in plain words, its trials with their
     denominators, its history and Undo."""
@@ -4359,6 +4404,8 @@ class LearningMethod(WireModel):
     history: list[LearningMethodStep] = Field(default_factory=list, max_length=30)
     can_undo: bool = False
     next_trial: LearningNextTrial
+    # L4c (a build with the jobs switch on): who does drafting and making practice tasks.
+    jobs: list[LearningJob] = Field(default_factory=list, max_length=4)
 
 
 class LearningChangeWhy(WireModel):
@@ -4525,6 +4572,8 @@ class LearningSnapshot(WireModel):
     testing_now: LearningTestingNow | None = None
     # L4a: how Row-Bot learns (while Learning is on).
     method: LearningMethod | None = None
+    # L4b: the quick question waiting for the person (a build with it on).
+    quick_question: LearningQuickQuestion | None = None
 
 
 class LearningNamedValue(WireModel):
@@ -4685,7 +4734,7 @@ class LearningCommand(WireModel):
         "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
         "review_version", "use_smaller_model", "change_starting_model",
         "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-        "test_lesson", "delete_lesson", "undo_method",
+        "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
     ]
     setup: LearningSetupChoices | None = None
     # use_smaller_model (O112): the smaller starting model the Personal model view offered;
@@ -4708,7 +4757,8 @@ class LearningCommand(WireModel):
     tool_call_id: str = Field(default="", max_length=256)
     category: Literal["wrong_answer", "wrong_tool_or_step", "ignored_instructions", "other"] | None = None
     note: str = Field(default="", max_length=2000)
-    # Teach's optional "What should it have done?" (L3b).
+    # Teach's optional "What should it have done?" (L3b); the quick question's answer tapped (L4b, with its id
+    # in ``item_id``).
     answer: str = Field(default="", max_length=2000)
     signal_id: str = Field(default="", max_length=128)
     # L3b: the change an action is for (a lesson's memory for test_lesson and delete_lesson), and an Edit's
