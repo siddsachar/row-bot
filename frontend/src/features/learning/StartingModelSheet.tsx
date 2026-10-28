@@ -6,6 +6,7 @@ import { ModalTask, useNotify } from '../../ui/overlays';
 import type { LearningFields, LearningIO } from './learning-state';
 import { ENGINE_SOURCES, ENGINE_TELEMETRY, sizeWords } from './words';
 import { usePhone } from './use-phone';
+import { OtherModels } from './OtherModels';
 import './learning.css';
 
 type Step = 'choose' | 'ask';
@@ -126,7 +127,7 @@ export function StartingModelSheet({
     body = (
       <div className="learning-sheet">
         <fieldset className="learning-fieldset">
-          <legend className="visually-hidden">Starting model</legend>
+          <legend className="learning-label">Recommended</legend>
           {models.map((item) => (
             <label key={item.id} className="check-field learning-check">
               <input
@@ -156,6 +157,7 @@ export function StartingModelSheet({
             </label>
           ))}
         </fieldset>
+        <OtherModels io={io} />
         <p className="learning-muted">
           Your next version trains from the model you choose. Versions you have
           stay as they are, each compared with the model it started from.
