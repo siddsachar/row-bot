@@ -2809,6 +2809,22 @@ const CATALOG: Record<string, Entry> = {
     'A run on Hugging Face is in progress. Cancel it or let it finish first.',
     'review',
   ],
+  learning_licence_needed: [
+    'This model’s licence has terms. Read them and agree before Row-Bot checks it.',
+    'review',
+  ],
+  learning_model_unavailable: [
+    'Row-Bot can’t try this model on this computer. Choose another one.',
+    'review',
+  ],
+  learning_model_check_busy: [
+    'Another model is being checked. Wait for it, or stop it first.',
+    'review',
+  ],
+  learning_model_check_changed: [
+    'That check isn’t running any more.',
+    'review',
+  ],
   learning_quote_changed: [
     'The price changed since you looked. Check the new quote, then start again.',
     'review',

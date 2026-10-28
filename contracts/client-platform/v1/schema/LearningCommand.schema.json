@@ -175,6 +175,9 @@
         "hf_set_cap",
         "hf_start",
         "hf_cancel",
+        "check_model",
+        "stop_model_check",
+        "forget_model",
         "hf_check_now"
       ],
       "title": "Action",
@@ -309,6 +312,18 @@
       ],
       "default": null,
       "title": "Kind"
+    },
+    "licence_ok": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Licence Ok"
     },
     "message_id": {
       "default": "",

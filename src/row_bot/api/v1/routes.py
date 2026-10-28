@@ -405,6 +405,10 @@ _STATUS.update(
         "learning_hugging_face_signed_out": 409,
         "learning_hugging_face_over_cap": 409,
         "learning_quote_changed": 409,
+        "learning_licence_needed": 409,
+        "learning_model_unavailable": 409,
+        "learning_model_check_busy": 409,
+        "learning_model_check_changed": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
@@ -9599,6 +9603,17 @@ def create_router(
                 validate=dispatch_validation(request, current),
                 refresh=refresh,
             ),
+        )
+
+    @router.get("/learning/models")
+    async def learning_models(request: Request, query: str = "") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_models
+
+        return await respond(
+            request,
+            dto.LearningModelSearch,
+            await call(read_learning_models, validate=dispatch_validation(request, current), query=query[:80]),
         )
 
     @router.get("/learning/conversations/{conversation_id}")

@@ -437,6 +437,10 @@ export interface ClientTransport {
     refresh?: boolean,
     signal?: AbortSignal,
   ): Promise<Wire.LearningHardware>;
+  learningModels?(
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningModelSearch>;
   learningConversation?(
     conversation: string,
     signal?: AbortSignal,

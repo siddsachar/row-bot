@@ -6,6 +6,7 @@ import type {
   LearningComparison,
   LearningDownload,
   LearningHardware,
+  LearningModelSearch,
   LearningMethod,
   LearningOvernight,
   LearningPersonalModel,
@@ -259,6 +260,7 @@ export function fakeIO(
   snapshot: LearningSnapshot | null,
   options: {
     hardware?: LearningHardware;
+    models?: LearningModelSearch;
     after?: (
       action: string,
       fields: Record<string, unknown>,
@@ -288,6 +290,10 @@ export function fakeIO(
       return receipt;
     }),
     hardware: vi.fn(async () => options.hardware ?? GPU_16GB),
+    models: vi.fn(
+      async (search: string) =>
+        options.models ?? { query: search, models: [], failure: null },
+    ),
     lessons: vi.fn(async () => ({ items: [], total: 0 })),
     conversation: vi.fn(async (id: string) => ({
       conversation_id: id,

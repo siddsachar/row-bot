@@ -72,7 +72,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "DataBackupUploadRequest", "DataBackupUploadView",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
-    "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
+    "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningModelSearch", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
     "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "PageDownload", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
@@ -345,6 +345,7 @@ OPERATIONS = (
     ("get", "/learning/training", None, "LearningTraining"),
     ("get", "/learning/download", None, "LearningDownload"),
     ("get", "/learning/hardware", None, "LearningHardware"),
+    ("get", "/learning/models", None, "LearningModelSearch"),
     ("get", "/learning/conversations/{conversation_id}", None, "LearningConversation"),
     ("get", "/learning/lessons", None, "LearningLessonPage"),
     ("get", "/learning/versions/{version}", None, "LearningVersionDetails"),
@@ -1154,6 +1155,8 @@ export const getLearningDownload = (base: string, proof: SessionProof, signal?: 
   jsonRequest(base, '/learning/download', 'LearningDownload', proof, 'GET', undefined, undefined, signal);
 export const getLearningHardware = (base: string, proof: SessionProof, refresh = false, signal?: AbortSignal): Promise<LearningHardware> =>
   jsonRequest(base, '/learning/hardware' + query({refresh: refresh ? 'true' : undefined}), 'LearningHardware', proof, 'GET', undefined, undefined, signal);
+export const getLearningModels = (base: string, proof: SessionProof, search: string, signal?: AbortSignal): Promise<LearningModelSearch> =>
+  jsonRequest(base, '/learning/models' + query({query: search}), 'LearningModelSearch', proof, 'GET', undefined, undefined, signal);
 export const getLearningConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<LearningConversation> =>
   jsonRequest(base, `/learning/conversations/${id(conversation)}`, 'LearningConversation', proof, 'GET', undefined, undefined, signal);
 export const getLearningLessons = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LearningLessonPage> =>
