@@ -130,6 +130,14 @@ function remoteView(
           actions: [],
           announce: `Downloading ${run}.`,
         };
+      if (remote?.waiting_for_gpu)
+        return {
+          title: `Hugging Face is waiting for a free ${remote.gpu_label || 'graphics card'}. No charge while it waits.`,
+          detail: `${Run} starts as soon as one is free; cancelling now costs nothing.`,
+          progress: null,
+          actions: [cancel],
+          announce: `Hugging Face is waiting for a free ${remote.gpu_label || 'graphics card'}.`,
+        };
       const stage = remote?.stage ?? 'setting_up';
       if (stage === 'training') {
         const share = progress

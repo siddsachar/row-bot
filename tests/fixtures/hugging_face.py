@@ -62,7 +62,7 @@ class FakeHub:
 
     def flavors(self) -> list[Flavor]:
         self._check("flavors")
-        return [Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)]
+        return [Flavor("a100-large", "1x Nvidia A100", 80, 2.5 / 60), Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)]
 
     def create_private_repo(self, repo_id: str, kind: str) -> None:
         self._check("create_private_repo")

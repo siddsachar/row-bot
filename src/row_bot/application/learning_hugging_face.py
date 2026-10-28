@@ -18,7 +18,8 @@ from row_bot.application.client_platform import ClientPlatformError
 
 logger = logging.getLogger(__name__)
 
-ACTIONS = frozenset({"hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_set_cap", "hf_start",
+ACTIONS = frozenset({"hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_choose_flavor",
+                     "hf_set_cap", "hf_start",
                      "hf_cancel", "hf_check_now"})
 # The monthly cap's choices in dollars (the quote sheet's menu; any whole number up to the maximum is accepted).
 CAP_CHOICES = (10, 20, 50, 100)
@@ -71,7 +72,9 @@ def _quote_view(quote: Any) -> dict[str, Any] | None:
     keep = ("model_id", "model_name", "flavor", "flavor_label", "gpu_memory_gb", "price_per_hour", "seconds",
             "cost_usd", "timeout_seconds", "max_cost_usd", "examples", "upload_bytes", "download_bytes",
             "dataset_repo", "measured", "month_spent_usd", "cap_usd", "fits_cap")
-    return {key: data[key] for key in keep}
+    found = {key: data[key] for key in keep}
+    found["choices"] = [dict(item) for item in data.get("choices") or ()][:4]
+    return found
 
 
 def _current_job() -> Any:
@@ -181,6 +184,9 @@ def run_view(job: Any) -> dict[str, Any] | None:
         "minutes": int(math.ceil(record.running_seconds / 60)) if record.running_seconds else 0,
         "lost": job.state == "unknown_remote",
         "flavor": record.flavor[:32],
+        # Hugging Face hasn't a free card of this kind yet: the run waits in its queue, unbilled.
+        "waiting_for_gpu": record.phase == "running" and record.remote_stage == "SCHEDULING",
+        "gpu_label": _gpu_label(record.flavor),
         "cleaned": record.cleaned_at is not None,
         "cleanup_failed": bool(record.cleanup_failed),
         "url": (f"https://huggingface.co/jobs/{record.namespace}/{record.remote_id}"
@@ -191,6 +197,16 @@ def run_view(job: Any) -> dict[str, Any] | None:
 def failure(job: Any) -> str | None:
     code = str(job.error_code or "")
     return code if code in REMOTE_FAILURES else ("remote_error" if job.backend == "hugging_face" else None)
+
+
+def _gpu_label(flavor: str) -> str:
+    """Hugging Face's own name for a card (``1x Nvidia L40S``), from its price list; the flavour if unread."""
+
+    try:
+        found = _trainer().prices().get(flavor)
+    except Exception:  # noqa: BLE001
+        found = None
+    return str(found.label if found is not None else flavor)[:64]
 
 
 def _money(value: float) -> str:
@@ -233,6 +249,17 @@ def perform(action: str, command: dict[str, Any]) -> str:
         _save({"hugging_face.model": model_id})
         _set_aside_planned()
         return f"{offered[model_id].name} will train on Hugging Face."
+    if action == "hf_choose_flavor":
+        flavor = str(command.get("flavor") or "")
+        trainer = _trainer()
+        offered = {item["flavor"]: item for item in trainer.flavors()}
+        job = _current_job()
+        if flavor not in offered:
+            raise ClientPlatformError("learning_training_changed")
+        if job is not None and job.state in ("preparing", "running", "unknown_remote"):
+            raise ClientPlatformError("learning_hugging_face_busy")
+        _save({"hugging_face.flavor": flavor})
+        return f"Training on Hugging Face uses {_gpu_label(flavor)}."
     if action == "hf_set_cap":
         cap = command.get("cap_usd")
         if type(cap) is not int or not 1 <= cap <= learning.MAX_HUGGING_FACE_CAP_USD:

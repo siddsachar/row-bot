@@ -1952,6 +1952,8 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         raise ClientPlatformError("invalid_learning_command")
     if action == "hf_choose_model" and not _text(command.get("model"), 128):
         raise ClientPlatformError("invalid_learning_command")
+    if action == "hf_choose_flavor" and not _text(command.get("flavor"), 64):
+        raise ClientPlatformError("invalid_learning_command")
     runtime = _text(command.get("runtime"), 32)
     if action == "choose_runtime" and runtime not in learning.SERVE_RUNTIMES:
         raise ClientPlatformError("invalid_learning_command")
@@ -2007,6 +2009,7 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         "answer": _text(command.get("answer"), 2000),
         "cap_usd": cap if type(cap) is int else None,
         "quote_cost_cents": command.get("quote_cost_cents") if type(command.get("quote_cost_cents")) is int else None,
+        "flavor": _text(command.get("flavor"), 64),
     }
     existing = admissions.read_command_metadata(owner_id, command["command_id"])
     if existing is not None:

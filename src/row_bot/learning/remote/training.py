@@ -159,6 +159,8 @@ class Quote:
     month_spent_usd: float
     cap_usd: int
     fits_cap: bool
+    # Every card the recipe may train on, each with its own time and price (the quote sheet's choice).
+    choices: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -185,6 +187,8 @@ class RunRecord:
     remote_id: str | None = None
     flavor: str = ""
     price_per_hour: float = 0.0
+    # Hugging Face's own stage for the job (``SCHEDULING`` while it waits for a free card).
+    remote_stage: str = ""
     model_id: str = ""
     quantization: str = "Q8_0"
     timeout_seconds: int = 0
@@ -437,15 +441,33 @@ class RemoteTrainer:
                                            unit_cost / 60.0 if unit == "hour" else unit_cost))
         return items
 
-    def quote(self, *, examples: int, upload_bytes: int, steps: int | None = None) -> Quote:
+    def flavors(self, recipe: Any = None) -> list[dict[str, Any]]:
+        """The cards the recipe may train on: its own first, then its reviewed alternatives (each with the
+        main card's times unless it gives its own)."""
+
+        remote = dict((recipe or self.recipe()).remote or {})
+        main = {key: remote[key] for key in ("flavor", "price_per_hour", "seconds_per_step")}
+        return [main, *({**main, **dict(item)} for item in remote.get("alternatives") or ())]
+
+    def flavor(self, recipe: Any = None) -> dict[str, Any]:
+        """The card a run uses: the person's choice when the recipe offers it, else the recipe's own."""
+
+        offered = self.flavors(recipe)
+        chosen = gate.read_settings(self._root).hf_flavor
+        return next((item for item in offered if item["flavor"] == chosen), offered[0])
+
+    def quote(self, *, examples: int, upload_bytes: int, steps: int | None = None,
+              flavor: str | None = None) -> Quote:
         """What a run of ``examples`` rows costs, in time and money, and what it uploads (no network but the
-        public price list)."""
+        public price list), on ``flavor`` or the chosen card; ``choices`` quotes every card it may use."""
 
         model = self.choice()
         if model is None:
             raise RemoteError("no_model")
         recipe = self.recipe()
-        remote = dict(recipe.remote or {})
+        offered = self.flavors(recipe)
+        card = next((item for item in offered if item["flavor"] == flavor), None) or self.flavor(recipe)
+        remote = {**dict(recipe.remote or {}), **card}
         flavor_name = str(remote["flavor"])
         live = self.prices().get(flavor_name)
         price = live.price_per_hour if live is not None and live.price_per_minute > 0 else float(remote["price_per_hour"])
@@ -472,7 +494,20 @@ class RemoteTrainer:
             download_bytes=int(option.gguf_bytes if option is not None else 0), dataset_repo=f"{user}/row-bot-training-…",
             quantization=quantization, measured=bool(recipe.certified), month_spent_usd=spent, cap_usd=cap,
             fits_cap=bool(cap) and spent + cost(seconds, price) <= cap and timeout >= seconds,
+            choices=tuple(self._choice(item, recipe, steps, model_bytes) for item in offered)
+            if flavor is None else (),
         )
+
+    def _choice(self, card: dict[str, Any], recipe: Any, steps: int, model_bytes: int) -> dict[str, Any]:
+        remote = {**dict(recipe.remote or {}), **card}
+        live = self.prices().get(str(card["flavor"]))
+        price = live.price_per_hour if live is not None and live.price_per_minute > 0 else float(card["price_per_hour"])
+        seconds = int(float(remote["setup_seconds"]) + model_bytes / MODEL_BYTES_PER_SECOND
+                      + steps * float(remote["seconds_per_step"])
+                      + recipe.epochs * float(remote["export_seconds_per_pass"]) + float(remote["upload_seconds"]))
+        return {"flavor": str(card["flavor"]), "label": live.label if live is not None else str(card["flavor"]),
+                "gpu_memory_gb": live.gpu_memory_gb if live is not None else None, "price_per_hour": round(price, 4),
+                "seconds": seconds, "cost_usd": cost(seconds, price)}
 
     def _namespace(self) -> str:
         try:
@@ -759,6 +794,7 @@ class RemoteTrainer:
         seconds = int(remote.running_seconds or record.running_seconds or 0)
         spent = cost(seconds, record.price_per_hour)
         record = write_record(replace(record, last_contact_at=now, lost_since=None, stage=stage, step=step,
+                                      remote_stage=str(remote.stage or "")[:32],
                                       steps_total=total or record.steps_total, running_seconds=seconds,
                                       cost_usd=spent), self._root)
         record_spend(job.id, cost_usd=spent, seconds=seconds, flavor=record.flavor,

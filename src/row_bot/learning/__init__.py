@@ -105,6 +105,8 @@ class LearningSettings:
     serve_runtime: str = SERVE_RUNTIMES[0]
     # C1: Hugging Face training (see the module's docstring).
     hf_model: str = ""
+    # The Hugging Face card the person chose in the quote (empty: the recipe's own).
+    hf_flavor: str = ""
     hf_monthly_cap_usd: int = 0
     hf_runs_confirmed: bool = False
     # False when a saved file exists but could not be read; Learning is then off.
@@ -182,6 +184,8 @@ def _normalise(document: Any) -> LearningSettings:
     hugging = hugging if isinstance(hugging, dict) else {}
     hf_model = hugging.get("model")
     hf_model = hf_model if isinstance(hf_model, str) and len(hf_model) <= 128 else ""
+    hf_flavor = hugging.get("flavor")
+    hf_flavor = hf_flavor if isinstance(hf_flavor, str) and len(hf_flavor) <= 64 else ""
     cap = hugging.get("monthly_cap_usd")
     cap = cap if type(cap) is int and 0 <= cap <= MAX_HUGGING_FACE_CAP_USD else 0
     return LearningSettings(
@@ -200,6 +204,7 @@ def _normalise(document: Any) -> LearningSettings:
         model_download=model_download if model_download in MODEL_DOWNLOADS else DEFAULTS.model_download,
         serve_runtime=serve_runtime if serve_runtime in SERVE_RUNTIMES else DEFAULTS.serve_runtime,
         hf_model=hf_model,
+        hf_flavor=hf_flavor,
         hf_monthly_cap_usd=cap,
         hf_runs_confirmed=hugging.get("runs_confirmed") is True,
     )

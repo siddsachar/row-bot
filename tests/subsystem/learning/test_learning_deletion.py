@@ -203,3 +203,28 @@ def test_a_memory_delete_still_works_when_learning_cannot_mark(memories, monkeyp
     monkeypatch.setattr(LearningStore, "mark_lesson_memories_deleted", broken)
     assert memory.delete_memory(memory_id) is True
     assert memory.get_memory(memory_id) is None
+
+
+def test_deleting_a_conversation_removes_a_versions_kept_rows_that_came_from_it(learning_on):
+    """C1 (A10): the rows a version kept for a later upload never outlive the chat they came from."""
+
+    from row_bot.learning.training import kept_rows, releases
+
+    gone = _conversation("Learning kept rows")
+    LearningStore().create()
+    folder = releases.version_dir(1, learning_on)
+    data = learning_on / "rows-data"
+    data.mkdir()
+    rows = [{"messages": [{"role": "user", "content": "from the deleted chat"}]}]
+    for name in (kept_rows.EXAMPLES, kept_rows.VALIDATION):
+        (data / name).write_text(json.dumps(rows[0]) + "\n", encoding="utf-8")
+    manifest = {"version": 2, "recipe": "16gb-v1", "max_seq_length": 16384, "rendering": {"name": "served-v2"},
+                "conversations": [gone]}
+    manifest["sha256"] = kept_rows.digest(manifest, rows, rows)
+    folder.mkdir(parents=True)
+    (folder / releases.DATASET_FILE).write_text(json.dumps(manifest), encoding="utf-8")
+    assert kept_rows.keep(data, folder, manifest)
+
+    delete_thread(gone)
+
+    assert not (folder / kept_rows.FOLDER).exists() and (folder / releases.DATASET_FILE).is_file()

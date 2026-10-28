@@ -294,3 +294,25 @@ def test_the_freeze_reads_the_same_runs_under_both_checker_versions(vault):
     assert (packs["mean"], packs["mean_metric_v2"], packs["guarded_runs"]) == (0.0, 0.5, 4)
     contrast = result["contrasts"]["personal vs start"]["packs"]
     assert contrast["primary"]["difference"] == 1.0 and contrast["metric_v2"]["difference"] == 0.5
+
+
+def test_the_freeze_gives_the_same_results_model_by_model_as_interleaved(vault):
+    """C1, 28 Oct: A10's local 27B arms run model by model on a 32 GB card (two 27Bs and the 9B can't stay loaded
+    together). The problems, checker, budget, repeats and pairing are the same, and so is every result."""
+
+    tasks = [task for task in visible_tasks() if task.pack == "document_lookups"][:3]
+    replay = [_problem(number, chat=f"c{number % 4}", at=10.0 + number) for number in range(12)]
+    vault(tasks, replay)
+    arms = [Arm("start27", model_ref="start27"), Arm("personal27", model_ref="personal27"),
+            Arm("personal", model_ref="personal")]
+    contrasts = [("start27", "personal27"), ("personal", "personal27")]
+
+    def rule(model, number, run):  # a different pattern per model, and the run number matters
+        return {"start27": number % 3 == 0, "personal27": (number + run) % 2 == 0,
+                "personal": number % 4 != 1}[model]
+
+    interleaved = _freeze(rule, tasks=tasks, replay=replay, arms=arms, contrasts=contrasts)
+    model = _freeze(rule, tasks=tasks, replay=replay, arms=arms, contrasts=contrasts, order="model")
+
+    assert model == interleaved
+    assert interleaved["contrasts"]["personal27 vs start27"]["real_uncorrected"]["primary"]["problems"] == 12

@@ -259,6 +259,7 @@ export function HuggingFaceQuoteSheet({
   const phone = usePhone();
   const notify = useNotify();
   const capId = useId();
+  const gpuName = useId();
   const hugging = io.snapshot?.personal_model.hugging_face ?? null;
   const quote = hugging?.quote ?? null;
   const choices = hugging?.cap_choices ?? [10, 20, 50, 100];
@@ -278,6 +279,19 @@ export function HuggingFaceQuoteSheet({
 
   const name = version ? `v${version}` : 'your personal model';
   const spent = hugging?.month_spent_usd ?? 0;
+  const gpus = quote?.choices ?? [];
+
+  async function chooseGpu(flavor: string) {
+    setBusy(true);
+    setError('');
+    try {
+      await io.run('hf_choose_flavor', { flavor });
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const fits = !!quote && spent + quote.cost_usd <= cap;
 
   async function start() {
@@ -314,6 +328,39 @@ export function HuggingFaceQuoteSheet({
         </div>
       ) : (
         <div className="learning-sheet">
+          {gpus.length > 1 && (
+            <fieldset className="learning-fieldset" disabled={busy}>
+              <legend className="learning-label">
+                Graphics card on Hugging Face
+              </legend>
+              {gpus.map((gpu) => (
+                <label key={gpu.flavor} className="check-field learning-check">
+                  <input
+                    type="radio"
+                    name={gpuName}
+                    value={gpu.flavor}
+                    checked={quote.flavor === gpu.flavor}
+                    onChange={() => void chooseGpu(gpu.flavor)}
+                  />
+                  <span>
+                    <span>
+                      {gpu.label}
+                      {gpu.gpu_memory_gb ? ` (${gpu.gpu_memory_gb} GB)` : ''}
+                    </span>
+                    <small>
+                      {durationWords(gpu.seconds)} · about{' '}
+                      {moneyWords(gpu.cost_usd)} ·{' '}
+                      {moneyWords(gpu.price_per_hour)} an hour
+                    </small>
+                  </span>
+                </label>
+              ))}
+              <p className="learning-muted">
+                If Hugging Face has none of one kind free, the run waits in its
+                queue without charge until one is free.
+              </p>
+            </fieldset>
+          )}
           <dl className="learning-facts" aria-label="The run">
             <div>
               <dt>Graphics card</dt>

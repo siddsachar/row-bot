@@ -34,7 +34,7 @@ def world(learning_on):
     sign_in = FakeSignIn()
     trainer = RemoteTrainer(learning_on, jobs=jobs, hub=hub, sign_in=sign_in, clock=clock, fetcher=FakeFetcher(hub),
                             card_mib=lambda: CARD_MIB, start_threads=False,
-                            flavors=lambda: [hub_module.Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)])
+                            flavors=lambda: [hub_module.Flavor("a100-large", "1x Nvidia A100", 80, 2.5 / 60), hub_module.Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)])
     remote_training.configure(trainer)
     yield SimpleNamespace(root=learning_on, clock=clock, jobs=jobs, hub=hub, sign_in=sign_in, trainer=trainer)
     remote_training.configure(None)
@@ -67,8 +67,8 @@ def test_the_quote_says_the_gpu_time_price_and_what_is_uploaded(world):
     quote = world.trainer.quote(examples=90, upload_bytes=4_000_000)
 
     assert quote.model_id == "qwen3.8-27b"  # the strongest model this 32 GB card can run afterwards (O131)
-    assert (quote.flavor, quote.price_per_hour, quote.gpu_memory_gb) == ("l40sx1", 1.8, 48)  # Hugging Face's price
-    assert quote.seconds > 0 and quote.cost_usd == remote_training.cost(quote.seconds, 1.8)
+    assert (quote.flavor, quote.price_per_hour, quote.gpu_memory_gb) == ("a100-large", 2.5, 80)  # Hugging Face's price
+    assert quote.seconds > 0 and quote.cost_usd == remote_training.cost(quote.seconds, 2.5)
     assert quote.max_cost_usd >= quote.cost_usd and quote.timeout_seconds >= quote.seconds
     assert (quote.examples, quote.upload_bytes, quote.quantization) == (90, 4_000_000, "Q4_K_M")
     assert quote.dataset_repo.startswith("ada/row-bot-training-") and quote.fits_cap
@@ -108,7 +108,7 @@ def test_the_jobs_timeout_never_lets_a_run_pass_the_cap(world):
                                  final=True, root=world.root)
     quote = world.trainer.quote(examples=90, upload_bytes=1)
 
-    assert quote.timeout_seconds <= int((20 - 15.0) / 1.8 * 3600)
+    assert quote.timeout_seconds <= int((20 - 15.0) / 2.5 * 3600)
     assert quote.max_cost_usd <= 5.0 + 0.03
 
 
@@ -132,7 +132,7 @@ def test_a_run_uploads_only_its_rows_and_engine_files_to_a_private_dataset_then_
     remote = world.hub.jobs[job.remote_request_id]
     assert remote.labels == {"row-bot-job": job.id}  # found again by this if an answer is lost
     assert remote.secrets == {"HF_TOKEN": FakeSignIn.TOKEN} and FakeSignIn.TOKEN not in json.dumps(remote.env)
-    assert remote.env["HF_HUB_DISABLE_TELEMETRY"] == "1" and remote.flavor == "l40sx1"
+    assert remote.env["HF_HUB_DISABLE_TELEMETRY"] == "1" and remote.flavor == "a100-large"
     assert remote.timeout == record.timeout_seconds > 0
     assert FakeSignIn.TOKEN not in jobs_module.run_dir(job.id, world.root).joinpath("remote.json").read_text()
 
@@ -192,8 +192,8 @@ def test_progress_and_cost_follow_the_jobs_own_lines(world):
     moved = world.jobs.get(job.id)
     record = remote_training.read_record(job.id, world.root)
     assert (moved.state, moved.steps_done, record.stage) == ("running", 12, "training")
-    assert record.cost_usd == remote_training.cost(1_830, 1.8) == 0.93  # 31 minutes at $1.80 an hour
-    assert remote_training.month_spent(world.clock(), world.root) == 0.93
+    assert record.cost_usd == remote_training.cost(1_830, 2.5) == 1.2917  # 31 minutes at $2.50 an hour
+    assert remote_training.month_spent(world.clock(), world.root) == 1.2917
 
 
 def test_no_answer_is_unknown_never_failed_and_the_next_answer_settles_it(world):
@@ -219,7 +219,7 @@ def test_an_error_on_hugging_face_fails_with_its_reason_and_deletes_the_uploads(
 
     assert (world.jobs.get(job.id).state, world.jobs.get(job.id).error_code) == ("failed", "out_of_gpu_memory")
     assert record.dataset_repo not in world.hub.repos and record.output_repo not in world.hub.repos
-    assert remote_training.run_cost(job.id, world.root)["cost_usd"] == 0.15  # billed for the 5 minutes it ran
+    assert remote_training.run_cost(job.id, world.root)["cost_usd"] == 0.2083  # billed for the 5 minutes it ran
 
 
 def test_cancel_cancels_on_hugging_face_first_and_deletes_the_uploads(world):
@@ -286,3 +286,70 @@ def test_the_version_is_made_ready_from_the_jobs_gguf_and_the_uploads_are_delete
     world.trainer.tick()
     assert not world.hub.repos  # deleted once the model is here and checked (O133)
     assert remote_training.read_record(job.id, world.root).cleaned_at is not None
+
+
+# ── The card: the recipe's own or a reviewed alternative (28 Oct: no free L40S) ─────
+
+
+def test_a_recipe_offers_its_own_card_first_then_its_reviewed_alternatives(world):
+    offered = world.trainer.flavors(recipes.load("hf-9b"))
+
+    assert [item["flavor"] for item in offered] == ["a100-large", "l40sx1"]  # measured first
+    assert offered[1]["price_per_hour"] == 1.8 and offered[1]["seconds_per_step"] > offered[0]["seconds_per_step"]
+
+
+@pytest.mark.parametrize("alternatives", [
+    [{"flavor": "a100-large", "price_per_hour": 2.0}],  # the recipe's own card again
+    [{"flavor": "a100-large"}],  # no price
+    [{"flavor": "a100-large", "price_per_hour": 2.5, "image": "other"}],  # a key no alternative may set
+    "a100-large",
+])
+def test_a_recipe_s_alternatives_are_checked(alternatives):
+    remote = dict(recipes.load("hf-9b").remote)
+    remote["alternatives"] = alternatives
+
+    with pytest.raises(recipes.RecipeError):
+        recipes._remote(remote, "hf-9b")  # noqa: SLF001
+
+
+def test_the_quote_prices_every_card_and_the_chosen_one_is_the_run_s(world):
+    first = world.trainer.quote(examples=90, upload_bytes=1)
+
+    assert (first.flavor, [item["flavor"] for item in first.choices]) == ("a100-large", ["a100-large", "l40sx1"])
+
+    l40s = first.choices[1]
+    assert (l40s["label"], l40s["price_per_hour"], l40s["gpu_memory_gb"]) == ("1x Nvidia L40S", 1.8, 48)
+    assert l40s["seconds"] > first.choices[0]["seconds"]  # its own (estimated) time a step
+    save_learning_settings(world.root, train_where="hugging_face",
+                           hugging_face={"model": "", "monthly_cap_usd": 20, "runs_confirmed": True,
+                                         "flavor": "l40sx1"})
+
+    chosen = world.trainer.quote(examples=90, upload_bytes=1)
+
+    assert (chosen.flavor, chosen.price_per_hour, chosen.cost_usd) == ("l40sx1", 1.8, l40s["cost_usd"])
+    job, record = _started(world)
+    assert record.flavor == "l40sx1" and world.hub.jobs[job.remote_request_id].flavor == "l40sx1"
+    assert record.price_per_hour == 1.8
+
+
+def test_a_card_the_recipe_doesn_t_offer_is_never_used(world):
+    save_learning_settings(world.root, train_where="hugging_face",
+                           hugging_face={"model": "", "monthly_cap_usd": 20, "runs_confirmed": True,
+                                         "flavor": "h200"})
+
+    assert world.trainer.quote(examples=90, upload_bytes=1).flavor == "a100-large"
+
+
+def test_while_hugging_face_waits_for_a_free_card_the_run_says_so_and_costs_nothing(world):
+    from row_bot.application import learning_hugging_face
+
+    job, _record = _started(world)
+    world.trainer.tick()  # Hugging Face: SCHEDULING (no card free yet)
+
+    waiting = learning_hugging_face.run_view(world.jobs.get(job.id))
+
+    assert waiting["waiting_for_gpu"] is True and waiting["gpu_label"] == "1x Nvidia A100"
+    assert waiting["cost_usd"] == 0
+    world.hub.jobs[job.remote_request_id].stage = "RUNNING"
+    world.trainer.tick()
+    assert learning_hugging_face.run_view(world.jobs.get(job.id))["waiting_for_gpu"] is False

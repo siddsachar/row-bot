@@ -27,6 +27,7 @@ class FakeHuggingFace:
         self.pending = 2  # polls answered "authorization_pending" before the person authorizes
         self.decision = "authorize"
         self.refresh_ok = True
+        self.device_page = "https://hf.co/oauth/device"
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -40,9 +41,9 @@ class FakeHuggingFace:
         if path == "/oauth/device":
             assert form["client_id"] == "client-123"
             assert set(form["scope"].split()) == set(auth.SCOPES)
+            # Hugging Face's real answer (28 Oct): its page on hf.co, no complete address, no interval.
             return httpx.Response(200, json={"device_code": "device-xyz", "user_code": "ABCD-EFGH",
-                                             "verification_uri": "https://huggingface.co/oauth/device",
-                                             "interval": 5, "expires_in": 900})
+                                             "verification_uri": self.device_page, "expires_in": 300})
         if path == "/oauth/token" and form.get("grant_type", "").endswith("device_code"):
             if self.decision == "deny":
                 return httpx.Response(400, json={"error": "access_denied"})
@@ -83,7 +84,8 @@ def test_sign_in_shows_a_code_and_finishes_when_the_person_authorizes(hf, data_d
     started = sign_in.start()
 
     assert started.state == "signing_in" and started.code.user_code == "ABCD-EFGH"
-    assert started.code.verification_uri_complete == "https://huggingface.co/oauth/device?user_code=ABCD-EFGH"
+    assert started.code.verification_uri_complete == "https://hf.co/oauth/device?user_code=ABCD-EFGH"
+    assert started.code.interval == 5.0  # none given: the standard five seconds
     assert sign_in.poll() == "waiting" and sign_in.poll() == "waiting"
     assert sign_in.poll() == "signed_in"
     assert sign_in.status().state == "signed_in" and sign_in.status().user == "ada"
@@ -168,3 +170,26 @@ def test_a_jobs_token_is_refreshed_to_last_the_job(hf):
 
     assert sign_in.token() == ACCESS  # an hour left: fine for a quick call
     assert sign_in.token(valid_for=2 * 3600) == FRESH  # a two-hour job needs a fresh one
+
+
+@pytest.mark.parametrize("page", ["https://huggingface.co/oauth/device", "https://hf.co/oauth/device"])
+def test_the_device_page_may_be_on_either_of_hugging_face_s_own_hosts(hf, page):
+    fake, sign_in, _now = hf
+    fake.device_page = page
+
+    started = sign_in.start()
+
+    assert started.state == "signing_in" and started.code.verification_uri == page
+
+
+@pytest.mark.parametrize("page", ["https://evil.example/oauth/device", "http://hf.co/oauth/device",
+                                  "https://hf.co.evil.example/oauth/device"])
+def test_a_device_page_anywhere_else_is_refused_and_logged_without_the_code(hf, page, caplog):
+    fake, sign_in, _now = hf
+    fake.device_page = page
+
+    with pytest.raises(auth.SignInError) as raised:
+        sign_in.start()
+
+    assert raised.value.code == "refused"
+    assert "ABCD-EFGH" not in caplog.text and "device-xyz" not in caplog.text

@@ -77,6 +77,8 @@ CLOUD_CAP = 5_000_000
 #: participant types to agree to the upload.
 EXPLORATORY_MODEL = "qwen3.8-27b"
 UPLOAD_WORD = "upload"
+#: A10's three local arms run model by model (``evaluation.freeze_check(order=...)``); the results are the same.
+EXPLORATORY_ORDER = "model"
 #: How often the run on Hugging Face is read while the confirmatory evaluation and then the wait go on.
 POLL_SECONDS = 60.0
 #: The product code whose SHA-256 is printed before every run (with this script).
@@ -460,7 +462,8 @@ CONTRASTS = enum("personal vs start", "main vs start", "learning vs main")
 # A10 (exploratory): the 27B trained on Hugging Face, its untouched 27B, and the local personal model.
 EXPLORATORY_ARMS = enum("start27", "personal27", "personal")
 EXPLORATORY_CONTRASTS = enum("personal27 vs start27", "personal27 vs personal")
-EXPLORATORY_REASONS = enum("declined", "rows_not_reproducible", "no_version", "not_signed_in", "unavailable",
+EXPLORATORY_REASONS = enum("declined", "rows_not_reproducible", "rows_changed", "source_deleted", "no_version",
+                           "not_signed_in", "unavailable",
                            "no_model", "over_cap", "upload_failed", "not_started", "remote_error", "no_credit",
                            "signed_out", "export_failed", "download_failed", "couldnt_start", "no_starting_model",
                            "runtime_unavailable", "stopped", "too_few_problems")
@@ -989,6 +992,32 @@ def rebuild_rows(copy: Path, newest: Mapping[str, Any], *, lookup: Any = None) -
     return train, validation, digest == manifest.get("sha256")
 
 
+def rows_for_upload(copy: Path, newest: Mapping[str, Any], *, lookup: Any = None
+                    ) -> tuple[list[Any], list[Any], bool, str | None]:
+    """The rows A10 uploads: the newest version's own kept rows (``kept_rows``), when they still match its
+    SHA-256 and every conversation they came from still exists; a version from before rows were kept is rebuilt
+    (``rebuild_rows``), which only matches on the build and settings it trained with. ``(train, validation,
+    matched, reason)``; the reason names why nothing can be uploaded (``rows_changed``, ``source_deleted``,
+    ``rows_not_reproducible``)."""
+
+    from types import SimpleNamespace
+
+    from row_bot.learning import scope
+    from row_bot.learning.training import kept_rows, releases
+
+    folder = releases.version_dir(int(newest["version"]), copy)
+    manifest = _read_json(folder / releases.DATASET_FILE)
+    source = lookup or scope.SavedThreads()
+    state, train, validation = kept_rows.read(folder, manifest, exists=lambda item: bool(source.thread(item).exists))
+    if state == "kept":
+        return ([SimpleNamespace(row=row) for row in train], [SimpleNamespace(row=row) for row in validation],
+                True, None)
+    if state != "not_kept":
+        return [], [], False, "rows_changed" if state == "changed" else "source_deleted"
+    train, validation, matched = rebuild_rows(copy, newest, lookup=lookup)
+    return train, validation, matched, None if matched else "rows_not_reproducible"
+
+
 @dataclass
 class Exploratory:
     """A10's run, from its typed agreement to its report section (counts, a cost, verdicts; never an id)."""
@@ -1035,7 +1064,7 @@ def _hugging_face_trainer(copy: Path) -> Any:
 
 
 def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Hooks,
-                      rows: tuple[list[Any], list[Any], bool] | None = None) -> Exploratory:
+                      rows: tuple[list[Any], list[Any], bool, str | None] | None = None) -> Exploratory:
     """Rebuild the rows, show exactly what would be uploaded and its price, take the typed ``upload``, then
     submit the run on Hugging Face (it trains while the confirmatory evaluation runs here)."""
 
@@ -1048,10 +1077,11 @@ def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Ho
     found = Exploratory(state="not_run")
     if newest is None:
         return found.fail("no_version")
-    train, validation, matched = rows if rows is not None else rebuild_rows(copy, newest)
+    train, validation, matched, reason = rows if rows is not None else rows_for_upload(copy, newest,
+                                                                                      lookup=hooks.lookup)
     found.examples, found.validation, found.matched = len(train), len(validation), matched
     if not matched:
-        return found.fail("rows_not_reproducible")
+        return found.fail(reason or "rows_not_reproducible")
     recipe = recipes.load("hf-27b")
     found.recipe = recipe.name
     write_learning_settings({"hugging_face.model": EXPLORATORY_MODEL})
@@ -1150,12 +1180,15 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
                                    serve_context=local.serve_context)]
             with (contextlib.nullcontext(hooks.runner(arms)) if hooks.runner is not None
                   else _worker_runner(arms, copy)) as runner:
+                # Model by model: two 27Bs and the 9B can't stay loaded together on a 32 GB card, so interleaved
+                # runs would load a model for every run (28 Oct: about 16 s a run). The same runs, budget,
+                # checker, repeats and pairing; local models spend no tokens, so no limit can stop it midway.
                 result = evaluation.freeze_check(
                     arms, as_of=as_of, asked_by="the paper's exploratory 27B (A10)",
                     contrasts=[("start27", "personal27"), ("personal", "personal27")], client=client,
                     budget=budget, meter=meter, store=LearningStore(copy), runner=runner,
                     cache=evaluation.ArmCache(copy), packs=packs, verifiers=verifiers, repeats=repeats,
-                    on_progress=_Progress(time.monotonic()))
+                    on_progress=_Progress(time.monotonic()), order=EXPLORATORY_ORDER)
         finally:
             local.cleanup()
     finally:
@@ -1219,7 +1252,7 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
                   and Path(row["_gguf"]).is_file()]
     newest = max(candidates, key=lambda row: row["version"]) if candidates else None
     # A10 rebuilds the newest version's rows before the vault takes anything new.
-    exploratory_rows = (rebuild_rows(copy, newest, lookup=hooks.lookup) if hugging_face_27b and newest is not None
+    exploratory_rows = (rows_for_upload(copy, newest, lookup=hooks.lookup) if hugging_face_27b and newest is not None
                         else None)
     refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's freeze evaluation")
     lessons = sum(1 for item in store.find("lesson", limit=1_000_000)

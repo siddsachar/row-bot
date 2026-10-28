@@ -191,7 +191,7 @@ test('the first run shows its quote, with the monthly cap, before anything is up
   const sheet = page.getByRole('dialog', {
     name: /^Train v\d+ on Hugging Face\?$/,
   });
-  await expect(sheet).toContainText('Nvidia L40S (48 GB) · $1.80 an hour');
+  await expect(sheet).toContainText('Nvidia A100 (80 GB) · $2.50 an hour');
   await expect(sheet).toContainText(
     /about \$\d+\.\d\d · at most \$\d+\.\d\d \(Hugging Face stops the run there\)/,
   );
@@ -220,6 +220,10 @@ test('a run on Hugging Face: its stage, steps, cost so far and Cancel; lost cont
 
   for (const [state, words] of [
     ['uploading', 'Uploading your examples to Hugging Face'],
+    [
+      'queued',
+      'Hugging Face is waiting for a free Nvidia A100. No charge while it waits.',
+    ],
     ['setting-up', 'Setting up training on Hugging Face…'],
     ['training', /on Hugging Face · step 118 of \d+/],
     ['exporting', 'Building the model file on Hugging Face…'],

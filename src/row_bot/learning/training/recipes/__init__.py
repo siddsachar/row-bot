@@ -39,6 +39,10 @@ REMOTE_TIER = "hf"
 # wins in the quote), the image, and the measured times the quote is made from.
 REMOTE_KEYS = frozenset({"flavor", "price_per_hour", "image", "setup_seconds", "seconds_per_step",
                          "export_seconds_per_pass", "upload_seconds"})
+# Optional: other single cards reviewed for the recipe (Hugging Face may have none of its own free: the run
+# then waits in its queue). Each names its flavour and hourly price, and may give its own time a step;
+# otherwise the main card's times stand (an estimate until measured there).
+ALTERNATIVE_KEYS = frozenset({"flavor", "price_per_hour", "seconds_per_step"})
 METHODS = frozenset({"lora_sft"})
 QUANTIZATIONS = frozenset({"Q8_0", "Q4_K_M"})
 # The trainer's own settings (``trainer.DEFAULTS``); anything else in a file is refused.
@@ -231,8 +235,21 @@ def parse(text: str, *, source: str = "") -> Recipe:
 
 
 def _remote(value: Any, source: str) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != REMOTE_KEYS:
+    if not isinstance(value, dict) or set(value) - {"alternatives"} != REMOTE_KEYS:
         raise RecipeError("invalid_recipe", f"{source} remote")
+    alternatives = value.get("alternatives", [])
+    if not isinstance(alternatives, list) or len(alternatives) > 4:
+        raise RecipeError("invalid_recipe", f"{source} remote.alternatives")
+    seen = {value.get("flavor")}
+    for item in alternatives:
+        if not isinstance(item, dict) or not {"flavor", "price_per_hour"} <= set(item) <= ALTERNATIVE_KEYS:
+            raise RecipeError("invalid_recipe", f"{source} remote.alternatives")
+        if not isinstance(item["flavor"], str) or not item["flavor"] or len(item["flavor"]) > 64 or \
+                item["flavor"] in seen:
+            raise RecipeError("invalid_recipe", f"{source} remote.alternatives.flavor")
+        seen.add(item["flavor"])
+        for key in set(item) - {"flavor"}:
+            _number(item[key], f"remote.alternatives.{key}", low=0.0, high=1_000_000.0)
     if not isinstance(value["flavor"], str) or not value["flavor"] or len(value["flavor"]) > 64:
         raise RecipeError("invalid_recipe", f"{source} remote.flavor")
     if not isinstance(value["image"], str) or not value["image"] or len(value["image"]) > 256:

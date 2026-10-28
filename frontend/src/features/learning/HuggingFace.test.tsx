@@ -172,3 +172,61 @@ it('the quote asks for a cap the run fits and Start carries the price the person
     quote_cost_cents: 1240,
   });
 });
+
+it('the quote lets the person pick another card, each with its own time and price', async () => {
+  const base = hugging().quote!;
+  const found = hugging({
+    quote: {
+      ...base,
+      choices: [
+        {
+          flavor: 'l40sx1',
+          label: 'Nvidia L40S',
+          gpu_memory_gb: 48,
+          price_per_hour: 1.8,
+          seconds: 3_180,
+          cost_usd: 1.59,
+        },
+        {
+          flavor: 'a100-large',
+          label: 'Nvidia A100',
+          gpu_memory_gb: 80,
+          price_per_hour: 2.5,
+          seconds: 3_180,
+          cost_usd: 2.21,
+        },
+      ],
+    },
+  });
+  const io = fakeIO(snapshotWith(found));
+  render(
+    <OverlayProvider>
+      <HuggingFaceQuoteSheet
+        open
+        onOpenChange={() => undefined}
+        io={io}
+        jobId="job_1"
+        version={4}
+      />
+    </OverlayProvider>,
+  );
+
+  const sheet = await screen.findByRole('dialog', {
+    name: 'Train v4 on Hugging Face?',
+  });
+  const cards = within(sheet).getByRole('group', {
+    name: 'Graphics card on Hugging Face',
+  });
+  expect(
+    within(cards).getByRole('radio', { name: /Nvidia L40S \(48 GB\)/ }),
+  ).toBeChecked();
+  expect(cards).toHaveTextContent(
+    'Nvidia A100 (80 GB)about 53 min · about $2.21 · $2.50 an hour',
+  );
+  fireEvent.click(within(cards).getByRole('radio', { name: /Nvidia A100/ }));
+  await act(async () => undefined);
+
+  expect(io.run).toHaveBeenCalledWith('hf_choose_flavor', {
+    flavor: 'a100-large',
+  });
+});

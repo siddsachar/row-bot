@@ -4240,6 +4240,15 @@ class LearningHuggingFaceModel(WireModel):
     download_bytes: int = Field(ge=0)
 
 
+class LearningHuggingFaceGpu(WireModel):
+    flavor: str = Field(max_length=64)
+    label: str = Field(max_length=128)
+    gpu_memory_gb: int | None = Field(default=None, ge=0)
+    price_per_hour: float = Field(ge=0)
+    seconds: int = Field(ge=0)
+    cost_usd: float = Field(ge=0)
+
+
 class LearningHuggingFaceQuote(WireModel):
     """A run's price before it starts (O133): GPU, time, cost, the most it can cost, what is uploaded and where."""
 
@@ -4262,6 +4271,8 @@ class LearningHuggingFaceQuote(WireModel):
     month_spent_usd: float = Field(ge=0)
     cap_usd: int = Field(ge=0)
     fits_cap: bool
+    # Every card the run may use, each with its own time and price (the quote sheet's choice).
+    choices: list[LearningHuggingFaceGpu] = Field(default_factory=list, max_length=4)
 
 
 class LearningHuggingFaceRunCost(WireModel):
@@ -4570,6 +4581,9 @@ class LearningRemoteRun(WireModel):
     # "Checking whether Hugging Face is still training…": no answer since the last check (never "Failed").
     lost: bool
     flavor: str = Field(max_length=32)
+    # Hugging Face has no free card of this kind yet: the run waits in its queue, unbilled.
+    waiting_for_gpu: bool = False
+    gpu_label: str = Field(default="", max_length=64)
     cleaned: bool
     cleanup_failed: bool
     url: str | None = Field(default=None, max_length=256)
@@ -4797,7 +4811,8 @@ class LearningCommand(WireModel):
         "review_version", "use_smaller_model", "change_starting_model",
         "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
         "test_lesson", "delete_lesson", "undo_method",
-        "hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_set_cap", "hf_start", "hf_cancel",
+        "hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_choose_flavor", "hf_set_cap",
+        "hf_start", "hf_cancel",
         "hf_check_now",
     ]
     setup: LearningSetupChoices | None = None
@@ -4834,6 +4849,8 @@ class LearningCommand(WireModel):
     # quote's cost the person agreed to, in cents (hf_start is refused if the price changed since).
     cap_usd: int | None = Field(default=None, ge=1, le=1000)
     quote_cost_cents: int | None = Field(default=None, ge=0, le=100_000)
+    # hf_choose_flavor: the Hugging Face card (one the recipe offers).
+    flavor: str = Field(default="", max_length=64, pattern=r"^$|^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 class LearningReceipt(WireModel):

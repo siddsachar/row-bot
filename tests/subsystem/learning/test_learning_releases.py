@@ -416,3 +416,30 @@ def test_try_again_still_makes_a_version_that_couldnt_start_ready_while_the_next
     state = releases.read_state(folder)
     assert state.phase == releases.READY and maker_for.jobs.get(job.id).state == "ready"
     assert not releases.couldnt_start(state) and releases.trained_example_ids(maker_for.root) == {"ep_1", "ep_2"}
+
+
+def test_a_version_keeps_the_exact_rows_it_trained_on_only_when_they_match_its_record(maker_for, starting_model):
+    """C1 (A10): the rows the run trained on stay with the version, so a later build never has to rebuild them;
+    rows that don't match the version's SHA-256 are never kept."""
+
+    from row_bot.learning.training import kept_rows
+
+    maker = maker_for(exporter=Exporter(), server=Server(_ready()))
+    job = _finished_run(maker_for.jobs, maker_for.root)
+    data = jobs_module.run_dir(job.id, maker_for.root) / "data"
+    train = [{"messages": [{"role": "user", "content": "Rename the files"}, {"role": "assistant", "content": "Done."}]}]
+    validation = [{"messages": [{"role": "user", "content": "Which ones?"}, {"role": "assistant", "content": "All."}]}]
+    for name, rows in ((kept_rows.EXAMPLES, train), (kept_rows.VALIDATION, validation)):
+        (data / name).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    manifest = {**DATASET, "sha256": kept_rows.digest(DATASET, train, validation)}
+    (data / "dataset.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert maker.tick() is True
+
+    folder = releases.version_dir(1, maker_for.root)
+    assert kept_rows.read(folder, manifest) == ("kept", train, validation)
+    assert (folder / kept_rows.FOLDER / kept_rows.EXAMPLES).read_bytes() == (data / kept_rows.EXAMPLES).read_bytes()
+    other = releases.version_dir(2, maker_for.root)
+    other.mkdir(parents=True)
+    assert not kept_rows.keep(data, other, {**manifest, "sha256": "3" * 64})  # not the rows it records
+    assert not (other / kept_rows.FOLDER).exists()

@@ -348,7 +348,16 @@ def _forget_in_training_runs(thread_ids: list[str]) -> int:
 
     from row_bot.data_paths import get_row_bot_data_dir
 
-    if not (get_row_bot_data_dir(create=False) / "learning_models" / "runs").is_dir():
+    models = get_row_bot_data_dir(create=False) / "learning_models"
+    if not models.is_dir():
+        return 0
+    try:
+        from row_bot.learning.training import kept_rows
+
+        kept_rows.forget(thread_ids)  # a version's kept rows from the deleted chat go too (C1)
+    except Exception:
+        logger.warning("Learning couldn't remove a deleted chat's rows from its versions", exc_info=True)
+    if not (models / "runs").is_dir():
         return 0
     try:
         from row_bot.learning.training.dataset import forget_conversations

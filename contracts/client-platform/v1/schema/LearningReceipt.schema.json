@@ -1113,6 +1113,58 @@
       "title": "LearningHuggingFace",
       "type": "object"
     },
+    "LearningHuggingFaceGpu": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "flavor": {
+          "maxLength": 64,
+          "title": "Flavor",
+          "type": "string"
+        },
+        "gpu_memory_gb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Memory Gb"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "price_per_hour": {
+          "minimum": 0,
+          "title": "Price Per Hour",
+          "type": "number"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "flavor",
+        "label",
+        "price_per_hour",
+        "seconds",
+        "cost_usd"
+      ],
+      "title": "LearningHuggingFaceGpu",
+      "type": "object"
+    },
     "LearningHuggingFaceLastRun": {
       "additionalProperties": false,
       "properties": {
@@ -1245,6 +1297,14 @@
           "minimum": 0,
           "title": "Cap Usd",
           "type": "integer"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/LearningHuggingFaceGpu"
+          },
+          "maxItems": 4,
+          "title": "Choices",
+          "type": "array"
         },
         "cost_usd": {
           "minimum": 0,
@@ -2258,6 +2318,12 @@
           "title": "Flavor",
           "type": "string"
         },
+        "gpu_label": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Gpu Label",
+          "type": "string"
+        },
         "lost": {
           "title": "Lost",
           "type": "boolean"
@@ -2311,6 +2377,11 @@
           ],
           "default": null,
           "title": "Url"
+        },
+        "waiting_for_gpu": {
+          "default": false,
+          "title": "Waiting For Gpu",
+          "type": "boolean"
         }
       },
       "required": [

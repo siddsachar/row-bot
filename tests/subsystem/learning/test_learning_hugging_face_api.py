@@ -36,7 +36,7 @@ def hf(api, no_channels):
     runner = runner_module.get()
     trainer = RemoteTrainer(data, jobs=runner.supervisor.jobs, hub=hub, sign_in=sign_in, fetcher=FakeFetcher(hub),
                             card_mib=lambda: 32_607, start_threads=False,
-                            flavors=lambda: [hub_module.Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)])
+                            flavors=lambda: [hub_module.Flavor("a100-large", "1x Nvidia A100", 80, 2.5 / 60), hub_module.Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)])
     saved = runner.remote
     runner.remote = trainer
     remote_training.configure(trainer)
@@ -69,7 +69,7 @@ def test_the_snapshot_guides_someone_new_before_anything_is_set_up(hf):
     assert [model["id"] for model in hugging["models"]] == ["qwen3.8-27b", "qwen3.5-9b"]
     assert hugging["models"][0]["recommended"] and hugging["model"] == "qwen3.8-27b"
     quote = hugging["quote"]  # a typical first run, priced before signing in
-    assert quote["examples"] == 90 and quote["cost_usd"] > 0 and quote["flavor"] == "l40sx1"
+    assert quote["examples"] == 90 and quote["cost_usd"] > 0 and quote["flavor"] == "a100-large"
     assert hugging["cap_usd"] == 0 and not hugging["runs_confirmed"] and hub.calls == []
 
 
@@ -170,3 +170,18 @@ def test_changing_where_to_train_sets_aside_a_run_planned_for_the_other_place(hf
     remote = _plan(data, trainer)
     write_learning_settings({"train_where": "this_computer"})
     assert trainer.jobs.get(remote.id).state == "stopped"  # never uploaded: nothing on Hugging Face to undo
+
+
+def test_the_card_is_chosen_from_the_recipe_s_and_the_quote_shows_each_with_its_price(hf):
+    client, headers, data, _hub, sign_in, _trainer = hf
+    sign_in.authorize()
+
+    chosen = _ok(_command(client, headers, "hf_choose_flavor", flavor="l40sx1"))
+    _error(_command(client, headers, "hf_choose_flavor", flavor="h200"), "learning_training_changed")
+    _error(_command(client, headers, "hf_choose_flavor", flavor="Not A Card"), "invalid_command", 422)
+
+    assert chosen["summary"] == "Training on Hugging Face uses 1x Nvidia L40S."
+    assert learning.read_settings(data).hf_flavor == "l40sx1"
+    quote = chosen["snapshot"]["personal_model"]["hugging_face"]["quote"]
+    assert quote["flavor"] == "l40sx1" and quote["price_per_hour"] == 1.8
+    assert [item["flavor"] for item in quote["choices"]] == ["a100-large", "l40sx1"]

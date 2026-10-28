@@ -400,6 +400,11 @@ def set_chat_opt_out(thread_id: str, opted_out: bool, *, store: LearningStore | 
 
     saved = store if store is not None else LearningStore()
     report = saved.set_chat_opt_out(thread_id, opted_out)
+    if opted_out and (saved.root / "learning_models" / "versions").is_dir():
+        # A version's kept rows from this chat go (C1): nothing uploads them later.
+        from row_bot.learning.training import kept_rows
+
+        kept_rows.forget([thread_id], saved.root)
     if opted_out and (saved.root / "learning_models" / "runs").is_dir():
         # A run not yet trained on this chat is discarded: nothing trains on it (L2c).
         from row_bot.learning.training.dataset import forget_conversations

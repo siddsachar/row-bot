@@ -22,6 +22,12 @@
           "title": "Flavor",
           "type": "string"
         },
+        "gpu_label": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Gpu Label",
+          "type": "string"
+        },
         "lost": {
           "title": "Lost",
           "type": "boolean"
@@ -75,6 +81,11 @@
           ],
           "default": null,
           "title": "Url"
+        },
+        "waiting_for_gpu": {
+          "default": false,
+          "title": "Waiting For Gpu",
+          "type": "boolean"
         }
       },
       "required": [

@@ -171,6 +171,7 @@
         "hf_cancel_sign_in",
         "hf_sign_out",
         "hf_choose_model",
+        "hf_choose_flavor",
         "hf_set_cap",
         "hf_start",
         "hf_cancel",
@@ -265,6 +266,13 @@
       ],
       "default": null,
       "title": "Download"
+    },
+    "flavor": {
+      "default": "",
+      "maxLength": 64,
+      "pattern": "^$|^[a-z0-9][a-z0-9-]{0,63}$",
+      "title": "Flavor",
+      "type": "string"
     },
     "folder": {
       "default": "",

@@ -406,7 +406,7 @@ def test_only_delete_data_ever_deletes_learning_data(api, no_channels, chats, mo
               "folder": "C:/nowhere", "item_id": "item_unknown", "model": "qwen3.5-9b", "download": "not_now",
               "conversation_id": "chat-b", "message_id": "run-msg-3", "signal_id": "sig_unknown",
               "category": "wrong_answer", "change_id": "proposal_unknown", "text": "Use the ID", "cap_usd": 20,
-              "quote_cost_cents": 100}
+              "quote_cost_cents": 100, "flavor": "a100-large"}
     # Hugging Face (C1) is a fake here: its commands reach their own checks, never the network.
     from row_bot.learning.remote import training as remote_training
     from tests.fixtures.hugging_face import FakeHub, FakeSignIn

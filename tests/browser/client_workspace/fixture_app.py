@@ -5593,7 +5593,8 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
         trainer = remote_training.RemoteTrainer(
             jobs=runner.supervisor.jobs, hub=hub, sign_in=sign_in, fetcher=FakeFetcher(hub),
             card_mib=lambda: card, start_threads=False,
-            flavors=lambda: [hub_module.Flavor("l40sx1", "Nvidia L40S", 48, 0.03)])
+            flavors=lambda: [hub_module.Flavor("a100-large", "Nvidia A100", 80, 2.5 / 60),
+                             hub_module.Flavor("l40sx1", "Nvidia L40S", 48, 0.03)])
         trainer.dataset = runner.remote.dataset if runner.remote is not None else None
         _c1.setdefault("remote", runner.remote)
         _c1.update(hub=hub, sign_in=sign_in, trainer=trainer)
@@ -5648,6 +5649,8 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
             if stage in ("training", "exporting"):
                 hub.say(remote.id, "progress", step=118 if stage == "training" else steps, steps_total=steps,
                         loss=0.31, seconds_per_step=41.0)
+            trainer.tick()
+        if name == "queued":  # Hugging Face has no free card of the kind yet (SCHEDULING)
             trainer.tick()
         if name == "lost":
             hub.fail["job"] = hub_module.HubError("network")

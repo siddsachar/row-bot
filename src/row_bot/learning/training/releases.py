@@ -677,6 +677,11 @@ class ReleaseMaker:
         if manifest:
             content_free = {key: value for key, value in manifest.items()}
             (folder / DATASET_FILE).write_text(json.dumps(content_free, indent=1, sort_keys=True), encoding="utf-8")
+            if (run / "data").is_dir():
+                from row_bot.learning.training import kept_rows
+
+                # The exact rows it trained on, with it (A10 uploads these, never a rebuild by a later build).
+                kept_rows.keep(run / "data", folder, manifest)
         existing = store.get("release", state.release_id) if state.release_id else None
         if isinstance(existing, Release):
             return existing

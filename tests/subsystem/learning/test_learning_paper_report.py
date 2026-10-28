@@ -632,7 +632,7 @@ class _Exploratory:
 
         self.trainer = RemoteTrainer(copy, jobs=jobs_module.TrainingJobs(copy), hub=self.hub, sign_in=FakeSignIn(),
                                      fetcher=FakeFetcher(self.hub), card_mib=lambda: 32_607, start_threads=False,
-                                     flavors=lambda: [hub_module.Flavor("l40sx1", "Nvidia L40S", 48, 0.03)])
+                                     flavors=lambda: [hub_module.Flavor("a100-large", "1x Nvidia A100", 80, 2.5 / 60), hub_module.Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)])
         return self.trainer
 
     def sleep(self, _seconds: float) -> None:
@@ -691,7 +691,7 @@ def test_the_exploratory_27b_trains_on_exactly_v2s_rows_after_a_typed_upload_and
     found = written["exploratory_27b"]
     assert (found["state"], found["model"], found["recipe"]) == ("run", "qwen3.8-27b", "hf-27b-v1")
     assert found["rows"] == {"examples": rows, "validation": validation, "matched": True} and found["upload_bytes"] > 0
-    assert (found["uploads_deleted"], found["minutes"], found["cost_usd"]) == (True, 90, 2.7)  # 90 min at $1.80/h
+    assert (found["uploads_deleted"], found["minutes"], found["cost_usd"]) == (True, 90, 3.75)  # 90 min at $2.50/h
     assert set(found["contrasts"]) == {"personal27 vs start27", "personal27 vs personal"}
     assert set(found["arms"]) == {"start27", "personal27", "personal"}
     # Apart from the confirmatory family: Holm still covers H1 and H2 only.
@@ -878,3 +878,95 @@ def test_h3_below_the_minimum_is_not_tested(learning_on, monkeypatch, generation
                           ran_final=False)
 
     assert (h3["state"], h3["reason"], h3["p_value"]) == ("not_tested", reason, None)
+
+
+# ── A10's rows: the version's own kept rows, never a rebuild by a later build (C1, 28 Oct) ──────────
+
+
+def _kept(profile: Path, chats: Any) -> tuple[int, int]:
+    """v2 trained as the release now keeps it: its record and its exact rows beside it."""
+
+    from row_bot.learning.training import dataset as dataset_module
+    from row_bot.learning.training import kept_rows, recipes
+
+    compiled = dataset_module.compile_dataset(LearningStore(profile), recipes.load("16gb"), lookup=chats,
+                                              measure=lambda rows, _max: [(100, 10)] * len(rows), refresh_vault=False)
+    folder = profile / "learning_models" / "versions" / "v2"
+    _write_json(folder / "dataset.json", compiled.manifest())
+    data = profile / "learning_models" / "runs" / "job_v2_rows" / "data"
+    dataset_module.write(compiled, data)
+    assert kept_rows.keep(data, folder, compiled.manifest())
+    return compiled.examples, len(compiled.validation)
+
+
+class _Gone:
+    """The copy's chats with one of them deleted since v2 trained."""
+
+    def __init__(self, chats: Any, deleted: str) -> None:
+        self.chats, self.deleted = chats, deleted
+
+    def thread(self, thread_id: str):
+        from row_bot.learning.scope import ThreadInfo
+
+        return ThreadInfo(exists=False) if thread_id == self.deleted else self.chats.thread(thread_id)
+
+    def __getattr__(self, name: str):
+        return getattr(self.chats, name)
+
+
+def test_the_27b_uploads_the_versions_own_kept_rows_even_when_a_later_build_cant_rebuild_them(
+        profile, folders, chats, monkeypatch):
+    scratch, out = folders
+    rows, validation = _kept(profile, chats)
+    monkeypatch.setattr(report, "rebuild_rows", lambda *_a, **_k: ([], [], False))  # a later build's compiler
+    fake = _Exploratory()
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--hugging-face-27b", "--profile", str(profile),
+                        "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=_exploratory_hooks(fake, "upload", chats))
+
+    assert code == 0
+    found = _written(out)["exploratory_27b"]
+    assert (found["state"], found["rows"]) == ("run", {"examples": rows, "validation": validation, "matched": True})
+
+
+@pytest.mark.parametrize("case", ["deleted_chat", "tampered"])
+def test_kept_rows_from_a_deleted_chat_or_that_changed_are_never_uploaded(profile, folders, chats, case):
+    from row_bot.learning.training import kept_rows
+
+    scratch, out = folders
+    _kept(profile, chats)
+    folder = profile / "learning_models" / "versions" / "v2"
+    lookup = chats
+    if case == "deleted_chat":
+        lookup = _Gone(chats, json.loads((folder / "dataset.json").read_text(encoding="utf-8"))["conversations"][0])
+    else:
+        rows = folder / kept_rows.FOLDER / kept_rows.EXAMPLES
+        rows.write_text(rows.read_text(encoding="utf-8").replace("a", "b", 1), encoding="utf-8")
+    fake = _Exploratory()
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--hugging-face-27b", "--profile", str(profile),
+                        "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=_exploratory_hooks(fake, "upload", lookup))
+
+    assert code == 0
+    found = _written(out)["exploratory_27b"]
+    assert (found["state"], found["reason"]) == ("not_run", {"deleted_chat": "source_deleted",
+                                                             "tampered": "rows_changed"}[case])
+    assert fake.asked == [] and fake.hub.calls == []  # never asked, nothing uploaded
+
+
+def test_a_newest_version_trained_by_an_older_build_without_kept_rows_says_why_it_is_not_run(profile, folders):
+    """The participant's case on a freeze day after a switch: rows weren't kept yet and today's build renders
+    them differently, so they can't be rebuilt exactly; the report says so (never an upload of other rows)."""
+
+    scratch, out = folders
+    fake = _Exploratory()
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--hugging-face-27b", "--profile", str(profile),
+                        "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=_exploratory_hooks(fake, "upload"))
+
+    assert code == 0
+    found = _written(out)["exploratory_27b"]
+    assert (found["state"], found["reason"]) == ("not_run", "rows_not_reproducible") and fake.hub.calls == []

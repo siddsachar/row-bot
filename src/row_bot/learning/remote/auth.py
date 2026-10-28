@@ -30,6 +30,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 ENDPOINT = "https://huggingface.co"
+# The device page Hugging Face names in its answer: on hf.co (checked live 28 Oct: "https://hf.co/oauth/device",
+# no verification_uri_complete, no interval), or on huggingface.co. Any other host is refused.
+DEVICE_PAGES = ("https://hf.co/", "https://huggingface.co/")
 # openid/profile: who is signed in; jobs: run training jobs; contribute-repos: make the private dataset and model
 # repositories for a run and delete them after (only the ones Row-Bot made); read-billing: whether the account
 # can pay, so the guided start can say "add credit" before a run fails for it.
@@ -75,6 +78,17 @@ def _client(transport: Any = None) -> Any:
 
     return httpx.Client(base_url=ENDPOINT, timeout=TIMEOUT_SECONDS, trust_env=False, transport=transport,
                         headers={"User-Agent": "Row-Bot", "Accept": "application/json"})
+
+
+def _error_code(response: Any) -> str:
+    """Hugging Face's error name for a refused request (``invalid_scope``), never its description."""
+
+    try:
+        body = response.json()
+    except ValueError:
+        return "no error name"
+    found = str(body.get("error") or "no error name") if isinstance(body, dict) else "no error name"
+    return "".join(ch for ch in found if ch.isalnum() or ch in "_-")[:48] or "no error name"
 
 
 class HuggingFaceSignIn:
@@ -129,6 +143,8 @@ class HuggingFaceSignIn:
             "grant_types": ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"], "redirect_uris": [],
         })
         if response.status_code not in (200, 201):
+            logger.warning("Hugging Face refused Row-Bot's client registration (HTTP %s, %s)",
+                           response.status_code, _error_code(response))
             raise SignInError("refused")
         client_id = str(response.json().get("client_id") or "")
         if not client_id:
@@ -149,14 +165,18 @@ class HuggingFaceSignIn:
             except httpx.HTTPError as error:
                 raise SignInError("network") from error
             if response.status_code != 200:
+                logger.warning("Hugging Face refused Row-Bot's sign-in code (HTTP %s, %s)",
+                               response.status_code, _error_code(response))
                 raise SignInError("refused")
             found = response.json()
             uri = str(found.get("verification_uri") or f"{ENDPOINT}/oauth/device")
             user_code = str(found.get("user_code") or "")
-            if not user_code or not found.get("device_code") or not uri.startswith(ENDPOINT + "/"):
+            if not user_code or not found.get("device_code") or not uri.startswith(DEVICE_PAGES):
+                logger.warning("Hugging Face's sign-in answer wasn't usable (a code: %s, its page on %s)",
+                               bool(user_code and found.get("device_code")), uri.split("/")[2] if "//" in uri else "?")
                 raise SignInError("refused")
             complete = str(found.get("verification_uri_complete") or f"{uri}?user_code={user_code}")
-            if not complete.startswith(ENDPOINT + "/"):
+            if not complete.startswith(DEVICE_PAGES):
                 complete = f"{uri}?user_code={user_code}"
             code = DeviceCode(user_code[:32], uri, complete, max(1.0, float(found.get("interval") or 5)),
                               self._clock() + float(found.get("expires_in") or 900))
