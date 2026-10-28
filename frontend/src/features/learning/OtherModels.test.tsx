@@ -203,3 +203,43 @@ it('a checked model says what was checked, the tool sample as it ran, and where 
     within(item).getByRole('button', { name: 'Remove' }),
   ).toBeInTheDocument();
 });
+
+it('a model that passed and trains here can be used for training after a second, plain ask', async () => {
+  const io = show([
+    {
+      id: 'hf:Qwen/Qwen3-14B',
+      repo: 'Qwen/Qwen3-14B',
+      name: 'Qwen3-14B',
+      family: 'Qwen',
+      params_b: 14.8,
+      licence: 'Apache 2.0',
+      licence_kind: 'permissive',
+      licence_url: 'https://huggingface.co/Qwen/Qwen3-14B',
+      terms: [],
+      licence_agreed: true,
+      state: 'passed',
+      stage: null,
+      failure: null,
+      items: [],
+      sample: [],
+      download_bytes: 1,
+      downloaded_bytes: 1,
+      trains_here: true,
+      hugging_face_flavor: null,
+    },
+  ]);
+  const item = screen.getByRole('listitem', { name: 'Qwen3-14B' });
+
+  fireEvent.click(
+    within(item).getByRole('button', { name: 'Use for training…' }),
+  );
+  expect(item).toHaveTextContent(
+    'It isn’t certified: Row-Bot checked it on this computer.',
+  );
+  fireEvent.click(within(item).getByRole('button', { name: 'Use Qwen3-14B' }));
+  await act(async () => undefined);
+
+  expect(io.run).toHaveBeenCalledWith('change_starting_model', {
+    model: 'hf:Qwen/Qwen3-14B',
+  });
+});

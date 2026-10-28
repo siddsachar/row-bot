@@ -111,3 +111,25 @@ def test_stop_and_forget_follow_the_check(models):
     _ok(_command(client, headers, "forget_model", model="hf:Qwen/Qwen3-14B"))
     snapshot = client.get("/api/v1/learning", headers=headers).json()
     assert snapshot["personal_model"]["other_models"] == []
+
+
+def test_a_model_that_passed_its_check_becomes_the_starting_model_for_local_training(models, monkeypatch):
+    from row_bot import learning
+    from row_bot.learning.training import hardware, weights
+
+    client, headers, data, _hub, checker = models
+    card = hardware.HardwareCheck(state="gpu", gpu=hardware.Gpu(name="NVIDIA GeForce RTX 5090", memory_mib=32_607,
+                                                                    driver="580.00"))
+    monkeypatch.setattr(hardware, "peek", lambda: card)
+    refused = _command(client, headers, "change_starting_model", model="hf:Qwen/Qwen3-14B")
+    assert refused.status_code == 409 and refused.json()["code"] == "learning_training_changed"  # not checked yet
+
+    _ok(_command(client, headers, "check_model", model="hf:Qwen/Qwen3-14B"))
+    checker.run("Qwen/Qwen3-14B")
+    switched = _ok(_command(client, headers, "change_starting_model", model="hf:Qwen/Qwen3-14B"))
+
+    assert switched["summary"].startswith("Switched to Qwen3-14B.")
+    assert learning.read_settings(data).starting_model == "hf:Qwen/Qwen3-14B"
+    pinned = weights.model_for("hf:Qwen/Qwen3-14B", data)
+    assert (pinned.repo, pinned.revision) == ("Qwen/Qwen3-14B", REV) and len(pinned.files) == 2
+    assert weights.model_for("hf:Some/Unchecked", data, weights.QWEN35_9B) is weights.QWEN35_9B

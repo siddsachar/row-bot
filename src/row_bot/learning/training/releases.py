@@ -418,7 +418,7 @@ class ReleaseMaker:
             return self._weights()
         from row_bot.learning.training import weights
 
-        model = weights.MODELS.get(gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
+        model = weights.model_for(gate.read_settings(self._root).starting_model, self._root, weights.QWEN35_9B)
         remote = _remote_record(job, self._root)
         if remote is not None:  # the model the Hugging Face run trained (C1); its files may not be here
             model = weights.MODELS.get(remote.model_id, model)

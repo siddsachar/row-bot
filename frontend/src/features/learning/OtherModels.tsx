@@ -66,7 +66,11 @@ export function OtherModels({ io }: { io: LearningIO }) {
   }
 
   async function run(
-    action: 'check_model' | 'stop_model_check' | 'forget_model',
+    action:
+      | 'check_model'
+      | 'stop_model_check'
+      | 'forget_model'
+      | 'change_starting_model',
     model: string,
     licenceOk = false,
   ) {
@@ -197,6 +201,10 @@ export function OtherModels({ io }: { io: LearningIO }) {
               busy={busy}
               onStop={() => void run('stop_model_check', model.id)}
               onForget={() => void run('forget_model', model.id)}
+              onUse={() => void run('change_starting_model', model.id)}
+              inUse={
+                io.snapshot?.personal_model?.starting_model.id === model.id
+              }
             />
           ))}
         </ul>
@@ -281,12 +289,17 @@ function CheckedModel({
   busy,
   onStop,
   onForget,
+  onUse,
+  inUse,
 }: {
   model: LearningCheckedModel;
   busy: boolean;
   onStop: () => void;
   onForget: () => void;
+  onUse: () => void;
+  inUse: boolean;
 }) {
+  const [confirming, setConfirming] = useState(false);
   const active = model.state === 'downloading' || model.state === 'checking';
   const headline =
     model.state === 'downloading'
@@ -347,7 +360,25 @@ function CheckedModel({
           </ul>
         </details>
       )}
+      {confirming && (
+        <p>
+          Your next version trains from {model.name}. It isn’t certified:
+          Row-Bot checked it on this computer. Versions you have stay as they
+          are.
+        </p>
+      )}
       <span className="learning-actions-inline">
+        {model.state === 'passed' && model.trains_here && !inUse && (
+          <Button
+            className="small"
+            variant={confirming ? 'primary' : 'secondary'}
+            disabled={busy}
+            onClick={() => (confirming ? onUse() : setConfirming(true))}
+          >
+            {confirming ? `Use ${model.name}` : 'Use for training…'}
+          </Button>
+        )}
+        {inUse && <small>In use for training</small>}
         {active ? (
           <Button className="small" disabled={busy} onClick={onStop}>
             Stop

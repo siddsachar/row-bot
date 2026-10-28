@@ -921,7 +921,7 @@ class LocalEngine:
 
         if not status(self._root).installed:
             return False
-        model = weights.MODELS.get(learning.read_settings(self._root).starting_model)
+        model = weights.model_for(learning.read_settings(self._root).starting_model, self._root)
         return model is not None and weights.status(model, self._root).state == "downloaded"
 
     def command(self, job: Any) -> Any:
@@ -930,7 +930,7 @@ class LocalEngine:
         from row_bot.learning.training.worker import PROTOCOL_PATH, EngineCommand, WorkerError
 
         found = status(self._root)
-        model = weights.MODELS.get(learning.read_settings(self._root).starting_model)
+        model = weights.model_for(learning.read_settings(self._root).starting_model, self._root)
         if not found.installed or found.python is None or found.site is None or model is None:
             raise WorkerError("engine_missing")
         weights_status = weights.status(model, self._root)

@@ -750,10 +750,18 @@ def _change_starting_model(model_id: str) -> str:
 
     settings = learning.read_settings()
     check = hardware.peek()
-    offered = {model.id for model in check.starting_models} if check is not None and check.can_train else set()
+    offered = {model.id: model.name for model in check.starting_models} if check is not None and check.can_train         else {}
+    if model_id.startswith("hf:") and check is not None and check.can_train:
+        # C1 Part 4: a model the person checked here trains here once its check passed (uncertified).
+        from row_bot.learning.training import open_models
+
+        record = open_models.read(open_models.repo_of(model_id) or "")
+        card = int(check.gpu.memory_mib) if check.gpu is not None else None
+        if record is not None and record.trains_here and open_models.as_choice(record, card) is not None:
+            offered[model_id] = record.name
     if model_id not in offered:
         raise ClientPlatformError("learning_training_changed")
-    name = hardware.STARTING_MODELS[model_id].name
+    name = offered[model_id]
     if model_id == settings.starting_model:
         return f"{name} is already the starting model."
     if _change_busy():
@@ -1876,7 +1884,7 @@ def _download(action: str) -> str:
 
     task = downloads.get()
     settings = learning.read_settings()
-    model = weights.MODELS.get(settings.starting_model, weights.QWEN35_9B)
+    model = weights.model_for(settings.starting_model, default=weights.QWEN35_9B)
     name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
     try:
         if action == "start_download":
@@ -1985,7 +1993,7 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
     if action == "dismiss" and not item_id:
         raise ClientPlatformError("invalid_learning_command")
     model_id = _text(command.get("model"), 128)
-    if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS:
+    if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS and             not (action == "change_starting_model" and learning._checked_model(model_id)):  # noqa: SLF001
         raise ClientPlatformError("invalid_learning_command")
     change_id = _text(command.get("change_id"), 128)
     if action in _CHANGE_ACTIONS and not change_id:
