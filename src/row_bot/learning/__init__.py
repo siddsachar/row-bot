@@ -105,6 +105,24 @@ def preview_enabled() -> bool:
     return _PREVIEW
 
 
+# L4b's switches, one per part, both off unless this build is started with them (and the preview flag): practice
+# changes the training mix and the tests, so whether it reaches someone's preview is decided apart from the code.
+PRACTICE_ENV = "ROW_BOT_LEARNING_PRACTICE"
+QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
+
+
+def practice_enabled() -> bool:
+    """Whether this build makes practice tasks and uses them in tests, trials and training data (L4b)."""
+
+    return _PREVIEW and os.environ.get(PRACTICE_ENV, "").strip() == "1"
+
+
+def quick_question_enabled() -> bool:
+    """Whether this build may ask the person a quick question (L4b)."""
+
+    return _PREVIEW and os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
+
+
 DEFAULTS = LearningSettings()
 
 # (settings path, mtime_ns, size, inode) -> settings; one entry, swapped whole.
@@ -505,7 +523,9 @@ __all__ = [
     "MAX_MONTHLY_TOKEN_LIMIT",
     "MODELS_FOLDER",
     "MODEL_DOWNLOADS",
+    "PRACTICE_ENV",
     "PREVIEW_ENV",
+    "QUICK_QUESTION_ENV",
     "SERVE_RUNTIMES",
     "SETTINGS_FILE",
     "STARTING_MODELS",
@@ -520,7 +540,9 @@ __all__ = [
     "note_channel_sender",
     "note_retry",
     "offered_personal_models",
+    "practice_enabled",
     "preview_enabled",
+    "quick_question_enabled",
     "read_settings",
     "route_turn",
     "settings_path",

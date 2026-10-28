@@ -191,6 +191,9 @@ class CaseResult:
     cause: str = ""
     # It failed only because its final message offered more than one answer (METRIC_VERSION 3's guard).
     guarded: bool = False
+    # A passing practice task run through the real runtime: its last request and reply as sent (L4b, the
+    # training data's practice slice). Never a sample or hidden task's.
+    turn: Mapping[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @property
     def passed(self) -> bool:
@@ -1405,7 +1408,8 @@ def _save(store: Any, runs: Sequence[tuple[TestRun, dict[str, Any]]],
 
 def fixture_for(task: PackTask, *, created_at: float,
                 origin: Literal["pack", "practice"] = "pack") -> tuple[TaskFixture, bytes, bytes]:
-    """A visible pack task (or a practice task) as a TaskFixture (its input and expected blobs alongside)."""
+    """A visible pack task (or a practice task) as a TaskFixture (its input and expected blobs alongside). A practice
+    task exists only once the vault said it is novel (``practice.generate``)."""
 
     import hashlib
 
@@ -1414,7 +1418,7 @@ def fixture_for(task: PackTask, *, created_at: float,
     fixture = TaskFixture(
         id=f"fix_{task.id}", origin=origin, input_blob=hashlib.sha256(data).hexdigest(),
         verifier=task.verifier.kind, created_at=created_at, pack=task.pack, kind_of_work=task.kind_of_work,
-        expected_blob=hashlib.sha256(expected).hexdigest(),
+        expected_blob=hashlib.sha256(expected).hexdigest(), novelty_checked=origin == "practice",
     )
     return fixture, data, expected
 
@@ -1608,8 +1612,9 @@ def _compare(arms: Sequence[Arm], tasks: list[PackTask], replay: list[ReplayCase
         saved_store = store if store is not None else LearningStore()
         fixtures: list[tuple[TaskFixture, bytes, bytes | None]] = []
         if not aggregate_only:
-            origin = "practice" if suite == "practice" else "pack"
-            fixtures.extend(fixture_for(task, created_at=started, origin=origin) for task in tasks)
+            fixtures.extend(fixture_for(task, created_at=started,
+                                        origin="practice" if suite == "practice" or task.split == "practice" else "pack")
+                            for task in tasks)
             fixtures.extend(replay_fixture_for(case, created_at=started) for case in replay)
         saved_runs = _save(saved_store, runs, fixtures)
         for arm_result, run in zip(arm_results, saved_runs):

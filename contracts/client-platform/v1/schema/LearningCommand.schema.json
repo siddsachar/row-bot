@@ -169,7 +169,9 @@
         "edit_change",
         "test_lesson",
         "delete_lesson",
-        "undo_method"
+        "undo_method",
+        "answer_question",
+        "dismiss_question"
       ],
       "title": "Action",
       "type": "string"

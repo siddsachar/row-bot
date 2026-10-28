@@ -10,10 +10,10 @@ When the control is the incumbent it is the same arm, run once. Every arm starts
 lessons and ways of working in use now), sees the same evidence, uses the same tools, and gets the **same
 budget**: tokens (cloud and local) and graphics-card time. Its calls are ``learning_meta``.
 
-**Each arm runs the improvement loop its own way** (its issue priority, method choice, examples, budget split
-and prompts) and keeps its drafts to itself: they are never shown to the person or used. It tests them on the
-person's hidden work **except the trial's fresh problems**, and accepts those its tests call better (at most
-:data:`MAX_ACCEPTED`).
+**Each arm runs the improvement loop its own way** (its issue priority, method choice, examples, budget split,
+prompts and, with practice on, its practice: L4b) and keeps its drafts to itself: they are never shown to the person
+or used. It tests them on the person's hidden work **except the trial's fresh problems** (and on practice tasks it
+made for them), and accepts those its tests call better (at most :data:`MAX_ACCEPTED`).
 
 **Judging** (§6.1): every accepted change against the same assistant without it on the trial's fresh problems,
 :data:`REPEATS` runs each; a change is better by the keeping rule (above 0 on its kind of work, not below -10
@@ -218,12 +218,14 @@ def _clamp(value: float, item: Any) -> Any:
 
 
 def mutate(parent: Strategy, rng: random.Random) -> Strategy:
-    """One change to one evolvable part of ``parent`` (numbers, a preference or a switch), within bounds."""
+    """One change to one evolvable part of ``parent`` (numbers, a preference or a switch), within bounds; its
+    practice only in a build that practises (L4b)."""
 
     from dataclasses import fields
 
+    parts = ("issues", "methods", "examples", "budget") + (("practice",) if gate.practice_enabled() else ())
     for _attempt in range(20):
-        part_name = rng.choice(("issues", "methods", "examples", "budget"))
+        part_name = rng.choice(parts)
         part = getattr(parent, part_name)
         if part_name == "methods":
             prefer = list(part.prefer)
@@ -370,15 +372,19 @@ def run_arm(store: Any, entry: archive.Entry, *, role: str, trial_id: str, budge
             client: Any, tester_factory: Callable[..., Any], should_stop: Callable[[], bool], now: float,
             check_model: Callable[[], None] | None = None) -> ArmRun:
     """One arm's improvement loop under its method and its equal budget: issues, a diagnosis each, its drafts
-    (E9 as always), its own tests of them on hidden work outside the trial's fresh problems; better ones are
-    accepted. Nothing it drafts is saved as a change or shown."""
+    (E9 as always) and, with practice on, practice tasks for each draft's issue by its method (L4b); its own tests
+    of them on hidden work outside the trial's fresh problems; better ones are accepted. Nothing it drafts or makes
+    is saved as a change or shown."""
 
     from row_bot.learning import diagnosis
+    from row_bot.learning.improver.strategy import practising
 
     method = entry.strategy
     meter = ArmMeter(parent_meter, budget)
     run = ArmRun(role, entry.id, entry.version)
     drafts: list[dict[str, Any]] = []
+    practice: dict[str, list[Any]] = {}
+    practises = practising(method) and method.practice.made > 0
 
     def sink(issue: Any, found: Any, tokens: int) -> Any:
         if found is None or found.change not in diagnosis.DRAFTS or not diagnosis._complete(found):  # noqa: SLF001
@@ -391,6 +397,13 @@ def run_arm(store: Any, entry: archive.Entry, *, role: str, trial_id: str, budge
         draft = _draft(issue, found, f"{trial_id}-{role}-{len(drafts) + 1}")
         draft["payload"]["learning"]["never_automatic"] = all(item.untrusted for item in issue.evidence)
         drafts.append(draft)
+        if practises and len(drafts) <= method.budget.tests and not meter.exhausted:
+            from row_bot.learning.practice import generate
+
+            made = generate.make(store, issue, client=_TimedClient(client, meter), count=method.practice.made,
+                                 now=now, meter=meter, purpose=PURPOSE, method=method,
+                                 asked_by=f"trial {trial_id} {role}")
+            practice[draft["id"]] = made.kept
         return diagnosis.Outcome(issue.key, issue.kind, found.change, proposal_id=draft["id"], tokens=tokens)
 
     report = diagnosis.run(store, client=_TimedClient(client, meter), night=f"trial:{trial_id}:{role}", now=now,
@@ -403,7 +416,8 @@ def run_arm(store: Any, entry: archive.Entry, *, role: str, trial_id: str, budge
         if run.stopped or should_stop() or len(run.accepted) >= MAX_ACCEPTED or meter.exhausted:
             run.stopped = run.stopped or should_stop()
             break
-        result = tester.measure(draft, should_stop=should_stop, meter=meter, leave_out=trial_id)
+        result = tester.measure(draft, should_stop=should_stop, meter=meter, leave_out=trial_id,
+                                practice=practice.get(draft["id"]) if practises else None)
         if result.verdict == "stopped":
             run.stopped = result.stopped == "stopped"
             break

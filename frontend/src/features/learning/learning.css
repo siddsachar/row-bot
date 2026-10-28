@@ -662,3 +662,23 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
+/* L4b: the quick question in full, its two answers and ✕ beside it, or under it on a phone. */
+.learning-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.learning-question .entity-row-title {
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+@media (max-width: 767px) {
+  .learning-question .entity-row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .learning-question .entity-row-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

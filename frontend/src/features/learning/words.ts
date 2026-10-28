@@ -372,6 +372,7 @@ export function overnightLines(night: LearningOvernight): OvernightLine[] {
     case 'nothing':
       return [
         { text: 'Looked for things to improve: nothing new.' },
+        ...practiceLines(night),
         ...methodLines(night),
       ];
     default:
@@ -406,6 +407,7 @@ export function overnightLines(night: LearningOvernight): OvernightLine[] {
     lines.push({
       text: `Left out ${plural(night.left_out, 'idea')}: Learning needs your feedback first, and never adds addresses, links, passwords or permissions`,
     });
+  lines.push(...practiceLines(night));
   if (night.tested)
     lines.push({
       text: `Tested ${plural(night.tested, 'idea')}: ${
@@ -430,6 +432,33 @@ export function overnightLines(night: LearningOvernight): OvernightLine[] {
       text: 'Stopped when you came back to Row-Bot; it carries on when you’re away.',
     });
   return [...lines, ...methodLines(night)];
+}
+
+/** What a practice task of each kind of work is called inside "Practised 12 … tasks it made up". */
+const PRACTICE_NOUNS: Record<string, string> = {
+  document_lookups: 'document',
+  structured_transforms: 'data',
+  small_coding: 'coding',
+  tool_workflows: 'app',
+};
+
+/** The night's practice (designs §3, L4b): "Practised 40 document tasks it made up: 33 passed". */
+function practiceLines(night: LearningOvernight): OvernightLine[] {
+  const lines: OvernightLine[] = [];
+  const ran = night.practised ?? 0;
+  if (ran > 0) {
+    const noun = night.practice_kind ? PRACTICE_NOUNS[night.practice_kind] : '';
+    lines.push({
+      text: `Practised ${plural(ran, noun ? `${noun} task` : 'task')} it made up: ${(
+        night.practised_passed ?? 0
+      ).toLocaleString()} passed`,
+    });
+  }
+  if (night.practice_needs_container)
+    lines.push({
+      text: 'Coding practice needs Docker or Podman, so none was made.',
+    });
+  return lines;
 }
 
 /** The night's comparison of learning methods (designs §9): a switch is shown with its Undo apart. */

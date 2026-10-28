@@ -1450,6 +1450,41 @@
           "title": "Not Better",
           "type": "integer"
         },
+        "practice_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "document_lookups",
+                "structured_transforms",
+                "small_coding",
+                "tool_workflows"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Practice Kind"
+        },
+        "practice_needs_container": {
+          "default": false,
+          "title": "Practice Needs Container",
+          "type": "boolean"
+        },
+        "practised": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Practised",
+          "type": "integer"
+        },
+        "practised_passed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Practised Passed",
+          "type": "integer"
+        },
         "ready": {
           "default": 0,
           "minimum": 0,
@@ -1735,6 +1770,57 @@
       "title": "LearningPersonalModel",
       "type": "object"
     },
+    "LearningQuickQuestion": {
+      "additionalProperties": false,
+      "description": "The quick question (L4b; UX \u00a73): at most one a day, two answers to tap, \u2715 never asks it again.",
+      "properties": {
+        "answers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Answers",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "document_lookups",
+                "structured_transforms",
+                "small_coding",
+                "tool_workflows"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "other",
+              "type": "string"
+            }
+          ],
+          "title": "Kind"
+        },
+        "question": {
+          "maxLength": 200,
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "question",
+        "answers",
+        "kind"
+      ],
+      "title": "LearningQuickQuestion",
+      "type": "object"
+    },
     "LearningQuietHours": {
       "additionalProperties": false,
       "properties": {
@@ -1971,6 +2057,17 @@
         },
         "personal_model": {
           "$ref": "#/$defs/LearningPersonalModel"
+        },
+        "quick_question": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningQuickQuestion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "quiet_hours": {
           "$ref": "#/$defs/LearningQuietHours"

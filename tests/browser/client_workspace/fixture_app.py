@@ -5589,6 +5589,73 @@ def l4a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     return {"action": action}
 
 
+def _l4b_night() -> None:
+    import json as _json
+    from datetime import date
+
+    from row_bot.learning import changes, diagnosis, practice
+    from row_bot.learning.store import LearningStore
+
+    store = LearningStore()
+    night = date.today().isoformat()
+    diagnosis._save(store, diagnosis.NightReport(night, found=2, drafted=1, needs_examples=1))
+    store.set_meta_values({changes.NIGHT_KEY: _json.dumps(changes.NightTests(night, tested=1, ready=1).to_dict())})
+    practice._note(store, {"night": night, "state": "done", "issues": 2, "asked": 12, "made": 12, "ran": 12,
+                           "passed": 9, "by_kind": {"document_lookups": [12, 9]}, "unreadable": 0, "unverifiable": 0,
+                           "repeats": 0, "not_novel": 0, "coding_left_out": 0, "needs_container": 1, "tokens": 0})
+
+
+def _l4b_question() -> None:
+    import json as _json
+    import time as _time
+
+    from row_bot.learning import question
+    from row_bot.learning.store import LearningStore
+
+    LearningStore().set_meta_values({question.OPEN_KEY: _json.dumps({
+        "id": "qq_l4b", "issue": "document_lookups:corrected", "kind": "document_lookups",
+        "question": "When two files share a name, which should I open?", "answers": ["The newest", "Ask me"],
+        "asked_at": _time.time()})})
+
+
+def _l4b_restore() -> None:
+    import os as _os
+
+    from row_bot import learning
+    from row_bot.learning import practice, question
+    from row_bot.learning.store import LearningStore
+
+    _os.environ.pop(learning.PRACTICE_ENV, None)
+    _os.environ.pop(learning.QUICK_QUESTION_ENV, None)
+    store = LearningStore()
+    if store.exists():
+        store.set_meta_values({practice.NIGHT_KEY: "", question.OPEN_KEY: "", question.ANSWERS_KEY: "",
+                               question.DONE_KEY: ""})
+
+
+@app.post("/__l4b_fixture/learning/{action}")
+def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L4b spec: a build with practice and the quick question on, a night that practised,
+    and a quick question waiting. Nothing reaches a model: the night and the question are written directly."""
+    import os as _os
+
+    from row_bot import learning
+
+    predecessor._authorize(x_fixture_token)
+    if action == "on":
+        _os.environ[learning.PRACTICE_ENV] = "1"
+        _os.environ[learning.QUICK_QUESTION_ENV] = "1"
+    elif action == "practised":
+        _l4b_night()
+    elif action == "question":
+        _l4b_question()
+    elif action == "restore":
+        _l4b_restore()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
 # ── Learning (preview), L2b: the personal model's download, its states set by the spec ──
 
 _GB = 1_000_000_000

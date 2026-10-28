@@ -4296,6 +4296,21 @@ class LearningOvernight(WireModel):
     method: Literal["switched", "kept"] | None = None
     method_version: int | None = Field(default=None, ge=1)
     method_words: str = Field(default="", max_length=200)
+    # L4b (in a build with practice on): the practice tasks it made up and ran ("Practised 12 document tasks it made
+    # up: 9 passed"), their kind of work when there was one, and whether coding practice waited for a container.
+    practised: int = Field(default=0, ge=0)
+    practised_passed: int = Field(default=0, ge=0)
+    practice_kind: LearningKindOfWork | None = None
+    practice_needs_container: bool = False
+
+
+class LearningQuickQuestion(WireModel):
+    """The quick question (L4b; UX §3): at most one a day, two answers to tap, ✕ never asks it again."""
+
+    id: str = Field(max_length=128)
+    question: str = Field(max_length=200)
+    answers: list[str] = Field(min_length=2, max_length=2)
+    kind: LearningKindOfWork | Literal["other"]
 
 
 class LearningMethodArm(WireModel):
@@ -4525,6 +4540,8 @@ class LearningSnapshot(WireModel):
     testing_now: LearningTestingNow | None = None
     # L4a: how Row-Bot learns (while Learning is on).
     method: LearningMethod | None = None
+    # L4b: the quick question waiting for the person (a build with it on).
+    quick_question: LearningQuickQuestion | None = None
 
 
 class LearningNamedValue(WireModel):
@@ -4685,7 +4702,7 @@ class LearningCommand(WireModel):
         "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
         "review_version", "use_smaller_model", "change_starting_model",
         "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-        "test_lesson", "delete_lesson", "undo_method",
+        "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
     ]
     setup: LearningSetupChoices | None = None
     # use_smaller_model (O112): the smaller starting model the Personal model view offered;
@@ -4708,7 +4725,8 @@ class LearningCommand(WireModel):
     tool_call_id: str = Field(default="", max_length=256)
     category: Literal["wrong_answer", "wrong_tool_or_step", "ignored_instructions", "other"] | None = None
     note: str = Field(default="", max_length=2000)
-    # Teach's optional "What should it have done?" (L3b).
+    # Teach's optional "What should it have done?" (L3b); the quick question's answer tapped (L4b, with its id
+    # in ``item_id``).
     answer: str = Field(default="", max_length=2000)
     signal_id: str = Field(default="", max_length=128)
     # L3b: the change an action is for (a lesson's memory for test_lesson and delete_lesson), and an Edit's

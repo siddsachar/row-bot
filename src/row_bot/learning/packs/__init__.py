@@ -10,8 +10,9 @@ checked in, and has
 - a **reference** solution that passes and a **decoy** (a plausible mistake) that fails,
   so every verifier is itself tested.
 
-Each pack has a **visible split** (here, for testing changes and for practice) and a
-**hidden split** (``packs.hidden``, sealed: only the audit vault reads it, E10).
+Each pack has a **visible split** (here, for testing changes) and a **hidden split**
+(``packs.hidden``, sealed: only the audit vault reads it, E10). Practice tasks Row-Bot makes up
+from its own mistakes (``learning.practice``, L4b) have the same shape in a split of their own.
 
 Importing this package reads no file and loads nothing else from Row-Bot.
 """
@@ -26,7 +27,7 @@ from typing import Any, Literal
 PACK_FORMAT = "row_bot.learning.pack_task"
 PACK_FORMAT_VERSION = 1
 
-Split = Literal["visible", "hidden"]
+Split = Literal["visible", "hidden", "practice"]
 VerifierKind = Literal["answer", "json_answer", "file", "app_state", "code_tests"]
 VERIFIER_KINDS: tuple[str, ...] = ("answer", "json_answer", "file", "app_state", "code_tests")
 ANSWER_MATCHES = ("exact", "contains", "number", "any_of")
@@ -154,7 +155,7 @@ def validate(task: PackTask) -> PackTask:
         raise PackError("a task has an id and a prompt")
     if task.pack not in PACKS:
         raise PackError(f"{task.id}: unknown pack {task.pack!r}")
-    if task.split not in ("visible", "hidden"):
+    if task.split not in ("visible", "hidden", "practice"):
         raise PackError(f"{task.id}: unknown split {task.split!r}")
     if task.verifier.kind not in VERIFIER_KINDS:
         raise PackError(f"{task.id}: unknown verifier {task.verifier.kind!r}")
