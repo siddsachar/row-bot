@@ -410,11 +410,11 @@ def _check_events(events: Any) -> Any:
 
 
 def agent_tool_turn(model_ref: str, *, timeout: float = CHECK_SECONDS, prompt: str = CHECK_PROMPT,
-                    tools: tuple[str, ...] = CHECK_TOOLS, answer: str = CHECK_ANSWER) -> dict[str, Any]:
+                    tools: tuple[str, ...] = CHECK_TOOLS, expected: str = CHECK_ANSWER) -> dict[str, Any]:
     """One real Agent turn with the model: Row-Bot's own prompt, runtime and the calculator tool, on a
     throwaway conversation that is never saved (no chat appears, Learning records nothing of it) and
     is removed afterwards. Passes when a tool was called and the answer holds its result. A model's check
-    (C1 Part 4) asks its own small sample the same way (``prompt``, ``tools``, ``answer``)."""
+    (C1 Part 4) asks its own small sample the same way (``prompt``, ``tools``, ``expected``)."""
 
     from row_bot import agent
     from row_bot import threads
@@ -464,8 +464,8 @@ def agent_tool_turn(model_ref: str, *, timeout: float = CHECK_SECONDS, prompt: s
         except Exception:
             logger.debug("Learning couldn't tidy its check conversation", exc_info=True)
     digits = "".join(ch for ch in answer if ch.isdigit())
-    passed = bool(calls) and answer in digits and not errors
-    return {"ok": passed, "tool_calls": len(calls), "tools": calls[:5], "answered": answer in digits,
+    passed = bool(calls) and expected in digits and not errors
+    return {"ok": passed, "tool_calls": len(calls), "tools": calls[:5], "answered": expected in digits,
             "errors": errors[:3], "timed_out": stop.is_set(), "seconds": round(time.monotonic() - started, 1)}
 
 

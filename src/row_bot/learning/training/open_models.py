@@ -823,7 +823,7 @@ class EngineSteps(Steps):
             for item in TOOL_SAMPLE:
                 check()
                 turn = serving.agent_tool_turn(outcome.model_ref, prompt=item["prompt"], tools=item["tools"],
-                                               answer=item["answer"])
+                                               expected=item["answer"])
                 results.append({"id": item["id"], "prompt": item["prompt"], "passed": bool(turn.get("ok")),
                                 "tools": list(turn.get("tools") or ())[:3], "answered": bool(turn.get("answered"))})
             return results
