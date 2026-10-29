@@ -96,12 +96,33 @@ class LimitReached(RuntimeError):
     """A usage or rate-limit error: the run stops at once."""
 
 
+#: When this process asked for a refresh it may not make (ChatGPT answered 401, or the sign-in was about to expire).
+#: Every step from then on would run without the simulated person and the main model, so nothing more is saved: the
+#: run stops as on a usage limit, and the queue resumes it from its last good step with the sign-in read again
+#: (29 Oct: a refresh elsewhere at 06:51 left two running cells failing every cloud call for hours).
+SIGN_IN_LOST: list[str] = []
+
+
+def stop_saving_once_sign_in_lost(state: Any) -> None:
+    """``state.save`` exits as on a usage limit, writing nothing, once the sign-in is lost."""
+
+    save = state.save
+
+    def guarded() -> None:
+        if SIGN_IN_LOST:
+            raise SystemExit(EXIT_LIMIT)
+        save()
+
+    state.save = guarded
+
+
 def guard_sign_in() -> None:
     """Refuse any ChatGPT token refresh and any write-back to the eval profile, in this process."""
 
     from row_bot.providers import codex
 
     def refused(*_args: Any, **_kwargs: Any) -> Any:
+        SIGN_IN_LOST.append(time.strftime("%Y-%m-%d %H:%M:%S"))
         raise RefreshRefused("the stale-skills run never refreshes the eval profile's sign-in")
 
     codex.refresh_codex_token = refused
@@ -254,6 +275,7 @@ class StaleRun(PersonRun):
     def __init__(self, args: argparse.Namespace) -> None:
         world.use_people_dir(args.person)
         super().__init__(args)
+        stop_saving_once_sign_in_lost(self.state)
         self.lane = args.lane_model  # "main" or "local"
         self.study_arm = args.arm
         phrased = None if args.phrasing == "templates" else phrasing_module.load(args.person, args.phrasing)
@@ -383,6 +405,10 @@ class StaleRun(PersonRun):
         person._model = guarded  # noqa: SLF001
 
     def _check_limits(self) -> None:
+        if SIGN_IN_LOST:
+            self.note(f"the eval profile's sign-in stopped working at {SIGN_IN_LOST[0]} (the run never refreshes "
+                      "it); stopping without saving this step")
+            raise SystemExit(EXIT_LIMIT)
         found = [text for text in self._errors if limit_error(text)]
         if found:
             self.state.data.setdefault("limit_errors", []).extend(found)

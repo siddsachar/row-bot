@@ -292,6 +292,28 @@ def test_a_run_resumes_at_its_first_unfinished_step(timeline):
                                     "tells": [{"id": step[2]} for step in every if step[0] == "tell"]}, 3) == []
 
 
+def test_a_lost_sign_in_stops_the_run_before_it_saves_another_step(tmp_path, monkeypatch):
+    from row_bot.providers import codex
+    from tests.e2e.learning.seeded import live
+
+    monkeypatch.setattr(run, "SIGN_IN_LOST", [])
+    monkeypatch.setattr(codex, "refresh_codex_token", codex.refresh_codex_token)  # restored after the test
+    monkeypatch.setattr(live.SignIn, "_write_back", live.SignIn._write_back)
+    state = live.State(tmp_path / "state.json")
+    run.stop_saving_once_sign_in_lost(state)
+    state.data["notes"] = ["day 1"]
+    state.save()
+
+    run.guard_sign_in()
+    with pytest.raises(run.RefreshRefused):  # ChatGPT answered 401: the run may not refresh
+        codex.refresh_codex_token("a refresh token")
+    state.data["notes"] = ["day 1", "day 2, run without the simulated person"]
+    with pytest.raises(SystemExit) as stop:
+        state.save()
+    assert stop.value.code == run.EXIT_LIMIT  # the queue waits, then resumes from day 1 with the sign-in read again
+    assert json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))["notes"] == ["day 1"]
+
+
 def test_phrasing_keeps_only_variants_that_add_no_fact():
     template = "Send {alias} tomorrow's bread order: {n} large loaves."
     assert phrasing.keeps(template, "Can you send {alias} tomorrow's order? {n} large loaves.")
