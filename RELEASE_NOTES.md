@@ -2,6 +2,139 @@
 
 ---
 
+## v5.3.1-beta.1 - Real Work, Video, Linked Conversations & Waits
+
+Row-Bot 5.3.1 is about getting real work done. It follows the approval level you
+chose, with far fewer refusals. It can make and edit videos and talk to its
+other conversations. A chat or workflow can wait for something without using
+your plan, and Row-Bot tells you what it's doing as it works. This beta arrives
+through background updates on the Beta channel. Read **Upgrade Notes** below
+before upgrading.
+
+### One Safety Rule That Fits Real Work
+
+- **Your approval level decides** - every action follows the level you chose:
+  Block, Ask, Auto or Hands-off. Row-Bot still refuses, at any level, to touch
+  secrets and passwords, approve its own cards or raise its own level, wipe a
+  drive, or go past a platform's limits.
+- **Files and folders outside the workspace** - reading or changing them asks
+  with a clear card instead of being refused, and the shell can use Row-Bot's
+  own ffmpeg. Approve "for this chat" as well as "for this turn", for any tool.
+- **Your network** - addresses on your LAN, Tailscale or intranet open in the
+  browser and `read_url` once you allow them for the chat; workspace `file://`
+  pages open too.
+- **Computer use in workflows and helpers**, with the Stop bar on screen; typing
+  into a terminal goes through the command check instead of being refused.
+- **Bigger files** - long dictation, 150 MB Outlook attachments, larger uploads,
+  downloads and PDFs, and up to 20 background processes per chat.
+- **Apps, skills and plugins** - MCP tools that change things are on, gated by
+  your level; skills can be updated; a plugin may run programs when it says so
+  on its install card.
+- **Auto does what you asked** - the reviewer approves a send that clearly
+  matches your request. Money, posts in your name and permission changes still
+  come to you.
+- **Safer at home** - a request to Row-Bot's port from this computer no longer
+  counts as you unless it comes from the app, the launcher or a signed-in
+  session. Row-Bot's browser and child processes can never approve anything.
+
+### Video In Row-Bot
+
+- **Library › Media** - every picture, video and sound Row-Bot made or you
+  added, with search and tags.
+- **The Video panel** - a video as scenes on a timeline, with versions and a
+  live preview of edits.
+- **Every shape** - one video as wide, tall, square or a GIF. Square and tall
+  cuts follow the pointer, and captions fit each shape.
+- **A brand kit** - one look for every video.
+- **Recording** - full size, with a drawn pointer, paced steps and beats.
+- **Voice, music and checks** - Row-Bot's own voice (one download, asked once),
+  original music, transcripts, a narrated mix, and checks before it says a
+  video is done.
+- **Sandboxes** - a second Row-Bot on made-up data, for demos and trials, with
+  its own workspace. Its cards name it and say nothing leaves this computer; a
+  sandbox left behind by a crash is ended.
+
+### Conversations That Work Together
+
+- **Linked conversations** - a chat can start another, propose one, send it a
+  message and hear back. A note can go without asking for a reply, or wait for
+  a workflow's next run.
+- **Wait and come back** - a chat or workflow can wait without using your plan
+  for a background process to finish, a check (a command or a page) to pass, a
+  time, or another conversation to finish. Then it carries on with "Checked
+  back: …". The chat shows one "Waiting for …" row with Stop, and Home lists
+  waits under Needs you.
+- **Row-Bot reads what you send while it works** at its next step, instead of
+  after the whole reply.
+- **Row-Bot says what it's doing** - a short line as it works through tools,
+  in chats and workflow runs.
+- **Conversation details** show Waiting, Running, Workflow and Linked
+  conversations.
+
+### Workflows
+
+- **Workflows are scheduled chats** - one conversation each, written as
+  messages, with no steps, tool lists or step limit. Long runs ask "Keep going?"
+  after 1,000 rounds.
+- **What a chat has** - skills, their own details and notes, a time zone, and
+  helpers they can hand work to. Reach a workflow by its name.
+- **After a denial** - a denied action ends only that action; the run says what
+  it made, what's left, and remembers it.
+- **Guides that say how** - the workflow guide covers review slots, waiting
+  instead of hourly checks, and least access.
+
+### X And Growth
+
+- **Home › Review** - posts with a time wait there together in time slots;
+  edit a scheduled post's text or drop a picture before it goes. A post that
+  didn't go out stays in Review with the reason and what to do.
+- **Pictures and video on X** - posted through X's upload. A picture can come
+  from Library › Media or a chat file, and each screenshot has its own name.
+- **Numbers** - X post numbers and totals, and Google Analytics through Apps.
+- **Post limits and Edit** on X's cards; adding another account signs in again
+  instead of failing.
+
+### Fixes And Polish
+
+- **An open page no longer keeps Row-Bot busy** - it used to hold a write lock
+  on every read.
+- **A local page rides out a network drop** - a Row-Bot page on this computer
+  stays connected, with your draft, when Wi-Fi drops.
+- **Ready, not Idle** - Buddy says Ready after a turn, with a quieter sidebar
+  card; no toast repeats the waiting line.
+- **The chats list follows activity**, and "Row-Bot sent you …" shows at once.
+- **One shared browser** - no Take control or Give back; Row-Bot asks with a
+  question when it needs you.
+- **Local models** - recover from broken or dropped tool calls, and Stop ends a
+  local reply that streams nothing.
+- **Tool search** finds tools by their word forms.
+- **Skills** - a skill dropped into your skills folder is used without a
+  restart; a skill drafted in chat can be saved; applying a proposal asks with
+  the approval card. The self-improvement filter matches whole words only.
+- **Copy over plain HTTP** - Copy works when Row-Bot is opened at a LAN address
+  without HTTPS.
+- **Long-open approval cards** - an answer to a card left open for a while still
+  goes through.
+- **Smaller fixes** - the details card on wide windows, a page's script errors
+  named with their line, clearer data-folder hints, and access renewal only
+  when it's due.
+- **Libraries with security fixes** - filelock, brotli, fpdf2, langgraph,
+  hydra-core, msgpack and the client's and docs site's build tools.
+
+### Upgrade Notes
+
+- **From 5.3.0, in the background** - Row-Bot downloads the beta on the Beta
+  channel and says Restart to update.
+- **X: sign in once more** - posting pictures and video needs X's media access.
+  Row-Bot asks you to reconnect each X account once, before its next post.
+- **Fewer refusals** - actions that used to be refused now follow your approval
+  level. Under Hands-off they run without asking. Check the level of any chat
+  or workflow you set to Hands-off.
+- **Scripts that call Row-Bot's port** - a request from this computer now needs
+  the app's sign-in like any other device.
+
+---
+
 ## v5.3.0 - A Browser In The App, Pages, Outlook & Reviewed Approvals
 
 Row-Bot 5.3 puts its browser inside the app and rebuilds computer use. Row-Bot
