@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Tools
 
 <!-- generated-from: scripts/docs/collect_inventory.py -->
-<!-- inventory-hash: 330c0eed36fca647 -->
+<!-- inventory-hash: 15c1f65dce604dd1 -->
 
 <GeneratedNotice source="scripts/docs/collect_inventory.py" />
 
@@ -42,16 +42,17 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | pages | pages_guide | Guidance for making interactive pages beside the chat with page_create, page_update and page_read. | Operation-dependent approval | `tool_guides/pages_guide/SKILL.md` | `src/row_bot/tools/pages_tool.py` |
 | row_bot_status | row_bot_status_guide | Guidance for querying and managing Row-Bot's own configuration and logs. | Operation-dependent approval | `tool_guides/row_bot_status_guide/SKILL.md` | `src/row_bot/tools/row_bot_status_tool.py` |
 | shell | shell_guide | Guidance for shell commands and system info queries. | Operation-dependent approval | `tool_guides/shell_guide/SKILL.md` | `src/row_bot/tools/shell_tool.py` |
-| sound | Sound | Voice files, music and transcripts for video work (5.3.1 B), all made on this computer | No tool-wide destructive classification |  | `src/row_bot/tools/sound_tool.py` |
+| sound | Sound | Voice files, music and transcripts for video work (5.3.1 B), all made on this computer | Operation-dependent approval |  | `src/row_bot/tools/sound_tool.py` |
 | system_info | System Info | System Info tool - one-shot system overview via psutil | No tool-wide destructive classification |  | `src/row_bot/tools/system_info_tool.py` |
 | task | Task | Task tool - create, list, and run tasks from the agent | Approval-gated: task_delete |  | `src/row_bot/tools/task_tool.py` |
 | tracker | tracker_guide | Guidance for habit and activity tracking tools. | Approval-gated: tracker_delete | `tool_guides/tracker_guide/SKILL.md` | `src/row_bot/tools/tracker_tool.py` |
-| updater | updater_guide | Guidance for checking for and installing Row-Bot updates. | Operation-dependent approval | `tool_guides/updater_guide/SKILL.md` | `src/row_bot/tools/updater_tool.py` |
+| updater | updater_guide | Is Row-Bot up to date? Checking for and installing Row-Bot updates. | Operation-dependent approval | `tool_guides/updater_guide/SKILL.md` | `src/row_bot/tools/updater_tool.py` |
 | url_reader | Url Reader | URL / Webpage Reader tool - fetch and extract text from any URL. | Operation-dependent approval |  | `src/row_bot/tools/url_reader_tool.py` |
 | video_editing | video_editing_guide | Guidance for editing videos and taking stills with edit_video. | Operation-dependent approval | `tool_guides/video_editing_guide/SKILL.md` | `src/row_bot/tools/video_editing_tool.py` |
 | video_gen | Video Gen | Video generation tool - generate videos via Google Veo / xAI | No tool-wide destructive classification |  | `src/row_bot/tools/video_gen_tool.py` |
 | video_project | Video Project | The ``video`` tool (5.3.1 B3): a video project of scenes, shared with the Video panel | Operation-dependent approval |  | `src/row_bot/tools/video_project_tool.py` |
 | vision | vision_guide | Guidance for using webcam, screen capture, and image analysis. | Operation-dependent approval | `tool_guides/vision_guide/SKILL.md` | `src/row_bot/tools/vision_tool.py` |
+| waits | Waits | Waits tool (5.3.1): wait for something and carry on in this conversation when it happens | Operation-dependent approval |  | `src/row_bot/tools/waits_tool.py` |
 | weather | weather_guide | Guidance for using weather tools effectively. | No tool-wide destructive classification | `tool_guides/weather_guide/SKILL.md` | `src/row_bot/tools/weather_tool.py` |
 | web_search | Web Search | Web search retrieval tool (Tavily). | No tool-wide destructive classification |  | `src/row_bot/tools/web_search_tool.py` |
 | wiki | wiki_guide | Guidance for the Obsidian-compatible wiki vault. | No tool-wide destructive classification | `tool_guides/wiki_guide/SKILL.md` | `src/row_bot/tools/wiki_tool.py` |
