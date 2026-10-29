@@ -7,7 +7,7 @@ type ScreenshotProps = {
   caption?: string;
 };
 
-const SCREENSHOT_REVISION = '5.3.0';
+const SCREENSHOT_REVISION = '5.3.1-beta.1';
 
 export default function Screenshot({id, alt, caption}: ScreenshotProps): JSX.Element {
   const src = `/img/screenshots/real-ui/${id}.png?v=${SCREENSHOT_REVISION}`;
