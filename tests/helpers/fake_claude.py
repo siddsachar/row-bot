@@ -17,7 +17,7 @@ its MCP server listed and every frame it was sent, as it goes, so a stopped run'
 ``auth login`` is Claude's sign-in as the panel shows it: it prints ``login_marker`` (a stand-in for what must
 never reach Row-Bot's logs or stores) with a link and Claude's paste prompt, reads one line, and when it is
 ``login_code`` writes ``~/.claude/.credentials.json`` (as Claude Code does on Linux and Windows) and is signed
-in from then on; any other code prints Claude's own refusal and exits 1.
+in from then on; any other code prints Claude's own refusal and asks again.
 """
 
 from __future__ import annotations
@@ -62,14 +62,18 @@ if args == ["auth", "login"]:
     sys.stdout.write("Welcome to Claude Code " + marker + "\r\n")
     sys.stdout.write("Browser didn't open? Use the url below to sign in:\r\n")
     sys.stdout.write("https://claude.ai/oauth/authorize?code=true&state=" + marker + "\r\n")
-    sys.stdout.write("Paste code here if prompted > ")
-    sys.stdout.flush()
-    code = sys.stdin.readline().strip()
-    record(login_code_matched=code == config.get("login_code"))
-    if code != config.get("login_code"):
-        sys.stdout.write("\r\nOAuth error: Invalid code\r\n")
+    while True:
+        sys.stdout.write("Paste code here if prompted > ")
         sys.stdout.flush()
-        sys.exit(1)
+        line = sys.stdin.readline()
+        if not line:
+            sys.exit(1)
+        code = line.strip()
+        record(login_code_matched=code == config.get("login_code"))
+        if code == config.get("login_code"):
+            break
+        sys.stdout.write("\r\nOAuth error: Invalid code\r\n\r\n")
+        sys.stdout.flush()
     folder = os.path.join(os.path.expanduser("~"), ".claude")
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, ".credentials.json"), "w", encoding="utf-8") as credentials:

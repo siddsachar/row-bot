@@ -259,6 +259,7 @@ it('not installed: one button installs Claude Code from Anthropic, then opens Cl
     screen.getByText('Installing Claude Code from Anthropic…'),
   ).toBeVisible();
   expect(screen.getByRole('progressbar')).toHaveAttribute('value', '45');
+  expect(screen.getByText('50% downloaded')).toBeVisible();
 
   await settle(600);
   expect(screen.getByText('Installed (version 2.1.300)')).toBeVisible();

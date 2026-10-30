@@ -2869,8 +2869,16 @@
   font-size: var(--text-13);
   font-weight: var(--weight-regular);
 }
+.claude-plan-progress {
+  display: grid;
+  gap: 4px;
+}
 .claude-plan-progress progress {
   width: 100%;
+}
+.claude-plan-progress small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
 }
 .claude-sign-in {
   display: flex;

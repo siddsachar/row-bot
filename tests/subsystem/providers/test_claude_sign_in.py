@@ -91,11 +91,15 @@ def panel(tmp_path, monkeypatch):
             return ClaudePlanStatus("ready", version="2.1.300", plan="Claude Max", program="claude")
         return ClaudePlanStatus("signed_out", version="2.1.300", program="claude")
 
-    from row_bot.providers import claude_subscription, model_catalog_cache
+    from row_bot.providers import claude_subscription, live_settings, model_catalog_cache
 
-    # Settings asks the same fake account, and a model listing it would start is only recorded.
+    # Settings asks the same fake account (its Claude row only: no other provider is asked), and a model
+    # listing it would start is only recorded.
     monkeypatch.setattr(claude_subscription, "check_claude_code", status)
     monkeypatch.setattr(model_catalog_cache, "start_model_catalog_refresh_background", lambda **_: True)
+    monkeypatch.setattr(live_settings, "provider_status_cards", lambda **_: [{
+        **claude_subscription.claude_plan_provider_status(), "display_name": "Claude (your Claude plan)",
+        "group": "Subscription Accounts", "icon": "C", "risk_label": "subscription", "model_count": None}])
     clock = Clock()
     manager = sign_in.ClaudeSignIns(pty_factory=factory, status=status, clock=clock, sweep_every=None)
     monkeypatch.setattr(sign_in, "_sign_ins", manager)
@@ -193,9 +197,15 @@ def test_wrong_code_keeps_claudes_prompt_and_the_right_one_connects_then_it_clos
         assert ended.status_code == 409 and ended.json()["code"] == "claude_sign_in_ended"
 
 
+def _files(*roots: Path) -> dict[Path, tuple[int, int]]:
+    return {path: (stat.st_mtime_ns, stat.st_size) for root in roots for path in root.rglob("*")
+            if path.is_file() and (stat := path.stat())}
+
+
 def test_no_terminal_content_reaches_logs_transcripts_or_storage(panel, caplog, tmp_path) -> None:
     caplog.set_level(logging.DEBUG)
     data_dir = Path(os.environ["ROW_BOT_DATA_DIR"])
+    before = _files(data_dir, tmp_path)
     client, service, _ = client_app(remote=True)
     with client:
         _, headers = bootstrap(client)
@@ -211,12 +221,14 @@ def test_no_terminal_content_reaches_logs_transcripts_or_storage(panel, caplog, 
         assert closed.status_code == 200 and panel.manager._current is None
         assert _read(client, headers, identifier).status_code == 404
 
+    # Every file written while it ran (the profile and the test's own folder), but the fake's own log.
+    written = [path for path, facts in _files(data_dir, tmp_path).items()
+               if before.get(path) != facts and "fake-claude-bin" not in path.parts]
     for marker in (SECRET, CODE, "not-it"):
         assert marker not in caplog.text
         assert marker not in repr(service.__dict__)  # nothing reached the conversation service
-        for path in [*data_dir.rglob("*"), *tmp_path.rglob("*")]:
-            if path.is_file() and "fake-claude-bin" not in path.parts:
-                assert marker.encode() not in path.read_bytes(), path
+        for path in written:
+            assert marker.encode() not in path.read_bytes(), path
 
 
 def test_a_sign_in_never_outlives_the_server(panel) -> None:

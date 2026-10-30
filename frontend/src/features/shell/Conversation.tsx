@@ -2539,6 +2539,8 @@ export default function Conversation({
   // A sign-in that can't be used fails every resume the same way: say so,
   // with the one fix, instead of "interrupted · Resume" (B351).
   const signInNeeded = thisFailure?.signIn ?? '';
+  // Claude signs in through Claude Code itself: Claude signed the person out (U11).
+  const claudeSignedOut = signInNeeded === 'Claude';
   const interrupted =
     !isRunning && generation?.status === 'interrupted' && !signInNeeded;
   const failed = !interrupted && !signInNeeded && Boolean(thisFailure);
@@ -3214,9 +3216,11 @@ export default function Conversation({
         stopped: 'Stopped.',
         waiting_approval: 'Waiting for your approval.',
         completed: 'Response complete.',
-        interrupted: signInNeeded
-          ? `Sign in to ${signInNeeded} again.`
-          : 'The response was interrupted.',
+        interrupted: claudeSignedOut
+          ? 'Claude signed you out.'
+          : signInNeeded
+            ? `Sign in to ${signInNeeded} again.`
+            : 'The response was interrupted.',
       }[generation.status] ?? '')
     : '';
   return (
@@ -3615,15 +3619,20 @@ export default function Conversation({
                 <div className="turn-notice" data-tone="warning">
                   <TriangleAlert className="turn-notice-icon" aria-hidden />
                   <div className="turn-notice-text">
-                    <strong>Sign in to {signInNeeded} again</strong>
+                    <strong>
+                      {claudeSignedOut
+                        ? 'Claude signed you out'
+                        : `Sign in to ${signInNeeded} again`}
+                    </strong>
                     <span>
-                      Your {signInNeeded} sign-in can't be used any more.
-                      Reconnect it, then send your message again.
+                      {claudeSignedOut
+                        ? 'Sign in again to keep using your plan.'
+                        : `Your ${signInNeeded} sign-in can't be used any more. Reconnect it, then send your message again.`}
                     </span>
                   </div>
                   <div className="turn-notice-actions">
                     <Button onClick={() => navigate('/settings/providers')}>
-                      Reconnect
+                      {claudeSignedOut ? 'Sign in again' : 'Reconnect'}
                     </Button>
                   </div>
                 </div>

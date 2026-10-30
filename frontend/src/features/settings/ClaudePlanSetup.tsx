@@ -100,12 +100,21 @@ type Step =
 
 const POLL_MS = 500;
 
-function installing(progress: ClaudeCodeInstallState | null) {
-  if (!progress || progress.step === 'download')
-    return progress?.total
-      ? Math.min(99, Math.round((progress.received / progress.total) * 90))
-      : undefined;
-  return progress.step === 'check' ? 92 : 96;
+/** How far the install is (the download is most of it), and what it is doing, in words. */
+function installing(progress: ClaudeCodeInstallState | null): {
+  value: number | undefined;
+  words: string;
+} {
+  if (progress?.step === 'check')
+    return { value: 92, words: 'Checking Anthropic’s checksum…' };
+  if (progress?.step === 'install')
+    return { value: 96, words: 'Setting up Claude Code…' };
+  if (!progress?.total) return { value: undefined, words: 'Downloading…' };
+  const share = Math.min(1, progress.received / progress.total);
+  return {
+    value: Math.round(share * 90),
+    words: `${Math.round(share * 100)}% downloaded`,
+  };
 }
 
 /**
@@ -230,7 +239,7 @@ export default function ClaudePlanSetup({
 
   let body: ReactNode;
   if (step.kind === 'installing') {
-    const value = installing(step.progress);
+    const { value, words } = installing(step.progress);
     body = (
       <div className="claude-plan-progress" role="status" aria-live="polite">
         <Progress
@@ -241,6 +250,7 @@ export default function ClaudePlanSetup({
           }
           value={value}
         />
+        <small>{words}</small>
       </div>
     );
   } else if (step.kind === 'install_failed') {
