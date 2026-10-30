@@ -58,14 +58,13 @@ body:
     id: os
     attributes:
       label: Operating system
+      description: For the desktop app. Skip it for Docker or a hosting service.
       options:
         - Windows
         - macOS Apple Silicon
         - macOS Intel
         - Linux
         - Other
-    validations:
-      required: true
   - type: textarea
     id: logs
     attributes:
