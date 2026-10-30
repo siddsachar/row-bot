@@ -25,10 +25,25 @@ _PAGE = b"""<!doctype html><html><head><title>Local app</title>
 </body></html>"""
 
 
+# A sign-in code split into boxes, filled from the paste event's own data (as code pages do); and a plain field.
+_CODE = b"""<!doctype html><html><head><title>Enter code</title></head><body>
+<div id="code"><input maxlength="1"><input maxlength="1"><input maxlength="1"><input maxlength="1"></div>
+<input id="note" style="display:block;width:300px">
+<script>
+const boxes = Array.from(document.querySelectorAll('#code input'));
+boxes[0].addEventListener('paste', (event) => {
+  event.preventDefault();
+  const text = event.clipboardData.getData('text/plain').replace(/[^A-Z0-9]/gi, '');
+  boxes.forEach((box, index) => { box.value = text[index] || ''; });
+});
+</script></body></html>"""
+
+
 class _Local(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         # /plain is the same page without its password field.
         body = _PAGE if self.path != "/plain" else _PAGE.replace(b'<input type="password"', b'<input type="text"')
+        body = _CODE if self.path == "/code" else body
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -72,6 +87,26 @@ def _open(session, chat: str, url: str) -> str:
         return ""
 
     return session.act(chat, "Open", step).text
+
+
+def test_the_persons_paste_reaches_the_page_as_its_own_paste(browser):
+    """A code split into boxes reads the paste event: typed-in text alone filled one box (30 Oct sign-in)."""
+    session, origin = browser
+    session.allow_local_address("chat", origin, source="you")
+    assert "Enter code" in _open(session, "chat", origin + "/code")
+
+    def value(selector: str) -> str:
+        return session._run(lambda: session._chats["chat"].active.page.evaluate(
+            "(s) => Array.from(document.querySelectorAll(s)).map((box) => box.value).join('')", selector))
+
+    session._run(lambda: session._chats["chat"].active.page.focus("#code input"))
+    assert session.person_input("chat", [{"type": "paste", "text": "AB-12"}])["status"] == "ok"
+    assert value("#code input") == "AB12"
+
+    # A field that leaves paste to the browser gets the text as typed.
+    session._run(lambda: session._chats["chat"].active.page.focus("#note"))
+    session.person_input("chat", [{"type": "paste", "text": "Order 1042, damaged in transit"}])
+    assert value("#note") == "Order 1042, damaged in transit"
 
 
 def _inner_width(session, chat: str) -> int:
