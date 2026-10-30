@@ -473,14 +473,14 @@ def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[fl
          mime_type=str(saved["mime_type"]), size_bytes=len(sheet))
 
 
-def check_file(ffmpeg: Any, path: Path, folder: Path) -> Any:
+def check_file(ffmpeg: Any, path: Path, folder: Path, *, narrated: bool = False) -> Any:
     """Read a finished video for its sound level, black stretches and still stretches (``Checks``)."""
     from row_bot.video_editing import check_arguments, read_checks
 
     info = probe_video(ffmpeg, str(path), folder)
     try:
         done = subprocess.run(  # noqa: S603 - the resolved ffmpeg, arguments built by video_editing
-            ffmpeg.command(*check_arguments(path, has_audio=info.has_audio)), cwd=folder, capture_output=True,
+            ffmpeg.command(*check_arguments(path, has_audio=info.has_audio, narrated=narrated)), cwd=folder, capture_output=True,
             text=True, timeout=1800, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             encoding="utf-8", errors="replace",
         )
@@ -488,12 +488,12 @@ def check_file(ffmpeg: Any, path: Path, folder: Path) -> Any:
         from row_bot.video_editing import EditError
 
         raise EditError("Checking took too long: check a shorter part (trim it first).") from None
-    return read_checks(done.stderr or "", info)
+    return read_checks(done.stderr or "", info, narrated=narrated)
 
 
-def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path) -> None:
+def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, *, narrated: bool = False) -> None:
     _check(edit)
-    checks = check_file(ffmpeg, folder / "output.mp4", folder)
+    checks = check_file(ffmpeg, folder / "output.mp4", folder, narrated=narrated)
     _set(edit, checks=list(checks.lines), checks_passed=bool(checks.passed))
 
 
@@ -536,8 +536,8 @@ def _run(edit: VideoEdit, request: Request) -> None:
             _set(edit, expected_seconds=round(plan.duration, 2), marks=list(plan.marks))
             _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
             _measure(edit, ffmpeg, folder)
-            if request.check:
-                _check_video(edit, ffmpeg, folder)
+            if request.check or plan.narrated:  # A video given a voice is checked for gaps in it.
+                _check_video(edit, ffmpeg, folder, narrated=plan.narrated)
             _save_video(edit, folder / "output.mp4")
         else:
             info = inputs[0].info
