@@ -382,6 +382,11 @@ def test_a_narrated_video_with_long_quiet_gaps_or_a_long_held_picture_needs_atte
     held = read_checks("mean_volume: -19.0 dB\nmax_volume: -2.0 dB\n"
                        "lavfi.freezedetect.freeze_start: 4.4\nlavfi.freezedetect.freeze_duration: 14.2\n", minute)
     assert not held.passed and held.lines[3].startswith("Still: 0:04.4 for 14 s: too long to watch.")
+    # Under the voice a viewer reads along: a narrated picture may hold up to 20 s (demo run 2, 30 Oct, re-cut its
+    # video twelve times for 11 s holds), not longer.
+    spoken = "mean_volume: -19.0 dB\nmax_volume: -2.0 dB\nlavfi.freezedetect.freeze_start: 4.4\n"
+    assert read_checks(spoken + "lavfi.freezedetect.freeze_duration: 14.2\n", minute, narrated=True).passed
+    assert not read_checks(spoken + "lavfi.freezedetect.freeze_duration: 22.0\n", minute, narrated=True).passed
 
     voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)], parse_steps([{"op": "sound", "source": "a.wav"}]),
                         "output.mp4", sounds={"a.wav": "sound-1.wav"})

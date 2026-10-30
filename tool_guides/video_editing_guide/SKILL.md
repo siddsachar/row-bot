@@ -22,7 +22,8 @@ tags: []
   the video shorter to fit what's said.
 - A video given a voice is checked when it's made. "Needs attention" is not
   done: a quiet gap wants a line or a shorter part, and a picture held 10 s
-  or more wants that part cut shorter or sped up. Fix it and make it again.
+  (20 s under the voice) wants that part cut shorter, sped up or zoomed.
+  Fix it and make it again.
 - The result is an MP4 in this chat with a player; do not paste it again.
   A long edit carries on in the background with its own progress and Stop:
   say so, and call edit_video with action status and its edit_id to wait.
