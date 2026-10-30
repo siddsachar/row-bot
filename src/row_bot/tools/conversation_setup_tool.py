@@ -53,7 +53,7 @@ GUIDANCE = (
     "website, script, program or other code project, call create_code_folder first (name it from "
     "the request); for a deck, slides, a presentation, a document to design, a landing page, a "
     "mockup or a storyboard, call create_design. Not for questions, explanations, a short snippet, "
-    "an image, a workflow, results wanted in the chat or app only, or a file in their workspace "
+    "an image, a workflow, results wanted in the chat or the app only, or a file in their workspace "
     "(there already or asked for there): work on it where it is. If the conversation already has the "
     "code folder or design they mean, keep working in it. After creating one, end your reply with one "
     "short sentence: the work continues by itself in the next step, where the new folder or design is "
