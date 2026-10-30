@@ -20,13 +20,14 @@ on, never a migration.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from typing import Literal
 
 
 ApprovalMode = Literal["block", "approve", "auto", "full"]
 ApprovalDecision = Literal["block", "ask", "allow"]
 
-DEFAULT_APPROVAL_MODE: ApprovalMode = "approve"
 APPROVAL_MODES: tuple[ApprovalMode, ...] = ("block", "approve", "auto", "full")
 
 APPROVAL_MODE_LABELS: dict[ApprovalMode, str] = {
@@ -70,6 +71,21 @@ _LEGACY_APPROVAL_ALIASES: dict[str, ApprovalMode] = {
     "full_autonomy": "full",
     "full autonomy": "full",
 }
+
+
+def starting_level(environ: Mapping[str, str] | None = None) -> ApprovalMode:
+    """A new chat's level: Ask. In a sandbox, the level of the chat that made it (Block, Ask or Auto), so a
+    demo filmed there never waits on an approval nobody can see."""
+    environ = os.environ if environ is None else environ
+    if environ.get("ROW_BOT_SANDBOX") == "1":
+        level = _LEGACY_APPROVAL_ALIASES.get(str(environ.get(SANDBOX_LEVEL_ENV) or "").strip().lower())
+        if level in ("block", "approve", "auto"):
+            return level
+    return "approve"
+
+
+SANDBOX_LEVEL_ENV = "ROW_BOT_SANDBOX_APPROVAL"
+DEFAULT_APPROVAL_MODE: ApprovalMode = starting_level()
 
 
 def normalize_approval_mode(
