@@ -2980,7 +2980,7 @@ function FileAccessSetting({
   return (
     <SettingsItem
       label="Work with files"
-      help="In the workspace folder only."
+      help="In the workspace folder. Elsewhere, it asks first."
       icon={<Files size={16} aria-hidden />}
       tone="1"
       anchor="file-operations"
@@ -3086,7 +3086,7 @@ function WorkspaceFolderSetting({
       mutation={mutation}
       field="workspace.folder_grant"
       label="Workspace folder"
-      hint="Row-Bot’s file tools only work inside this folder. Settings shows its name, never its full path."
+      hint="Row-Bot’s file tools work here freely and ask before reaching outside it. Settings shows its name, never its full path."
       value=""
       savedMessage={() => 'Workspace folder changed'}
       row={{
