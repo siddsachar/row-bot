@@ -55,7 +55,7 @@ def navigation_policy(url: str, current_url: str = "") -> tuple[str, str]:
         # a server started in this chat opens without asking (5.3.1 A2).
         return "block", ("Files don't open in Row-Bot's browser. To preview a page, start a server in its "
                          "folder in this chat (python -m http.server 8000) and open http://localhost:8000; "
-                         "it opens without asking.")
+                         "it opens without asking. Stop the server once you're done with it.")
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         return "block", "Only http and https addresses open in Row-Bot's browser."
     if parsed.username or parsed.password:

@@ -1293,7 +1293,8 @@ class ShellTool(BaseTool):
                     "Asks for approval like run_command. Returns its "
                     "process_id, its first output and any local address it serves. Background "
                     "processes belong to this conversation, stop when Row-Bot quits, and at "
-                    f"most {MAX_RUNNING_PER_CONVERSATION} run at once here."
+                    f"most {MAX_RUNNING_PER_CONVERSATION} run at once here. A server you start "
+                    "only to preview or record a page, stop with stop_process once you're done."
                 ),
             ),
             StructuredTool.from_function(
