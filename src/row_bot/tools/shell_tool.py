@@ -207,6 +207,7 @@ _FFMPEG_COMMAND = re.compile(r"(?:^|[|;&]\s*|\n\s*)(?:ffmpeg|ffprobe)(?:\.exe)?(
 _PIPE_FILTERS: dict[str, tuple[str, ...]] = {
     "select-object": (), "select": (), "sort-object": (), "measure-object": (), "measure": (),
     "group-object": (), "format-table": (), "ft": (), "format-list": (), "fl": (),
+    "convertto-json": (), "convertto-csv": (), "out-string": (),
     "sort": ("-o", "--output", "--compress-program"),
 }
 

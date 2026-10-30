@@ -58,6 +58,7 @@ def shell(tmp_path, reload_for_data_dir):
     "Get-ChildItem | ForEach-Object { Remove-Item $_ }",
     "ls || python build.py",
     "Get-ChildItem | Sort-Object LastWriteTime | Remove-Item",
+    "Get-ChildItem | ConvertTo-Json | Out-File listing.json",
     "ls `python build.py`",
     'echo "$(python build.py)"',
     "ls (python build.py)",
@@ -165,6 +166,7 @@ def test_lines_the_two_shells_read_differently_ask(shell, command):
     "Get-ChildItem -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 20 "
     "FullName,LastWriteTime",
     "Get-ChildItem -Recurse | Measure-Object",
+    "Get-ChildItem -LiteralPath . -Recurse -File -Force | Select-Object FullName,LastWriteTimeUtc | ConvertTo-Json",
     "grep -rn TODO src | wc -l",
     'echo "a | b" | sort',
 ])
