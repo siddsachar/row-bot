@@ -201,8 +201,9 @@ def test_page_sizes_apply_to_the_conversations_page(engines, preset, scale, expe
 
     [cdp] = session._context.sessions
     assert cdp.sent[0] == ("Emulation.setDeviceMetricsOverride", expected)
+    # Chromium refuses touch points outside 1-16, so switching touch off sends none.
     assert cdp.sent[1] == ("Emulation.setTouchEmulationEnabled",
-                           {"enabled": expected["mobile"], "maxTouchPoints": 5 if expected["mobile"] else 0})
+                           {"enabled": True, "maxTouchPoints": 5} if expected["mobile"] else {"enabled": False})
     assert words.startswith(f"The page now shows at {preset} size: {expected['width']}×{expected['height']}")
 
     # The screenshot says which size it shows.
