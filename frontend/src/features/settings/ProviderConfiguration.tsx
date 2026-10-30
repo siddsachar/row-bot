@@ -125,15 +125,18 @@ const ENDPOINT_PROBLEMS = new Set([
   'endpoint_address_blocked',
 ]);
 const KEY_PROBLEMS = new Set(['endpoint_key_rejected', 'endpoint_key_missing']);
+const THIS_SERVER = /^(?:localhost|::1|0\.0\.0\.0|127(?:\.\d+){3})$/;
 /** What went wrong with an endpoint at `url`, in words that name it. */
 function endpointProblem(
   failure: { code: string; message: string },
-  url: string,
+  { url, allowed }: { url: string; allowed: boolean },
   hostName: string | null,
 ) {
   if (!url) return failure.message;
   if (failure.code === 'endpoint_unreachable')
-    return hostName
+    // A hosted server reaches the endpoint over the internet, unless it runs on the
+    // server itself or at a private address its owner allowed.
+    return hostName && !allowed && !THIS_SERVER.test(urlHost(url))
       ? `Row-Bot couldn't reach ${url}. Check it's running and reachable from the internet.`
       : `Row-Bot couldn't reach ${url}. Check the address and that the server is running.`;
   if (failure.code === 'endpoint_private_address')
@@ -379,14 +382,20 @@ export default function ProviderConfiguration(
     });
   }
   const hostName = props.hostName ?? null;
-  const urlOf = (captured: Fields) =>
-    'base_url' in captured
-      ? captured.base_url
-      : (page?.items.find(
-          (item) =>
-            'endpoint_id' in captured &&
-            item.fields.endpoint_id === captured.endpoint_id,
-        )?.fields.base_url ?? '');
+  const addressOf = (captured: Fields) => {
+    const endpoint =
+      'base_url' in captured
+        ? captured
+        : page?.items.find(
+            (item) =>
+              'endpoint_id' in captured &&
+              item.fields.endpoint_id === captured.endpoint_id,
+          )?.fields;
+    return {
+      url: endpoint?.base_url ?? '',
+      allowed: endpoint?.allow_private_address ?? false,
+    };
+  };
   const keyOf = (captured: Fields, code: string) =>
     KEY_PROBLEMS.has(code) && 'endpoint_id' in captured
       ? `custom_openai_${captured.endpoint_id}`
@@ -643,7 +652,7 @@ export default function ProviderConfiguration(
               notice: session.getSnapshot().pending
                 ? "Endpoint saved, but Row-Bot couldn't confirm the model refresh. Check again."
                 : definite
-                  ? `Endpoint saved. ${endpointProblem(failure, captured.base_url, hostName)}`
+                  ? `Endpoint saved. ${endpointProblem(failure, addressOf(captured), hostName)}`
                   : 'Endpoint saved, but model refresh did not start.',
             });
             if (!session.getSnapshot().pending) void load();
@@ -656,7 +665,7 @@ export default function ProviderConfiguration(
         session.update({
           pending: null,
           busy: '',
-          notice: endpointProblem(failure, urlOf(captured), hostName),
+          notice: endpointProblem(failure, addressOf(captured), hostName),
           keyFor: keyOf(captured, failure.code),
         });
         void load();

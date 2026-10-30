@@ -725,6 +725,40 @@ it("names the address it couldn't reach, in words for a hosted server", async ()
   expect(screen.queryByRole('button', { name: 'Enter API key' })).toBeNull();
 });
 
+it.each([
+  ['an allowed private address', 'http://10.0.0.5:11434/v1', true],
+  ['the server itself', 'http://127.0.0.1:8080/v1', false],
+])(
+  "doesn't send a hosted owner to the internet for %s",
+  async (_, url, allowed) => {
+    const props = options();
+    const endpoint = {
+      ...fields,
+      base_url: url,
+      allow_private_address: allowed,
+    };
+    props.load.mockResolvedValue({
+      ...page,
+      items: [{ ...page.items[0], fields: endpoint }],
+    });
+    props.apply.mockRejectedValueOnce({
+      code: 'endpoint_unreachable',
+      status: 409,
+    });
+    render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Refresh Synthetic endpoint models',
+      }),
+    );
+    expect(
+      await screen.findByText(
+        `Row-Bot couldn't reach ${url}. Check the address and that the server is running.`,
+      ),
+    ).toBeVisible();
+  },
+);
+
 it('explains a private address refused on refresh, and a metadata address never allowed', async () => {
   const props = options();
   const office = { ...fields, base_url: 'http://192.168.1.20:11434/v1' };
