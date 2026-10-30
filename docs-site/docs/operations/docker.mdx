@@ -11,6 +11,8 @@ The official container runs one **single-owner, multi-device** Row-Bot instance.
 
 The default Compose topology publishes only `127.0.0.1:8080`, runs the application as UID/GID 10001 with a read-only root filesystem, and keeps private state in separate named data and encryption-key volumes. It does not mount the Docker socket, host devices, a desktop display, or host audio.
 
+To run the image as one container with one volume and no Compose, the way a hosting service does, read [Hosting Row-Bot](/docs/operations/hosting).
+
 ## Prerequisites
 
 - Docker Engine or Docker Desktop with Linux containers and Docker Compose.
@@ -240,7 +242,7 @@ Restrict the host directory to the Docker operator and container UID/GID 10001. 
 
 `ROW_BOT_SECRET_STORE_KEY` is different: it is a 32-byte master key encoded as exactly 64 hexadecimal characters. The default initializer generates it automatically in the project-scoped key volume; the override above makes you its operator. When a desktop keyring is unavailable, Row-Bot uses it to encrypt in-app OAuth tokens and other owner-entered secrets under `/data/secure-secrets`. This allows ChatGPT/Codex and other rotating OAuth credentials to survive a process restart or container replacement without placing the tokens in environment variables. The master key itself remains only in `/run/secrets` and is never copied into `/data`.
 
-Keep the same key for backup, restore, upgrade, and rollback. A missing key leaves newly entered credentials session-only; an invalid or changed key fails closed and cannot decrypt, replace, or delete existing encrypted records. There is no automatic key rotation. To replace a lost key, reconnect the affected accounts and re-enter secrets after deliberately starting with an empty encrypted secret directory.
+Keep the same key for backup, restore, upgrade, and rollback. With no key and nothing saved yet, Row-Bot makes its own key on the data volume ([Hosting Row-Bot](/docs/operations/hosting#the-secret-store-key)); saved secrets with no key stop the start, and an invalid or changed key fails closed and cannot decrypt, replace, or delete existing encrypted records. There is no automatic key rotation. To replace a lost key, reconnect the affected accounts and re-enter secrets after deliberately starting with an empty encrypted secret directory.
 
 ## Build From Source
 

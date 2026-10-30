@@ -165,6 +165,24 @@ guides:
     - src/row_bot/secret_store.py
     - src/row_bot/developer/
     - scripts/smoke_docker_server.py
+  host-row-bot:
+    title: Host Row-Bot As One Container
+    route: /docs/operations/hosting
+    sources:
+    - deploy/docker/Dockerfile
+    - src/row_bot/access/setup_code.py
+    - src/row_bot/access/config.py
+    - src/row_bot/hosting.py
+    - src/row_bot/secret_store.py
+    - src/row_bot/environment_secrets.py
+    - src/row_bot/updates/external.py
+  review-host-access:
+    title: Review What Your Host Can See
+    route: /docs/privacy-safety/what-your-host-can-see
+    sources:
+    - src/row_bot/secret_store.py
+    - src/row_bot/environment_secrets.py
+    - src/row_bot/install_count.py
   extend-row-bot:
     title: Choose An Extension Type
     route: /docs/extending/

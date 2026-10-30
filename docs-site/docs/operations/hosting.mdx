@@ -1,0 +1,183 @@
+---
+title: "Hosting Row-Bot"
+description: "Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes and updates."
+---
+
+# Hosting Row-Bot
+
+This page is for hosting services, and for anyone who runs the published image the way a hosting service does: one container, one volume and one port, set up with environment variables alone. For Docker Compose on your own computer or server, follow [Docker And VPS Operations](/docs/operations/docker); what this page says about the image applies there too.
+
+Each container is one person's Row-Bot: one owner, signed in from as many devices as they like. It is not a service for several people, and not a boundary between people who don't trust each other.
+
+If a hosting service runs Row-Bot for you, read [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) instead.
+
+## At A Glance
+
+| | |
+|---|---|
+| **Image** | `ghcr.io/siddsachar/row-bot`, for `linux/amd64` and `linux/arm64` |
+| **Command** | The image's own: `row-bot serve`. Start it as the container's first process |
+| **User** | uid 10001, gid 10001, never root |
+| **Volume** | One, at `/data` |
+| **Port** | 8080, plain HTTP. HTTPS ends at your proxy |
+| **Health** | `/healthz` answers while the process runs; `/readyz` answers 200 once Row-Bot is ready, and 503 while it starts. Like every request, they need a host name Row-Bot knows ([Address And Proxy](#address-and-proxy)) |
+| **Set-up** | None: no init container and no set-up job. `row-bot serve` sets up what it needs as it starts |
+| **Logs** | The container output. The setup code and any reason Row-Bot won't start appear there, so show it to the owner |
+
+The image is the whole Row-Bot server: its browser (headless Chromium), and Python and Node.js for tools and MCP servers. It has no GPU, desktop window, screen, microphone or speaker.
+
+To try the shape on your own computer, with a key of its own and the port open only to that computer:
+
+```sh
+umask 077
+printf 'ROW_BOT_SECRET_STORE_KEY=%s\n' "$(openssl rand -hex 32)" > row-bot.env
+docker run --detach --name row-bot --restart unless-stopped \
+  --publish 127.0.0.1:8080:8080 --env-file row-bot.env \
+  --volume row_bot_data:/data ghcr.io/siddsachar/row-bot:X.Y.Z
+docker logs row-bot
+```
+
+The log shows the setup code. Open `http://127.0.0.1:8080` and enter it. Keep `row-bot.env` private, and keep a copy apart from the volume.
+
+## Image And Tags
+
+- **`X.Y.Z`** for each release, such as `ghcr.io/siddsachar/row-bot:5.3.2`. One tag covers both architectures.
+- **`latest`** moves to each stable release. A prerelease, such as `X.Y.Z-beta.1`, never moves it.
+- The image is published when its GitHub release is, so a version tag in the source can exist before its image does. Check it with `docker buildx imagetools inspect ghcr.io/siddsachar/row-bot:X.Y.Z`. To pin the exact build, use the digest from the release ([Docker And VPS Operations](/docs/operations/docker#download-a-release-pinned-compose-file)).
+
+### Release Notes For Hosts
+
+From 5.3.2 on, each version's notes in [GitHub Releases](https://github.com/siddsachar/row-bot/releases) end with a **For Hosts** section. It lists breaking changes for hosts, a new recommended size and new host settings, or says "No changes for hosts."
+
+Read it before you offer a new version. Breaking changes for hosts are flagged there, and announced to hosts at least a week before the release that brings them.
+
+## Settings
+
+Everything is an environment variable, set when the container starts. The image already sets the rest (`ROW_BOT_DATA_DIR=/data`, `ROW_BOT_DEPLOYMENT_MODE=server`, port 8080 on every interface), so don't change those.
+
+| Variable | Who sets it | What it does |
+|---|---|---|
+| `ROW_BOT_SETUP_CODE` | The host, generated for each server (optional) | The code that makes the first browser the owner. [More](#the-setup-code) |
+| `ROW_BOT_SECRET_STORE_KEY` | The host, generated for each server, never changed | The key that encrypts saved sign-ins and keys. [More](#the-secret-store-key) |
+| `ROW_BOT_PUBLIC_URL` | The host, for each server | The exact address people open. [More](#address-and-proxy) |
+| `ROW_BOT_TRUSTED_PROXY_CIDRS` | The host | The address ranges of the proxy in front of Row-Bot. [More](#address-and-proxy) |
+| `ROW_BOT_HOSTED_BY` | The host (optional) | Names the hosting service on Row-Bot's own pages. [More](#the-hosts-name) |
+| `ROW_BOT_UPDATES` | The image: `external` | Row-Bot never updates itself; the host does. [More](#updates) |
+
+### The Setup Code
+
+The first person to open a new Row-Bot sees its setup page. Entering the setup code makes that browser the owner; nobody gets in without it.
+
+- **Optional.** A host that sets `ROW_BOT_SETUP_CODE` generates a new one for each server. It needs 12 to 64 letters or digits. Spaces, dashes and upper or lower case don't matter, and the letters O, I and L count as 0, 1 and 1.
+- **Out of the environment.** Row-Bot reads the code as it starts and removes it from its environment, so no program it starts inherits it. It keeps only a salted hash.
+- **Printed while nobody owns the server.** Every start prints the code to the container output, and never to Row-Bot's own log files:
+
+  ```text
+  ========================================================================
+  Row-Bot setup code: ABCD-EFGH-JKMN (open your Row-Bot and enter it)
+  ========================================================================
+  ```
+
+- **Without the variable,** Row-Bot makes a 12-character code of its own and prints it the same way. Each start makes a new one, and the last one stops working.
+- **A code Row-Bot can't use** is ignored with a warning in the log, which never shows the code: one that's too short or has other characters, or one that already signed someone in. While nobody owns the server, Row-Bot then prints a code of its own instead.
+- **It works once.** After the owner signs in, later starts print nothing. Leaving the variable as it is changes nothing.
+- **Wrong codes.** Five wrong codes from one address pause that address for 15 minutes. Behind a proxy, Row-Bot sees each visitor's own address only when it trusts the proxy ([Address And Proxy](#address-and-proxy)).
+- **Recovery.** If the owner loses every signed-in browser, set a new code and restart the container. A recovery code is never printed. The owner opens Row-Bot, chooses **Lost access?** and enters it. It works once, signs that browser in, and signs out every other browser and cancels open invitations. So the owner must be able to change this setting.
+
+Anyone with a terminal in the container can still create a one-time invitation with `row-bot access invite` ([Remote Access And Server Mode](/docs/operations/remote-access#offline-access-management-and-recovery)).
+
+### The Secret-Store Key
+
+A container has no keychain, so Row-Bot encrypts saved sign-ins and keys itself (model API keys, provider sign-ins, channel tokens, app and MCP sign-ins) in `/data/secure-secrets`, with a 256-bit key.
+
+`ROW_BOT_SECRET_STORE_KEY` gives Row-Bot that key: exactly 64 hexadecimal characters, generated once for each server:
+
+```sh
+openssl rand -hex 32
+```
+
+- **Out of the environment.** Row-Bot takes the key out of its environment as it starts. Of Row-Bot's processes, only its launcher and its server hold it, in memory. No program they start (a shell, an MCP server, Claude Code, Python, Row-Bot's browser) inherits it. On Linux, both are also non-dumpable, so only root can read the environment they started with.
+- **First process.** Anything else started in the container with its variables keeps its own copy of the key, such as an init process (`docker run --init`) or a `docker exec` command. Start `row-bot` as the container's first process, as the image does.
+- **Off the volume.** The key is never written to `/data`, so a copy of the volume, or a backup of it, holds only encrypted records. The host's settings for the server, and `docker inspect`, still show it.
+- **Never printed.** A key that isn't 64 hexadecimal characters stops the start with `Row-Bot didn't start: ROW_BOT_SECRET_STORE_KEY must contain exactly 64 hexadecimal characters`, without the value.
+
+Row-Bot uses the first key it finds:
+
+1. `ROW_BOT_SECRET_STORE_KEY` in the environment.
+2. A regular file named `ROW_BOT_SECRET_STORE_KEY` (not a symbolic link) in `ROW_BOT_SECRETS_DIR`, which is `/run/secrets` in the image. This is the Compose path, which needs nothing new.
+3. Neither: at its first start, Row-Bot makes a key in `/data/secret-store-key/`, readable only by its own user. Anyone with a full copy of the volume, including the host's backups, can then open the saved sign-ins. Row-Bot's own backups (**Settings › Data**) leave the key out.
+
+Row-Bot makes that key only in a container, and only when nothing is saved yet. The desktop app keeps using the computer's keychain.
+
+:::warning Never change the key, and keep a copy
+Without the key the saved sign-ins can't be opened, and the owner has to enter them all again. Every start checks that the key opens them. If it doesn't, or there are saved sign-ins and no key at all, Row-Bot doesn't start. Nothing is deleted, and the container output says what to do, for example:
+
+`Row-Bot didn't start: the secret-store key in ROW_BOT_SECRET_STORE_KEY doesn't open the saved secrets in /data/secure-secrets. Use the key they were saved with, or move /data/secure-secrets aside to start again without them. Nothing was deleted.`
+:::
+
+To recover:
+
+- **The key changed:** set it back.
+- **Row-Bot made its own key, and the variable is new:** remove the variable, or set it to the contents of `/data/secret-store-key/ROW_BOT_SECRET_STORE_KEY`. Once Row-Bot starts with the variable, delete that file: Row-Bot warns while it's still there.
+- **The key is lost:** move `/data/secure-secrets` aside and start again. Everything else stays; the owner signs in to providers and apps again.
+
+### Address And Proxy
+
+Row-Bot answers only requests addressed to a host name it knows. By default those are `localhost`, `127.0.0.1` and `[::1]`, so every server needs its own address set. Behind an HTTPS proxy, Row-Bot also needs to trust that proxy.
+
+| Variable | What it does |
+|---|---|
+| `ROW_BOT_PUBLIC_URL` | The exact origin people open, such as `https://row-bot.example.com`: a scheme, a host and an optional port, nothing else. Row-Bot adds its host name to the default ones, and through a proxy accepts only this origin. |
+| `ROW_BOT_ALLOWED_HOSTS` | Exact host names, separated by commas, with no wildcards. It **replaces** the default list. The image's health check calls `http://127.0.0.1:8080/healthz`, so keep `127.0.0.1` in the list if you set it. `ROW_BOT_PUBLIC_URL` alone is usually enough. |
+| `ROW_BOT_TRUSTED_PROXY_CIDRS` | The addresses or ranges (CIDR) the proxy connects from, separated by commas. Row-Bot also reads `ROW_BOT_TRUSTED_PROXIES`. Only these may tell Row-Bot the visitor's address and scheme. |
+| `ROW_BOT_UNTRUSTED_FORWARDED_ACTION` | What happens to forwarding headers from anyone else. `reject` (the default) refuses the request with `untrusted_forwarding_headers`. `ignore` drops the headers. |
+
+Name the proxy in `ROW_BOT_TRUSTED_PROXY_CIDRS`, and have it send `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), or `Forwarded`. Row-Bot then sees each visitor's own address, and knows the browser uses HTTPS.
+
+Signing in checks that the browser's origin matches exactly. Without a trusted proxy, Row-Bot sees plain HTTP from the proxy's address, so a browser on an HTTPS address can't sign in. That includes `ignore`, which also makes every visitor share the proxy's address: one stranger's wrong setup codes would pause the owner too.
+
+Trust only the proxy's own ranges, never a whole private network. Don't buffer Row-Bot's event stream (`/api/v1/events`, `text/event-stream`). [Remote Access And Server Mode](/docs/operations/remote-access#troubleshooting) explains each error, such as `unexpected_host`.
+
+### The Host's Name
+
+`ROW_BOT_HOSTED_BY` names the hosting service. The only value Row-Bot knows is `pikapods`: its setup page then names PikaPods, and tells the owner where to find the setup code and how to change it in PikaPods' own words.
+
+Row-Bot ignores any other value, with a warning in its log, and its pages use general words ("in its log", "in its server settings"). Each known host is an entry in Row-Bot's code, links included, so no setting can send the owner anywhere else.
+
+### Install Stats
+
+Like every Row-Bot, a hosted one sends [install stats](/docs/privacy-safety#install-stats) once a day: a random ID, its version and `docker`, nothing else. The owner turns them off in **Settings › System › Privacy**; a host can set `ROW_BOT_INSTALL_COUNT=0` instead.
+
+## The Volume
+
+Everything Row-Bot keeps lives in `/data`: conversations, settings, the encrypted sign-ins, signed-in devices, the workspace, downloaded models and runtimes, and caches. Its home folder is `/data` too.
+
+- `/data` must be writable by uid 10001. A Docker named volume takes that owner from the image; a folder on the host needs `chown 10001:10001`.
+- Keep the same volume, and the same key, across restarts and updates.
+- A copy of the volume is a full copy of the owner's Row-Bot. Treat backups of it as private data.
+
+## Sizes
+
+Measured with full Row-Bot in a container:
+
+| Size | What fits |
+|---|---|
+| **4 GB memory, 2 cores, 10 GB disk (recommended)** | Everything at once: the local search model, Row-Bot's browser, Python work, MCP servers and local speech-to-text, at a peak of about 3.2 GB with the file cache |
+| **2 GB memory (minimum)** | Everything except local speech-to-text, which adds about 600–800 MB |
+
+- **At rest:** about 360–420 MB just started. Idle, it uses about 0.2% of a core with no page open, and up to about 2% with one open.
+- **Disk:** the image is about 1.6 GB to download and 6.6 GB unpacked. `/data` reached 1.7 GB in the first hour, with the local search model (641 MB) and speech-to-text (464 MB) downloaded; workspaces and documents grow from there.
+- **Out of memory:** the kernel stops the container. Restarted, Row-Bot is ready again within seconds, with its data and sign-ins intact.
+
+## Updates
+
+- **Row-Bot never updates itself in the image.** The image sets `ROW_BOT_UPDATES=external`: Row-Bot runs no update checks or downloads, its agent has no update tool, and **Settings › Updates** says the host installs updates. A program that updates Row-Bot can show its progress there through a shared folder ([Updates](/docs/operations/updates#docker-and-hosts-that-update-row-bot)).
+- **To update,** start the new version's image with the same `/data` volume and the same settings. Conversations, settings, sign-ins and signed-in browsers stay. Read the version's **For Hosts** section first.
+- **Going back** is a restore, not a downgrade: a newer version can change data so that an older image can't open it. Go back only with a backup made before the update ([Docker And VPS Operations](/docs/operations/docker#explicit-upgrade-and-rollback)).
+- **For the people on your servers,** the host decides when an update arrives. A host that tests each release first may take some days.
+
+## Related
+
+- [Docker And VPS Operations](/docs/operations/docker): Compose, backups, reverse proxies and Tailscale.
+- [Remote Access And Server Mode](/docs/operations/remote-access): invitations, sessions and proxy errors.
+- [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see): the same server from the owner's side.

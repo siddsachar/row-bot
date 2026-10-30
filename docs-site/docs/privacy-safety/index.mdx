@@ -67,6 +67,8 @@ The ID and its deletion secret are kept in `install_count.json` in the Row-Bot d
 
 Enter credentials only on the relevant Settings page or in the provider sign-in flow. Row-Bot stores secrets in the operating system key store when available and keeps local metadata for status and diagnostics. An explicitly configured server deployment can use a read-only external master-key file to encrypt owner-entered secrets in its persistent data directory; see [Docker And VPS Operations](/docs/operations/docker#read-only-secret-files).
 
+If a hosting service runs Row-Bot for you, read [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see).
+
 ## Remote Access
 
 Remote Access is single-owner and multi-device. A Tailscale, LAN, SSH, Docker, or reverse-proxy route provides reachability only; each non-local browser still needs a one-time invitation and a revocable Row-Bot session.
