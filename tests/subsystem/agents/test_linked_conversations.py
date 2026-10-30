@@ -81,6 +81,24 @@ def test_a_started_conversation_runs_its_first_turn_as_a_message_from_this_one(l
     assert [link["state"] for link in linked.links("conversation-a")] == ["done"]
 
 
+def test_the_agent_graph_keeps_where_a_message_came_from(linked, platform):  # noqa: F811
+    # The real agent re-adds the admitted message by id with the metadata threads hands it; a linked message
+    # must keep where it came from there, or the chat shows it as the person's own.
+    from row_bot import threads
+
+    platform.stream_factory = Recording(reply("On it.")).stream
+    target = linked.start("Welcome email", "Draft a short welcome email.")["conversation_id"]
+    settle(platform, target)
+    admitted = next(message for message in threads.get_latest_checkpoint_messages(target)
+                    if type(message).__name__ == "HumanMessage")
+
+    kept = threads.admitted_human_metadata(target, admitted.id)
+
+    assert kept["platform_note"] == "linked"
+    assert kept["row_bot_ui"] == {"linked_from": {"id": "conversation-a", "title": "conversation-a",
+                                                  "kind": "message"}}
+
+
 def test_a_message_from_another_conversation_never_counts_as_the_persons_request(linked, platform):  # noqa: F811
     from row_bot import threads
     from row_bot.approval_review import person_messages

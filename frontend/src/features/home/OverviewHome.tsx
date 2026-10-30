@@ -833,7 +833,9 @@ export default function OverviewHome({
       ? ''
       : next
         ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
-        : 'All quiet.';
+        : waits.length
+          ? `Waiting for ${plural(waits.length, 'thing')}.`
+          : 'All quiet.';
 
   const quickStarts = [
     onNewResource && (

@@ -2273,9 +2273,14 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
     for message in saved.checkpoint.get("channel_values", {}).get("messages", []) or []:
         if getattr(message, "id", None) == message_id and getattr(message, "type", "") == "human":
             extra = getattr(message, "additional_kwargs", None) or {}
-            return {key: copy.deepcopy(extra[key])
+            kept = {key: copy.deepcopy(extra[key])
                     for key in ("platform_public_content", "platform_attachments", "platform_note")
                     if key in extra}
+            # A message from another conversation keeps where it came from (5.3.1 C).
+            ui = extra.get("row_bot_ui")
+            if isinstance(ui, dict) and isinstance(ui.get("linked_from"), dict):
+                kept["row_bot_ui"] = {"linked_from": copy.deepcopy(ui["linked_from"])}
+            return kept
     return {}
 
 

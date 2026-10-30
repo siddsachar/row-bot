@@ -5229,7 +5229,9 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                            else {"input": args[0] if len(args) == 1 else list(args)}), **sent}
             description = approval_fields(sent) or "Nothing else is sent with it."
         else:
-            args_str = ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
+            # One value says itself ("Delete file: summary.md"); several name what each is.
+            args_str = (_argument(next(iter(given.values()))) if len(given) == 1 and not args else
+                        ", ".join(f"{key}={_argument(value)}" for key, value in given.items()))
             if args:
                 args_str = _argument(args[0]) if len(args) == 1 else _argument(args)
                 if given:

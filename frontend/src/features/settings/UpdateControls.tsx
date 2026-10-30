@@ -37,6 +37,13 @@ type Extra = Partial<Pick<UpdateCommand, 'when' | 'force' | 'enabled'>>;
 const pendingKey = 'row-bot:updates:pending:v1';
 const POLL_MS = 1000;
 const MOVING = new Set(['checking', 'downloading', 'staging', 'applying']);
+// Commands that mean the same whatever the status moved to since it was read.
+const RESENDABLE = new Set([
+  'check',
+  'clear_skipped',
+  'set_auto_check',
+  'set_auto_download',
+]);
 
 const STEPS: Record<string, string> = {
   manifest: 'Reading the release',
@@ -189,6 +196,9 @@ export function UpdateControls({
     if (lastCheck !== undefined) onChecked?.(lastCheck);
   }, [lastCheck, onChecked]);
   const phase = snapshot?.engine.phase ?? 'idle';
+  // A command's notice ("…is downloading in the background") is about the
+  // moment it ran: once the update moves on, the controls say where it is.
+  useEffect(() => setNotice(''), [phase]);
   // Background work moves on its own: follow it while it does. A restart
   // takes the server away for a few seconds, so a failed read tries again.
   useEffect(() => {
@@ -223,7 +233,29 @@ export function UpdateControls({
     try {
       sessionStorage.setItem(pendingKey, JSON.stringify(command));
       setPending(command);
-      const receipt = await owner.send(command);
+      let receipt: UpdateReceipt;
+      try {
+        receipt = await owner.send(command);
+      } catch (cause) {
+        // The status moved on since the page read it (a check finished, the
+        // channel changed): a check or a switch means the same now, so read it
+        // again and send it once more instead of asking the person to.
+        if (
+          clientError(cause).code !== 'update_changed' ||
+          !RESENDABLE.has(command.action)
+        )
+          throw cause;
+        const fresh = await owner.load();
+        setSnapshot(fresh);
+        command = {
+          ...command,
+          command_id: crypto.randomUUID(),
+          expected_revision: fresh.revision,
+        };
+        sessionStorage.setItem(pendingKey, JSON.stringify(command));
+        setPending(command);
+        receipt = await owner.send(command);
+      }
       if (receipt.command_id !== command.command_id)
         throw new Error('Update receipt did not match this action');
       sessionStorage.removeItem(pendingKey);

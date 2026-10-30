@@ -64,10 +64,11 @@ def _navigable(conversation_id: str, url: str, engine: Any) -> str:
     """The address the person typed, made openable; refuses what never opens."""
 
     from row_bot.browser import local_access
+    from row_bot.browser.addresses import has_scheme
     from row_bot.browser.policy import navigation_policy
 
     selected = url.strip()
-    if not selected.casefold().startswith(("http://", "https://")):
+    if not selected.casefold().startswith(("http://", "https://")) and not has_scheme(selected):
         bare = "http://" + selected
         selected = bare if local_access.local_development_origin(bare) else "https://" + selected
     parsed = urlparse(selected)

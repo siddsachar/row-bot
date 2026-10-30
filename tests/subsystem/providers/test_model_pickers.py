@@ -302,3 +302,20 @@ def test_with_nothing_pinned_or_starred_a_picker_lists_the_ready_models_for_its_
 
     model_visibility.update_model_visibility("favourite", LUNA)
     assert set(_options("brain")) == {LUNA}, "a star keeps the list to the starred"
+
+
+def test_a_provider_connected_after_another_lists_its_ready_models_until_one_is_starred(saved_state):
+    """Ollama's model was chosen at first run; ChatGPT connected later still shows in the Brain picker (and so in
+    its search), rather than only in the Catalog."""
+    from row_bot.providers import model_visibility
+
+    saved = json.loads(config.CONFIG_PATH.read_text(encoding="utf-8"))
+    config.CONFIG_PATH.write_text(json.dumps({**saved, "quick_choices": [
+        _pin("claude_subscription", "claude-sonnet-5", "Claude Sonnet 5", DOCUMENTED_CLAUDE)]}), encoding="utf-8")
+
+    brain = _options("brain")
+    assert SONNET in brain
+    assert {SOL, LUNA, TERRA} <= set(brain), "nothing of ChatGPT's is chosen yet: its ready models are listed"
+
+    model_visibility.update_model_visibility("favourite", TERRA)
+    assert set(_options("brain")) == {SONNET, TERRA}, "a star keeps ChatGPT's list to the starred one"

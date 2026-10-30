@@ -414,6 +414,9 @@ def _deliver(conversation_id: str, *, shown: dict[str, str] | None = None) -> bo
     receipt = followups.start(service, conversation_id, followup)
     if receipt is None:
         return False
+    from row_bot import waits
+
+    waits.heard_from(conversation_id, sender)
     generation_id = str(receipt.get("generation_id") or "")
     with _LOCK:
         _TURN_HOPS[generation_id] = int(record["hops"])

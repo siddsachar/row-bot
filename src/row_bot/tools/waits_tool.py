@@ -179,8 +179,9 @@ class WaitsTool(BaseTool):
                 name="wait_for",
                 description=(
                     "Wait for something, then carry on here: a process ends, a check (CI, a deploy, a page) shows "
-                    "a text, a time comes, or another conversation finishes. Use it instead of polling. Nothing "
-                    "runs while it waits; when it happens a turn starts here. Then end this turn."
+                    "a text, a time comes ('check back in 10 minutes'), or another conversation finishes. Use it "
+                    "instead of polling or a one-time task. Nothing runs while it waits; when it happens a turn "
+                    "starts here. Then end this turn."
                 ),
                 args_schema=_WaitForInput,
             ),

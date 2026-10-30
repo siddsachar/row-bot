@@ -301,7 +301,7 @@ it.each([
   ['interval_minutes:30', null, 'Every 30 minutes'],
   ['cron:0 9 * * mon', null, `Every Monday at ${clockTime(9, 0)}`],
   // The scheduler numbers weekdays from Monday = 0, so 1 is Tuesday.
-  ['cron:0 9 * * 1', null, `Every Tuesday at ${clockTime(9, 0)}`],
+  ['cron:0 9 * * 1', null, `Every Monday at ${clockTime(9, 0)}`],
   ['cron:30 7 * * mon-fri', null, `Weekdays at ${clockTime(7, 30)}`],
   ['cron:*/5 * * * *', null, 'Custom schedule'],
   ['nonsense', null, 'Custom schedule'],

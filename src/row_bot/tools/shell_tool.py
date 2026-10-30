@@ -199,6 +199,62 @@ def _shell_words(line: str) -> list[str] | None:
     return words
 
 
+# ffmpeg or ffprobe run as a command: first on a line, or after a pipe or a chaining operator.
+_FFMPEG_COMMAND = re.compile(r"(?:^|[|;&]\s*|\n\s*)(?:ffmpeg|ffprobe)(?:\.exe)?(?=\s|$)", re.IGNORECASE)
+
+# What a read-only listing may be piped into: they only sort, pick, count or lay out what they're given. The
+# words of each part go through _shell_words, so no script block, variable or substitution reaches here.
+_PIPE_FILTERS: dict[str, tuple[str, ...]] = {
+    "select-object": (), "select": (), "sort-object": (), "measure-object": (), "measure": (),
+    "group-object": (), "format-table": (), "ft": (), "format-list": (), "fl": (),
+    "sort": ("-o", "--output", "--compress-program"),
+}
+
+
+def _pipe_parts(line: str) -> list[str] | None:
+    """The parts of a plain pipeline ("ls -t | head -5"), or None when the line has no pipe or isn't one.
+
+    A "|" inside quotes is text; "||" chains, so it isn't a pipeline.
+    """
+    parts, start, quote = [], 0, ""
+    for index, char in enumerate(line):
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif char == "|":
+            if line[index + 1:index + 2] == "|" or line[index - 1:index] == "|":
+                return None
+            parts.append(line[start:index])
+            start = index + 1
+    if not parts or quote:
+        return None
+    parts.append(line[start:])
+    return [part.strip() for part in parts]
+
+
+def _read_only_pipeline(line: str) -> bool:
+    """True for a pipeline of read-only programs: a read-only command, then filters or read-only commands.
+
+    Each part is checked as it would be alone; a filter only reorders, picks or counts its input. A program
+    that runs its input (sh, iex, xargs, python) or writes (tee) is none of these, so it still asks.
+    """
+    parts = _pipe_parts(line)
+    if not parts:
+        return False
+    for index, part in enumerate(parts):
+        words = _shell_words(part)
+        if not words:
+            return False
+        name = words[0].lower()
+        if index and name in _PIPE_FILTERS:
+            if _uses_option([word.lower() for word in words[1:]], _PIPE_FILTERS[name]):
+                return False
+        elif not _is_read_only(words):
+            return False
+    return True
+
+
 def _uses_option(args: list[str], options: tuple[str, ...]) -> bool:
     for arg in args:
         name = arg.split("=", 1)[0].lower()
@@ -378,10 +434,15 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
     if names_private_data(cmd):
         return "private_data"
 
-    # Safe only when the line runs one read-only program: no chaining, backgrounding, pipes, redirects or
-    # substitution (operators inside quotes are plain text), and no option that writes or runs.
+    # Safe when the line runs one read-only program, or pipes one into read-only filters: no chaining,
+    # backgrounding, redirects or substitution (operators inside quotes are plain text), and no option that
+    # writes or runs.
     words = _shell_words(cmd)
     if words and _is_read_only(words):
+        return "safe"
+    # A read-only listing piped into a sort, a pick or a count still only reads ("Get-ChildItem -Recurse |
+    # Sort-Object LastWriteTime | Select-Object -First 20"), so a Block workflow can use it.
+    if words is None and _read_only_pipeline(cmd):
         return "safe"
     return "needs_approval"
 
@@ -919,6 +980,15 @@ class ShellTool(BaseTool):
         )
         if refusal:
             return refusal
+        # A command using ffmpeg on a computer without one gets Row-Bot's own, asked once (5.3.1 A1): once
+        # downloaded it's on every command's PATH.
+        if _FFMPEG_COMMAND.search(command):
+            from row_bot import ffmpeg_runtime
+
+            if ffmpeg_runtime.find() is None:
+                found, line = ffmpeg_runtime.ensure("command", "run_command")
+                if found is None:
+                    return with_approval(approval, f"$ {command}\n{line}")
 
         # ── Execute ──────────────────────────────────────────────────────
         try:

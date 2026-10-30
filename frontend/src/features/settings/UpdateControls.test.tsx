@@ -108,6 +108,37 @@ it('loads cached status without checking and checks from one explicit click', as
   );
 });
 
+it('checks once more on the new status when it moved on since the page read it', async () => {
+  // The channel changed (or a check finished) after the page was read: Check
+  // now still checks, on the status as it is now, without an error.
+  const moved: UpdateSnapshot = {
+    ...snapshot,
+    revision: 'b'.repeat(64),
+    channel: 'beta',
+  };
+  const load = vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValue(moved);
+  const send = vi
+    .fn()
+    .mockRejectedValueOnce({ code: 'update_changed', status: 409 })
+    .mockImplementation(async (command: UpdateCommand) =>
+      receipt(command, { ...moved, available: release }),
+    );
+  show(load, send);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Check for updates' }),
+  );
+
+  expect(await screen.findByText('Version 2.0.0 is available.')).toBeVisible();
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(send).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      action: 'check',
+      expected_revision: moved.revision,
+    }),
+  );
+  expect(screen.queryByText(/Update status changed/)).toBeNull();
+});
+
 it('tells the page when it last checked, after Check now too (B373)', async () => {
   const checked = vi.fn();
   const load = vi.fn(async () => ({

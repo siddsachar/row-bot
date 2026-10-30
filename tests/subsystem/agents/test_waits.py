@@ -161,6 +161,24 @@ def test_waiting_for_another_conversation_carries_on_when_its_turn_ends(waits, p
     assert "“conversation-b” finished its turn." in fake.prompts[0]
 
 
+def test_a_message_from_the_awaited_conversation_ends_the_wait_without_a_second_turn(waits, platform):  # noqa: F811
+    from row_bot import linked_conversations
+
+    fake = Recording(reply("Here is B's draft; it looks good."))
+    platform.stream_factory = fake.stream
+    _set(kind="conversation", label="conversation-b has finished", conversation="conversation-b")
+    [record] = waits.waiting("conversation-a")
+
+    # conversation-b sends its draft back to conversation-a, the one waiting for it.
+    linked_conversations.current["origin"] = linked_conversations.Origin("conversation-b", "turn-b", "conversation-b")
+    linked_conversations.send("conversation-a", "Draft: Welcome to Fernleaf Teas.", reply=False)
+    settle(platform, "conversation-a")
+
+    assert waits.waiting("conversation-a") == [], "the draft is the answer the wait was for"
+    assert waits.get(record["id"])["status"] == "done"
+    assert len(fake.prompts) == 1, "one turn reads the draft; no 'Checked back' turn repeats it"
+
+
 def test_the_api_lists_waits_with_their_conversation_and_stops_one(waits, platform):  # noqa: F811
     from tests.subsystem.client_protocol.test_protocol_application import _client
     from tests.subsystem.client_protocol.test_protocol_security import bootstrap

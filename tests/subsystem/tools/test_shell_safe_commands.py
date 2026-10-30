@@ -48,7 +48,16 @@ def shell(tmp_path, reload_for_data_dir):
     "ls &",
     "ls && python build.py",
     "ls; python build.py",
-    "ls | sort",
+    # a pipe into a program that runs or writes what it's given
+    "ls | sh",
+    "cat urls.txt | xargs rm",
+    "Get-Content script.ps1 | iex",
+    "ls | tee listing.txt",
+    "ls | sort -o listing.txt",
+    "Get-ChildItem | Where-Object { $_.Length -gt 0 }",
+    "Get-ChildItem | ForEach-Object { Remove-Item $_ }",
+    "ls || python build.py",
+    "Get-ChildItem | Sort-Object LastWriteTime | Remove-Item",
     "ls `python build.py`",
     'echo "$(python build.py)"',
     "ls (python build.py)",
@@ -150,6 +159,14 @@ def test_lines_the_two_shells_read_differently_ask(shell, command):
     "ifconfig en0",
     "top -l 1",
     "ls\npwd\nwhoami",
+    # a read-only listing piped into a sort, a pick or a count
+    "ls | sort",
+    "ls -lt | head -20",
+    "Get-ChildItem -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 20 "
+    "FullName,LastWriteTime",
+    "Get-ChildItem -Recurse | Measure-Object",
+    "grep -rn TODO src | wc -l",
+    'echo "a | b" | sort',
 ])
 def test_read_only_commands_still_run_without_asking(shell, command):
     assert shell.classify_command(command) == "safe"
@@ -208,3 +225,39 @@ def test_a_word_like_reboot_in_a_read_only_command_is_just_a_word():
     from row_bot.tools.shell_tool import classify_command
 
     assert classify_command("git log --grep reboot") == "safe"
+
+
+@pytest.mark.parametrize(("answer", "runs"), [(True, True), (False, False)])
+def test_a_command_using_ffmpeg_offers_row_bots_own_on_a_computer_without_one(shell, monkeypatch, tmp_path,
+                                                                             answer, runs):
+    """A Mac with no ffmpeg on PATH: the command asks once to download Row-Bot's (5.3.1 A1), then runs with it."""
+    from row_bot import ffmpeg_runtime
+
+    monkeypatch.setattr(shell.approval_gate, "current_approval_mode", lambda: "full")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
+    offered = []
+
+    def ensure(purpose, tool, **_kwargs):
+        offered.append((purpose, tool))
+        return (object(), "Approval: allowed by you") if answer else (None, "The person didn't allow downloading "
+                                                                            "ffmpeg; nothing was downloaded.")
+
+    monkeypatch.setattr(ffmpeg_runtime, "ensure", ensure)
+    ran: list[str] = []
+
+    class FakeSession:
+        cwd = str(tmp_path)
+
+        def run_command(self, command: str, **_kwargs) -> dict:
+            ran.append(command)
+            return {"output": "", "exit_code": 0, "duration": 0.0, "cwd": str(tmp_path)}
+
+    monkeypatch.setattr(shell._session_manager, "get_session", lambda _key, _working_dir: FakeSession())
+    command = "ffmpeg -y -f lavfi -i color=c=black:s=1280x720:d=3 title.mp4"
+
+    output = shell.ShellTool().execute(command)
+
+    assert offered == [("command", "run_command")]
+    assert ran == ([command] if runs else [])
+    if not runs:
+        assert "nothing was downloaded" in output

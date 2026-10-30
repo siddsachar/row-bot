@@ -702,7 +702,7 @@ describe('ScheduleBuilder', () => {
       at: null,
       timezone: ZONE,
     });
-    expect(preview()).toHaveTextContent(`Every Tuesday at ${clockTime(9, 0)}`);
+    expect(preview()).toHaveTextContent(`Every Monday at ${clockTime(9, 0)}`);
     expect(preview()?.querySelector('time')).toBeNull();
     fireEvent.change(expression, { target: { value: '*/10 * * * *' } });
     expect(onChange).toHaveBeenLastCalledWith({
@@ -751,7 +751,7 @@ describe('ScheduleBuilder', () => {
         expect(
           screen.getByLabelText('Cron expression', { exact: false }),
         ).toHaveValue('0 9 * * 1');
-        expect(preview()).toHaveTextContent('Every Tuesday');
+        expect(preview()).toHaveTextContent('Every Monday');
       },
     ],
     [

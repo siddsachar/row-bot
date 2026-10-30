@@ -683,7 +683,7 @@ it('keeps a saved schedule exactly as written until the schedule is edited', asy
   );
 });
 
-it('shows a numbered-weekday cron as written, counting Monday as 0', async () => {
+it('shows a numbered-weekday cron as written, counting Monday as 1 (standard cron)', async () => {
   render(
     <TaskEditor
       {...props({
@@ -701,7 +701,7 @@ it('shows a numbered-weekday cron as written, counting Monday as 0', async () =>
   expect(
     screen.getByLabelText('Cron expression', { exact: false }),
   ).toHaveValue('0 9 * * 1');
-  expect(screen.getByText(/^Every Tuesday at/)).toBeInTheDocument();
+  expect(screen.getByText(/^Every Monday at/)).toBeInTheDocument();
 });
 
 it('previews the next run only once the workflow is enabled', () => {

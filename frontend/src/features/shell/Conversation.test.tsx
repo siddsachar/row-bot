@@ -103,6 +103,7 @@ const mock = vi.hoisted(() => ({
   pendingApprovals: vi.fn(),
   command: vi.fn(),
   forgetConversation: vi.fn(),
+  videoProject: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -135,6 +136,7 @@ vi.mock('../../runtime', () => {
       computerUse: mock.computerUse,
       computerUsePreview: mock.computerUsePreview,
       computerUseCommand: mock.computerUseCommand,
+      videoProject: mock.videoProject,
       intent: mock.intent,
       controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
@@ -855,6 +857,98 @@ it('opens the managed browser as a panel and closes the Context sheet it came fr
   );
   // Below 1024px Context is a sheet: the panel must not open behind it.
   expect(mock.dismiss).toHaveBeenCalledWith('conversation-context');
+});
+
+it('opens the Browser pane by itself once when a turn starts using the browser', async () => {
+  activeConversation();
+  const browsing = {
+    group_id: 'group-browser',
+    name: 'browser_navigate',
+    kind: 'browser',
+    group_order: 0,
+    status: 'running',
+    counts: {},
+    items: [],
+  } as unknown as NonNullable<TranscriptRow['traces']>[number];
+  mock.state.projection = {
+    ...mock.state.projection,
+    rows: [
+      {
+        id: 'u1',
+        message_id: 'u1',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Open github.com/login.' }],
+      },
+      {
+        id: 'a1',
+        message_id: 'a1',
+        role: 'assistant',
+        blocks: [],
+        traces: [browsing],
+      },
+    ],
+  } as unknown as Snapshot;
+  const onPanel = vi.fn();
+  const rendered = render(<Conversation onPanel={onPanel} />);
+  await act(async () => {});
+  const opened = () =>
+    onPanel.mock.calls.filter(
+      ([panel]) => panel?.panel_kind === 'browser.live',
+    );
+  expect(opened()).toHaveLength(1);
+  // The person closed it: the same turn doesn't open it again, even when an
+  // approval resumes it under a new generation.
+  mock.state.projection = {
+    ...mock.state.projection,
+    generation: {
+      ...mock.state.projection!.generation,
+      generation_id: 'run-b',
+    },
+  } as unknown as Snapshot;
+  rendered.rerender(<Conversation onPanel={onPanel} />);
+  await act(async () => {});
+  expect(opened()).toHaveLength(1);
+  // On a narrow window the pane would cover the chat: the step's Open stays.
+  rendered.unmount();
+  onPanel.mockClear();
+  render(<Conversation onPanel={onPanel} contextPlacement="compact" />);
+  await act(async () => {});
+  expect(opened()).toHaveLength(0);
+});
+
+it('opens a video made in the turn in flight from its card', async () => {
+  // A card from the turn still in flight opens beside this chat like a settled one.
+  activeConversation();
+  mock.videoProject.mockResolvedValue({
+    project_id: 'project-a',
+    title: 'Fernleaf Teas',
+    status: 'made',
+    number: 1,
+    latest: 1,
+    versions: [],
+    checks_passed: true,
+  });
+  mock.state.activity = [
+    {
+      cursor: '5',
+      event: {
+        event_id: 'event-video',
+        type: 'tool.activity',
+        conversation_id: 'conversation-a',
+        payload: {
+          tool_call_id: 'call-video',
+          specialization: { kind: 'video_project', project_id: 'project-a' },
+        },
+      },
+    },
+  ] as never[];
+  await act(async () => {
+    render(<Conversation onPanel={vi.fn()} />);
+  });
+  const card = await screen.findByRole('group', {
+    name: 'Fernleaf Teas · video',
+  });
+  expect(within(card).getByRole('button', { name: 'Open' })).toBeEnabled();
 });
 
 it('opens reviewed conversation management from the existing action menu', async () => {

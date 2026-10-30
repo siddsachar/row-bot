@@ -943,6 +943,8 @@ it('lists what conversations wait for under Waiting, not Needs you, each with St
     'CI on PR 590 is greenShip 5.3.1 · checks every 2 min',
   );
   expect(screen.queryByRole('list', { name: 'Needs you' })).toBeNull();
+  // Not "All quiet" while something is waited for.
+  expect(summary()).toBe('Waiting for 1 thing.');
   await user.click(
     within(waiting).getByRole('button', { name: 'Open Ship 5.3.1' }),
   );

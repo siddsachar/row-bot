@@ -1751,6 +1751,13 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 def _revision(value: Mapping[str, Any]) -> str:
+    # An update check writes its own times by itself; they are not a setting the person changed, so they
+    # never make a change the person is making stale.
+    value = copy.deepcopy(dict(value))
+    updates = value.get("preferences", {}).get("updates")
+    if isinstance(updates, dict):
+        updates.pop("last_check", None)
+        updates.pop("last_success", None)
     return hashlib.sha256(
         json.dumps(
             value, sort_keys=True, ensure_ascii=True, separators=(",", ":")

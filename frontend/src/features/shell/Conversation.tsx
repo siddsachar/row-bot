@@ -918,6 +918,23 @@ export default function Conversation({
           record.event.payload.group_kind === 'browser' &&
           record.event.payload.pass_id === generation?.pass_id,
       ));
+  // Row-Bot starting to use the browser in the chat on screen opens the Browser
+  // pane beside it, once a turn: the person sees what it does (and where to
+  // sign in) without looking for it. Closed again, it stays closed that turn.
+  // On a narrow window the pane would cover the chat, so the step's Open stays.
+  const browserOpenedFor = useRef('');
+  const openBrowserForTurn = useEffectEvent(() => manageBrowser());
+  // A turn is the person's message it answers: an approval resumes it under a
+  // new generation, and a pane the person closed stays closed for all of it.
+  const browserTurn = browserLive
+    ? `${id ?? ''}:${rows[turnStart]?.id ?? generation?.generation_id ?? ''}`
+    : '';
+  useEffect(() => {
+    if (!browserTurn || compactPlacement) return;
+    if (browserOpenedFor.current === browserTurn) return;
+    browserOpenedFor.current = browserTurn;
+    openBrowserForTurn();
+  }, [browserTurn, compactPlacement]);
   // Computer use shows as a card while this conversation's turn holds the
   // computer; only this computer's owner sees it (other devices keep the
   // trace). The turn using the computer, or asking to, is what to follow.
@@ -3544,7 +3561,13 @@ export default function Conversation({
                             />
                           )}
                       </TranscriptTrace>
-                      <TranscriptCards cards={pendingCards} live />
+                      {/* Cards from the turn in flight (a video, a page, a linked
+                          conversation) open beside this chat, so they need it. */}
+                      <TranscriptCards
+                        cards={pendingCards}
+                        conversation={id}
+                        live
+                      />
                       {pendingMedia.length > 0 && (
                         <div
                           className="message-media-grid"

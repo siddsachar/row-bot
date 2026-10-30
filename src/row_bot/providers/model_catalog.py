@@ -314,8 +314,8 @@ def picker_options(
 
     A picker lists the models pinned for its surface, the person's favourites
     that can do its job (U10: a star always lists a model) and its current
-    value; with none pinned or starred for its job, every ready model that can
-    do it. A pinned model without saved capability metadata stays listed,
+    value; a provider with none pinned or starred for its job lists every ready
+    model of its that can do it. A pinned model without saved capability metadata stays listed,
     unavailable with a reason to refresh, instead of vanishing. Rows must carry
     readiness (``project_saved_catalog_readiness``); nothing here reads a
     provider. ``favourites`` defaults to the saved preference.
@@ -330,14 +330,15 @@ def picker_options(
     def chosen(row: Any) -> bool:
         return surface in row.pinned_surfaces or (row.selection_ref in starred and surface in row.categories)
 
-    # Nothing pinned or starred for this job yet (a new profile, a provider just connected): its ready models,
-    # rather than an empty picker beside a catalog full of them. A star keeps the list to the starred ones.
-    everything = not any(chosen(row) for row in rows)
+    # A provider with nothing pinned or starred for this job yet (a new profile, a provider just connected) lists
+    # its ready models, rather than none beside a catalog full of them. A star keeps that provider's list to
+    # the starred ones.
+    choosing = {row.provider_id for row in rows if chosen(row)}
     options = []
     for row in rows:
         known = bool(row.categories)
-        listed = chosen(row) or (everything and known and surface in row.categories and row.configured
-                                 and row.runtime_ready and row.installed)
+        listed = chosen(row) or (row.provider_id not in choosing and known and surface in row.categories
+                                 and row.configured and row.runtime_ready and row.installed)
         if row.selection_ref != current and (not listed or (known and surface not in row.categories)):
             continue
         unavailable, reason = None, ""

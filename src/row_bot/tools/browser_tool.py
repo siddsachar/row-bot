@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from row_bot.browser import BrowserSession, BrowserSessionManager
 from row_bot.browser import local_access as _local
 from row_bot.browser import model_view
+from row_bot.browser.addresses import has_scheme
 from row_bot.browser.history import (
     HISTORY_PATH as _DEFAULT_HISTORY_PATH,
     append_browser_history as _append_history,
@@ -209,8 +210,9 @@ def _normalise_url(url: str) -> tuple[str | None, str]:
     selected = str(url or "").strip()
     if selected.casefold().startswith("javascript:"):
         return None, "Error: javascript: addresses don't open."
-    if not selected.casefold().startswith(("http://", "https://")):
-        # A local development server is plain http unless the person says otherwise.
+    if not selected.casefold().startswith(("http://", "https://")) and not has_scheme(selected):
+        # A local development server is plain http unless the person says otherwise. An address with its own
+        # scheme (file:///…) stays as written, so the navigation policy says why it doesn't open.
         bare = "http://" + selected
         selected = bare if _local.local_development_origin(bare) else "https://" + selected
     return selected, ""
@@ -997,7 +999,7 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
         text += " Open it with action open: this chat's browser signs in to it."
         if not sandboxes.has_model(item.sandbox_id):
             # Its own sign-in (decision 4): only the person signs in, so ask them; a demo needs real answers.
-            text += (" It has no model yet: ask the person to open it from Settings › Sandboxes and sign in to a "
+            text += (" It has no model yet: ask the person to open it from Settings › Data › Sandboxes and sign in to a "
                      "provider once; its chats can't answer until then.")
     return with_approval(line, text) if line else text
 

@@ -405,6 +405,21 @@ def _plugin_problems() -> list[dict[str, str]]:
     return problems
 
 
+def _sandbox_problems() -> list[dict[str, str]]:
+    """A running sandbox with no model yet: its chats can't answer until the person signs it in once (W12)."""
+    sandboxes = _MODULE.get("row_bot.sandboxes")
+    if sandboxes is None:
+        return []
+    problems = []
+    for sandbox in sandboxes.list_sandboxes():
+        if sandbox.status != "running" or sandboxes.has_model(sandbox.sandbox_id):
+            continue
+        problems.append(_problem(f"sandbox:{sandbox.sandbox_id}", f"{sandbox.name} needs a model",
+                                 "Open it and sign in to a provider once, so its chats can answer.", "data",
+                                 _open("/settings/data#sandboxes", "Sandboxes")))
+    return problems
+
+
 def _mcp_problems() -> list[dict[str, str]]:
     runtime = _MODULE.get("row_bot.mcp_client.runtime")
     if runtime is None:
@@ -527,7 +542,7 @@ def read_attention(*, include_update: bool) -> dict[str, Any]:
     """What needs the person now, for the sidebar's one indicator."""
     problems: list[dict[str, Any]] = []
     for reader in (_channel_problems, _tunnel_problems, _plugin_problems,
-                   _app_problems, _mcp_problems, _workflow_problems, _health_problems):
+                   _app_problems, _mcp_problems, _workflow_problems, _sandbox_problems, _health_problems):
         try:
             found = reader()
         except Exception:

@@ -205,6 +205,27 @@ def test_each_attention_problem_offers_its_one_fix(tmp_path, monkeypatch):
     ]
 
 
+def test_a_running_sandbox_without_a_model_needs_the_person_until_it_has_one(tmp_path, monkeypatch):
+    """W12: a sandbox is up but its chats can't answer until the person signs it in once."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    models = {"tea": False, "old": False}
+    sandboxes = SimpleNamespace(
+        list_sandboxes=lambda: [SimpleNamespace(sandbox_id="tea", name="Tea shop sandbox", status="running"),
+                                SimpleNamespace(sandbox_id="old", name="Old demo", status="stopped")],
+        has_model=lambda sandbox_id: models[sandbox_id])
+    monkeypatch.setattr(client_monitor, "_MODULE", {"row_bot.sandboxes": sandboxes})
+
+    [problem] = client_monitor.read_attention(include_update=False)["problems"]
+    assert (problem["id"], problem["title"]) == ("sandbox:tea", "Tea shop sandbox needs a model")
+    assert problem["fix"] == {"kind": "open", "href": "/settings/data#sandboxes", "target": None,
+                              "name": "Sandboxes"}
+
+    models["tea"] = True
+    assert client_monitor.read_attention(include_update=False)["problems"] == []
+
+
 def test_apps_still_starting_or_connecting_are_not_a_problem(tmp_path, monkeypatch):
     """B400: just after Row-Bot starts, every app is still starting or connecting. That isn't "An app isn't
     connected": only an app that tried and failed is."""
