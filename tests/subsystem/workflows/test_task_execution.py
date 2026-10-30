@@ -180,6 +180,22 @@ def test_history_pages_hide_private_status_messages_and_expire_on_progress(runti
         execution.list_task_runs(task_id, limit=100, cursor=page.next_cursor)
 
 
+def test_a_one_time_run_keeps_its_answer_after_the_task_goes(runtime, tmp_path, monkeypatch):
+    # "Look again in 2 minutes" made as a one-time task: once it has run, the task goes, but the
+    # conversation with its answer stays where the person can read it.
+    tasks, task_id, conversation_id, _ = runtime
+    from row_bot import thread_cleanup
+    deleted = []
+    monkeypatch.setattr(thread_cleanup, "delete_thread", deleted.append)
+    tasks.update_task(task_id, delete_after_run=True)
+
+    tasks.after_run_finished(tasks.get_task(task_id), "run-1", conversation_id, "completed",
+                             "supplier-notes.txt is still there", "", "")
+
+    assert tasks.get_task(task_id) is None
+    assert deleted == []
+
+
 def test_a_reminder_run_now_notifies_and_finishes_without_a_turn(runtime, monkeypatch):
     tasks, task_id, _, started = runtime
     from row_bot import notifications

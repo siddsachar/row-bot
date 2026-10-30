@@ -1726,7 +1726,8 @@ def sync_task_schedule(task_id: str, *, validate: Callable[[], None] | None = No
 @_schema_retry
 def delete_task(task_id: str, *, expected_revision: str | None = None,
                 validate: Callable[[], None] | None = None,
-                preserve_conversations: bool = False) -> None:
+                preserve_conversations: bool = False, keep_conversations: bool = False) -> None:
+    """Delete a task. *keep_conversations*: a one-time run's answer stays where the person can read it."""
     if expected_revision is not None or validate is not None or preserve_conversations:
         if not preserve_conversations or not isinstance(expected_revision, str) or len(expected_revision) != 64:
             raise TaskMutationError("task_delete_review_required", task_id)
@@ -1795,7 +1796,7 @@ def delete_task(task_id: str, *, expected_revision: str | None = None,
     conn.close()
 
     # Cascade thread cleanup (LangGraph checkpoints, media, external state).
-    if linked_thread_ids:
+    if linked_thread_ids and not keep_conversations:
         try:
             from row_bot.thread_cleanup import delete_thread
             for tid in linked_thread_ids:
@@ -2495,7 +2496,7 @@ def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, not
         notify(title="Delivery failed", message=f"{task['name']} — {delivery_detail}", sound="timer",
                toast_type="warning", source="workflow")
     if task.get("delete_after_run") and status != "stopped":
-        delete_task(task["id"])
+        delete_task(task["id"], keep_conversations=True)
 
 
 _RUN_ENDING_WORDS = {"denied": "you said no", "unsure": "not sure it went through", "failed": "didn't finish",
@@ -3471,7 +3472,7 @@ def run_task_background(
                 )
             if task.get("delete_after_run"):
                 _validate_effect()
-                delete_task(task_id, **({"expected_revision": reviewed_capture["task_revision"], "validate": _validate_effect, "preserve_conversations": True} if reviewed_capture else {}))
+                delete_task(task_id, **({"expected_revision": reviewed_capture["task_revision"], "validate": _validate_effect, "preserve_conversations": True} if reviewed_capture else {"keep_conversations": True}))
             return
 
         except BaseException as exc:
