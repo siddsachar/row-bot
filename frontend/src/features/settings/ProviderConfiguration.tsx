@@ -83,14 +83,20 @@ const sendable = (draft: ProviderEndpointFields): ProviderEndpointFields =>
   draft.profile === OLLAMA
     ? { ...draft, profile: 'generic_openai' }
     : structuredClone(draft);
+/** OpenAI-compatible and Ollama first, then the others by name. */
 function serverTypes(page: ProviderConfigurationPage | null) {
-  const types = (page?.profiles ?? []).map(({ id, name }) => ({
-    value: id,
-    label: name,
-  }));
-  const generic = types.findIndex((type) => type.value === 'generic_openai');
-  types.splice(generic + 1, 0, { value: OLLAMA, label: 'Ollama' });
-  return types;
+  const types = (page?.profiles ?? [])
+    .filter(({ id }) => id !== 'generic_openai')
+    .map(({ id, name }) => ({ value: id, label: name }))
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+    );
+  const generic = page?.profiles.find(({ id }) => id === 'generic_openai');
+  return [
+    ...(generic ? [{ value: generic.id, label: generic.name }] : []),
+    { value: OLLAMA, label: 'Ollama' },
+    ...types,
+  ];
 }
 function serverTypeName(
   page: ProviderConfigurationPage | null,
@@ -495,7 +501,11 @@ export default function ProviderConfiguration(
       session.update({ busy: '' });
     }
   }
-  async function performDirect(next: Operation, captured: Fields) {
+  async function performDirect(
+    next: Operation,
+    captured: Fields,
+    fresh?: string,
+  ) {
     if (
       locked ||
       !page ||
@@ -504,7 +514,7 @@ export default function ProviderConfiguration(
     )
       return;
     const generation = epoch.current;
-    const revision = page.revision;
+    const revision = fresh ?? page.revision;
     const abort = session.read();
     session.update({ busy: 'review', error: '', notice: '', keyFor: '' });
     let reviewed: Review;
@@ -671,21 +681,28 @@ export default function ProviderConfiguration(
     )
       return;
     handledCredentialRefresh.current = request.token;
-    void performDirect('provider.endpoint.refresh', {
-      endpoint_id: request.providerId.replace(/^custom_openai_/, ''),
-    });
+    // Saving the key changed the configuration: refresh against a fresh read.
+    void load().then(() =>
+      performDirect(
+        'provider.endpoint.refresh',
+        { endpoint_id: request.providerId.replace(/^custom_openai_/, '') },
+        session.getSnapshot().page?.revision,
+      ),
+    );
     // Refresh requests come only from a successfully saved endpoint credential.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.credentialRefreshRequest, props.compact, locked, page]);
   const keyAction = state.keyFor ? (
-    <Button
-      variant="ghost"
-      className="small"
-      disabled={locked}
-      onClick={() => props.onCredentials(state.keyFor)}
-    >
-      <KeyRound size={16} aria-hidden /> Enter API key
-    </Button>
+    <div className="action-cluster">
+      <Button
+        variant="ghost"
+        className="small"
+        disabled={locked}
+        onClick={() => props.onCredentials(state.keyFor)}
+      >
+        <KeyRound size={16} aria-hidden /> Enter API key
+      </Button>
+    </div>
   ) : null;
   const askHost = urlHost(state.ask);
   const ask = state.ask ? (
