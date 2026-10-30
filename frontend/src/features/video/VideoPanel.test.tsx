@@ -111,7 +111,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function setup(shown: VideoProjectView = view()) {
+function setup(
+  shown: VideoProjectView = view(),
+  platform = {} as ClientPlatform,
+) {
   const current = { value: shown };
   const controller = {
     subscribe: () => () => {},
@@ -146,7 +149,6 @@ function setup(shown: VideoProjectView = view()) {
     intent: vi.fn(async () => ({ status: 'accepted' })),
     showLatest: vi.fn(),
   } as unknown as ClientController & Record<string, ReturnType<typeof vi.fn>>;
-  const platform = {} as ClientPlatform;
   render(
     <RuntimeContext.Provider value={{ controller, platform }}>
       <OverlayProvider>
@@ -309,6 +311,28 @@ it('the timeline trims, splits at the playhead, removes and undoes with the keys
   await userEvent.keyboard('{Control>}z{/Control}');
   expect(within(timeline).getAllByRole('button')).toHaveLength(3);
   expect(screen.getByRole('group', { name: 'Unsaved changes' })).toBeVisible();
+});
+
+it('Download saves the made video through the app, and says where it went', async () => {
+  const save = vi.fn(async () => ({
+    status: 'ok' as const,
+    value: {
+      kind: 'exports' as const,
+      fileName: 'Launch demo v2.mp4',
+      folder: 'Exports',
+      reveal: async () => true,
+    },
+  }));
+  // A version no earlier test left unsaved edits on (they hide the player's tools).
+  const made = view().edit!;
+  setup(view({ number: 4, latest: 4 }), { save } as unknown as ClientPlatform);
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Download' }),
+  );
+  expect(save).toHaveBeenCalledWith(made.media_ref, made.output_name);
+  expect(
+    await screen.findByText('Saved Launch demo v2.mp4 to Exports.'),
+  ).toBeVisible();
 });
 
 it('a made version offers its other shapes, says where each fits, and downloads the ones made', async () => {

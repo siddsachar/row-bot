@@ -18,7 +18,11 @@ import type {
   VideoScene,
   VideoSceneWrite,
 } from '../../api/types';
-import { saveBrowserDownload } from '../../platform/download';
+import {
+  type CapabilityResult,
+  type SavedFile,
+  unavailable,
+} from '../../platform/types';
 import { useRuntime } from '../../runtime';
 import {
   Button,
@@ -126,7 +130,7 @@ export default function VideoPanel({
   projectId: string;
   visible: boolean;
 }) {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
   const [view, setView] = useState<VideoProjectView | null>(null);
   const [shown, setShown] = useState<number | undefined>();
   const [draft, setStoredDraft] = useState<Draft | null>(null);
@@ -310,21 +314,29 @@ export default function VideoPanel({
     }
   }
 
+  // The desktop app's Save dialog (Exports while it reconnects), or a browser download.
   async function download(edit = view?.edit) {
     if (!edit?.media_ref) return;
     const name = edit.output_name || 'video.mp4';
-    const reference = edit.media_ref;
-    const result = await saveBrowserDownload(
-      () => controller.download(reference),
-      name,
-    );
-    if (
-      result.status === 'unavailable' &&
-      result.reason === 'desktop_download_unavailable'
-    )
-      setNotice('This window can’t download: use Save to workspace.');
-    else if (result.status === 'unavailable')
-      setError(`Couldn't download ${name}. Try again.`);
+    const result = await platform
+      .save(edit.media_ref, name)
+      .catch((): CapabilityResult<SavedFile> =>
+        unavailable('operation_failed'),
+      );
+    if (result.status === 'cancelled') return;
+    if (result.status !== 'ok') {
+      setError(
+        result.reason === 'user_gesture_required'
+          ? 'Press Download again to save the video.'
+          : `Couldn't download ${name}. Try again.`,
+      );
+      return;
+    }
+    setError('');
+    const saved = result.value;
+    if (saved.kind === 'exports')
+      setNotice(`Saved ${saved.fileName} to ${saved.folder}.`);
+    else if (saved.kind === 'file') setNotice(`Saved ${name}.`);
   }
 
   function step(by: number) {
