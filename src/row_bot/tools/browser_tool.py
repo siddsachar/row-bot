@@ -1005,6 +1005,17 @@ def _sandbox_line(item: Any) -> str:
             f"{signed}.")
 
 
+def _chat_model() -> str:
+    """This chat's model (its own choice, else the default)."""
+    from row_bot.models import get_current_model
+    from row_bot.threads import _get_thread_model_override
+
+    try:
+        return _get_thread_model_override(_get_thread_id()) or get_current_model()
+    except Exception:
+        return get_current_model()
+
+
 def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str = "empty", new: bool = False) -> str:
     """A sandbox: a second Row-Bot on made-up data, to try things safely or film a demo in this chat's browser."""
     from row_bot import sandboxes
@@ -1031,7 +1042,7 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
                 cancelled_message="The person didn't want a sandbox; none was made.")
             if refusal:
                 return refusal
-            item = sandboxes.create(name, pack, approval=current_approval_mode())
+            item = sandboxes.create(name, pack, approval=current_approval_mode(), model=_chat_model())
             sandboxes.start(item.sandbox_id)
             item = sandboxes.wait_running(item.sandbox_id, 90) or item
         else:
