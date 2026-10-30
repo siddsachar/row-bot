@@ -37,8 +37,8 @@
           "type": "string"
         },
         "source": {
+          "default": "",
           "maxLength": 512,
-          "minLength": 1,
           "title": "Source",
           "type": "string"
         },
@@ -73,9 +73,6 @@
           "title": "Zoom"
         }
       },
-      "required": [
-        "source"
-      ],
       "title": "VideoSceneWrite",
       "type": "object"
     }

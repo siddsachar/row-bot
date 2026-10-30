@@ -36,7 +36,7 @@ export function pieces(
     const [start, end] = span(scene, made);
     return {
       key: scene.scene_id || `new-${index}`,
-      ref: sourceRefs.get(scene.source) ?? null,
+      ref: sourceRefs.get(scene.source ?? '') ?? null,
       start,
       end,
       speed: scene.speed ?? 1,

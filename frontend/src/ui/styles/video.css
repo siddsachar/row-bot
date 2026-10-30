@@ -260,6 +260,7 @@
   display: inline-flex;
   margin-left: auto;
 }
+.video-scene-seconds,
 .video-scene-trim label {
   display: inline-flex;
   align-items: center;
@@ -268,6 +269,7 @@
   color: var(--text-secondary);
   font-size: var(--type-size-metadata);
 }
+.video-scene-seconds input,
 .video-scene-trim input {
   width: 84px;
 }

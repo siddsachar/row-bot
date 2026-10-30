@@ -5268,8 +5268,9 @@ VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
 class VideoScene(WireModel):
     """One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line."""
     scene_id: VideoSceneId
-    # Its video: a recording (rec-…), an edit (edit-…), a file in the chat or a workspace path.
-    source: str = Field(min_length=1, max_length=512)
+    # Its video: a recording (rec-…), an edit (edit-…), a file in the chat or a workspace path; empty for a title
+    # card (its card on the brand's colour, end seconds long).
+    source: str = Field(max_length=512)
     start: float = Field(ge=0)
     end: float | None = Field(ge=0)
     speed: float = Field(ge=0.25, le=4)
@@ -5290,7 +5291,7 @@ class VideoScene(WireModel):
 class VideoSceneWrite(WireModel):
     """A scene as the Video panel writes it (an empty id is a new scene)."""
     scene_id: str = Field(default="", max_length=16, pattern=r"^(s[0-9a-f]{6})?$")
-    source: str = Field(min_length=1, max_length=512)
+    source: str = Field(default="", max_length=512)
     start: float = Field(default=0, ge=0)
     end: float | None = Field(default=None, ge=0)
     speed: float = Field(default=1, ge=0.25, le=4)

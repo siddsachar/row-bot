@@ -22,8 +22,10 @@ INLINE_SECONDS = 15
 
 class _Scene(BaseModel):
     scene_id: str = Field(default="", description="Keep a scene's id when changing it (new scenes: leave empty).")
-    source: str = Field(description="Its video: a recording (rec-…), an edit (edit-…), a file in this chat or a "
-                                    "workspace path.")
+    source: str = Field(default="", description="Its video: a recording (rec-…), an edit (edit-…), a file in this "
+                                                "chat or a workspace path. Empty: a title card (its card on the "
+                                                "brand colour for end seconds, 3 by default), so a title, an end "
+                                                "card or a whole video of cards needs no made-up background video.")
     start: float = Field(default=0.0, description="Seconds into that video.")
     end: float | None = Field(default=None, description="Seconds into that video (empty: to its end).")
     speed: float = Field(default=1.0, description="2 = twice as fast (shows a 2× badge), 0.5 = half.")
@@ -187,7 +189,8 @@ def langchain_tool():
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
             "saved to this chat. Read the checks in the result: never say it's done until they pass. undo goes "
             "back one version; export makes the same version in another shape or a GIF. For one quick edit use "
-            "edit_video."
+            "edit_video. A title or end card is a scene without a video: never make background videos or other "
+            "working files in the person's workspace for it."
         ),
         args_schema=_VideoInput,
     )

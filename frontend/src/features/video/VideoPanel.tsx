@@ -634,20 +634,41 @@ export default function VideoPanel({
                   }
                 />
                 <div className="video-scene-controls">
-                  <Select
-                    aria-label={`Scene ${number} speed`}
-                    value={String(scene.speed ?? 1)}
-                    disabled={!latest}
-                    onChange={(event) =>
-                      change(index, { speed: Number(event.target.value) })
-                    }
-                  >
-                    {SPEEDS.map((speed) => (
-                      <option key={speed} value={speed}>
-                        {speed}×
-                      </option>
-                    ))}
-                  </Select>
+                  {scene.source ? (
+                    <Select
+                      aria-label={`Scene ${number} speed`}
+                      value={String(scene.speed ?? 1)}
+                      disabled={!latest}
+                      onChange={(event) =>
+                        change(index, { speed: Number(event.target.value) })
+                      }
+                    >
+                      {SPEEDS.map((speed) => (
+                        <option key={speed} value={speed}>
+                          {speed}×
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    // A title card has no video to speed up: only how long it shows.
+                    <label className="video-scene-seconds">
+                      <input
+                        className="input"
+                        type="number"
+                        min={0.5}
+                        step={0.5}
+                        aria-label={`Scene ${number} lasts, in seconds`}
+                        value={scene.end ?? 3}
+                        disabled={!latest}
+                        onChange={(event) =>
+                          change(index, {
+                            end: Math.max(0.5, Number(event.target.value) || 3),
+                          })
+                        }
+                      />
+                      s
+                    </label>
+                  )}
                   <input
                     className="input video-scene-card"
                     aria-label={`Scene ${number} card`}
@@ -686,47 +707,55 @@ export default function VideoPanel({
                     </IconButton>
                   </span>
                 </div>
-                <Disclosure summary="Trim" className="video-scene-trim">
-                  <label>
-                    From
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      step={0.1}
-                      aria-label={`Scene ${number} starts at, seconds into ${scene.source}`}
-                      value={scene.start ?? 0}
-                      disabled={!latest}
-                      onChange={(event) =>
-                        change(index, {
-                          start: Math.max(0, Number(event.target.value) || 0),
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    To
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      step={0.1}
-                      placeholder="End"
-                      aria-label={`Scene ${number} ends at, seconds into ${scene.source}`}
-                      value={scene.end ?? ''}
-                      disabled={!latest}
-                      onChange={(event) =>
-                        change(index, {
-                          end:
-                            event.target.value === ''
-                              ? null
-                              : Math.max(0, Number(event.target.value)),
-                        })
-                      }
-                    />
-                  </label>
-                  <span className="video-scene-source">of {scene.source}</span>
-                </Disclosure>
+                {scene.source ? (
+                  <Disclosure summary="Trim" className="video-scene-trim">
+                    <label>
+                      From
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        aria-label={`Scene ${number} starts at, seconds into ${scene.source}`}
+                        value={scene.start ?? 0}
+                        disabled={!latest}
+                        onChange={(event) =>
+                          change(index, {
+                            start: Math.max(0, Number(event.target.value) || 0),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      To
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        placeholder="End"
+                        aria-label={`Scene ${number} ends at, seconds into ${scene.source}`}
+                        value={scene.end ?? ''}
+                        disabled={!latest}
+                        onChange={(event) =>
+                          change(index, {
+                            end:
+                              event.target.value === ''
+                                ? null
+                                : Math.max(0, Number(event.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                    <span className="video-scene-source">
+                      of {scene.source}
+                    </span>
+                  </Disclosure>
+                ) : (
+                  <span className="video-scene-source">
+                    A title card on your brand colour
+                  </span>
+                )}
               </div>
             </li>
           );

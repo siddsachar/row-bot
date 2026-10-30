@@ -326,6 +326,31 @@ def _every_stream_is_used(plan) -> bool:
     return all(text.count(label) >= 2 for label in set(re.findall(r"\[[av]\d+\]", plan.graph)))
 
 
+def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colour_for_its_length():
+    """5.3.1 beta F17: a title, an end card or a video of cards alone, without a made-up background video."""
+    from row_bot.video_editing import Look, SceneCut, Step
+
+    look = Look(colour=(17, 34, 51))
+    cards = Step(op="scenes", aspect="1:1", look=look, scenes=[
+        SceneCut(input=None, end=3, card="Row-Bot 5.3", voice="line-1.wav"),
+        SceneCut(input=None, end=2, card="row-bot.ai", speed=2)])
+    alone = build_plan([], [cards], "output.mp4", sounds={"line-1.wav": "sound-1.wav"})
+
+    assert alone.graph.count("color=c=0x112233:s=1080x1080") == 2, "each card on the brand colour, square"
+    assert (alone.duration, alone.marks) == (5.0, [0.0, 3.0, 5.0]), "a card keeps its length: no speed"
+    assert len(alone.overlays) == 2 and "[0:a]" in alone.graph, "both titles, and the voice is the only input"
+    title = _picture(alone.overlays[0][1])
+    assert title.getpixel((0, 0))[3] == 0, "a plain title: the card's colour is its box"
+    assert _every_stream_is_used(alone)
+
+    mixed = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", look=look, scenes=[
+        SceneCut(input=None, end=2, card="Sign up"), SceneCut(input=0, start=1, end=4)])], "output.mp4")
+    assert "color=c=0x112233:s=640x360" in mixed.graph and "anullsrc" in mixed.graph, "silence keeps sound in step"
+    assert (mixed.duration, mixed.marks) == (5.0, [0.0, 2.0, 5.0]) and _every_stream_is_used(mixed)
+    with pytest.raises(EditError, match="Give at least one video"):
+        build_plan([], [Step(op="scenes", scenes=[SceneCut(input=0)])], "output.mp4")
+
+
 def test_turning_the_videos_own_sound_off_keeps_only_the_voice_or_leaves_no_sound():
     """A video's own sound at volume 0 once broke the edit, alone or under a voice."""
     muted = _plan([{"op": "sound", "role": "original", "volume": 0}])
