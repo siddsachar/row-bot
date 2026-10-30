@@ -43,7 +43,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -198,6 +198,13 @@ OPERATIONS = (
     ("post", "/settings/providers/live/{provider_id}/refresh", None, "ProviderCatalogRefresh"),
     ("get", "/settings/providers/live/refresh", None, "ProviderCatalogRefresh"),
     ("post", "/settings/providers/live/{provider_id}/runtime-test", None, "ProviderRuntimeProbe"),
+    ("get", "/settings/providers/claude-plan/install", None, "ClaudeCodeInstallState"),
+    ("post", "/settings/providers/claude-plan/install", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState"),
+    ("post", "/settings/providers/claude-plan/sign-in", "ClaudeSignInOpenRequest", "ClaudeSignInView"),
+    ("get", "/settings/providers/claude-plan/sign-in/{sign_in_id}", None, "ClaudeSignInOutput"),
+    ("post", "/settings/providers/claude-plan/sign-in/{sign_in_id}/input", "NativeTerminalInput", "NativeTerminalChanged"),
+    ("post", "/settings/providers/claude-plan/sign-in/{sign_in_id}/resize", "NativeTerminalResize", "NativeTerminalChanged"),
+    ("delete", "/settings/providers/claude-plan/sign-in/{sign_in_id}", None, "NativeTerminalClosed"),
     ("post", "/settings/providers/commands", "Command", "CommandReceipt"),
     ("post", "/settings/mcp/commands", "Command", "CommandReceipt"),
     ("get", "/settings/mcp/configuration", None, "McpConfigurationPage"),
@@ -767,6 +774,20 @@ export const getLiveProviderRefresh = (base: string, proof: SessionProof, signal
   jsonRequest(base, '/settings/providers/live/refresh', 'ProviderCatalogRefresh', proof, 'GET', undefined, undefined, signal);
 export const testLiveProviderRuntime = (base: string, proof: SessionProof, provider: string, signal?: AbortSignal): Promise<ProviderRuntimeProbe> =>
   jsonRequest(base, `/settings/providers/live/${id(provider)}/runtime-test`, 'ProviderRuntimeProbe', proof, 'POST', undefined, undefined, signal);
+export const getClaudeCodeInstall = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ClaudeCodeInstallState> =>
+  jsonRequest(base, '/settings/providers/claude-plan/install', 'ClaudeCodeInstallState', proof, 'GET', undefined, undefined, signal);
+export const installClaudeCode = (base: string, proof: SessionProof, body: ClaudeCodeInstallRequest, signal?: AbortSignal): Promise<ClaudeCodeInstallState> =>
+  jsonRequest(base, '/settings/providers/claude-plan/install', 'ClaudeCodeInstallState', proof, 'POST', body, undefined, signal);
+export const openClaudeSignIn = (base: string, proof: SessionProof, body: ClaudeSignInOpenRequest, signal?: AbortSignal): Promise<ClaudeSignInView> =>
+  jsonRequest(base, '/settings/providers/claude-plan/sign-in', 'ClaudeSignInView', proof, 'POST', body, undefined, signal);
+export const readClaudeSignIn = (base: string, proof: SessionProof, signIn: string, cursor = 0, signal?: AbortSignal): Promise<ClaudeSignInOutput> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}` + query({cursor}), 'ClaudeSignInOutput', proof, 'GET', undefined, undefined, signal);
+export const writeClaudeSignIn = (base: string, proof: SessionProof, signIn: string, body: NativeTerminalInput, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}/input`, 'NativeTerminalChanged', proof, 'POST', body, undefined, signal);
+export const resizeClaudeSignIn = (base: string, proof: SessionProof, signIn: string, body: NativeTerminalResize, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}/resize`, 'NativeTerminalChanged', proof, 'POST', body, undefined, signal);
+export const closeClaudeSignIn = (base: string, proof: SessionProof, signIn: string, signal?: AbortSignal): Promise<NativeTerminalClosed> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}`, 'NativeTerminalClosed', proof, 'DELETE', undefined, undefined, signal);
 export const getSavedEntities = (base: string, proof: SessionProof, search = '', entity_type?: string, status?: string, source?: string, tier?: string, limit = 25, cursor?: string, signal?: AbortSignal): Promise<EntitySummaryPage> =>
   jsonRequest(base, '/knowledge/entities' + query({query:search, entity_type, status, source, tier, limit, cursor}), 'EntitySummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getKnowledgeGraph = (base: string, proof: SessionProof, limit = 250, signal?: AbortSignal): Promise<KnowledgeGraphSnapshot> =>

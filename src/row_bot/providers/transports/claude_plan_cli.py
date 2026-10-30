@@ -394,6 +394,8 @@ class ClaudeCodeSilent(RuntimeError):
 
 _PLAN_LIMIT = re.compile(r"session limit|weekly limit|usage limit|limit reached|resets?\b|out of (extra )?usage",
                          re.IGNORECASE)
+# "… · resets 3pm (Europe/London)": when the plan's limit lifts, in Claude Code's own words.
+_RESETS = re.compile(r"\bresets?\s+(?:at\s+)?([^\u00b7|]{1,60}?)\s*(?:[\u00b7|]|$)", re.IGNORECASE)
 
 
 def _short(text: Any) -> str:
@@ -403,9 +405,9 @@ def _short(text: Any) -> str:
 def claude_code_error(code: str, text: str) -> Exception:
     """An error Claude Code reported (``assistant.error`` or a failed result), in plain words."""
     from row_bot.providers.claude_subscription import (
+        CLAUDE_PLAN_SETTINGS,
         CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-        SIGN_IN_COMMAND,
-        UPDATE_COMMAND,
+        SIGNED_OUT_MESSAGE,
         ClaudePlanUnavailable,
     )
 
@@ -416,13 +418,13 @@ def claude_code_error(code: str, text: str) -> Exception:
 
         return ProviderSignInRequired(
             CLAUDE_SUBSCRIPTION_PROVIDER_ID, "Claude",
-            f"Claude Code isn't signed in to your Claude plan. Open a terminal and run `{SIGN_IN_COMMAND}`, "
-            "then try again.")
+            f"{SIGNED_OUT_MESSAGE} Sign in in {CLAUDE_PLAN_SETTINGS}.")
     if code == "rate_limit" or "rate limit" in lowered:
         if _PLAN_LIMIT.search(detail):
+            until = _RESETS.search(detail)
             return ClaudePlanUnavailable(
-                f"Your Claude plan's usage limit is reached ({detail}). Try again once it resets, or choose "
-                "another model.", state="plan_limit")
+                f"Your Claude plan's limit is reached{' until ' + until.group(1) if until else ''}. Pick another "
+                "model for now.", state="plan_limit")
         return ClaudePlanUnavailable("Claude is limiting requests right now. Wait a moment, then try again.",
                                      state="rate_limited")
     if code == "billing_error":
@@ -431,8 +433,8 @@ def claude_code_error(code: str, text: str) -> Exception:
             "another Claude model.", state="billing")
     if "does not support this model" in lowered or "update claude code" in lowered:
         return ClaudePlanUnavailable(
-            f"This Claude model needs a newer Claude Code. Open a terminal and run `{UPDATE_COMMAND}`, then try "
-            "again.", state="too_old")
+            f"This Claude model needs a newer Claude Code. Update Claude Code in {CLAUDE_PLAN_SETTINGS}, then "
+            "try again.", state="too_old")
     if code in {"overloaded", "server_error"}:
         return ClaudePlanUnavailable(
             f"Anthropic's service is busy or having trouble ({detail or code}). Try again in a moment.",
