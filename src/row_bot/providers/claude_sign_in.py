@@ -172,12 +172,16 @@ class ClaudeSignIns:
                 self._end(sign_in, "closed")
             self._current = None
 
-    def close_all(self) -> None:
-        """Close whatever runs (Row-Bot is stopping)."""
+    def close_running(self) -> None:
+        """Close the sign-in, whichever device opened it (an install or update of Claude Code goes first)."""
         with self._lock:
             if self._current is not None and self._current.ended is None:
                 self._end(self._current, "closed")
             self._current = None
+
+    def close_all(self) -> None:
+        """Close whatever runs and stop housekeeping (Row-Bot is stopping)."""
+        self.close_running()
         self._stopped.set()
 
     def running(self) -> bool:

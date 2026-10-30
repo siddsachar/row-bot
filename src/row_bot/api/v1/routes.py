@@ -734,7 +734,6 @@ _STATUS.update(
             "claude_code_missing",
             "claude_code_present",
             "claude_code_installing",
-            "claude_sign_in_running",
             "claude_sign_in_ended",
             "claude_sign_in_unavailable",
         ),
@@ -7159,10 +7158,10 @@ def create_router(
         from row_bot.providers.claude_subscription import find_claude_code
 
         await call(dispatch_validation(request, current))
-        if claude_sign_ins().running():
-            raise ProtocolError("claude_sign_in_running", 409)
         if not body.update and await call(find_claude_code):
             raise ProtocolError("claude_code_present", 409)
+        # A sign-in left open (a closed tab, another device) never holds an install or update back.
+        await call(claude_sign_ins().close_running)
         state = (await call(claude_code_installer().start)).to_json()
         return await respond(request, dto.ClaudeCodeInstallState, state)
 

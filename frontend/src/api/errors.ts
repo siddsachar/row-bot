@@ -674,10 +674,6 @@ const CATALOG: Record<string, Entry> = {
     'Claude Code is still installing. Try again when it has finished.',
     'retry',
   ],
-  claude_sign_in_running: [
-    'Claude’s sign-in is open. Finish or close it first.',
-    'review',
-  ],
   claude_sign_in_ended: ['Claude’s sign-in has ended.', 'review'],
   claude_sign_in_unavailable: [
     'Claude’s sign-in couldn’t start. Try again.',

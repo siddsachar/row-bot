@@ -2856,8 +2856,17 @@
   color: var(--text-secondary);
   font-weight: var(--weight-medium);
 }
+.claude-plan-state .status-indicator-label {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+/* The plan and Claude Code's version, quietly under "Claude plan connected". */
 .claude-plan-version {
+  flex-basis: 100%;
+  padding-left: 14px;
   color: var(--text-muted);
+  font-size: var(--text-13);
   font-weight: var(--weight-regular);
 }
 .claude-plan-progress progress {

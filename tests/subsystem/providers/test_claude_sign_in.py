@@ -258,13 +258,43 @@ def test_one_sign_in_at_a_time(panel) -> None:
         assert _read(client, headers, first).status_code == 404
         assert _read(client, headers, second).json()["status"] == "running"
         assert panel.manager.running()
-        # Installing Claude Code waits until the sign-in is closed, and the other way round.
-        busy = client.post("/api/v1/settings/providers/claude-plan/install", json={"update": True},
-                           headers=headers)
-        assert busy.status_code == 409 and busy.json()["code"] == "claude_sign_in_running"
         closed = client.delete(f"/api/v1/settings/providers/claude-plan/sign-in/{second}", headers=headers)
         assert closed.status_code == 200 and panel.started[1].closed
         assert not panel.manager.running()
+
+
+def test_installing_claude_code_closes_a_sign_in_left_open_and_waits_for_none(panel, monkeypatch) -> None:
+    from row_bot.providers import claude_install
+
+    class Installer:
+        busy = False
+        starts = 0
+
+        def running(self) -> bool:
+            return self.busy
+
+        def start(self) -> claude_install.InstallState:
+            self.starts += 1
+            self.busy = True
+            return claude_install.InstallState("running", "download")
+
+    installer = Installer()
+    monkeypatch.setattr(claude_install, "_installer", installer)
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        _open(client, headers)
+        started = client.post("/api/v1/settings/providers/claude-plan/install", json={"update": True},
+                              headers=headers)
+        assert started.status_code == 200 and started.json()["state"] == "running"
+        assert panel.started[0].closed and not panel.manager.running() and installer.starts == 1
+        # While it installs, no sign-in starts.
+        busy = _open(client, headers)
+        assert busy.status_code == 409 and busy.json()["code"] == "claude_code_installing"
+        # Without update, a Claude Code already there is never installed over.
+        present = client.post("/api/v1/settings/providers/claude-plan/install", json={}, headers=headers)
+        assert present.status_code == 409 and present.json()["code"] == "claude_code_present"
+    assert len(panel.started) == 1 and installer.starts == 1
 
 
 def test_an_idle_sign_in_closes_after_ten_minutes(panel) -> None:
