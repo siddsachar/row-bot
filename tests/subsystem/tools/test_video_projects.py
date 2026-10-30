@@ -174,6 +174,32 @@ def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_ru
     assert request.output_name.startswith("Row-Bot 5.3.1 beta") and request.output_name.endswith(" v1.mp4")
 
 
+def test_narration_said_over_the_whole_video_is_part_of_the_project_and_its_lines_are_not_said_again(studio):
+    """The Release kit dubbed a whole-video voice onto a picture-only version outside the project, so the Video
+    panel showed a silent video. Narration is the project's own now."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment("conversation-a", "launch-script.wav", b"RIFF\x00\x00\x00\x00WAVE" + b"0" * 32)
+    project = video_projects.create("conversation-a", "Launch demo", SCENES, narration="launch-script.wav")
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    request = studio["started"][0]
+    scenes, narration = request.steps
+    assert studio["said"] == [] and all(not cut.voice for cut in scenes.scenes), "no line is said one by one"
+    assert (narration.op, narration.role, narration.source, narration.start) == (
+        "sound", "voice", "launch-script.wav", 0.0)
+    assert set(request.sounds) == {"launch-script.wav"}
+    assert video_projects.view(video_projects.get(project.project_id))["narration"] == "launch-script.wav"
+    assert "Narration: launch-script.wav" in video_projects.summary(video_projects.get(project.project_id))
+
+    back = video_projects.change(video_projects.get(project.project_id), by="you", narration="")
+    video_projects.make(video_projects.get(project.project_id), back.number)
+    _wait(project.project_id, back.number)
+    assert studio["said"] == ["First, sign up.", "Then pick a plan."], "without it, each scene says its line"
+
+
 def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment

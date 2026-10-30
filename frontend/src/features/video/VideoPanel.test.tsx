@@ -274,6 +274,25 @@ it("the chat's card says how the video stands and opens it beside the chat", asy
   stop();
 });
 
+it('a version narrated as a whole shows its narration on the timeline, not each scene’s line', async () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(min-width: 768px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  setup(view({ number: 5, latest: 5, narration: 'launch-script.wav' }));
+  await userEvent.click(await screen.findByRole('radio', { name: 'Timeline' }));
+  const timeline = screen.getByRole('application', { name: /^Timeline/ });
+  expect(within(timeline).getByLabelText('Narration')).toHaveTextContent(
+    'launch-script.wav',
+  );
+  expect(within(timeline).queryByLabelText('Voice')).not.toBeInTheDocument();
+});
+
 it('the timeline trims, splits at the playhead, removes and undoes with the keys', async () => {
   vi.spyOn(window, 'matchMedia').mockImplementation(
     (query: string) =>

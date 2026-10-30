@@ -548,6 +548,7 @@ export default function VideoPanel({
         <VideoTimeline
           scenes={edited.scenes}
           made={scenes}
+          narration={view.narration}
           music={view.music}
           url={url}
           playhead={url && !dirty ? time : null}

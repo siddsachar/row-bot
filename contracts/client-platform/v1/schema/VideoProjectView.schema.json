@@ -517,6 +517,12 @@
       "title": "Music Volume",
       "type": "number"
     },
+    "narration": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Narration",
+      "type": "string"
+    },
     "number": {
       "minimum": 1,
       "title": "Number",
