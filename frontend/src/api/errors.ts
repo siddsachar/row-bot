@@ -645,6 +645,22 @@ const CATALOG: Record<string, Entry> = {
     "Row-Bot couldn't reach that endpoint. Check its address and that its server is running, then refresh it.",
     'review',
   ],
+  endpoint_key_rejected: [
+    'The model server refused the API key. Check the key and try again.',
+    'review',
+  ],
+  endpoint_key_missing: [
+    'This endpoint needs an API key. Add it, then refresh the endpoint.',
+    'review',
+  ],
+  endpoint_private_address: [
+    "This endpoint's address is on your host's private network. Edit the endpoint to allow it.",
+    'review',
+  ],
+  endpoint_address_blocked: [
+    "That address belongs to the hosting company's own computer, not a model server. Row-Bot never connects to it.",
+    'review',
+  ],
   native_mcp_unavailable: [
     'External MCP tools are not available in this Row-Bot. Restart it and try again.',
     'review',

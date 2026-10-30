@@ -616,6 +616,7 @@ export default function SettingRoute() {
             {providerConfigurationOwner?.get() && (
               <ProviderConfiguration
                 compact
+                hostName={settingsSnapshot?.system.hosted_by?.name}
                 autoAdd={search.get('add') === 'custom-endpoint'}
                 credentialRefreshRequest={
                   endpointCredentialRefresh?.session === session

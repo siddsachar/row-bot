@@ -17,6 +17,7 @@ from row_bot.providers.catalog import model_info_from_metadata, model_info_to_ca
 from row_bot.providers.config import (load_provider_config, save_provider_config,
     provider_config_transaction, provider_config_revision, ProviderConfigError)
 from row_bot.providers.models import AuthMethod, ModelInfo, ProviderDefinition, TransportMode
+from row_bot.providers import endpoint_addresses
 
 CUSTOM_OPENAI_PREFIX = "custom_openai_"
 DEFAULT_CUSTOM_ENDPOINT_PROFILE = "generic_openai"
@@ -274,6 +275,9 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
         normalized["credential_scope"] = scope
     if endpoint.get("managed") in MANAGED_SERVERS:
         normalized["managed"] = str(endpoint["managed"])
+    allowed_origin = endpoint.get(endpoint_addresses.ALLOWED_ORIGIN)
+    if isinstance(allowed_origin, str) and allowed_origin:
+        normalized[endpoint_addresses.ALLOWED_ORIGIN] = allowed_origin
     return normalized
 
 
@@ -362,8 +366,9 @@ def save_custom_endpoint(endpoint: dict, *, expected_revision: str | None = None
             replacement["credential_scope"] = old["credential_scope"]
         else:
             replacement.pop("credential_scope", None)
-        if "thinking_budget" in endpoint and "thinking_budget" not in normalized:
-            replacement.pop("thinking_budget", None)
+        for optional in ("thinking_budget", endpoint_addresses.ALLOWED_ORIGIN):
+            if optional in endpoint and optional not in normalized:
+                replacement.pop(optional, None)
         if old and endpoint_configuration_revision(old) != endpoint_configuration_revision(replacement):
             replacement.pop("last_probe", None)
             replacement.pop("model_probes", None)
@@ -398,6 +403,18 @@ class EndpointAuthorityError(ProviderConfigError):
     """A probe lost its reviewed target or caller authority; stop all requests."""
 
 
+class EndpointKeyMissing(ValueError):
+    """The endpoint needs an API key and none is saved."""
+
+
+def key_rejected(error: BaseException) -> bool:
+    """Whether the endpoint answered a request by refusing its key (401 or 403)."""
+
+    import httpx
+
+    return isinstance(error, httpx.HTTPStatusError) and error.response.status_code in {401, 403}
+
+
 def _endpoint_probe_authority(endpoint: dict, headers: dict, validate: Callable[[], None]) -> Callable[[], None]:
     revision = endpoint_configuration_revision(endpoint)
     deadline = time.monotonic() + 120
@@ -417,6 +434,8 @@ def _endpoint_probe_authority(endpoint: dict, headers: dict, validate: Callable[
         except Exception as exc:
             raise EndpointAuthorityError(getattr(exc, "code", "action_denied")) from None
     guard.remaining_seconds = lambda: max(0.0, min(deadline - time.monotonic(), getattr(validate, "remaining_seconds", lambda: 120.0)()))
+    # Where this endpoint's requests may connect (H16); None: anywhere, as before.
+    guard.connections = endpoint_addresses.connection_check(endpoint)
     return guard
 
 
@@ -443,17 +462,24 @@ def _checked_probe_lines(lines, validate: Callable[[], None]):
 def _probe_request(method: str, url: str, *, headers: dict, timeout: float,
                    validate: Callable[[], None], strict: bool = False,
                    json_body: dict | None = None, maximum_bytes: int = 8 * 1024 * 1024):
-    """Strict client operations bound the complete body and cancel stalled reads."""
+    """Strict client operations bound the complete body and cancel stalled reads.
+
+    On a hosted server each connection is checked first (``endpoint_addresses``)."""
     import httpx
+    connections = getattr(validate, "connections", None)
     if not strict:
+        if connections is not None:
+            with httpx.Client(event_hooks=connections.event_hooks()) as client:
+                return client.request(method, url, headers=headers, json=json_body, timeout=timeout)
         if method == "GET":
             return httpx.get(url, headers=headers, timeout=timeout)
         return httpx.post(url, headers=headers, json=json_body, timeout=timeout)
+    hooks = {} if connections is None else {"event_hooks": connections.event_hooks(asynchronous=True)}
     async def receive():
         duration = _endpoint_timeout(validate, timeout)
         try:
             async with asyncio.timeout(duration):
-                async with httpx.AsyncClient(follow_redirects=False) as client:
+                async with httpx.AsyncClient(follow_redirects=False, **hooks) as client:
                     # Bound decoded content by requesting identity and rejecting
                     # encoded replies rather than expanding untrusted compressed data.
                     async with client.stream(method, url, headers={**headers, "Accept-Encoding": "identity"}, json=json_body,
@@ -485,6 +511,10 @@ def _probe_stream(url: str, *, headers: dict, json_body: dict, timeout: float,
             yield response
         finally:
             response.close()
+    elif (connections := getattr(validate, "connections", None)) is not None:
+        with httpx.Client(event_hooks=connections.event_hooks()) as client:
+            with client.stream("POST", url, headers=headers, json=json_body, timeout=timeout) as response:
+                yield response
     else:
         with httpx.stream("POST", url, headers=headers, json=json_body, timeout=timeout) as response:
             yield response
@@ -713,9 +743,11 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
     try:
         infos = refresh_custom_endpoint_models(endpoint_or_provider_id, validate=guard, strict=strict)
         result["models_ok"] = True
-    except EndpointAuthorityError:
+    except (EndpointAuthorityError, endpoint_addresses.EndpointAddressRefused):
         raise
     except Exception as exc:
+        if strict and key_rejected(exc):
+            raise  # A reviewed probe says the key is wrong, not "unavailable".
         infos = []
         result["errors"].append(f"models: {exc}")
 
@@ -1299,7 +1331,7 @@ def _custom_endpoint_headers(endpoint: dict[str, Any]) -> dict[str, str]:
         return headers
     secret = custom_endpoint_secret(str(endpoint["provider_id"])) if endpoint.get("auth_required") else ""
     if endpoint.get("auth_required") and not secret:
-        raise ValueError(custom_endpoint_auth_missing_message(endpoint))
+        raise EndpointKeyMissing(custom_endpoint_auth_missing_message(endpoint))
     if not secret:
         return headers
     header_name = str(endpoint.get("api_key_header") or "Authorization")

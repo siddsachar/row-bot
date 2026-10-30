@@ -1443,6 +1443,13 @@ class ProviderEndpointFields(WireModel):
     supports_reasoning_content: bool = False
     supports_reasoning_replay: bool = False
     extra_body_json: str = Field(default="{}", max_length=16384)
+    # On a hosted server: the owner allowed this endpoint's address to be private (H16).
+    allow_private_address: bool = False
+
+
+class ProviderEndpointProfile(WireModel):
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
 
 
 class ProviderProbeComponent(WireModel):
@@ -1468,9 +1475,7 @@ class ProviderConfigurationPage(WireModel):
     items: list[ProviderEndpointSnapshot] = Field(max_length=20)
     total: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=1024)
-    profiles: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
-        max_length=32
-    )
+    profiles: list[ProviderEndpointProfile] = Field(max_length=32)
 
 
 ProviderConfigurationOperation = Literal[
