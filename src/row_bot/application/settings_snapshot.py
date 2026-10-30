@@ -22,6 +22,7 @@ from typing import Any
 
 from row_bot import account_tokens, x_accounts
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.hosting import hosted_by
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _MAX_ITEMS = 128
@@ -597,6 +598,8 @@ def _system(
             "level": log_level,
             "directory_available": (root / "logs").is_dir(),
         },
+        # The company that runs this Row-Bot, from its reviewed entry (H13); None when none is known.
+        "hosted_by": host.to_public_dict() if (host := hosted_by()) is not None else None,
     }
 
 

@@ -844,6 +844,17 @@ class SettingsLoggingSnapshot(WireModel):
     directory_available: bool
 
 
+class SettingsHostSnapshot(WireModel):
+    """The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null."""
+
+    id: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=64)
+    home_url: str = Field(max_length=512)
+    support_url: str | None = Field(max_length=512)
+    status_url: str | None = Field(max_length=512)
+    manage_url: str | None = Field(max_length=512)
+
+
 class SystemSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     workspace: SettingsWorkspaceSnapshot
@@ -855,6 +866,7 @@ class SystemSettingsSnapshot(WireModel):
     remote_access: SettingsRemoteAccessSnapshot
     mobile_access: SettingsMobileAccessSnapshot
     logging: SettingsLoggingSnapshot
+    hosted_by: SettingsHostSnapshot | None = None
 
 
 class TrackerSettingsItem(WireModel):

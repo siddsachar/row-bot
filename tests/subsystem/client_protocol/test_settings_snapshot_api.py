@@ -430,6 +430,24 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
     assert _tree(data) == before
 
 
+def test_snapshot_names_the_host_only_when_row_bot_knows_it(api, monkeypatch):
+    client, headers, _data, _ = api
+
+    def host():
+        response = client.get(BASE, headers=headers)
+        assert response.status_code == 200, response.text
+        return SettingsSnapshot.model_validate(response.json()).system.hosted_by
+
+    monkeypatch.delenv("ROW_BOT_HOSTED_BY", raising=False)
+    assert host() is None
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    hosted = host()
+    assert hosted is not None and hosted.name == "PikaPods"
+    assert hosted.manage_url == "https://www.pikapods.com/pods"
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "somewhere-else")
+    assert host() is None
+
+
 def test_x_account_requires_saved_client_credentials_before_token_state(
     tmp_path, monkeypatch
 ):
