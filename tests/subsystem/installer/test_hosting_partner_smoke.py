@@ -39,8 +39,7 @@ def test_the_host_runs_one_container_with_one_volume_one_port_and_no_secret_on_t
     assert not {"--user", "--entrypoint", "--read-only", "--init", "--health-cmd", "--cap-drop"} & set(args)
     assert args[args.index("--env-file") + 1] == "/tmp/host.env"
     assert not any("ROW_BOT_SETUP_CODE" in arg or "ROW_BOT_SECRET_STORE_KEY" in arg for arg in args)
-    assert {"ROW_BOT_HOSTED_BY=pikapods", "ROW_BOT_ALLOWED_HOSTS=localhost",
-            "ROW_BOT_PUBLIC_URL=http://localhost:8155"} <= set(args)
+    assert {"ROW_BOT_HOSTED_BY=pikapods", "ROW_BOT_PUBLIC_URL=http://127.0.0.1:8155"} <= set(args)
 
 
 def test_the_log_may_show_the_code_once_at_the_first_start_and_never_a_secret() -> None:

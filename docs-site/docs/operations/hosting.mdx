@@ -120,7 +120,7 @@ To recover:
 Row-Bot answers only requests addressed to a host name it knows. By default those are `localhost`, `127.0.0.1` and `[::1]`, so every server needs its own address set. Behind an HTTPS proxy, Row-Bot also needs to trust that proxy.
 
 - **`ROW_BOT_PUBLIC_URL`:** the exact origin people open, such as `https://row-bot.example.com`: a scheme, a host and an optional port, nothing else. Row-Bot adds its host name to the default ones, and through a proxy accepts only this origin.
-- **`ROW_BOT_ALLOWED_HOSTS`:** exact host names, separated by commas, with no wildcards. It **replaces** the default list. `ROW_BOT_PUBLIC_URL` alone is usually enough.
+- **`ROW_BOT_ALLOWED_HOSTS`:** exact host names, separated by commas, with no wildcards. It **replaces** the default list. Row-Bot checks its own server at `127.0.0.1` as it starts, so keep `127.0.0.1` in the list if you set it. `ROW_BOT_PUBLIC_URL` alone is usually enough.
 - **`ROW_BOT_TRUSTED_PROXY_CIDRS`:** the addresses or ranges (CIDR) the proxy connects from, separated by commas. Row-Bot also reads `ROW_BOT_TRUSTED_PROXIES`. Only these may tell Row-Bot the visitor's address and scheme.
 - **`ROW_BOT_UNTRUSTED_FORWARDED_ACTION`:** what happens to forwarding headers from anyone else. `reject`, the default, refuses the request with `untrusted_forwarding_headers`; `ignore` drops the headers.
 

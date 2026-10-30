@@ -3,12 +3,11 @@
 The host's shape (PikaPods'): one container from the unmodified image, as the
 image's own user, with one volume at /data, one HTTP port and the host's values
 in the environment: a generated ROW_BOT_SETUP_CODE and ROW_BOT_SECRET_STORE_KEY
-(64 hex), ROW_BOT_HOSTED_BY, and the pod's own address as ROW_BOT_PUBLIC_URL and
-the only ROW_BOT_ALLOWED_HOSTS. Through the HTTP API a browser uses, it checks
-that:
+(64 hex), ROW_BOT_HOSTED_BY and the pod's own address as ROW_BOT_PUBLIC_URL.
+Through the HTTP API a browser uses, it checks that:
 
-- the container becomes healthy (the image's own check asks 127.0.0.1, which
-  the allowed hosts leave out) and its log shows the setup code;
+- the container becomes healthy, its launcher reports Row-Bot running, and its
+  log shows the setup code;
 - the code signs this browser in;
 - an API key saved for a custom endpoint, and a chat turn through it, work;
 - after ``docker restart`` the container is healthy again, the session cookie
@@ -51,6 +50,8 @@ FAKE_MODEL_PORT = 8157
 FAKE_MODEL_REPLY = "Dummy endpoint stream OK"
 PROVIDER_ID = "custom_openai_smoke"
 MODEL_REF = f"model:{PROVIDER_ID}:row-bot-dummy-chat"
+# What the launcher logs once it has reached its own server (row-bot serve).
+RUNNING_LINE = "Row-Bot is running at"
 CONFIGURATION = "/api/v1/settings/providers/configuration"
 PROVIDER_COMMANDS = "/api/v1/settings/providers/commands"
 # Row-Bot's own setup-code alphabet (Crockford's base32) and length.
@@ -97,13 +98,9 @@ def partner_run_args(
         env_file,
         "--env",
         "ROW_BOT_HOSTED_BY=pikapods",
-        # The pod's own address only, as a host lists it: here `localhost`, which the runner reaches through
-        # the published port. The image's health check asks 127.0.0.1 from inside, which only its loopback
-        # rule lets through.
+        # The pod's own address, as a host sets it (PikaPods: https://<pod>.pikapod.net); here the runner's.
         "--env",
-        f"ROW_BOT_PUBLIC_URL=http://localhost:{port}",
-        "--env",
-        "ROW_BOT_ALLOWED_HOSTS=localhost",
+        f"ROW_BOT_PUBLIC_URL=http://127.0.0.1:{port}",
         # A smoke never sends install stats to the real service.
         "--env",
         "ROW_BOT_INSTALL_COUNT=0",
@@ -159,7 +156,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
     def __init__(self, *, image: str, port: int | None = None, **kwargs: object) -> None:
         super().__init__(image=image, **kwargs)  # type: ignore[arg-type]
         self.port = port or _free_loopback_port()
-        self.origin = f"http://localhost:{self.port}"
+        self.origin = f"http://127.0.0.1:{self.port}"
         self.code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
         self.key = secrets.token_hex(32)
         self.model_key = "fake-smoke-model-" + secrets.token_urlsafe(24)
@@ -182,7 +179,11 @@ class HostingPartnerSmoke(DockerServerSmoke):
             )
         )
 
-    def _wait_healthy(self) -> None:
+    def _wait_started(self, starts: int) -> None:
+        """Healthy by the image's own check, and the launcher says Row-Bot is running (for the ``starts``th time).
+
+        The launcher says so once it has reached its own server; one that can't stops the container.
+        """
         deadline = self._monotonic() + self.startup_timeout
         while True:
             state = self.runner.run(
@@ -191,10 +192,14 @@ class HostingPartnerSmoke(DockerServerSmoke):
             ).stdout.split()
             if state and state[0] in {"exited", "dead"}:
                 raise SmokeError(f"The container stopped ({state[0]})")
-            if state[1:] == ["healthy"]:
+            running = self._log().count(RUNNING_LINE)
+            if state[1:] == ["healthy"] and running >= starts:
                 break
             if self._monotonic() >= deadline:
-                raise SmokeError(f"The container did not become healthy ({' '.join(state) or 'no state'})")
+                raise SmokeError(
+                    f"The container did not start ({' '.join(state) or 'no state'}; "
+                    f"the launcher said Row-Bot is running {running} of {starts} times)"
+                )
             self._sleep(1.0)
         self._wait_ready(self.origin)
 
@@ -364,7 +369,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
             try:
                 self._create_volume()
                 self._create_container()
-                self._wait_healthy()
+                self._wait_started(starts=1)
                 if f"Row-Bot setup code: {format_setup_code(self.code)}" not in self._log():
                     raise SmokeError("The container log does not show the setup code")
                 session_id = self._claim()
@@ -382,7 +387,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
                     timeout=STOP_GRACE_SECONDS + 30,
                 )
                 self._client = {}
-                self._wait_healthy()
+                self._wait_started(starts=2)
                 if self._session_id() != session_id:
                     raise SmokeError("The session changed across the restart")
                 self._handshake()
