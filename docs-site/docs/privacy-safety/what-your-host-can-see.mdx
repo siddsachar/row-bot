@@ -25,7 +25,7 @@ Whoever can change your server's settings can also sign in: a new setup code and
 
 ## What Row-Bot Keeps Encrypted
 
-**Your saved sign-ins and keys:** model API keys, your ChatGPT and other provider sign-ins, channel tokens, and account, app and MCP sign-ins. A server has no keychain, so Row-Bot encrypts each of them itself (AES-256-GCM) and stores them in the `secure-secrets` folder of its data. They're never stored in plain text.
+**Your saved sign-ins and keys:** model API keys, your ChatGPT and other provider sign-ins, channel tokens, and account, app and MCP sign-ins. A hosted server has no keychain, so Row-Bot encrypts each of them itself (AES-256-GCM) and stores them in the `secure-secrets` folder of its data. They're never stored in plain text.
 
 The setup code, invitations and browser sessions are never stored at all: Row-Bot keeps only salted hashes, which can check a code but can't be turned back into one.
 

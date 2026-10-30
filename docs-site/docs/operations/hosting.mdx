@@ -126,13 +126,13 @@ Row-Bot answers only requests addressed to a host name it knows. By default thos
 
 Name the proxy in `ROW_BOT_TRUSTED_PROXY_CIDRS`, and have it send `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), or `Forwarded`. Row-Bot then sees each visitor's own address, and knows the browser uses HTTPS.
 
-Signing in checks that the browser's origin matches exactly. Without a trusted proxy, Row-Bot sees plain HTTP from the proxy's address, so a browser on an HTTPS address can't sign in. That includes `ignore`, which also makes every visitor share the proxy's address: one stranger's wrong setup codes would pause the owner too.
+Without a trusted proxy, a browser on an HTTPS address can't sign in. With `reject`, Row-Bot refuses the proxy's forwarding headers. With `ignore`, or a proxy that sends none, Row-Bot sees plain HTTP from the proxy's address, and signing in checks that the browser's origin matches exactly. `ignore` also makes every visitor share the proxy's address, so one stranger's wrong setup codes would pause the owner too.
 
 Trust only the proxy's own ranges, never a whole private network. Don't buffer Row-Bot's event stream (`/api/v1/events`, `text/event-stream`). [Remote Access And Server Mode](/docs/operations/remote-access#troubleshooting) explains each error, such as `unexpected_host`.
 
 ### The Host's Name
 
-`ROW_BOT_HOSTED_BY` names the hosting service. The only value Row-Bot knows is `pikapods`: its setup page then names PikaPods, and tells the owner where to find the setup code and how to change it in PikaPods' own words.
+`ROW_BOT_HOSTED_BY` names the hosting service. The only value Row-Bot knows is `pikapods`: its setup page then names PikaPods, tells the owner where to find the setup code and how to change it in PikaPods' own words, with a **Manage pod** link to PikaPods.
 
 Row-Bot ignores any other value, with a warning in its log, and its pages use general words ("in its log", "in its server settings"). Each known host is an entry in Row-Bot's code, links included, so no setting can send the owner anywhere else.
 
