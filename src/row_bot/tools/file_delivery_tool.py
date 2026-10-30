@@ -17,6 +17,7 @@ each target has its own size limit, checked before anything is asked or sent.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import OrderedDict
@@ -27,6 +28,8 @@ from pydantic import BaseModel, Field
 
 from row_bot.tools import registry
 from row_bot.tools.base import BaseTool
+
+logger = logging.getLogger(__name__)
 
 APPROVAL_NOT_NEEDED_OWN_DEVICES = "Approval: not needed (your own devices)"
 Destination = Literal["devices", "telegram", "discord", "slack", "whatsapp"]
@@ -118,6 +121,23 @@ def _approved_by(line: str) -> str:
     return "you"
 
 
+def _keep_in_chat(conversation: str, sources, delivery) -> None:
+    """A picture, video or sound sent from the workspace is kept with the chat too, so Library › Media lists it
+    with the rest of the chat's media. A file already in the chat's files, or one too big to keep, isn't."""
+    from row_bot.application.attachments import MAX_ATTACHMENT_BYTES, AttachmentError, register_attachment
+    from row_bot.media_library import KINDS
+
+    for source, sent in zip(sources, delivery.files):
+        if not sent.sent or source.ref or source.path is None or source.mime_type not in KINDS:
+            continue
+        if source.size_bytes > MAX_ATTACHMENT_BYTES:
+            continue
+        try:
+            register_attachment(conversation, source.name, source.path.read_bytes(), source.mime_type)
+        except (AttachmentError, OSError):
+            logger.warning("A sent file couldn't be kept with its chat", exc_info=True)
+
+
 def _send_file(files: list[str] | None = None, to: str = "devices", caption: str = "") -> str:
     from row_bot import file_deliveries as deliveries
     from row_bot.full_autonomy import cap_for_conversation
@@ -147,6 +167,7 @@ def _send_file(files: list[str] | None = None, to: str = "devices", caption: str
         delivery = deliveries.send_to_devices(conversation, sources)
         if delivery.status != "failed":
             _count(conversation, sum(item.sent for item in delivery.files))
+            _keep_in_chat(conversation, sources, delivery)
         return with_approval(APPROVAL_NOT_NEEDED_OWN_DEVICES, deliveries.summary(delivery))
 
     try:
@@ -178,6 +199,7 @@ def _send_file(files: list[str] | None = None, to: str = "devices", caption: str
     delivery = deliveries.send_to_channel(conversation, plan, sources, approval=_approved_by(line),
                                           caption=caption)
     _count(conversation, sum(item.sent for item in delivery.files))
+    _keep_in_chat(conversation, sources, delivery)
     return with_approval(line, deliveries.summary(delivery))
 
 
