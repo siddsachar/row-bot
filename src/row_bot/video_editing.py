@@ -1101,6 +1101,9 @@ _SILENCE_END = re.compile(r"silence_end:\s*([0-9.]+)")
 # A gap this long in a narrated video, or a picture held this long, is a pause a viewer notices.
 QUIET_GAP_SECONDS = 6.0
 LONG_STILL_SECONDS = 10.0
+# A narrated video's picture may hold while the voice speaks over it (a viewer reads along); its quiet gaps are
+# checked on their own.
+NARRATED_STILL_SECONDS = 20.0
 
 
 def check_arguments(path: Path | str, *, has_audio: bool, narrated: bool = False) -> list[str]:
@@ -1122,8 +1125,8 @@ class Checks:
 
 def read_checks(output: str, info: VideoInfo, *, narrated: bool = False) -> Checks:
     """What the read found, in plain lines; a video passes when it has sound loud enough, no black stretch
-    past its first and last second, no picture held still for 10 s or more and, narrated, no 6 s without the
-    voice. Shorter still stretches are listed (a screen recording may rightly hold still)."""
+    past its first and last second, no picture held still for 10 s or more (20 s narrated) and, narrated, no 6 s
+    without the voice. Shorter still stretches are listed (a screen recording may rightly hold still)."""
     lines = [f"Length {clock(info.duration)}, {info.width}×{info.height}."]
     problems = 0
     mean, peak = _MEAN.search(output), _PEAK.search(output)
@@ -1155,7 +1158,8 @@ def read_checks(output: str, info: VideoInfo, *, narrated: bool = False) -> Chec
             lines.append("Quiet: " + ", ".join(f"{clock(a)}–{clock(b)}" for a, b in gaps[:5])
                          + " with no voice. Give those parts a line, or cut them shorter.")
     frozen = [(float(a), float(d)) for a, d in _FROZEN.findall(output)]
-    long = [(a, d) for a, d in frozen if d >= LONG_STILL_SECONDS]
+    limit = NARRATED_STILL_SECONDS if narrated and info.has_audio else LONG_STILL_SECONDS
+    long = [(a, d) for a, d in frozen if d >= limit]
     if long:
         problems += 1
         lines.append("Still: " + ", ".join(f"{clock(a)} for {d:.0f} s" for a, d in long[:5])
