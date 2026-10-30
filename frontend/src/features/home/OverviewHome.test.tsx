@@ -480,6 +480,23 @@ it('all quiet: names the next workflow run instead', async () => {
   expect(screen.queryByRole('region', { name: /^Needs you/ })).toBeNull();
 });
 
+it('a run about to start is "in under a minute", never "just now"', async () => {
+  show({
+    loadApprovals: vi.fn().mockResolvedValue(approvals()),
+    loadAttention: attention(),
+    loadTasks: vi.fn().mockResolvedValue(
+      page([
+        task('digest', 'Morning digest', {
+          next_run: new Date(now.getTime() + 30_000).toISOString(),
+        }),
+      ]),
+    ),
+  });
+  await vi.waitFor(() =>
+    expect(summary()).toBe('Next: Morning digest in under a minute.'),
+  );
+});
+
 it('error: an unreadable source is one quiet line under Today, not a box', async () => {
   show({
     loadTasks: vi.fn().mockRejectedValue(new Error('offline')),

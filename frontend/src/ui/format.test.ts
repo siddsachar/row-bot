@@ -64,6 +64,8 @@ it.each([
   [new Date(2026, 8, 4, 12, 0, 0), '3 weeks ago'],
   [new Date(2026, 7, 3, 19, 12, 17), '2 months ago'],
   [new Date(2026, 8, 25, 14, 0, 0), 'in 2 hours'],
+  [new Date(2026, 8, 25, 12, 0, 30), 'in under a minute'],
+  [new Date(2026, 8, 25, 12, 0, 3), 'just now'],
 ])('describes %s relative to a fixed clock as %s', (value, expected) => {
   expect(relativeTime(value, now, 'en-GB')).toBe(expected);
 });

@@ -67,7 +67,8 @@ export function relativeTime(
   const date = value instanceof Date ? value : parseTimestamp(value);
   if (!date) return 'Unknown';
   let delta = (date.getTime() - now.getTime()) / 1000;
-  if (Math.abs(delta) < 45) return 'just now';
+  // A run due in 30 seconds isn't "just now"; a few seconds' clock drift still is.
+  if (Math.abs(delta) < 45) return delta > 5 ? 'in under a minute' : 'just now';
   const format = new Intl.RelativeTimeFormat(locale, {
     numeric: 'auto',
     style: 'long',
