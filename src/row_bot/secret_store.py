@@ -27,7 +27,7 @@ from collections.abc import Callable
 from typing import Any
 
 from row_bot.brand import APP_DATA_DIR_ENV, KEYRING_SERVICE_PREFIX, default_data_dir
-from row_bot.environment_secrets import take_secret
+from row_bot.environment_secrets import keep_environment_private, take_secret
 from row_bot.runtime_paths import CONTAINERIZED_ENV
 
 logger = logging.getLogger(__name__)
@@ -224,6 +224,7 @@ def take_environment_key() -> None:
     browser or other program inherits the key. Outside server mode the variable is left alone.
     """
     if str(os.environ.get("ROW_BOT_DEPLOYMENT_MODE") or "").strip().lower() == "server":
+        keep_environment_private()
         _take_environment_key()
 
 

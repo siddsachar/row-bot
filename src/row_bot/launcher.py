@@ -4164,8 +4164,11 @@ def main(argv: list[str] | None = None) -> None:
         # secret-store key and setup code leave the environment, the key must open the saved
         # secrets (H2), and an unclaimed server prints its code (H1).
         from row_bot.access.setup_code import prepare_setup_code_at_start
+        from row_bot.environment_secrets import keep_environment_private
         from row_bot.secret_store import SecretStoreError, prepare_server_store_at_start
 
+        # The environment this process started with keeps both secrets: only root may read it.
+        keep_environment_private()
         try:
             prepare_server_store_at_start()
         except SecretStoreError as exc:

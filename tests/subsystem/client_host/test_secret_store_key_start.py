@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 import row_bot.launcher as launcher
-from row_bot import secret_store
+from row_bot import environment_secrets, secret_store
 from row_bot.brand import LAUNCHER_APP_LOG_FILENAME
 
 pytestmark = pytest.mark.platform
@@ -42,6 +42,15 @@ print(json.dumps({{
     "program": program,
     "saved": secret_store.get_secret("refresh_token", namespace="providers:codex"),
 }}))
+"""
+
+# A server that has taken its key and waits, so another program can look at it.
+HOLDER = """
+import sys
+from row_bot import secret_store
+secret_store.take_environment_key()
+print("ready", flush=True)
+sys.stdin.readline()
 """
 
 # The real server, row_bot/app.py, up to where it would listen: uvicorn.run reports instead.
@@ -117,6 +126,8 @@ def test_serve_refuses_a_malformed_key_before_starting_anything_and_never_echoes
     monkeypatch.setattr(launcher, "_claim_instance", lambda: True)
     started: list[object] = []
     monkeypatch.setattr(launcher, "_run_direct", started.append)
+    private: list[bool] = []
+    monkeypatch.setattr(environment_secrets, "keep_environment_private", lambda: private.append(True))
 
     with pytest.raises(SystemExit) as stopped:
         launcher.main(["--server", "--no-open", "--no-splash", "--no-ollama", "--port", "8151"])
@@ -126,6 +137,7 @@ def test_serve_refuses_a_malformed_key_before_starting_anything_and_never_echoes
         f"Row-Bot didn't start: {KEY_NAME} must contain exactly 64 hexadecimal characters"
     )
     assert started == []
+    assert private == [True]  # its starting environment, which still holds the key, is root's alone
     assert KEY_NAME not in os.environ
     printed = capsys.readouterr()
     on_disk = "".join(
@@ -133,6 +145,30 @@ def test_serve_refuses_a_malformed_key_before_starting_anything_and_never_echoes
     )
     for text in (message, printed.out, printed.err, caplog.text, on_disk):
         assert malformed not in text
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or os.geteuid() == 0,
+    reason="/proc and its same-user rule are Linux's; root reads every process",
+)
+def test_a_program_of_the_same_user_cannot_read_the_key_from_the_servers_starting_environment(
+    tmp_path,
+) -> None:
+    # The server holds the key and waits; a shell command the agent runs reads /proc as the same user.
+    holder = subprocess.Popen(
+        [sys.executable, "-c", HOLDER],
+        env={**os.environ, "ROW_BOT_DEPLOYMENT_MODE": "server", "ROW_BOT_DATA_DIR": str(tmp_path), KEY_NAME: HOST_KEY},
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "ready"
+        with pytest.raises(PermissionError):
+            Path(f"/proc/{holder.pid}/environ").read_bytes()
+    finally:
+        holder.stdin.close()
+        holder.wait(timeout=60)
 
 
 @pytest.mark.slow
