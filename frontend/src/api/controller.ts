@@ -5055,6 +5055,10 @@ export class ClientController {
         return this.transport.updateModelVisibility(body, signal);
       });
       mark((models) => markModels(models, saved));
+      // A provider's first star narrows its list to the starred models and
+      // removing its last one lists all its ready models again: re-read the
+      // list so an open picker shows what the server now offers.
+      await this.refreshChoices().catch(() => undefined);
       return saved;
     } catch (cause) {
       if (before) mark((models) => restoreVisibility(models, before));
