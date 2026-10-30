@@ -9,10 +9,10 @@ When a hosting service runs Row-Bot for you, your Row-Bot lives on that company'
 
 ## In Short
 
-- **Your host runs the computer, so it can technically read your Row-Bot's disk and the memory of the running server.** That's true of every hosting service, and it's why choosing a host is a matter of trust.
+- **Your host runs the computer.** It can technically read your Row-Bot's disk, and the memory of the running server. That's true of every hosting service, which is why choosing a host is a matter of trust.
 - **Row-Bot encrypts your saved sign-ins and keys.** That protects copies of your data, such as backups. It doesn't hide them from the host, which holds the key.
-- **A hosted Row-Bot sends Row-Bot's maker nothing new.** Row-Bot's maker doesn't run your server and has no way into it.
-- **Use keys with spending limits and sign-ins you can revoke**, so you can cut off access quickly if you ever need to.
+- **Nothing new goes to Row-Bot's maker.** Row-Bot's maker doesn't run your server and has no way into it.
+- **You can limit the damage.** Use keys with spending limits and sign-ins you can revoke, so you can cut off access quickly if you ever need to.
 
 ## What Your Host Can Reach
 
@@ -36,7 +36,7 @@ Where the key that opens your saved sign-ins lives depends on your host:
 
 Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave out both the key and your saved sign-ins.
 
-## The Key And The Setup Code Stay With Row-Bot
+## The Key And The Setup Code
 
 - Row-Bot reads the key and the setup code as it starts, then removes them from its environment. The programs it runs for you (shell commands, MCP servers, Claude Code, Python, Row-Bot's browser) never get them, and a command such as `env` can't show them.
 - On Linux, Row-Bot's own processes also hide the environment they started with: only the server's administrator (root) can read it.
@@ -56,8 +56,8 @@ What your host itself records, such as its own logs and billing, is up to the ho
 
 - **Give model API keys a spending limit.** Most providers let you set a budget for a key or an account, so a key that leaks can't cost more than that.
 - **Prefer sign-ins you can revoke.** A sign-in you can end from the service's own security settings, or a bot token you can regenerate, is quicker to cut off than a password.
-- **Keep your own backup.** **Settings › Data › Back up now**, then **Download**, saves a copy on your device. It holds no passwords or sign-ins.
-- **Check your devices now and then.** **Settings › Devices & remote access** lists every signed-in phone and computer and signs one out.
+- **Keep your own backup.** Choose **Back up now**, then **Download**, in **Settings › Data**. It saves a copy on your device, without passwords or sign-ins.
+- **Check your devices now and then.** The list in **Settings › Devices & remote access** shows every signed-in phone and computer, and signs one out.
 
 **If your host has a security incident,** assume your saved sign-ins and keys were exposed, and replace them:
 
