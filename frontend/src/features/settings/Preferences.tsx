@@ -16,6 +16,7 @@ export default function Preferences({
   showUpdateControls = false,
   part = 'preferences',
   skillsMoved = false,
+  hostName = null,
 }: {
   snapshot?: SettingsSnapshot['preferences'];
   mutation?: SettingsMutationIO | null;
@@ -24,6 +25,8 @@ export default function Preferences({
   part?: 'preferences' | 'updates' | 'data';
   /** "Learn new skills" moved to Settings › Learning (D29). */
   skillsMoved?: boolean;
+  /** The hosting company that runs this Row-Bot (H13), when Row-Bot knows it. */
+  hostName?: string | null;
 }) {
   return (
     <div className={`stack settings-preferences settings-${part}`}>
@@ -34,6 +37,7 @@ export default function Preferences({
           showUpdateControls={showUpdateControls}
           part={part}
           skillsMoved={skillsMoved}
+          hostName={hostName}
         />
       ) : (
         snapshotState

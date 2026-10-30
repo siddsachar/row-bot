@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  ExternalLink,
   History,
   PackageCheck,
   RefreshCw,
@@ -154,12 +155,15 @@ export function UpdateControls({
   owner,
   onThisComputer = true,
   onChecked,
+  hostName = null,
 }: {
   owner: Owner;
   /** The desktop app on the computer Row-Bot runs on (#416). */
   onThisComputer?: boolean;
   /** Told the time of each check these controls see, for the page header. */
   onChecked?: (lastCheck: string | null) => void;
+  /** The hosting company that runs this Row-Bot, when Row-Bot knows it (H13). */
+  hostName?: string | null;
 }) {
   const [snapshot, setSnapshot] = useState<UpdateSnapshot | null>(null);
   const [pending, setPending] = useState<UpdateCommand | null>(savedPending);
@@ -518,7 +522,7 @@ export function UpdateControls({
   const hostRow =
     external && host?.state === 'unknown' ? (
       <SettingsItem
-        label="Updated by this computer’s host"
+        label="Updated by your host"
         icon={<Server size={16} aria-hidden />}
         tone="neutral"
         bind={false}
@@ -526,7 +530,7 @@ export function UpdateControls({
       />
     ) : external && host ? (
       <SettingsItem
-        label="Updated by this computer’s host"
+        label="Updated by your host"
         icon={<Server size={16} aria-hidden />}
         tone="neutral"
         bind={false}
@@ -599,6 +603,30 @@ export function UpdateControls({
         )}
       </SettingsItem>
     ) : null;
+  // A hosting company Row-Bot knows applies every update itself (H3): its
+  // name, how releases reach it and the release notes, with nothing to press.
+  const hostedBy = external && hostName ? hostName : null;
+  const notesUrl = githubUrl(host?.notes_url);
+  const hostedRow = hostedBy && (
+    <SettingsItem
+      label={`Updated by ${hostedBy}`}
+      icon={<Server size={16} aria-hidden />}
+      tone="accent"
+      bind={false}
+      help="They test each release first, so new versions usually arrive within a week."
+    >
+      {notesUrl && (
+        <a
+          href={notesUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`What’s new in Row-Bot ${snapshot?.current_version}`}
+        >
+          What’s new <ExternalLink size={12} aria-hidden />
+        </a>
+      )}
+    </SettingsItem>
+  );
 
   const heldBack =
     available && snapshot?.held_back?.version === available.version
@@ -629,7 +657,7 @@ export function UpdateControls({
           }
         />
       )}
-      {snapshot && (
+      {snapshot && !hostedBy && (
         <SettingsItem
           label={`Row-Bot ${snapshot.current_version}`}
           icon={<PackageCheck size={16} aria-hidden />}
@@ -712,7 +740,7 @@ export function UpdateControls({
           )}
         </SettingsItem>
       )}
-      {hostRow}
+      {hostedRow || hostRow}
       {engineRow}
       {offered && !deferred && (
         <SettingsItem
@@ -922,8 +950,10 @@ export function UpdateControls({
 
 export default function ConnectedUpdateControls({
   onChecked,
+  hostName = null,
 }: {
   onChecked?: (lastCheck: string | null) => void;
+  hostName?: string | null;
 }) {
   const { controller } = useRuntime();
   const onThisComputer = useOnThisComputer();
@@ -936,6 +966,7 @@ export default function ConnectedUpdateControls({
       owner={owner.current}
       onThisComputer={onThisComputer}
       onChecked={onChecked}
+      hostName={hostName}
     />
   );
 }

@@ -16,6 +16,7 @@ import type {
   SettingsMutationRequest,
   SettingsMutationReview,
   SettingsSnapshot,
+  UpdateSnapshot,
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
@@ -1869,6 +1870,101 @@ it('renders editable document, tool, and preference owners', async () => {
       screen.getByRole('radiogroup', { name: 'Update channel' }),
     ).getByRole('radio', { name: 'Stable' }),
   ).toHaveAttribute('aria-checked', 'true');
+});
+
+it('a known host’s Updates page shows the version and who updates it, and nothing to set (H3, U6)', async () => {
+  const hosted = {
+    ...snapshot,
+    system: {
+      ...snapshot.system,
+      hosted_by: {
+        id: 'pikapods',
+        name: 'PikaPods',
+        home_url: 'https://www.pikapods.com/',
+        support_url: null,
+        status_url: null,
+        manage_url: null,
+      },
+    },
+  } satisfies SettingsSnapshot;
+  const updates: UpdateSnapshot = {
+    schema_version: 1,
+    revision: 'a'.repeat(64),
+    channel: 'stable',
+    current_version: '1.0.0',
+    last_check: null,
+    last_success: null,
+    skipped_versions: [],
+    available: null,
+    dev_install: false,
+    mode: 'external',
+    auto_check: true,
+    auto_download: true,
+    engine: {
+      phase: 'idle',
+      version: null,
+      step: null,
+      message: null,
+      error: null,
+      retryable: false,
+      apply_when: null,
+      full_installer_url: null,
+      downloaded: 0,
+      total: 0,
+    },
+    previous_version: null,
+    legacy_install: false,
+    host: {
+      state: 'unknown',
+      current_version: null,
+      available_version: null,
+      message: null,
+      notes_url: 'https://github.com/example/row-bot/releases/tag/v1.0.0',
+      updated_at: null,
+      request: null,
+    },
+    active_work: [],
+    held_back: null,
+    feed_url: null,
+  };
+  const state = { conversations: [], selectedConversationId: null };
+  const known: Record<string, unknown> = {
+    getSnapshot: () => state,
+    subscribe: () => () => {},
+    settingsSnapshot: async () => hosted,
+    updates: async () => updates,
+  };
+  const controller = new Proxy(known, {
+    get: (target, key: string) =>
+      key in target ? target[key] : () => new Promise(() => {}),
+  }) as unknown as ClientController;
+  render(
+    <RuntimeContext.Provider
+      value={{ controller, platform: {} as ClientPlatform }}
+    >
+      <OverlayProvider>
+        <MemoryRouter initialEntries={['/settings/updates']}>
+          <Routes>
+            <Route path="settings/:setting/*" element={<SettingRoute />} />
+          </Routes>
+        </MemoryRouter>
+      </OverlayProvider>
+    </RuntimeContext.Provider>,
+  );
+  expect(await screen.findByText('Updated by PikaPods')).toBeVisible();
+  expect(screen.getByText('Row-Bot 1.0.0')).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
+  ).toBeVisible();
+  // The host picks and installs releases: no channel, checks or details.
+  expect(
+    screen.queryByRole('radiogroup', { name: 'Update channel' }),
+  ).toBeNull();
+  expect(screen.queryByText(/checked/)).toBeNull();
+  expect(screen.queryByText('Advanced')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Check for updates' }),
+  ).toBeNull();
 });
 
 it('uses NiceGUI friendly research-tool labels and owner order', () => {
