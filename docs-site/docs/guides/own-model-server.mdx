@@ -41,7 +41,7 @@ To change the key later, choose **Manage _name_ API key** in the same menu. **Ed
 
 ## Start Your Model Server
 
-Each server's base URL below is for a Row-Bot on the same computer. From another computer on your network, use the model server's network address instead of `127.0.0.1`, such as `http://192.168.1.20:11434/v1`. From outside your network, read [Reach It From Anywhere](#reach-it-from-anywhere).
+Each server's base URL below is for the Row-Bot desktop app on the same computer. From another computer on your network, use the model server's network address instead of `127.0.0.1`, such as `http://192.168.1.20:11434/v1`. From outside your network, read [Reach It From Anywhere](#reach-it-from-anywhere).
 
 ### Ollama
 
@@ -116,7 +116,7 @@ llama.cpp, vLLM and LM Studio check a key themselves when you start them with on
 
 3. Run `caddy run` in that folder. A tunnel now points at `http://localhost:8090`, not at Ollama.
 
-Ollama answers only requests addressed to `localhost`, so the `header_up` line says so. The file holds your key: keep it private.
+Ollama refuses requests addressed to another name, so the `header_up` line passes them on as `localhost`. The file holds your key: keep it private.
 
 ### Your Own HTTPS Address
 
@@ -154,7 +154,7 @@ Cloudflare decrypts the traffic on its way through, so it can read your prompts 
 
 Funnel gives a computer on your tailnet a public HTTPS address, `https://<computer>.<tailnet>.ts.net`, and passes requests to a port on it. The encryption ends on your computer, so Tailscale's relays can't read the traffic.
 
-- On the model server, run `tailscale funnel 8090` for Ollama behind the key check, or the port of llama.cpp, vLLM or LM Studio started with a key. Add `--bg` to keep it running after you close the terminal. The first time, Tailscale asks you to turn on HTTPS and Funnel for your tailnet.
+- On the model server, run `tailscale funnel 8090` for Ollama behind the key check; for llama.cpp, vLLM or LM Studio started with a key, use their port instead. Add `--bg` to keep it running after you close the terminal. The first time, Tailscale asks you to turn on HTTPS and Funnel for your tailnet.
 - In Row-Bot, the base URL is `https://<computer>.<tailnet>.ts.net/v1`.
 - Funnel is open to the whole internet: anyone with the address reaches the port, so the key check matters just as much.
 
