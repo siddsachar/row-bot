@@ -48,7 +48,16 @@ def shell(tmp_path, reload_for_data_dir):
     "ls &",
     "ls && python build.py",
     "ls; python build.py",
-    "ls | sort",
+    # a pipe into a program that runs or writes what it's given
+    "ls | sh",
+    "cat urls.txt | xargs rm",
+    "Get-Content script.ps1 | iex",
+    "ls | tee listing.txt",
+    "ls | sort -o listing.txt",
+    "Get-ChildItem | Where-Object { $_.Length -gt 0 }",
+    "Get-ChildItem | ForEach-Object { Remove-Item $_ }",
+    "ls || python build.py",
+    "Get-ChildItem | Sort-Object LastWriteTime | Remove-Item",
     "ls `python build.py`",
     'echo "$(python build.py)"',
     "ls (python build.py)",
@@ -150,6 +159,14 @@ def test_lines_the_two_shells_read_differently_ask(shell, command):
     "ifconfig en0",
     "top -l 1",
     "ls\npwd\nwhoami",
+    # a read-only listing piped into a sort, a pick or a count
+    "ls | sort",
+    "ls -lt | head -20",
+    "Get-ChildItem -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 20 "
+    "FullName,LastWriteTime",
+    "Get-ChildItem -Recurse | Measure-Object",
+    "grep -rn TODO src | wc -l",
+    'echo "a | b" | sort',
 ])
 def test_read_only_commands_still_run_without_asking(shell, command):
     assert shell.classify_command(command) == "safe"
