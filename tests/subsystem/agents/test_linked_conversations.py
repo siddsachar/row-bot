@@ -81,6 +81,27 @@ def test_a_started_conversation_runs_its_first_turn_as_a_message_from_this_one(l
     assert [link["state"] for link in linked.links("conversation-a")] == ["done"]
 
 
+def test_a_started_conversation_can_answer_by_id_after_its_sender_is_renamed(linked, platform):  # noqa: F811
+    """The 30 Oct demo run: a child answered its parent by the parent's first-message name, which had changed."""
+    import sqlite3
+
+    from row_bot import threads
+
+    fake = Recording(reply("Starting."), reply("Thanks."))
+    platform.stream_factory = fake.stream
+    target = linked.start("Video 1", "Make the first demo video.")["conversation_id"]
+    settle(platform, target)
+    assert 'id="conversation-a"' in fake.prompts[0], "the message says which conversation sent it, by id"
+
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute("UPDATE thread_meta SET name='Release demo videos' WHERE thread_id='conversation-a'")
+    linked.current["origin"] = linked.Origin(target, "turn-b", target)
+    sent = linked.send("conversation-a", "Video 1 is recorded.", reply=False)
+    settle(platform, target, "conversation-a")
+
+    assert sent.startswith("Sent to “Release demo videos”")
+
+
 def test_the_agent_graph_keeps_where_a_message_came_from(linked, platform):  # noqa: F811
     # The real agent re-adds the admitted message by id with the metadata threads hands it; a linked message
     # must keep where it came from there, or the chat shows it as the person's own.
