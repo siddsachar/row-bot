@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -70,6 +71,19 @@ def test_the_image_runs_alone_with_one_volume_one_port_and_no_set_up_container()
     assert re.findall(r"(?m)^CMD (.+)$", runtime) == ['["serve"]']
     assert "ROW_BOT_CONTAINERIZED=1" in runtime
     assert "ROW_BOT_SECRET_STORE_KEY" not in source
+
+
+def test_the_image_health_check_starts_without_the_hosts_secrets() -> None:
+    # Docker starts the check every few seconds with the container's environment, a host's
+    # secret-store key and setup code included, where any program of the same user could read it.
+    runtime = _read(DOCKERFILE).split(" AS runtime", 1)[1]
+    check = re.search(r"(?ms)^HEALTHCHECK .*?\bCMD (\[.*?\])$", runtime)
+
+    assert check is not None
+    command = json.loads(check.group(1))
+    assert command[:2] == ["env", "-i"]
+    assert command[2].startswith("/")  # no PATH in an empty environment
+    assert "http://127.0.0.1:8080/healthz" in command[-1]
 
 
 def test_dockerfile_routes_browser_models_and_managed_runtimes_correctly() -> None:
