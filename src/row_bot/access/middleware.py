@@ -6,6 +6,7 @@ import asyncio
 from collections import OrderedDict
 from contextlib import suppress
 import inspect
+from ipaddress import ip_address
 import json
 import logging
 import time
@@ -199,6 +200,28 @@ async def _redirect_remote_root_to_react(
     )
 
 
+_PROBES = frozenset({"/healthz", "/readyz"})
+
+
+def _loopback_probe(scope: Mapping[str, object]) -> bool:
+    """A container's own health check: GET /healthz or /readyz straight from this computer, nothing forwarded.
+
+    It asks by 127.0.0.1, which a server's exact ROW_BOT_ALLOWED_HOSTS leaves out, and the probes say only
+    whether Row-Bot is up, so their answer never depends on the Host header.
+    """
+    if scope.get("type") != "http" or scope.get("method") != "GET" or scope.get("path") not in _PROBES:
+        return False
+    client = scope.get("client")
+    try:
+        loopback = bool(client) and ip_address(str(client[0])).is_loopback  # type: ignore[index]
+    except (TypeError, ValueError, IndexError):
+        return False
+    headers = scope.get("headers") or ()
+    forwarded = any(name.lower() == b"forwarded" or name.lower().startswith(b"x-forwarded-")
+                    for name, _value in headers)  # type: ignore[misc]
+    return loopback and not forwarded
+
+
 class AccessMiddleware:
     """Resolve and enforce access policy for both HTTP and WebSocket scopes."""
 
@@ -327,7 +350,7 @@ class AccessMiddleware:
         receive: ASGIReceive,
         send: ASGISend,
     ) -> None:
-        if scope.get("type") not in {"http", "websocket"}:
+        if scope.get("type") not in {"http", "websocket"} or _loopback_probe(scope):
             await self.app(scope, receive, send)
             return
         try:
