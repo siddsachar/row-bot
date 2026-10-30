@@ -124,7 +124,7 @@ Row-Bot answers only requests addressed to a host name it knows. By default thos
 - **`ROW_BOT_TRUSTED_PROXY_CIDRS`:** the addresses or ranges (CIDR) the proxy connects from, separated by commas. Row-Bot also reads `ROW_BOT_TRUSTED_PROXIES`. Only these may tell Row-Bot the visitor's address and scheme.
 - **`ROW_BOT_UNTRUSTED_FORWARDED_ACTION`:** what happens to forwarding headers from anyone else. `reject`, the default, refuses the request with `untrusted_forwarding_headers`; `ignore` drops the headers.
 
-Name the proxy in `ROW_BOT_TRUSTED_PROXY_CIDRS`, and have it send `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), or `Forwarded`. Row-Bot then sees each visitor's own address, and knows the browser uses HTTPS.
+Name the proxy in `ROW_BOT_TRUSTED_PROXY_CIDRS`, and have it send `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), or `Forwarded`. Row-Bot then sees each visitor's own address, and knows the browser uses HTTPS. A proxy that leaves those headers out makes every visitor look as if they came from the proxy, or from the server itself when the proxy runs on the same machine, so it must send them on every request.
 
 Without a trusted proxy, a browser on an HTTPS address can't sign in. With `reject`, Row-Bot refuses the proxy's forwarding headers. With `ignore`, or a proxy that sends none, Row-Bot sees plain HTTP from the proxy's address, and signing in checks that the browser's origin matches exactly. `ignore` also makes every visitor share the proxy's address, so one stranger's wrong setup codes would pause the owner too.
 
