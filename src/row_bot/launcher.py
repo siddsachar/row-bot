@@ -4154,8 +4154,9 @@ def main(argv: list[str] | None = None) -> None:
         handed_off = _hand_off_to_running_instance(args)
         if handed_off is not None:
             raise SystemExit(handed_off)
-    if getattr(args, "command", "") == "serve":
-        # Before any program starts: the host's setup code leaves the environment (H1).
+    if getattr(args, "server", False):
+        # `row-bot serve` or the older `--server`, before any program starts: the host's
+        # setup code leaves the environment, and an unclaimed server prints its code (H1).
         from row_bot.access.setup_code import prepare_setup_code_at_start
 
         prepare_setup_code_at_start()
