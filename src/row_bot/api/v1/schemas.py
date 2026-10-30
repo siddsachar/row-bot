@@ -393,8 +393,9 @@ class BrowserFrame(WireModel):
 
 
 class BrowserInputEvent(WireModel):
-    """The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection."""
-    type: Literal["mouse", "key", "text", "copy"]
+    """The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection and
+    ``paste`` pastes text as the page's own paste."""
+    type: Literal["mouse", "key", "text", "paste", "copy"]
     action: Literal["move", "down", "up", "wheel", ""] = ""
     x: float = Field(default=0, ge=-10_000, le=100_000)
     y: float = Field(default=0, ge=-10_000, le=100_000)
@@ -403,7 +404,7 @@ class BrowserInputEvent(WireModel):
     button: Literal["left", "right", "middle"] = "left"
     clicks: int = Field(default=1, ge=1, le=3)
     key: str = Field(default="", max_length=32)
-    text: str = Field(default="", max_length=4096)
+    text: str = Field(default="", max_length=65_536)
 
     @model_validator(mode="after")
     def complete(self) -> BrowserInputEvent:
@@ -411,8 +412,8 @@ class BrowserInputEvent(WireModel):
             raise ValueError("A mouse event moves, presses, releases or turns the wheel.")
         if self.type == "key" and (self.action not in {"down", "up"} or not self.key):
             raise ValueError("A key event presses or releases one named key.")
-        if self.type == "text" and not self.text:
-            raise ValueError("A text event has text.")
+        if self.type in {"text", "paste"} and not self.text:
+            raise ValueError("A text or paste event has text.")
         if any(ord(character) < 32 and character not in "\t\n" for character in self.key + self.text):
             raise ValueError("Control characters aren't keys or text.")
         return self
