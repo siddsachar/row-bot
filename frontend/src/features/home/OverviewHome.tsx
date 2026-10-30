@@ -393,8 +393,10 @@ export default function OverviewHome({
   const [needsOpen, setNeedsOpen] = useState(false);
   // A fix changed something: read workflows and checks again.
   const [fixed, setFixed] = useState(0);
-  const [clock, setClock] = useState(() => new Date());
-  const now = suppliedNow ?? clock;
+  // Ticks once a minute; times are read at each render, so a run starting
+  // or a chat saved since the last tick is never words from the past minute.
+  const [, setClock] = useState(0);
+  const now = suppliedNow ?? new Date();
   const reduced = useReducedMotion();
   const approvalsFeed = usePendingApprovals(loadApprovals);
   const attentionFeed = useAttention(loadAttention);
@@ -553,7 +555,10 @@ export default function OverviewHome({
   // Keep "in 2 hours" and "3 minutes ago" honest while the tab stays open.
   useEffect(() => {
     if (suppliedNow) return;
-    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    const timer = window.setInterval(
+      () => setClock((tick) => tick + 1),
+      60_000,
+    );
     return () => window.clearInterval(timer);
   }, [suppliedNow]);
 
