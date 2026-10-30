@@ -31,7 +31,8 @@ from fastapi import APIRouter
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from row_bot.access.config import AccessConfig
+from row_bot.access import setup_page as setup_words
+from row_bot.access.config import AccessConfig, DeploymentMode
 from row_bot.access.cookies import AccessCookieManager
 from row_bot.access.models import SessionLifetime
 from row_bot.access.request_context import (
@@ -45,6 +46,8 @@ from row_bot.access.service import (
     AccessService,
     InvitationClaimError,
 )
+from row_bot.access.setup_code import SetupCodes, SetupOutcome
+from row_bot.hosting import hosted_by
 
 ACCESS_REQUEST_BODY_LIMIT = 32 * 1024
 _CLAIM_RATE_LIMIT = 20
@@ -67,6 +70,15 @@ CONNECT_PAGE_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; style-src 'unsafe-inline'; "
         "script-src 'unsafe-inline'; form-action 'self'; "
+        "base-uri 'none'; frame-ancestors 'none'"
+    ),
+}
+# The claim page reads its own state and posts the code: it also needs its glyph and fetch.
+SETUP_PAGE_HEADERS = {
+    **CONNECT_PAGE_HEADERS,
+    "Content-Security-Policy": (
+        "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
+        "script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; "
         "base-uri 'none'; frame-ancestors 'none'"
     ),
 }
@@ -467,13 +479,20 @@ def build_access_router(
     service: AccessService,
     cookies: AccessCookieManager,
     tailscale_controller: TailscaleServeController | None = None,
+    setup_codes: SetupCodes | None = None,
 ) -> APIRouter:
+    """Access routes; ``setup_codes`` (server mode only) adds the setup-code sign-in (H1)."""
     router = APIRouter()
     selected_tailscale = tailscale_controller or TailscaleServeController()
 
-    async def connect_page(request: Request) -> HTMLResponse:
+    async def connect_page(request: Request) -> Response:
         token = str(request.query_params.get("invitation") or "").strip()
         if not token:
+            if setup_codes is not None:
+                # A server: the claim page, or "already has an owner" (U1, U2).
+                return RedirectResponse(
+                    "/setup", status_code=303, headers=ACCESS_RESPONSE_HEADERS
+                )
             return HTMLResponse(
                 _neutral_connect_page(),
                 headers=CONNECT_PAGE_HEADERS,
@@ -572,6 +591,102 @@ def build_access_router(
                 status_code=303,
                 headers=ACCESS_RESPONSE_HEADERS,
             )
+        cookies.set_session(
+            response,
+            claim.session_token,
+            context=context,
+            expires_at=claim.session.expires_at,
+        )
+        return response
+
+    async def setup_page(request: Request) -> Response:
+        if setup_codes is None:
+            return Response("Not found", status_code=404, headers=ACCESS_RESPONSE_HEADERS)
+        context = _context(request)
+        if context is not None and context.authenticated:
+            return RedirectResponse(
+                REMOTE_CLIENT_PATH, status_code=303, headers=ACCESS_RESPONSE_HEADERS
+            )
+        owned = await asyncio.to_thread(service.owned)
+        return HTMLResponse(
+            setup_words.render_setup_page(
+                owned=owned,
+                host=hosted_by(),
+                paused_seconds=setup_codes.pause_remaining(
+                    context.effective_client if context is not None else None
+                ),
+            ),
+            headers=SETUP_PAGE_HEADERS,
+        )
+
+    async def setup_sign_in(request: Request) -> Response:
+        if setup_codes is None:
+            return _error(404, "not_found", "Not found.")
+        context = _context(request)
+        if context is None:
+            return _error(
+                503,
+                "access_context_unavailable",
+                "Access context is unavailable.",
+            )
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="setup_code",
+            limit=_CLAIM_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        attempt = await asyncio.to_thread(
+            setup_codes.sign_in,
+            str(payload.get("code") or "")[:256],
+            client=context.effective_client,
+            user_agent=request.headers.get("user-agent"),
+        )
+        if attempt.outcome is SetupOutcome.PAUSED:
+            seconds = int(attempt.retry_after or 0)
+            response = _json(
+                {
+                    "ok": False,
+                    "error": "paused",
+                    "retry_after": seconds,
+                    "detail": setup_words.paused_message(seconds),
+                },
+                status_code=429,
+            )
+            response.headers["Retry-After"] = str(seconds)
+            return response
+        if attempt.outcome is SetupOutcome.USED:
+            return _error(410, "code_used", setup_words.used_message(hosted_by()))
+        if attempt.outcome is SetupOutcome.WRONG or attempt.claim is None:
+            detail = (
+                setup_words.tries_left_message(attempt.tries_left)
+                if attempt.tries_left is not None
+                else setup_words.WRONG
+            )
+            return _json(
+                {
+                    "ok": False,
+                    "error": "wrong_code",
+                    "detail": detail,
+                    "tries_left": attempt.tries_left,
+                },
+                status_code=400,
+            )
+        claim = attempt.claim
+        response = _json(
+            {
+                "ok": True,
+                "authenticated": True,
+                "recovered": claim.recovered,
+                "next": REMOTE_CLIENT_PATH,
+            }
+        )
         cookies.set_session(
             response,
             claim.session_token,
@@ -1202,6 +1317,8 @@ def build_access_router(
         claim_invitation,
         methods=["POST"],
     )
+    router.add_api_route("/setup", setup_page, methods=["GET"])
+    router.add_api_route("/api/access/setup", setup_sign_in, methods=["POST"])
     router.add_api_route("/api/access/session", current_session, methods=["GET"])
     router.add_api_route(
         "/api/access/session/refresh",
@@ -1266,12 +1383,15 @@ def register_access_routes(
     config: AccessConfig | None = None,
     cookies: AccessCookieManager | None = None,
     tailscale_controller: TailscaleServeController | None = None,
+    setup_codes: SetupCodes | None = None,
 ) -> AccessRouteRegistration:
     """Register access routes and return middleware-ready dependencies."""
 
     selected_service = service or AccessService()
     selected_config = config or AccessConfig.from_env()
     selected_cookies = cookies or AccessCookieManager(selected_service.instance_id)
+    if setup_codes is None and selected_config.deployment_mode is DeploymentMode.SERVER:
+        setup_codes = SetupCodes(selected_service)
     registration = AccessRouteRegistration(
         service=selected_service,
         config=selected_config,
@@ -1289,6 +1409,7 @@ def register_access_routes(
             service=selected_service,
             cookies=selected_cookies,
             tailscale_controller=tailscale_controller,
+            setup_codes=setup_codes,
         )
     )
     return registration

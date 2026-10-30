@@ -39,6 +39,9 @@ PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/connect"),
         ("POST", "/api/access/invitations/claim"),
+        # The first sign-in with a setup code, and recovery (H1).
+        ("GET", "/setup"),
+        ("POST", "/api/access/setup"),
         ("GET", "/api/access/session"),
         ("GET", "/healthz"),
         ("GET", "/readyz"),

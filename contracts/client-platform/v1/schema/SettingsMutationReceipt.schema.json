@@ -1121,6 +1121,75 @@
       "title": "SettingsFileOperationsSnapshot",
       "type": "object"
     },
+    "SettingsHostSnapshot": {
+      "additionalProperties": false,
+      "description": "The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null.",
+      "properties": {
+        "home_url": {
+          "maxLength": 512,
+          "title": "Home Url",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "manage_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Manage Url"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "status_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Url"
+        },
+        "support_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Support Url"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "home_url",
+        "support_url",
+        "status_url",
+        "manage_url"
+      ],
+      "title": "SettingsHostSnapshot",
+      "type": "object"
+    },
     "SettingsLoggingSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1608,6 +1677,17 @@
         },
         "file_operations": {
           "$ref": "#/$defs/SettingsFileOperationsSnapshot"
+        },
+        "hosted_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsHostSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "logging": {
           "$ref": "#/$defs/SettingsLoggingSnapshot"

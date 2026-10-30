@@ -32,6 +32,11 @@ CLAIM_FAILURE_LIMIT = 5
 CLAIM_LOCK_DURATION = timedelta(minutes=5)
 MAX_EVENT_DETAIL_BYTES = 2048
 MAX_EVENT_ROWS = 2000
+# Setup codes (H1), as salted verifiers only: the one code that may sign in now, settled at
+# each start, and the newest codes that signed someone in (a code works once).
+SETUP_CODE_ACTIVE_KEY = "setup_code_active"
+SETUP_CODES_USED_KEY = "setup_codes_used"
+SETUP_CODES_USED_MAX = 8
 
 _SENSITIVE_DETAIL_KEYS = {
     "authorization",
@@ -925,6 +930,92 @@ class AccessStore:
         claimed_invitation = self.get_invitation(invitation_id)
         assert claimed_invitation is not None
         return device, session, claimed_invitation
+
+    def claim_setup_code_atomic(
+        self,
+        *,
+        device: AccessDevice,
+        session: AccessSession,
+        used_verifier: Mapping[str, str],
+        allow_recovery: bool,
+        effective_client: str | None = None,
+        user_agent: str | None = None,
+        now: datetime | None = None,
+    ) -> tuple[AccessDevice, AccessSession, bool] | None:
+        """Sign a browser in with a setup code, retiring the code in the same commit.
+
+        When someone already owns this Row-Bot, only a recovery code (``allow_recovery``) may sign in,
+        and it first signs out every other device and session; otherwise this returns ``None``.
+        Returns the device, the session and whether it was a recovery.
+        """
+        self.ensure_schema()
+        current = normalize_datetime(now)
+        stamp = to_iso(current)
+        with self._immediate_transaction() as connection:
+            owned = (
+                connection.execute(
+                    "SELECT 1 FROM access_devices WHERE revoked_at IS NULL LIMIT 1"
+                ).fetchone()
+                is not None
+            )
+            if owned and not allow_recovery:
+                return None
+            signed_out = 0
+            if owned:
+                signed_out = connection.execute(
+                    "UPDATE access_devices SET revoked_at = ? WHERE revoked_at IS NULL",
+                    (stamp,),
+                ).rowcount
+                connection.execute(
+                    "UPDATE access_sessions SET revoked_at = ? WHERE revoked_at IS NULL",
+                    (stamp,),
+                )
+            connection.execute(
+                """
+                INSERT INTO access_devices(
+                    id, display_name, profile, created_at, last_seen_at,
+                    revoked_at, user_agent, paired_from, access_route,
+                    legacy_source_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                _device_values(device),
+            )
+            connection.execute(
+                """
+                INSERT INTO access_sessions(
+                    id, device_id, token_hash, token_salt, token_format,
+                    created_at, last_seen_at, expires_at, revoked_at, lifetime,
+                    replaced_by_session_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                _session_values(session),
+            )
+            row = connection.execute(
+                "SELECT value_json FROM access_meta WHERE key = ?",
+                (SETUP_CODES_USED_KEY,),
+            ).fetchone()
+            earlier = json.loads(row["value_json"]) if row else []
+            used = [
+                {"salt": used_verifier["salt"], "hash": used_verifier["hash"], "used_at": stamp},
+                *(item for item in earlier if isinstance(item, dict)),
+            ][:SETUP_CODES_USED_MAX]
+            self._set_meta_on_connection(connection, SETUP_CODES_USED_KEY, used, current)
+            connection.execute(
+                "DELETE FROM access_meta WHERE key = ?", (SETUP_CODE_ACTIVE_KEY,)
+            )
+            self._insert_event_on_connection(
+                connection,
+                "setup_code_signed_in",
+                device_id=device.id,
+                session_id=session.id,
+                effective_client=effective_client,
+                user_agent=user_agent,
+                detail={"recovery": owned, "signed_out_devices": signed_out},
+                now=current,
+            )
+        return device, session, owned
 
     @staticmethod
     def _invitation_failure_locked_on_connection(
