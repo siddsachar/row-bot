@@ -89,7 +89,8 @@
         "access",
         "models",
         "workflows",
-        "health"
+        "health",
+        "data"
       ],
       "title": "Place",
       "type": "string"

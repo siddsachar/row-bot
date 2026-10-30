@@ -5099,8 +5099,8 @@ class AttentionProblem(WireModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(max_length=160)
     detail: str = Field(max_length=512)
-    # "health": a Monitor check whose last result is an error (B252).
-    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health"]
+    # "health": a Monitor check whose last result is an error (B252); "data": a sandbox without a model (W12).
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health", "data"]
     fix: ProblemFix | None = None
 
 
