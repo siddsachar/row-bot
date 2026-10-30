@@ -1,0 +1,69 @@
+---
+title: "What Your Host Can See"
+description: "When a hosting service runs your Row-Bot: what the host can reach, what Row-Bot keeps encrypted and where the key lives, and how to protect yourself."
+---
+
+# What Your Host Can See
+
+When a hosting service runs Row-Bot for you, your Row-Bot lives on that company's computer, not yours. This page says plainly what the host can reach, what Row-Bot does to protect your saved sign-ins, and what you can do. It applies to any host. For a Row-Bot on your own computer, read [Privacy And Safety](/docs/privacy-safety/).
+
+## In Short
+
+- **Your host runs the computer.** It can technically read your Row-Bot's disk, and the memory of the running server. That's true of every hosting service, which is why choosing a host is a matter of trust.
+- **Row-Bot encrypts your saved sign-ins and keys.** That protects copies of your data, such as backups. It doesn't hide them from the host, which holds the key.
+- **Nothing new goes to Row-Bot's maker.** Row-Bot's maker doesn't run your server and has no way into it.
+- **You can limit the damage.** Use keys with spending limits and sign-ins you can revoke, so you can cut off access quickly if you ever need to.
+
+## What Your Host Can Reach
+
+- **Your data folder.** Your conversations, memories, documents and files, workflows, settings and logs are ordinary files on the server's disk. So are the cookies of Row-Bot's own browser, which keep it signed in to websites. The host's backups and copies of the disk hold them too.
+- **The running server's memory.** It holds whatever Row-Bot is working with, including the sign-ins it's using at that moment.
+- **The traffic to your Row-Bot.** Row-Bot speaks plain HTTP inside the host's network, so the HTTPS connection from your browser ends at the host's proxy in front of it.
+- **Its own settings for your server.** If the host generated your setup code and the key for your saved sign-ins, it has both.
+
+Whoever can change your server's settings can also sign in: a new setup code and a restart let one browser in, and sign out every other browser. That's how you get back in when you've lost access, and it means your host could too. If you're ever signed out everywhere without doing it yourself, ask your host why.
+
+## What Row-Bot Keeps Encrypted
+
+**Your saved sign-ins and keys:** model API keys, your ChatGPT and other provider sign-ins, channel tokens, and account, app and MCP sign-ins. A hosted server has no keychain, so Row-Bot encrypts each of them itself (AES-256-GCM) and stores them in the `secure-secrets` folder of its data. They're never stored in plain text.
+
+The setup code, invitations and browser sessions are never stored at all: Row-Bot keeps only salted hashes, which can check a code but can't be turned back into one.
+
+Where the key that opens your saved sign-ins lives depends on your host:
+
+- **Your host gives Row-Bot the key** (`ROW_BOT_SECRET_STORE_KEY`, in its settings for your server). The key is never written to the data folder, so a copy of the data folder, or a backup of it, holds only encrypted sign-ins. The host still has the key in its settings.
+- **Your host gives none.** Row-Bot makes a key at its first start and keeps it in the data folder (`secret-store-key`), readable only by Row-Bot. Anyone with a full copy of the data folder, including the host's backups, can then open your saved sign-ins.
+
+Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave out both the key and your saved sign-ins.
+
+## The Key And The Setup Code
+
+- Row-Bot reads the key and the setup code as it starts, then removes them from its environment. The programs it runs for you (shell commands, MCP servers, Claude Code, Python, Row-Bot's browser) never get them, and a command such as `env` can't show them.
+- On Linux, Row-Bot's own processes also hide the environment they started with: only the server's administrator (root) can read it.
+- Neither appears in Row-Bot's log files. While nobody owns your Row-Bot, the setup code shows only in the server's console output.
+
+This keeps both secrets away from the programs Row-Bot runs. It doesn't keep them from your host, which set them.
+
+## Nothing New Goes To Row-Bot's Maker
+
+- A hosted Row-Bot makes the same connections as any Row-Bot, and no others: see [Every Connection At A Glance](/docs/privacy-safety/#every-connection-at-a-glance). It doesn't check for updates itself; your host installs them.
+- [Install stats](/docs/privacy-safety/#install-stats) count a hosted Row-Bot as `docker`, like any Row-Bot in a container. They don't say who hosts it. Turn them off in **Settings › System › Privacy**.
+- The name of your host is used only on your Row-Bot's own pages, and isn't sent anywhere.
+
+What your host itself records, such as its own logs and billing, is up to the host: read its privacy policy.
+
+## Protect Yourself
+
+- **Give model API keys a spending limit.** Most providers let you set a budget for a key or an account, so a key that leaks can't cost more than that.
+- **Prefer sign-ins you can revoke.** A sign-in you can end from the service's own security settings, or a bot token you can regenerate, is quicker to cut off than a password.
+- **Keep your own backup.** Choose **Back up now**, then **Download**, in **Settings › Data**. It saves a copy on your device, without passwords or sign-ins.
+- **Check your devices now and then.** The list in **Settings › Devices & remote access** shows every signed-in phone and computer, and signs one out.
+
+**If your host has a security incident,** assume your saved sign-ins and keys were exposed, and replace them:
+
+1. At each model provider, make a new API key, paste it into Row-Bot (**Settings › Providers**), then delete the old key.
+2. End Row-Bot's sign-ins at each service you connected (your model plan, accounts, apps), then sign in again from Row-Bot.
+3. Make new tokens for your channel bots and enter them in Row-Bot.
+4. Sign out any browser you don't recognise in **Settings › Devices & remote access**.
+
+Related: [Hosting Row-Bot](/docs/operations/hosting), for the technical details hosts work with, and [Privacy And Safety](/docs/privacy-safety/).
