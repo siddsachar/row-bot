@@ -124,9 +124,10 @@ def prepare_setup_code_at_start(
         if not _well_formed(code):
             # Never the value: only the console ever shows a code.
             logger.warning(
-                "%s needs at least %d letters or digits; Row-Bot ignores the one set",
+                "%s needs %d to %d letters or digits; Row-Bot ignores the one set",
                 SETUP_CODE_ENV,
                 CODE_LENGTH,
+                MAX_CODE_LENGTH,
             )
             code = None
         elif any(_verifies(code, item) for item in used):

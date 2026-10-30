@@ -106,7 +106,7 @@ def test_a_host_code_too_short_to_be_safe_is_ignored_without_logging_it(
 
     # Row-Bot made a code of its own instead, so a new pod is never left without one.
     assert len(_printed(capsys)) == 1
-    assert "ROW_BOT_SETUP_CODE needs at least 12 letters or digits" in caplog.text
+    assert "ROW_BOT_SETUP_CODE needs 12 to 64 letters or digits" in caplog.text
     assert "letmein" not in caplog.text.lower()
     codes = SetupCodes(AccessService(store))
     assert codes.sign_in("letmein", client="198.51.100.7").outcome is SetupOutcome.WRONG
