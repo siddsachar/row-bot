@@ -2571,9 +2571,13 @@ def _apply_history_hygiene(
     *history* is the raw history (summary validation); *visible* the same messages as they appear
     in *trimmed* (index-aligned, turn-context tags neutralized).
     """
+    newest_person = max((index for index, message in enumerate(visible) if is_person_message(message)), default=0)
     views = _tool_result_views(visible)
     if not views:
-        return trimmed
+        current = _without_earlier_reasoning(visible, before=newest_person)
+        replacements = {id(visible[position]): current[position] for position in range(len(visible))
+                        if current[position] is not visible[position]}
+        return [replacements.get(id(message), message) for message in trimmed] if replacements else trimmed
     thread_id = _current_thread_id_var.get() or ""
     marks = history_hygiene.load_marks(thread_id, visible)
     summary = _agent_summary_state(history) or {}
@@ -2622,18 +2626,15 @@ def _apply_history_hygiene(
     if rendered is None:
         rendered = _render_tool_results(views, marks, boundary=boundary)
         current = _with_rendered_results(visible, rendered)
+    current = _without_earlier_reasoning(current, before=newest_person)
     if compact_at:
-        newest = max(
-            (index for index, message in enumerate(visible) if is_person_message(message)),
-            default=0,
-        )
-        emergency = request_size("", current[newest:]) >= compact_at
+        emergency = request_size("", current[newest_person:]) >= compact_at
     else:
         emergency = request_size(summary_text, current[boundary:]) >= max_tokens
     if emergency:
         logger.debug("History hygiene: emergency shrink of tool results (thread=%s)", thread_id[:8])
         rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65))
-        current = _without_earlier_reasoning(_with_rendered_results(visible, rendered))
+        current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
 
     replacements = {
         id(visible[position]): current[position]
@@ -2645,14 +2646,15 @@ def _apply_history_hygiene(
     return [replacements.get(id(message), message) for message in trimmed]
 
 
-def _without_earlier_reasoning(messages: list) -> list:
-    """*messages* with only the newest step's kept reasoning (``reasoning_content``) sent: one long turn of a
-    thinking model keeps room to answer, as compaction can't shorten the turn in flight. Nothing is changed in
-    the conversation itself."""
+def _without_earlier_reasoning(messages: list, *, before: int) -> list:
+    """*messages* without the kept reasoning (``reasoning_content``, sent back as Ollama's ``thinking``) of the
+    steps before *before*, but always the newest step's: a model's templates leave an earlier turn's reasoning
+    out anyway, and under pressure one long turn of a thinking model keeps room to answer (compaction can't
+    shorten the turn in flight). Nothing is changed in the conversation itself."""
     carrying = [index for index, message in enumerate(messages)
                 if isinstance(message, AIMessage) and (message.additional_kwargs or {}).get("reasoning_content")]
     kept = list(messages)
-    for index in carrying[:-1]:
+    for index in [index for index in carrying[:-1] if index < before]:
         message = messages[index]
         kept[index] = _copy_message(message, additional_kwargs={
             key: value for key, value in message.additional_kwargs.items() if key != "reasoning_content"})

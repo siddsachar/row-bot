@@ -188,6 +188,22 @@ def test_a_long_turn_sends_only_its_newest_reasoning_once_it_reaches_the_limit(m
         False, False, False, True], "only the newest step's reasoning is sent"
 
 
+def test_an_earlier_turns_reasoning_is_never_sent_again(monkeypatch) -> None:
+    conversation = AgentConversation(agent, monkeypatch)
+    conversation.say("Plan the video.")
+    conversation.answer("Here's the plan.")
+    conversation.state["messages"][-1].additional_kwargs["reasoning_content"] = text_of_tokens("plan", 2_000)
+    conversation.say("Now make it.")
+    conversation.tool("read_file", "notes")
+    conversation.state["messages"][-2].additional_kwargs["reasoning_content"] = "Reading the notes first."
+
+    sent = [message for message in conversation.request() if isinstance(message, AIMessage)]
+
+    assert [message.additional_kwargs.get("reasoning_content") for message in sent] == [
+        None, "Reading the notes first."]
+    assert conversation.state["messages"][1].additional_kwargs["reasoning_content"], "the conversation keeps it"
+
+
 def test_large_results_in_older_turns_wait_for_compaction_instead_of_shrinking(monkeypatch) -> None:
     conversation = AgentConversation(agent, monkeypatch, context_window=40_000, compact_at=20_000)
     conversation.say("Reconcile the three exports.")
