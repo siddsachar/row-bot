@@ -209,3 +209,41 @@ def test_transcribing_says_what_is_missing(chat, monkeypatch):
     monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
     assert _transcribe("talk.mp3").startswith("Not transcribed: Transcribing needs ffmpeg.")
     assert _transcribe("nothing.mp3").startswith("Not transcribed: Couldn't find nothing.mp3")
+
+
+def test_voices_made_together_share_one_model_and_never_overlap(monkeypatch, tmp_path):
+    """30 Oct demo run 3: seven voice files asked for at once traded lines in Kokoro's phonemizer ("number of lines
+    in input and output must be equal"), and each loaded its own copy of the model."""
+    import sys
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from row_bot import sound, tts
+
+    loads: list[str] = []
+    busy = threading.Lock()
+
+    class Model:
+        def __init__(self, *_paths) -> None:
+            loads.append("kokoro")
+
+        def create(self, text, **_kw):
+            if not busy.acquire(blocking=False):
+                raise RuntimeError("number of lines in input and output must be equal")
+            try:
+                time.sleep(0.01)
+                return np.zeros(2400, dtype=np.float32), 24_000
+            finally:
+                busy.release()
+
+    monkeypatch.setitem(sys.modules, "kokoro_onnx", SimpleNamespace(Kokoro=Model))
+    monkeypatch.setattr(tts, "_SHARED_KOKORO", [])
+    monkeypatch.setattr(tts.TTSService, "is_installed", lambda self: True)
+    monkeypatch.setattr(tts.TTSService, "reload_settings", lambda self: None)
+
+    with ThreadPoolExecutor(7) as pool:
+        made = list(pool.map(lambda n: sound.speak(f"Line {n}. And another sentence."), range(14)))
+
+    assert all(speech.seconds > 0 for speech in made)
+    assert loads == ["kokoro"], "one model for every voice file"
