@@ -635,7 +635,7 @@ class ChatClaudePlan(BaseChatModel):
 
                 forget_claude_plan_status()
                 raise ClaudePlanUnavailable(
-                    "Claude Code didn't start on this computer. Check Claude in Settings › Providers, then try "
+                    "Claude Code didn't start. Check Claude in Settings › Providers, then try "
                     "again.") from exc
             unregister = scope.register(run.stop, "claude_plan.stop") if scope is not None else None
             try:

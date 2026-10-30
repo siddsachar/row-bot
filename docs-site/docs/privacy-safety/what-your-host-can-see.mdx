@@ -36,6 +36,8 @@ Where the key that opens your saved sign-ins lives depends on your host:
 
 Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave out both the key and your saved sign-ins.
 
+**Your Claude plan's sign-in** isn't one of them: Claude Code keeps it itself, in its own folder in the server's home (`.claude`), which on a hosted server is part of the data disk. Row-Bot never reads it and its backups leave it out, but the host can reach it like any file on the disk.
+
 ## The Key And The Setup Code
 
 - Row-Bot reads the key and the setup code as it starts, then removes them from its environment. The programs it runs for you (shell commands, MCP servers, Claude Code, Python, Row-Bot's browser) never get them, and a command such as `env` can't show them.

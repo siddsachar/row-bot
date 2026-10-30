@@ -252,7 +252,7 @@ def test_claude_code_gone_since_it_was_checked_says_so_and_is_checked_again(stor
     for shim in fake.bin_dir.glob("claude*"):
         shim.unlink()
 
-    with pytest.raises(claude.ClaudePlanUnavailable, match="Claude Code didn't start on this computer"):
+    with pytest.raises(claude.ClaudePlanUnavailable, match="Claude Code didn't start. Check Claude"):
         _model().invoke([HumanMessage(content="Hello")])
     assert claude.claude_plan_status().state == "not_installed"
 

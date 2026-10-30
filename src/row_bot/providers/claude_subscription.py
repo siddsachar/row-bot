@@ -191,7 +191,7 @@ def check_claude_code() -> ClaudePlanStatus:
         answer = _run(program, "--version")
     except (OSError, subprocess.SubprocessError):
         logger.info("Claude Code didn't start to report its version", exc_info=True)
-        return ClaudePlanStatus("error", detail="Claude Code didn't start on this computer.", program=program)
+        return ClaudePlanStatus("error", detail="Claude Code didn't start.", program=program)
     version = parse_version(answer.stdout)
     if answer.returncode != 0 or version is None:
         return ClaudePlanStatus("error", detail="Claude Code didn't say which version it is.", program=program)

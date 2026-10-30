@@ -18,11 +18,11 @@ Pick one of three cards. You can add other providers later.
 | Choice | What it means | Tradeoffs |
 | --- | --- | --- |
 | **On this computer** | Private and free, with Ollama. | Needs Ollama and a downloaded model; larger models need more memory and disk space. |
-| **With my subscription** | ChatGPT, Claude or Grok. | Uses a plan you already pay for and follows that provider's terms. ChatGPT and Grok sign in from Row-Bot; Claude works through Claude Code, which you install and sign in to yourself. |
+| **With my subscription** | ChatGPT, Claude or Grok. | Uses a plan you already pay for and follows that provider's terms. ChatGPT and Grok sign in from Row-Bot; Claude works through Claude Code, which **Use my Claude plan** installs from Anthropic if needed before Claude's own sign-in. |
 | **With an API key** | OpenAI, Anthropic, Google, OpenRouter and more, or your own endpoint. | Needs an API key and internet access; the provider bills per use and receives the prompts you send it. |
 
 - **On this computer** walks you through it: **Install Ollama** if it is missing, **Start Ollama** if it isn't running, **Download a model**, then **Pick a model** from the models on this computer. Up to three are tagged **Recommended**: your saved choice first, then the largest models that use tools. A variant with its safety training removed ("abliterated" or "uncensored") is never recommended, but stays under **Show all models**.
-- **With my subscription** lets you choose ChatGPT, Claude or Grok. ChatGPT and Grok sign in in your browser. Claude checks that Claude Code is installed and signed in on this computer, and says what to do if it isn't; Row-Bot never handles your Claude sign-in.
+- **With my subscription** lets you choose ChatGPT, Claude or Grok. ChatGPT and Grok sign in in your browser. Claude offers **Use my Claude plan**: Row-Bot installs Claude Code from Anthropic if it isn't there yet, then opens Claude's own sign-in in a small panel. Row-Bot never handles your Claude sign-in. See [Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan).
 - **With an API key** lists the recommended providers first and the rest under **More providers**. Choose one, paste its key, and pick a model. Advanced users can add an OpenAI-compatible endpoint, such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM or SGLang.
 
 After you pick a model, Row-Bot sends it a short test message. A local model can take a minute to load the first time. If the model doesn't answer, choose **Try again** or **Choose another model**.
