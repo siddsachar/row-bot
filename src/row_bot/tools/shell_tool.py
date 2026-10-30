@@ -199,6 +199,9 @@ def _shell_words(line: str) -> list[str] | None:
     return words
 
 
+# ffmpeg or ffprobe run as a command: first on a line, or after a pipe or a chaining operator.
+_FFMPEG_COMMAND = re.compile(r"(?:^|[|;&]\s*|\n\s*)(?:ffmpeg|ffprobe)(?:\.exe)?(?=\s|$)", re.IGNORECASE)
+
 # What a read-only listing may be piped into: they only sort, pick, count or lay out what they're given. The
 # words of each part go through _shell_words, so no script block, variable or substitution reaches here.
 _PIPE_FILTERS: dict[str, tuple[str, ...]] = {
@@ -977,6 +980,15 @@ class ShellTool(BaseTool):
         )
         if refusal:
             return refusal
+        # A command using ffmpeg on a computer without one gets Row-Bot's own, asked once (5.3.1 A1): once
+        # downloaded it's on every command's PATH.
+        if _FFMPEG_COMMAND.search(command):
+            from row_bot import ffmpeg_runtime
+
+            if ffmpeg_runtime.find() is None:
+                found, line = ffmpeg_runtime.ensure("command", "run_command")
+                if found is None:
+                    return with_approval(approval, f"$ {command}\n{line}")
 
         # ── Execute ──────────────────────────────────────────────────────
         try:
