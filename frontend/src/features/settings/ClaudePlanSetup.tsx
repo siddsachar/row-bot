@@ -1,25 +1,26 @@
-import { useContext, useEffect, useState } from 'react';
-import { ExternalLink, RefreshCw, SquareTerminal } from 'lucide-react';
-import type { ClaudePlanStatus } from '../../api/types';
-import { writeClipboardText } from '../../platform/clipboard';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Download, LogIn, RefreshCw } from 'lucide-react';
+import { clientError } from '../../api/errors';
+import type { ClaudeCodeInstallState, ClaudePlanStatus } from '../../api/types';
 import { RuntimeContext } from '../../runtime';
 import {
   Button,
-  CopyGlyph,
-  IconButton,
+  Progress,
   Skeleton,
   StatusDot,
-  useCopyFeedback,
   type Tone,
 } from '../../ui/primitives';
+import ClaudeSignInPanel, { type SignInEnd } from './ClaudeSignInPanel';
 
-/** Anthropic's own page for installing Claude Code. */
-export const CLAUDE_CODE_INSTALL_URL = 'https://code.claude.com/docs/en/setup';
-
-/** The provider's name, and the one line that says what it does. */
+/** The provider's name, and the one line that says what it does (U11). */
 export const CLAUDE_PLAN_TITLE = 'Claude (your Claude plan)';
 export const CLAUDE_PLAN_SUMMARY =
-  'Runs Claude Code on this computer; uses your Claude plan’s limits.';
+  'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.';
+export const USE_MY_CLAUDE_PLAN = 'Use my Claude plan';
+export const SIGNED_OUT_BY_CLAUDE =
+  'Claude signed you out. Sign in again to keep using your plan.';
+export const SIGN_IN_CLOSED_EARLY =
+  'Claude’s sign-in was closed before it finished.';
 
 type State = ClaudePlanStatus['state'];
 
@@ -31,12 +32,12 @@ export const CLAUDE_PLAN_STATES: Record<
   not_installed: {
     label: 'Not set up',
     tone: 'neutral',
-    detail: 'Needs Claude Code on this computer',
+    detail: 'Use your Claude plan in Row-Bot',
   },
   signed_out: {
     label: 'Not signed in',
     tone: 'warning',
-    detail: 'Sign in to Claude Code to use your plan',
+    detail: 'Sign in to Claude to use your plan',
   },
   too_old: {
     label: 'Update needed',
@@ -46,7 +47,7 @@ export const CLAUDE_PLAN_STATES: Record<
   ready: {
     label: 'Ready',
     tone: 'success',
-    detail: 'Runs Claude Code on this computer',
+    detail: 'Runs Claude Code with your Claude plan',
   },
   error: {
     label: 'Couldn’t check',
@@ -55,80 +56,64 @@ export const CLAUDE_PLAN_STATES: Record<
   },
 };
 
+/** Why Claude Code couldn't be installed, in a few plain words. */
+export const INSTALL_FAILURES: Record<
+  Exclude<ClaudeCodeInstallState['reason'], ''>,
+  string
+> = {
+  no_internet: 'no internet connection',
+  download_failed: 'the download from Anthropic didn’t work',
+  checksum_mismatch:
+    'the download didn’t match Anthropic’s checksum, so it was deleted',
+  disk_full: 'there isn’t enough disk space',
+  unsupported_platform: 'it doesn’t run on this system',
+  install_failed: 'its installer stopped with an error',
+};
+
 /** The status pill and detail for a Claude plan row. */
 export function claudePlanSummary(plan: ClaudePlanStatus) {
-  const state = CLAUDE_PLAN_STATES[plan.state];
   if (plan.set_up_again)
     return {
       label: 'Set up again',
       tone: 'warning' as Tone,
       detail: 'Claude now works through Claude Code. Set it up again',
     };
-  return state;
-}
-
-/** A command to run in a terminal, with Copy. */
-function Command({ command }: { command: string }) {
-  const [copied, setCopied] = useCopyFeedback();
-  const writer = useContext(RuntimeContext)?.platform.writeClipboard;
-  return (
-    <div className="claude-plan-command">
-      <code>{command}</code>
-      <IconButton
-        label={copied ? 'Copied' : 'Copy command'}
-        size="sm"
-        onClick={() => void writeClipboardText(command, writer).then(setCopied)}
-      >
-        <CopyGlyph copied={copied} />
-      </IconButton>
-    </div>
-  );
-}
-
-/** "Open a terminal", only in the desktop app, which can open the person's own terminal app. */
-function OpenTerminal() {
-  const platform = useContext(RuntimeContext)?.platform;
-  const [available, setAvailable] = useState(false);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void platform
-      ?.discover()
-      .then((result) => {
-        if (alive)
-          setAvailable(
-            result.status === 'ok' &&
-              result.value.kind === 'pywebview' &&
-              result.value.capabilities.includes('terminal_external'),
-          );
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
+  if (plan.state === 'signed_out' && plan.signed_in_before)
+    return {
+      ...CLAUDE_PLAN_STATES.signed_out,
+      detail: 'Claude signed you out',
     };
-  }, [platform]);
-  if (!available || !platform) return null;
-  return (
-    <>
-      <Button
-        onClick={() =>
-          void platform
-            .openExternalTerminal(null)
-            .then((result) => setFailed(result.status !== 'ok'))
-        }
-      >
-        <SquareTerminal size={16} aria-hidden /> Open a terminal
-      </Button>
-      {failed && (
-        <p className="settings-help" role="alert">
-          Row-Bot couldn’t open your terminal app. Open it yourself.
-        </p>
-      )}
-    </>
-  );
+  return CLAUDE_PLAN_STATES[plan.state];
 }
 
-/** What this computer's Claude Code says, and the one thing to do next. */
+type Step =
+  | { kind: 'idle' }
+  | {
+      kind: 'installing';
+      update: boolean;
+      progress: ClaudeCodeInstallState | null;
+    }
+  | { kind: 'install_failed'; update: boolean; reason: string }
+  | { kind: 'signing_in'; installed: string }
+  | { kind: 'closed_early'; detail: string }
+  | { kind: 'connected' };
+
+const POLL_MS = 500;
+
+function installing(progress: ClaudeCodeInstallState | null) {
+  if (!progress || progress.step === 'download')
+    return progress?.total
+      ? Math.min(99, Math.round((progress.received / progress.total) * 90))
+      : undefined;
+  return progress.step === 'check' ? 92 : 96;
+}
+
+/**
+ * Claude (your Claude plan), set up in one place (U11, U12): "Use my Claude
+ * plan" installs Claude Code from Anthropic when it's missing, then opens
+ * Claude's own sign-in. Row-Bot offers no Claude login of its own and never
+ * sees the sign-in.
+ */
 export default function ClaudePlanSetup({
   plan,
   checking,
@@ -141,101 +126,252 @@ export default function ClaudePlanSetup({
   /** Ready: close the dialog (Settings) or carry on (first run). */
   onDone?: () => void;
 }) {
-  if (!plan) return <Skeleton label="Checking Claude Code" />;
-  const state = CLAUDE_PLAN_STATES[plan.state];
-  const check = (
-    <Button
-      variant={plan.state === 'not_installed' ? 'secondary' : 'primary'}
-      disabled={checking}
-      onClick={onCheck}
-    >
-      <RefreshCw size={16} aria-hidden data-spinning={checking || undefined} />{' '}
-      {checking ? 'Checking…' : 'Check again'}
+  const controller = useContext(RuntimeContext)?.controller;
+  const [step, setStep] = useState<Step>({ kind: 'idle' });
+  const polling = useRef<AbortController | null>(null);
+  useEffect(() => () => polling.current?.abort(), []);
+
+  async function follow(update: boolean, signal: AbortSignal) {
+    if (!controller) return;
+    let progress = await controller.claudeCodeInstall(signal);
+    while (progress.state === 'running' && !signal.aborted) {
+      setStep({ kind: 'installing', update, progress });
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      progress = await controller.claudeCodeInstall(signal);
+    }
+    if (signal.aborted) return;
+    if (progress.state === 'failed') {
+      setStep({
+        kind: 'install_failed',
+        update,
+        reason: progress.reason || 'install_failed',
+      });
+      return;
+    }
+    onCheck();
+    // A fresh install goes straight on to Claude's sign-in; an update only checks again.
+    setStep(
+      update
+        ? { kind: 'idle' }
+        : { kind: 'signing_in', installed: progress.version },
+    );
+  }
+
+  // An install already running (the dialog was closed and opened again) shows its progress.
+  useEffect(() => {
+    if (plan?.state !== 'not_installed' || !controller?.claudeCodeInstall)
+      return;
+    const abort = new AbortController();
+    void controller
+      .claudeCodeInstall(abort.signal)
+      .then((progress) => {
+        if (progress.state !== 'running' || abort.signal.aborted) return;
+        polling.current?.abort();
+        polling.current = abort;
+        return follow(false, abort.signal);
+      })
+      .catch(() => undefined);
+    return () => abort.abort();
+    // Only when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function install(update: boolean) {
+    if (!controller) return;
+    polling.current?.abort();
+    const abort = new AbortController();
+    polling.current = abort;
+    setStep({ kind: 'installing', update, progress: null });
+    try {
+      await controller.installClaudeCode(update);
+      await follow(update, abort.signal);
+    } catch (cause) {
+      if (abort.signal.aborted) return;
+      const error = clientError(cause);
+      if (error.code === 'claude_code_present') {
+        onCheck();
+        setStep({ kind: 'signing_in', installed: '' });
+        return;
+      }
+      setStep({ kind: 'install_failed', update, reason: error.message });
+    }
+  }
+
+  function signedIn(end: SignInEnd) {
+    if (end.plan?.state === 'ready') {
+      setStep({ kind: 'connected' });
+      onCheck();
+      return;
+    }
+    setStep({
+      kind: 'closed_early',
+      detail:
+        end.plan?.state === 'signed_out' && end.plan.detail
+          ? end.plan.detail
+          : end.error,
+    });
+  }
+
+  if (!plan) return <Skeleton label="Checking your Claude plan" />;
+  const ready = step.kind === 'connected' || plan.state === 'ready';
+  const update = (variant: 'primary' | 'secondary' | 'ghost') => (
+    <Button variant={variant} onClick={() => void install(true)}>
+      <Download size={16} aria-hidden /> Update Claude Code
     </Button>
   );
+  const signIn = (label: string) => (
+    <Button
+      variant="primary"
+      onClick={() => setStep({ kind: 'signing_in', installed: '' })}
+    >
+      <LogIn size={16} aria-hidden /> {label}
+    </Button>
+  );
+
+  let body: ReactNode;
+  if (step.kind === 'installing') {
+    const value = installing(step.progress);
+    body = (
+      <div className="claude-plan-progress" role="status" aria-live="polite">
+        <Progress
+          label={
+            step.update
+              ? 'Updating Claude Code from Anthropic…'
+              : 'Installing Claude Code from Anthropic…'
+          }
+          value={value}
+        />
+      </div>
+    );
+  } else if (step.kind === 'install_failed') {
+    const reason =
+      INSTALL_FAILURES[step.reason as keyof typeof INSTALL_FAILURES];
+    body = (
+      <>
+        <p role="alert">
+          {reason
+            ? `Claude Code couldn’t be installed: ${reason}.`
+            : `Claude Code couldn’t be installed. ${step.reason}`}
+        </p>
+        <div className="actions">
+          <Button variant="primary" onClick={() => void install(step.update)}>
+            <RefreshCw size={16} aria-hidden /> Try again
+          </Button>
+        </div>
+      </>
+    );
+  } else if (step.kind === 'signing_in') {
+    body = (
+      <>
+        {step.installed && (
+          <p className="claude-plan-state" role="status">
+            <StatusDot
+              tone="success"
+              label={`Installed (version ${step.installed})`}
+              showLabel
+            />
+          </p>
+        )}
+        <ClaudeSignInPanel onEnd={signedIn} />
+      </>
+    );
+  } else if (step.kind === 'closed_early' && !ready) {
+    body = (
+      <>
+        <p role="alert">
+          {SIGN_IN_CLOSED_EARLY}
+          {step.detail ? ` ${step.detail}` : ''}
+        </p>
+        <div className="actions">{signIn('Sign in again')}</div>
+      </>
+    );
+  } else if (ready) {
+    body = (
+      <>
+        <p className="claude-plan-state" role="status">
+          <StatusDot tone="success" label="Claude plan connected" showLabel />
+          {(plan.plan || plan.version) && (
+            <span className="claude-plan-version">
+              {[plan.plan, plan.version ? `Claude Code ${plan.version}` : '']
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
+        </p>
+        <p>Claude models are in the model picker.</p>
+        <div className="actions">
+          {onDone && (
+            <Button variant="primary" onClick={onDone}>
+              Done
+            </Button>
+          )}
+          {update('ghost')}
+        </div>
+      </>
+    );
+  } else if (plan.state === 'not_installed') {
+    body = (
+      <div className="actions">
+        <Button variant="primary" onClick={() => void install(false)}>
+          <LogIn size={16} aria-hidden /> {USE_MY_CLAUDE_PLAN}
+        </Button>
+      </div>
+    );
+  } else if (plan.state === 'signed_out') {
+    body = (
+      <>
+        {plan.signed_in_before && !plan.detail && (
+          <p role="status">{SIGNED_OUT_BY_CLAUDE}</p>
+        )}
+        {plan.detail && <p role="status">{plan.detail}</p>}
+        <div className="actions">
+          {signIn(
+            plan.signed_in_before || plan.detail
+              ? 'Sign in again'
+              : USE_MY_CLAUDE_PLAN,
+          )}
+        </div>
+      </>
+    );
+  } else if (plan.state === 'too_old') {
+    body = (
+      <>
+        <p role="status">
+          Row-Bot needs Claude Code {plan.minimum_version} or newer.
+        </p>
+        <div className="actions">{update('primary')}</div>
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <p role="status">
+          {plan.detail || 'Claude Code didn’t answer.'} Check again, or update
+          Claude Code.
+        </p>
+        <div className="actions">
+          <Button variant="primary" disabled={checking} onClick={onCheck}>
+            <RefreshCw
+              size={16}
+              aria-hidden
+              data-spinning={checking || undefined}
+            />{' '}
+            {checking ? 'Checking…' : 'Check again'}
+          </Button>
+          {update('secondary')}
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="stack claude-plan-setup" aria-busy={checking}>
-      {plan.set_up_again && (
+      {plan.set_up_again && !ready && (
         <p className="settings-help" role="status">
           Claude now works through Claude Code. Set it up again.
         </p>
       )}
-      <p className="claude-plan-state" role="status">
-        <StatusDot tone={state.tone} label={state.label} showLabel />
-        {plan.state === 'ready' && (
-          <span>
-            {plan.plan ? ` ${plan.plan}` : ' Your Claude plan'} · Claude Code{' '}
-            {plan.version}
-          </span>
-        )}
-      </p>
-      {plan.state === 'not_installed' && (
-        <>
-          <p>Install Claude Code on this computer, then come back.</p>
-          <div className="actions">
-            <a
-              className="button primary"
-              href={CLAUDE_CODE_INSTALL_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Install Claude Code <ExternalLink size={14} aria-hidden />
-            </a>
-            {check}
-          </div>
-        </>
-      )}
-      {plan.state === 'signed_out' && (
-        <>
-          <p>
-            {plan.detail ? `${plan.detail} ` : ''}Open a terminal and run this,
-            then sign in with your Claude plan:
-          </p>
-          <Command command="claude auth login" />
-          <div className="actions">
-            {check}
-            <OpenTerminal />
-          </div>
-        </>
-      )}
-      {plan.state === 'too_old' && (
-        <>
-          <p>
-            Claude Code {plan.version} is too old for Row-Bot; it needs{' '}
-            {plan.minimum_version} or newer. Open a terminal and run:
-          </p>
-          <Command command="claude update" />
-          <div className="actions">
-            {check}
-            <OpenTerminal />
-          </div>
-        </>
-      )}
-      {plan.state === 'error' && (
-        <>
-          <p>
-            {plan.detail || 'Claude Code didn’t answer.'} To see what’s wrong,
-            open a terminal and run:
-          </p>
-          <Command command="claude doctor" />
-          <div className="actions">
-            {check}
-            <OpenTerminal />
-          </div>
-        </>
-      )}
-      {plan.state === 'ready' && (
-        <>
-          <p>Claude models are in the model picker.</p>
-          {onDone && (
-            <div className="actions">
-              <Button variant="primary" onClick={onDone}>
-                Done
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+      {body}
       <p className="settings-help claude-plan-note">
         Row-Bot never sees your Claude sign-in. It starts Claude Code with its
         non-essential traffic off: no telemetry, error reports or automatic

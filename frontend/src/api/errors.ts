@@ -665,6 +665,24 @@ const CATALOG: Record<string, Entry> = {
     'External MCP tools are not available in this Row-Bot. Restart it and try again.',
     'review',
   ],
+  claude_code_missing: [
+    'Claude Code isn’t installed yet. Choose Use my Claude plan to install it.',
+    'review',
+  ],
+  claude_code_present: ['Claude Code is already installed.', 'review'],
+  claude_code_installing: [
+    'Claude Code is still installing. Try again when it has finished.',
+    'retry',
+  ],
+  claude_sign_in_running: [
+    'Claude’s sign-in is open. Finish or close it first.',
+    'review',
+  ],
+  claude_sign_in_ended: ['Claude’s sign-in has ended.', 'review'],
+  claude_sign_in_unavailable: [
+    'Claude’s sign-in couldn’t start. Try again.',
+    'retry',
+  ],
   plugin_environment_ready: [
     'This plugin is already prepared. Refresh the list.',
     'review',
