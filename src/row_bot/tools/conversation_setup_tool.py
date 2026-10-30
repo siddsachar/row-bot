@@ -53,8 +53,10 @@ GUIDANCE = (
     "website, script, program or other code project, call create_code_folder first (name it from "
     "the request); when they ask for a deck, slides, a presentation, a document to design, a landing "
     "page, a mockup or a storyboard, call create_design. Do not create one for questions, "
-    "explanations, a short snippet in the chat, an image, a workflow, or when they want the result "
-    "in the chat or the app only. If the conversation already has a code folder or the design they "
+    "explanations, a short snippet in the chat, an image, a workflow, when they want the result "
+    "in the chat or the app only, or for a file in their workspace (one already there, or one they ask "
+    "to have there by name or folder): read, write, preview or record it where it is. If the "
+    "conversation already has a code folder or the design they "
     "mean, keep working in it. After creating one, end your reply with one short sentence: the work "
     "continues by itself in the next step, where the new folder or design is available. Never write "
     "a project's files loosely into the workspace folder. EXISTING FOLDERS AND REPOSITORIES: when "
@@ -591,8 +593,8 @@ class ConversationSetupTool(BaseTool):
                     "Create a code folder (in Drafts) for this conversation when the person asks you to "
                     "build or make an app, site, script or other code project. It appears as a card "
                     "with Open, Rename and Undo; the building continues by itself in the next step. "
-                    "Not for questions, a short snippet in the chat, workflows, or results they want "
-                    "in the chat or app only, and not for a folder they already have."
+                    "Not for questions, a short snippet in the chat, workflows, results they want "
+                    "in the chat or app only, a file in their workspace, or a folder they already have."
                 ),
                 args_schema=_CodeFolderInput,
             ),
