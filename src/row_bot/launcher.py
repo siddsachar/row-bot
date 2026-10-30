@@ -1460,6 +1460,11 @@ class _RowBotProcess:
         )
         env[ROW_BOT_HOST_ENV] = self.host
         env.update(self._launch_environment)
+        # The secret-store key `row-bot serve` took out of its own environment: for its server
+        # alone, which takes it out of its environment at start (H2).
+        from row_bot.secret_store import server_child_environment
+
+        env.update(server_child_environment())
 
         try:
             self._proc = subprocess.Popen(
@@ -4156,9 +4161,15 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(handed_off)
     if getattr(args, "server", False):
         # `row-bot serve` or the older `--server`, before any program starts: the host's
-        # setup code leaves the environment, and an unclaimed server prints its code (H1).
+        # secret-store key and setup code leave the environment, the key must open the saved
+        # secrets (H2), and an unclaimed server prints its code (H1).
         from row_bot.access.setup_code import prepare_setup_code_at_start
+        from row_bot.secret_store import SecretStoreError, prepare_server_store_at_start
 
+        try:
+            prepare_server_store_at_start()
+        except SecretStoreError as exc:
+            raise SystemExit(f"Row-Bot didn't start: {exc}") from None
         prepare_setup_code_at_start()
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)

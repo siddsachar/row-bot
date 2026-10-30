@@ -50,6 +50,11 @@ if __name__ == "__main__":
     from row_bot.profile_restore import apply_on_start
 
     apply_on_start()
+    # In server mode, the secret-store key `row-bot serve` handed this process leaves its
+    # environment before anything can start a program that would inherit it (H2).
+    from row_bot.secret_store import take_environment_key
+
+    take_environment_key()
     # After the restore, which starts nothing: what the server starts runs as python.exe (B355).
     from row_bot.runtime_paths import python_for_children
 

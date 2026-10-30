@@ -56,6 +56,22 @@ def test_the_image_runs_as_a_non_root_user_with_a_persistent_data_volume() -> No
     assert 'VOLUME ["/data"]' in source
 
 
+def test_the_image_runs_alone_with_one_volume_one_port_and_no_set_up_container() -> None:
+    # A hosting service such as PikaPods runs the image unmodified, with one volume and no
+    # init container (H2): `row-bot serve` sets up the secret-store key itself, and no key is
+    # ever part of the image.
+    source = _read(DOCKERFILE)
+    runtime = source.split(" AS runtime", 1)[1]
+
+    assert re.findall(r"(?m)^VOLUME (.+)$", runtime) == ['["/data"]']
+    assert re.findall(r"(?m)^EXPOSE (.+)$", runtime) == ["8080"]
+    assert re.findall(r"(?m)^USER (.+)$", runtime) == ["10001:10001"]
+    assert re.findall(r"(?m)^ENTRYPOINT (.+)$", runtime) == ['["row-bot"]']
+    assert re.findall(r"(?m)^CMD (.+)$", runtime) == ['["serve"]']
+    assert "ROW_BOT_CONTAINERIZED=1" in runtime
+    assert "ROW_BOT_SECRET_STORE_KEY" not in source
+
+
 def test_dockerfile_routes_browser_models_and_managed_runtimes_correctly() -> None:
     source = _read(DOCKERFILE)
 

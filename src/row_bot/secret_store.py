@@ -5,6 +5,13 @@ from Credential Manager write exhaustion with user-scoped DPAPI records, and an
 explicitly keyed server deployment can use encrypted records in its persistent
 data directory when the platform backend is unavailable. This module never
 falls back to plaintext files.
+
+A server's key for those records comes from, in order (H2): the host's
+``ROW_BOT_SECRET_STORE_KEY`` environment variable, taken out of the environment
+at start; the key file in ``ROW_BOT_SECRETS_DIR`` (Compose); or a key Row-Bot
+made at the first start of a container that had neither, on the data volume
+outside ``secure-secrets``. A computer never gets a key file: its keychain
+keeps its secrets.
 """
 
 from __future__ import annotations
@@ -20,6 +27,8 @@ from collections.abc import Callable
 from typing import Any
 
 from row_bot.brand import APP_DATA_DIR_ENV, KEYRING_SERVICE_PREFIX, default_data_dir
+from row_bot.environment_secrets import take_secret
+from row_bot.runtime_paths import CONTAINERIZED_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,11 @@ MAX_SERVER_SECRET_BYTES = 64 * 1024
 _SERVER_SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 PERSISTENT_SERVER_SECRET_KEY_NAME = "ROW_BOT_SECRET_STORE_KEY"
 PERSISTENT_SERVER_SECRET_DIR_NAME = "secure-secrets"
+# The key a container makes for itself when its host gives it none, in the data folder beside
+# (never inside) the records it opens. Backups and restores leave it alone (profile_restore).
+DATA_VOLUME_KEY_DIR_NAME = "secret-store-key"
+# A record every start opens: a key that can't was not the one the saved secrets were made with.
+_KEY_CHECK = ("Row-Bot secret store", "key-check")
 _PERSISTENT_SERVER_SECRET_KEY = re.compile(r"^[0-9a-fA-F]{64}$")
 _PERSISTENT_SERVER_SECRET_MAGIC = b"ROWBOT-SECRET-V1\x00"
 _WINDOWS_USER_SECRET_MAGIC = b"ROWBOT-DPAPI-V1\x00"
@@ -46,6 +60,8 @@ _PERSISTENT_SERVER_SECRET_NONCE_BYTES = 12
 MAX_PERSISTENT_SERVER_SECRET_BYTES = MAX_SERVER_SECRET_BYTES + 1024
 
 _backend_override: Any | None = None
+# The host's key, once taken out of the environment: it lives in this process's memory only.
+_environment_key: bytes | None = None
 _change_listeners: list[Callable[[str], None]] = []
 _changes = 0  # Secrets saved or removed so far: readers compare it, so a missed listener never leaves them stale.
 
@@ -91,6 +107,32 @@ def _marketing_capture_secret_reads_authorized() -> bool:
 
 class SecretStoreError(RuntimeError):
     """Raised when the platform secret store cannot complete an operation."""
+
+
+def _key_file_text(key_path: pathlib.Path) -> str:
+    """A key file's 64 hexadecimal characters: a regular file, never a link, or this fails closed."""
+    try:
+        if key_path.is_symlink():
+            raise SecretStoreError("persistent server secret key must not be a symlink")
+        info = key_path.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise SecretStoreError("persistent server secret key must be regular")
+        value = key_path.read_text(encoding="ascii")
+    except SecretStoreError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise SecretStoreError(
+            "persistent server secret key could not be validated"
+        ) from exc
+    if value.endswith("\r\n"):
+        value = value[:-2]
+    elif value.endswith("\n"):
+        value = value[:-1]
+    if not _PERSISTENT_SERVER_SECRET_KEY.fullmatch(value):
+        raise SecretStoreError(
+            f"{PERSISTENT_SERVER_SECRET_KEY_NAME} must contain exactly 64 hexadecimal characters"
+        )
+    return value
 
 
 def initialize_persistent_server_secret_store(
@@ -158,27 +200,7 @@ def initialize_persistent_server_secret_store(
             if descriptor is not None:
                 os.close(descriptor)
 
-    try:
-        if key_path.is_symlink():
-            raise SecretStoreError("persistent server secret key must not be a symlink")
-        info = key_path.stat()
-        if not stat.S_ISREG(info.st_mode):
-            raise SecretStoreError("persistent server secret key must be regular")
-        value = key_path.read_text(encoding="ascii")
-    except SecretStoreError:
-        raise
-    except (OSError, UnicodeError) as exc:
-        raise SecretStoreError(
-            "persistent server secret key could not be validated"
-        ) from exc
-    if value.endswith("\r\n"):
-        value = value[:-2]
-    elif value.endswith("\n"):
-        value = value[:-1]
-    if not _PERSISTENT_SERVER_SECRET_KEY.fullmatch(value):
-        raise SecretStoreError(
-            f"{PERSISTENT_SERVER_SECRET_KEY_NAME} must contain exactly 64 hexadecimal characters"
-        )
+    _key_file_text(key_path)
 
     uid = -1 if owner_uid is None else int(owner_uid)
     gid = -1 if owner_gid is None else int(owner_gid)
@@ -193,6 +215,111 @@ def initialize_persistent_server_secret_store(
             "persistent server secret permissions could not be secured"
         ) from exc
     return key_path
+
+
+def take_environment_key() -> None:
+    """In server mode, take ``ROW_BOT_SECRET_STORE_KEY`` out of the environment into this process's memory (H2).
+
+    The server's first step, before it starts any program, so no shell, MCP server, Claude Code,
+    browser or other program inherits the key. Outside server mode the variable is left alone.
+    """
+    if str(os.environ.get("ROW_BOT_DEPLOYMENT_MODE") or "").strip().lower() == "server":
+        _take_environment_key()
+
+
+def _take_environment_key() -> None:
+    global _environment_key
+    value = take_secret(PERSISTENT_SERVER_SECRET_KEY_NAME)
+    if value is None:
+        return
+    value = value.strip()
+    if not _PERSISTENT_SERVER_SECRET_KEY.fullmatch(value):
+        # Never the value itself: it is gone from the environment, and this message is all that's left.
+        raise SecretStoreError(
+            f"{PERSISTENT_SERVER_SECRET_KEY_NAME} must contain exactly 64 hexadecimal characters"
+        )
+    _environment_key = bytes.fromhex(value)
+
+
+def server_child_environment() -> dict[str, str]:
+    """The key ``row-bot serve`` took from its environment, for its own server process alone.
+
+    The server takes it out of its environment again at start (``take_environment_key``). Empty
+    when no key was taken.
+    """
+    if _environment_key is None:
+        return {}
+    return {PERSISTENT_SERVER_SECRET_KEY_NAME: _environment_key.hex()}
+
+
+def prepare_server_store_at_start() -> None:
+    """``row-bot serve``'s secret-store step, before it starts any program (H2).
+
+    The host's key leaves the environment. A container with no key and no saved secrets gets a key
+    of its own on the data volume; a computer never does. Then the key must open what was saved
+    with it: if it doesn't, or saved secrets have no key at all, this raises ``SecretStoreError``
+    saying what to do, and deletes nothing.
+    """
+    _take_environment_key()
+    if isinstance(_backend_override, MemoryBackend):
+        return
+    records = _persistent_server_secret_directory()
+    data_key = _data_volume_key_path()
+    active = _active_key()
+    if active is None:
+        if os.environ.get(CONTAINERIZED_ENV) != "1":
+            return
+        if any(records.glob("*.secret")):
+            # A new key would never open them: they need the one they were saved with.
+            raise SecretStoreError(
+                f"the saved secrets in {records} need the secret-store key they were saved with, and "
+                f"there is none. Set {PERSISTENT_SERVER_SECRET_KEY_NAME} to that key (or mount its file in "
+                f"{SERVER_SECRETS_DIR_ENV} again), or move {records} aside to start again without them. "
+                "Nothing was deleted."
+            )
+        initialize_persistent_server_secret_store(data_key.parent)
+        logger.info(
+            "Row-Bot made its secret-store key in %s. It sits on the data volume; Row-Bot's own "
+            "backups leave it out",
+            data_key,
+        )
+        source = str(data_key)
+    else:
+        source = active[1]
+    try:
+        _configured, check = _read_persistent_server_secret(*_KEY_CHECK)
+    except SecretStoreError:
+        raise SecretStoreError(_key_mismatch(source, records, data_key)) from None
+    if check is None:
+        _write_persistent_server_secret(*_KEY_CHECK, _KEY_CHECK[1])
+    if source != str(data_key) and (data_key.exists() or data_key.is_symlink()):
+        logger.warning(
+            "%s is no longer used: the secret-store key now comes from %s. Delete the file to keep "
+            "the key off the data volume",
+            data_key,
+            source,
+        )
+
+
+def _key_mismatch(source: str, records: pathlib.Path, data_key: pathlib.Path) -> str:
+    """What an owner reads when the key doesn't open the saved secrets: never a key itself."""
+    message = f"the secret-store key in {source} doesn't open the saved secrets in {records}. "
+    saved_with_data_key = False
+    if source != str(data_key):
+        try:
+            own = _data_volume_key()
+            if own is not None:
+                saved_with_data_key = _read_persistent_server_secret(*_KEY_CHECK, key=own)[1] is not None
+        except SecretStoreError:
+            saved_with_data_key = False
+    if saved_with_data_key:
+        message += (
+            f"They were saved with the key Row-Bot made in {data_key}: remove {source} so Row-Bot "
+            f"uses that key again, or set {PERSISTENT_SERVER_SECRET_KEY_NAME} to that file's contents. "
+        )
+    else:
+        message += f"Use the key they were saved with, or move {records} aside to start again without them. "
+    return message + "Nothing was deleted."
 
 
 def server_secrets_dir() -> pathlib.Path | None:
@@ -270,18 +397,45 @@ def server_secret_status(
     }
 
 
-def _persistent_server_secret_key() -> bytes | None:
+def _active_key() -> tuple[bytes, str] | None:
+    """The key for encrypted records and where it came from: the host's environment variable, the
+    key file in ``ROW_BOT_SECRETS_DIR``, then the key a container made on its data volume."""
+    if isinstance(_backend_override, MemoryBackend):
+        return None  # use_memory_backend(): no key and no record on disk, ever
+    if _environment_key is not None:
+        return _environment_key, PERSISTENT_SERVER_SECRET_KEY_NAME
     value = read_server_secret(
         PERSISTENT_SERVER_SECRET_KEY_NAME,
         allowed_names={PERSISTENT_SERVER_SECRET_KEY_NAME},
     )
-    if value is None:
+    if value is not None:
+        if not _PERSISTENT_SERVER_SECRET_KEY.fullmatch(value):
+            raise SecretStoreError(
+                f"{PERSISTENT_SERVER_SECRET_KEY_NAME} must contain exactly 64 hexadecimal characters"
+            )
+        return bytes.fromhex(value), str(server_secrets_dir() / PERSISTENT_SERVER_SECRET_KEY_NAME)
+    own = _data_volume_key()
+    return (own, str(_data_volume_key_path())) if own is not None else None
+
+
+def _persistent_server_secret_key() -> bytes | None:
+    active = _active_key()
+    return active[0] if active is not None else None
+
+
+def _data_volume_key_path() -> pathlib.Path:
+    return (
+        _persistent_server_secret_directory().parent
+        / DATA_VOLUME_KEY_DIR_NAME
+        / PERSISTENT_SERVER_SECRET_KEY_NAME
+    )
+
+
+def _data_volume_key() -> bytes | None:
+    path = _data_volume_key_path()
+    if not path.exists() and not path.is_symlink():
         return None
-    if not _PERSISTENT_SERVER_SECRET_KEY.fullmatch(value):
-        raise SecretStoreError(
-            f"{PERSISTENT_SERVER_SECRET_KEY_NAME} must contain exactly 64 hexadecimal characters"
-        )
-    return bytes.fromhex(value)
+    return bytes.fromhex(_key_file_text(path))
 
 
 def persistent_server_store_configured() -> bool:
@@ -320,8 +474,10 @@ def _prepare_persistent_server_secret_directory() -> pathlib.Path:
 def _read_persistent_server_secret(
     service: str,
     account: str,
+    *,
+    key: bytes | None = None,
 ) -> tuple[bool, str | None]:
-    key = _persistent_server_secret_key()
+    key = key if key is not None else _persistent_server_secret_key()
     if key is None:
         return False, None
     path, identity = _persistent_server_secret_identity(service, account)
