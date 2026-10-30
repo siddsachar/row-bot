@@ -5343,6 +5343,8 @@ class VideoProjectView(WireModel):
     changed: list[VideoSceneId] = Field(max_length=60)
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
+    # One voice file said over the whole video ("" none): its scenes' lines then aren't said one by one.
+    narration: str = Field(default="", max_length=200)
     captions: bool
     voice_lines: bool
     # draft (not made yet), voicing, rendering, made, failed or stopped.

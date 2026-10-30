@@ -81,6 +81,9 @@ class Version:
     scenes: list[Scene]
     music: str = ""
     music_volume: float = 0.3
+    # One voice file said over the whole video from its start (speak a script); its scenes' lines then
+    # aren't said one by one.
+    narration: str = ""
     captions: bool = False
     voice_lines: bool = True
     # Its shape ("" keeps its first video's) and its other shapes or GIF, each an edit: shape -> edit id.
@@ -155,7 +158,8 @@ def _load(path: Path) -> Project | None:
             versions.append(Version(
                 number=int(item["number"]), at=float(item["at"]), by=str(item.get("by") or "row-bot"),
                 note=str(item.get("note") or ""), scenes=scenes, music=str(item.get("music") or ""),
-                music_volume=float(item.get("music_volume", 0.3)), captions=bool(item.get("captions")),
+                music_volume=float(item.get("music_volume", 0.3)), narration=str(item.get("narration") or ""),
+                captions=bool(item.get("captions")),
                 voice_lines=bool(item.get("voice_lines", True)), status=str(item.get("status") or ""),
                 aspect=str(item.get("aspect") or ""), brand=bool(item.get("brand", True)),
                 exports={str(key): str(value) for key, value in (item.get("exports") or {}).items()
@@ -335,7 +339,7 @@ def _add_version(project: Project, version: Version) -> Version:
 
 
 def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = "", music_volume: float = 0.3,
-           captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
+           narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
            by: By = "row-bot", note: str = "") -> Project:
     """A new project with its first version."""
     conversation = str(conversation_id or "").strip()
@@ -346,8 +350,8 @@ def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = 
                           title=_text(title, MAX_TITLE) or "Video", created_at=time.time())
         version = Version(number=1, at=time.time(), by=by, note=_text(note, MAX_NOTE) or "First version",
                           scenes=_clean_scenes(scenes, conversation, []), music=_text(music, 200),
-                          music_volume=_volume(music_volume), captions=bool(captions), voice_lines=bool(voice_lines),
-                          aspect=_aspect(aspect), brand=bool(brand))
+                          music_volume=_volume(music_volume), narration=_text(narration, 200), captions=bool(captions),
+                          voice_lines=bool(voice_lines), aspect=_aspect(aspect), brand=bool(brand))
         _add_version(project, version)
     logger.info("Video project created (%d scenes)", len(version.scenes))
     return project
@@ -362,7 +366,7 @@ def _volume(value: Any) -> float:
 
 def change(project: Project, *, by: By, note: str = "", base: int | None = None, scenes: list[Any] | None = None,
            title: str | None = None, music: str | None = None, music_volume: float | None = None,
-           captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
+           narration: str | None = None, captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
            brand: bool | None = None) -> Version:
     """A new version with these changes; ``base`` is the version they were made on (refused when it isn't the
     latest, so two editors never overwrite each other)."""
@@ -382,6 +386,7 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
                     else [Scene(**asdict(scene)) for scene in latest.scenes]),
             music=latest.music if music is None else _text(music, 200),
             music_volume=latest.music_volume if music_volume is None else _volume(music_volume),
+            narration=latest.narration if narration is None else _text(narration, 200),
             captions=latest.captions if captions is None else bool(captions),
             voice_lines=latest.voice_lines if voice_lines is None else bool(voice_lines),
             aspect=latest.aspect if aspect is None else _aspect(aspect),
@@ -401,7 +406,8 @@ def restore(project: Project, number: int, *, by: By) -> Version:
         fresh = get(project.project_id, project.conversation_id) or project
         version = Version(number=fresh.latest.number + 1, at=time.time(), by=by, note=f"Back to version {number}",
                           scenes=[Scene(**asdict(scene)) for scene in old.scenes], music=old.music,
-                          music_volume=old.music_volume, captions=old.captions, voice_lines=old.voice_lines,
+                          music_volume=old.music_volume, narration=old.narration, captions=old.captions,
+                          voice_lines=old.voice_lines,
                           aspect=old.aspect, exports=dict(old.exports), brand=old.brand,
                           status="rendering" if old.edit_id else "", edit_id=old.edit_id)
         _add_version(fresh, version)
@@ -439,7 +445,12 @@ def _update(project: Project, number: int, **changes: Any) -> None:
 
 def needs_voice(version: Version) -> list[Scene]:
     return [scene for scene in version.scenes
-            if version.voice_lines and scene.line and (not scene.voice or scene.voiced != scene.line)]
+            if _says_lines(version) and scene.line and (not scene.voice or scene.voiced != scene.line)]
+
+
+def _says_lines(version: Version) -> bool:
+    """Its scenes' lines are said one by one: voice lines on, and no narration said over the whole video."""
+    return version.voice_lines and not version.narration
 
 
 def export(project: Project, shape: str, number: int | None = None, *, download: bool = False) -> Version:
@@ -461,7 +472,7 @@ def export(project: Project, shape: str, number: int | None = None, *, download:
         edit = video_edits.start(video_edits.Request(
             conversation_id=project.conversation_id, kind="video", sources=resolve(made.edit_id,
                                                                                project.conversation_id),
-            output_name=_file_name(f"{project.title} v{version.number}", ".gif"), download=download, gif=True))
+            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True))
         _update(project, version.number, exports={**version.exports, shape: edit.edit_id})
     else:
         thread = threading.Thread(target=_make, args=(project.project_id, project.conversation_id, version.number,
@@ -484,10 +495,11 @@ def make(project: Project, number: int | None = None, *, download: bool = False)
     return project.version(version.number) or version
 
 
-def _file_name(title: str, suffix: str) -> str:
+def _file_name(title: str, suffix: str, tail: str = "") -> str:
+    """The title, shortened so *tail* (a version or a scene) always stays: no two files share a name."""
     from row_bot.tools.video_editing_tool import output_name
 
-    return output_name(title, default="video", suffix=suffix)
+    return output_name(f"{title.strip()[:60]} {tail}".strip(), default="video", suffix=suffix)
 
 
 def _look() -> Any:
@@ -530,10 +542,10 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
     try:
         for scene in needs_voice(version):
             speech = sound.speak(scene.line)
-            scene.voice = save_sound(_file_name(f"{project.title} {scene.scene_id}", ".wav"), speech.wav,
+            scene.voice = save_sound(_file_name(project.title, ".wav", scene.scene_id), speech.wav,
                                      conversation_id)
             scene.voiced = scene.line
-        if version.voice_lines and not shape:
+        if _says_lines(version) and not shape:
             _update(project, number, scenes=version.scenes, status="rendering")
         sources = list(dict.fromkeys(scene.source for scene in version.scenes))
         media = []
@@ -544,21 +556,24 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             media.append(found[0])
         cuts = [SceneCut(input=sources.index(scene.source), start=scene.start, end=scene.end, speed=scene.speed,
                          zoom=tuple(scene.zoom) if scene.zoom else None, card=scene.card, line=scene.line,
-                         voice=scene.voice if version.voice_lines else "",
+                         voice=scene.voice if _says_lines(version) else "",
                          focus=None if scene.zoom else pointer_focus(scene.source, scene.start, scene.end))
                 for scene in version.scenes]
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
                       aspect=shape or version.aspect, look=_look() if version.brand else None)]
         sounds: dict[str, tuple[Any, bytes, str]] = {}
-        for name in [cut.voice for cut in cuts if cut.voice] + ([version.music] if version.music else []):
+        extra = [name for name in (version.narration, version.music) if name]
+        for name in [cut.voice for cut in cuts if cut.voice] + extra:
             if name not in sounds:
                 _label, path, data, suffix = sound_source(name, conversation_id)
                 sounds[name] = (path, data or b"", suffix)
+        if version.narration:
+            steps.append(Step(op="sound", source=version.narration, role="voice", start=0.0))
         if version.music:
             steps.append(Step(op="sound", source=version.music, role="music", volume=version.music_volume))
         edit = video_edits.start(video_edits.Request(
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
-            output_name=_file_name(f"{project.title} v{number} {shape.replace(':', 'x')}".strip(), ".mp4"),
+            output_name=_file_name(project.title, ".mp4", f"v{number} {shape.replace(':', 'x')}".strip()),
             download=download, sounds=sounds, check=True,
         ))
         if shape:
@@ -645,6 +660,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "changed": changed_scenes(project, version),
         "music": version.music,
         "music_volume": version.music_volume,
+        "narration": version.narration,
         "captions": version.captions,
         "voice_lines": version.voice_lines,
         "status": _status(version, edit),
@@ -683,6 +699,9 @@ def summary(project: Project, number: int | None = None) -> str:
         extra = ", ".join(item for item in extras if item)
         line = f" — \"{scene['line']}\"" if scene["line"] else ""
         lines.append(f"{index}. [{scene['scene_id']}] {scene['source']} {span}{', ' + extra if extra else ''}{line}")
+    if data["narration"]:
+        lines.append(f"Narration: {data['narration']}, said over the whole video (the lines above aren't said "
+                     "one by one).")
     if data["edit"] and data["status"] == "made":
         lines.append(f"Video: {data['edit']['output_name']} ({data['edit']['edit_id']}) in this chat's files.")
     if data["checks"]:

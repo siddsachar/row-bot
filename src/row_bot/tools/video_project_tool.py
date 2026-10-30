@@ -42,6 +42,8 @@ class _VideoInput(BaseModel):
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
     music: str | None = Field(default=None, description="A music file (make_music) under the whole video; '' none.")
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")
+    narration: str | None = Field(default=None, description="One voice file (speak a whole script) said over the "
+                                                           "whole video instead of each scene's line; '' none.")
     captions: bool | None = Field(default=None, description="Show each line as a caption under its scene.")
     voice_lines: bool | None = Field(default=None, description="Say the lines (default true).")
     aspect: Literal["", "16:9", "1:1", "9:16"] | None = Field(
@@ -124,8 +126,8 @@ def _export(project, shape: str, number: int | None) -> str:
 
 def _video(action: str = "status", project: str = "", title: str = "", scenes: list | None = None,
            recording: str = "",
-           music: str | None = None, music_volume: float | None = None, captions: bool | None = None,
-           voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
+           music: str | None = None, music_volume: float | None = None, narration: str | None = None,
+           captions: bool | None = None, voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
            shape: str | None = None, brand: bool | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
@@ -140,6 +142,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                 raw = video_projects.scenes_from_beats(recording.strip(), conversation)
             found = video_projects.create(conversation, title, raw, music=music or "",
                                           music_volume=0.3 if music_volume is None else music_volume,
+                                          narration=narration or "",
                                           captions=bool(captions), voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
                                           note=note)
@@ -149,7 +152,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             return f"{project or 'That'} isn't a video project in this chat: use action create."
         if action == "change":
             changed = video_projects.change(found, by="row-bot", note=note, scenes=raw if scenes is not None else None,
-                                            title=title or None, music=music, music_volume=music_volume,
+                                            title=title or None, music=music, music_volume=music_volume, narration=narration,
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
                                             brand=brand)
             return _make(found, changed.number)

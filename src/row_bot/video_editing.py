@@ -518,6 +518,8 @@ class Plan:
     outputs: list[str] = field(default_factory=list)
     # A project's scenes: where each starts on the finished video, then where it ends.
     marks: list[float] = field(default_factory=list)
+    # A voice is laid over it: a long quiet stretch is then a gap in the narration.
+    narrated: bool = False
 
 
 def _even(value: float) -> int:
@@ -560,6 +562,7 @@ class _Builder:
         # Voice lines a project's scenes lay: (when on the finished video, the file).
         self.voice_cues: list[tuple[float, str]] = []
         self.marks: list[float] = []
+        self.narrated = False
 
     def label(self, kind: str) -> str:
         self.count += 1
@@ -917,7 +920,8 @@ class _Builder:
             self.add(f"{chain},adelay={delay}|{delay}{label}")
             (voices if step.role == "voice" else music).append(label)
         parts: list[str] = []
-        if self.audio and original > 0:
+        if self.audio:
+            # Its own sound, even at volume 0: a stream the graph makes must be read for ffmpeg to bind it.
             own = self.label("a")
             self.add(f"{self.audio}volume={original:.3f}{own}")
             parts.append(own)
@@ -936,6 +940,7 @@ class _Builder:
         self.add(f"{mixed}apad,atrim=0:{total},{LOUDNESS},aformat=sample_rates=48000:channel_layouts=stereo{out}")
         self.audio = out
         self.has_audio = True
+        self.narrated = self.narrated or bool(voices)
 
 
 def encoder_arguments(encoder: str) -> list[str]:
@@ -992,7 +997,7 @@ def build_plan(
     return Plan(args=args, graph=";\n".join(builder.lines), overlays=builder.overlays,
                 duration=builder.duration, width=builder.width, height=builder.height,
                 has_audio=bool(builder.audio), summary=describe(steps, len(inputs)), outputs=[output],
-                marks=builder.marks)
+                marks=builder.marks, narrated=builder.narrated)
 
 
 def gif_arguments(source: str, output: str, *, width: int = 480, fps: int = 12) -> list[str]:
@@ -1065,14 +1070,21 @@ _MEAN = re.compile(r"mean_volume:\s*(-?[0-9.]+|-inf) dB")
 _PEAK = re.compile(r"max_volume:\s*(-?[0-9.]+|-inf) dB")
 _BLACK = re.compile(r"black_start:\s*([0-9.]+)\s+black_end:\s*([0-9.]+)")
 _FROZEN = re.compile(r"freeze_start:\s*([0-9.]+)[\s\S]*?freeze_duration:\s*([0-9.]+)")
+_SILENCE_START = re.compile(r"silence_start:\s*(-?[0-9.]+)")
+_SILENCE_END = re.compile(r"silence_end:\s*([0-9.]+)")
+# A gap this long in a narrated video, or a picture held this long, is a pause a viewer notices.
+QUIET_GAP_SECONDS = 6.0
+LONG_STILL_SECONDS = 10.0
 
 
-def check_arguments(path: Path | str, *, has_audio: bool) -> list[str]:
-    """One read of the video for its sound level, black stretches and still stretches."""
+def check_arguments(path: Path | str, *, has_audio: bool, narrated: bool = False) -> list[str]:
+    """One read of the video for its sound level, black stretches and still stretches (and, narrated, its
+    quiet stretches)."""
     args = ["-hide_banner", "-nostdin", *input_arguments(path),
             "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=0.003:d=3"]
     if has_audio:
-        args += ["-af", "volumedetect"]
+        quiet = f",silencedetect=n=-40dB:d={QUIET_GAP_SECONDS:g}" if narrated else ""
+        args += ["-af", f"volumedetect{quiet}"]
     return args + ["-f", "null", "-"]
 
 
@@ -1082,9 +1094,10 @@ class Checks:
     lines: list[str]
 
 
-def read_checks(output: str, info: VideoInfo) -> Checks:
-    """What the read found, in plain lines; a video passes when it has sound loud enough and no black stretch
-    past its first and last second. Still stretches are listed (a screen recording may rightly hold still)."""
+def read_checks(output: str, info: VideoInfo, *, narrated: bool = False) -> Checks:
+    """What the read found, in plain lines; a video passes when it has sound loud enough, no black stretch
+    past its first and last second, no picture held still for 10 s or more and, narrated, no 6 s without the
+    voice. Shorter still stretches are listed (a screen recording may rightly hold still)."""
     lines = [f"Length {clock(info.duration)}, {info.width}×{info.height}."]
     problems = 0
     mean, peak = _MEAN.search(output), _PEAK.search(output)
@@ -1107,8 +1120,22 @@ def read_checks(output: str, info: VideoInfo) -> Checks:
         lines.append("Black: " + ", ".join(f"{clock(a)}–{clock(b)}" for a, b in inside[:5]) + ".")
     else:
         lines.append("Black: none.")
+    if narrated and info.has_audio:
+        starts = [max(0.0, float(a)) for a in _SILENCE_START.findall(output)]
+        ends = [float(b) for b in _SILENCE_END.findall(output)] + [info.duration] * len(starts)
+        gaps = [(a, b) for a, b in zip(starts, ends, strict=False) if b - a >= QUIET_GAP_SECONDS]
+        if gaps:
+            problems += 1
+            lines.append("Quiet: " + ", ".join(f"{clock(a)}–{clock(b)}" for a, b in gaps[:5])
+                         + " with no voice. Give those parts a line, or cut them shorter.")
     frozen = [(float(a), float(d)) for a, d in _FROZEN.findall(output)]
-    lines.append("Still: " + (", ".join(f"{clock(a)} for {d:.0f} s" for a, d in frozen[:5])
-                              + " (fine if nothing should move there)." if frozen else "none."))
+    long = [(a, d) for a, d in frozen if d >= LONG_STILL_SECONDS]
+    if long:
+        problems += 1
+        lines.append("Still: " + ", ".join(f"{clock(a)} for {d:.0f} s" for a, d in long[:5])
+                     + ": too long to watch. Cut those parts shorter or speed them up.")
+    else:
+        lines.append("Still: " + (", ".join(f"{clock(a)} for {d:.0f} s" for a, d in frozen[:5])
+                                  + " (fine if nothing should move there)." if frozen else "none."))
     lines.append("Result: passed." if not problems else "Result: needs attention before it's done.")
     return Checks(not problems, lines)

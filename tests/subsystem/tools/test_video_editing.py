@@ -318,6 +318,51 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
 
 
+def _every_stream_is_used(plan) -> bool:
+    """ffmpeg refuses a graph with a made stream nothing reads ("Error binding filtergraph inputs/outputs")."""
+    import re
+
+    text = plan.graph + " " + " ".join(plan.args)
+    return all(text.count(label) >= 2 for label in set(re.findall(r"\[[av]\d+\]", plan.graph)))
+
+
+def test_turning_the_videos_own_sound_off_keeps_only_the_voice_or_leaves_no_sound():
+    """A video's own sound at volume 0 once broke the edit, alone or under a voice."""
+    muted = _plan([{"op": "sound", "role": "original", "volume": 0}])
+    assert "volume=0.000" in muted.graph and "amix=inputs=0" not in muted.graph and _every_stream_is_used(muted)
+
+    voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)],
+                        parse_steps([{"op": "sound", "role": "original", "volume": 0},
+                                     {"op": "sound", "source": "line.wav"}]), "output.mp4",
+                        sounds={"line.wav": "sound-1.wav"})
+    assert voiced.has_audio and "[1:a]" in voiced.graph and _every_stream_is_used(voiced)
+
+
+def test_a_narrated_video_with_long_quiet_gaps_or_a_long_held_picture_needs_attention():
+    """The Release kit's demo said 3 s of each 18 s scene and held the picture for 14 s: "Sound: present" passed it."""
+    from row_bot.video_editing import check_arguments, read_checks
+
+    minute = VideoInfo(duration=60.0, width=1280, height=720, fps=30.0, has_audio=True)
+    assert "silencedetect" in " ".join(check_arguments("output.mp4", has_audio=True, narrated=True))
+    assert "silencedetect" not in " ".join(check_arguments("output.mp4", has_audio=True))
+    heard = ("mean_volume: -25.0 dB\nmax_volume: -3.9 dB\n"
+             "silence_start: 2.87\nsilence_end: 18.04 | silence_duration: 15.17\n"
+             "silence_start: 20.87\nsilence_end: 36.04 | silence_duration: 15.17\n"
+             "silence_start: 57.5\n")
+    gappy = read_checks(heard, minute, narrated=True)
+    assert not gappy.passed
+    assert gappy.lines[3] == "Quiet: 0:02.9–0:18, 0:20.9–0:36 with no voice. Give those parts a line, or cut them shorter."
+    assert read_checks(heard, minute).passed, "a recording's own quiet isn't a gap in a narration"
+
+    held = read_checks("mean_volume: -19.0 dB\nmax_volume: -2.0 dB\n"
+                       "lavfi.freezedetect.freeze_start: 4.4\nlavfi.freezedetect.freeze_duration: 14.2\n", minute)
+    assert not held.passed and held.lines[3].startswith("Still: 0:04.4 for 14 s: too long to watch.")
+
+    voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)], parse_steps([{"op": "sound", "source": "a.wav"}]),
+                        "output.mp4", sounds={"a.wav": "sound-1.wav"})
+    assert voiced.narrated and not _plan([{"op": "trim", "start": 1}]).narrated
+
+
 def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
     plan = build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
                       parse_steps([{"op": "sound", "source": "line.wav"}]), "output.mp4",

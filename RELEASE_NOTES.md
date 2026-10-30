@@ -28,6 +28,11 @@ Read **Upgrade Notes** below before upgrading.
   without asking; a command that needs ffmpeg offers Row-Bot's own.
 - **Library › Media** keeps pictures and videos sent from the workspace, and a
   video from the turn in flight opens in the Video panel.
+- **Narrated videos** - each scene says its own line when the title has a
+  version number in it; a video can be narrated as a whole, shown on the
+  timeline; and its checks catch long quiet gaps and pictures held too long.
+- **Video Download** saves the video in the desktop app, and turning a video's
+  own sound off works.
 - **Sandboxes** - one without a model shows under Needs you, and Settings ›
   Data › Sandboxes is easy to find.
 - **Clearer cards and Home** - an approval for one value names it, and Home says
