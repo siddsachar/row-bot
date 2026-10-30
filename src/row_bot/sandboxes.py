@@ -183,9 +183,13 @@ def _seed(sandbox: Sandbox, *, keep_sign_in: bool = False) -> None:
         target.write_text(text, encoding="utf-8", newline="\n")
 
 
-def create(name: str, pack: str = "empty", *, approval: str = "") -> Sandbox:
+# A model on this computer (Ollama) needs no sign-in: a sandbox can start with it chosen.
+LOCAL_MODEL_PREFIX = "model:ollama:"
+
+
+def create(name: str, pack: str = "empty", *, approval: str = "", model: str = "") -> Sandbox:
     """A new sandbox, seeded with its pack; it starts with ``start``. Its new chats start at *approval*
-    (Hands-off becomes Auto; empty is Ask)."""
+    (Hands-off becomes Auto; empty is Ask) and, given a model on this computer, with that model chosen."""
     from row_bot.sandbox_packs import PACKS
 
     if pack not in PACKS:
@@ -196,6 +200,9 @@ def create(name: str, pack: str = "empty", *, approval: str = "") -> Sandbox:
                       name=re.sub(r"\s+", " ", str(name or "")).strip()[:60] or PACKS[pack], pack=pack,
                       created_at=time.time(), approval=_level(approval))
     _seed(sandbox)
+    if str(model or "").startswith(LOCAL_MODEL_PREFIX):
+        (_folder(sandbox.sandbox_id) / "data" / "model_settings.json").write_text(
+            json.dumps({"model": model}), encoding="utf-8", newline="\n")
     _save(sandbox)
     logger.info("Sandbox created (%s)", pack)
     return sandbox
