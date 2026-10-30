@@ -158,6 +158,11 @@ class TargetGone(Exception):
     """A ref the agent used isn't on the page any more."""
 
 
+def can_start() -> bool:
+    """A browser is there to start: the person's Chrome or Edge, or Row-Bot's own (read-only, no launch)."""
+    return bool(_installed_channel()) or check_packaged_browser_runtime().ready or check_managed_browser_runtime().ready
+
+
 def _installed_channel() -> str | None:
     """The person's installed Chrome or Edge, read-only (never launches a probe)."""
 
