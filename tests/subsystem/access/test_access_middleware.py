@@ -236,6 +236,21 @@ def test_state_changing_session_route_requires_exact_same_origin() -> None:
     assert allowed.status_code == 200
 
 
+def test_a_containers_own_health_check_is_answered_whatever_hosts_the_server_allows() -> None:
+    """A VPS sets ROW_BOT_ALLOWED_HOSTS to its public name only; the image's health check still asks 127.0.0.1."""
+    client = _app(_server_config(allowed_hosts=("row-bot.example.com",)))
+    loopback = {"host": "127.0.0.1:8080"}
+
+    assert client.get("/healthz", headers=loopback).json() == {"ok": True}
+    assert client.get("/readyz", headers=loopback).json() == {"ready": True}
+    # Nothing else is: not another page, not a forwarded probe, not one from another computer.
+    assert client.get("/connect", headers=loopback).json()["error"] == "unexpected_host"
+    forwarded = client.get("/healthz", headers={**loopback, "x-forwarded-for": "203.0.113.5"})
+    assert forwarded.status_code == 400
+    remote = TestClient(client.app, base_url="http://localhost:8080", client=("203.0.113.5", 51000))
+    assert remote.get("/healthz", headers=loopback).json()["error"] == "unexpected_host"
+
+
 def test_unexpected_host_and_untrusted_forwarding_are_rejected() -> None:
     client = _app(_server_config())
 
