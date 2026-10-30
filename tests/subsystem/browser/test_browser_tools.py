@@ -41,6 +41,8 @@ class FakeEngine(BrowserEngine):
         return dict(self.state.targets.get(ref, {})) or None
 
     def act(self, chat_id, label, step, *, settle=True, timeout=120.0):
+        if not self.state.browser:
+            raise RuntimeError("Row-Bot's browser couldn't start.")
         self.state.acts.append((chat_id, label))
         return ActionResult(f"{label}: done")
 
@@ -56,7 +58,7 @@ def browser(monkeypatch):
     monkeypatch.setenv("ROW_BOT_PORT", "8080")
     state = SimpleNamespace(conversation="conversation-a", acts=[], asked=[], reviewed=[], mode="approve",
                             answer=True, verdict=ReviewVerdict("approve", "You asked to book the plumber."),
-                            servers=[], targets={}, url="https://www.homeserve.co.uk/claim/5")
+                            servers=[], targets={}, url="https://www.homeserve.co.uk/claim/5", browser=True)
     manager = BrowserSessionManager()
     engine = FakeEngine(state)
     manager._engine = engine
@@ -144,6 +146,50 @@ def test_hands_off_runs_it_and_block_refuses_it(browser):
     result = _tool("browser_click", ref="e9")
     assert result.startswith("BLOCKED: Pay on homeserve.co.uk needs approval")
     assert len(browser.acts) == 1
+
+
+def test_without_chrome_or_edge_the_browser_asks_once_to_download_its_own_then_goes_on(browser, monkeypatch):
+    """5.3.1 beta: on a Mac without Chrome or Edge the browser only said it couldn't start; it now offers its own,
+    as ffmpeg and the voice do."""
+    from row_bot.browser import runtime
+
+    browser.targets["e2"] = NEXT
+    browser.browser = False
+    downloads: list[str] = []
+
+    def install(**_kw):
+        downloads.append("chromium")
+        browser.browser = True
+        return runtime.BrowserRuntimeInstallResult(True, "Installed.")
+
+    monkeypatch.setattr(service_module, "can_start", lambda: browser.browser)
+    monkeypatch.setattr(runtime, "install_managed_browser_runtime", install)
+
+    browser.answer = False
+    refused = _tool("browser_click", ref="e2")
+    assert "The person didn't allow downloading Row-Bot's browser; nothing was downloaded." in refused
+    assert "Settings › System › Browser and computer use" in refused and downloads == []
+    [card] = browser.asked
+    assert card["question"] == ("Using websites needs a browser, and this computer has no Chrome or Edge. "
+                                "Download Row-Bot's own (about 300 MB) now?")
+
+    browser.mode = "block"
+    assert _tool("browser_click", ref="e2").startswith("BLOCKED: using websites needs a browser")
+
+    browser.mode, browser.answer = "approve", True
+    done = _tool("browser_click", ref="e2")
+    assert done.endswith('Clicking button "Next": done') and downloads == ["chromium"]
+    assert _tool("browser_click", ref="e2") == 'Clicking button "Next": done', "once: it's there now"
+    assert len(browser.asked) == 2
+
+
+def test_a_browser_that_is_there_but_fails_to_start_offers_no_download(browser, monkeypatch):
+    browser.targets["e2"] = NEXT
+    browser.browser = False
+    monkeypatch.setattr(service_module, "can_start", lambda: True)
+
+    assert _tool("browser_click", ref="e2").startswith("Row-Bot's browser couldn't start.")
+    assert browser.asked == []
 
 
 def test_ordinary_steps_run_without_asking(browser):

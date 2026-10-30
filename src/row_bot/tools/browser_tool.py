@@ -334,18 +334,64 @@ def _history(thread_id: str, action: str, **values: Any) -> None:
         pass
 
 
+OWN_BROWSER_HOST = "cdn.playwright.dev"
+OWN_BROWSER_SIZE = "about 300 MB"
+
+
+def _own_browser_consent() -> tuple[str, str]:
+    """(refusal, approval line): with no Chrome or Edge, Row-Bot's own browser downloads the first time it's needed,
+    after the person agrees (by the approval level), as ffmpeg does."""
+    from row_bot.browser.runtime import install_managed_browser_runtime
+    from row_bot.tools.approval_gate import approval_check
+
+    refusal, line = approval_check(
+        {"tool": "browser", "label": "Download Row-Bot's browser",
+         "question": f"Using websites needs a browser, and this computer has no Chrome or Edge. Download "
+                     f"Row-Bot's own ({OWN_BROWSER_SIZE}) now?",
+         "description": (f"Row-Bot will download Chromium, the open-source browser Chrome is built on, "
+                         f"({OWN_BROWSER_SIZE}) from {OWN_BROWSER_HOST}, check that it starts, and keep it in "
+                         "Row-Bot's data folder. This happens once."),
+         "risk_class": "medium",
+         "args": {"download": f"Chromium ({OWN_BROWSER_SIZE})", "from": OWN_BROWSER_HOST}},
+        risks=(f"downloads a browser ({OWN_BROWSER_SIZE}) and keeps it in Row-Bot's data folder",),
+        blocked_message=("BLOCKED: using websites needs a browser, and downloading Row-Bot's own needs approval, "
+                         "but this chat is on Block. Install Chrome or Edge, or Row-Bot's browser in Settings › "
+                         "System › Browser and computer use."),
+        cancelled_message=("The person didn't allow downloading Row-Bot's browser; nothing was downloaded. "
+                           "Websites need Chrome or Edge, or Row-Bot's browser from Settings › System › Browser "
+                           "and computer use."),
+    )
+    if refusal:
+        return refusal, ""
+    result = install_managed_browser_runtime()
+    if not result.ok:
+        return f"Row-Bot's browser couldn't be downloaded: {result.message}", ""
+    return "", line
+
+
 def _run(session: BrowserSession, thread_id: str, label: str, step: Any, *, settle: bool = True) -> str:
+    from row_bot.browser.service import can_start
+    from row_bot.tools.approval_gate import with_approval
+
     refusal = _wait_for_person(session, thread_id)
     if refusal:
         return refusal
-    try:
-        result = session.act(thread_id, label, step, settle=settle)
-    except BaseException as exc:
-        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-            raise
-        return _failure(exc)
+    line = ""
+    for attempt in range(2):
+        try:
+            result = session.act(thread_id, label, step, settle=settle)
+            break
+        except BaseException as exc:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
+            # It couldn't start because there's no browser at all: offer Row-Bot's own once, then go on.
+            if attempt or can_start():
+                return _failure(exc)
+            refusal, line = _own_browser_consent()
+            if refusal:
+                return refusal
     _keep_picture(session, thread_id)
-    return result.text
+    return with_approval(line, result.text) if line else result.text
 
 
 def _ask_first(session: BrowserSession, thread_id: str, tool: str, consequence: Consequence, url: str,
