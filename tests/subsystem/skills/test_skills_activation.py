@@ -435,6 +435,15 @@ def test_bundled_real_world_suggestion_matrix(tmp_path, reload_for_data_dir):
     for index, prompt in enumerate(("hi", "what can you do?", "explain this concept")):
         assert activation.suggest_skills(f"generic-{index}", prompt) == []
 
+    # A file the message names, or how long to wait, is not its topic.
+    for index, prompt in enumerate((
+        "Create a short note file kettle-note.txt, then check back in 2 minutes",
+        "Make a note called kettle-note.txt that says descale on Friday",
+        "Remind me in a few minutes",
+    )):
+        names = [item.name for item in activation.suggest_skills(f"file-{index}", prompt)]
+        assert "meeting_notes" not in names, prompt
+
 
 def test_library_off_skills_are_not_selectable_or_suggested(tmp_path, reload_for_data_dir):
     _write_skill(

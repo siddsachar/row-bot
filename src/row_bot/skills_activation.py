@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import mimetypes
 import os
 import pathlib
 import re
@@ -259,6 +260,24 @@ def _token_list(text: str) -> list[str]:
 
 def _tokens(text: str) -> set[str]:
     return set(_token_list(text))
+
+
+# "In 2 minutes", "a few hours": when, not what the message is about.
+_DURATION = re.compile(
+    r"\b(\d+(\.\d+)?|an?|a few|few|several|couple of)\s*(sec|second|min|minute|hr|hour|day|week|month)s?\b",
+    re.IGNORECASE)
+
+
+def _topic_text(text: str) -> str:
+    """The message without the files it names or how long things take: "check back on kettle-note.txt in 2
+    minutes" is about a file and a time, so neither its "note" nor its "minutes" suggests Meeting Notes."""
+    kept = []
+    for word in str(text or "").split():
+        bare = word.strip("\"'`()[]<>,;:!?").rstrip(".")
+        suffix = pathlib.PurePath(bare.replace("\\", "/")).suffix if bare else ""
+        if not (suffix and mimetypes.guess_type("name" + suffix)[0]):
+            kept.append(word)
+    return _DURATION.sub(" ", " ".join(kept))
 
 
 def _is_generic_query(query_tokens: set[str]) -> bool:
@@ -1076,6 +1095,7 @@ def suggest_skills(
     state = _thread_state(store, thread_id)
     if state.get("smart_off"):
         return []
+    current_text = _topic_text(current_text)
     query_norm = _normalize(current_text)
     query_tokens = _tokens(current_text)
     if not query_tokens:
@@ -1142,6 +1162,7 @@ def suggest_skills_from_snapshot(
         state = _read_thread_state(store, thread_id)
     if state["smart_off"]:
         return []
+    current_text = _topic_text(current_text)
     query_norm = _normalize(current_text)
     query_tokens = _tokens(current_text)
     if not query_tokens or _is_generic_query(query_tokens):
