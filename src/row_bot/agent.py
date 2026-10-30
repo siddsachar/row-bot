@@ -2633,16 +2633,30 @@ def _apply_history_hygiene(
     if emergency:
         logger.debug("History hygiene: emergency shrink of tool results (thread=%s)", thread_id[:8])
         rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65))
-        current = _with_rendered_results(visible, rendered)
+        current = _without_earlier_reasoning(_with_rendered_results(visible, rendered))
 
     replacements = {
         id(visible[position]): current[position]
-        for position in rendered
+        for position in range(len(visible))
         if current[position] is not visible[position]
     }
     if not replacements:
         return trimmed
     return [replacements.get(id(message), message) for message in trimmed]
+
+
+def _without_earlier_reasoning(messages: list) -> list:
+    """*messages* with only the newest step's kept reasoning (``reasoning_content``) sent: one long turn of a
+    thinking model keeps room to answer, as compaction can't shorten the turn in flight. Nothing is changed in
+    the conversation itself."""
+    carrying = [index for index, message in enumerate(messages)
+                if isinstance(message, AIMessage) and (message.additional_kwargs or {}).get("reasoning_content")]
+    kept = list(messages)
+    for index in carrying[:-1]:
+        message = messages[index]
+        kept[index] = _copy_message(message, additional_kwargs={
+            key: value for key, value in message.additional_kwargs.items() if key != "reasoning_content"})
+    return kept
 
 
 def _root_system_prompt(small_profile: bool) -> str:
