@@ -103,6 +103,7 @@ const mock = vi.hoisted(() => ({
   pendingApprovals: vi.fn(),
   command: vi.fn(),
   forgetConversation: vi.fn(),
+  videoProject: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -135,6 +136,7 @@ vi.mock('../../runtime', () => {
       computerUse: mock.computerUse,
       computerUsePreview: mock.computerUsePreview,
       computerUseCommand: mock.computerUseCommand,
+      videoProject: mock.videoProject,
       intent: mock.intent,
       controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
@@ -904,6 +906,41 @@ it('opens the Browser pane by itself once when a turn starts using the browser',
   render(<Conversation onPanel={onPanel} contextPlacement="compact" />);
   await act(async () => {});
   expect(opened()).toHaveLength(0);
+});
+
+it('opens a video made in the turn in flight from its card', async () => {
+  // A card from the turn still in flight opens beside this chat like a settled one.
+  activeConversation();
+  mock.videoProject.mockResolvedValue({
+    project_id: 'project-a',
+    title: 'Fernleaf Teas',
+    status: 'made',
+    number: 1,
+    latest: 1,
+    versions: [],
+    checks_passed: true,
+  });
+  mock.state.activity = [
+    {
+      cursor: '5',
+      event: {
+        event_id: 'event-video',
+        type: 'tool.activity',
+        conversation_id: 'conversation-a',
+        payload: {
+          tool_call_id: 'call-video',
+          specialization: { kind: 'video_project', project_id: 'project-a' },
+        },
+      },
+    },
+  ] as never[];
+  await act(async () => {
+    render(<Conversation onPanel={vi.fn()} />);
+  });
+  const card = await screen.findByRole('group', {
+    name: 'Fernleaf Teas · video',
+  });
+  expect(within(card).getByRole('button', { name: 'Open' })).toBeEnabled();
 });
 
 it('opens reviewed conversation management from the existing action menu', async () => {

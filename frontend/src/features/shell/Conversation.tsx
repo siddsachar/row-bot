@@ -3557,7 +3557,13 @@ export default function Conversation({
                             />
                           )}
                       </TranscriptTrace>
-                      <TranscriptCards cards={pendingCards} live />
+                      {/* Cards from the turn in flight (a video, a page, a linked
+                          conversation) open beside this chat, so they need it. */}
+                      <TranscriptCards
+                        cards={pendingCards}
+                        conversation={id}
+                        live
+                      />
                       {pendingMedia.length > 0 && (
                         <div
                           className="message-media-grid"
