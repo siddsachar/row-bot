@@ -3,6 +3,11 @@
     "ProviderEndpointFields": {
       "additionalProperties": false,
       "properties": {
+        "allow_private_address": {
+          "default": false,
+          "title": "Allow Private Address",
+          "type": "boolean"
+        },
         "auth_required": {
           "default": false,
           "title": "Auth Required",
@@ -129,6 +134,29 @@
       "title": "ProviderEndpointFields",
       "type": "object"
     },
+    "ProviderEndpointProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "ProviderEndpointProfile",
+      "type": "object"
+    },
     "ProviderEndpointSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -239,8 +267,7 @@
     },
     "profiles": {
       "items": {
-        "maxLength": 128,
-        "type": "string"
+        "$ref": "#/$defs/ProviderEndpointProfile"
       },
       "maxItems": 32,
       "title": "Profiles",

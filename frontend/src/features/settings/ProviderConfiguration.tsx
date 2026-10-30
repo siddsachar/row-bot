@@ -10,6 +10,7 @@ import {
   ListChecks,
   KeyRound,
   MoreHorizontal,
+  ShieldAlert,
 } from 'lucide-react';
 import type {
   ProviderConfigurationPage,
@@ -72,7 +73,67 @@ const blank = (): ProviderEndpointFields => ({
   supports_reasoning_content: false,
   supports_reasoning_replay: false,
   extra_body_json: '{}',
+  allow_private_address: false,
 });
+
+/** Ollama has no server type of its own: Row-Bot talks to its OpenAI-compatible
+ * API at its `/v1` address, so the choice saves as OpenAI-compatible. */
+const OLLAMA = 'ollama';
+const sendable = (draft: ProviderEndpointFields): ProviderEndpointFields =>
+  draft.profile === OLLAMA
+    ? { ...draft, profile: 'generic_openai' }
+    : structuredClone(draft);
+function serverTypes(page: ProviderConfigurationPage | null) {
+  const types = (page?.profiles ?? []).map(({ id, name }) => ({
+    value: id,
+    label: name,
+  }));
+  const generic = types.findIndex((type) => type.value === 'generic_openai');
+  types.splice(generic + 1, 0, { value: OLLAMA, label: 'Ollama' });
+  return types;
+}
+function serverTypeName(
+  page: ProviderConfigurationPage | null,
+  id: string | undefined,
+) {
+  return (
+    page?.profiles.find((profile) => profile.id === id)?.name ??
+    humanizeToken(id)
+  );
+}
+function urlHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return url;
+  }
+}
+const possessive = (name: string) =>
+  name.endsWith('s') ? `${name}'` : `${name}'s`;
+/** Refreshes and probes that end with one of these were refused with a reason: nothing to check again. */
+const ENDPOINT_PROBLEMS = new Set([
+  'endpoint_unreachable',
+  'endpoint_key_rejected',
+  'endpoint_key_missing',
+  'endpoint_private_address',
+  'endpoint_address_blocked',
+]);
+const KEY_PROBLEMS = new Set(['endpoint_key_rejected', 'endpoint_key_missing']);
+/** What went wrong with an endpoint at `url`, in words that name it. */
+function endpointProblem(
+  failure: { code: string; message: string },
+  url: string,
+  hostName: string | null,
+) {
+  if (!url) return failure.message;
+  if (failure.code === 'endpoint_unreachable')
+    return hostName
+      ? `Row-Bot couldn't reach ${url}. Check it's running and reachable from the internet.`
+      : `Row-Bot couldn't reach ${url}. Check the address and that the server is running.`;
+  if (failure.code === 'endpoint_private_address')
+    return `${urlHost(url)} is on ${hostName ? possessive(hostName) : "your host's"} private network. Edit the endpoint to allow it.`;
+  return failure.message;
+}
 
 const probeLabels = {
   agent_ready: 'Agent ready',
@@ -98,6 +159,10 @@ type State = {
   reviewed: Review | null;
   pending: Pending | null;
   active: boolean;
+  /** The address the owner is asked about (H16), while asking. */
+  ask: string;
+  /** The endpoint whose key was refused or is missing, for "Enter API key". */
+  keyFor: string;
 };
 const initial = (): State => ({
   page: null,
@@ -117,6 +182,8 @@ const initial = (): State => ({
   reviewed: null,
   pending: null,
   active: true,
+  ask: '',
+  keyFor: '',
 });
 
 /** One bounded private configuration editor, retained by the authenticated runtime. */
@@ -191,6 +258,8 @@ export type ProviderConfigurationProps = {
   ) => Promise<'completed' | 'rejected' | 'uncertain'>;
   onSaved: () => void;
   onCredentials: (providerId?: string) => void;
+  /** The company hosting this Row-Bot, when one is known. */
+  hostName?: string | null;
 };
 
 export default function ProviderConfiguration(
@@ -237,7 +306,7 @@ export default function ProviderConfiguration(
         }
       : operation === 'provider.endpoint.save' ||
           operation === 'provider.endpoint.create'
-        ? structuredClone(fields)
+        ? sendable(fields)
         : { endpoint_id: fields.endpoint_id };
 
   async function load(cursor?: string) {
@@ -286,14 +355,36 @@ export default function ProviderConfiguration(
         reviewed: null,
         error: '',
         notice: '',
+        ask: '',
+        keyFor: '',
       });
   }
   function field<K extends keyof ProviderEndpointFields>(
     name: K,
     value: ProviderEndpointFields[K],
   ) {
-    changed({ fields: { ...fields, [name]: value } });
+    // An OK for a private address is for that address only (H16).
+    changed({
+      fields: {
+        ...fields,
+        [name]: value,
+        ...(name === 'base_url' ? { allow_private_address: false } : {}),
+      },
+    });
   }
+  const hostName = props.hostName ?? null;
+  const urlOf = (captured: Fields) =>
+    'base_url' in captured
+      ? captured.base_url
+      : (page?.items.find(
+          (item) =>
+            'endpoint_id' in captured &&
+            item.fields.endpoint_id === captured.endpoint_id,
+        )?.fields.base_url ?? '');
+  const keyOf = (captured: Fields, code: string) =>
+    KEY_PROBLEMS.has(code) && 'endpoint_id' in captured
+      ? `custom_openai_${captured.endpoint_id}`
+      : '';
   async function review() {
     if (
       locked ||
@@ -415,7 +506,7 @@ export default function ProviderConfiguration(
     const generation = epoch.current;
     const revision = page.revision;
     const abort = session.read();
-    session.update({ busy: 'review', error: '', notice: '' });
+    session.update({ busy: 'review', error: '', notice: '', keyFor: '' });
     let reviewed: Review;
     try {
       reviewed = await props.review(
@@ -425,8 +516,12 @@ export default function ProviderConfiguration(
         abort.signal,
       );
     } catch (cause) {
-      if (!abort.signal.aborted)
-        session.update({ busy: '', error: clientError(cause).message });
+      if (abort.signal.aborted) return;
+      const failure = clientError(cause);
+      // A private address on a hosted server: ask the owner here (H16).
+      if (failure.code === 'endpoint_private_address' && 'base_url' in captured)
+        session.update({ busy: '', ask: captured.base_url });
+      else session.update({ busy: '', error: failure.message });
       return;
     } finally {
       session.finishRead(abort);
@@ -526,18 +621,19 @@ export default function ProviderConfiguration(
             void load();
           } catch (cause) {
             const failure = clientError(cause);
-            // An endpoint that doesn't answer is a definite outcome: nothing
-            // to check again, and the list shows it as Not reachable (B114).
-            if (failure.code === 'endpoint_unreachable')
-              session.update({ pending: null });
+            // An endpoint that doesn't answer, refuses its key or may not be
+            // reached is a definite outcome: nothing to check again, and the
+            // list shows it as Unavailable (B114).
+            const definite = ENDPOINT_PROBLEMS.has(failure.code);
+            if (definite) session.update({ pending: null });
             session.update({
               busy: '',
-              error:
-                failure.code === 'endpoint_unreachable' ? '' : failure.message,
+              error: definite ? '' : failure.message,
+              keyFor: keyOf(captured, failure.code),
               notice: session.getSnapshot().pending
                 ? "Endpoint saved, but Row-Bot couldn't confirm the model refresh. Check again."
-                : failure.code === 'endpoint_unreachable'
-                  ? `Endpoint saved. ${failure.message}`
+                : definite
+                  ? `Endpoint saved. ${endpointProblem(failure, captured.base_url, hostName)}`
                   : 'Endpoint saved, but model refresh did not start.',
             });
             if (!session.getSnapshot().pending) void load();
@@ -546,8 +642,13 @@ export default function ProviderConfiguration(
       } else void load();
     } catch (cause) {
       const failure = clientError(cause);
-      if (failure.code === 'endpoint_unreachable') {
-        session.update({ pending: null, busy: '', notice: failure.message });
+      if (ENDPOINT_PROBLEMS.has(failure.code)) {
+        session.update({
+          pending: null,
+          busy: '',
+          notice: endpointProblem(failure, urlOf(captured), hostName),
+          keyFor: keyOf(captured, failure.code),
+        });
         void load();
         return;
       }
@@ -576,6 +677,91 @@ export default function ProviderConfiguration(
     // Refresh requests come only from a successfully saved endpoint credential.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.credentialRefreshRequest, props.compact, locked, page]);
+  const keyAction = state.keyFor ? (
+    <Button
+      variant="ghost"
+      className="small"
+      disabled={locked}
+      onClick={() => props.onCredentials(state.keyFor)}
+    >
+      <KeyRound size={16} aria-hidden /> Enter API key
+    </Button>
+  ) : null;
+  const askHost = urlHost(state.ask);
+  const ask = state.ask ? (
+    <div
+      role="alertdialog"
+      aria-label="Allow a private address"
+      className="settings-endpoint-ask"
+    >
+      <strong>
+        <ShieldAlert size={16} aria-hidden /> Allow a private address?
+      </strong>
+      <p>
+        {askHost}{' '}
+        {/^[\d.]+$/.test(askHost) || askHost.includes(':')
+          ? 'is a private address'
+          : 'leads to a private address'}{' '}
+        inside {hostName ? possessive(hostName) : "your host's"} network, not on
+        the internet. Row-Bot connects there only if you allow it for this
+        endpoint. Allow it only if your model server runs there.
+      </p>
+      <div className="action-cluster">
+        <Button
+          variant="primary"
+          disabled={locked}
+          onClick={() => {
+            const allowed = { ...fields, allow_private_address: true };
+            session.update({ fields: allowed, ask: '' });
+            void performDirect(
+              state.existing
+                ? 'provider.endpoint.save'
+                : 'provider.endpoint.create',
+              sendable(allowed),
+            );
+          }}
+        >
+          Allow and save
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={locked}
+          onClick={() => session.update({ ask: '' })}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  ) : null;
+  const allowedNote =
+    state.existing && fields.allow_private_address ? (
+      <p className="settings-help">
+        Allowed to use a private address inside{' '}
+        {hostName ? possessive(hostName) : "your host's"} network.
+      </p>
+    ) : null;
+  const serverType = (
+    <Field label="Server type">
+      <Select
+        value={fields.profile}
+        disabled={locked || state.existing}
+        onChange={(event) => field('profile', event.target.value)}
+      >
+        {serverTypes(page).map((type) => (
+          <option key={type.value} value={type.value}>
+            {type.label}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+  const ollamaHint =
+    fields.profile === OLLAMA && !state.existing ? (
+      <p className="settings-help">
+        Ollama's address ends in /v1, such as http://&lt;computer&gt;:11434/v1.
+        Set its context size under Advanced: Ollama doesn't report it.
+      </p>
+    ) : null;
   if (props.compact)
     return (
       <section
@@ -589,6 +775,7 @@ export default function ProviderConfiguration(
         {/* While the dialog is open its errors show inside it (B114). */}
         {state.error && !state.editing && <p role="alert">{state.error}</p>}
         {state.notice && <p role="status">{state.notice}</p>}
+        {keyAction}
         {page && page.items.length > 0 && (
           <ul className="settings-provider-list settings-custom-endpoint-list">
             {page.items.map((item) => {
@@ -654,7 +841,7 @@ export default function ProviderConfiguration(
               const meta = [
                 item.fields.base_url,
                 humanizeToken(item.fields.execution_location),
-                humanizeToken(item.fields.profile),
+                serverTypeName(page, item.fields.profile),
                 item.model_count !== null ? `${item.model_count} models` : '',
               ]
                 .filter(Boolean)
@@ -777,6 +964,7 @@ export default function ProviderConfiguration(
                   editing: false,
                   dirty: false,
                   reviewed: null,
+                  ask: '',
                   fields: blank(),
                 });
             }}
@@ -809,19 +997,10 @@ export default function ProviderConfiguration(
                   onChange={(event) => field('base_url', event.target.value)}
                 />
               </Field>
+              {allowedNote}
               {!state.existing && (
                 <div className="field-row">
-                  <Field label="Endpoint profile">
-                    <Select
-                      value={fields.profile}
-                      disabled={locked}
-                      onChange={(event) => field('profile', event.target.value)}
-                    >
-                      {page?.profiles.map((profile) => (
-                        <option key={profile}>{profile}</option>
-                      ))}
-                    </Select>
-                  </Field>
+                  {serverType}
                   <Field label="Execution location">
                     <Select
                       value={fields.execution_location}
@@ -840,6 +1019,7 @@ export default function ProviderConfiguration(
                   </Field>
                 </div>
               )}
+              {ollamaHint}
               <label className="actions">
                 <Toggle
                   label="Enable endpoint"
@@ -973,7 +1153,8 @@ export default function ProviderConfiguration(
                   {state.error}
                 </p>
               )}
-              <div className="actions">
+              {ask}
+              <div className="actions" hidden={!!state.ask}>
                 <Button
                   disabled={
                     locked ||
@@ -985,7 +1166,7 @@ export default function ProviderConfiguration(
                       state.existing
                         ? 'provider.endpoint.save'
                         : 'provider.endpoint.create',
-                      structuredClone(fields),
+                      sendable(fields),
                     )
                   }
                 >
@@ -999,6 +1180,7 @@ export default function ProviderConfiguration(
                       dirty: false,
                       reviewed: null,
                       error: '',
+                      ask: '',
                       fields: blank(),
                     })
                   }
@@ -1076,6 +1258,7 @@ export default function ProviderConfiguration(
       </p>
       {state.error && <p role="alert">{state.error}</p>}
       {state.notice && <p role="status">{state.notice}</p>}
+      {keyAction}
       {state.busy === 'load' && <Skeleton label="Loading saved endpoints" />}
       <div className="field-row settings-provider-endpoint-search">
         <Field label="Search saved endpoints">
@@ -1134,7 +1317,9 @@ export default function ProviderConfiguration(
                     <span className="status-chip">
                       {item.fields.execution_location}
                     </span>
-                    <span className="status-chip">{item.fields.profile}</span>
+                    <span className="status-chip">
+                      {serverTypeName(page, item.fields.profile)}
+                    </span>
                     <span className="status-chip">
                       {item.model_count == null
                         ? 'models unknown'
@@ -1336,20 +1521,9 @@ export default function ProviderConfiguration(
               {(operation === 'provider.endpoint.save' ||
                 operation === 'provider.endpoint.create') && (
                 <>
+                  {allowedNote}
                   <div className="field-row">
-                    <Field label="Endpoint profile">
-                      <Select
-                        disabled={locked || state.existing}
-                        value={fields.profile}
-                        onChange={(event) =>
-                          field('profile', event.target.value)
-                        }
-                      >
-                        {page?.profiles.map((profile) => (
-                          <option key={profile}>{profile}</option>
-                        ))}
-                      </Select>
-                    </Field>
+                    {serverType}
                     <Field label="Execution location">
                       <Select
                         disabled={locked || state.existing}
@@ -1367,6 +1541,7 @@ export default function ProviderConfiguration(
                       </Select>
                     </Field>
                   </div>
+                  {ollamaHint}
                   <label className="actions">
                     <Toggle
                       label="Enable this endpoint"
@@ -1517,7 +1692,8 @@ export default function ProviderConfiguration(
               lists.
             </p>
           )}
-          <div className="actions">
+          {ask}
+          <div className="actions" hidden={!!state.ask}>
             <Button
               disabled={locked}
               onClick={() =>
