@@ -30,6 +30,31 @@ body:
       label: Row-Bot version
       placeholder: v5.3.1
   - type: dropdown
+    id: runs_on
+    attributes:
+      label: Where does Row-Bot run?
+      options:
+        - Desktop app (Windows, macOS or Linux)
+        - Docker on my own computer or server
+        - A hosting service (say which below)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: host_size
+    attributes:
+      label: Which host, and what size?
+      description: For Docker, a hosting service or another server.
+      placeholder: e.g. 4 GB memory, 2 cores
+  - type: dropdown
+    id: memory_notice
+    attributes:
+      label: Did Row-Bot show an out-of-memory notice?
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
+  - type: dropdown
     id: os
     attributes:
       label: Operating system

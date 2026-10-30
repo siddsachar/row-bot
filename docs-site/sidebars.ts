@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
         'getting-started/first-launch',
         'getting-started/first-tasks',
         'configuration/models-and-providers',
+        'guides/own-model-server',
       ],
     },
     {

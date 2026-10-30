@@ -5,7 +5,8 @@ Usage:
 
 Rewrites every file that carries the release version. The Linux and macOS build
 scripts, the generated docs reference pages and the release gate read the
-version from src/row_bot/version.py, so they need no edit here.
+version from src/row_bot/version.py, so they need no edit here. RELEASE_NOTES.md
+gets the version's section, ending in a "For Hosts" section, when it has none.
 """
 
 from __future__ import annotations
@@ -29,7 +30,14 @@ VERSION_FILES = (
     "installer/Row-Bot.app/Contents/Info.plist",
     ".github/ISSUE_TEMPLATE/bug_report.yml",
     "docs-site/src/components/Screenshot.tsx",
+    "RELEASE_NOTES.md",
 )
+
+# Every release says what changes for hosts that package the image; they act on it, and their users' pods
+# update unattended (docs/RELEASING.md). The draft release's body is the version's section of RELEASE_NOTES.md.
+FOR_HOSTS_HEADING = "### For Hosts"
+FOR_HOSTS_PROMPT = ("TODO: breaking changes for hosts, a new recommended size or new host settings; "
+                    'or "No changes for hosts."')
 
 
 def _rewrite(path: Path, change: Callable[[str], str]) -> None:
@@ -56,6 +64,28 @@ def replace_once(path: Path, pattern: str, replacement: str) -> None:
 
 def replace_at_least_once(path: Path, pattern: str, replacement: str) -> None:
     _sub(path, pattern, replacement, exactly_one=False)
+
+
+def add_release_notes_section(path: Path, version: str) -> None:
+    """Give ``version`` a section at the top of RELEASE_NOTES.md, or a For Hosts section at the end of its own."""
+
+    def change(text: str) -> str:
+        lines = text.split("\n")
+        release = re.compile(r"^##\s+v?\d")
+        start = next((i for i, line in enumerate(lines) if re.match(rf"^##\s+v?{re.escape(version)}(\s|$)", line)),
+                     None)
+        if start is None:
+            first = next((i for i, line in enumerate(lines) if release.match(line)), len(lines))
+            section = [f"## v{version}", "", FOR_HOSTS_HEADING, "", FOR_HOSTS_PROMPT, "", "---", ""]
+            return "\n".join(lines[:first] + section + lines[first:])
+        end = next((i for i in range(start + 1, len(lines)) if release.match(lines[i])), len(lines))
+        if any(line.strip().lower() == FOR_HOSTS_HEADING.lower() for line in lines[start:end]):
+            return text
+        while end > start + 1 and lines[end - 1].strip() in {"", "---"}:
+            end -= 1
+        return "\n".join(lines[:end] + ["", FOR_HOSTS_HEADING, "", FOR_HOSTS_PROMPT] + lines[end:])
+
+    _rewrite(path, change)
 
 
 def validate_version(version: str) -> None:
@@ -108,6 +138,7 @@ def bump(root: Path, version: str) -> None:
         r"const SCREENSHOT_REVISION = '[^']+';",
         f"const SCREENSHOT_REVISION = '{version}';",
     )
+    add_release_notes_section(root / "RELEASE_NOTES.md", version)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -129,8 +160,8 @@ def main(argv: list[str] | None = None) -> None:
 
     print(f"Prepared release version {version}")
     print("Next steps (docs/RELEASING.md):")
-    print("1. Update RELEASE_NOTES.md" + ("" if not args.no_docs else
-                                         ", and run `python scripts/docs/publish.py` to publish the docs"))
+    print(f"1. Write v{version}'s notes in RELEASE_NOTES.md, with its For Hosts section"
+          + ("" if not args.no_docs else ", and run `python scripts/docs/publish.py` to publish the docs"))
     print("2. Run `uv run python scripts/run_test_matrix.py pr` and open the release-prep PR (with the docs)")
     print(f"3. After it merges and CI / ci-ok is green on the merge commit, tag it v{version},")
     print(f"   push the tag and run release.yml with version {version}")
