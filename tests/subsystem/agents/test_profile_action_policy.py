@@ -632,6 +632,21 @@ def test_gated_results_say_whether_approval_was_needed_and_given(
     assert deleted == ([] if answer is False else ["notes.txt"])
 
 
+def test_a_card_for_one_value_says_the_value_not_its_parameter_name(runtime, monkeypatch):
+    # Home › Needs you showed "Delete file: file_path=summary.md".
+    asked = []
+    tool = StructuredTool.from_function(func=lambda file_path: f"Deleted {file_path}", name="workspace_file_delete",
+                                        description="Delete a file")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or True)
+
+    tool.invoke({"file_path": "summary.md"})
+
+    assert "file_path=" not in asked[0]["description"]
+    assert "summary.md" in asked[0]["description"]
+
+
 def test_a_gated_structured_result_stays_data(runtime, monkeypatch):
     tool = StructuredTool.from_function(
         func=lambda path: '{"status": "success", "path": "notes.txt"}',
