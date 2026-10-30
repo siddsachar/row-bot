@@ -1771,11 +1771,13 @@ class BrowserEngine:
         return image
 
     def set_viewport(self, preset: str, device_scale: float | None = None, thread_id: str = "default") -> str:
-        """Show this conversation's page at a phone, tablet or desktop size (optionally another device scale)."""
+        """Show this conversation's page at a phone, tablet or desktop size (optionally another device scale), or
+        ``pane``: back to the Browser pane's size. While a recording runs, desktop is the recording's size."""
 
-        if preset not in VIEWPORT_PRESETS:
-            return "Choose phone, tablet or desktop."
-        width, height, scale, touch = VIEWPORT_PRESETS[preset]
+        if preset not in VIEWPORT_PRESETS and preset != "pane":
+            return "Choose phone, tablet, desktop or pane."
+        follow = preset == "pane" or (preset == "desktop" and thread_id in self._recorders)
+        width, height, scale, touch = VIEWPORT_PRESETS.get(preset, VIEWPORT_PRESETS["desktop"])
         if device_scale is not None:
             try:
                 scale = float(device_scale)
@@ -1787,7 +1789,7 @@ class BrowserEngine:
         async def step(tab: _Tab) -> str:
             session = tab.session or await self._context.new_cdp_session(tab.page)
             tab.session = session
-            if preset == "desktop" and device_scale is None:
+            if follow:
                 # Back to the size the person sees it at (or a desktop window, or the recording's).
                 await session.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
                 tab.viewport, tab.fitted = None, None
@@ -1807,7 +1809,8 @@ class BrowserEngine:
             return (f"The page now shows at {preset} size: {width}×{height} at {scale:g}× scale"
                     + (", as a touch screen." if touch else "."))
 
-        return self.act(thread_id, f"Showing the page at {preset} size", step).text
+        label = "the Browser pane's size" if preset == "pane" else f"{preset} size"
+        return self.act(thread_id, f"Showing the page at {label}", step).text
 
     # ---- Recordings (F2) ------------------------------------------------------------
 
