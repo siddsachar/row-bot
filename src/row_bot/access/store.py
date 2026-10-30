@@ -970,6 +970,12 @@ class AccessStore:
                     "UPDATE access_sessions SET revoked_at = ? WHERE revoked_at IS NULL",
                     (stamp,),
                 )
+                # An open invitation would let whoever made it back in after the recovery.
+                connection.execute(
+                    "UPDATE access_invitations SET cancelled_at = ? "
+                    "WHERE cancelled_at IS NULL AND claimed_at IS NULL",
+                    (stamp,),
+                )
             connection.execute(
                 """
                 INSERT INTO access_devices(

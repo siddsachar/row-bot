@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 from row_bot.access.config import AccessConfig
 from row_bot.access.middleware import AccessMiddleware
 from row_bot.access.routes import register_access_routes
-from row_bot.access.service import AccessService
+from row_bot.access.service import AccessService, InvitationClaimError
 from row_bot.access.setup_code import SETUP_CODE_ENV, SetupCodes, prepare_setup_code_at_start
 from row_bot.access.store import AccessStore
 
@@ -201,6 +201,7 @@ def test_a_new_host_code_recovers_once_and_signs_out_every_other_browser(tmp_pat
     owner = pod.browser("198.51.100.7")
     assert enter(owner, "FIRS-TC0D-E000").status_code == 200
     phone = pod.pair("Phone")
+    left_open = pod.service.create_invitation(intended_origin=ORIGIN)
 
     # The owner lost both browsers, set a new code in the pod's settings and restarted it.
     assert pod.start(capsys, "SEC0-ND0C-0DE0") is None
@@ -223,6 +224,9 @@ def test_a_new_host_code_recovers_once_and_signs_out_every_other_browser(tmp_pat
     assert recovered.json()["recovered"] is True
     assert pod.service.validate_session(pod.session(owner), touch=False) is None
     assert pod.service.validate_session(phone, touch=False) is None
+    # An invitation made before the recovery no longer lets anyone in.
+    with pytest.raises(InvitationClaimError):
+        pod.service.claim_invitation(left_open.token, intended_origin=ORIGIN, display_name="Laptop")
     assert [device.display_name for device in pod.service.list_devices(include_revoked=False)] == [
         "Connected browser"
     ]
