@@ -5,6 +5,10 @@ from outside. Row-Bot then runs no checks, downloads or staging and its
 agent's update tool is off. Settings shows what the host reports and turns
 Update now / Skip / Pause into requests the host picks up.
 
+A known hosting company (:mod:`row_bot.hosting`, H3) always applies the
+updates itself, so naming one means this mode whatever else is set: a
+hosted Row-Bot never checks, downloads or switches versions on its own.
+
 Both sides share one folder, ``ROW_BOT_UPDATES_DIR`` or, by default,
 ``<data dir>/host-updates/`` (the data volume a container already mounts):
 
@@ -47,6 +51,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping
 
 from row_bot import install_layout
+from row_bot.hosting import hosted_by
 
 UPDATES_MODE_ENV = "ROW_BOT_UPDATES"
 UPDATES_DIR_ENV = "ROW_BOT_UPDATES_DIR"
@@ -58,8 +63,9 @@ HostAction = Literal["check", "update_now", "skip", "pause", "resume"]
 
 
 def external_mode(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether the host applies updates: ``ROW_BOT_UPDATES=external`` or a known host (H3)."""
     env = os.environ if environ is None else environ
-    return str(env.get(UPDATES_MODE_ENV) or "").strip().lower() == "external"
+    return str(env.get(UPDATES_MODE_ENV) or "").strip().lower() == "external" or hosted_by(env) is not None
 
 
 def exchange_dir(environ: Mapping[str, str] | None = None) -> Path:
