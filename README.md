@@ -106,6 +106,10 @@ docker compose -f deploy/docker/compose.yaml exec row-bot \
 Read [Docker and VPS operations](https://row-bot.ai/docs/operations/docker)
 before exposing it beyond loopback.
 
+Want to run Row-Bot without installing anything?
+[Upvote it on PikaPods](https://feedback.pikapods.com/posts/1267/row-bot-open-source-ai-assistant-thats-always-on-workflows-memory-browser)
+to help get it listed there.
+
 ### Updates
 
 Installed Row-Bot keeps itself up to date: about once a day it checks GitHub,
