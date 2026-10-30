@@ -318,6 +318,26 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
 
 
+def _every_stream_is_used(plan) -> bool:
+    """ffmpeg refuses a graph with a made stream nothing reads ("Error binding filtergraph inputs/outputs")."""
+    import re
+
+    text = plan.graph + " " + " ".join(plan.args)
+    return all(text.count(label) >= 2 for label in set(re.findall(r"\[[av]\d+\]", plan.graph)))
+
+
+def test_turning_the_videos_own_sound_off_keeps_only_the_voice_or_leaves_no_sound():
+    """A video's own sound at volume 0 once broke the edit, alone or under a voice."""
+    muted = _plan([{"op": "sound", "role": "original", "volume": 0}])
+    assert "volume=0.000" in muted.graph and "amix=inputs=0" not in muted.graph and _every_stream_is_used(muted)
+
+    voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)],
+                        parse_steps([{"op": "sound", "role": "original", "volume": 0},
+                                     {"op": "sound", "source": "line.wav"}]), "output.mp4",
+                        sounds={"line.wav": "sound-1.wav"})
+    assert voiced.has_audio and "[1:a]" in voiced.graph and _every_stream_is_used(voiced)
+
+
 def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
     plan = build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
                       parse_steps([{"op": "sound", "source": "line.wav"}]), "output.mp4",

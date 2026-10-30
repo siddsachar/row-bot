@@ -917,7 +917,8 @@ class _Builder:
             self.add(f"{chain},adelay={delay}|{delay}{label}")
             (voices if step.role == "voice" else music).append(label)
         parts: list[str] = []
-        if self.audio and original > 0:
+        if self.audio:
+            # Its own sound, even at volume 0: a stream the graph makes must be read for ffmpeg to bind it.
             own = self.label("a")
             self.add(f"{self.audio}volume={original:.3f}{own}")
             parts.append(own)
