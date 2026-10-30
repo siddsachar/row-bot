@@ -154,6 +154,9 @@ it('opens the credential dialog after creating an endpoint that needs a key', as
 });
 it('refreshes endpoint models once after a new API key was saved', async () => {
   const props = options();
+  // Saving the key changed the configuration: the refresh is reviewed against it.
+  const saved = { ...page, revision: 'c'.repeat(64) };
+  props.load.mockResolvedValueOnce(page).mockResolvedValue(saved);
   const view = render(<ProviderConfiguration {...props} compact />);
   await screen.findByRole('button', {
     name: 'Refresh Synthetic endpoint models',
@@ -171,7 +174,7 @@ it('refreshes endpoint models once after a new API key was saved', async () => {
   await waitFor(() =>
     expect(props.apply).toHaveBeenCalledWith(
       'provider.endpoint.refresh',
-      page.revision,
+      saved.revision,
       { endpoint_id: 'synthetic' },
       expect.any(String),
       expect.objectContaining({ nonce: 'original-session-nonce' }),

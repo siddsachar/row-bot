@@ -404,7 +404,11 @@ export default function ProviderConfiguration(
       session.update({ busy: '' });
     }
   }
-  async function performDirect(next: Operation, captured: Fields) {
+  async function performDirect(
+    next: Operation,
+    captured: Fields,
+    fresh?: string,
+  ) {
     if (
       locked ||
       !page ||
@@ -413,7 +417,7 @@ export default function ProviderConfiguration(
     )
       return;
     const generation = epoch.current;
-    const revision = page.revision;
+    const revision = fresh ?? page.revision;
     const abort = session.read();
     session.update({ busy: 'review', error: '', notice: '' });
     let reviewed: Review;
@@ -570,9 +574,14 @@ export default function ProviderConfiguration(
     )
       return;
     handledCredentialRefresh.current = request.token;
-    void performDirect('provider.endpoint.refresh', {
-      endpoint_id: request.providerId.replace(/^custom_openai_/, ''),
-    });
+    // Saving the key changed the configuration: refresh against a fresh read.
+    void load().then(() =>
+      performDirect(
+        'provider.endpoint.refresh',
+        { endpoint_id: request.providerId.replace(/^custom_openai_/, '') },
+        session.getSnapshot().page?.revision,
+      ),
+    );
     // Refresh requests come only from a successfully saved endpoint credential.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.credentialRefreshRequest, props.compact, locked, page]);
