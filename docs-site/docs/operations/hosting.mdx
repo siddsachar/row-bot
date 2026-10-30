@@ -93,7 +93,7 @@ openssl rand -hex 32
 ```
 
 - **Out of the environment.** Row-Bot takes the key out of its environment as it starts. Of Row-Bot's processes, only its launcher and its server hold it, in memory. No program they start (a shell, an MCP server, Claude Code, Python, Row-Bot's browser) inherits it. On Linux, both are also non-dumpable, so only root can read the environment they started with.
-- **First process.** Anything else started in the container with its variables keeps its own copy of the key, such as an init process (`docker run --init`) or a `docker exec` command. Start `row-bot` as the container's first process, as the image does.
+- **First process.** Anything else started in the container with its variables keeps its own copy of the key, such as an init process (`docker run --init`) or a `docker exec` command. Start `row-bot` as the container's first process, as the image does. The image's own health check starts with an empty environment (`env -i`), so it holds no copy.
 - **Off the volume.** The key is never written to `/data`, so a copy of the volume, or a backup of it, holds only encrypted records. The host's settings for the server, and `docker inspect`, still show it.
 - **Never printed.** A key that isn't 64 hexadecimal characters stops the start with `Row-Bot didn't start: ROW_BOT_SECRET_STORE_KEY must contain exactly 64 hexadecimal characters`, without the value.
 
