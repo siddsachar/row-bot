@@ -2,14 +2,36 @@
 
 ---
 
-## v5.3.1-beta.1 - Real Work, Video, Linked Conversations & Waits
+## v5.3.1 - Real Work, Video, Linked Conversations & Waits
 
 Row-Bot 5.3.1 is about getting real work done. It follows the approval level you
 chose, with far fewer refusals. It can make and edit videos and talk to its
 other conversations. A chat or workflow can wait for something without using
-your plan, and Row-Bot tells you what it's doing as it works. This beta arrives
-through background updates on the Beta channel. Read **Upgrade Notes** below
-before upgrading.
+your plan, and Row-Bot tells you what it's doing as it works. From 5.3.0 it
+arrives through background updates: Settings › Updates offers **Restart now**.
+Read **Upgrade Notes** below before upgrading.
+
+### New Since The Beta
+
+- **Weekday schedules run on weekdays** - a workflow set to "1-5" runs Monday
+  to Friday, as in standard cron, and its label and next run say so.
+- **"Check back in 10 minutes"** waits in the chat instead of making a
+  one-time workflow, and a one-time run keeps its answer after it goes.
+- **Updates** - switching the channel or finishing a check no longer makes Check
+  now fail with "Update status changed".
+- **Linked conversations** - a message from another chat says where it came
+  from, and a chat waiting on that chat answers once.
+- **The Browser pane opens by itself** when Row-Bot starts using the browser in
+  the chat you're looking at; a `file://` address gets a plain answer.
+- **A provider you connect later** lists its ready models in the pickers.
+- **Read-only pipelines** - a listing piped into a sort, a pick or a count runs
+  without asking; a command that needs ffmpeg offers Row-Bot's own.
+- **Library › Media** keeps pictures and videos sent from the workspace, and a
+  video from the turn in flight opens in the Video panel.
+- **Sandboxes** - one without a model shows under Needs you, and Settings ›
+  Data › Sandboxes is easy to find.
+- **Clearer cards and Home** - an approval for one value names it, and Home says
+  what it's waiting for instead of "All quiet".
 
 ### One Safety Rule That Fits Real Work
 
@@ -123,8 +145,11 @@ before upgrading.
 
 ### Upgrade Notes
 
-- **From 5.3.0, in the background** - Row-Bot downloads the beta on the Beta
-  channel and says Restart to update.
+- **From 5.3.0 or the beta, in the background** - Row-Bot downloads 5.3.1 and
+  says Restart to update.
+- **Weekday schedules** - a workflow whose cron schedule names days by number
+  ran a day late before ("1-5" ran Tuesday to Saturday). It now runs on the
+  standard days; check any workflow you shifted to make up for it.
 - **X: sign in once more** - posting pictures and video needs X's media access.
   Row-Bot asks you to reconnect each X account once, before its next post.
 - **Fewer refusals** - actions that used to be refused now follow your approval
@@ -132,6 +157,13 @@ before upgrading.
   or workflow you set to Hands-off.
 - **Scripts that call Row-Bot's port** - a request from this computer now needs
   the app's sign-in like any other device.
+
+---
+
+## v5.3.1-beta.1 - The First 5.3.1 Beta
+
+The first 5.3.1 beta, delivered through 5.3.0's background updates on the Beta
+channel. Everything in it is in v5.3.1 above.
 
 ---
 
