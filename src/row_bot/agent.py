@@ -2441,6 +2441,7 @@ def _render_tool_results(
     *,
     boundary: int,
     shrink_budget: int | None = None,
+    clear: frozenset[int] = frozenset(),
 ) -> dict[int, Any]:
     """The model-facing content of each tool result, by position.
 
@@ -2452,7 +2453,7 @@ def _render_tool_results(
     inner: dict[int, str] = {}
     rescan: set[int] = set()
     for view in views:
-        if _is_cleared(view, marks):
+        if _is_cleared(view, marks) or view.position in clear:
             inner[view.position] = _browser_stub(view) if view.browser else _summarize_tool_result(
                 view.name or "tool", view.text
             )
@@ -2632,9 +2633,24 @@ def _apply_history_hygiene(
     else:
         emergency = request_size(summary_text, current[boundary:]) >= max_tokens
     if emergency:
-        logger.debug("History hygiene: emergency shrink of tool results (thread=%s)", thread_id[:8])
-        rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65))
-        current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
+        # The turn in flight alone reaches the limit (compaction can't shorten it): send only the newest step's
+        # reasoning, then clear this turn's earlier results, oldest first, until it fits (a page outline from ten
+        # steps ago is stale), keeping the newest few whole; shrinking every result is the last resort.
+        logger.debug("History hygiene: emergency in the turn in flight (thread=%s)", thread_id[:8])
+        current = _without_earlier_reasoning(current, before=len(visible))
+        limit = compact_at or max_tokens
+        stale = sorted(view.position for view in views if view.position >= newest_person)[:-_KEEP_NEWEST_RESULTS]
+        cleared: set[int] = set()
+        for position in stale:
+            if request_size("", current[newest_person:]) < limit:
+                break
+            cleared.add(position)
+            rendered = _render_tool_results(views, marks, boundary=boundary, clear=frozenset(cleared))
+            current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
+        if request_size("", current[newest_person:]) >= limit:
+            rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65),
+                                            clear=frozenset(cleared))
+            current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
 
     replacements = {
         id(visible[position]): current[position]
@@ -2644,6 +2660,10 @@ def _apply_history_hygiene(
     if not replacements:
         return trimmed
     return [replacements.get(id(message), message) for message in trimmed]
+
+
+# Results of the turn in flight that stay whole when the turn alone reaches the limit.
+_KEEP_NEWEST_RESULTS = 3
 
 
 def _without_earlier_reasoning(messages: list, *, before: int) -> list:
