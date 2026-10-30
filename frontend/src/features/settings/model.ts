@@ -702,6 +702,12 @@ export const settingsRows: SettingsRow[] = [
     label: 'Import from another assistant',
     keywords: 'hermes openclaw migration',
   },
+  {
+    leaf: 'data',
+    anchor: 'sandboxes',
+    label: 'Sandboxes',
+    keywords: 'sandbox demo try test made-up data second copy',
+  },
 ];
 
 /** Learning (preview)'s rows; "Learn new skills" moves there (D29). */
