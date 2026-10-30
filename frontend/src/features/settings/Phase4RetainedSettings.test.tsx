@@ -2151,6 +2151,8 @@ it.each<SettingsLeafId>([
       getSnapshot: () => state,
       subscribe: () => () => {},
       settingsSnapshot: async () => everyRow,
+      // Data › Sandboxes reads its own list.
+      rowBotSandboxes: async () => ({ items: [], packs: [], available: true }),
       // System › Privacy reads install stats (N6) on its own.
       installCount: async () => ({
         available: true,
