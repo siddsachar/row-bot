@@ -253,6 +253,10 @@ def test_this_computer_reaches_a_server_by_127_0_0_1_whatever_hosts_it_allows() 
     assert client.get("/healthz", headers={**loopback, "x-forwarded-for": "203.0.113.5"}).status_code == 400
     remote = TestClient(client.app, base_url="http://localhost:8080", client=("203.0.113.5", 51000))
     assert remote.get("/healthz", headers=loopback).json()["error"] == "unexpected_host"
+    # On the desktop loopback is the owner, so an exact list stays exact there: a same-host proxy that sends no
+    # forwarding headers can't make every visitor the owner.
+    desktop = _app(AccessConfig.build(deployment_mode="desktop", allowed_hosts=("row-bot.example.com",)))
+    assert desktop.get("/healthz", headers=loopback).json()["error"] == "unexpected_host"
 
 
 def test_unexpected_host_and_untrusted_forwarding_are_rejected() -> None:
