@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import scripts.build_update_parts as parts
 import scripts.cut_release as cut_release
 import scripts.release_gate as gate
 
@@ -20,6 +21,8 @@ import scripts.release_gate as gate
 pytestmark = [pytest.mark.subsystem, pytest.mark.installer]
 
 REPO = Path(__file__).resolve().parents[3]
+HEADER = "# Row-Bot - Release Notes\n\n---\n\n"
+EARLIER = "## v1.2.3 - Earlier\n\nEarlier notes.\n"
 
 
 @pytest.fixture
@@ -71,6 +74,36 @@ def test_line_endings_survive_the_bump(checkout: Path) -> None:
     assert b'__version__ = "9.8.7-rc.1"\r\n' in version_py.read_bytes()
     assert b"\r\n" not in command.read_bytes()
     assert gate._source_versions(checkout) == ("9.8.7-rc.1", "9.8.7-rc.1")
+
+
+def test_a_new_release_drafts_notes_with_a_for_hosts_section(checkout: Path) -> None:
+    notes = checkout / "RELEASE_NOTES.md"
+    notes.write_text(HEADER + EARLIER, encoding="utf-8", newline="\n")
+
+    cut_release.main(["9.8.7", "--root", str(checkout), "--no-docs"])
+
+    text = notes.read_text(encoding="utf-8")
+    title, body = parts.release_notes("9.8.7", text)
+    assert title == "v9.8.7"
+    assert "### For Hosts" in body
+    assert text.startswith(HEADER) and text.index("## v9.8.7") < text.index("## v1.2.3")
+    assert parts.release_notes("1.2.3", text) == parts.release_notes("1.2.3", HEADER + EARLIER)
+
+
+def test_written_notes_gain_one_for_hosts_section_and_keep_their_words(checkout: Path) -> None:
+    notes = checkout / "RELEASE_NOTES.md"
+    written = "## v9.8.7 - Smaller Pods\n\nRow-Bot 9.8.7 needs less memory.\n\n---\n\n"
+    notes.write_text(HEADER + written + EARLIER, encoding="utf-8", newline="\n")
+
+    cut_release.main(["9.8.7", "--root", str(checkout), "--no-docs"])
+    cut_release.main(["9.8.7", "--root", str(checkout), "--no-docs"])
+
+    text = notes.read_text(encoding="utf-8")
+    title, body = parts.release_notes("9.8.7", text)
+    assert title == "v9.8.7 - Smaller Pods"
+    assert body.count("### For Hosts") == 1
+    assert body.index("Row-Bot 9.8.7 needs less memory.") < body.index("### For Hosts")
+    assert parts.release_notes("1.2.3", text) == parts.release_notes("1.2.3", HEADER + EARLIER)
 
 
 def test_a_malformed_version_changes_nothing(checkout: Path) -> None:

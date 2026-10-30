@@ -74,6 +74,13 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    site describes the release people can install. `--no-docs` skips it; then
    run `python scripts/docs/publish.py` before opening the release-prep PR.
 
+   It adds the version's section to `RELEASE_NOTES.md` when it has none, and a
+   `### For Hosts` section at its end. Write there what changes for hosts that
+   package the image (breaking changes, a new recommended size, new host
+   settings), or "No changes for hosts." Hosts act on it: a breaking change for
+   hosts must be flagged there and announced to them at least 7 days before the
+   tag.
+
    Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md` and the
    version sentence on `docs-site/docs/index.mdx` (publish again if you change
    docs pages). Leave historical release notes alone. The landing page's

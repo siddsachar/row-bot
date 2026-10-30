@@ -43,6 +43,12 @@ guides:
     - src/row_bot/providers/
     - frontend/src/features/settings/ModelsPanel.tsx
     - frontend/src/features/settings/ModelCatalog.tsx
+  use-own-model-server:
+    title: Use Your Own Model Server
+    route: /docs/guides/own-model-server
+    sources:
+    - src/row_bot/providers/custom.py
+    - frontend/src/features/settings/ProviderConfiguration.tsx
   use-chat:
     title: Use Chat And Approvals
     route: /docs/chat/

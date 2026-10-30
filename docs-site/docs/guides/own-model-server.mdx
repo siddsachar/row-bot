@@ -1,0 +1,186 @@
+---
+title: "Use Your Own Model Server"
+description: "Connect Ollama, llama.cpp, vLLM or LM Studio as a custom endpoint, and reach a model server at home safely from a Row-Bot on another network."
+---
+
+# Use Your Own Model Server
+
+Row-Bot can use models that run on a computer you control, such as a desktop with a good graphics card, through a **custom endpoint**. Row-Bot talks to it the way it talks to OpenAI, through the server's OpenAI-compatible API. Ollama, llama.cpp (`llama-server`), vLLM and LM Studio all have one, and so do LocalAI, LiteLLM, SGLang and oMLX.
+
+On this page, **your model server** is the computer that runs the models. **Your Row-Bot** may run somewhere else: the desktop app on a laptop, Docker on a home server, or a hosted Row-Bot on the internet.
+
+If Ollama runs on the same computer as Row-Bot, you don't need this page: choose **On this computer** at first launch, or use **On this device** in **Settings › Providers**.
+
+## What You Need
+
+- A model server with an OpenAI-compatible address. Its base URL ends in `/v1`.
+- A model that can call tools. Agents, workflows and Row-Bot's own tools work through tool calls; a model without them can only chat.
+- Enough context. When the server doesn't say how much a model has, Row-Bot assumes 32,768 tokens, so start the server with at least that much if your graphics card has room.
+
+## Add The Endpoint In Row-Bot
+
+1. Open **Settings › Providers**, and under **Custom endpoints** choose **Add custom endpoint**.
+2. Fill in the form:
+
+   | Field | What to enter |
+   |---|---|
+   | **Endpoint id** | A short name in lowercase letters, numbers, `-` or `_`, such as `home-gpu`. |
+   | **Display name** | The name the model picker shows, such as "Home GPU". |
+   | **Base URL** | The server's address, ending in `/v1`. Each server's address is below. |
+   | **Endpoint profile** | `llama_cpp`, `vllm` or `lmstudio` for those servers; `generic_openai` for Ollama and anything else. |
+   | **Execution location** | **Local/private** when the model server is on your own network next to Row-Bot; **Remote/proxy** when Row-Bot reaches it over the internet. |
+   | **API key required** | On whenever the server checks a key, and always for a server the internet can reach. |
+
+   **Endpoint id**, **Endpoint profile** and **Execution location** can't be changed later: remove the endpoint and add it again.
+
+3. Choose **Save**. With **API key required** on, Row-Bot asks for the key next: paste it under **API key** and choose **Save key**. Row-Bot keeps the key with its other secrets, not in its settings file, and sends it with every request as `Authorization: Bearer <key>`.
+4. Row-Bot reads the server's list of models. They appear in the model picker under the display name.
+5. To check that a model can do agent work, open the endpoint's **More actions** menu and choose **Probe**. The row then says **Agent ready** (chat, streaming and tool calls work), **Chat only** (it answers, but tool calls don't work) or **Unavailable**. **Show probe details** lists each check.
+
+To change the key later, choose **Manage _name_ API key** in the same menu. **Edit** changes the other fields, and **Advanced** there holds the context size, vision, tool calling and reasoning settings.
+
+## Start Your Model Server
+
+Each server's base URL below is for the Row-Bot desktop app on the same computer. From another computer on your network, use the model server's network address instead of `127.0.0.1`, such as `http://192.168.1.20:11434/v1`. From outside your network, read [Reach It From Anywhere](#reach-it-from-anywhere).
+
+### Ollama
+
+- **Base URL:** `http://127.0.0.1:11434/v1`. **Endpoint profile:** `generic_openai`.
+- Ollama listens only on its own computer. For other computers on your home network, set `OLLAMA_HOST=0.0.0.0` before starting it.
+- Ollama gives a model 4,096 tokens of context unless you set more. Set `OLLAMA_CONTEXT_LENGTH=32768` (or what fits your graphics card) before starting Ollama, and enter the same number as **Native context limit** under **Advanced**: Ollama's OpenAI-compatible API doesn't report it.
+- Ollama has no sign-in or keys of its own. To reach it from outside your home network, put [the key check](#a-key-check-in-front-of-ollama) in front of it.
+
+### llama.cpp
+
+```bash
+llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081 -c 32768 --jinja --api-key YOUR-KEY
+```
+
+- **Base URL:** `http://127.0.0.1:8081/v1`. **Endpoint profile:** `llama_cpp`.
+- `--jinja` uses the model's own chat template, which tool calls need. `--api-key` refuses every request without the key. Row-Bot reads the context size from the server.
+
+### vLLM
+
+```bash
+vllm serve Qwen/Qwen3-8B --host 127.0.0.1 --port 8000 --max-model-len 32768 --api-key YOUR-KEY --enable-auto-tool-choice --tool-call-parser hermes
+```
+
+- **Base URL:** `http://127.0.0.1:8000/v1`. **Endpoint profile:** `vllm`.
+- Tool calls need `--enable-auto-tool-choice` and the parser for your model's family; vLLM's tool-calling docs list them (`hermes` suits Qwen models). Row-Bot reads the context size from the server.
+- vLLM listens on every network address unless `--host` says otherwise.
+
+### LM Studio
+
+- Start the server from LM Studio's **Developer** tab. **Base URL:** `http://127.0.0.1:1234/v1`. **Endpoint profile:** `lmstudio`.
+- For other computers on your network, turn on **Serve on Local Network** in the server settings.
+- To require a key, turn on **Require Authentication**, create a token with **Manage Tokens**, and paste the token into Row-Bot as the API key.
+- Row-Bot reads each model's context size from LM Studio.
+
+## Reach It From Anywhere
+
+A Row-Bot on another network can't see addresses inside your home: a hosted Row-Bot, a Row-Bot on a server, or the desktop app on a laptop away from home. It needs an HTTPS address the internet can reach, with a key check in front of the model server.
+
+| Way | When it fits | What you need |
+|---|---|---|
+| [Your own HTTPS address](#your-own-https-address) | You can open a port on your router, or the model server has a public address | A domain name and Caddy |
+| [Cloudflare Tunnel](#cloudflare-tunnel) | You'd rather not open ports | A domain on Cloudflare and `cloudflared` |
+| [Tailscale Funnel](#tailscale-funnel) | No domain and no open ports | A Tailscale account with Funnel turned on |
+
+In every case the model server keeps listening only on its own computer (`127.0.0.1`), and nothing reaches it without the key.
+
+:::danger Never put Ollama on the internet without a sign-in
+Ollama has no sign-in of its own. Anyone who finds an open Ollama can use your graphics card, download models onto your disk and delete the ones you have. Never forward port 11434 on your router, and never point a tunnel straight at Ollama: put [the key check](#a-key-check-in-front-of-ollama) in front of it. The same goes for any model server started without a key.
+:::
+
+### A Key Check In Front Of Ollama
+
+llama.cpp, vLLM and LM Studio check a key themselves when you start them with one. Ollama doesn't, so a small proxy does it: [Caddy](https://caddyserver.com) passes a request to Ollama only when it carries your key.
+
+1. Make a long random key, for example with your password manager or `openssl rand -hex 32`.
+2. Save this as `Caddyfile` in a folder of its own, with your key in place of `YOUR-KEY`:
+
+   ```text
+   :8090 {
+       bind 127.0.0.1
+       @key header Authorization "Bearer YOUR-KEY"
+       handle @key {
+           reverse_proxy 127.0.0.1:11434 {
+               header_up Host localhost:11434
+           }
+       }
+       handle {
+           respond 401
+       }
+   }
+   ```
+
+3. Run `caddy run` in that folder. A tunnel now points at `http://localhost:8090`, not at Ollama.
+
+Ollama refuses requests addressed to another name, so the `header_up` line passes them on as `localhost`. The file holds your key: keep it private.
+
+### Your Own HTTPS Address
+
+Point a name such as `models.example.com` at your home (or the server), forward ports 80 and 443 on your router to the computer that runs Caddy, and Caddy gets an HTTPS certificate by itself. Use the name in place of `:8090`, without the `bind` line:
+
+```text
+models.example.com {
+    @key header Authorization "Bearer YOUR-KEY"
+    handle @key {
+        reverse_proxy 127.0.0.1:11434 {
+            header_up Host localhost:11434
+        }
+    }
+    handle {
+        respond 401
+    }
+}
+```
+
+For llama.cpp, vLLM or LM Studio, use their port instead of `11434` and leave out the `header_up` lines. In Row-Bot, the base URL is `https://models.example.com/v1`.
+
+### Cloudflare Tunnel
+
+`cloudflared` on the model server connects out to Cloudflare, and Cloudflare gives it an HTTPS address, so no port opens on your router.
+
+- **To try it:** `cloudflared tunnel --url http://localhost:8090` prints a temporary `https://….trycloudflare.com` address. It changes every time it starts.
+- **To keep it:** create a tunnel in Cloudflare's Zero Trust dashboard, install its connector on the model server, and route a name on your domain, such as `models.example.com`, to `http://localhost:8090`. For llama.cpp, vLLM or LM Studio started with a key, route it to their own port.
+- In Row-Bot, the base URL is `https://models.example.com/v1`.
+
+Row-Bot sends its key in one header, so it can't use Cloudflare Access service tokens, which need two of their own (`CF-Access-Client-Id` and `CF-Access-Client-Secret`). Leave the address outside Cloudflare Access, and let the key check on your model server do the job.
+
+Cloudflare decrypts the traffic on its way through, so it can read your prompts and the model's answers.
+
+### Tailscale Funnel
+
+Funnel gives a computer on your tailnet a public HTTPS address, `https://<computer>.<tailnet>.ts.net`, and passes requests to a port on it. The encryption ends on your computer, so Tailscale's relays can't read the traffic.
+
+- On the model server, run `tailscale funnel 8090` for Ollama behind the key check; for llama.cpp, vLLM or LM Studio started with a key, use their port instead. Add `--bg` to keep it running after you close the terminal. The first time, Tailscale asks you to turn on HTTPS and Funnel for your tailnet.
+- In Row-Bot, the base URL is `https://<computer>.<tailnet>.ts.net/v1`.
+- Funnel is open to the whole internet: anyone with the address reaches the port, so the key check matters just as much.
+
+If your Row-Bot runs on a computer in the same tailnet, such as the desktop app on your laptop or your own server, you don't need Funnel: use the model server's tailnet name, such as `http://<computer>:11434/v1`, with the server listening on the network (for Ollama, `OLLAMA_HOST=0.0.0.0`). A hosted Row-Bot isn't on your tailnet, so it needs Funnel.
+
+### Check It From Outside
+
+From a computer outside your home network, with your address and key:
+
+```bash
+curl https://models.example.com/v1/models
+curl -H "Authorization: Bearer YOUR-KEY" https://models.example.com/v1/models
+```
+
+The first must be refused with `401`; the second lists your models. If the first lists them too, anyone can use your model server: fix the key check before you go on.
+
+## Privacy
+
+Every request sends your prompt, files you attach and tool results to your model server, through whatever carries the traffic there: nothing else sees it on your own HTTPS address or Tailscale Funnel, and Cloudflare can read it on Cloudflare Tunnel. Read [Privacy And Safety](/docs/privacy-safety/) for every connection Row-Bot makes.
+
+## Troubleshooting
+
+- **"Row-Bot couldn't reach that endpoint":** check that the base URL ends in `/v1`, the server is running, and it can be reached from where your Row-Bot runs. A missing or wrong key shows the same message: try the [`curl` check](#check-it-from-outside). The row says **Unavailable** until a refresh works.
+- **Ollama answers 403 Forbidden:** a request reached Ollama under your public name. Send it through [the key check](#a-key-check-in-front-of-ollama), which rewrites the name.
+- **The row says Chat only:** the model or the server isn't set up for tool calls. Choose a model that supports tools, start `llama-server` with `--jinja`, or start vLLM with `--enable-auto-tool-choice` and the right `--tool-call-parser`, then **Probe** again.
+- **Answers lose track of the conversation or stop early:** the server has less context than Row-Bot thinks. Start it with more, or set **Native context limit** under **Advanced** to what the server uses.
+- **The first answer is slow:** the server loads the model on first use; the next answers come faster.
+
+Related: [Settings: Providers](/docs/settings/providers), [Models And Providers](/docs/configuration/models-and-providers) and [Reasoning Controls](/docs/chat/reasoning-controls) for a custom endpoint's reasoning settings.
