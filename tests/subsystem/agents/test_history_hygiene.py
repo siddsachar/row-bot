@@ -169,6 +169,41 @@ def test_proportional_shrinking_happens_only_when_the_newest_turn_reaches_the_li
         assert exports[number].startswith(text.split("\n\n[Tool result shortened")[0])
 
 
+def test_a_long_turn_sends_only_its_newest_reasoning_once_it_reaches_the_limit(monkeypatch) -> None:
+    """30 Oct demo run: one turn of a thinking model carried ~27k tokens of its steps' reasoning, which compaction
+    can't shorten (it is the turn in flight), until the request no longer fit."""
+
+    def a_turn_of_reasoned_steps(compact_at: int) -> list:
+        conversation = AgentConversation(agent, monkeypatch, context_window=40_000, compact_at=compact_at)
+        conversation.say("Make the demo video.")
+        for step in range(1, 5):
+            conversation.tool("read_file", f"notes {step}")
+            ai = conversation.state["messages"][-2]
+            ai.additional_kwargs["reasoning_content"] = text_of_tokens(f"plan {step}", 3_000)
+        return [message for message in conversation.request() if isinstance(message, AIMessage)]
+
+    assert all(message.additional_kwargs.get("reasoning_content") for message in a_turn_of_reasoned_steps(UNLIMITED))
+    steps = a_turn_of_reasoned_steps(10_000)
+    assert [bool(message.additional_kwargs.get("reasoning_content")) for message in steps] == [
+        False, False, False, True], "only the newest step's reasoning is sent"
+
+
+def test_an_earlier_turns_reasoning_is_never_sent_again(monkeypatch) -> None:
+    conversation = AgentConversation(agent, monkeypatch)
+    conversation.say("Plan the video.")
+    conversation.answer("Here's the plan.")
+    conversation.state["messages"][-1].additional_kwargs["reasoning_content"] = text_of_tokens("plan", 2_000)
+    conversation.say("Now make it.")
+    conversation.tool("read_file", "notes")
+    conversation.state["messages"][-2].additional_kwargs["reasoning_content"] = "Reading the notes first."
+
+    sent = [message for message in conversation.request() if isinstance(message, AIMessage)]
+
+    assert [message.additional_kwargs.get("reasoning_content") for message in sent] == [
+        None, "Reading the notes first."]
+    assert conversation.state["messages"][1].additional_kwargs["reasoning_content"], "the conversation keeps it"
+
+
 def test_large_results_in_older_turns_wait_for_compaction_instead_of_shrinking(monkeypatch) -> None:
     conversation = AgentConversation(agent, monkeypatch, context_window=40_000, compact_at=20_000)
     conversation.say("Reconcile the three exports.")
