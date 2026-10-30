@@ -857,6 +857,55 @@ it('opens the managed browser as a panel and closes the Context sheet it came fr
   expect(mock.dismiss).toHaveBeenCalledWith('conversation-context');
 });
 
+it('opens the Browser pane by itself once when a turn starts using the browser', async () => {
+  activeConversation();
+  const browsing = {
+    group_id: 'group-browser',
+    name: 'browser_navigate',
+    kind: 'browser',
+    group_order: 0,
+    status: 'running',
+    counts: {},
+    items: [],
+  } as unknown as NonNullable<TranscriptRow['traces']>[number];
+  mock.state.projection = {
+    ...mock.state.projection,
+    rows: [
+      {
+        id: 'u1',
+        message_id: 'u1',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Open github.com/login.' }],
+      },
+      {
+        id: 'a1',
+        message_id: 'a1',
+        role: 'assistant',
+        blocks: [],
+        traces: [browsing],
+      },
+    ],
+  } as unknown as Snapshot;
+  const onPanel = vi.fn();
+  const rendered = render(<Conversation onPanel={onPanel} />);
+  await act(async () => {});
+  const opened = () =>
+    onPanel.mock.calls.filter(
+      ([panel]) => panel?.panel_kind === 'browser.live',
+    );
+  expect(opened()).toHaveLength(1);
+  // The person closed it: the same turn doesn't open it again.
+  rendered.rerender(<Conversation onPanel={onPanel} />);
+  await act(async () => {});
+  expect(opened()).toHaveLength(1);
+  // On a narrow window the pane would cover the chat: the step's Open stays.
+  rendered.unmount();
+  onPanel.mockClear();
+  render(<Conversation onPanel={onPanel} contextPlacement="compact" />);
+  await act(async () => {});
+  expect(opened()).toHaveLength(0);
+});
+
 it('opens reviewed conversation management from the existing action menu', async () => {
   activeConversation();
   const user = userEvent.setup();
