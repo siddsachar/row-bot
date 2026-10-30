@@ -83,7 +83,7 @@ save_memory: 732
 search_conversations: 703
 search_memory: 620
 send_file: 885
-speak: 797
+speak: 875
 start_process: 1300
 stop_process: 332
 suggest_apps: 861
@@ -116,4 +116,4 @@ workspace_read_file: 867
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (118 tools): 86776
+TOTAL (118 tools): 86854

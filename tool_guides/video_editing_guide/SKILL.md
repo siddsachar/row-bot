@@ -18,6 +18,8 @@ tags: []
   label is false), add a badge with {op: text}, zoom in on a detail with
   {op: zoom, region: [x, y, width, height], start, end}, and caption with
   {op: captions, text: <SRT>}. Regions are fractions of the picture.
+- Never slow a voice to fill time (it sounds harsh): write more words, or cut
+  the video shorter to fit what's said.
 - A video given a voice is checked when it's made. "Needs attention" is not
   done: a quiet gap wants a line or a shorter part, and a picture held 10 s
   or more wants that part cut shorter or sped up. Fix it and make it again.

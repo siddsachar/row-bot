@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 MAX_SPEAK_CHARS = 20_000
+# A voice file's own speed stays near normal: Kokoro sounds harsh dragged out or rushed.
+SPEAK_SPEEDS = (0.9, 1.5)
 MAX_TRANSCRIBE_SECONDS = 2 * 60 * 60
 _DECODE_TIMEOUT = 600
 
@@ -52,8 +54,9 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
                          "make one file per scene.")
     if voice and voice not in VOICE_CATALOG:
         raise SoundError(f"There's no voice called {voice}. Voices: {', '.join(sorted(VOICE_CATALOG))}.")
-    if speed and not 0.5 <= speed <= 2.0:
-        raise SoundError("Speed is between 0.5 and 2 (1 is normal).")
+    if speed and not SPEAK_SPEEDS[0] <= speed <= SPEAK_SPEEDS[1]:
+        raise SoundError(f"Speed is between {SPEAK_SPEEDS[0]:g} and {SPEAK_SPEEDS[1]:g} (1 is normal). To fill more "
+                         "time, write more words or cut the video shorter: a slowed voice sounds harsh.")
     tts = TTSService()
     if not tts.is_installed():
         raise SoundError("Speaking needs Row-Bot's voice (Kokoro). Install it in Settings › Voice, then try again.")

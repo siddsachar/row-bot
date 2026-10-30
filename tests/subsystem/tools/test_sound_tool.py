@@ -82,6 +82,15 @@ def test_a_voice_file_needs_a_known_voice(chat, voice):
     assert voice == [] and _files(chat) == {}
 
 
+def test_a_voice_file_is_not_slowed_to_fill_time(chat, voice):
+    from row_bot.tools.sound_tool import _speak
+
+    result = _speak("Row-Bot plans the week.", speed=0.72)
+
+    assert result.startswith("Not made: Speed is between 0.9 and 1.5") and "write more words" in result
+    assert voice == [] and _files(chat) == {}
+
+
 def test_without_rowbots_voice_speaking_asks_once_to_download_it(chat, voice, monkeypatch):
     """V4: a scheduled video on a fresh profile can narrate: the voice downloads after one card, as ffmpeg does."""
     import row_bot.tts as tts
