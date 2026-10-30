@@ -682,6 +682,24 @@ def test_stale_or_unallowlisted_changes_are_rejected_without_writes(api):
     assert (data / "app_config.json").read_bytes() == retained
 
 
+def test_an_update_check_finishing_does_not_make_a_channel_switch_stale(api):
+    # Settings › Updates checks by itself; its check time isn't a setting, so switching to Beta right
+    # after a check still works.
+    client, headers, data, _ = api
+    _write(data / "update_config.json", {"channel": "stable", "last_check": "2026-10-29T23:10:00+00:00"})
+    before = client.get(BASE, headers=headers).json()
+    request = {"settings_revision": before["revision"], "page": "preferences", "field": "updates.channel",
+               "value": "beta"}
+    review = _review(client, headers, request)
+    _write(data / "update_config.json", {"channel": "stable", "last_check": "2026-10-29T23:13:47+00:00",
+                                         "last_success": "2026-10-29T23:13:47+00:00"})
+
+    response = _execute(client, headers, request, review)
+
+    assert response.status_code == 200, response.text
+    assert json.loads((data / "update_config.json").read_text(encoding="utf-8"))["channel"] == "beta"
+
+
 def test_tracker_delete_all_review_is_passive_and_describes_exact_scope(api):
     client, headers, data, _ = api
     _seed_tracker(data)

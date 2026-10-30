@@ -5537,7 +5537,11 @@ export function PreferencesSnapshotPanel({
         </SettingsStatus>
         <SettingsGroup label="Updates" anchor="updates">
           {showUpdateControls ? (
-            <ConnectedUpdateControls onChecked={setCheckedAt} />
+            // A new channel is a new update status: read it again.
+            <ConnectedUpdateControls
+              key={snapshot.updates.channel}
+              onChecked={setCheckedAt}
+            />
           ) : (
             <SettingsItem
               label={`Row-Bot ${snapshot.updates.current_version}`}
