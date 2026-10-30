@@ -833,7 +833,10 @@ def delete_secret(name: str, *, namespace: str = "api_keys", service: str | None
         _backend().delete_password(resolved_service, account)
     except Exception as exc:
         message = str(exc).lower()
-        if "not found" in message or "not exist" in message or "no such" in message:
+        # Windows' Credential Manager says a missing entry only by the error's type (its text is the service name):
+        # a secret kept in the encrypted file, because the Credential Manager was full, is deleted there.
+        if (type(exc).__name__ == "PasswordDeleteError" or "not found" in message or "not exist" in message
+                or "no such" in message):
             _delete_persistent_server_secret(resolved_service, account)
             _delete_windows_user_secret(resolved_service, account)
             notify_change(namespace)
