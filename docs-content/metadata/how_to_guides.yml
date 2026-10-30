@@ -172,6 +172,7 @@ guides:
     - deploy/docker/Dockerfile
     - src/row_bot/access/setup_code.py
     - src/row_bot/access/config.py
+    - src/row_bot/access/middleware.py
     - src/row_bot/hosting.py
     - src/row_bot/secret_store.py
     - src/row_bot/environment_secrets.py
