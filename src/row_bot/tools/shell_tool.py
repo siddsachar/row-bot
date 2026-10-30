@@ -209,7 +209,38 @@ _PIPE_FILTERS: dict[str, tuple[str, ...]] = {
     "group-object": (), "format-table": (), "ft": (), "format-list": (), "fl": (),
     "convertto-json": (), "convertto-csv": (), "out-string": (),
     "sort": ("-o", "--output", "--compress-program"),
+    "where-object": (),
 }
+
+# Where-Object with a script block that only compares the item's properties with plain values
+# ("{ $_.LastWriteTime -gt (Get-Date).AddDays(-1) -and $_.Name -like '*.log' }"). A command, a method call, a
+# variable or an expanding string in it could run anything, so those still ask.
+_WHERE_FILTER = re.compile(r"where-object[ \t]+(-filterscript[ \t]+)?\{(?P<body>[^{}]*)\}", re.IGNORECASE)
+_WHERE_TOKEN = re.compile(r"""
+    [ \t]+
+    | \$(_|psitem)(\.[a-z_]\w*)*(?![\w.(\[])
+    | \$(true|false|null)\b
+    | '(?:[^']|'')*'
+    | "[^"$`\\]*"
+    | \(get-date\)(\.add(days|hours|minutes|seconds|months|years)\(-?\d+(\.\d+)?\))?(?![\w.(\[])
+    | -?\d+(\.\d+)?(kb|mb|gb|tb)?\b
+    | -[ic]?(eq|ne|gt|ge|lt|le|like|notlike|match|notmatch|contains|notcontains|in|notin)\b
+    | -(and|or|xor|not)\b
+    | [!(),]
+""", re.IGNORECASE | re.VERBOSE)
+
+
+def _where_filter(part: str) -> bool:
+    match = _WHERE_FILTER.fullmatch(part)
+    if match is None or not _LOOKALIKE_QUOTES.isdisjoint(part):
+        return False
+    body, position = match["body"], 0
+    while position < len(body):
+        token = _WHERE_TOKEN.match(body, position)
+        if token is None:
+            return False
+        position = token.end()
+    return True
 
 
 def _pipe_parts(line: str) -> list[str] | None:
@@ -244,6 +275,8 @@ def _read_only_pipeline(line: str) -> bool:
     if not parts:
         return False
     for index, part in enumerate(parts):
+        if index and _where_filter(part):
+            continue
         words = _shell_words(part)
         if not words:
             return False
