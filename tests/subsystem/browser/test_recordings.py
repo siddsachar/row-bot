@@ -8,6 +8,7 @@ MP4 from a few pictures through PyAV, with a clock that runs fast.
 from __future__ import annotations
 
 import io
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -184,12 +185,17 @@ def test_a_recording_stops_at_its_time_limit_with_a_playable_video(tmp_path):
 
 
 @needs_encoder
-def test_a_recording_that_starts_on_the_small_live_thumbnail_is_still_made_full_size(tmp_path):
+def test_a_recording_keeps_its_size_whatever_size_its_pictures_come_at(tmp_path):
+    """A narrow picture first (the page at a narrow pane's size for a moment) never sets the video's shape."""
     ended: list[tuple[str, Path | None]] = []
-    recorder = PageRecorder(tmp_path / "rec.mp4", max_seconds=1, size_limit=10_000_000, width=1280,
-                            on_end=lambda reason, video: ended.append((reason, video)), clock=_Clock(0.25), tick=0.001)
-    recorder.offer_frame(_jpeg((200, 30, 30)))  # 320×200, like the 480-wide thumbnail someone watching sees
+    clock = _Clock(0.05)
+    recorder = PageRecorder(tmp_path / "rec.mp4", max_seconds=1, size_limit=10_000_000, size=(1920, 1080),
+                            on_end=lambda reason, video: ended.append((reason, video)), clock=clock, tick=0.001)
+    recorder.offer_frame(_jpeg((200, 30, 30), size=(632, 1840)))
     recorder.start()
+    while clock.now < 0.5:
+        time.sleep(0.001)
+    recorder.offer_frame(_jpeg((30, 30, 200), size=(1920, 1080)))
     assert recorder.join(10)
 
     [(_reason, video)] = ended
@@ -197,7 +203,9 @@ def test_a_recording_that_starts_on_the_small_live_thumbnail_is_still_made_full_
 
     with av.open(str(video)) as container:
         stream = container.streams.video[0]
-        assert (stream.codec_context.width, stream.codec_context.height) == (1280, 800)
+        assert (stream.codec_context.width, stream.codec_context.height) == (1920, 1080)
+        last = list(container.decode(video=0))[-1].to_image()
+    assert last.getpixel((10, 540))[2] > 150, "the full-size picture fills the frame, edge to edge"
 
 
 def test_a_recording_keeps_where_its_pointer_went_for_another_shape(tmp_path):
@@ -276,6 +284,11 @@ def test_the_drawn_pointer_eases_to_each_target_and_rings_where_it_clicks():
     draw_pointer(picture, 0.5, 0.5)
     assert picture.getpixel((202, 154)) == (255, 255, 255), "a white arrow at the point"
     assert picture.getpixel((380, 20)) == (200, 30, 30), "nothing elsewhere"
+
+    tall = Image.new("RGB", (632, 1920), (200, 30, 30))
+    draw_pointer(tall, 0.5, 0.5, size=32)
+    assert tall.getpixel((322, 976)) == (255, 255, 255), "a white arrow at the point"
+    assert tall.getpixel((322, 1000)) == (200, 30, 30), "as tall as asked, not sized from a tall picture's height"
 
 
 @needs_encoder

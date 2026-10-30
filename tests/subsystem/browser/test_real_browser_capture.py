@@ -137,5 +137,7 @@ def test_a_granted_local_page_opens_streams_is_captured_at_phone_size_and_record
     with av.open(str(result["video"])) as container:
         decoded = [frame for frame in container.decode(video=0)]
     assert len(decoded) >= 12
+    # The phone size chosen above is kept: the video is the phone's shape, at most 1920 tall.
+    assert {(frame.width, frame.height) for frame in decoded} == {(886, 1920)}
     # The page kept counting: the recording isn't one still picture.
     assert decoded[0].to_image().tobytes() != decoded[-1].to_image().tobytes()

@@ -75,8 +75,13 @@ MAX_SCREENSHOT_BYTES = 15 * 1024 * 1024
 # The live picture: the pane's size is honoured up to this, a thumbnail is small.
 MAX_PANE_WIDTH = 1600
 THUMB_WIDTH = 480
-# A recording's width, whoever else watches the page.
-RECORD_WIDTH = 1280
+# While a recording runs the page keeps this size, whatever the pane does: a 16:9 desktop window drawn at
+# 1920×1080, so the video fills its frame and text stays sharp when a scene zooms in.
+RECORD_METRICS = (1440, 810, 4 / 3)
+MAX_RECORD_SIDE = 1920
+# The drawn pointer's height in a recording, in the page's CSS pixels.
+RECORD_POINTER_CSS = 24
+RECORD_QUALITY = 90
 # The page follows the Browser pane's size (CSS pixels and device scale), so sites lay out
 # for it and the picture shows 1:1. Narrower than this, the page keeps this width and the
 # picture scales down; with no pane showing, the page is an ordinary desktop window.
@@ -1072,8 +1077,11 @@ class BrowserEngine:
         return max(panes)[1] if panes else None
 
     def page_metrics(self, chat_id: str) -> tuple[int, int, float]:
-        """The page size for a conversation: its pane's (CSS width, height, scale), else a desktop window."""
+        """The page size for a conversation: a recording's while one runs, its pane's (CSS width, height,
+        scale), else a desktop window."""
 
+        if chat_id in self._recorders:
+            return RECORD_METRICS
         fit = self._pane_fit(chat_id)
         if fit is None:
             return DESKTOP_METRICS
@@ -1104,9 +1112,14 @@ class BrowserEngine:
             logger.debug("The page could not take the pane's size", exc_info=True)
             return
         if tab.fitted is not None and tab.fitted[0] != wanted[0]:
-            where = "the Browser pane's size" if wanted != DESKTOP_METRICS else "a desktop window's size"
-            chat.notes.append(f"The page is now {wanted[0]}×{wanted[1]}, {where}; its layout may have changed.")
+            chat.notes.append(f"The page is now {wanted[0]}×{wanted[1]}, {self._where(chat.id, wanted)}; "
+                              "its layout may have changed.")
         tab.fitted = wanted
+
+    def _where(self, chat_id: str, size: tuple[int, int, float]) -> str:
+        if chat_id in self._recorders and size == RECORD_METRICS:
+            return "the recording's size"
+        return "a desktop window's size" if size == DESKTOP_METRICS else "the Browser pane's size"
 
     async def _follow_live(self, chat_id: str, after: float = 0.0) -> None:
         """Size the active tab for whoever watches, and run its screencast while someone does."""
@@ -1130,7 +1143,11 @@ class BrowserEngine:
             await self._stop_screencast(live)
             return
         quality = 70 if any(v.kind != "thumb" for v in viewers) else 55
-        if any(viewer.fit is not None for viewer in viewers) and chat.active.fitted is not None:
+        recorder = self._recorders.get(chat_id)
+        if recorder is not None and recorder.size is not None:
+            # The recording's own pixels, whoever else watches: the pane shows them scaled.
+            (width, height), quality = recorder.size, RECORD_QUALITY
+        elif any(viewer.fit is not None for viewer in viewers) and chat.active.fitted is not None:
             # 1:1 with the pane: the page's own pixels, at most the cap.
             css_width, css_height, scale = chat.active.fitted
             width = min(MAX_PANE_WIDTH, round(css_width * scale))
@@ -1756,19 +1773,20 @@ class BrowserEngine:
             session = tab.session or await self._context.new_cdp_session(tab.page)
             tab.session = session
             if preset == "desktop" and device_scale is None:
-                # Back to the size the person sees it at (or a desktop window).
+                # Back to the size the person sees it at (or a desktop window, or the recording's).
                 await session.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
                 tab.viewport, tab.fitted = None, None
                 await self._fit(self._chat(thread_id))
                 tab.refs.reset()
                 size = tab.fitted or DESKTOP_METRICS
-                where = "desktop size" if size == DESKTOP_METRICS else "the Browser pane's size"
+                where = "desktop size" if size == DESKTOP_METRICS else self._where(thread_id, size)
                 return f"The page now shows at {where}: {size[0]}×{size[1]} at {size[2]:g}× scale."
             else:
                 await session.send("Emulation.setDeviceMetricsOverride", {
                     "width": width, "height": height, "deviceScaleFactor": scale, "mobile": touch})
-                await session.send("Emulation.setTouchEmulationEnabled", {"enabled": touch,
-                                                                         "maxTouchPoints": 5 if touch else 0})
+                # Chromium refuses touch points outside 1-16, even when switching touch off.
+                await session.send("Emulation.setTouchEmulationEnabled",
+                                   {"enabled": True, "maxTouchPoints": 5} if touch else {"enabled": False})
                 tab.viewport, tab.fitted = (preset, scale), None
             tab.refs.reset()
             return (f"The page now shows at {preset} size: {width}×{height} at {scale:g}× scale"
@@ -1787,22 +1805,41 @@ class BrowserEngine:
             raise RuntimeError("already_recording")
         if not self.running or chat is None or chat.active is None or str(chat.active.page.url) in _BLANK_URLS:
             raise LookupError("no_page")
-        recorder = PageRecorder(path, max_seconds=max_seconds, size_limit=size_limit, width=RECORD_WIDTH,
+        css_width, css_height, scale = self._record_metrics(chat.active)
+        width, height = css_width * scale, css_height * scale
+        shrink = min(1.0, MAX_RECORD_SIDE / max(width, height))
+        recorder = PageRecorder(path, max_seconds=max_seconds, size_limit=size_limit,
+                                size=(round(width * shrink), round(height * shrink)),
+                                pointer_size=RECORD_POINTER_CSS * scale * shrink,
                                 on_end=lambda reason, video: self._recording_ended(thread_id, on_end, reason, video))
         self._recorders[thread_id] = recorder
+        # The page takes the recording's size before the first picture is kept.
+        self._run(lambda: self._follow_live(thread_id), timeout=15.0, cancellable=False)
         frame = self.latest_frame(thread_id)
-        if frame is not None:
+        if frame is not None and (round(frame.css_width), round(frame.css_height)) == (css_width, css_height):
             recorder.offer_frame(base64.b64decode(frame.data))
-        recorder.watch = self.watch(thread_id, kind="record", width=RECORD_WIDTH)
+        recorder.watch = self.watch(thread_id, kind="record", width=recorder.size[0])
         recorder.start()
         self._publish(thread_id)
         return recorder
+
+    def _record_metrics(self, tab: _Tab) -> tuple[int, int, float]:
+        """The page size a recording keeps: a phone or tablet size the agent chose, else the recording's own."""
+
+        if tab.viewport is not None and tab.viewport[0] != "desktop":
+            width, height, _scale, _touch = VIEWPORT_PRESETS[tab.viewport[0]]
+            return width, height, tab.viewport[1]
+        # A desktop size chosen earlier gives way to the recording's.
+        tab.viewport, tab.fitted = None, None
+        return RECORD_METRICS
 
     def _recording_ended(self, chat_id: str, on_end: Any, reason: str, video: Path | None) -> None:
         recorder = self._recorders.pop(chat_id, None)
         watch = getattr(recorder, "watch", None)
         if watch is not None:
             watch.close()
+        if self.running:
+            self._soon(self._follow_live(chat_id))  # Back to the pane's size.
         self._publish(chat_id)
         on_end(reason, video)
 

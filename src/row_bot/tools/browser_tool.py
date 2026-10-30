@@ -965,8 +965,13 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         return str(exc)
     except Exception:
         return "Row-Bot's browser couldn't start recording. Try again in a moment."
+    capture = record.capture
+    size = getattr(capture, "size", None)
+    shape = (f" While it records, the page keeps one size, {size[0]}×{size[1]}, whatever the Browser pane shows: "
+             "the video fills its frame." if size else "")
     return (
         recordings.summary(record)
+        + shape
         + " Do the steps to record (clicks, typing and scrolling go at a viewer's pace, with a drawn pointer); mark "
         "beats as you go (beat=work before a wait, live when it's worth watching again, cut for a stretch to leave "
         "out); then call browser_record with action stop. The video is saved to this chat's files, and the video "

@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 FPS = 30
 # Frames are scaled down so neither side is larger than this.
 MAX_SIDE = 1920
+# Picture quality: interface text stays readable when a video project zooms in on it.
+CRF = "18"
 # Pointer moves kept with a recording, for following it in another shape.
 TRAIL_POINTS = 2_000
 # The drawn pointer: how long it takes to reach a target, and how long a click's ring shows.
@@ -76,12 +78,16 @@ class PageRecorder:
         on_end: Callable[[str, Path | None], None],
         clock: Callable[[], float] = time.monotonic,
         tick: float = 1.0 / FPS,
-        width: int = 0,
+        size: tuple[int, int] | None = None,
+        pointer_size: float = 0.0,
     ) -> None:
         self.path = Path(path)
-        # The video is at least this wide: a smaller first picture (the chat's live thumbnail, when someone
-        # has the chat open) is scaled up rather than setting the whole recording's size.
-        self.width = int(width)
+        # The video's size, fixed for the whole recording: the page's size while it records. A picture of
+        # another size (a tab still at the pane's size for a moment) is fitted into it. None: the first
+        # picture's size.
+        self.size = (_even(size[0]), _even(size[1])) if size else None
+        # The drawn pointer's height in the video's pixels (0: from the picture's size).
+        self.pointer_size = float(pointer_size)
         self._tick = float(tick)
         self.max_seconds = float(max_seconds)
         self.size_limit = int(size_limit)
@@ -199,22 +205,25 @@ class PageRecorder:
                     data = self._frame
                 if data is not None:
                     if container is None:
-                        first = Image.open(io.BytesIO(data))
-                        scale = min(MAX_SIDE / max(first.size), max(1.0, self.width / first.size[0]))
-                        size = (_even(first.size[0] * scale), _even(first.size[1] * scale))
+                        size = self.size
+                        if size is None:
+                            first = Image.open(io.BytesIO(data))
+                            scale = min(1.0, MAX_SIDE / max(first.size))
+                            size = (_even(first.size[0] * scale), _even(first.size[1] * scale))
                         self.path.parent.mkdir(parents=True, exist_ok=True)
                         container = av.open(str(self.path), mode="w", format="mp4")
                         stream = container.add_stream("libx264", rate=FPS)
                         stream.width, stream.height = size
                         stream.pix_fmt = "yuv420p"
-                        stream.options = {"preset": "veryfast", "crf": "28"}
+                        stream.options = {"preset": "veryfast", "crf": CRF}
                     shielded = self.shielded
                     if base is None or data is not last_data or shielded != last_shielded:
                         if shielded:
                             base = Image.new("RGB", size, _HIDDEN_COLOUR)
                         else:
-                            base = ImageOps.pad(Image.open(io.BytesIO(data)).convert("RGB"), size,
-                                                color=(0, 0, 0))
+                            picture = Image.open(io.BytesIO(data)).convert("RGB")
+                            base = picture if picture.size == size else ImageOps.pad(
+                                picture, size, method=Image.Resampling.LANCZOS, color=(0, 0, 0))
                         last_frame, drawn = None, None
                         last_data, last_shielded = data, shielded
                     # Keep real time: write the latest picture for every frame due so far.
@@ -227,7 +236,7 @@ class PageRecorder:
                             image = base
                             if state is not None:
                                 image = base.copy()
-                                draw_pointer(image, *state)
+                                draw_pointer(image, *state, size=self.pointer_size)
                             last_frame, drawn = av.VideoFrame.from_image(image), state
                         last_frame.pts = index
                         for packet in stream.encode(last_frame):
@@ -268,14 +277,17 @@ def pointer_at(events: list[tuple[float, float, float, bool, float, float]],
     return round(here_x, 4), round(here_y, 4), ring
 
 
-def draw_pointer(image: Any, x: float, y: float, ring: float = 0.0) -> None:
-    """Draw an arrow pointer at (x, y), 0–1 across the picture, and a click's ring while it grows."""
+def draw_pointer(image: Any, x: float, y: float, ring: float = 0.0, *, size: float = 0.0) -> None:
+    """Draw an arrow pointer at (x, y), 0–1 across the picture, and a click's ring while it grows.
+
+    ``size`` is the arrow's height in the picture's pixels; 0 sizes it from the picture's shorter side.
+    """
     from PIL import ImageDraw
 
     draw = ImageDraw.Draw(image, "RGBA")
     width, height = image.size
     left, top = x * width, y * height
-    size = max(12.0, height * 0.032)
+    size = size or max(12.0, min(width, height) * 0.032)
     if ring > 0:
         radius = size * (0.4 + 1.2 * ring)
         alpha = round(200 * (1 - ring))
