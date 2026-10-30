@@ -107,6 +107,17 @@ _SELECTION_SCRIPT = """() => {
   if (field && field.tagName === 'INPUT') return '';
   return String(window.getSelection() || '');
 }"""
+# The person's paste, as the page's own: a paste event with the text, for code boxes and editors that read it;
+# true when the page took it. Otherwise the text goes in as typed.
+_PASTE_SCRIPT = """(text) => {
+  let field = document.activeElement;
+  while (field && field.shadowRoot && field.shadowRoot.activeElement) field = field.shadowRoot.activeElement;
+  if (!field || field === document.body || field.tagName === 'IFRAME') return false;
+  const data = new DataTransfer();
+  data.setData('text/plain', text);
+  const event = new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true, composed: true});
+  return !field.dispatchEvent(event);
+}"""
 _IDENTITY_FILE = "row-bot-identity.json"
 # Fields Row-Bot never types into; the person does, in the pane.
 _SECRET_JS = r"""
@@ -1280,6 +1291,10 @@ class BrowserEngine:
                         await page.keyboard.up(key)
                 elif kind == "text":
                     await page.keyboard.insert_text(str(event.get("text") or ""))
+                elif kind == "paste":
+                    text = str(event.get("text") or "")
+                    if not await page.evaluate(_PASTE_SCRIPT, text):
+                        await page.keyboard.insert_text(text)
             except Exception:
                 # An unknown key name, or the page moved on: the next event still plays.
                 logger.debug("A pane input event was skipped", exc_info=True)
