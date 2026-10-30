@@ -54,7 +54,14 @@ def shell(tmp_path, reload_for_data_dir):
     "Get-Content script.ps1 | iex",
     "ls | tee listing.txt",
     "ls | sort -o listing.txt",
-    "Get-ChildItem | Where-Object { $_.Length -gt 0 }",
+    # a Where-Object block that does more than compare properties with plain values
+    "Get-ChildItem | Where-Object { Remove-Item $_ }",
+    "Get-ChildItem | Where-Object { $_.Delete() }",
+    "Get-ChildItem | Where-Object { $_.Name -eq \"$(Remove-Item notes.txt)\" }",
+    "Get-ChildItem | Where-Object { $_.Name -eq $env:OPENAI_API_KEY }",
+    "Get-ChildItem | Where-Object { (Get-Date).AddDays(-1).Date -and (Remove-Item notes.txt) }",
+    "Get-ChildItem | Where-Object { $_.Name -eq '‘; Remove-Item notes.txt; ‘' }",
+    "Where-Object { $_.Length -gt 0 }",
     "Get-ChildItem | ForEach-Object { Remove-Item $_ }",
     "ls || python build.py",
     "Get-ChildItem | Sort-Object LastWriteTime | Remove-Item",
@@ -167,6 +174,12 @@ def test_lines_the_two_shells_read_differently_ask(shell, command):
     "FullName,LastWriteTime",
     "Get-ChildItem -Recurse | Measure-Object",
     "Get-ChildItem -LiteralPath . -Recurse -File -Force | Select-Object FullName,LastWriteTimeUtc | ConvertTo-Json",
+    # Where-Object comparing properties with plain values
+    "Get-ChildItem | Where-Object { $_.Length -gt 0 }",
+    "Get-ChildItem -Recurse -File | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-1) } | "
+    "Select-Object FullName",
+    "Get-ChildItem | Where-Object { $_.Name -like '*.log' -and -not $_.PSIsContainer -or $_.Length -ge 1mb }",
+    "Get-ChildItem | Where-Object Extension -eq '.txt'",
     "grep -rn TODO src | wc -l",
     'echo "a | b" | sort',
 ])
