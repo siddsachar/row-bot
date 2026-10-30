@@ -49,7 +49,8 @@ class _SpeakInput(BaseModel):
     text: str = Field(description="The words to say, all of them (a scene's line or a whole script).")
     name: str = Field(default="", description="The voice file's name, e.g. scene-1.")
     voice: str = Field(default="", description="A Row-Bot voice id (empty: the one in Settings › Voice).")
-    speed: float = Field(default=0.0, description="0.5 to 2; 0 keeps the saved speed.")
+    speed: float = Field(default=0.0, description="0.9 to 1.5; 0 keeps the saved speed. Never slow a voice to "
+                                                "fill time: write more words or cut the video shorter.")
     pronunciations: dict[str, str] = Field(default_factory=dict,
                                            description='How to say words, e.g. {"Qwen": "Kwen"}.')
 
