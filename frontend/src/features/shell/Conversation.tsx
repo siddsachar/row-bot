@@ -924,7 +924,11 @@ export default function Conversation({
   // On a narrow window the pane would cover the chat, so the step's Open stays.
   const browserOpenedFor = useRef('');
   const openBrowserForTurn = useEffectEvent(() => manageBrowser());
-  const browserTurn = browserLive ? (generation?.generation_id ?? '') : '';
+  // A turn is the person's message it answers: an approval resumes it under a
+  // new generation, and a pane the person closed stays closed for all of it.
+  const browserTurn = browserLive
+    ? `${id ?? ''}:${rows[turnStart]?.id ?? generation?.generation_id ?? ''}`
+    : '';
   useEffect(() => {
     if (!browserTurn || compactPlacement) return;
     if (browserOpenedFor.current === browserTurn) return;

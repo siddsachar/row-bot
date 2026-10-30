@@ -896,7 +896,15 @@ it('opens the Browser pane by itself once when a turn starts using the browser',
       ([panel]) => panel?.panel_kind === 'browser.live',
     );
   expect(opened()).toHaveLength(1);
-  // The person closed it: the same turn doesn't open it again.
+  // The person closed it: the same turn doesn't open it again, even when an
+  // approval resumes it under a new generation.
+  mock.state.projection = {
+    ...mock.state.projection,
+    generation: {
+      ...mock.state.projection!.generation,
+      generation_id: 'run-b',
+    },
+  } as unknown as Snapshot;
   rendered.rerender(<Conversation onPanel={onPanel} />);
   await act(async () => {});
   expect(opened()).toHaveLength(1);
