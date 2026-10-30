@@ -34,14 +34,18 @@ const marks = (models: readonly ModelChoice[] | undefined) =>
 
 class ModelsTransport extends FixtureTransport {
   saves: ModelVisibilityMutation[] = [];
+  // The server's list: what a picker offers, marked with the saved choices.
+  models: ModelChoice[] = listed;
   answer: (body: ModelVisibilityMutation) => Promise<ModelVisibilityState> =
-    async (body) => applyVisibility(listed, body);
+    async (body) => applyVisibility(this.models, body);
   async connect(signal?: AbortSignal): Promise<HandshakeView> {
-    return { ...(await super.connect(signal)), models: listed };
+    return { ...(await super.connect(signal)), models: this.models };
   }
-  updateModelVisibility(body: ModelVisibilityMutation) {
+  async updateModelVisibility(body: ModelVisibilityMutation) {
     this.saves.push(body);
-    return this.answer(body);
+    const saved = await this.answer(body);
+    this.models = markModels(this.models, saved);
+    return saved;
   }
 }
 const clients: ClientController[] = [];
@@ -100,6 +104,31 @@ it('changes the composer list at once and settles on what was saved', async () =
   ]);
   expect(transport.saves).toEqual([
     { action: 'favourite', model_ref: 'model:ollama:mistral:7b' },
+  ]);
+});
+
+it('an open picker shows the models a change lists or unlists', async () => {
+  const transport = new ModelsTransport();
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  const answer = transport.answer;
+  // Removing a provider's last star lists all its ready models again.
+  transport.answer = async (body) => {
+    const saved = await answer(body);
+    transport.models = [...transport.models, model('phi4:14b')];
+    return saved;
+  };
+  await controller.updateModelVisibility({
+    action: 'unfavourite',
+    model_ref: 'model:ollama:qwen3:8b',
+  });
+  expect(marks(controller.getSnapshot().handshake?.models)).toEqual([
+    ['gemma3:4b', 'hidden'],
+    ['llama3.1:8b', 1],
+    ['qwen3:8b', '-'],
+    ['mistral:7b', '-'],
+    ['phi4:14b', '-'],
   ]);
 });
 
