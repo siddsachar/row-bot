@@ -221,6 +221,13 @@ def test_a_running_sandbox_without_a_model_needs_the_person_until_it_has_one(tmp
     assert (problem["id"], problem["title"]) == ("sandbox:tea", "Tea shop sandbox needs a model")
     assert problem["fix"] == {"kind": "open", "href": "/settings/data#sandboxes", "target": None,
                               "name": "Sandboxes"}
+    # The client reads it through the one attention route, beside every other problem.
+    local, _, _ = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        response = local.get("/api/v1/monitor/attention", headers=headers)
+    assert response.status_code == 200, response.text
+    assert [item["title"] for item in response.json()["problems"]] == ["Tea shop sandbox needs a model"]
 
     models["tea"] = True
     assert client_monitor.read_attention(include_update=False)["problems"] == []
