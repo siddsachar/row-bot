@@ -81,9 +81,54 @@ docker compose \
   up --build --detach
 ```
 
+## Run the image on its own
+
+The image also runs as one container with one volume and no helper service,
+the way a hosting service runs it: `/data` as the volume, port 8080, user
+10001. `row-bot serve` sets up what it needs when it starts.
+
+Its secret-store key encrypts saved sign-ins and keys under
+`/data/secure-secrets`. Row-Bot takes it from the first of:
+
+1. `ROW_BOT_SECRET_STORE_KEY`, an environment variable of exactly 64
+   hexadecimal characters (`openssl rand -hex 32`). Row-Bot takes it out of its
+   environment at start, so no program it starts (a shell, an MCP server,
+   Claude Code, the browser) inherits it, and the key never touches `/data` or
+   a backup of it. The host's settings and `docker inspect` still show it.
+2. The key file in `ROW_BOT_SECRETS_DIR` (`/run/secrets`): the Compose path
+   above.
+3. Neither: at its first start Row-Bot makes a key in
+   `/data/secret-store-key/`, readable only by its user. Anyone with a full
+   copy of the volume can then open the saved secrets. Row-Bot's own backups
+   (Settings › Data) leave it out.
+
+Every start checks that the key opens the saved secrets. If it doesn't, or
+there are saved secrets and no key, Row-Bot stops with a message in the
+container log saying what to do, and deletes nothing. To move from the key
+Row-Bot made to an environment key, set `ROW_BOT_SECRET_STORE_KEY` to the
+contents of `/data/secret-store-key/ROW_BOT_SECRET_STORE_KEY`, restart, then
+delete that file.
+
+```sh
+umask 077
+printf 'ROW_BOT_SECRET_STORE_KEY=%s\n' "$(openssl rand -hex 32)" > row-bot.env
+docker run --detach --name row-bot --restart unless-stopped \
+  --publish 127.0.0.1:8080:8080 --env-file row-bot.env \
+  --volume row_bot_data:/data ghcr.io/siddsachar/row-bot:X.Y.Z
+docker logs row-bot
+```
+
+Keep `row-bot.env` private and back it up apart from the volume: the saved
+secrets can't be opened without it.
+
 ## Authorize a browser
 
-Create an invitation explicitly from a trusted terminal. The command prints a
+At every start while nobody owns this Row-Bot, the container log shows a
+setup code (`docker compose -f deploy/docker/compose.yaml logs row-bot`). Open
+Row-Bot in a browser and enter it. A host can choose the code with
+`ROW_BOT_SETUP_CODE`.
+
+Or create an invitation from a trusted terminal. The command prints a
 one-time secret link, so keep terminal output and scrollback private.
 
 Full Row-Bot for a computer:
@@ -339,8 +384,10 @@ read-only in `/run/secrets` and uses it to
 encrypt rotating ChatGPT/Codex and other saved credentials under
 `/data/secure-secrets`. The encrypted records survive a restart or container
 replacement with the same data volume and key. Back up the key separately from
-the data volume. A missing key retains the existing session-only behavior; a
-changed or invalid key fails closed and cannot overwrite existing records.
+the data volume. With no key and no saved secrets, Row-Bot makes its own key
+on the data volume (see "Run the image on its own"). A changed or invalid key,
+or saved secrets with no key, stop the start with a message in the log; nothing
+is overwritten or deleted.
 
 Restrict the host directory to the Docker operator and container UID/GID 10001.
 Externally managed provider/channel value files remain read-only in Settings

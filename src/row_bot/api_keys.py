@@ -24,7 +24,7 @@ _session_keys: dict[str, str] = {}
 _loaded_keys: dict[str, str] = {}
 _last_storage_warning = ""
 # Row-Bot's own secrets in its environment: the launcher's shared secret, the server secret store's key, the
-# updater's token and a host's setup code (H1; `row-bot serve` also takes that one out at start).
+# updater's token and a host's setup code (`row-bot serve` also takes the key and the code out at start: H1, H2).
 ROW_BOT_PROCESS_SECRETS = frozenset(
     {"ROW_BOT_LAUNCH_SECRET", "ROW_BOT_SECRET_STORE_KEY", "ROW_BOT_UPDATER_TOKEN", "ROW_BOT_SETUP_CODE"}
 )

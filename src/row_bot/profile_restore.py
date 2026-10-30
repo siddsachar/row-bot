@@ -37,6 +37,9 @@ SECRET_ENTRIES = frozenset({
     "tailscale_serve_ownership.json",
     # The installation count's ID and deletion secret belong to this installation (N6).
     "install_count.json",
+    # The key a container made for its secure-secrets (secret_store.DATA_VOLUME_KEY_DIR_NAME, H2): never
+    # beside the records in a backup, and a restore leaves it with them.
+    "secret-store-key",
 })
 # Rebuildable or machine-local: caches, runtimes, logs and earlier backups. Learning's
 # ``learning_models`` holds re-downloadable or re-trainable bulk (starting-model weights,

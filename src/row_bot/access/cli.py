@@ -374,17 +374,13 @@ def serve_startup_lines(options: ServeOptions) -> tuple[str, ...]:
         f"Persistent data: {options.data_dir}",
         "Browser authentication is required, including from loopback.",
         "Health: /healthz  Readiness: /readyz",
+        "To sign in, open Row-Bot in a browser and enter its setup code. While nobody owns "
+        "this Row-Bot, the code is printed below at every start.",
     ]
-    if options.public_url:
-        lines.append(
-            "Create the first owner invitation with: "
-            f"row-bot access invite --layout desktop --origin {options.public_url}"
-        )
-    else:
-        lines.append(
-            "Configure a canonical public URL, then create the first owner "
-            "invitation with `row-bot access invite`."
-        )
+    origin = options.public_url or "<the address you open>"
+    lines.append(
+        f"Or sign in with an invitation: row-bot access invite --layout desktop --origin {origin}"
+    )
     if options.legacy_compatibility:
         lines.append(legacy_serve_warning())
     return tuple(lines)
