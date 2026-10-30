@@ -3111,8 +3111,14 @@ _THINKING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking"})
 
 
 def _counted_message(message: BaseMessage) -> BaseMessage:
-    """*message* as it is counted: a thinking block by its text, not by its repr and signature (F29)."""
+    """*message* as it is counted: a thinking block by its text, not by its repr and signature (F29); reasoning
+    kept beside the reply (``reasoning_content``, sent back as Ollama's ``thinking``) counts too."""
     content = getattr(message, "content", None)
+    reasoning = (getattr(message, "additional_kwargs", None) or {}).get("reasoning_content")
+    if isinstance(message, AIMessage) and isinstance(reasoning, str) and reasoning:
+        blocks = list(content) if isinstance(content, list) else ([{"type": "text", "text": content}] if content else [])
+        return _counted_message(_copy_message(message, content=[*blocks, {"type": "text", "text": reasoning}],
+                                              additional_kwargs={}))
     if not isinstance(message, AIMessage) or not isinstance(content, list):
         return message
     if not any(isinstance(block, dict) and block.get("type") in _THINKING_BLOCK_TYPES for block in content):
