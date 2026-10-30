@@ -175,6 +175,8 @@ class _SandboxInput(BaseModel):
     name: str = Field(default="", description="For create: its name, e.g. Demo shop")
     pack: Literal["empty", "shop", "charity", "paperwork", "code"] = Field(
         default="empty", description="For create: the made-up data it starts with")
+    new: bool = Field(default=False, description="For create: a new one even if one with this pack is signed in "
+                                                 "(only when the person asks)")
 
 
 # ── Shared steps ──────────────────────────────────────────────────────────────
@@ -997,13 +999,16 @@ def _sandbox_line(item: Any) -> str:
     view = sandboxes.view(item)
     where = f" at {view['url']}" if view["url"] else ""
     why = f" ({view['problem']})" if view["problem"] else ""
-    return f"Sandbox {item.sandbox_id}: \"{item.name}\", {view['pack_name'].lower()}, {item.status}{where}{why}."
+    model = sandboxes.model(item.sandbox_id)
+    signed = f", signed in ({model.split(':')[-1]})" if model else ", no model yet"
+    return (f"Sandbox {item.sandbox_id}: \"{item.name}\", {view['pack_name'].lower()}, {item.status}{where}{why}"
+            f"{signed}.")
 
 
-def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str = "empty") -> str:
+def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str = "empty", new: bool = False) -> str:
     """A sandbox: a second Row-Bot on made-up data, to try things safely or film a demo in this chat's browser."""
     from row_bot import sandboxes
-    from row_bot.tools.approval_gate import approval_check, with_approval
+    from row_bot.tools.approval_gate import approval_check, current_approval_mode, with_approval
 
     if sandboxes.is_sandbox():
         return "This is a sandbox already: it starts no sandboxes of its own."
@@ -1011,6 +1016,12 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
         found = sandboxes.list_sandboxes()
         return "\n".join(_sandbox_line(item) for item in found) if found else "There are no sandboxes yet."
     line = ""
+    reused = None
+    if action == "create" and not new:
+        # One with this pack that's signed in already: reuse it rather than ask the person to sign in again.
+        reused = sandboxes.reusable(pack)
+        if reused is not None:
+            action, sandbox = "start", reused.sandbox_id
     try:
         if action == "create":
             refusal, line = approval_check(
@@ -1020,14 +1031,16 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
                 cancelled_message="The person didn't want a sandbox; none was made.")
             if refusal:
                 return refusal
-            item = sandboxes.create(name, pack)
+            item = sandboxes.create(name, pack, approval=current_approval_mode())
             sandboxes.start(item.sandbox_id)
             item = sandboxes.wait_running(item.sandbox_id, 90) or item
         else:
             item = sandboxes.get(sandbox.strip())
             if item is None:
                 return f"{sandbox or 'That'} isn't a sandbox here: list them, or create one."
-            if action == "start":
+            if action == "start" and item.status == "running":
+                pass
+            elif action == "start":
                 refusal, line = approval_check(
                     _sandbox_approval("Start", item.name), risks=("starts a second Row-Bot on this computer",),
                     blocked_message="BLOCKED: Starting a sandbox needs approval, and this chat is on Block.",
@@ -1046,6 +1059,9 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
     except sandboxes.SandboxError as error:
         return str(error)
     text = _sandbox_line(item)
+    if reused is not None:
+        text = (f"Reusing it: it has this pack and keeps its sign-in (reset brings its made-up data back; new=true "
+                f"makes another only if the person asks).\n{text}")
     if item.status == "running" and action in {"create", "start"}:
         text += " Open it with action open: this chat's browser signs in to it."
         if not sandboxes.has_model(item.sandbox_id):
@@ -1087,8 +1103,9 @@ _TOOLS: tuple[tuple[Any, str, str, type[BaseModel] | None], ...] = (
      _RecordInput),
     (sandbox, "sandbox",
      "A sandbox: a second Row-Bot on made-up data (a shop with its app, a charity's documents, paperwork, sample "
-     "code, or empty) to try a workflow safely or film a demo. create starts one (asks first); open signs this "
-     "chat's browser in to it; stop, reset, list.", _SandboxInput),
+     "code, or empty) to try a workflow safely or film a demo. create starts one (asks first), reusing a signed-in "
+     "one with that pack; open signs this chat's browser in to it; stop, reset (sign-in kept), list.",
+     _SandboxInput),
 )
 
 
