@@ -1286,14 +1286,13 @@ class ShellTool(BaseTool):
                 name="start_process",
                 args_schema=_StartProcessInput,
                 description=(
-                    "Start a program that keeps running in the background, such as a "
-                    "development server, a local file server or a file watcher, in any folder "
-                    "(the person's workspace by default) and with extra environment variables. "
-                    "Use it, not run_command, for anything that serves or watches. "
-                    "Asks for approval like run_command. Returns its "
-                    "process_id, its first output and any local address it serves. Background "
-                    "processes belong to this conversation, stop when Row-Bot quits, and at "
-                    f"most {MAX_RUNNING_PER_CONVERSATION} run at once here."
+                    "Start a program that keeps running (a dev server, file server or watcher) in "
+                    "any folder (the workspace by default), with extra environment variables; "
+                    "use it, not run_command, for anything that serves or watches. Asks like "
+                    "run_command. Returns its process_id, first output and any local address. "
+                    "It belongs to this conversation and stops when Row-Bot quits; at most "
+                    f"{MAX_RUNNING_PER_CONVERSATION} run at once here. Stop one started only to "
+                    "preview or record a page once done."
                 ),
             ),
             StructuredTool.from_function(
