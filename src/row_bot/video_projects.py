@@ -461,7 +461,7 @@ def export(project: Project, shape: str, number: int | None = None, *, download:
         edit = video_edits.start(video_edits.Request(
             conversation_id=project.conversation_id, kind="video", sources=resolve(made.edit_id,
                                                                                project.conversation_id),
-            output_name=_file_name(f"{project.title} v{version.number}", ".gif"), download=download, gif=True))
+            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True))
         _update(project, version.number, exports={**version.exports, shape: edit.edit_id})
     else:
         thread = threading.Thread(target=_make, args=(project.project_id, project.conversation_id, version.number,
@@ -484,10 +484,11 @@ def make(project: Project, number: int | None = None, *, download: bool = False)
     return project.version(version.number) or version
 
 
-def _file_name(title: str, suffix: str) -> str:
+def _file_name(title: str, suffix: str, tail: str = "") -> str:
+    """The title, shortened so *tail* (a version or a scene) always stays: no two files share a name."""
     from row_bot.tools.video_editing_tool import output_name
 
-    return output_name(title, default="video", suffix=suffix)
+    return output_name(f"{title.strip()[:60]} {tail}".strip(), default="video", suffix=suffix)
 
 
 def _look() -> Any:
@@ -530,7 +531,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
     try:
         for scene in needs_voice(version):
             speech = sound.speak(scene.line)
-            scene.voice = save_sound(_file_name(f"{project.title} {scene.scene_id}", ".wav"), speech.wav,
+            scene.voice = save_sound(_file_name(project.title, ".wav", scene.scene_id), speech.wav,
                                      conversation_id)
             scene.voiced = scene.line
         if version.voice_lines and not shape:
@@ -558,7 +559,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             steps.append(Step(op="sound", source=version.music, role="music", volume=version.music_volume))
         edit = video_edits.start(video_edits.Request(
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
-            output_name=_file_name(f"{project.title} v{number} {shape.replace(':', 'x')}".strip(), ".mp4"),
+            output_name=_file_name(project.title, ".mp4", f"v{number} {shape.replace(':', 'x')}".strip()),
             download=download, sounds=sounds, check=True,
         ))
         if shape:

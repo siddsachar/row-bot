@@ -157,6 +157,23 @@ def test_making_a_version_renders_its_scenes_in_one_edit_with_its_voices_music_a
     assert (view["status"], view["edit"]["edit_id"]) == ("rendering", version.edit_id)
 
 
+def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_runs_long(studio):
+    """A title like "Row-Bot 5.3.1 beta | …" once named every scene's voice "Row-Bot 5.3.wav", so each scene
+    played the last one's line."""
+    from row_bot import video_projects
+
+    title = "Row-Bot 5.3.1 beta | Linked conversations, from meeting notes to a checklist in a sandbox"
+    project = video_projects.create("conversation-a", title, SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    request = studio["started"][0]
+    voices = [cut.voice for cut in request.steps[0].scenes]
+    assert len(set(voices)) == 2 and all(voice.startswith("Row-Bot 5.3.1 beta") for voice in voices)
+    assert set(request.sounds) == set(voices)
+    assert request.output_name.startswith("Row-Bot 5.3.1 beta") and request.output_name.endswith(" v1.mp4")
+
+
 def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment
