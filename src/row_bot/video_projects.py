@@ -247,6 +247,8 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
         raise ProjectError("A video needs at least one scene.")
     if len(raw) > MAX_SCENES:
         raise ProjectError(f"At most {MAX_SCENES} scenes fit in one video: join some.")
+    from row_bot.video_editing import CARD_SECONDS, MAX_INPUTS
+
     known = {scene.scene_id: scene for scene in before}
     checked: dict[str, None] = {}
     scenes: list[Scene] = []
@@ -256,14 +258,17 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
         if not SCENE_ID.fullmatch(scene_id) or any(scene.scene_id == scene_id for scene in scenes):
             scene_id = f"s{uuid.uuid4().hex[:6]}"
         source = _text(data.get("source"), 512)
-        if not source:
+        card = _text(data.get("card"), MAX_CARD)
+        if not source and not card:
             raise ProjectError(f"Scene {number}: name its video (a recording rec-…, an edit edit-…, a file in "
-                               "this chat or a workspace path).")
-        if source not in checked:
+                               "this chat or a workspace path), or give it a card to make it a title card.")
+        if source and source not in checked:
             _check_source(source, conversation_id, number)
             checked[source] = None
         start = _number(data.get("start"), "start", number) or 0.0
         end = _number(data.get("end"), "end", number)
+        if not source:  # A title card: its card on the brand's colour, end seconds long.
+            start, end = 0.0, CARD_SECONDS if end is None else end
         if end is not None and end - start < 0.1:
             raise ProjectError(f"Scene {number}: it ends before it starts.")
         speed = float(data.get("speed") or 1)
@@ -285,12 +290,11 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
             voice, voiced = old.voice, old.voiced
         else:
             voice, voiced = "", ""
-        scenes.append(Scene(scene_id=scene_id, source=source, start=start, end=end, speed=round(speed, 3),
-                            zoom=zoom or None, card=_text(data.get("card"), MAX_CARD), line=line, voice=voice,
+        scenes.append(Scene(scene_id=scene_id, source=source, start=start, end=end,
+                            speed=round(speed, 3) if source else 1.0,
+                            zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
                             voiced=voiced))
-    from row_bot.video_editing import MAX_INPUTS
-
-    if len({scene.source for scene in scenes}) > MAX_INPUTS:
+    if len({scene.source for scene in scenes if scene.source}) > MAX_INPUTS:
         raise ProjectError(f"A video can use at most {MAX_INPUTS} different sources: join some first.")
     return scenes
 
@@ -547,17 +551,19 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             scene.voiced = scene.line
         if _says_lines(version) and not shape:
             _update(project, number, scenes=version.scenes, status="rendering")
-        sources = list(dict.fromkeys(scene.source for scene in version.scenes))
+        sources = list(dict.fromkeys(scene.source for scene in version.scenes if scene.source))
         media = []
         for value in sources:
             found = resolve(value, conversation_id)
             if len(found) != 1 or found[0].kind != "video":
                 raise SourceError(f"{value} isn't a video any more.")
             media.append(found[0])
-        cuts = [SceneCut(input=sources.index(scene.source), start=scene.start, end=scene.end, speed=scene.speed,
+        cuts = [SceneCut(input=sources.index(scene.source) if scene.source else None, start=scene.start,
+                         end=scene.end, speed=scene.speed,
                          zoom=tuple(scene.zoom) if scene.zoom else None, card=scene.card, line=scene.line,
                          voice=scene.voice if _says_lines(version) else "",
-                         focus=None if scene.zoom else pointer_focus(scene.source, scene.start, scene.end))
+                         focus=None if scene.zoom or not scene.source
+                         else pointer_focus(scene.source, scene.start, scene.end))
                 for scene in version.scenes]
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
                       aspect=shape or version.aspect, look=_look() if version.brand else None)]
@@ -654,7 +660,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
                     "voiced": bool(scene.voice) and scene.voiced == scene.line,
                     "at": marks[index] if marks else None,
                     "length": round(marks[index + 1] - marks[index], 3) if marks else None,
-                    "source_ref": refs.source(scene.source),
+                    "source_ref": refs.source(scene.source) if scene.source else None,
                     "voice_ref": refs.voice(scene.voice) if scene.voice and scene.voiced == scene.line else None}
                    for index, scene in enumerate(version.scenes)],
         "changed": changed_scenes(project, version),
@@ -698,7 +704,8 @@ def summary(project: Project, number: int | None = None) -> str:
                   f"card \"{scene['card']}\"" if scene["card"] else ""]
         extra = ", ".join(item for item in extras if item)
         line = f" — \"{scene['line']}\"" if scene["line"] else ""
-        lines.append(f"{index}. [{scene['scene_id']}] {scene['source']} {span}{', ' + extra if extra else ''}{line}")
+        what = scene["source"] or "title card"
+        lines.append(f"{index}. [{scene['scene_id']}] {what} {span}{', ' + extra if extra else ''}{line}")
     if data["narration"]:
         lines.append(f"Narration: {data['narration']}, said over the whole video (the lines above aren't said "
                      "one by one).")

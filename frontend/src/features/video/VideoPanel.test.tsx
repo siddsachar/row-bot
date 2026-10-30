@@ -293,6 +293,38 @@ it('a version narrated as a whole shows its narration on the timeline, not each 
   expect(within(timeline).queryByLabelText('Voice')).not.toBeInTheDocument();
 });
 
+it('a title card scene sets how long it shows, with no speed or trim', async () => {
+  const card = {
+    ...view().scenes[0],
+    scene_id: 's0c0c0c',
+    source: '',
+    start: 0,
+    end: 3,
+    card: 'Row-Bot 5.3',
+    line: '',
+  };
+  // A version no earlier test left unsaved edits on.
+  const { controller } = setup(
+    view({ number: 5, latest: 5, scenes: [card, view().scenes[1]] }),
+  );
+  const seconds = await screen.findByLabelText('Scene 1 lasts, in seconds');
+  expect(seconds).toHaveValue(3);
+  expect(screen.queryByLabelText('Scene 1 speed')).not.toBeInTheDocument();
+  expect(screen.getByText('A title card on your brand colour')).toBeVisible();
+  expect(screen.getByLabelText('Scene 2 speed')).toHaveValue('2');
+  fireEvent.change(seconds, { target: { value: '4' } });
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  expect(controller.changeVideoProject).toHaveBeenCalledWith(
+    'vid-1a2b3c4d',
+    expect.objectContaining({
+      scenes: [
+        expect.objectContaining({ scene_id: 's0c0c0c', source: '', end: 4 }),
+        expect.objectContaining({ scene_id: 's0b0b0b' }),
+      ],
+    }),
+  );
+});
+
 it('the timeline trims, splits at the playhead, removes and undoes with the keys', async () => {
   vi.spyOn(window, 'matchMedia').mockImplementation(
     (query: string) =>

@@ -110,3 +110,28 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await page.keyboard.press('Control+z');
   await expect(timeline.getByRole('button')).toHaveCount(2);
 });
+
+test('a title card scene needs no video: it says how long it shows, with no speed or trim', async ({
+  page,
+}, info) => {
+  await page.setViewportSize(DESKTOP);
+  await newConversation(page);
+  await composer(page).fill('b3 title card fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const card = page
+    .getByRole('log', { name: 'Conversation' })
+    .getByRole('group', { name: 'Teaser · video' });
+  await card.getByRole('button', { name: 'Open' }).click();
+
+  const panel = page.getByRole('region', { name: 'Teaser video' });
+  const scenes = panel.getByRole('list', { name: 'Scenes' });
+  await expect(scenes.getByRole('listitem')).toHaveCount(2);
+  await expect(panel.getByLabel('Scene 1 lasts, in seconds')).toHaveValue('3');
+  await expect(panel.getByLabel('Scene 1 speed')).toHaveCount(0);
+  await expect(panel.getByLabel('Scene 1 card')).toHaveValue('Row-Bot 5.3');
+  await expect(scenes).toContainText('A title card on your brand colour');
+  await expect(panel.getByLabel('Scene 2 speed')).toHaveValue('1');
+  await views(page, info, 'video-panel-title-card', scenes);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'video-panel-title-card-phone', scenes);
+});

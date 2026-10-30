@@ -200,6 +200,35 @@ def test_narration_said_over_the_whole_video_is_part_of_the_project_and_its_line
     assert studio["said"] == ["First, sign up.", "Then pick a plan."], "without it, each scene says its line"
 
 
+def test_a_title_card_scene_needs_no_video_and_a_video_of_cards_alone_needs_none_at_all(studio):
+    """5.3.1 beta F17: a 3-second title card couldn't be made without a source clip, so the model made background
+    videos with ffmpeg in the person's workspace."""
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Launch demo", [
+        {"card": "Row-Bot 5.3", "line": "Meet Row-Bot.", "speed": 2, "zoom": [0, 0, 0.5, 0.5]},
+        {"source": "signup.mp4", "start": 1, "end": 4},
+        {"card": "row-bot.ai", "end": 2}])
+    title, _clip, end = project.latest.scenes
+    assert (title.source, title.start, title.end, title.speed, title.zoom) == ("", 0.0, 3.0, 1.0, None)
+    assert (end.start, end.end) == (0.0, 2.0)
+    view = video_projects.view(project)
+    assert view["scenes"][0]["source_ref"] is None, "the preview shows it as a still card"
+    assert "1. [" in (text := video_projects.summary(project)) and "title card 0–3 s" in text
+
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    request = studio["started"][0]
+    assert len(request.sources) == 1, "only the clip is an input"
+    cuts = request.steps[0].scenes
+    assert [cut.input for cut in cuts] == [None, 0, None] and cuts[0].voice, "the card still says its line"
+
+    cards = video_projects.create("conversation-a", "Teaser", [{"card": "Coming soon"}])
+    video_projects.make(cards, 1)
+    _wait(cards.project_id, 1)
+    assert studio["started"][1].sources == [], "a video of cards alone has no input"
+
+
 def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment
@@ -317,7 +346,8 @@ def test_scenes_that_cannot_be_used_are_refused_plainly(studio):
 
     for scenes, words in (([], "at least one scene"), ([{"source": "missing.mp4"}], "Scene 1"),
                           ([{"source": "signup.mp4", "speed": 9}], "speed is 0.25 to 4"),
-                          ([{"source": "signup.mp4", "start": 5, "end": 4}], "ends before it starts")):
+                          ([{"source": "signup.mp4", "start": 5, "end": 4}], "ends before it starts"),
+                          ([{"line": "Hello."}], "or give it a card")):
         with pytest.raises(video_projects.ProjectError, match=words):
             video_projects.create("conversation-a", "Demo", scenes)
 

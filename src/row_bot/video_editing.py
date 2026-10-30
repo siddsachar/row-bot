@@ -152,7 +152,8 @@ class Step:
 class SceneCut:
     """One scene of a video project: a piece of an input, its speed, a zoom, a card, its line and voice."""
 
-    input: int
+    # None: a title card, its card on the brand's colour for end - start seconds (no video needed).
+    input: int | None
     start: float = 0.0
     end: float | None = None
     speed: float = 1.0
@@ -181,6 +182,8 @@ class Look:
     intro: str = ""
     outro: str = ""
 ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
+# A video of title cards only has no picture to take its size from.
+CARD_SIZES = {"16:9": (1920, 1080), "1:1": (1080, 1080), "9:16": (1080, 1920)}
 
 
 def _number(value: Any, name: str) -> float | None:
@@ -546,14 +549,15 @@ def _atempo(factor: float) -> str:
 
 
 class _Builder:
-    def __init__(self, inputs: list[InputVideo], overlay_start: int) -> None:
+    def __init__(self, inputs: list[InputVideo], overlay_start: int,
+                 size: tuple[int, int] = CARD_SIZES["16:9"]) -> None:
         self.lines: list[str] = []
         self.count = 0
         self.overlays: list[tuple[str, bytes]] = []
         self.overlay_index = overlay_start
-        first = inputs[0].info
-        self.width, self.height = _even(first.width), _even(first.height)
-        self.fps = round(first.fps, 3)
+        first = inputs[0].info if inputs else None
+        self.width, self.height = (_even(first.width), _even(first.height)) if first else size
+        self.fps = round(first.fps, 3) if first else 30.0
         self.has_audio = any(item.info.has_audio for item in inputs)
         self.duration = sum(item.info.duration for item in inputs)
         self.video = ""
@@ -575,6 +579,8 @@ class _Builder:
 
     def start(self, inputs: list[InputVideo]) -> None:
         w, h, fps = self.width, self.height, _seconds_text(self.fps)
+        if not inputs:  # Title cards only: the scenes make every picture.
+            return
         if len(inputs) == 1:
             info = inputs[0].info
             video = self.label("v")
@@ -777,7 +783,13 @@ class _Builder:
             raise EditError("A video needs at least one scene.")
         offsets = [sum(self.lengths[:index]) for index in range(len(self.lengths))]
         cuts: list[tuple[float, float]] = []
+        lengths: list[float] = []
         for number, scene in enumerate(step.scenes, 1):
+            if scene.input is None:
+                if scene.end is None or scene.end - scene.start < 0.1:
+                    raise EditError(f"Scene {number}: a title card needs how many seconds it lasts.")
+                lengths.append(scene.end - scene.start)
+                continue
             if not 0 <= scene.input < len(self.lengths):
                 raise EditError(f"Scene {number}: its video isn't one of the inputs.")
             length = self.lengths[scene.input]
@@ -787,18 +799,24 @@ class _Builder:
                 raise EditError(f"Scene {number}: {_seconds_text(start)}–{_seconds_text(end)} s is outside its "
                                 f"video, which is {_seconds_text(length)} s long.")
             cuts.append((offsets[scene.input] + start, offsets[scene.input] + end))
-        videos, sounds = self._pieces(cuts, audio=True)
-        self._join(videos, sounds)
-        lengths = [end - start for start, end in cuts]
+            lengths.append(end - start)
+        look = step.look or Look()
+        videos, sounds = self._pieces(cuts, audio=True) if cuts else ([], [])
+        pieces = iter(zip(videos, sounds or [None] * len(videos)))
+        joined = [self._blank(look.colour, length) if scene.input is None else next(pieces)
+                  for scene, length in zip(step.scenes, lengths)]
+        self._join([video for video, _ in joined], [sound for _, sound in joined if sound])
         self.duration = sum(lengths)
+        # A title card keeps its length: speed is for the pieces of a video.
+        speeds = [1.0 if scene.input is None else scene.speed for scene in step.scenes]
         # Speeds from the last scene back, so each one's times are still those of the cut timeline.
         for index in range(len(step.scenes) - 1, -1, -1):
-            factor = step.scenes[index].speed
+            factor = speeds[index]
             if abs(factor - 1) > 1e-3:
                 begin = sum(lengths[:index])
                 # Its badge is laid after the reframe, so a tall shape never cuts it off.
                 self.speed(Step(op="speed", start=begin, end=begin + lengths[index], factor=factor, label=False))
-        finals = [length / scene.speed for length, scene in zip(lengths, step.scenes)]
+        finals = [length / speed for length, speed in zip(lengths, speeds)]
         self.marks = [round(sum(finals[:index]), 3) for index in range(len(finals) + 1)]
         for index, scene in enumerate(step.scenes):
             if scene.zoom:
@@ -807,17 +825,19 @@ class _Builder:
                                width=width, height=height))
         if step.aspect:
             self._reframe(step.aspect, step.scenes)
-        look = step.look or Look()
         fill = (*look.colour, 230) if step.look else None
         if look.intro or look.outro:
             self._bookends(look)
         for index, scene in enumerate(step.scenes):
             begin, end = self.marks[index], self.marks[index + 1]
-            if abs(scene.speed - 1) > 1e-3:
+            if abs(speeds[index] - 1) > 1e-3:
                 badge = Step(op="text", text=speed_words(scene.speed), position="top-right", style="badge",
                              fill=fill)
                 self.video = self.lay(self.video, text_overlay(badge, self.width, self.height), start=begin, end=end)
-            if scene.card:
+            if scene.input is None and scene.card:  # The whole scene, on its own colour (no box).
+                title = Step(op="text", text=scene.card, style="title", position="center", plain=True)
+                self.video = self.lay(self.video, text_overlay(title, self.width, self.height), start=begin, end=end)
+            elif scene.card:
                 card = Step(op="text", text=scene.card, style="title", position="center", fill=fill)
                 self.video = self.lay(self.video, text_overlay(card, self.width, self.height),
                                       start=begin, end=min(end, begin + CARD_SECONDS))
@@ -838,20 +858,23 @@ class _Builder:
         if look.logo:
             self.video = self.lay(self.video, logo_overlay(look.logo, look.logo_corner, self.width, self.height))
 
+    def _blank(self, colour: tuple[int, int, int], length: float) -> tuple[str, str | None]:
+        """A picture of one colour, *length* seconds long, with silence when the video has sound."""
+        seconds = _seconds_text(length)
+        video = self.label("v")
+        self.add(f"color=c=0x{colour[0]:02x}{colour[1]:02x}{colour[2]:02x}:s={self.width}x{self.height}:"
+                 f"r={_seconds_text(self.fps)}:d={seconds},setsar=1,format=yuv420p{video}")
+        if not self.audio:
+            return video, None
+        sound = self.label("a")
+        self.add(f"anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration={seconds}{sound}")
+        return video, sound
+
     def _bookends(self, look: Look) -> None:
         """The intro and outro: cards of the brand's colour before the first scene and after the last."""
-        colour = "0x{:02x}{:02x}{:02x}".format(*look.colour)
-        seconds = _seconds_text(BOOKEND_SECONDS)
 
         def card() -> tuple[str, str | None]:
-            video = self.label("v")
-            self.add(f"color=c={colour}:s={self.width}x{self.height}:r={_seconds_text(self.fps)}:d={seconds},"
-                     f"setsar=1,format=yuv420p{video}")
-            if not self.audio:
-                return video, None
-            sound = self.label("a")
-            self.add(f"anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration={seconds}{sound}")
-            return video, sound
+            return self._blank(look.colour, BOOKEND_SECONDS)
 
         pieces = ([card()] if look.intro else []) + [(self.video, self.audio)] + ([card()] if look.outro else [])
         self._join([video for video, _ in pieces], [sound for _, sound in pieces if sound])
@@ -964,7 +987,9 @@ def build_plan(
     Overlay pictures are named ``o001.png``…, and with the graph file and the output they are
     relative to the working folder ffmpeg runs in.
     """
-    if not inputs:
+    # A project of title cards only needs no video: its scenes make every picture.
+    cards_only = bool(steps) and steps[0].op == "scenes" and all(cut.input is None for cut in steps[0].scenes)
+    if not inputs and not cards_only:
         raise EditError("Give at least one video to edit.")
     if len(inputs) > MAX_INPUTS:
         raise EditError(f"At most {MAX_INPUTS} videos can be joined in one edit.")
@@ -972,7 +997,8 @@ def build_plan(
     missing = [name for name in sources if name not in (sounds or {})]
     if missing:
         raise EditError(f"{missing[0]} isn't a sound file Row-Bot found.")
-    builder = _Builder(inputs, overlay_start=len(inputs) + len(sources))
+    size = CARD_SIZES.get(steps[0].aspect, CARD_SIZES["16:9"]) if cards_only else CARD_SIZES["16:9"]
+    builder = _Builder(inputs, overlay_start=len(inputs) + len(sources), size=size)
     builder.start(inputs)
     for step in steps:
         getattr(builder, step.op)(step)

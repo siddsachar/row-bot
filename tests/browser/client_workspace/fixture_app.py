@@ -2414,11 +2414,28 @@ def _b3_project(thread: str) -> str:
     return video_projects.summary(video_projects.get(project.project_id))
 
 
+def _b3_cards(thread: str) -> str:
+    """A project opening on a title card, which needs no video (5.3.1 beta F17), not made yet."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(thread, "signup.mp4", _s3_video())
+    project = video_projects.create(thread, "Teaser", [
+        {"card": "Row-Bot 5.3", "line": "Meet Row-Bot."},
+        {"source": "signup.mp4", "end": 2, "line": "Sign up in a few seconds."}])
+    return video_projects.summary(project)
+
+
 def _b3_stream(text: str, config: dict):
     call = predecessor._record("submit", config, "b3-video")
     thread = call["conversation_id"]
     identity = f"b3:{call['generation_id']}"
     try:
+        if "title card" in text:
+            args = {"action": "create", "title": "Teaser"}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_b3_cards(thread), []))])
+            yield from _natural_final(call, thread, "Here's the teaser: a title card, then the sign-up.", "b3")
+            return
         args = {"action": "create", "title": "Launch demo"}
         yield from _s3_steps(thread, identity, [("video", args, lambda: (_b3_project(thread), []))])
         yield from _natural_final(call, thread, "Here's the launch demo: two scenes, voiced, 3 seconds. "
@@ -2610,7 +2627,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # Outlook's own cards (N10): an email to send, or an event that invites people.
         yield from _n10_stream(text, config)
         return
-    if text.strip() == "b3 video fixture":
+    if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.
         yield from _b3_stream(text, config)
         return
