@@ -250,6 +250,14 @@ def test_ask_asks_about_one_address_once_then_it_opens(browser):
     assert (grant.address, grant.source) == ("localhost:5173", "you")
 
 
+def test_a_file_address_says_to_serve_its_folder_and_asks_nothing(browser):
+    # A file:/// address is not a host called "file" on the person's network.
+    result = _tool("browser_navigate", url="file:///D:/Shop/workspace/hello.html")
+
+    assert result.startswith("BLOCKED: Files don't open in Row-Bot's browser.") and "http.server" in result
+    assert browser.asked == [] and browser.acts == []
+
+
 def test_a_denied_address_never_opens(browser):
     browser.answer = False
     result = _tool("browser_navigate", url="http://localhost:5173")
