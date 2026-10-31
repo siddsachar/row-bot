@@ -29,7 +29,8 @@ class _Scene(BaseModel):
     start: float = Field(default=0.0, description="Seconds into that video.")
     end: float | None = Field(default=None, description="Seconds into that video (empty: to its end).")
     speed: float = Field(default=1.0, description="2 = twice as fast (shows a 2× badge), 0.5 = half.")
-    zoom: list[float] | None = Field(default=None, description="[x, y, width, height], 0-1: punch in on it.")
+    zoom: list[float] | None = Field(default=None, description="Leave empty: on a recording the camera follows "
+                                                             "what was done. [x, y, width, height], 0-1: hold there.")
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
@@ -40,7 +41,8 @@ class _VideoInput(BaseModel):
     project: str = Field(default="", description="change, make, status, undo: the project (vid-…).")
     title: str = Field(default="", description="create: the video's name.")
     recording: str = Field(default="", description="create: make the scenes from a browser recording's beats "
-                                                   "(rec-…): live as it is, work sped up, cut left out.")
+                                                   "(rec-…), each with its title and line: live as it is, work "
+                                                   "sped up, cut left out.")
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
     music: str | None = Field(default=None, description="A music file (make_music) under the whole video; '' none.")
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")
@@ -52,6 +54,9 @@ class _VideoInput(BaseModel):
         default=None, description="create, change: the video's shape ('' keeps its first video's).")
     brand: bool | None = Field(default=None, description="create, change: use the brand kit (default true): "
                                                           "its colour, captions, logo, intro and outro.")
+    voice: str | None = Field(default=None, description="create, change: this video's voice for its lines "
+                                                        "('' the brand kit's).")
+    voice_speed: float | None = Field(default=None, description="create, change: its speed, 0.9-1.25 (0 the kit's).")
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
@@ -130,7 +135,8 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            recording: str = "",
            music: str | None = None, music_volume: float | None = None, narration: str | None = None,
            captions: bool | None = None, voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
-           shape: str | None = None, brand: bool | None = None) -> str:
+           shape: str | None = None, brand: bool | None = None, voice: str | None = None,
+           voice_speed: float | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
@@ -147,7 +153,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                           narration=narration or "",
                                           captions=bool(captions), voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
-                                          note=note)
+                                          note=note, voice=voice or "", voice_speed=voice_speed)
             return _make(found, None)
         found = video_projects.get(project, conversation)
         if found is None:
@@ -156,7 +162,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             changed = video_projects.change(found, by="row-bot", note=note, scenes=raw if scenes is not None else None,
                                             title=title or None, music=music, music_volume=music_volume, narration=narration,
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
-                                            brand=brand)
+                                            brand=brand, voice=voice, voice_speed=voice_speed)
             return _make(found, changed.number)
         if action == "undo":
             if len(found.versions) < 2:
@@ -187,8 +193,9 @@ def langchain_tool():
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
             "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
-            "saved to this chat. Read the checks in the result: never say it's done until they pass. undo goes "
-            "back one version; export makes the same version in another shape or a GIF. For one quick edit use "
+            "saved to this chat. Read the checks and look at its review sheet: never say it's done until both are "
+            "right. undo goes back one version; export makes the same version in another shape or a GIF. For one "
+            "quick edit use "
             "edit_video. A title or end card is a scene without a video: never make background videos or other "
             "working files in the person's workspace for it."
         ),

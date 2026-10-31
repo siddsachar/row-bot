@@ -5343,6 +5343,12 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
+    # Footage on the backdrop or edge to edge; a camera that follows what was done or stays still.
+    framing: Literal["framed", "full"] = "framed"
+    camera: Literal["follow", "still"] = "follow"
+    # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
+    voice: str = Field(default="", max_length=64)
+    voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
 
 
 class VideoProjectView(WireModel):
@@ -5376,6 +5382,11 @@ class VideoProjectView(WireModel):
     exports: list[VideoExportView] = Field(max_length=4)
     # Made with the brand kit.
     brand: bool
+    # Its own voice and speed for its lines ("" and 0: the brand kit's).
+    voice: str = Field(default="", max_length=64)
+    voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
+    review_sheet: str = Field(default="", max_length=200)
 
 
 class VideoProjectChange(WireModel):
@@ -5386,6 +5397,7 @@ class VideoProjectChange(WireModel):
     music_volume: float | None = Field(default=None, ge=0, le=1)
     captions: bool | None = None
     brand: bool | None = None
+    voice: str | None = Field(default=None, max_length=64)
     note: str = Field(default="", max_length=200)
 
 

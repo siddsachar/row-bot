@@ -1,10 +1,11 @@
 """The brand kit (5.3.1 B3): one look every video project uses unless a version turns it off.
 
-Its colour fills title cards and speed badges, its caption style sets how lines show under their
-scenes, its logo (a picture from Library › Media) sits in a corner of the whole video, and its
-intro and outro are title cards on its colour before the first scene and after the last. Its
-music mood is what Row-Bot picks when it makes music for a video. It is kept in one small file in
-the data folder.
+Its colour fills title cards, titles and speed badges, its caption style sets how lines show under
+their scenes, its logo (a picture from Library › Media) sits in a corner of the whole video, and its
+intro and outro are title cards on its colour before the first scene and after the last. Its framing
+sets footage on its backdrop or edge to edge, its camera follows what was done or stays still, and
+its voice and speed say every video's lines (a video may choose its own). Its music mood is what
+Row-Bot picks when it makes music for a video. It is kept in one small file in the data folder.
 """
 
 from __future__ import annotations
@@ -24,6 +25,10 @@ CaptionStyle = Literal["box", "bold", "title"]
 CAPTION_STYLES: tuple[str, ...] = ("box", "bold", "title")
 MOODS: tuple[str, ...] = ("calm", "upbeat", "focused", "warm")
 CORNERS: tuple[str, ...] = ("top-left", "top-right", "bottom-left", "bottom-right")
+FRAMINGS: tuple[str, ...] = ("framed", "full")
+CAMERAS: tuple[str, ...] = ("follow", "still")
+# A narration's speed: a little slower or faster than normal, never harsh.
+VOICE_SPEEDS = (0.9, 1.25)
 MAX_CARD = 120
 _COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
 _FILE = "video-brand.json"
@@ -43,6 +48,11 @@ class Brand:
     intro: str = ""
     outro: str = ""
     music_mood: str = "calm"
+    framing: str = "framed"
+    camera: str = "follow"
+    # The voice that says the lines ("" the one chosen in Settings) and its speed.
+    voice: str = ""
+    voice_speed: float = 1.0
 
 
 def _path() -> Path:
@@ -78,12 +88,42 @@ def _clean(data: dict[str, Any], *, check_logo: bool) -> Brand:
     mood = str(data.get("music_mood") or "calm")
     if mood not in MOODS:
         raise BrandError(f"The music mood is {', '.join(MOODS)}.")
+    framing = str(data.get("framing") or "framed")
+    if framing not in FRAMINGS:
+        raise BrandError(f"Footage is {', '.join(FRAMINGS)}.")
+    camera = str(data.get("camera") or "follow")
+    if camera not in CAMERAS:
+        raise BrandError(f"The camera is {', '.join(CAMERAS)}.")
+    voice = narration_voice(data.get("voice"))
+    speed = narration_speed(data.get("voice_speed"))
     logo = str(data.get("logo") or "").strip()
     if logo and check_logo:
         _check_logo(logo)
     return Brand(colour=colour.lower(), captions=captions, logo=logo, logo_corner=corner,
                  intro=re.sub(r"\s+", " ", str(data.get("intro") or "")).strip()[:MAX_CARD],
-                 outro=re.sub(r"\s+", " ", str(data.get("outro") or "")).strip()[:MAX_CARD], music_mood=mood)
+                 outro=re.sub(r"\s+", " ", str(data.get("outro") or "")).strip()[:MAX_CARD], music_mood=mood,
+                 framing=framing, camera=camera, voice=voice, voice_speed=speed)
+
+
+def narration_voice(value: Any) -> str:
+    """A voice for a video's lines: one of the local voices, or "" for the one chosen in Settings."""
+    from row_bot.tts import VOICE_CATALOG
+
+    voice = str(value or "").strip()
+    if voice and voice not in VOICE_CATALOG:
+        raise BrandError(f"There's no voice called {voice}.")
+    return voice
+
+
+def narration_speed(value: Any) -> float:
+    """A speed for a video's lines (1 is normal)."""
+    try:
+        speed = float(value) if value not in (None, "") else 1.0
+    except (TypeError, ValueError):
+        raise BrandError("The voice's speed is a number, 1 for normal.") from None
+    if not VOICE_SPEEDS[0] <= speed <= VOICE_SPEEDS[1]:
+        raise BrandError(f"The voice's speed is {VOICE_SPEEDS[0]:g} to {VOICE_SPEEDS[1]:g} (1 is normal).")
+    return round(speed, 2)
 
 
 def _check_logo(ref: str) -> None:
