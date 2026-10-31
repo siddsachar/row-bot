@@ -553,7 +553,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
     from row_bot import ffmpeg_runtime
     from row_bot.media_sources import SourceError
     from row_bot.video_editing import (
-        EditError, build_plan, frame_times, frames_arguments, graph_option_for,
+        NARRATION, OVERLAYS, EditError, build_plan, frame_times, frames_arguments, graph_option_for,
     )
 
     folder = working_folder(edit)
@@ -594,8 +594,13 @@ def _run(edit: VideoEdit, request: Request) -> None:
                               graph_option=graph_option_for(ffmpeg.version),
                               encoder=ffmpeg_runtime.h264_encoder(ffmpeg))
             (folder / "graph.txt").write_text(plan.graph, encoding="utf-8", newline="\n")
-            for name, data in plan.overlays:
-                (folder / name).write_bytes(data)
+            if plan.overlay_sheet:
+                (folder / OVERLAYS).write_bytes(plan.overlay_sheet)
+            if plan.voices:
+                from row_bot import video_studio
+
+                video_studio.narration([(at, folder / path) for at, path in plan.voices], plan.duration,
+                                       folder / NARRATION)
             _set(edit, expected_seconds=round(plan.duration, 2), marks=list(plan.marks))
             _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
             _measure(edit, ffmpeg, folder)

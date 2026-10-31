@@ -45,6 +45,10 @@ MAX_FRAMES = 48
 INPUT_FORMATS = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpegts,flv,gif,ogg,asf"
 # A voice line or music: the same, plus plain audio files.
 SOUND_FORMATS = INPUT_FORMATS + ",wav,mp3,flac,aac"
+# What an edit reads besides the videos and sound files, however many pictures and lines it lays (the process
+# runner takes 256 arguments): every picture on one sheet, and a project's voice lines laid into one track.
+OVERLAYS = "overlays.png"
+NARRATION = "narration.wav"
 
 
 class EditError(ValueError):
@@ -669,7 +673,8 @@ class Plan:
 
     args: list[str]
     graph: str
-    overlays: list[tuple[str, bytes]]
+    # Each picture it lays, in order; ``overlay_sheet`` has them all, and is the picture ffmpeg reads (OVERLAYS).
+    overlays: list[bytes]
     duration: float
     width: int
     height: int
@@ -682,6 +687,32 @@ class Plan:
     narrated: bool = False
     # What a project's scenes do that a good video doesn't (too many title cards, one held too long).
     review: list[str] = field(default_factory=list)
+    overlay_sheet: bytes = b""
+    # A project's voice lines: where each starts on the finished video, and its file; laid into NARRATION first.
+    voices: list[tuple[float, str]] = field(default_factory=list)
+
+
+def overlay_sheet(pictures: list[bytes]) -> tuple[bytes, list[tuple[int, int, int, int]]]:
+    """Pictures side by side in rows on one transparent sheet, and where each is (x, y, width, height)."""
+    from PIL import Image
+
+    images = [Image.open(io.BytesIO(png)).convert("RGBA") for png in pictures]
+    width = max(image.width for image in images)
+    boxes: list[tuple[int, int, int, int]] = []
+    x = y = row = 0
+    for image in images:
+        if x and x + image.width > width:
+            x, y, row = 0, y + row, 0
+        boxes.append((x, y, image.width, image.height))
+        # Even places with a gap: no picture's edge bleeds into the next one cut out beside it.
+        x += (image.width + 3) // 2 * 2
+        row = max(row, (image.height + 3) // 2 * 2)
+    sheet = Image.new("RGBA", (width, y + row), (0, 0, 0, 0))
+    for image, (left, top, _width, _height) in zip(images, boxes):
+        sheet.paste(image, (left, top))
+    output = io.BytesIO()
+    sheet.save(output, format="PNG", compress_level=1)
+    return output.getvalue(), boxes
 
 
 def _even(value: float) -> int:
@@ -708,12 +739,11 @@ def _atempo(factor: float) -> str:
 
 
 class _Builder:
-    def __init__(self, inputs: list[InputVideo], overlay_start: int,
-                 size: tuple[int, int] = CARD_SIZES["16:9"]) -> None:
+    def __init__(self, inputs: list[InputVideo], size: tuple[int, int] = CARD_SIZES["16:9"]) -> None:
         self.lines: list[str] = []
         self.count = 0
-        self.overlays: list[tuple[str, bytes]] = []
-        self.overlay_index = overlay_start
+        # Each picture laid, and the stream it's cut into from the sheet of them all.
+        self.overlays: list[tuple[bytes, str]] = []
         first = inputs[0].info if inputs else None
         self.width, self.height = (_even(first.width), _even(first.height)) if first else size
         self.fps = round(first.fps, 3) if first else 30.0
@@ -844,11 +874,9 @@ class _Builder:
         self.duration = end - start
 
     def overlay_input(self, picture: Overlay) -> str:
-        name = f"o{len(self.overlays) + 1:03d}.png"
-        self.overlays.append((name, picture.png))
-        index = self.overlay_index
-        self.overlay_index += 1
-        return f"[{index}:v]"
+        label = self.label("v")
+        self.overlays.append((picture.png, label))
+        return label
 
     def lay(self, video: str, picture: Overlay, *, start: float | None = None, end: float | None = None,
             slide: bool = False) -> str:
@@ -1126,9 +1154,11 @@ class _Builder:
 
     def mix(self, steps: list[Step], first_input: int, sources: list[str]) -> None:
         """Voice lines at their times, music under them (ducked while a voice speaks) and the video's own sound,
-        mixed and brought to one loudness: the narrated video's sound in one pass."""
+        mixed and brought to one loudness: the narrated video's sound in one pass. A project's lines come as one
+        track (NARRATION), the input after the sound files."""
         sounds = [step for step in steps if step.op == "sound"]
-        sounds += [Step(op="sound", source=voice, role="voice", start=moment) for moment, voice in self.voice_cues]
+        if self.voice_cues:
+            sounds.append(Step(op="sound", role="voice"))
         if not sounds:
             return
         total = _seconds_text(self.duration)
@@ -1143,7 +1173,7 @@ class _Builder:
             start = step.start or 0.0
             if start >= self.duration:
                 raise EditError(f"A sound starts at {_seconds_text(start)} s, after the video ends ({total} s).")
-            index = first_input + sources.index(step.source)
+            index = first_input + (sources.index(step.source) if step.source else len(sources))
             volume = step.volume if step.volume is not None else (1.0 if step.role == "voice" else 0.3)
             delay = int(round(start * 1000))
             chain = f"[{index}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={volume:.3f}"
@@ -1206,12 +1236,13 @@ def build_plan(
         raise EditError("Give at least one video to edit.")
     if len(inputs) > MAX_INPUTS:
         raise EditError(f"At most {MAX_INPUTS} videos can be joined in one edit.")
-    sources = sound_sources(steps)
-    missing = [name for name in sources if name not in (sounds or {})]
+    sounds = sounds or {}
+    missing = [name for name in sound_sources(steps) if name not in sounds]
     if missing:
         raise EditError(f"{missing[0]} isn't a sound file Row-Bot found.")
+    sources = sound_sources([step for step in steps if step.op == "sound"])
     size = CARD_SIZES.get(steps[0].aspect, CARD_SIZES["16:9"]) if cards_only else CARD_SIZES["16:9"]
-    builder = _Builder(inputs, overlay_start=len(inputs) + len(sources), size=size)
+    builder = _Builder(inputs, size=size)
     builder.start(inputs)
     for step in steps:
         getattr(builder, step.op)(step)
@@ -1224,19 +1255,29 @@ def build_plan(
     for item in inputs:
         args += input_arguments(item.path)
     for name in sources:
-        args += sound_input_arguments((sounds or {})[name])
-    for name, _data in builder.overlays:
-        args += ["-protocol_whitelist", "file", "-i", file_argument(name)]
+        args += sound_input_arguments(sounds[name])
+    if builder.voice_cues:
+        args += sound_input_arguments(NARRATION)
+    sheet = b""
+    if builder.overlays:
+        sheet, boxes = overlay_sheet([png for png, _label in builder.overlays])
+        index = len(inputs) + len(sources) + bool(builder.voice_cues)
+        pieces = [builder.label("v") for _box in boxes]
+        builder.lines[:0] = [f"[{index}:v]format=rgba,split={len(pieces)}{''.join(pieces)}"] + [
+            f"{piece}crop={width}:{height}:{x}:{y}{label}"
+            for piece, (x, y, width, height), (_png, label) in zip(pieces, boxes, builder.overlays)]
+        args += ["-protocol_whitelist", "file", "-i", file_argument(OVERLAYS)]
     args += [graph_option, graph_file, "-map", builder.video]
     if builder.audio:
         args += ["-map", builder.audio]
     args += encoder_arguments(encoder) + ["-pix_fmt", "yuv420p", "-movflags", "+faststart"]
     args += ["-c:a", "aac", "-b:a", "160k"] if builder.audio else ["-an"]
     args += ["-progress", "pipe:1", "-nostats", file_argument(output)]
-    return Plan(args=args, graph=";\n".join(builder.lines), overlays=builder.overlays,
+    return Plan(args=args, graph=";\n".join(builder.lines), overlays=[png for png, _label in builder.overlays],
                 duration=builder.duration, width=builder.width, height=builder.height,
                 has_audio=bool(builder.audio), summary=describe(steps, len(inputs)), outputs=[output],
-                marks=builder.marks, narrated=builder.narrated, review=builder.review)
+                marks=builder.marks, narrated=builder.narrated, review=builder.review, overlay_sheet=sheet,
+                voices=[(moment, sounds[name]) for moment, name in builder.voice_cues])
 
 
 def gif_arguments(source: str, output: str, *, width: int = 480, fps: int = 12) -> list[str]:

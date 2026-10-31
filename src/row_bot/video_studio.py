@@ -224,14 +224,14 @@ class Studio:
         """Draw ``start``–``end`` of a video at the end of the clip: where it starts in the clip, and how long."""
         import av
 
-        from row_bot.video_editing import EditError
+        from row_bot.video_editing import INPUT_FORMATS, EditError
 
         first = self.written
         count = max(1, round((end - start) * self.fps))
         latest = None
         seen = b""
         resample = av.AudioResampler(format="fltp", layout="stereo", rate=self.RATE) if self._audio else None
-        with av.open(str(source)) as reader:
+        with av.open(str(source), options={"protocol_whitelist": "file", "format_whitelist": INPUT_FORMATS}) as reader:
             video = reader.streams.video[0]
             sound = reader.streams.audio[0] if reader.streams.audio and self._audio else None
             if start > 0 and video.time_base:
@@ -384,3 +384,30 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
                       info=VideoInfo(duration=studio.written / fps, width=size[0], height=size[1], fps=fps,
                                      has_audio=studio.has_sound))
     return [clip] + [inputs[index] for index in kept], replace(step, scenes=scenes)
+
+
+def narration(lines: list[tuple[float, Path]], seconds: float, output: Path) -> None:
+    """A video's voice lines laid at their times into one track, quiet between them: the edit then reads one
+    sound file however many lines there are."""
+    import wave
+
+    import av
+    import numpy
+
+    from row_bot.video_editing import SOUND_FORMATS
+
+    rate = Studio.RATE
+    track = numpy.zeros(max(1, round(seconds * rate)), dtype="float32")
+    for at, path in lines:
+        resample = av.AudioResampler(format="flt", layout="mono", rate=rate)
+        with av.open(str(path), options={"protocol_whitelist": "file", "format_whitelist": SOUND_FORMATS}) as reader:
+            pieces = [piece.to_ndarray()[0] for frame in reader.decode(audio=0) for piece in resample.resample(frame)]
+        pieces += [piece.to_ndarray()[0] for piece in resample.resample(None)]
+        start = min(round(at * rate), track.size)
+        said = numpy.concatenate(pieces)[:track.size - start] if pieces else track[:0]
+        track[start:start + said.size] += said
+    with wave.open(str(output), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(rate)
+        writer.writeframes((numpy.clip(track, -1.0, 1.0) * 32767).astype("<i2").tobytes())

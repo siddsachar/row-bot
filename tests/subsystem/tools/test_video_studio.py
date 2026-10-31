@@ -189,3 +189,26 @@ def test_with_captions_a_phone_sits_above_them_instead_of_under_them():
         return max(y for y in range(1080) if frame.getpixel((960, y)) == (250, 250, 250))
 
     assert screen_bottom(captioned) < 1080 * (1 - video_studio.CAPTION_ROOM) < screen_bottom(plain)
+
+
+def test_a_videos_voice_lines_are_laid_at_their_times_into_one_track(tmp_path):
+    import wave
+
+    import numpy
+
+    pytest.importorskip("av")
+    for name, pitch in (("a.wav", 300), ("b.wav", 600)):
+        with wave.open(str(tmp_path / name), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(16000)
+            tone = 0.5 * numpy.sin(numpy.arange(8000) * 2 * numpy.pi * pitch / 16000)
+            writer.writeframes((tone * 32767).astype("<i2").tobytes())
+    video_studio.narration([(1.0, tmp_path / "a.wav"), (2.5, tmp_path / "b.wav")], 4.0, tmp_path / "voice.wav")
+
+    with wave.open(str(tmp_path / "voice.wav")) as reader:
+        rate = reader.getframerate()
+        sound = numpy.frombuffer(reader.readframes(reader.getnframes()), dtype="<i2") / 32767
+    assert sound.size == 4 * rate, "as long as the video"
+    loud = [abs(sound[round(at * rate):round((at + 0.25) * rate)]).mean() > 0.2 for at in (0.5, 1.1, 2.0, 2.6, 3.5)]
+    assert loud == [False, True, False, True, False], "each line at its time, quiet between them"
