@@ -184,6 +184,7 @@ function fixture() {
       state: 'not_installed',
       platform: 'windows',
       download_url: 'https://ollama.com/download',
+      on_this_computer: true,
       models: [],
     })),
     refreshChoices: vi.fn(async () => undefined),
@@ -339,6 +340,30 @@ it('leaves the download out of the page menu while Ollama runs (B117)', async ()
     state: 'running',
     platform: 'windows',
     download_url: 'https://ollama.com/download',
+    on_this_computer: true,
+    models: [],
+  });
+  show(controller);
+  await screen.findByRole('button', { name: 'Brain model' });
+  await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
+  await user.click(screen.getByRole('button', { name: 'More model actions' }));
+  expect(
+    await screen.findByRole('menuitem', { name: 'Provider connections' }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('menuitem', { name: /Get models for this computer/ }),
+  ).toBeNull();
+});
+
+it('leaves the download out on another device, where it would land on that device', async () => {
+  const user = userEvent.setup();
+  const controller = fixture();
+  vi.spyOn(controller, 'localRuntime').mockResolvedValue({
+    schema_version: 1,
+    state: 'not_installed',
+    platform: 'windows',
+    download_url: 'https://ollama.com/download',
+    on_this_computer: false,
     models: [],
   });
   show(controller);

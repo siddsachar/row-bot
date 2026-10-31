@@ -24,6 +24,7 @@ const runtime = (models: LocalRuntimeModel[]): LocalRuntimeSnapshot => ({
   state: 'running',
   platform: 'windows',
   download_url: 'https://ollama.com/download',
+  on_this_computer: true,
   models,
 });
 const cloudHidden: ModelPickerOption = {
