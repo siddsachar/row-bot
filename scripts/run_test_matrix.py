@@ -122,6 +122,7 @@ BROWSER_NIGHTLY_SPECS = (
     "navigation", "panels", "persistence", "polish-visual", "resources",
     "settings-claude-plan", "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
     "terminal", "theme", "visual-alignment", "voice", "workflows", "hosted-first-run", "place-words",
+    "memory-guidance",
 )
 # Apps in chat connect fake apps and run fake turns: a backend of their own, so no other spec sees them.
 BROWSER_APPS_SPECS = ("apps-in-chat", "app-views")
@@ -143,7 +144,7 @@ BROWSER_PHONE_SPECS = (
     "model-visibility", "learning", "learning-training", "learning-download", "learning-version", "learning-use", "learning-starting-model",
     "learning-method",
     "learning-hugging-face",
-    "settings-claude-plan", "install-count", "hosted-first-run", "place-words",
+    "settings-claude-plan", "install-count", "hosted-first-run", "place-words", "memory-guidance",
 )
 # Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
 BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")

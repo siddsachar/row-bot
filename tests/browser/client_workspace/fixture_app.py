@@ -4614,6 +4614,47 @@ class _A7Place:
 app.add_middleware(_A7Place)
 
 
+# ── A8 (H12, U8): a server with a memory limit ─────────────────────────────
+# The fixture runs on a desktop, with no cgroup of its own. /__a8_fixture/memory/{gb} gives the server a
+# fake cgroup folder with that memory limit (the handshake says it, and Voice and Documents read it);
+# "off" takes it away again and forgets any notice. /__a8_fixture/oom makes the real check find a run
+# whose use came near the limit and that never shut down: Home and Monitor show the notice.
+from row_bot import server_memory as _server_memory  # noqa: E402
+
+
+@app.post("/__a8_fixture/memory/{gb}")
+def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if gb == "off":
+        _server_memory.dismiss()
+        _server_memory.stopped()
+        _server_memory.CGROUP_ROOT = None
+        return {"limit_bytes": None}
+    try:
+        size = int(float(gb) * 2**30)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Unknown memory size") from None
+    import tempfile
+
+    root = _server_memory.CGROUP_ROOT or Path(tempfile.mkdtemp(prefix="row-bot-a8-"))
+    (root / "memory.max").write_text(str(size), encoding="ascii")
+    (root / "memory.peak").write_text(str(size // 4), encoding="ascii")
+    _server_memory.CGROUP_ROOT = root
+    return {"limit_bytes": _server_memory.limit_bytes()}
+
+
+@app.post("/__a8_fixture/oom")
+def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    size = _server_memory.limit_bytes()
+    if size is None:
+        raise HTTPException(status_code=409, detail="Set a memory limit first")
+    (_server_memory.CGROUP_ROOT / "memory.peak").write_text(str(int(size * 0.97)), encoding="ascii")
+    _server_memory.started()  # A run whose use came within 10% of the limit…
+    _server_memory.started()  # …and the next start finds it never shut down.
+    return {"notice": _server_memory.notice() is not None}
+
+
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
 # (a pinned choice with its saved catalog row) and on the synthetic local
