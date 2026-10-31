@@ -60,6 +60,7 @@ const runtime = (
   state,
   platform: 'windows' as const,
   download_url: 'https://ollama.com/download',
+  on_this_computer: true,
   models: models.map((name) => ({
     model_ref: `model:ollama:${name}`,
     name,
@@ -149,6 +150,25 @@ it('on a phone reaching Row-Bot, local models are on the computer Row-Bot runs o
   expect(
     await screen.findByRole('list', { name: 'Models on your Row-Bot server' }),
   ).toBeVisible();
+});
+
+it('from a phone, says to install Ollama on the computer Row-Bot runs on instead of offering a download', async () => {
+  mock.controller.localRuntime.mockResolvedValue({
+    ...runtime('not_installed'),
+    on_this_computer: false,
+  });
+  show();
+  const choices = screen.getByRole('group', {
+    name: 'How should Row-Bot think?',
+  });
+  fireEvent.click(
+    await within(choices).findByRole('button', { name: /On this computer/ }),
+  );
+  expect(screen.getByRole('heading', { name: 'Install Ollama' })).toBeVisible();
+  expect(
+    screen.getByText('Install it on that computer, not on this device.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Download Ollama' })).toBeNull();
 });
 
 it('asks one question and detects Ollama without a refresh button', async () => {

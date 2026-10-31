@@ -190,6 +190,18 @@ def test_first_run_routes(tmp_path, monkeypatch, fake_ollama):
         assert snapshot["needs_model"] is True
 
 
+@pytest.mark.parametrize("remote", [False, True])
+def test_local_runtime_says_whether_the_browser_is_on_row_bots_computer(tmp_path, monkeypatch, fake_ollama, remote):
+    """From a phone, an Ollama download link would land on the phone, so Setup offers it only on Row-Bot's computer."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    client, _, _ = client_app(remote=remote)
+    with client:
+        _, headers = bootstrap(client)
+        runtime = client.get("/api/v1/setup/local-runtime", headers=headers)
+        assert runtime.status_code == 200, runtime.text
+        assert runtime.json()["on_this_computer"] is (not remote)
+
+
 def test_home_health_follows_the_first_pick_at_once(tmp_path, monkeypatch, fake_ollama):
     """B295: the start-up check ran while Setup was open; choosing a model checks the model again now."""
     from row_bot import status_checks
