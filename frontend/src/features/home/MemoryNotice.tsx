@@ -9,6 +9,15 @@ import { Hint, IconButton } from '../../ui/primitives';
 const CLOUD_SPEECH = 'Use cloud speech-to-text';
 const VOICE = '/settings/voice#talk';
 
+/** Only a web page opens from a notice, whatever a link says. */
+function webPage(url: string) {
+  try {
+    return ['https:', 'http:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * What to do after Row-Bot restarted because the server ran out of memory
  * (U8): how to resize (the guide, and the host's own page when a known host
@@ -29,7 +38,7 @@ export default function MemoryNoticeActions({
   const { controller } = useRuntime();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const links = problem.links ?? [];
+  const links = (problem.links ?? []).filter((link) => webPage(link.url));
   async function dismiss() {
     setBusy(true);
     setError('');

@@ -1690,8 +1690,17 @@ it('says Row-Bot restarted for lack of memory, how to resize and how to dismiss 
   expect(summary()).toBe('All quiet.');
 });
 
-it('without a known host the memory notice links only the guide (U8)', async () => {
-  show({ loadAttention: attention(outOfMemory(false)) });
+it('without a known host the memory notice links only the guide, and only to web pages (U8)', async () => {
+  const notice = outOfMemory(false);
+  show({
+    loadAttention: attention({
+      ...notice,
+      links: [
+        ...(notice.links ?? []),
+        { label: 'Open a script', url: 'javascript:alert(1)' },
+      ],
+    }),
+  });
   const needs = await screen.findByRole('list', { name: 'Needs you' });
   await within(needs).findByText(/Give the server 4 GB/);
   expect(
@@ -1699,6 +1708,9 @@ it('without a known host the memory notice links only the guide (U8)', async () 
   ).toBeVisible();
   expect(
     within(needs).queryByRole('link', { name: /Manage your pod/ }),
+  ).toBeNull();
+  expect(
+    within(needs).queryByRole('link', { name: 'Open a script' }),
   ).toBeNull();
   expect(summary()).toBe('1 thing needs you.');
 });

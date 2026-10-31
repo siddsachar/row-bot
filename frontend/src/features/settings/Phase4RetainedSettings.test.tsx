@@ -2448,8 +2448,13 @@ function showVoice(talkProvider: string) {
 it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks before it is chosen (U8)', async () => {
   setMemoryLimit(2 * GB);
   showVoice('openai_realtime');
-  // Dictation listens with Whisper here: its quiet pill. Listen with is in the cloud: none.
-  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(1);
+  // Dictation listens with Whisper here, and Realtime falls back to it: their quiet pills.
+  // Listen with is in the cloud: none.
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
+  const fallback = document.querySelector<HTMLElement>(
+    '[data-setting-anchor="runtime.realtime_fallback_to_local"]',
+  )!;
+  expect(within(fallback).getByText('Needs a 4 GB server')).toBeVisible();
 
   const listen = screen.getByLabelText('Listen with');
   fireEvent.change(listen, { target: { value: 'local' } });

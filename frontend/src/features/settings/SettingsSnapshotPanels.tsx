@@ -1917,6 +1917,7 @@ export function VoiceSnapshotPanel({
             }
             hint="If Realtime is unavailable, Talk listens with Whisper instead."
             value={snapshot.runtime.realtime_fallback_to_local}
+            row={needsBigger}
           />
         )}
         <SettingsItem

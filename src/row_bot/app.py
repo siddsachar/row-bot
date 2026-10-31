@@ -1053,9 +1053,10 @@ async def _run_startup_sequence():
         from row_bot.tasks import _get_scheduler
         def _evict_idle_browser_tabs() -> None:
             try:
+                from row_bot.browser.service import IDLE_CLOSE_SECONDS
                 from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
 
-                closed = _get_bs_mgr().evict_idle(ttl_seconds=600.0)
+                closed = _get_bs_mgr().evict_idle(ttl_seconds=IDLE_CLOSE_SECONDS)
                 if closed:
                     logger.info("browser: evicted %d idle tab(s)", closed)
             except Exception:

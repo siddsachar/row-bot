@@ -95,8 +95,8 @@ PERSON_STILL_SECONDS = 2.0
 # What the pane's Copy may carry.
 COPY_LIMIT = 65_536
 NAVIGATION_TIMEOUT_MS = 30_000
-# On a server with a memory limit, Chromium closes when nothing has used it this long (H4).
-IDLE_CLOSE_SECONDS = 5 * 60
+# Tabs nobody has used this long close; on a server with a memory limit, Chromium then closes too (H4).
+IDLE_CLOSE_SECONDS = 10 * 60
 MAX_EXTRACT_CHARS = 20_000
 STOPPED = "Stopped: the person pressed Stop."
 _BLANK_URLS = frozenset({"", "about:blank", "chrome://newtab/", "edge://newtab/"})
@@ -1611,7 +1611,7 @@ class BrowserEngine:
             self._chats.pop(chat_id, None)
         self._notify(chat_id)
 
-    def evict_idle(self, ttl_seconds: float = 600.0) -> int:
+    def evict_idle(self, ttl_seconds: float = IDLE_CLOSE_SECONDS) -> int:
         """Close tabs nobody has used for a while (not while a turn runs, someone watches or the person uses them)."""
 
         if not self.running:
@@ -2061,7 +2061,7 @@ class BrowserSessionManager:
     def take_screenshot(self, thread_id: str) -> bytes | None:
         return self._engine.take_screenshot(thread_id) if self._engine else None
 
-    def evict_idle(self, ttl_seconds: float = 600.0) -> int:
+    def evict_idle(self, ttl_seconds: float = IDLE_CLOSE_SECONDS) -> int:
         return self._engine.evict_idle(ttl_seconds=ttl_seconds) if self._engine else 0
 
     def close_when_idle(self, idle_seconds: float = IDLE_CLOSE_SECONDS, *, now: float | None = None) -> bool:

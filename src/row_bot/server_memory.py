@@ -1,11 +1,14 @@
 """The server's memory (H12): a container's limit, its highest use, and restarts for lack of memory.
 
 In a container the kernel holds Row-Bot to a memory limit (its cgroup's ``memory.max``). Row-Bot
-reads it, and while it runs it keeps the highest use it has seen in the data folder, so the number
-outlives the process. Each run is marked as running until it shuts down. A start that finds the last
-run still marked (it never shut down: the kernel stopped it) after its use came within 10% of the
-limit takes that for a restart for lack of memory: Home and Monitor say so (U8) until the person
-dismisses it, and only another such restart brings it back.
+reads it, and while it runs it keeps the highest working set it has seen in the data folder, so the
+number outlives the process. The working set is the use without the file cache the kernel can drop
+(``inactive_file``), as kubelet and Docker count it: the cache fills to the limit on any busy server.
+The kernel stopping a process in the container for lack of memory (``oom_kill``) is kept too. Each
+run is marked as running until it shuts down. A start that finds the last run still marked (it never
+shut down: the kernel stopped it) after its working set came within 10% of the limit, or after the
+kernel stopped something for lack of memory, takes that for a restart for lack of memory: Home and
+Monitor say so (U8) until the person dismisses it, and only another such restart brings it back.
 
 The desktop has no limit, so nothing here runs there: no file, no thread, no reading.
 """
@@ -35,11 +38,13 @@ NEAR_LIMIT = 0.9
 SMALL_SERVER_BYTES = int(3.5 * 2**30)
 WATCH_SECONDS = 15.0
 RESIZE_GUIDE = "https://row-bot.ai/docs/operations/hosting#memory"
-# What the kernel calls the limit, the highest use and the use now: cgroup v2, then v1. v1 says
-# "no limit" with a number near the largest it can hold.
+# What the kernel calls the limit, the use now, the cache it can drop (a key in its stat file) and
+# the processes it stopped for lack of memory: cgroup v2, then v1. v1 says "no limit" with a number
+# near the largest it can hold.
 _FILES = (
-    ("memory.max", "memory.peak", "memory.current"),
-    ("memory/memory.limit_in_bytes", "memory/memory.max_usage_in_bytes", "memory/memory.usage_in_bytes"),
+    ("memory.max", "memory.current", "memory.stat", "inactive_file", "memory.events"),
+    ("memory/memory.limit_in_bytes", "memory/memory.usage_in_bytes", "memory/memory.stat", "total_inactive_file",
+     "memory/memory.oom_control"),
 )
 _NO_LIMIT = 1 << 60
 
@@ -47,6 +52,8 @@ _lock = threading.Lock()
 _stop = threading.Event()
 _thread: threading.Thread | None = None
 _peak = 0
+_kills = 0  # The kernel's oom_kill count when this run started,
+_killed = 0  # and how many more it has counted since.
 
 
 def _number(path: Path) -> int | None:
@@ -57,14 +64,23 @@ def _number(path: Path) -> int | None:
     return int(text) if text.isdigit() else None
 
 
-def _files() -> tuple[Path, Path, Path] | None:
+def _keyed(path: Path) -> dict[str, int]:
+    """A cgroup file of "key number" lines (memory.stat, memory.events)."""
+    try:
+        lines = path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError):
+        return {}
+    pairs = (line.split() for line in lines)
+    return {pair[0]: int(pair[1]) for pair in pairs if len(pair) == 2 and pair[1].isdigit()}
+
+
+def _files() -> tuple[Path, Path, Path, str, Path] | None:
     root = CGROUP_ROOT
     if root is None:
         return None
-    for names in _FILES:
-        paths = tuple(root / name for name in names)
-        if paths[0].is_file():
-            return paths  # type: ignore[return-value]
+    for limit, usage, stat, inactive, events in _FILES:
+        if (root / limit).is_file():
+            return root / limit, root / usage, root / stat, inactive, root / events
     return None
 
 
@@ -75,12 +91,19 @@ def limit_bytes() -> int | None:
     return value if value and value < _NO_LIMIT else None
 
 
-def use_bytes() -> int | None:
-    """The highest use the kernel has seen in this cgroup (``memory.peak``), else its use now."""
+def working_set_bytes() -> int | None:
+    """The memory in use now without the file cache the kernel can drop (``inactive_file``)."""
     files = _files()
-    if files is None:
+    usage = _number(files[1]) if files else None
+    if files is None or usage is None:
         return None
-    return _number(files[1]) or _number(files[2])
+    return max(0, usage - _keyed(files[2]).get(files[3], 0))
+
+
+def _oom_kills() -> int:
+    """How many processes the kernel has stopped in this cgroup for lack of memory."""
+    files = _files()
+    return _keyed(files[4]).get("oom_kill", 0) if files else 0
 
 
 def size_words(value: int) -> str:
@@ -117,7 +140,9 @@ def _ran_out(run: Any) -> bool:
     if not isinstance(run, dict) or run.get("running") is not True:
         return False
     limit, peak = run.get("limit_bytes"), run.get("peak_bytes")
-    return isinstance(limit, int) and isinstance(peak, int) and limit > 0 and peak >= NEAR_LIMIT * limit
+    if not (isinstance(limit, int) and isinstance(peak, int) and limit > 0):
+        return False
+    return peak >= NEAR_LIMIT * limit or int(run.get("oom_kills") or 0) > 0
 
 
 def started(*, tick: Callable[[], object] | None = None) -> int | None:
@@ -126,7 +151,7 @@ def started(*, tick: Callable[[], object] | None = None) -> int | None:
 
     Returns the limit; None where there is none (the desktop), and then nothing is read or written.
     """
-    global _thread, _peak
+    global _thread, _peak, _kills, _killed
     limit = limit_bytes()
     if limit is None:
         return None
@@ -143,8 +168,8 @@ def started(*, tick: Callable[[], object] | None = None) -> int | None:
                 "Row-Bot restarted after running out of memory (it had used %s of %s)",
                 size_words(last["peak_bytes"]), size_words(last["limit_bytes"]),
             )
-        _peak = use_bytes() or 0
-        state["run"] = {"running": True, "limit_bytes": limit, "peak_bytes": _peak}
+        _peak, _kills, _killed = working_set_bytes() or 0, _oom_kills(), 0
+        state["run"] = {"running": True, "limit_bytes": limit, "peak_bytes": _peak, "oom_kills": 0}
         _write(state)
         if _thread is None or not _thread.is_alive():
             _stop.clear()
@@ -154,10 +179,12 @@ def started(*, tick: Callable[[], object] | None = None) -> int | None:
 
 
 def sample() -> None:
-    """Keep this run's highest use, when it rose since the last look."""
-    global _peak
-    use = use_bytes()
-    if use is None or use <= _peak:
+    """Keep this run's highest working set, and any process the kernel stopped for lack of memory, when
+    either rose since the last look."""
+    global _peak, _killed
+    use = working_set_bytes() or 0
+    kills = max(0, _oom_kills() - _kills)
+    if use <= _peak and kills <= _killed:
         return
     with _lock:
         state = _read()
@@ -165,6 +192,7 @@ def sample() -> None:
         if not isinstance(run, dict) or run.get("running") is not True:
             return
         _peak = run["peak_bytes"] = max(use, int(run.get("peak_bytes") or 0))
+        _killed = run["oom_kills"] = max(kills, int(run.get("oom_kills") or 0))
         _write(state)
 
 
@@ -218,5 +246,5 @@ def dismiss() -> bool:
 
 __all__ = [
     "CGROUP_ROOT", "NEAR_LIMIT", "RESIZE_GUIDE", "SMALL_SERVER_BYTES", "dismiss", "limit_bytes", "notice",
-    "sample", "size_words", "started", "stopped", "use_bytes",
+    "sample", "size_words", "started", "stopped", "working_set_bytes",
 ]

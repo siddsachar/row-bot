@@ -39,7 +39,7 @@ def limit(root, value: int | str) -> None:
 def ran_out_of_memory(root, size: int = 2 * GB) -> None:
     """A run whose use came within 10% of the limit, stopped by the kernel, then the next start."""
     limit(root, size)
-    (root / "memory.peak").write_text(f"{int(size * 0.97)}\n", encoding="ascii")
+    (root / "memory.current").write_text(f"{int(size * 0.97)}\n", encoding="ascii")
     server_memory.started()
     server_memory.started()
 

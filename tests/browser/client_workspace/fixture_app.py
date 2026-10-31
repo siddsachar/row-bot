@@ -4638,7 +4638,7 @@ def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
 
     root = _server_memory.CGROUP_ROOT or Path(tempfile.mkdtemp(prefix="row-bot-a8-"))
     (root / "memory.max").write_text(str(size), encoding="ascii")
-    (root / "memory.peak").write_text(str(size // 4), encoding="ascii")
+    (root / "memory.current").write_text(str(size // 4), encoding="ascii")
     _server_memory.CGROUP_ROOT = root
     return {"limit_bytes": _server_memory.limit_bytes()}
 
@@ -4649,8 +4649,8 @@ def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
     size = _server_memory.limit_bytes()
     if size is None:
         raise HTTPException(status_code=409, detail="Set a memory limit first")
-    (_server_memory.CGROUP_ROOT / "memory.peak").write_text(str(int(size * 0.97)), encoding="ascii")
-    _server_memory.started()  # A run whose use came within 10% of the limit…
+    (_server_memory.CGROUP_ROOT / "memory.current").write_text(str(int(size * 0.97)), encoding="ascii")
+    _server_memory.started()  # A run whose working set came within 10% of the limit…
     _server_memory.started()  # …and the next start finds it never shut down.
     return {"notice": _server_memory.notice() is not None}
 

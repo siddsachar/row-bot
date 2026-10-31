@@ -2,7 +2,8 @@
 
 A folder of fake cgroup files stands in for the container's: nothing reads the real /sys/fs/cgroup.
 A restart is the next process's start (``started``) after the last one either shut down
-(``stopped``) or was stopped by the kernel (it never got to).
+(``stopped``) or was stopped by the kernel (it never got to). The use that counts is the working set:
+the use without the file cache the kernel can drop, which fills to the limit on any busy server.
 """
 
 from __future__ import annotations
@@ -20,10 +21,14 @@ class Cgroup:
     def __init__(self, root) -> None:
         self.root = root
 
-    def set(self, limit: str = "max", peak: int | None = None) -> None:
+    def set(self, limit: str = "max", current: int | None = None, cache: int = 0, oom_kills: int = 0) -> None:
         (self.root / "memory.max").write_text(f"{limit}\n", encoding="ascii")
-        if peak is not None:
-            (self.root / "memory.peak").write_text(f"{peak}\n", encoding="ascii")
+        if current is not None:
+            (self.root / "memory.current").write_text(f"{current}\n", encoding="ascii")
+            (self.root / "memory.stat").write_text(
+                f"anon {current - cache}\nfile {cache}\nactive_file 0\ninactive_file {cache}\n", encoding="ascii")
+            (self.root / "memory.events").write_text(
+                f"low 0\nhigh 0\nmax 3\noom {oom_kills}\noom_kill {oom_kills}\n", encoding="ascii")
 
 
 @pytest.fixture
@@ -45,14 +50,14 @@ def cgroup(tmp_path, monkeypatch, data):
 
 
 def restart(cgroup: Cgroup, *, limit: int = 2 * GB) -> None:
-    """The next start, in a new cgroup: its high-water mark starts again."""
-    cgroup.set(str(limit), peak=GB // 2)
+    """The next start, in a new cgroup: its counts start again."""
+    cgroup.set(str(limit), current=GB // 2)
     server_memory.started()
 
 
-def use(cgroup: Cgroup, peak: int, *, limit: int = 2 * GB) -> None:
-    """This run's use rises to *peak*, and the watcher takes a look."""
-    cgroup.set(str(limit), peak=peak)
+def use(cgroup: Cgroup, current: int, *, cache: int = 0, oom_kills: int = 0, limit: int = 2 * GB) -> None:
+    """This run's use rises to *current*, *cache* of it file cache, and the watcher takes a look."""
+    cgroup.set(str(limit), current=current, cache=cache, oom_kills=oom_kills)
     server_memory.sample()
 
 
@@ -69,6 +74,9 @@ def test_the_limit_is_the_containers_and_none_without_one(cgroup, monkeypatch):
     assert server_memory.limit_bytes() is None
     (cgroup.root / "memory" / "memory.limit_in_bytes").write_text(f"{GB}\n", encoding="ascii")
     assert server_memory.limit_bytes() == GB
+    (cgroup.root / "memory" / "memory.usage_in_bytes").write_text(f"{GB}\n", encoding="ascii")
+    (cgroup.root / "memory" / "memory.stat").write_text(f"cache 9\ntotal_inactive_file {GB // 4}\n", encoding="ascii")
+    assert server_memory.working_set_bytes() == GB - GB // 4
     # Windows and macOS have no cgroup at all.
     monkeypatch.setattr(server_memory, "CGROUP_ROOT", None)
     assert server_memory.limit_bytes() is None
@@ -96,6 +104,31 @@ def test_a_restart_after_use_came_near_the_limit_is_noticed_from_the_kept_high_w
     found = server_memory.notice()
     assert found is not None
     assert (found["limit_bytes"], found["peak_bytes"]) == (2 * GB, int(1.95 * GB))
+
+
+def test_a_pod_full_of_file_cache_that_restarts_uncleanly_raises_nothing(cgroup):
+    restart(cgroup)
+    use(cgroup, int(1.98 * GB), cache=int(1.2 * GB))  # At the limit, but most of it cache.
+    assert server_memory.working_set_bytes() == int(1.98 * GB) - int(1.2 * GB)
+    restart(cgroup)
+    assert server_memory.notice() is None
+
+    use(cgroup, int(1.98 * GB), cache=int(0.17 * GB))  # A working set of 1.81 GB: 90% of 2 GB.
+    restart(cgroup)
+    assert server_memory.notice() is not None
+
+
+def test_a_process_the_kernel_stopped_for_lack_of_memory_counts_too(cgroup):
+    restart(cgroup)
+    use(cgroup, GB, oom_kills=1)  # Something in the container was stopped; Row-Bot carried on.
+    use(cgroup, GB // 2, oom_kills=1)
+    server_memory.stopped()  # Shut down on purpose afterwards: not a restart for lack of memory.
+    restart(cgroup)
+    assert server_memory.notice() is None
+
+    use(cgroup, GB, oom_kills=2)
+    restart(cgroup)  # Then stopped without shutting down: it was.
+    assert server_memory.notice() is not None
 
 
 def test_a_clean_shutdown_or_use_far_from_the_limit_is_no_out_of_memory_restart(cgroup):

@@ -163,9 +163,9 @@ Measured with full Row-Bot in a container:
 
 ## Memory
 
-Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps the highest use it has seen in `/data`. Nothing is turned off on a small server:
+Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps, in `/data`, the highest working set it has seen: its use without the file cache the kernel can drop, as Docker and Kubernetes count it. Nothing is turned off on a small server:
 
-- **Row-Bot's browser** closes by itself five minutes after its last use, and starts again the next time it's needed, still signed in to sites.
+- **Row-Bot's browser** closes by itself ten minutes after its last use, when a conversation's idle tabs close anyway, and starts again the next time it's needed, still signed in to sites.
 - **Settings › Documents** suggests **Free memory when idle** below 3.5 GB, so the search model unloads between searches.
 - **Settings › Voice** marks local speech-to-text "Needs a 4 GB server" below 3.5 GB, and asks before it is chosen.
 
