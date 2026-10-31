@@ -17,11 +17,22 @@ import pytest
 from row_bot import profile_restore
 from row_bot.application import profile_backup as backup
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 KEY = "sk-live-SYNTHETIC-DO-NOT-ARCHIVE-1234567890"
 WEBHOOK = "webhook-SYNTHETIC-secret-abcdef"
 MCP_KEY = "mcp-SYNTHETIC-header-key-xyz"
+
+
+@pytest.fixture(autouse=True)
+def keychain():
+    """The sign-ins a backup lists are read from the keychain: this process's memory, never the computer's."""
+    from row_bot import secret_store
+
+    backend = secret_store.MemoryBackend()
+    secret_store._set_backend_for_tests(backend)
+    yield backend
+    secret_store._set_backend_for_tests(None)
 
 
 def _db(path: Path, statements: list[str]) -> None:
@@ -82,6 +93,28 @@ def _profile(root: Path) -> Path:
 def _archive_text(archive: Path) -> str:
     with zipfile.ZipFile(archive) as bundle:
         return "\n".join(bundle.read(name).decode("utf-8", "replace") for name in bundle.namelist())
+
+
+def _accounts(data: Path, destination: Path) -> list[str]:
+    result = backup.create_backup(data, destination, now=datetime(2026, 10, 31, 9, 0))
+    manifest = json.loads(zipfile.ZipFile(result["path"]).read(backup.MANIFEST))
+    return [item["name"] for item in manifest["sign_in_again"] if item["kind"] == "account"]
+
+
+def test_a_backup_lists_only_the_accounts_signed_in_on_this_computer(tmp_path, monkeypatch):
+    """Gmail, Calendar and X make their folders whenever Row-Bot loads them: a folder is no sign-in."""
+    from row_bot import account_tokens
+
+    data = tmp_path / "profile"
+    for folder in ("gmail", "calendar", "x"):
+        (data / folder).mkdir(parents=True)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    assert _accounts(data, tmp_path / "first") == []
+
+    account_tokens.write("google", {"token": "fixture-access", "refresh_token": "fixture-refresh",
+                                    "scopes": list(account_tokens.GOOGLE_SCOPES)})
+    account_tokens.write("microsoft", {"refresh_token": "fixture-refresh", "account": "pat@example.com"})
+    assert _accounts(data, tmp_path / "second") == ["Gmail", "Google Calendar", "Outlook"]
 
 
 def test_a_backup_holds_the_profile_without_secrets_caches_or_logs(tmp_path):
