@@ -3746,7 +3746,6 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "av" },
     { name = "discord-py" },
     { name = "einops" },
     { name = "faiss-cpu" },
@@ -3827,7 +3826,6 @@ mcp = [
     { name = "mcp" },
 ]
 media = [
-    { name = "av" },
     { name = "kaleido" },
     { name = "mss" },
     { name = "opencv-python" },
@@ -3871,8 +3869,6 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.69,<2.0" },
     { name = "apscheduler", specifier = ">=3.11,<4.0" },
     { name = "arxiv", specifier = ">=3.0,<4.0" },
-    { name = "av", marker = "extra == 'all'", specifier = ">=14,<18" },
-    { name = "av", marker = "extra == 'media'", specifier = ">=14,<18" },
     { name = "beautifulsoup4", specifier = ">=4.13,<5.0" },
     { name = "ddgs", specifier = ">=9.0,<10.0" },
     { name = "discord-py", marker = "extra == 'all'", specifier = ">=2.7,<3.0" },

@@ -477,11 +477,23 @@ _STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.045}
 BOLD_CAPTION = 1.3
 
 
-def phrase_limit(captions: str) -> int:
-    """The characters of a phrase that fit on one line in a caption look: fewer, the larger its letters."""
-    share = _STYLE_SIZES["title"] if captions == "title" else _STYLE_SIZES["caption"] * (
-        BOLD_CAPTION if captions == "bold" else 1)
-    return int(PHRASE_CHARACTERS * _STYLE_SIZES["caption"] / share)
+def _letter_size(style: str, plain: bool, frame_width: int, frame_height: int) -> int:
+    # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
+    reference = min(frame_height, frame_width * 9 / 16)
+    return max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
+
+
+def phrase_limit(captions: str, frame_width: int, frame_height: int) -> int:
+    """The characters of a phrase that fit on one line in a caption look, measured in the typeface this computer
+    draws with (they differ in width): fewer, the larger its letters."""
+    from PIL import Image, ImageDraw
+
+    style = "title" if captions == "title" else "caption"
+    size = _letter_size(style, captions in {"bold", "title"}, frame_width, frame_height)
+    sample = "Row-Bot opens the shop's orders and drafts a note to each customer."
+    each = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textlength(sample, font=font(size)) / len(sample)
+    # A tenth to spare: a phrase of wide letters still fits.
+    return max(16, min(PHRASE_CHARACTERS, int(frame_width * 0.86 * 0.9 / each)))
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
@@ -493,9 +505,7 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
     from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
-    # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
-    reference = min(frame_height, frame_width * 9 / 16)
-    size = max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
+    size = _letter_size(style, plain, frame_width, frame_height)
     typeface = font(size)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
@@ -1062,7 +1072,7 @@ class _Builder:
             if scene.line and step.style == "caption":
                 # One phrase at a time, each for its share of the line's time: never a paragraph.
                 said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
-                parts = phrases(scene.line, phrase_limit(look.captions))
+                parts = phrases(scene.line, phrase_limit(look.captions, self.width, self.height))
                 at = begin
                 for part in parts:
                     until = at + (said - begin) * len(part) / max(1, sum(len(each) for each in parts))

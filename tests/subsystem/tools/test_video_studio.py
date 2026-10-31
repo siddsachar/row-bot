@@ -191,9 +191,9 @@ def test_with_captions_the_picture_sits_above_them_instead_of_under_them():
         return text_overlay(Step(op="text", text=text, style=style, position="bottom", plain=plain), 1920, 1080)
 
     for look in looks:
-        longest = max(phrases(line, phrase_limit(look)), key=len)
+        longest = max(phrases(line, phrase_limit(look, 1920, 1080)), key=len)
         assert shown(look, longest).height == shown(look, "Hi").height, f"a {look} phrase is one line"
-    caption = shown("bold", max(phrases(line, phrase_limit("bold")), key=len))
+    caption = shown("bold", max(phrases(line, phrase_limit("bold", 1920, 1080)), key=len))
     for size in ((390, 844), (1600, 1000)):
         picture = Image.new("RGB", size, (250, 250, 250))
         plain = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140)))
