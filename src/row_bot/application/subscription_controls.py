@@ -542,7 +542,16 @@ class SubscriptionFlows:
                         if flow.listening:
                             raise SubscriptionError("subscription_listener_active")
                     guard()
-                    authorization = module.authorization_from_xai_oauth_callback(flow.flow, value)
+                    from row_bot.providers.xai_oauth import XAIOAuthError
+                    try:
+                        authorization = module.authorization_from_xai_oauth_callback(flow.flow, value)
+                    except XAIOAuthError as exc:
+                        # Another device finishes by pasting (H5): an address that isn't this
+                        # sign-in's, or xAI's refusal, says so and nothing was exchanged.
+                        raise SubscriptionError(
+                            "subscription_denied" if exc.kind == "authorization_failed"
+                            else "subscription_callback_invalid"
+                        ) from None
                 else:
                     if flow.listening or flow.authorization is None:
                         flow.state = "waiting"
@@ -739,7 +748,8 @@ class SubscriptionFlows:
             if isinstance(exc, SubscriptionError) and exc.code in {"subscription_cancelled", "subscription_storage_unavailable"} \
                     and flow is not None and not flow.published:
                 admissions.reject_command(owner_id, key, exc.code)
-            if isinstance(exc, SubscriptionError) and exc.code in {"invalid_command", "subscription_listener_active"} and flow is not None and flow.state == "waiting":
+            if isinstance(exc, SubscriptionError) and exc.code in {"invalid_command", "subscription_listener_active",
+                    "subscription_callback_invalid", "subscription_denied"} and flow is not None and flow.state == "waiting":
                 admissions.reject_command(owner_id, key, exc.code)
             if flow is not None and flow.state not in {"connected", "waiting"}:
                 flow.state = "uncertain"

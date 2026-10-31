@@ -73,6 +73,12 @@ _LOCAL_APPLICATION_CAPABILITIES = (
 _PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
 
 
+def _hosted() -> bool:
+    from row_bot.hosting import hosted_by
+
+    return hosted_by() is not None
+
+
 def _learning_preview() -> bool:
     from row_bot import learning
 
@@ -600,6 +606,8 @@ _STATUS.update(
             "subscription_cancelled",
             "subscription_expired",
             "subscription_storage_unavailable",
+            "subscription_callback_invalid",
+            "subscription_denied",
         ),
         409,
     )
@@ -1610,6 +1618,8 @@ def create_router(
                 "application_capabilities": [
                     *_APPLICATION_CAPABILITIES,
                     *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                    # A known host runs this Row-Bot (H13): its first chat and phone card (U3, U10).
+                    *(("hosted",) if _hosted() else ()),
                     # Learning (preview) surfaces exist only in a build with its flag (O34).
                     *(("learning:preview",) if _learning_preview() else ()),
                 ],
@@ -6307,6 +6317,7 @@ def create_router(
             profile=body.profile,
             step=body.step,
             model_ref=body.model_ref,
+            provider_id=body.provider_id,
         )
         return await respond(request, dto.OnboardingReceipt, result)
 

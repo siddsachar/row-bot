@@ -80,7 +80,7 @@
         "maxLength": 32,
         "type": "string"
       },
-      "maxItems": 11,
+      "maxItems": 13,
       "title": "Completed Steps",
       "type": "array"
     },
@@ -100,6 +100,24 @@
     "dismissed_home_card": {
       "title": "Dismissed Home Card",
       "type": "boolean"
+    },
+    "dismissed_phone_card": {
+      "default": false,
+      "title": "Dismissed Phone Card",
+      "type": "boolean"
+    },
+    "host_name": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Host Name"
     },
     "import_sources": {
       "items": {
@@ -122,7 +140,7 @@
         "maxLength": 32,
         "type": "string"
       },
-      "maxItems": 11,
+      "maxItems": 13,
       "title": "Live Done",
       "type": "array"
     },
@@ -159,7 +177,7 @@
         "maxLength": 32,
         "type": "string"
       },
-      "maxItems": 11,
+      "maxItems": 13,
       "title": "Skipped Steps",
       "type": "array"
     },
@@ -173,7 +191,7 @@
       "items": {
         "$ref": "#/$defs/OnboardingStep"
       },
-      "maxItems": 11,
+      "maxItems": 13,
       "title": "Steps",
       "type": "array"
     }

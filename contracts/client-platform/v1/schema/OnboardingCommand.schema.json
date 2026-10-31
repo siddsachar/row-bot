@@ -9,7 +9,9 @@
         "skip_step",
         "dismiss_home",
         "add_starters",
-        "choose_model"
+        "choose_model",
+        "choose_suggested",
+        "dismiss_phone_card"
       ],
       "title": "Action",
       "type": "string"
@@ -38,6 +40,12 @@
       "maxItems": 7,
       "title": "Profile",
       "type": "array"
+    },
+    "provider_id": {
+      "default": "",
+      "maxLength": 160,
+      "title": "Provider Id",
+      "type": "string"
     },
     "step": {
       "default": "",

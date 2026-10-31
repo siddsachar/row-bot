@@ -13,12 +13,13 @@ from uuid import UUID, uuid4
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.data_paths import get_row_bot_data_dir, get_tasks_db_path
-from row_bot.onboarding_catalog import INTENT_OPTIONS, ONBOARDING_VERSION, SETUP_STEPS
+from row_bot.onboarding_catalog import HOSTED_STEPS, INTENT_OPTIONS, ONBOARDING_VERSION, SETUP_STEPS
 
 _LOCK = threading.RLock()
 _FIELDS = (
     "setup_complete", "onboarding_profile", "onboarding_completed_steps",
     "onboarding_skipped_steps", "onboarding_dismissed_home_card", "onboarding_version",
+    "onboarding_dismissed_phone_card",
 )
 _RECEIPTS = "react_onboarding_receipts"
 _STARTER_WORKFLOW_NAMES = (
@@ -56,11 +57,36 @@ def _revision(config: dict[str, Any]) -> str:
 _RENAMED_STEPS = {"accounts": "apps", "channels": "apps", "extensions": "apps"}
 
 
-def _clean(values: object, allowed: dict[str, object]) -> list[str]:
+def _clean(values: object, allowed: dict[str, Any], *, steps: bool = False) -> list[str]:
     if not isinstance(values, list):
         return []
-    renamed = (_RENAMED_STEPS.get(value, value) if allowed is SETUP_STEPS else value for value in values)
+    renamed = (_RENAMED_STEPS.get(value, value) if steps else value for value in values)
     return list(dict.fromkeys(value for value in renamed if isinstance(value, str) and value in allowed))
+
+
+def _host() -> Any:
+    from row_bot.hosting import hosted_by
+
+    return hosted_by()
+
+
+def _steps() -> dict[str, dict[str, str]]:
+    """The Setup Center's areas. A hosted Row-Bot adds "Add your phone" after Models and
+    "Back up" before Final Check (U4); elsewhere they don't exist."""
+    if _host() is None:
+        return SETUP_STEPS
+    steps: dict[str, dict[str, str]] = {}
+    for key, meta in SETUP_STEPS.items():
+        if key == "final":
+            steps["backup"] = HOSTED_STEPS["backup"]
+        steps[key] = meta
+        if key == "models":
+            steps["phone"] = HOSTED_STEPS["phone"]
+    return steps
+
+
+def _clean_steps(values: object, steps: dict[str, dict[str, str]]) -> list[str]:
+    return _clean(values, steps, steps=True)
 
 
 def _missing_starter_workflows() -> int:
@@ -117,6 +143,8 @@ def _complete(config: dict[str, Any], default_model: str | None) -> bool:
 def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
     from row_bot.application.client_first_run import import_sources
 
+    host = _host()
+    steps = _steps()
     default_model = _default_model()
     complete_setup = _complete(config, default_model)
     starters_missing = _missing_starter_workflows() if complete_setup else 0
@@ -131,10 +159,10 @@ def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
     ]
     # Setup shows the real state: "models" is done only while a default model exists.
     complete = [
-        step for step in dict.fromkeys([*_clean(config.get("onboarding_completed_steps"), SETUP_STEPS), *live_done])
+        step for step in dict.fromkeys([*_clean_steps(config.get("onboarding_completed_steps"), steps), *live_done])
         if step != "models" or default_model
     ]
-    skipped = [step for step in _clean(config.get("onboarding_skipped_steps"), SETUP_STEPS) if step not in complete]
+    skipped = [step for step in _clean_steps(config.get("onboarding_skipped_steps"), steps) if step not in complete]
     return {
         "schema_version": 1,
         "revision": _revision(config),
@@ -148,9 +176,13 @@ def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
         "completed_steps": complete,
         "skipped_steps": skipped,
         "dismissed_home_card": bool(config.get("onboarding_dismissed_home_card")),
+        # The phone card after the first answer (U10) never comes back once dismissed.
+        "dismissed_phone_card": bool(config.get("onboarding_dismissed_phone_card")),
+        # The company hosting this Row-Bot (H13): its first run and Setup Center differ (U3, U4).
+        "host_name": host.name if host is not None else None,
         "steps": [
             {"id": key, "title": meta["title"], "description": meta["description"]}
-            for key, meta in SETUP_STEPS.items()
+            for key, meta in steps.items()
         ],
         "intents": [{"id": key, "label": label} for key, label in INTENT_OPTIONS.items()],
     }
@@ -182,7 +214,7 @@ def _save(config: dict[str, Any]) -> None:
 
 def execute_onboarding(
     *, command_id: str, expected_revision: str, action: str,
-    profile: list[str], step: str, model_ref: str = "",
+    profile: list[str], step: str, model_ref: str = "", provider_id: str = "",
 ) -> dict[str, Any]:
     """Apply one explicit, idempotent setup choice while preserving other config."""
     try:
@@ -193,6 +225,8 @@ def execute_onboarding(
     payload = {"action": action, "profile": profile, "step": step}
     if model_ref:
         payload["model_ref"] = model_ref
+    if provider_id:
+        payload["provider_id"] = provider_id
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     with _LOCK:
         config = _read()
@@ -206,6 +240,7 @@ def execute_onboarding(
                 return {key: value for key, value in receipt.items() if key != "digest"}
         if _revision(config) != expected_revision:
             raise ClientPlatformError("onboarding_changed")
+        steps = _steps()
         if action == "save_profile":
             if len(profile) > len(INTENT_OPTIONS) or any(value not in INTENT_OPTIONS for value in profile):
                 raise ClientPlatformError("invalid_onboarding_command")
@@ -217,24 +252,34 @@ def execute_onboarding(
 
             # The person's pick becomes the default (decision 9).
             choose_model(model_ref)
+        elif action == "choose_suggested":
+            if profile or step or model_ref or not provider_id:
+                raise ClientPlatformError("invalid_onboarding_command")
+            from row_bot.application.client_first_run import choose_model, suggested_model
+
+            # A sign-in the person just finished starts on its provider's own first pick (U3).
+            reference = suggested_model(provider_id)
+            if reference is None:
+                raise ClientPlatformError("model_configuration_unavailable")
+            choose_model(reference)
         elif action == "finish_models":
             # Only a model the person chose finishes the first run (no preset).
             if not _default_model():
                 raise ClientPlatformError("onboarding_model_required")
             config["setup_complete"] = True
-            completed = _clean(config.get("onboarding_completed_steps"), SETUP_STEPS)
+            completed = _clean_steps(config.get("onboarding_completed_steps"), steps)
             config["onboarding_completed_steps"] = list(dict.fromkeys([*completed, "models"]))
             config["onboarding_skipped_steps"] = [
-                value for value in _clean(config.get("onboarding_skipped_steps"), SETUP_STEPS)
+                value for value in _clean_steps(config.get("onboarding_skipped_steps"), steps)
                 if value != "models"
             ]
         elif action in {"mark_done", "skip_step"}:
-            if step not in SETUP_STEPS or not _complete(config, _default_model()):
+            if step not in steps or not _complete(config, _default_model()):
                 raise ClientPlatformError("invalid_onboarding_command")
             selected = "onboarding_completed_steps" if action == "mark_done" else "onboarding_skipped_steps"
             other = "onboarding_skipped_steps" if action == "mark_done" else "onboarding_completed_steps"
-            config[selected] = list(dict.fromkeys([*_clean(config.get(selected), SETUP_STEPS), step]))
-            config[other] = [value for value in _clean(config.get(other), SETUP_STEPS) if value != step]
+            config[selected] = list(dict.fromkeys([*_clean_steps(config.get(selected), steps), step]))
+            config[other] = [value for value in _clean_steps(config.get(other), steps) if value != step]
         elif action == "add_starters":
             if not _complete(config, _default_model()) or profile or step:
                 raise ClientPlatformError("invalid_onboarding_command")
@@ -243,14 +288,18 @@ def execute_onboarding(
             # This owner adds only missing disabled templates. If saving the
             # setup receipt fails, replay can safely inspect and add the rest.
             add_default_workflow_templates()
-            completed = _clean(config.get("onboarding_completed_steps"), SETUP_STEPS)
+            completed = _clean_steps(config.get("onboarding_completed_steps"), steps)
             config["onboarding_completed_steps"] = list(dict.fromkeys([*completed, "workflows"]))
             config["onboarding_skipped_steps"] = [
-                value for value in _clean(config.get("onboarding_skipped_steps"), SETUP_STEPS)
+                value for value in _clean_steps(config.get("onboarding_skipped_steps"), steps)
                 if value != "workflows"
             ]
         elif action == "dismiss_home":
             config["onboarding_dismissed_home_card"] = True
+        elif action == "dismiss_phone_card":
+            if profile or step or model_ref or provider_id:
+                raise ClientPlatformError("invalid_onboarding_command")
+            config["onboarding_dismissed_phone_card"] = True
         else:
             raise ClientPlatformError("invalid_onboarding_command")
         config["onboarding_version"] = ONBOARDING_VERSION
