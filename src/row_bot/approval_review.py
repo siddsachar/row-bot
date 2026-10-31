@@ -276,7 +276,8 @@ def current_request(runtime: Mapping[str, Any] | None = None) -> ReviewRequest:
         except Exception:
             runtime = {}
     runtime = runtime or {}
-    thread_id = _conversation_of(str(runtime.get("thread_id") or ""))
+    own_thread = str(runtime.get("thread_id") or "")
+    thread_id = _conversation_of(own_thread)
     surface = str(runtime.get("runtime_surface") or "chat")
     workspace = _workspace_name(thread_id) if thread_id else ""
     if not thread_id:
@@ -289,9 +290,13 @@ def current_request(runtime: Mapping[str, Any] | None = None) -> ReviewRequest:
         # A workflow run whose workflow can't be found: its messages are filled-in prompts.
         return ReviewRequest(source="workflow", workspace=workspace)
     try:
+        from row_bot.agent import current_turn_messages
         from row_bot.threads import get_latest_checkpoint_messages
 
-        messages = person_messages(get_latest_checkpoint_messages(thread_id))
+        # The running turn's own messages hold what the person just sent; its checkpoint may not yet.
+        # A helper's are the agent's words, so its review reads the person's conversation instead.
+        live = current_turn_messages() if thread_id == own_thread else ()
+        messages = person_messages(live or get_latest_checkpoint_messages(thread_id))
     except Exception:
         logger.debug("Could not read the person's messages for review", exc_info=True)
         messages = ()
