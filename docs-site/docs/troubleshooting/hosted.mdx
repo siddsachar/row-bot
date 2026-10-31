@@ -26,12 +26,12 @@ What the page says:
 
 ## Row-Bot Restarted: Out Of Memory
 
-When Row-Bot runs out of memory, the server restarts it. Home's **Needs you** and Monitor then say "Row-Bot restarted because the server ran out of memory", with your server's size. Your data and sign-ins are safe.
+When Row-Bot runs out of memory, the server restarts it. Home's **Needs you** and Monitor then say "Row-Bot restarted because the server ran out of memory", with your server's size. Your saved data and sign-ins stay. A reply that was running when it stopped may need sending again.
 
 Local speech-to-text uses the most. With the search model and Row-Bot's browser, it needs about 3.2 GB. Do one of these:
 
 - **Make the pod 4 GB in PikaPods.** The notice's **How to resize** explains it, and **Manage your pod in PikaPods** opens PikaPods. The notice goes once the server is bigger.
-- **Use cloud speech-to-text.** The notice's **Use cloud speech-to-text** opens **Settings › Voice**: choose **OpenAI Realtime** under **Listen with**.
+- **Use cloud speech-to-text.** The notice's **Use cloud speech-to-text** opens **Settings › Voice**: choose **OpenAI Realtime** under **Listen with**, and on a server under 4 GB turn off **Fall back to Whisper on your Row-Bot server** too.
 
 **Dismiss** hides the notice until it happens again.
 
