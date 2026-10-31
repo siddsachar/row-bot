@@ -1208,6 +1208,17 @@ def _provider_refusal(exc: BaseException) -> list[tuple] | None:
     return None
 
 
+def _readiness_refusal(provider_id: str) -> list[tuple] | None:
+    """A sign-in provider's own reason its readiness check failed (signed out, Claude Code missing), as
+    ``_provider_refusal``'s events; None for any other provider or reason."""
+    from row_bot.providers.runtime import require_signed_in
+    try:
+        require_signed_in(provider_id)
+    except Exception as exc:
+        return _provider_refusal(exc)
+    return None
+
+
 def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
     try:
@@ -7516,7 +7527,7 @@ def _stream_chat_only_events(
         time.perf_counter() - _readiness_started
     ) * 1000.0
     if not readiness.ready:
-        yield ("error", readiness.user_message())
+        yield from _readiness_refusal(readiness.provider_id) or [("error", readiness.user_message())]
         return
     _current_runtime_reason_var.set("chat_only_ready")
     _log_runtime_decision(
@@ -7995,7 +8006,8 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 reason=runtime_readiness.selection_reason,
                 context_window=_readiness_context_window(runtime_readiness, "chat"),
             )
-            yield ("error", runtime_readiness.selection_reason)
+            yield from (_readiness_refusal(runtime_readiness.chat.provider_id)
+                        or [("error", runtime_readiness.selection_reason)])
             return
         _current_selected_runtime_mode_var.set("agent")
         _current_runtime_reason_var.set(runtime_readiness.selection_reason)
@@ -8062,7 +8074,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
-        yield ("error", str(exc))
+        yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     phase_timings["generation.graph_build_ms"] = (
         time.perf_counter() - _graph_build_started
@@ -8255,7 +8267,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
-        yield ("error", str(exc))
+        yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     try:
         config = _resume_agent_graph_config(agent, config)
