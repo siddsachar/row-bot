@@ -13,11 +13,16 @@ import functools
 import logging
 import os
 from types import MappingProxyType
-from typing import Mapping
+from typing import Literal, Mapping
 
 logger = logging.getLogger(__name__)
 
 HOSTED_BY_ENV = "ROW_BOT_HOSTED_BY"
+DEPLOYMENT_MODE_ENV = "ROW_BOT_DEPLOYMENT_MODE"
+
+# Where Row-Bot runs, from the reader's side (U7): the browser is on its computer, a known host runs
+# it, or it is some other server (a container, or a computer reached from a phone).
+Place = Literal["this_computer", "hosted", "server"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,4 +84,34 @@ def _warn_unknown_host(value: str) -> None:
     )
 
 
-__all__ = ["HOSTED_BY_ENV", "KNOWN_HOSTS", "Host", "hosted_by"]
+def server_place(environ: Mapping[str, str] | None = None) -> Place:
+    """The place for a message with no single reader (U7): a known host, a headless server, or the desktop app.
+
+    A request knows its reader's side better (the handshake's ``place``); this is for what the server
+    says to whoever reads it. The desktop app keeps "this computer", as it always said.
+    """
+    env = os.environ if environ is None else environ
+    if hosted_by(env) is not None:
+        return "hosted"
+    if str(env.get(DEPLOYMENT_MODE_ENV) or "").strip().lower() == "server":
+        return "server"
+    return "this_computer"
+
+
+def where_row_bot_runs(environ: Mapping[str, str] | None = None) -> str:
+    """Where Row-Bot runs, in a sentence (U7): "this computer", "your Row-Bot server at PikaPods" or
+    "the computer Row-Bot runs on"."""
+    host = hosted_by(environ)
+    if host is not None:
+        return f"your Row-Bot server at {host.name}"
+    return "the computer Row-Bot runs on" if server_place(environ) == "server" else "this computer"
+
+
+def on_server(environ: Mapping[str, str] | None = None) -> str:
+    """The same with "on": "on this computer", "on your Row-Bot server at PikaPods"…"""
+    return "on " + where_row_bot_runs(environ)
+
+
+__all__ = [
+    "HOSTED_BY_ENV", "KNOWN_HOSTS", "Host", "Place", "hosted_by", "on_server", "server_place", "where_row_bot_runs",
+]

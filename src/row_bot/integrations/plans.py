@@ -34,6 +34,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from row_bot.hosting import on_server, server_place, where_row_bot_runs
 from row_bot.integrations import apps, facts, inputs, presets, safe, sources
 from row_bot.integrations.safe import public_url as public_link
 from row_bot.mcp_client.safety import saved_schema_digest
@@ -383,7 +384,7 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id", "install_ref",
                                                             "link", "upload")}
     elif intent == "fix" and kind == "plugin" and _checkable(row):
-        steps = [_step("consent", title="Finish setting up " + name), _step("test", title="Check it on this computer"),
+        steps = [_step("consent", title="Finish setting up " + name), _step("test", title="Check it " + on_server()),
                  _step("enable", title="Turn on " + name)]
     else:
         steps = [_step("consent", title="Turn on " + name), _step("enable", title="Turn on " + name)]
@@ -873,12 +874,13 @@ PACKAGES = {"npm_package", "pypi_package", "oci_image", "mcpb"}
 def _package_problem(code: str) -> str:
     """A package that can't be prepared, in plain words."""
     return {"mcp_package_node_required": "Set up Node.js first.", "mcp_package_uv_required": "Set up uv first.",
-            "mcp_package_docker_required": "Docker Desktop isn't running on this computer. Open it, then try again.",
+            "mcp_package_docker_required": f"Docker Desktop isn't running {on_server()}. Open it, then try again.",
             "mcp_package_docker_credentials": ("Docker couldn't use its sign-in helper to get this image. Open Docker "
                                                "Desktop (and sign in there if the image is private), then try again."),
             "mcp_package_integrity_changed": "The package changed since you checked it. Try again to review the new version.",
             "mcp_package_version_required": "It doesn't name an exact version to review.",
-            "mcp_package_container_access_unsupported": "It asks Docker for access to this computer that Row-Bot doesn't grant.",
+            "mcp_package_container_access_unsupported": (f"It asks Docker for access to {where_row_bot_runs()} "
+                                                         "that Row-Bot doesn't grant."),
             "mcp_bundle_unavailable": "The bundle file is no longer here. Add it from the file again.",
             }.get(code.split(":", 1)[0], "The package couldn't be prepared. Try again, or check it in advanced settings.")
 
@@ -943,8 +945,8 @@ def _hermes_recipe(ctx: Context, record: dict, step: dict) -> str | None:
         record["_hermes"] = found
     cfg = next(iter(json.loads(found["import_json"])["mcpServers"].values()))
     lines = ([f"Connects to {cfg['url']}."] if cfg.get("url") else
-             [f"Runs {' '.join([cfg['command'], *cfg.get('args', [])])[:200]} on this computer."])
-    lines += [f"Asks for {', '.join(i['name'] for i in cfg.get('inputs', []))}, kept in your system keychain."] if cfg.get("inputs") else []
+             [f"Runs {' '.join([cfg['command'], *cfg.get('args', [])])[:200]} {on_server()}."])
+    lines += [f"Asks for {', '.join(i['name'] for i in cfg.get('inputs', []))}, {_kept_secret()}."] if cfg.get("inputs") else []
     fixed = [name for name, value in (cfg.get("env") or {}).items() if "{" not in value]
     lines += [f"Sets {', '.join(fixed)} for it."] if fixed else []
     step["review"] = {"summary": f"{record['name']} recipe at {reference['pin'][:12]}", "lines": [line[:256] for line in lines],
@@ -996,7 +998,7 @@ def _bundle_recipe(ctx: Context, record: dict) -> None:
         install = bundle_install(staged["upload"], staged["bundle"])
         install["bundle"]["url"] = bundle["url"]  # Where it came from, so its record can be checked again.
     except (ValueError, OSError) as error:
-        raise PlanError("bundle_unsupported", "Row-Bot can't run this bundle on this computer.") from error
+        raise PlanError("bundle_unsupported", f"Row-Bot can't run this bundle {on_server()}.") from error
     record["_bundle_entry"] = {**record["reference"]["entry"], "install": install, "transport": "stdio"}
     _save(record)
 
@@ -1716,16 +1718,22 @@ def _hub_record_named(name: str):
 
 _PERMISSIONS = {"network": "use the internet", "files": "read and change files", "account": "use your accounts",
                 "external_send": "send messages or posts for you", "messaging": "use your messaging channels",
-                "memory_documents": "read your memory and documents", "shell_processes": "run programs on this computer"}
+                "memory_documents": "read your memory and documents"}
+
+
+def _kept_secret() -> str:
+    """Where a key is kept: the desktop's keychain, or encrypted on the server (U7)."""
+    return "kept in your system keychain" if server_place() == "this_computer" else f"kept encrypted {on_server()}"
 
 
 def _package_review(summary: dict) -> dict:
     """What a package declares, shown in place before it is added: the code it runs, what it starts or
     connects to, what it may do, and its skills. Only that exact package (its tree digest) is added."""
-    lines = [f"Runs its own code on this computer for: {', '.join(summary['tools'])}."] if summary["tools"] else []
+    lines = [f"Runs its own code {on_server()} for: {', '.join(summary['tools'])}."] if summary["tools"] else []
     lines += [f"Connects to {server['url']}." if server["url"] else
-              f"Runs {' '.join([server['command'], *server['args']])} on this computer." for server in summary["servers"]]
-    lines += ["Asks to " + ", ".join(_PERMISSIONS.get(name, name) for name in summary["permissions"]) + "."]         if summary["permissions"] else []
+              f"Runs {' '.join([server['command'], *server['args']])} {on_server()}." for server in summary["servers"]]
+    permissions = {**_PERMISSIONS, "shell_processes": "run programs " + on_server()}
+    lines += ["Asks to " + ", ".join(permissions.get(name, name) for name in summary["permissions"]) + "."]         if summary["permissions"] else []
     lines += ["Adds skills: " + ", ".join(skill["name"] for skill in summary["skills"]) + "."] if summary["skills"] else []
     lines += [f"Says it comes from {summary['publisher']}; Row-Bot hasn't checked that."] if summary["publisher"] else []
     return {"summary": f"{summary['name']} {summary['version']}", "lines": [line[:256] for line in lines], "items": [],

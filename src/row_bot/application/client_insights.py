@@ -8,6 +8,7 @@ from hashlib import sha256
 import json
 
 from row_bot.application.client_platform import ClientPlatformError
+from row_bot.hosting import on_server
 from row_bot.runtime import admissions
 
 
@@ -16,7 +17,7 @@ _ACTIONS = frozenset({"pin", "unpin", "dismiss", "restore", "generate", "review_
 # (a thread id, a private path). B124: never a bare "Proposal applied."
 _APPLIED = {
     "investigate": "Investigation draft ready to open.",
-    "send_feedback": "Feedback report saved on this computer. Nothing was sent; copy it to send it yourself.",
+    "send_feedback": "Feedback report saved {where}. Nothing was sent; copy it to send it yourself.",
 }
 # A new insight not found again for this long may no longer apply.
 _OUT_OF_DATE_AFTER = timedelta(days=14)
@@ -219,7 +220,7 @@ def execute_insight(
         succeeded = bool(result.get("ok"))
         message = _text(result.get("message"), 256).strip().rstrip(".")
         summary = (
-            _APPLIED.get(str(proposal.get("proposal_type")))
+            _APPLIED.get(str(proposal.get("proposal_type")), "").format(where=on_server())
             or (f"{message}." if message else "Done.")
         ) if succeeded else "Proposal failed; inspect its status."
     validate()

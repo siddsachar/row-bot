@@ -1598,6 +1598,14 @@ def create_router(
                     for item in discovery["capabilities"]
                 ],
             }
+        # Where Row-Bot runs, from this browser's side (U7): "this computer" only when it is.
+        from row_bot.hosting import hosted_by
+
+        host = None if local_owner else hosted_by()
+        place = {
+            "kind": "this_computer" if local_owner else "hosted" if host else "server",
+            "host_name": host.name if host else None,
+        }
         # The native bridge is a person's window: only a signed-in one gets its token.
         native_window = local_owner and context.may_act
         native_attestation = (
@@ -1638,6 +1646,7 @@ def create_router(
                 # A new schedule keeps its times in this zone unless another is chosen (N9).
                 "server_timezone": _schedule_zone_name(),
                 "sandbox": _is_sandbox(),
+                "place": place,
                 "native_adapter": {
                     "available": native_window,
                     "proof_required": True,

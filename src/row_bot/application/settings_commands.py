@@ -479,7 +479,9 @@ def review_settings_update(
     elif (page, field) == ("voice", "sensevoice.install"):
         summary = "Download and install SenseVoice Small locally"
     elif (page, field) == ("voice", "whisper.install"):
-        summary = "Download the selected Whisper speech recognition model from Hugging Face and keep it on this computer"
+        from row_bot.hosting import on_server
+
+        summary = f"Download the selected Whisper speech recognition model from Hugging Face and keep it {on_server()}"
     elif (page, field) == ("system", "browser.install"):
         summary = "Download and install Row-Bot's managed Playwright Chromium runtime"
     elif (page, field) == ("system", "computer_use.install"):
