@@ -272,6 +272,21 @@ def test_a_sandboxs_new_chats_start_at_the_level_of_the_chat_that_made_it_never_
     assert starting_level({SANDBOX_LEVEL_ENV: "auto"}) == "approve", "only a sandbox reads it"
 
 
+def test_a_sandbox_made_from_a_chat_on_a_local_model_answers_with_it_at_once(fake_process, home, monkeypatch):
+    from row_bot.approval_review import ReviewVerdict
+    from row_bot.tools import approval_gate, browser_tool
+
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "auto")
+    monkeypatch.setattr("row_bot.approval_review.review", lambda payload, **_kw: ReviewVerdict("approve", "Asked."))
+    monkeypatch.setattr(browser_tool, "_chat_model", lambda: "model:ollama:qwen3.8:27b")
+    made = browser_tool.sandbox("create", name="Local demo", pack="shop")
+    assert "signed in (27b)" in made and "no model yet" not in made, "a model on this computer needs no sign-in"
+
+    monkeypatch.setattr(browser_tool, "_chat_model", lambda: "model:codex:gpt-6.1-sol")
+    made = browser_tool.sandbox("create", name="Cloud demo", pack="charity")
+    assert "no model yet" in made, "a hosted model's sign-in is never carried over"
+
+
 def test_creating_a_sandbox_reuses_a_signed_in_one_with_that_pack(fake_process, home, monkeypatch):
     from row_bot.approval_review import ReviewVerdict
     from row_bot.tools import approval_gate, browser_tool

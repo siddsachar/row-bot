@@ -399,10 +399,16 @@ def test_a_size_the_agent_chose_wins_over_the_pane_until_it_goes_back_to_desktop
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
     assert sizes[-1]["width"] == 390  # The pane doesn't undo the agent's phone size.
 
-    words = engine.set_viewport("desktop", None, "chat-a")
+    words = engine.set_viewport("pane", None, "chat-a")
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
     assert sizes[-1] == {"width": 500, "height": 700, "deviceScaleFactor": 1.0, "mobile": False}
     assert words.startswith("The page now shows at the Browser pane's size: 500×700 at 1× scale.")
+
+    # Asked for desktop, a narrow pane still gets a desktop window (demo run 4 got 420×902 and filmed a phone).
+    words = engine.set_viewport("desktop", None, "chat-a")
+    sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
+    assert sizes[-1] == {"width": 1280, "height": 800, "deviceScaleFactor": 1.0, "mobile": False}
+    assert words.startswith("The page now shows at desktop size: 1280×800 at 1× scale.")
 
     words = engine.set_viewport("desktop", 2, "chat-a")
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
@@ -445,6 +451,8 @@ def test_while_recording_the_page_keeps_the_recordings_size_whatever_the_pane_do
                                       on_end=lambda reason, _video: ended.append(reason), thread_id="chat-a")
     recording = {"width": 1440, "height": 810, "deviceScaleFactor": 4 / 3, "mobile": False}
     assert recorder.size == (1920, 1080)
+    assert page_size() == recording
+    assert "the recording's size" in engine.set_viewport("desktop", None, "chat-a"), "desktop while it records"
     assert page_size() == recording
     assert picture() == (1920, 1080, 90), "the recording's own pixels; the pane shows them scaled"
 

@@ -2,11 +2,15 @@
 name: video_editing_guide
 display_name: Video Editing Guide
 icon: "🎬"
-description: Guidance for editing videos and taking stills with edit_video.
+description: Guidance for making videos with video and editing them with edit_video.
 tools:
   - video_editing
 tags: []
 ---
+- A video of scenes (a demo, how-to, teaser or explainer: recordings,
+  clips, title cards, a voice, music) is the video tool. A scene without a
+  source is a title card, and it voices each line and lays the music
+  itself: never draw cards, mix sound or run ffmpeg with scripts.
 - edit_video edits videos the person already has: recordings (rec-…),
   earlier edits (edit-…), files in this chat by name, or workspace paths.
   It never generates video (that is generate_video, when it is on).
@@ -22,7 +26,8 @@ tags: []
   the video shorter to fit what's said.
 - A video given a voice is checked when it's made. "Needs attention" is not
   done: a quiet gap wants a line or a shorter part, and a picture held 10 s
-  or more wants that part cut shorter or sped up. Fix it and make it again.
+  (20 s under the voice) wants that part cut shorter, sped up or zoomed.
+  Fix it and make it again.
 - The result is an MP4 in this chat with a player; do not paste it again.
   A long edit carries on in the background with its own progress and Stop:
   say so, and call edit_video with action status and its edit_id to wait.

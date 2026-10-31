@@ -188,6 +188,45 @@ def test_a_long_turn_sends_only_its_newest_reasoning_once_it_reaches_the_limit(m
         False, False, False, True], "only the newest step's reasoning is sent"
 
 
+def test_a_long_turn_clears_its_earlier_results_oldest_first_to_keep_room(monkeypatch) -> None:
+    """30 Oct demo run 2: one turn of 28 steps (page outlines, twelve video versions) reached the limit, which
+    compaction can't shorten; every outline from ten steps ago still went in full."""
+    pages = {step: text_of_tokens(f"page {step}", 3_000) for step in range(1, 9)}
+
+    def a_turn_of_steps(compact_at: int) -> dict[int, str]:
+        conversation = AgentConversation(agent, monkeypatch, context_window=40_000, compact_at=compact_at)
+        conversation.say("Film the shop demo.")
+        calls = {step: conversation.tool("read_file", text) for step, text in pages.items()}
+        contents = tool_contents(conversation.request())
+        return {step: contents[call] for step, call in calls.items()}
+
+    assert a_turn_of_steps(UNLIMITED) == pages
+    sent = a_turn_of_steps(16_000)
+    whole = [step for step, text in sent.items() if text == pages[step]]
+    assert whole[-3:] == [6, 7, 8], "the newest results stay whole"
+    assert all(_cleared(sent[step]) for step in range(1, 9) if step not in whole), "the oldest are cleared first"
+    assert whole == list(range(whole[0], 9)), "cleared from the oldest, never in between"
+
+
+def test_when_compaction_cant_make_room_the_kept_turns_stale_results_are_cleared(monkeypatch) -> None:
+    """Demo run 2: after "please carry on", the long turn before it was kept whole by the jump and too large for the
+    summarizer ("A protected conversation group is too large to summarize safely"), so the turn failed."""
+    pages = {step: text_of_tokens(f"page {step}", 3_000) for step in range(1, 9)}
+    conversation = AgentConversation(agent, monkeypatch, context_window=40_000, compact_at=16_000, usable=20_000)
+    conversation.say("Film the shop demo.")
+    calls = {step: conversation.tool("read_file", text) for step, text in pages.items()}
+    conversation.answer("Still cutting.")
+    conversation.say("Please carry on.")
+
+    contents = tool_contents(conversation.request())
+
+    assert conversation.summarizer.requests, "compaction is asked first (it fails here)"
+    whole = [step for step, call in calls.items() if contents[call] == pages[step]]
+    assert whole[-3:] == [6, 7, 8] and whole == list(range(whole[0], 9)), "the newest stay whole"
+    assert whole[0] > 1, "something was cleared"
+    assert all(_cleared(contents[calls[step]]) for step in range(1, whole[0])), "cleared oldest first, until it fits"
+
+
 def test_an_earlier_turns_reasoning_is_never_sent_again(monkeypatch) -> None:
     conversation = AgentConversation(agent, monkeypatch)
     conversation.say("Plan the video.")
