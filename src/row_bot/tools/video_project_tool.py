@@ -29,7 +29,8 @@ class _Scene(BaseModel):
     start: float = Field(default=0.0, description="Seconds into that video.")
     end: float | None = Field(default=None, description="Seconds into that video (empty: to its end).")
     speed: float = Field(default=1.0, description="2 = twice as fast (shows a 2× badge), 0.5 = half.")
-    zoom: list[float] | None = Field(default=None, description="[x, y, width, height], 0-1: punch in on it.")
+    zoom: list[float] | None = Field(default=None, description="Leave empty: on a recording the camera follows "
+                                                             "what was done. [x, y, width, height], 0-1: hold there.")
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
