@@ -864,7 +864,12 @@ function HostedChoices({
             <Button
               variant="ghost"
               className="small first-run-back"
-              onClick={onListedClose}
+              onClick={() => {
+                // Back to the two buttons; the same one carries on again.
+                if (listed) continued.current.delete(listed);
+                setPath(null);
+                onListedClose();
+              }}
             >
               <ArrowLeft size={14} aria-hidden /> Back
             </Button>
