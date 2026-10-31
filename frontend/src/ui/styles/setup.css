@@ -759,6 +759,11 @@
 .first-run-connected {
   margin: 0;
 }
+/* The GPU line wraps on phones: its icon sits by the first line. */
+.first-run-hosted .first-run-note svg {
+  align-self: flex-start;
+  margin-top: 2px;
+}
 .home-gate {
   min-height: 60vh;
 }
@@ -794,6 +799,12 @@
     display: inline-flex;
     align-items: center;
     min-height: 44px;
+  }
+  /* A link inside a sentence keeps the line: its padding makes the target. */
+  .first-run-hosted .first-run-note a {
+    display: inline;
+    min-height: 0;
+    padding-block: 12px;
   }
   .first-run-model,
   .first-run-provider,
