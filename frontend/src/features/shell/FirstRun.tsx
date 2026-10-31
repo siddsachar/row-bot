@@ -53,6 +53,7 @@ import {
 } from '../settings/provider-keys';
 import { BillingTag } from './ModelList';
 import { useWorkspaceActions } from './workspace-actions';
+import { markFirstChat } from './first-chat';
 import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
 
 /** "Set up later" for this window: Home stops opening Setup until next time. */
@@ -1055,10 +1056,11 @@ export default function FirstRun({
     }
     void controller.refreshChoices().catch(() => undefined);
     if (importSources.current.length) setStep({ kind: 'import' });
-    else if (host && workspace?.newChat)
+    else if (host && workspace?.newChat) {
       // Straight into a chat with one suggested first message (U3).
+      markFirstChat();
       workspace.newChat();
-    else navigate('/', { replace: true });
+    } else navigate('/', { replace: true });
   }
 
   /**

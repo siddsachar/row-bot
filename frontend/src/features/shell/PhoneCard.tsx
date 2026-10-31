@@ -18,7 +18,7 @@ import { useConnectCode } from '../settings/connect-code';
 
 export const PHONE_CARD_TITLE = 'Add Row-Bot to your phone';
 const DISMISS =
-  'Hide this. Your phone can be added later in Settings › Devices.';
+  'Hide this. You can add your phone later in Settings › Devices & remote access.';
 
 type Controller = ReturnType<typeof useRuntime>['controller'];
 /** One read of the setup state per connection: the card shows in many chats. */
@@ -51,10 +51,24 @@ function installed() {
   }
 }
 
+/** A loopback address never reaches a phone (U56). */
+function loopback(origin: string) {
+  try {
+    const host = new URL(origin).hostname.replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || host.startsWith('127.');
+  } catch {
+    return true;
+  }
+}
+
 /** The address this browser uses, which a phone reaches too; else another secure one. */
 function phoneRoute(routes: AccessRoute[]) {
   const usable = routes.filter(
-    (route) => route.available && route.eligible && Boolean(route.origin),
+    (route) =>
+      route.available &&
+      route.eligible &&
+      Boolean(route.origin) &&
+      !loopback(route.origin),
   );
   return (
     usable.find((route) => route.origin === window.location.origin) ??
@@ -72,7 +86,8 @@ function phoneRoute(routes: AccessRoute[]) {
  * U10: after the first answer on a hosted Row-Bot, one small card in the chat,
  * "Add Row-Bot to your phone". A phone gets the home-screen steps; a computer
  * shows a QR code (Devices' own one-time code) once asked. It never blocks the
- * chat, and once dismissed it never comes back; Settings › Devices keeps it.
+ * chat, and once dismissed it never comes back; Settings › Devices & remote
+ * access keeps it.
  */
 export default function PhoneCard({
   client = accessInvitationClient,
@@ -276,8 +291,11 @@ function ScanCode({
   if (route === null)
     return (
       <p>
-        {error || 'This address can’t make a code here.'} Connect your phone
-        from <AppLink to="/settings/access#connect">Settings › Devices</AppLink>
+        {error || 'Your phone can’t reach the address this browser uses.'}{' '}
+        Connect it from{' '}
+        <AppLink to="/settings/access#connect">
+          Settings › Devices &amp; remote access
+        </AppLink>
         .
       </p>
     );

@@ -118,7 +118,7 @@ import {
 } from './pending-approvals';
 import ChatEmpty from './ChatEmpty';
 import PhoneCard from './PhoneCard';
-import { neverUsed } from './new-chat';
+import { clearFirstChat, firstChatPending } from './first-chat';
 import { FIRST_MESSAGE } from './welcome-prompts';
 import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
 import { ProcessIoContext, type ProcessIo } from './background-processes';
@@ -2919,13 +2919,11 @@ export default function Conversation({
   const onHostedServer = Boolean(
     state.handshake?.application_capabilities?.includes('hosted'),
   );
-  const firstChat =
-    onHostedServer &&
-    Boolean(id) &&
-    !state.conversations.some(
-      (item) =>
-        item.id !== id && !item.parent_conversation_id && !neverUsed(item),
-    );
+  const firstChat = onHostedServer && Boolean(id) && firstChatPending();
+  // Any message in it, typed or tapped, ends the first chat's suggestion.
+  useEffect(() => {
+    if (firstChat && items.length) clearFirstChat();
+  }, [firstChat, items.length]);
   async function rename(next: string) {
     if (!id || !state.conversation) return;
     try {
@@ -3463,7 +3461,13 @@ export default function Conversation({
                   // A hosted Row-Bot's first chat: one message to tap (U3).
                   first={
                     firstChat
-                      ? { prompt: FIRST_MESSAGE, onSend: (text) => send(text) }
+                      ? {
+                          prompt: FIRST_MESSAGE,
+                          onSend: (text) => {
+                            clearFirstChat();
+                            send(text);
+                          },
+                        }
                       : undefined
                   }
                   recent={state.conversations}

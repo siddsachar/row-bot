@@ -9,6 +9,7 @@ import type {
 import { RuntimeContext } from '../../runtime';
 import { SubscriptionAccountsSession } from '../settings/SubscriptionAccounts';
 import FirstRun, { CODE_COPIED, CODE_NOT_COPIED } from './FirstRun';
+import { firstChatPending } from './first-chat';
 import { WorkspaceActionsContext } from './workspace-actions';
 
 // U3: on a server whose host Row-Bot knows, the first run is two big buttons
@@ -185,6 +186,7 @@ beforeEach(() => {
     },
   });
   document.execCommand = vi.fn(() => false);
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -281,6 +283,8 @@ it('goes from a finished sign-in straight into a new chat on ChatGPT’s own pic
     await vi.advanceTimersByTimeAsync(5200);
   });
   await vi.waitFor(() => expect(newChat).toHaveBeenCalledOnce());
+  // The new chat suggests one first message (ChatEmpty's own test taps it).
+  expect(firstChatPending()).toBe(true);
   expect(actions.chooseSuggested).toHaveBeenCalledWith('codex');
   expect(mock.controller.refreshLiveProvider).toHaveBeenCalledWith('codex');
   expect(mock.controller.testChosenModel).toHaveBeenCalledOnce();

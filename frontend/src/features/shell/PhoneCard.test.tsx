@@ -206,7 +206,7 @@ it('once dismissed it never comes back', async () => {
   const { unmount } = show(COMPUTER);
   fireEvent.click(
     await screen.findByRole('button', {
-      name: 'Hide this. Your phone can be added later in Settings › Devices.',
+      name: 'Hide this. You can add your phone later in Settings › Devices & remote access.',
     }),
   );
   expect(screen.queryByRole('heading', { name: PHONE_CARD_TITLE })).toBeNull();
