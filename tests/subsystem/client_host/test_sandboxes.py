@@ -57,6 +57,26 @@ def fake_process(home, monkeypatch):
     sandboxes._SECRETS.clear()
 
 
+def test_a_sandbox_is_saved_while_windows_briefly_holds_its_file_open(home, monkeypatch):
+    """Windows refuses replacing sandbox.json while another thread reads it (Access is denied):
+    the save waits a moment and tries again instead of failing the sandbox."""
+    real_replace, refused = os.replace, []
+
+    def held_once(source, target):
+        if not refused:
+            refused.append(target)
+            denied = PermissionError(13, "Access is denied")
+            denied.winerror = 5
+            raise denied
+        real_replace(source, target)
+
+    monkeypatch.setattr(sandboxes.os, "replace", held_once)
+    made = sandboxes.create("Shop", "shop")
+    assert refused, "the first replace was refused"
+    assert sandboxes.get(made.sandbox_id).name == "Shop"
+    assert not list(sandboxes.sandboxes_root().glob("*/*.part"))
+
+
 def test_a_sandbox_gets_none_of_this_row_bots_keys_settings_or_folders(home):
     sandbox = sandboxes.create("Demo shop", "shop")
     env = sandboxes.environment(sandbox, 51234, "x" * 43, base={
