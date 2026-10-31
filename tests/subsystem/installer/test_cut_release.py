@@ -7,6 +7,7 @@ bug report form and the docs screenshots all carry the version too.
 from __future__ import annotations
 
 import plistlib
+import re
 import shutil
 from pathlib import Path
 
@@ -76,6 +77,11 @@ def test_line_endings_survive_the_bump(checkout: Path) -> None:
     assert gate._source_versions(checkout) == ("9.8.7-rc.1", "9.8.7-rc.1")
 
 
+def _written(text: str) -> str:
+    """The notes once the person releasing has written what the placeholder asks for."""
+    return re.sub(r"TODO:.*", "No changes for hosts.", text)
+
+
 def test_a_new_release_drafts_notes_with_a_for_hosts_section(checkout: Path) -> None:
     notes = checkout / "RELEASE_NOTES.md"
     notes.write_text(HEADER + EARLIER, encoding="utf-8", newline="\n")
@@ -83,11 +89,27 @@ def test_a_new_release_drafts_notes_with_a_for_hosts_section(checkout: Path) -> 
     cut_release.main(["9.8.7", "--root", str(checkout), "--no-docs"])
 
     text = notes.read_text(encoding="utf-8")
-    title, body = parts.release_notes("9.8.7", text)
+    title, body = parts.release_notes("9.8.7", _written(text))
     assert title == "v9.8.7"
-    assert "### For Hosts" in body
+    assert body.endswith("### For Hosts\n\nNo changes for hosts.\n")
     assert text.startswith(HEADER) and text.index("## v9.8.7") < text.index("## v1.2.3")
     assert parts.release_notes("1.2.3", text) == parts.release_notes("1.2.3", HEADER + EARLIER)
+
+
+def test_the_release_refuses_notes_until_their_placeholder_is_written(checkout: Path, capsys) -> None:
+    notes = checkout / "RELEASE_NOTES.md"
+    notes.write_text(HEADER + EARLIER, encoding="utf-8", newline="\n")
+    cut_release.main(["9.8.7", "--root", str(checkout), "--no-docs"])
+    command = ["release-notes", "--version", "9.8.7", "--notes", str(notes),
+               "--title-out", str(checkout / "title.txt"), "--body-out", str(checkout / "notes.md")]
+
+    assert parts.main(command) == 1
+    assert "still says TODO:" in capsys.readouterr().out
+    assert not (checkout / "notes.md").exists()
+
+    notes.write_text(_written(notes.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
+    assert parts.main(command) == 0
+    assert (checkout / "notes.md").read_text(encoding="utf-8").endswith("No changes for hosts.\n")
 
 
 def test_written_notes_gain_one_for_hosts_section_and_keep_their_words(checkout: Path) -> None:
@@ -99,7 +121,7 @@ def test_written_notes_gain_one_for_hosts_section_and_keep_their_words(checkout:
     cut_release.main(["9.8.7", "--root", str(checkout), "--no-docs"])
 
     text = notes.read_text(encoding="utf-8")
-    title, body = parts.release_notes("9.8.7", text)
+    title, body = parts.release_notes("9.8.7", _written(text))
     assert title == "v9.8.7 - Smaller Pods"
     assert body.count("### For Hosts") == 1
     assert body.index("Row-Bot 9.8.7 needs less memory.") < body.index("### For Hosts")

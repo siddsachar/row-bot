@@ -27,10 +27,18 @@ Row-Bot uses semantic versioning:
   width, and a Linux package build and install smoke.
   Weekly (or `weekly: true` on a manual run): Installer Verify on Windows and
   macOS and the browser smoke on Firefox and WebKit.
+- **Pull requests that touch the image, and every release** (`container.yml`):
+  native `linux/amd64` and `linux/arm64` images, each smoked in the Compose
+  shape (`scripts/smoke_docker_server.py`) and as a hosting service runs it
+  (`scripts/smoke_hosting_partner.py`: one container, one volume, the host's
+  generated setup code and key, a fake model, a restart). The hosting smoke
+  writes the container's memory high-water mark to the job summary. A release
+  pushes an image only after both smokes pass.
 - **Release** (`release.yml`): the `release-gate` job checks the lock files,
   checks that the requested version matches `src/row_bot/version.py` and
   `installer/row_bot_setup.iss`, refuses a run that is not from the tag
-  `vX.Y.Z`, and refuses a commit without a green `CI / ci-ok`. It runs the
+  `vX.Y.Z`, refuses release notes for the version that still say `TODO:`, and
+  refuses a commit without a green `CI / ci-ok`. It runs the
   nightly suite once only if that commit has no green nightly run. Nothing else
   is re-tested; each build install-smokes its own package and rehearses a
   background update from the release's own update parts.
@@ -79,7 +87,8 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    package the image (breaking changes, a new recommended size, new host
    settings), or "No changes for hosts." Hosts act on it: a breaking change for
    hosts must be flagged there and announced to them at least 7 days before the
-   tag.
+   tag. The release refuses a section that still says `TODO:` (see the
+   [Hosting checklist](#hosting-checklist)).
 
    Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md` and the
    version sentence on `docs-site/docs/index.mdx` (publish again if you change
@@ -155,6 +164,26 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    on the merge commit. To avoid running the nightly suite inside the release,
    dispatch `gh workflow run nightly.yml --ref main` on that commit first (or
    wait for the scheduled run).
+
+### Hosting checklist
+
+Hosts that package the image update their users' Row-Bots unattended, from
+`latest` (stable releases only) or the version tag. Before tagging:
+
+- [ ] The hosting smoke is green on amd64 and arm64: the "as a hosting service
+      runs it" steps of `container.yml` on the release-prep pull request (it
+      changes `src/`, so the workflow runs). The release runs it again before
+      it pushes the image; if it fails there, no image is pushed: say so in the
+      notes and tell the hosts.
+- [ ] The version's `### For Hosts` section is written, or says "No changes for
+      hosts." `release.yml` refuses a section that still says `TODO:`.
+- [ ] Breaking changes for hosts (a new required setting, a migration that
+      needs them, a larger recommended size) were announced to the hosts at
+      least 7 days before the tag.
+- [ ] The memory high-water mark in the hosting smoke's job summary is under
+      3.2 GB on both architectures, or the recommended size in
+      `docs-site/docs/operations/hosting.mdx` and the hosts' listings is
+      updated.
 
 ## Build and publish
 

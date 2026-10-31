@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "description": "The out-of-memory notice is gone until the next such restart (U8); false when there was none.",
+  "properties": {
+    "dismissed": {
+      "title": "Dismissed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "dismissed"
+  ],
+  "title": "MemoryNoticeDismissed",
+  "type": "object"
+}

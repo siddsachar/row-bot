@@ -19,6 +19,7 @@ import type {
   ModelsSettingsState,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import {
   Button,
   Disclosure,
@@ -156,6 +157,7 @@ export default function ModelsPanel({
   /** Opens a web page outside Row-Bot (the Ollama download). */
   openExternal?: (url: string) => void;
 }) {
+  const place = usePlace();
   const notify = useNotify();
   const navigate = useNavigate();
   const limitId = useId();
@@ -678,7 +680,7 @@ export default function ModelsPanel({
     openExternal
       ? [
           {
-            label: 'Get models for this computer…',
+            label: `Get models for ${place.name}…`,
             icon: <Download size={16} aria-hidden />,
             onSelect: () => openExternal('https://ollama.com/download'),
           },
@@ -833,7 +835,7 @@ export default function ModelsPanel({
           <SettingsItem
             label={
               contextKind === 'local'
-                ? 'Models on this computer'
+                ? `Models on ${place.name}`
                 : 'Reading limit'
             }
             sub

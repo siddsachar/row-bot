@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,7 @@ import {
 } from '@testing-library/react';
 import { useState } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type {
   AccountAuthCommand,
@@ -16,9 +17,12 @@ import type {
   SettingsMutationRequest,
   SettingsMutationReview,
   SettingsSnapshot,
+  UpdateSnapshot,
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
+import { setPlace } from '../../api/place';
+import { setMemoryLimit } from '../../api/server-memory';
 import { OverlayProvider } from '../../ui/overlays';
 import { ThemeProvider } from '../../ui/theme';
 import { settingsRows, type SettingsLeafId } from './model';
@@ -442,6 +446,51 @@ function openSetup() {
 function notice(text: string | RegExp) {
   return screen.findByText(text, { selector: '.toast *' });
 }
+
+afterEach(() => {
+  setPlace(null);
+  setMemoryLimit(null);
+});
+
+it('Voice says what runs where: this computer, or only the speech model on the Row-Bot server (U7)', () => {
+  renderSetting('voice');
+  expect(
+    screen.getByText('On this computer keeps your voice private.'),
+  ).toBeVisible();
+  cleanup();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  renderSetting('voice');
+  expect(
+    screen.getAllByRole('option', { name: 'Whisper · on your Row-Bot server' }),
+  ).toHaveLength(2);
+  expect(
+    screen.getByText(
+      'Download the speech model to your Row-Bot server to talk',
+    ),
+  ).toBeVisible();
+  // The audio does travel to the server: say so, not that it stays private.
+  expect(
+    screen.getByText(
+      'Your voice goes only to your Row-Bot server at PikaPods, never to a speech service.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Downloads once from Hugging Face (Systran), then runs on your server.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/private|offline/);
+  expect(document.body).not.toHaveTextContent(/this computer/);
+  cleanup();
+  setPlace({ kind: 'server' });
+  renderSetting('voice');
+  expect(
+    screen.getByText(
+      'Your voice goes only to the computer Row-Bot runs on, never to a speech service.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/this computer/);
+});
 
 it('renders real voice controls without probing a device or provider', async () => {
   renderSetting('voice');
@@ -1734,6 +1783,43 @@ it.each([
   },
 );
 
+it('Documents say where search runs: this computer, or the Row-Bot server (U7)', () => {
+  mutation.page = 'documents';
+  const show = () =>
+    render(
+      <DocumentEmbeddingSnapshot
+        snapshot={snapshot.documents}
+        mutation={mutation}
+      />,
+    );
+  const desktop = show();
+  expect(
+    screen.getByText('On this computer, your documents never leave it.'),
+  ).toBeVisible();
+  desktop.unmount();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const hosted = show();
+  const runs = screen.getByRole('radiogroup', { name: 'Search runs' });
+  expect(
+    within(runs).getByRole('radio', { name: 'Your Row-Bot server' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByText('search runs on your Row-Bot server')).toBeVisible();
+  expect(
+    screen.getByText(
+      'On your Row-Bot server at PikaPods, your documents never leave it.',
+    ),
+  ).toBeVisible();
+  hosted.unmount();
+  setPlace({ kind: 'server' });
+  show();
+  expect(
+    screen.getByText(
+      'On the computer Row-Bot runs on, your documents never leave it.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/this computer/);
+});
+
 it('renders editable document, tool, and preference owners', async () => {
   mutation.page = 'documents';
   const documents = render(
@@ -1869,6 +1955,192 @@ it('renders editable document, tool, and preference owners', async () => {
       screen.getByRole('radiogroup', { name: 'Update channel' }),
     ).getByRole('radio', { name: 'Stable' }),
   ).toHaveAttribute('aria-checked', 'true');
+});
+
+it('a known host’s Updates page shows the version and who updates it, and nothing to set (H3, U6)', async () => {
+  const hosted = {
+    ...snapshot,
+    system: {
+      ...snapshot.system,
+      hosted_by: {
+        id: 'pikapods',
+        name: 'PikaPods',
+        home_url: 'https://www.pikapods.com/',
+        support_url: null,
+        status_url: null,
+        manage_url: null,
+      },
+    },
+  } satisfies SettingsSnapshot;
+  const updates: UpdateSnapshot = {
+    schema_version: 1,
+    revision: 'a'.repeat(64),
+    channel: 'stable',
+    current_version: '1.0.0',
+    last_check: null,
+    last_success: null,
+    skipped_versions: [],
+    available: null,
+    dev_install: false,
+    mode: 'external',
+    auto_check: true,
+    auto_download: true,
+    engine: {
+      phase: 'idle',
+      version: null,
+      step: null,
+      message: null,
+      error: null,
+      retryable: false,
+      apply_when: null,
+      full_installer_url: null,
+      downloaded: 0,
+      total: 0,
+    },
+    previous_version: null,
+    legacy_install: false,
+    host: {
+      state: 'unknown',
+      current_version: null,
+      available_version: null,
+      message: null,
+      notes_url: 'https://github.com/example/row-bot/releases/tag/v1.0.0',
+      updated_at: null,
+      request: null,
+    },
+    active_work: [],
+    held_back: null,
+    feed_url: null,
+  };
+  const state = { conversations: [], selectedConversationId: null };
+  const known: Record<string, unknown> = {
+    getSnapshot: () => state,
+    subscribe: () => () => {},
+    settingsSnapshot: async () => hosted,
+    updates: async () => updates,
+  };
+  const controller = new Proxy(known, {
+    get: (target, key: string) =>
+      key in target ? target[key] : () => new Promise(() => {}),
+  }) as unknown as ClientController;
+  render(
+    <RuntimeContext.Provider
+      value={{ controller, platform: {} as ClientPlatform }}
+    >
+      <OverlayProvider>
+        <MemoryRouter initialEntries={['/settings/updates']}>
+          <Routes>
+            <Route path="settings/:setting/*" element={<SettingRoute />} />
+          </Routes>
+        </MemoryRouter>
+      </OverlayProvider>
+    </RuntimeContext.Provider>,
+  );
+  expect(await screen.findByText('Updated by PikaPods')).toBeVisible();
+  expect(screen.getByText('Row-Bot 1.0.0')).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
+  ).toBeVisible();
+  // The host picks and installs releases: no channel, checks or details.
+  expect(
+    screen.queryByRole('radiogroup', { name: 'Update channel' }),
+  ).toBeNull();
+  expect(screen.queryByText(/checked/)).toBeNull();
+  expect(screen.queryByText('Advanced')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Check for updates' }),
+  ).toBeNull();
+});
+
+it('System starts with the Hosted by card only when a known host runs Row-Bot (U5)', async () => {
+  const state = { conversations: [], selectedConversationId: null };
+  const show = (value: SettingsSnapshot) => {
+    const known: Record<string, unknown> = {
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+      settingsSnapshot: async () => value,
+    };
+    const controller = new Proxy(known, {
+      get: (target, key: string) =>
+        key in target ? target[key] : () => new Promise(() => {}),
+    }) as unknown as ClientController;
+    return render(
+      <RuntimeContext.Provider
+        value={{ controller, platform: {} as ClientPlatform }}
+      >
+        <OverlayProvider>
+          <MemoryRouter initialEntries={['/settings/system']}>
+            <Routes>
+              <Route path="settings/:setting/*" element={<SettingRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </OverlayProvider>
+      </RuntimeContext.Provider>,
+    );
+  };
+  const hosted = {
+    ...snapshot,
+    system: {
+      ...snapshot.system,
+      hosted_by: {
+        id: 'pikapods',
+        name: 'PikaPods',
+        home_url: 'https://www.pikapods.com/',
+        support_url: 'https://docs.pikapods.com/',
+        status_url: null,
+        manage_url: 'https://www.pikapods.com/pods',
+      },
+      memory: { limit_bytes: 2 * 2 ** 30, used_bytes: 2 ** 29 },
+    },
+  } satisfies SettingsSnapshot;
+  show(hosted);
+  const card = await screen.findByRole('region', {
+    name: 'Hosted by PikaPods',
+  });
+  expect(
+    within(card).getByText('Row-Bot 1.0.0 · updated by PikaPods'),
+  ).toBeVisible();
+  expect(within(card).getByText('Memory 0.5 GB of 2 GB')).toBeVisible();
+  // At the top: before the page's own groups.
+  const workspace = screen.getByRole('region', { name: 'Workspace' });
+  expect(
+    card.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  cleanup();
+
+  // A server with no known host (or the desktop): today's System page.
+  show({
+    ...snapshot,
+    system: {
+      ...snapshot.system,
+      memory: { limit_bytes: 2 * 2 ** 30, used_bytes: 2 ** 29 },
+    },
+  });
+  expect(
+    await screen.findByRole('region', { name: 'Workspace' }),
+  ).toBeVisible();
+  expect(screen.queryByText(/Hosted by/)).toBeNull();
+  expect(screen.queryByText(/Memory .* of/)).toBeNull();
+});
+
+it('Devices on a hosted Row-Bot keeps the devices and drops how the server is reached', () => {
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  renderSetting('access');
+  expect(screen.getByText('0 devices')).toBeVisible();
+  // Its host runs the network: no listen mode, Tailscale or public link here.
+  expect(screen.queryByText('Your Row-Bot server only')).toBeNull();
+  expect(
+    screen.queryByText('Network, allowed addresses and the public link'),
+  ).toBeNull();
+  cleanup();
+
+  // A self-hosted server keeps all of it.
+  setPlace({ kind: 'server' });
+  renderSetting('access');
+  expect(screen.getByText('Your Row-Bot server only')).toBeVisible();
+  expect(
+    screen.getByText('Network, allowed addresses and the public link'),
+  ).toBeVisible();
 });
 
 it('uses NiceGUI friendly research-tool labels and owner order', () => {
@@ -2242,4 +2514,128 @@ it('offers a speech engine choice in Voice › Advanced only once there is one',
   expect(screen.getByLabelText('Dictation listens with')).toBeVisible();
   // Read aloud always speaks with Kokoro: nothing to choose.
   expect(screen.queryByLabelText(/Read-aloud model/)).toBeNull();
+});
+
+const GB = 2 ** 30;
+
+function showVoice(talkProvider: string) {
+  mutation.page = 'voice';
+  return render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{
+            ...snapshot.voice,
+            runtime: { ...snapshot.voice.runtime, talk_provider: talkProvider },
+          }}
+          conversationId={null}
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+}
+
+it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks before it is chosen (U8)', async () => {
+  setMemoryLimit(2 * GB);
+  showVoice('openai_realtime');
+  // Dictation listens with Whisper here, and Realtime falls back to it: their quiet pills.
+  // Listen with is in the cloud: none.
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
+  const fallback = document.querySelector<HTMLElement>(
+    '[data-setting-anchor="runtime.realtime_fallback_to_local"]',
+  )!;
+  expect(within(fallback).getByText('Needs a 4 GB server')).toBeVisible();
+
+  const listen = screen.getByLabelText('Listen with');
+  fireEvent.change(listen, { target: { value: 'local' } });
+  const sheet = screen.getByRole('dialog', {
+    name: 'Use local speech-to-text?',
+  });
+  expect(sheet).toHaveTextContent(
+    'This server has 2 GB. Local speech-to-text may make Row-Bot restart.',
+  );
+  expect(listen).toHaveValue('openai_realtime');
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Use cloud speech-to-text' }),
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(listen).toHaveValue('openai_realtime');
+  expect(mutation.review).not.toHaveBeenCalled();
+
+  fireEvent.change(listen, { target: { value: 'local' } });
+  fireEvent.click(
+    within(
+      screen.getByRole('dialog', { name: 'Use local speech-to-text?' }),
+    ).getByRole('button', { name: 'Use local anyway' }),
+  );
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_provider',
+        value: 'local',
+      }),
+      expect.anything(),
+    ),
+  );
+  expect(listen).toHaveValue('local');
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
+});
+
+it.each([
+  ['with 4 GB', 4 * GB],
+  ['on the desktop, with no limit', null],
+])(
+  'local speech-to-text needs no pill or sheet %s (U8)',
+  async (_where, limit) => {
+    setMemoryLimit(limit);
+    showVoice('openai_realtime');
+    expect(screen.queryByText('Needs a 4 GB server')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Listen with'), {
+      target: { value: 'local' },
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() =>
+      expect(mutation.review).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'runtime.talk_provider',
+          value: 'local',
+        }),
+        expect.anything(),
+      ),
+    );
+  },
+);
+
+it('suggests Free memory when idle where the search model is chosen on a small server (U8)', () => {
+  mutation.page = 'documents';
+  const show = (autoUnload: boolean, provider: 'local' | 'cloud' = 'local') =>
+    render(
+      <DocumentEmbeddingSnapshot
+        snapshot={{
+          ...snapshot.documents,
+          embedding: {
+            ...snapshot.documents.embedding,
+            provider,
+            auto_unload: autoUnload,
+          },
+        }}
+        mutation={mutation}
+      />,
+    );
+  setMemoryLimit(2 * GB);
+  const off = show(false);
+  const suggestion = screen.getByText('Suggested on a 2 GB server');
+  expect(suggestion.closest('[data-setting-anchor]')).toHaveAttribute(
+    'data-setting-anchor',
+    'embedding.auto_unload',
+  );
+  off.unmount();
+  // Already on, or search in the cloud: nothing to suggest.
+  show(true).unmount();
+  show(false, 'cloud').unmount();
+  expect(screen.queryByText(/Suggested on a/)).toBeNull();
+  setMemoryLimit(4 * GB);
+  show(false);
+  expect(screen.queryByText(/Suggested on a/)).toBeNull();
 });

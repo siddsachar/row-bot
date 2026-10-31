@@ -45,6 +45,7 @@ import { FAILED_RUN_STATUSES, When, plural, runStatus } from './home-format';
 import { Sparkline, Swimlane, type Lane } from './monitor-charts';
 import { settingsLeaves } from '../settings/model';
 import FixAction from './FixAction';
+import MemoryNoticeActions from './MemoryNotice';
 import BackgroundProcesses, {
   type BackgroundProcessesIo,
 } from './BackgroundProcesses';
@@ -1281,6 +1282,15 @@ export default function MonitorHome({
                 <span>
                   <strong>{problem.title}</strong> {problem.detail}
                 </span>
+                {problem.place === 'memory' && (
+                  // Row-Bot restarted for lack of memory (U8): how to resize, cloud speech-to-text, Dismiss.
+                  <span className="monitor-attention-fix">
+                    <MemoryNoticeActions
+                      problem={problem}
+                      onDismissed={fixed}
+                    />
+                  </span>
+                )}
                 {problem.fix && (
                   <span className="monitor-attention-fix">
                     <FixAction

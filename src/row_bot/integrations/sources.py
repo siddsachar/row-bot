@@ -16,6 +16,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
+from row_bot.hosting import on_server
 from row_bot.integrations import apps, facts, icons, index
 from row_bot.integrations.safe import public_url
 
@@ -221,7 +222,10 @@ class Curated(_McpCatalog):
 
 class Registry(_McpCatalog):
     id, label, access, network = "official", "Official MCP Registry", "snapshot", "explicit"
-    message = "The whole Registry, searched on this computer; updated only when you ask."
+
+    @property
+    def message(self) -> str:
+        return f"The whole Registry, searched {on_server()}; updated only when you ask."
 
     def lookup(self, reference: str):
         return index.lookup(reference.removeprefix(self.id + ":"))
@@ -236,7 +240,7 @@ class Registry(_McpCatalog):
                 shipped = read_header()
             except (OSError, ValueError, EOFError, lzma.LZMAError):
                 shipped = {}
-            return Found(statuses=[self.status(status="pending", message="Preparing the Registry on this computer.",
+            return Found(statuses=[self.status(status="pending", message=f"Preparing the Registry {on_server()}.",
                 fetched_at=shipped.get("captured_at"), snapshot_version="v0.1" if shipped else "",
                 snapshot_digest=shipped.get("digest", ""))])
         found = Found(hidden=hidden)

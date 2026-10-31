@@ -9,7 +9,10 @@
         "skip_step",
         "dismiss_home",
         "add_starters",
-        "choose_model"
+        "choose_model",
+        "choose_suggested",
+        "dismiss_phone_card",
+        "show_phone_card"
       ],
       "title": "Action",
       "type": "string"
@@ -17,6 +20,12 @@
     "command_id": {
       "format": "uuid",
       "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Conversation Id",
       "type": "string"
     },
     "expected_revision": {
@@ -38,6 +47,12 @@
       "maxItems": 7,
       "title": "Profile",
       "type": "array"
+    },
+    "provider_id": {
+      "default": "",
+      "maxLength": 160,
+      "title": "Provider Id",
+      "type": "string"
     },
     "step": {
       "default": "",

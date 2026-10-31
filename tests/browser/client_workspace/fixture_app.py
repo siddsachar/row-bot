@@ -121,6 +121,101 @@ def s9_claude_plan(state: str, set_up_again: bool = False, x_fixture_token: str 
     update_provider_config(_update)
     _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES[state]
     _claude_plan.forget_claude_plan_status()
+    # Each spec starts with no sign-in open and an install that would work.
+    _claude_sign_in._sign_ins.close_running()
+    _claude_install_fixture["outcome"] = "ok"
+    return {"ready": True}
+
+
+# "Use my Claude plan" (H14, H15), synthetic too: the install never downloads (a spec picks how it ends with
+# /__a5_fixture/claude-install/{outcome}; "hold" keeps it at 45%), and Claude's sign-in panel runs a stand-in
+# for `claude auth login` in process: Claude's link and paste prompt; FIXTURE-CODE signs in, anything else is
+# refused as Claude refuses it. Nothing starts a program or reaches Anthropic.
+import threading as _threading  # noqa: E402
+
+from row_bot.providers import claude_install as _claude_install  # noqa: E402
+from row_bot.providers import claude_sign_in as _claude_sign_in  # noqa: E402
+
+_claude_install_fixture = {"outcome": "ok"}
+_CLAUDE_LOGIN_SCREEN = (
+    "\r\n Claude Code can be used with your Claude subscription or billed based on API usage through your"
+    " Console account.\r\n\r\n Browser didn't open? Use the url below to sign in:\r\n\r\n"
+    "https://claude.ai/oauth/authorize?code=true&client_id=fixture&response_type=code&state=fixture\r\n\r\n"
+    " Paste code here if prompted > "
+)
+
+
+class _FixtureInstaller(_claude_install.ClaudeCodeInstaller):
+    def install(self) -> str:
+        self._set(step="download", received=45 * 1024 * 1024, total=100 * 1024 * 1024)
+        while _claude_install_fixture["outcome"] == "hold":
+            _threading.Event().wait(0.1)
+        _threading.Event().wait(0.6)
+        outcome = _claude_install_fixture["outcome"]
+        if outcome != "ok":
+            raise _claude_install.InstallFailed(outcome)  # type: ignore[arg-type]
+        _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES["signed_out"]
+        _claude_plan.forget_claude_plan_status()
+        return "2.1.300"
+
+
+class _FixtureLogin:
+    def __init__(self, _argv, **_options) -> None:
+        self.output = [_CLAUDE_LOGIN_SCREEN]
+        self.line = ""
+        self.alive = True
+
+    def read(self) -> str:
+        text = "".join(self.output)
+        self.output.clear()
+        return text
+
+    def write(self, data: str) -> None:
+        self.output.append(data)
+        self.line += data
+        if "\r" not in self.line:
+            return
+        code, self.line = self.line.split("\r", 1)[0], ""
+        if code.strip() == "FIXTURE-CODE":
+            _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES["ready"]
+            _claude_plan.forget_claude_plan_status()
+            self.output.append("\r\n Login successful. Press Enter to continue\r\n")
+            self.alive = False
+        else:
+            self.output.append("\r\n OAuth error: Invalid code\r\n\r\n Paste code here if prompted > ")
+
+    def resize(self, cols: int, rows: int) -> None:
+        pass
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def close(self) -> None:
+        self.alive = False
+
+
+def _fixture_claude_program() -> str:
+    """A synthetic program name (never started): the fixture's state says whether Claude Code is there."""
+    return "" if _claude_plan_fixture["status"].state == "not_installed" else "claude"
+
+
+_claude_install._installer = _FixtureInstaller()
+_claude_sign_in._sign_ins = _claude_sign_in.ClaudeSignIns(
+    pty_factory=_FixtureLogin, status=lambda: _claude_plan_fixture["status"])
+_claude_sign_in.find_claude_code = _fixture_claude_program
+_claude_plan.find_claude_code = _fixture_claude_program
+_CLAUDE_INSTALL_OUTCOMES = {"ok", "hold", "no_internet", "download_failed", "checksum_mismatch", "disk_full",
+                            "unsupported_platform", "install_failed"}
+
+
+@app.post("/__a5_fixture/claude-install/{outcome}")
+def a5_claude_install(outcome: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if outcome not in _CLAUDE_INSTALL_OUTCOMES:
+        raise HTTPException(status_code=404, detail="Unknown install outcome")
+    _claude_install_fixture["outcome"] = outcome
+    if outcome != "hold" and not _claude_install._installer.running():
+        _claude_install._installer = _FixtureInstaller()
     return {"ready": True}
 
 
@@ -4445,6 +4540,148 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
     elif action != "runtime":
         raise HTTPException(status_code=422, detail="Unknown first-run action")
     return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
+
+
+# ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
+# A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
+# buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's
+# restore (/__p10_fixture/first-run/restore) puts the setup state back, phone card included.
+@app.post("/__a6_fixture/hosted/{state}")
+def a6_hosted(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if state == "on":
+        os.environ["ROW_BOT_HOSTED_BY"] = "pikapods"
+    elif state == "off":
+        os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    else:
+        raise HTTPException(status_code=422, detail="Unknown hosted state")
+    return {"hosted": state == "on"}
+
+
+# ── A7 (U7): where Row-Bot runs, from the browser's side ───────────────────
+# The browser here is always on the fixture's own computer, so its handshake says this_computer.
+# "hosted" and "server" make the handshake say what a phone or a hosted pod's browser is told
+# (hosted also names PikaPods, as A6's switch does); "this_computer" puts it back. A page reads
+# the place at its next handshake, so a spec reloads after switching.
+_a7_place: dict | None = None
+
+
+@app.post("/__a7_fixture/place/{place}")
+def a7_place(place: str, x_fixture_token: str = Header(default="")) -> dict:
+    global _a7_place
+    predecessor._authorize(x_fixture_token)
+    if place not in {"this_computer", "hosted", "server"}:
+        raise HTTPException(status_code=422, detail="Unknown place")
+    if place == "hosted":
+        os.environ["ROW_BOT_HOSTED_BY"] = "pikapods"
+    else:
+        os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    _a7_place = None if place == "this_computer" else {
+        "kind": place, "host_name": "PikaPods" if place == "hosted" else None}
+    return {"place": place}
+
+
+class _A7Place:
+    """Only the handshake's ``place`` changes, and only while a spec chose one."""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send) -> None:
+        if _a7_place is None or scope["type"] != "http" or scope["path"] != "/api/v1/handshake":
+            await self.inner(scope, receive, send)
+            return
+        start: dict = {}
+        chunks: list[bytes] = []
+
+        async def rewrite(message) -> None:
+            if message["type"] == "http.response.start":
+                start.update(message)
+                return
+            chunks.append(message.get("body", b""))
+            if message.get("more_body"):
+                return
+            body = b"".join(chunks)
+            if start["status"] == 200:
+                body = json.dumps({**json.loads(body), "place": _a7_place}).encode()
+            headers = [(k, v) for k, v in start["headers"] if k.lower() != b"content-length"]
+            await send({**start, "headers": [*headers, (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+
+        await self.inner(scope, receive, rewrite)
+
+
+app.add_middleware(_A7Place)
+
+
+# ── A8 (H12, U8): a server with a memory limit ─────────────────────────────
+# The fixture runs on a desktop, with no cgroup of its own. /__a8_fixture/memory/{gb} gives the server a
+# fake cgroup folder with that memory limit (the handshake says it, and Voice and Documents read it);
+# "off" takes it away again and forgets any notice. /__a8_fixture/oom makes the real check find a run
+# whose use came near the limit and that never shut down: Home and Monitor show the notice.
+from row_bot import server_memory as _server_memory  # noqa: E402
+
+# The fake folder, made once. Never the server's own CGROUP_ROOT: on Linux that is the real
+# /sys/fs/cgroup, which the fixture must not write.
+_a8_cgroup: Path | None = None
+
+
+@app.post("/__a8_fixture/memory/{gb}")
+def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
+    global _a8_cgroup
+    predecessor._authorize(x_fixture_token)
+    if gb == "off":
+        _server_memory.dismiss()
+        _server_memory.stopped()
+        _server_memory.CGROUP_ROOT = None
+        return {"limit_bytes": None}
+    try:
+        size = int(float(gb) * 2**30)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Unknown memory size") from None
+    import tempfile
+
+    if _a8_cgroup is None:
+        _a8_cgroup = Path(tempfile.mkdtemp(prefix="row-bot-a8-"))
+    root = _a8_cgroup
+    (root / "memory.max").write_text(str(size), encoding="ascii")
+    (root / "memory.current").write_text(str(size // 4), encoding="ascii")
+    _server_memory.CGROUP_ROOT = root
+    return {"limit_bytes": _server_memory.limit_bytes()}
+
+
+@app.post("/__a8_fixture/oom")
+def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    size = _server_memory.limit_bytes()
+    if size is None:
+        raise HTTPException(status_code=409, detail="Set a memory limit first")
+    (_server_memory.CGROUP_ROOT / "memory.current").write_text(str(int(size * 0.97)), encoding="ascii")
+    _server_memory.started()  # A run whose working set came within 10% of the limit…
+    _server_memory.started()  # …and the next start finds it never shut down.
+    return {"notice": _server_memory.notice() is not None}
+
+
+# ── A9 (Devices on a hosted Row-Bot) ────────────────────────────────────────
+# The fixture's browser is on a loopback address, which no phone reaches. A pod's own https address is
+# what Devices offers there: "on" saves that address as the server's own, the way a pod's
+# ROW_BOT_PUBLIC_URL names it, and "off" takes it away again.
+_A9_POD_ADDRESS = "https://row-bot-demo.pikapod.net"
+
+
+@app.post("/__a9_fixture/pod-address/{state}")
+def a9_pod_address(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.access.access_routes import AccessRouteConfigStore
+
+    predecessor._authorize(x_fixture_token)
+    store = AccessRouteConfigStore()
+    if state == "on":
+        store.add_configured_origin(_A9_POD_ADDRESS)
+    elif state == "off":
+        store.remove_configured_origin(_A9_POD_ADDRESS)
+    else:
+        raise HTTPException(status_code=422, detail="Unknown pod address state")
+    return {"origins": list(store.load_or_default().configured_origins)}
 
 
 # ── S8 (F10): many local models ─────────────────────────────────────────────

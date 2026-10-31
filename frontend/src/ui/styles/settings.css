@@ -2820,6 +2820,11 @@
   padding-inline-start: 20px;
   color: var(--text-secondary);
 }
+/* A hosted first run's one line in place of the steps (U3). */
+.subscription-flow-guide {
+  margin: 0;
+  color: var(--text-secondary);
+}
 .subscription-flow-open.button {
   justify-self: start;
 }
@@ -2845,34 +2850,77 @@
 .subscription-device-code small {
   color: var(--text-muted);
 }
-/* Claude (your Claude plan): Claude Code's state and the command to run (N1). */
+/* Claude (your Claude plan): its state, the install from Anthropic and
+   Claude's own sign-in in a small terminal (N1, U11, U12). */
 .claude-plan-state {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 4px 8px;
   margin: 0;
   color: var(--text-secondary);
   font-weight: var(--weight-medium);
 }
-.claude-plan-command {
+.claude-plan-state .status-indicator-label {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+/* The plan and Claude Code's version, quietly under "Claude plan connected". */
+.claude-plan-version {
+  flex-basis: 100%;
+  padding-left: 14px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  font-weight: var(--weight-regular);
+}
+.claude-plan-progress {
+  display: grid;
+  gap: 4px;
+}
+.claude-plan-progress progress {
+  width: 100%;
+}
+.claude-plan-progress small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.claude-sign-in {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
   min-width: 0;
-  max-width: 100%;
-  padding: 4px 4px 4px 12px;
+  overflow: hidden;
   border: 1px solid var(--border-hairline);
   border-radius: 8px;
+  background: var(--code-background);
+}
+.claude-sign-in-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px 8px 12px;
+  border-bottom: 1px solid var(--border-hairline);
   background: var(--surface);
 }
-.claude-plan-command code {
+.claude-sign-in-guide {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
+  margin: 0;
   color: var(--text-primary);
-  font: var(--weight-medium) var(--text-14) / 1.4 var(--font-mono);
-  user-select: all;
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.claude-sign-in-header .icon-action {
+  flex: none;
+  color: var(--text-muted);
+}
+.claude-sign-in-screen {
+  height: 260px;
+}
+@media (max-width: 640px) {
+  .claude-sign-in-screen {
+    height: 220px;
+  }
 }
 .claude-plan-setup .settings-help.claude-plan-note {
   margin: 0;
@@ -3022,6 +3070,51 @@
 .data-backup-signins {
   margin: 0;
   padding-left: 18px;
+}
+/* Settings › Data on a hosted Row-Bot: what a backup made for moving
+   leaves out, in its own words (U9). */
+.data-backup-moved {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.data-backup-moved .data-backup-signins {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+
+/* Settings › System on a hosted Row-Bot (U5): who runs it, the memory in
+   use of the server's limit, and the host's own pages. */
+.hosted-by-memory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-variant-numeric: tabular-nums;
+}
+.hosted-by-memory > span {
+  white-space: nowrap;
+}
+.hosted-by-memory progress {
+  width: 120px;
+  height: 6px;
+}
+.hosted-by-links {
+  display: inline-flex;
+  gap: 2px;
+}
+/* On a phone the host's pages go under the words, in line with them. */
+@container settings-page (max-width: 560px) {
+  .hosted-by .settings-row[data-icon='true'] > .settings-row-control {
+    grid-column: 2 / -1;
+  }
+}
+.settings-row-extra > p.hosted-by-note {
+  color: var(--text-muted);
 }
 
 /* Settings › Devices & remote access (Phase 14). ------------------------ */
@@ -4837,6 +4930,25 @@ button.settings-mcp-server-name:hover {
 }
 .settings-account-confirm > p {
   margin: 0;
+}
+/* A custom endpoint's private address on a hosted server: the owner's OK (H16). */
+.settings-endpoint-ask {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  font-size: var(--text-13);
+}
+.settings-endpoint-ask > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-endpoint-ask > p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 /* X's connected accounts (N7), indented under the row like its switches. */
 .settings-x-accounts {

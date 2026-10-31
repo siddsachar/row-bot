@@ -76,3 +76,48 @@ def test_manifest_job_publishes_only_on_a_release() -> None:
     assert job["needs"] == "release-image"
     assert job["if"] == "${{ github.event_name == 'release' }}"
     assert job["permissions"] == {"contents": "read", "packages": "write"}
+
+
+def test_latest_moves_only_for_a_stable_release() -> None:
+    jobs = _workflow()["jobs"]
+    latest = [
+        (name, step)
+        for name, job in jobs.items()
+        for step in job["steps"]
+        if ":latest" in str(step)
+    ]
+
+    assert [(name, step["name"]) for name, step in latest] == [
+        ("release-manifest", "Publish stable latest manifest")
+    ]
+    assert latest[0][1]["if"] == "${{ github.event.release.prerelease == false }}"
+
+
+def test_both_architectures_smoke_the_image_as_a_hosting_service_runs_it_before_any_push() -> None:
+    workflow = _workflow()
+    jobs = workflow["jobs"]
+
+    assert {
+        "scripts/smoke_hosting_partner.py",
+        "scripts/dummy_openai_endpoint.py",
+    } <= set(workflow["on"]["pull_request"]["paths"])
+    for name, build in (
+        ("verify-image", "Build native verification image"),
+        ("release-image", "Build native release image"),
+    ):
+        job = jobs[name]
+        names = [step.get("name", step.get("uses", "")) for step in job["steps"]]
+        hosting = [
+            index
+            for index, step in enumerate(job["steps"])
+            if "scripts/smoke_hosting_partner.py" in step.get("run", "")
+        ]
+        assert {item["architecture"] for item in job["strategy"]["matrix"]["include"]} == {
+            "amd64",
+            "arm64",
+        }
+        assert len(hosting) == 1 and names.index(build) < hosting[0]
+    release_names = [step.get("name", "") for step in jobs["release-image"]["steps"]]
+    assert release_names.index(
+        "Smoke native release image as a hosting service runs it"
+    ) < release_names.index("Log in to GHCR after smoke")

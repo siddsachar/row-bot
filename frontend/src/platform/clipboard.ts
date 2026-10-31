@@ -1,4 +1,5 @@
 import type { ClientPlatform } from './types';
+import { currentPlace } from '../api/place';
 
 /** Keep browser permission handling at the platform boundary. */
 export async function writeClipboardText(
@@ -31,6 +32,41 @@ export async function copyText(text: string): Promise<boolean> {
   return copyWithSelection(text);
 }
 
+/**
+ * Copy text that isn't known yet, from the click that asks for it (U3: one
+ * click starts a sign-in and copies its code once the server has it). Call it
+ * inside the click: Safari copies only while the click is still being handled,
+ * which the clipboard API allows by taking the text as a promise. Elsewhere the
+ * text is copied when it arrives. Resolves false when nothing was copied.
+ */
+export async function copyTextLater(
+  text: Promise<string>,
+  writer?: ClientPlatform['writeClipboard'],
+): Promise<boolean> {
+  if (
+    !writer &&
+    typeof ClipboardItem === 'function' &&
+    typeof navigator.clipboard?.write === 'function'
+  ) {
+    try {
+      const blob = text.then(
+        (value) => new Blob([value], { type: 'text/plain' }),
+      );
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'text/plain': blob }),
+      ]);
+      return true;
+    } catch {
+      // Refused, or the text never came: try once more below when it did.
+    }
+  }
+  try {
+    return await writeClipboardText(await text, writer);
+  } catch {
+    return false;
+  }
+}
+
 /** Whether this page can copy at all (the clipboard API or the older command). */
 export function canCopyText(): boolean {
   return (
@@ -43,7 +79,7 @@ export function canCopyText(): boolean {
 export function copyUnavailableMessage(): string {
   return window.isSecureContext
     ? 'Copy is unavailable in this browser.'
-    : 'Copy is unavailable here. Open Row-Bot over HTTPS, or on this computer, to copy.';
+    : `Copy is unavailable here. Open Row-Bot over HTTPS, or ${currentPlace().on}, to copy.`;
 }
 
 function copyWithSelection(text: string): boolean {

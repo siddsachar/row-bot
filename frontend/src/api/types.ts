@@ -733,6 +733,40 @@ export interface ClientTransport {
     provider: string,
     signal?: AbortSignal,
   ): Promise<Wire.ProviderRuntimeProbe>;
+  /** The Claude plan (H14): installing Claude Code from Anthropic, on request. */
+  claudeCodeInstall?(
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeCodeInstallState>;
+  installClaudeCode?(
+    update: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeCodeInstallState>;
+  /** Claude's own sign-in (H15): `claude auth login` in a small terminal. */
+  openClaudeSignIn?(
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeSignInView>;
+  readClaudeSignIn?(
+    signIn: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeSignInOutput>;
+  writeClaudeSignIn?(
+    signIn: string,
+    data: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  resizeClaudeSignIn?(
+    signIn: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  closeClaudeSignIn?(
+    signIn: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalClosed>;
   reviewDocumentProcessing?(
     conversation: string,
     body: Wire.DocumentProcessingReviewRequest,
@@ -953,6 +987,7 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ExportSaved>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
+  dismissMemoryNotice?(): Promise<Wire.MemoryNoticeDismissed>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   media?(
     filter: { query?: string; kind?: string },

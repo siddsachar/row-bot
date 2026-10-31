@@ -856,6 +856,8 @@ export class ClientController {
         server_utc_offset_minutes: result.server_utc_offset_minutes ?? null,
         server_timezone: result.server_timezone ?? null,
         sandbox: result.sandbox ?? false,
+        place: result.place,
+        memory_limit_bytes: result.memory_limit_bytes ?? null,
         native_adapter: result.native_adapter,
         limits: result.limits,
       };
@@ -2393,6 +2395,51 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.testLiveProviderRuntime(provider, signal);
     });
+  /** Claude Code's install from Anthropic (H14): its progress. */
+  claudeCodeInstall = (signal?: AbortSignal) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.claudeCodeInstall)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.claudeCodeInstall(current);
+    }, signal);
+  /** Install (or, with `update`, reinstall) the newest Claude Code. */
+  installClaudeCode = (update: boolean) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.installClaudeCode)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.installClaudeCode(update, signal);
+    });
+  /** Claude's own sign-in (H15). */
+  openClaudeSignIn = (cols: number, rows: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.openClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.openClaudeSignIn(cols, rows, signal);
+    });
+  readClaudeSignIn = (signIn: string, cursor: number, signal?: AbortSignal) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.readClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.readClaudeSignIn(signIn, cursor, current);
+    }, signal);
+  writeClaudeSignIn = (signIn: string, data: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.writeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.writeClaudeSignIn(signIn, data, signal);
+    });
+  resizeClaudeSignIn = (signIn: string, cols: number, rows: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.resizeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.resizeClaudeSignIn(signIn, cols, rows, signal);
+    });
+  closeClaudeSignIn = (signIn: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.closeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.closeClaudeSignIn(signIn, signal);
+    });
   integrationSources = (signal?: AbortSignal) =>
     this.query(() => this.transport.integrationSources?.(signal));
   updateIntegrationSource = (source: string, signal?: AbortSignal) =>
@@ -2792,6 +2839,9 @@ export class ClientController {
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));
+  /** The out-of-memory notice is read (U8): gone until the next such restart. */
+  dismissMemoryNotice = () =>
+    this.query(() => this.transport.dismissMemoryNotice?.());
   /** Library › Media (5.3.1 B3). */
   media = (filter: { query?: string; kind?: string }, signal?: AbortSignal) =>
     this.query(() => this.transport.media?.(filter, signal));

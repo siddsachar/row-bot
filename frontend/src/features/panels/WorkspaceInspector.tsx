@@ -31,6 +31,7 @@ import type {
   WorkspaceChangeSetPage,
   WorkspaceChangeSetFiles,
 } from '../../api/types';
+import { usePlace } from '../../api/place';
 type WorkspaceChangeSet = WorkspaceChangeSetPage['items'][number];
 import { humanizeToken } from '../../ui/format';
 import {
@@ -301,6 +302,7 @@ const BOUNDARY_WORDS: Record<string, string> = {
  * to the repository go through the reviewed owners passed in as slots.
  */
 export function WorkspaceInspector(props: WorkspaceInspectorProps) {
+  const place = usePlace();
   const callbacks = useRef(props);
   callbacks.current = props;
   const epoch = useRef(0);
@@ -1764,7 +1766,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
                   <dd>
                     {policy.execution_mode === 'docker'
                       ? 'Docker sandbox'
-                      : 'This computer'}
+                      : place.label}
                   </dd>
                   <dt>Sandbox network</dt>
                   <dd>{humanizeToken(policy.sandbox_network)}</dd>

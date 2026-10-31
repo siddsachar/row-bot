@@ -427,6 +427,9 @@ export class HttpTransport implements ClientTransport {
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
   }
+  dismissMemoryNotice() {
+    return wire.dismissMemoryNotice(this.base, this.session());
+  }
   media(filter: { query?: string; kind?: string }, signal?: AbortSignal) {
     return wire.getMedia(this.base, this.session(), filter, signal);
   }
@@ -2027,6 +2030,60 @@ export class HttpTransport implements ClientTransport {
       provider,
       signal,
     );
+  }
+  claudeCodeInstall(signal?: AbortSignal) {
+    return wire.getClaudeCodeInstall(this.base, this.session(), signal);
+  }
+  installClaudeCode(update: boolean, signal?: AbortSignal) {
+    return wire.installClaudeCode(
+      this.base,
+      this.session(),
+      { update },
+      signal,
+    );
+  }
+  openClaudeSignIn(cols: number, rows: number, signal?: AbortSignal) {
+    return wire.openClaudeSignIn(
+      this.base,
+      this.session(),
+      { cols, rows },
+      signal,
+    );
+  }
+  readClaudeSignIn(signIn: string, cursor: number, signal?: AbortSignal) {
+    return wire.readClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      cursor,
+      signal,
+    );
+  }
+  writeClaudeSignIn(signIn: string, data: string, signal?: AbortSignal) {
+    return wire.writeClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      { data },
+      signal,
+    );
+  }
+  resizeClaudeSignIn(
+    signIn: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.resizeClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      { cols, rows },
+      signal,
+    );
+  }
+  closeClaudeSignIn(signIn: string, signal?: AbortSignal) {
+    return wire.closeClaudeSignIn(this.base, this.session(), signIn, signal);
   }
   savedEntities(
     query = '',

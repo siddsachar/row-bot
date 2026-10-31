@@ -856,6 +856,13 @@ class SettingsHostSnapshot(WireModel):
     manage_url: str | None = Field(max_length=512)
 
 
+class SettingsServerMemorySnapshot(WireModel):
+    """A server's memory limit and the working set now (H12), for the host card (U5)."""
+
+    limit_bytes: int = Field(ge=1)
+    used_bytes: int = Field(ge=0)
+
+
 class SystemSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     workspace: SettingsWorkspaceSnapshot
@@ -868,6 +875,8 @@ class SystemSettingsSnapshot(WireModel):
     mobile_access: SettingsMobileAccessSnapshot
     logging: SettingsLoggingSnapshot
     hosted_by: SettingsHostSnapshot | None = None
+    # Null without a memory limit (the desktop), or when the use can't be read.
+    memory: SettingsServerMemorySnapshot | None = None
 
 
 class TrackerSettingsItem(WireModel):
@@ -1444,6 +1453,13 @@ class ProviderEndpointFields(WireModel):
     supports_reasoning_content: bool = False
     supports_reasoning_replay: bool = False
     extra_body_json: str = Field(default="{}", max_length=16384)
+    # On a hosted server: the owner allowed this endpoint's address to be private (H16).
+    allow_private_address: bool = False
+
+
+class ProviderEndpointProfile(WireModel):
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
 
 
 class ProviderProbeComponent(WireModel):
@@ -1469,9 +1485,7 @@ class ProviderConfigurationPage(WireModel):
     items: list[ProviderEndpointSnapshot] = Field(max_length=20)
     total: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=1024)
-    profiles: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
-        max_length=32
-    )
+    profiles: list[ProviderEndpointProfile] = Field(max_length=32)
 
 
 ProviderConfigurationOperation = Literal[
@@ -2438,7 +2452,7 @@ class OnboardingSnapshot(WireModel):
     default_model: str | None = Field(default=None, max_length=1024)
     # Areas whose real state says they are done (a chosen model, Developer tools on).
     live_done: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
-        default_factory=list, max_length=11
+        default_factory=list, max_length=13
     )
     import_sources: list[OnboardingImportSource] = Field(default_factory=list, max_length=2)
     starter_workflows_missing: int = Field(ge=0, le=32)
@@ -2446,13 +2460,20 @@ class OnboardingSnapshot(WireModel):
         max_length=7
     )
     completed_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
-        max_length=11
+        max_length=13
     )
     skipped_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
-        max_length=11
+        max_length=13
     )
     dismissed_home_card: bool
-    steps: list[OnboardingStep] = Field(max_length=11)
+    # The "Add Row-Bot to your phone" card (U10), once dismissed, never comes back.
+    dismissed_phone_card: bool = False
+    # The one chat the phone card shows in: the first with an answer.
+    phone_card_conversation: str | None = Field(default=None, max_length=128)
+    # The company hosting this Row-Bot (H13), when one is known: the hosted first run (U3)
+    # and Setup Center (U4) name it and add "Add your phone" and "Back up".
+    host_name: str | None = Field(default=None, max_length=64)
+    steps: list[OnboardingStep] = Field(max_length=13)
     intents: list[OnboardingIntent] = Field(max_length=7)
 
 
@@ -2461,13 +2482,17 @@ class OnboardingCommand(WireModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: Literal[
         "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters",
-        "choose_model",
+        "choose_model", "choose_suggested", "dismiss_phone_card", "show_phone_card",
     ]
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         default_factory=list, max_length=7
     )
     step: str = Field(default="", max_length=32)
     model_ref: str = Field(default="", max_length=1024)
+    # "choose_suggested": the provider just signed in to, whose own first model becomes the default.
+    provider_id: str = Field(default="", max_length=160)
+    # "show_phone_card": the chat whose first answer the phone card follows (U10).
+    conversation_id: str = Field(default="", max_length=128)
 
 
 class OnboardingReceipt(WireModel):
@@ -3844,6 +3869,9 @@ class DataBackupJob(WireModel):
     code: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=260)
     skipped: list[Annotated[str, Field(max_length=260)]] | None = Field(default=None, max_length=20)
+    # A finished backup's own manifest: what it leaves out and what to sign in to again (U9).
+    left_out: list[Annotated[str, StringConstraints(max_length=200)]] | None = Field(default=None, max_length=10)
+    sign_in_again: list[DataBackupSignIn] | None = Field(default=None, max_length=100)
 
 
 class DataRestorePending(WireModel):
@@ -5110,13 +5138,28 @@ class RuntimeInstallationReceipt(WireModel):
     installation: RuntimeInstallationOutcome
 
 
+class ProblemLink(WireModel):
+    """A page outside Row-Bot that helps with a problem (U8): how to resize, the host's own page."""
+
+    label: str = Field(min_length=1, max_length=128)
+    url: str = Field(max_length=512, pattern=r"^https://")
+
+
 class AttentionProblem(WireModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(max_length=160)
     detail: str = Field(max_length=512)
-    # "health": a Monitor check whose last result is an error (B252); "data": a sandbox without a model (W12).
-    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health", "data"]
+    # "health": a Monitor check whose last result is an error (B252); "data": a sandbox without a model (W12);
+    # "memory": Row-Bot restarted because the server ran out of memory (U8).
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health", "data", "memory"]
     fix: ProblemFix | None = None
+    links: list[ProblemLink] = Field(default_factory=list, max_length=2)
+
+
+class MemoryNoticeDismissed(WireModel):
+    """The out-of-memory notice is gone until the next such restart (U8); false when there was none."""
+
+    dismissed: bool
 
 
 class AttentionUpdate(WireModel):
@@ -5965,6 +6008,26 @@ class ClaudePlanStatus(WireModel):
     detail: str = Field(max_length=256)
     # The old Claude sign-in had this profile set up: Settings says to set it up again.
     set_up_again: bool
+    # Signed out after Claude had worked here: Claude signed the person out (U11).
+    signed_in_before: bool = False
+
+
+class ClaudeCodeInstallRequest(WireModel):
+    """Install Claude Code from Anthropic (H14); ``update`` reinstalls the newest over one already there."""
+
+    update: bool = False
+
+
+class ClaudeCodeInstallState(WireModel):
+    """Installing Claude Code: progress and a plain reason, never a path, a URL or the installer's output."""
+
+    state: Literal["idle", "running", "done", "failed"]
+    step: Literal["", "download", "check", "install"]
+    received: int = Field(ge=0)
+    total: int = Field(ge=0)
+    version: str = Field(max_length=40)
+    reason: Literal["", "no_internet", "download_failed", "checksum_mismatch", "disk_full",
+                    "unsupported_platform", "install_failed"]
 
 
 class ProviderLiveCard(WireModel):
@@ -8746,6 +8809,14 @@ class Choices(WireModel):
     catalog_stale: bool = True
 
 
+class Place(WireModel):
+    """Where Row-Bot runs, from this browser's side (U7): its own computer, a known host, or a server."""
+
+    kind: Literal["this_computer", "hosted", "server"]
+    # The known host's name (H13), for "on your Row-Bot server at PikaPods"; only when hosted.
+    host_name: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class NativeAdapter(WireModel):
     available: bool = False
     proof_required: Literal[True] = True
@@ -8833,6 +8904,32 @@ class NativeTerminalClosed(WireModel):
     disconnected: Literal[True] = True
 
 
+class ClaudeSignInOpenRequest(WireModel):
+    """Open Claude's own sign-in (H15). It names no program: the server runs only ``claude auth login``."""
+
+    cols: int = Field(ge=20, le=500)
+    rows: int = Field(ge=5, le=200)
+
+
+class ClaudeSignInView(WireModel):
+    sign_in_id: OpaqueId
+    # The person is at the computer Claude runs on (the desktop app), so the browser Claude opens is theirs.
+    browser_opens: bool
+
+
+class ClaudeSignInOutput(WireModel):
+    """What Claude's sign-in printed since ``cursor``, carried as it is; then how it ended."""
+
+    cursor: int = Field(ge=0)
+    latest: int = Field(ge=0)
+    truncated: bool
+    frames: list[NativeTerminalFrame] = Field(max_length=16)
+    status: Literal["running", "ended"]
+    ended: Literal["exited", "closed", "idle", "replaced"] | None = None
+    # After Claude Code exits: what ``claude auth status`` says now.
+    plan: ClaudePlanStatus | None = None
+
+
 class NativeTerminalChanged(WireModel):
     ok: Literal[True] = True
 
@@ -8883,6 +8980,11 @@ class HandshakeView(Choices):
     server_timezone: str | None = Field(default=None, max_length=64)
     # A sandbox (5.3.1 B4): a second Row-Bot on made-up data; the client shows its mark.
     sandbox: bool = False
+    # Where Row-Bot runs, from this browser's side (U7): the client says "this computer" only when it is.
+    place: Place
+    # The server's memory limit when it has one (a container's, H12), so Voice and Documents say what
+    # fits (U8); null on the desktop.
+    memory_limit_bytes: int | None = Field(default=None, ge=1)
     native_adapter: NativeAdapter
     limits: Limits
 

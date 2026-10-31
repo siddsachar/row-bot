@@ -168,6 +168,43 @@ def test_same_wifi_is_offered_only_while_row_bot_listens_on_the_network(
     assert lan_state() == ([True], True)
 
 
+def test_devices_say_where_row_bot_runs_from_the_browser_s_side(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """U7: the person's own window on the desktop reads "this computer"; a phone
+    reaching that desktop Row-Bot reads where Row-Bot runs."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.delenv("ROW_BOT_HOSTED_BY", raising=False)
+    monkeypatch.setattr(
+        access_routes, "discover_private_lan_addresses", lambda: ("192.168.1.23",)
+    )
+    client, service, registration = _application(tmp_path, mode="desktop")
+
+    def words(response) -> tuple[str, str, str]:
+        assert response.status_code == 200, response.text
+        rows = {row["kind"]: row for row in response.json()["routes"]}
+        return rows["localhost"]["label"], rows["localhost"]["detail"], rows["lan"]["detail"]
+
+    assert words(client.get("/api/access/routes")) == (
+        "This computer",
+        "Direct desktop access on this computer.",
+        "Address assigned to this computer; reachability depends on the network and firewall.",
+    )
+    cookie, _device, _session = _session_cookie(service, registration, name="Phone")
+    phone = TestClient(
+        client.app,
+        base_url="http://localhost:8080",
+        client=("192.168.1.40", 51000),
+        follow_redirects=False,
+    )
+    assert words(phone.get("/api/access/routes", headers={"cookie": cookie})) == (
+        "Your Row-Bot server",
+        "Direct desktop access on the computer Row-Bot runs on.",
+        "Address assigned to the computer Row-Bot runs on; reachability depends on the network and firewall.",
+    )
+
+
 def test_routes_require_owner(tmp_path) -> None:
     client, _service, _registration = _application(tmp_path)
     response = client.get("/api/access/routes")

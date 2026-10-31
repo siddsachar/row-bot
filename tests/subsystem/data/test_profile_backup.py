@@ -436,3 +436,47 @@ def test_a_failed_container_restore_puts_the_workspace_back_too(tmp_path, monkey
     assert json.loads((data / "tools_config.json").read_text(encoding="utf-8")) == {"enabled": ["web_search"]}
     assert not [path for path in data.iterdir()
                 if path.name.startswith((profile_restore.PARKED_PREFIX, profile_restore.ASIDE_PREFIX))]
+
+
+CLAUDE_TOKEN = "sk-ant-oat-SYNTHETIC-claude-sign-in"
+
+
+@pytest.mark.platform
+@pytest.mark.parametrize("layout", ["image", "home_inside", "config_dir"])
+def test_a_backup_never_reads_claude_codes_sign_in_or_install(tmp_path, monkeypatch, layout):
+    """In the image the home is the data folder, so Claude Code's sign-in and install sit beside the profile
+    (H14). A backup leaves them out without opening them, Claude's credential file included, and a restore
+    leaves them where they are."""
+    from tests.helpers.open_audit import watch_opens
+
+    data = tmp_path / "data"
+    data.mkdir()
+    home = data if layout == "image" else data / "home"
+    home.mkdir(exist_ok=True)
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(home))
+    claude = home / ".claude"
+    if layout == "config_dir":
+        claude = data / "claude-config"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude))
+    claude.mkdir()
+    (claude / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": CLAUDE_TOKEN}}),
+                                              encoding="utf-8")
+    (claude / "settings.json").write_text(json.dumps({"note": CLAUDE_TOKEN}), encoding="utf-8")
+    (home / ".claude.json").write_text(json.dumps({"oauthAccount": CLAUDE_TOKEN}), encoding="utf-8")
+    (home / ".local" / "share" / "claude" / "versions").mkdir(parents=True)
+    (home / ".local" / "share" / "claude" / "versions" / "2.1.300").write_bytes(b"claude " + CLAUDE_TOKEN.encode())
+    (home / ".local" / "bin").mkdir(parents=True)
+    (home / ".local" / "bin" / "claude").write_bytes(b"launcher " + CLAUDE_TOKEN.encode())
+    _db(data / "threads.db", ["CREATE TABLE threads(id TEXT)", "INSERT INTO threads VALUES ('t1')"])
+
+    with watch_opens(claude, home / ".claude.json", home / ".local") as opened:
+        result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 30, 23, 0))
+        backup.stage_restore(Path(result["path"]), data, source_name="backup.zip", app_version="5.3.1")
+        applied = profile_restore.apply_pending(data, now=datetime(2026, 10, 30, 23, 5))
+
+    assert opened == []
+    assert CLAUDE_TOKEN not in _archive_text(Path(result["path"]))
+    assert applied["status"] == "applied"
+    assert json.loads((claude / ".credentials.json").read_text(encoding="utf-8"))["claudeAiOauth"]
+    assert (home / ".local" / "bin" / "claude").exists()

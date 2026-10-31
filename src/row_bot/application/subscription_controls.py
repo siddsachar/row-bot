@@ -286,6 +286,25 @@ class SubscriptionFlows:
         if client is not None:
             client.close()
 
+    def _replace_waiting(self, provider_id: str, command_id: object) -> None:
+        """A new Start replaces an earlier sign-in that only waits for the person (the newest wins).
+
+        A page closed or reloaded mid-sign-in (a phone switching tabs to the provider's page, a
+        first run opened again) leaves its sign-in waiting for up to ten minutes, bound to a window
+        that is gone; starting again replaces it instead of reading "busy", as Claude's sign-in
+        does. Every signed-in window is the owner's. A sign-in whose check, exchange or save is
+        running is never touched: that Start still reads "busy".
+        """
+        with self._lock:
+            stale = [item for item in self._flows.values()
+                     if item.provider_id == provider_id
+                     and item.start_command != command_id and not item.active and not item.published
+                     and not item.cancel.is_set() and item.pending_tokens is None and item.state == "waiting"]
+        for item in stale:
+            self._cancel(item)
+            if item.thread is not None and item.thread is not threading.current_thread():
+                item.thread.join(2)
+
     def revoke_owner(self, owner_id: str) -> bool:
         with self._lock:
             retained = list(self._flows.values())
@@ -542,7 +561,16 @@ class SubscriptionFlows:
                         if flow.listening:
                             raise SubscriptionError("subscription_listener_active")
                     guard()
-                    authorization = module.authorization_from_xai_oauth_callback(flow.flow, value)
+                    from row_bot.providers.xai_oauth import XAIOAuthError
+                    try:
+                        authorization = module.authorization_from_xai_oauth_callback(flow.flow, value)
+                    except XAIOAuthError as exc:
+                        # Another device finishes by pasting (H5): an address that isn't this
+                        # sign-in's, or xAI's refusal, says so and nothing was exchanged.
+                        raise SubscriptionError(
+                            "subscription_denied" if exc.kind == "authorization_failed"
+                            else "subscription_callback_invalid"
+                        ) from None
                 else:
                     if flow.listening or flow.authorization is None:
                         flow.state = "waiting"
@@ -586,6 +614,7 @@ class SubscriptionFlows:
             from row_bot import secret_store
             if not secret_store.is_available():  # A locked keychain: say so before any sign-in begins (B370).
                 raise SubscriptionError("subscription_storage_unavailable")
+            self._replace_waiting(provider_id, command.get("command_id"))
             with self._lock:
                 if self._closed:
                     raise SubscriptionError("subscription_flow_unavailable")
@@ -739,7 +768,8 @@ class SubscriptionFlows:
             if isinstance(exc, SubscriptionError) and exc.code in {"subscription_cancelled", "subscription_storage_unavailable"} \
                     and flow is not None and not flow.published:
                 admissions.reject_command(owner_id, key, exc.code)
-            if isinstance(exc, SubscriptionError) and exc.code in {"invalid_command", "subscription_listener_active"} and flow is not None and flow.state == "waiting":
+            if isinstance(exc, SubscriptionError) and exc.code in {"invalid_command", "subscription_listener_active",
+                    "subscription_callback_invalid", "subscription_denied"} and flow is not None and flow.state == "waiting":
                 admissions.reject_command(owner_id, key, exc.code)
             if flow is not None and flow.state not in {"connected", "waiting"}:
                 flow.state = "uncertain"

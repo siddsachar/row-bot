@@ -7,7 +7,7 @@ import Screenshot from '@site/src/components/Screenshot';
 
 # First Launch
 
-The first time you open Row-Bot, it asks one question: **How should Row-Bot think?** Your answer connects one working model, which becomes the default for new conversations. Everything else can wait for Setup Center. Every desktop, source, and official Docker install uses the same first launch.
+The first time you open Row-Bot, it asks one question: **How should Row-Bot think?** Your answer connects one working model, which becomes the default for new conversations. Everything else can wait for Setup Center. Every desktop, source, and official Docker install uses the same first launch. A Row-Bot that a hosting company runs for you asks the same question more simply: see [On A Hosted Row-Bot](#on-a-hosted-row-bot).
 
 <Screenshot id="first-launch-setup-wizard" alt="Row-Bot first launch asking How should Row-Bot think? with three choices." caption="First launch offers three ways to think: on this computer, with a subscription, or with an API key." />
 
@@ -18,11 +18,11 @@ Pick one of three cards. You can add other providers later.
 | Choice | What it means | Tradeoffs |
 | --- | --- | --- |
 | **On this computer** | Private and free, with Ollama. | Needs Ollama and a downloaded model; larger models need more memory and disk space. |
-| **With my subscription** | ChatGPT, Claude or Grok. | Uses a plan you already pay for and follows that provider's terms. ChatGPT and Grok sign in from Row-Bot; Claude works through Claude Code, which you install and sign in to yourself. |
+| **With my subscription** | ChatGPT, Claude or Grok. | Uses a plan you already pay for and follows that provider's terms. ChatGPT and Grok sign in from Row-Bot; Claude works through Claude Code, which **Use my Claude plan** installs from Anthropic if needed before Claude's own sign-in. |
 | **With an API key** | OpenAI, Anthropic, Google, OpenRouter and more, or your own endpoint. | Needs an API key and internet access; the provider bills per use and receives the prompts you send it. |
 
 - **On this computer** walks you through it: **Install Ollama** if it is missing, **Start Ollama** if it isn't running, **Download a model**, then **Pick a model** from the models on this computer. Up to three are tagged **Recommended**: your saved choice first, then the largest models that use tools. A variant with its safety training removed ("abliterated" or "uncensored") is never recommended, but stays under **Show all models**.
-- **With my subscription** lets you choose ChatGPT, Claude or Grok. ChatGPT and Grok sign in in your browser. Claude checks that Claude Code is installed and signed in on this computer, and says what to do if it isn't; Row-Bot never handles your Claude sign-in.
+- **With my subscription** lets you choose ChatGPT, Claude or Grok. ChatGPT and Grok sign in in your browser. Claude offers **Use my Claude plan**: Row-Bot installs Claude Code from Anthropic if it isn't there yet, then opens Claude's own sign-in in a small panel. Row-Bot never handles your Claude sign-in. See [Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan).
 - **With an API key** lists the recommended providers first and the rest under **More providers**. Choose one, paste its key, and pick a model. Advanced users can add an OpenAI-compatible endpoint, such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM or SGLang.
 
 After you pick a model, Row-Bot sends it a short test message. A local model can take a minute to load the first time. If the model doesn't answer, choose **Try again** or **Choose another model**.
@@ -33,6 +33,25 @@ Choose **Set up later** to look around first. Home then stops opening setup for 
 
 In an installed Row-Bot, the first screen also says that Row-Bot downloads updates in the background, with a link to **Settings › Updates**, where you can turn that off. See [Updates](/docs/operations/updates).
 
+## On A Hosted Row-Bot
+
+When a hosting company runs Row-Bot for you (its server is set up with `ROW_BOT_HOSTED_BY`, as PikaPods does), the server has no graphics card for running models, so the first launch asks with two big buttons instead of three cards:
+
+- **Sign in with ChatGPT**: one click starts ChatGPT's sign-in, copies its code and opens OpenAI's page in a new tab. Paste the code there and approve; Row-Bot notices when you're done. If your browser doesn't allow the copy, or doesn't open the tab, the code and an **Open sign-in page** button stay on screen. If the code runs out, **Get a new code** starts again.
+- **Use my Claude plan**: Row-Bot installs Claude Code from Anthropic on your server and opens Claude's own sign-in, as described in [Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan).
+- **Other ways**:
+  - **Use an API key**: the same providers as **With an API key**.
+  - **Use my own model server**: opens the custom endpoint form with Ollama picked, for a model server you run elsewhere, such as Ollama, llama.cpp, vLLM or LM Studio. See [Use Your Own Model Server](/docs/guides/own-model-server) for reaching it safely from the internet.
+  - **Sign in with Grok**: xAI's page sends your browser to an address on the server's own computer, which your browser can't open. Copy the address of that page from the address bar and paste it into Row-Bot.
+
+A line below says that running models on the server needs a GPU, with a link to the desktop app.
+
+After you sign in, Row-Bot picks the provider's own first model, sends it a short test message and opens a new conversation with one suggestion, **What can you do for me?**, which sends with one tap. You can change the model any time in the model picker. With an API key or your own model server, you pick the model yourself as usual.
+
+After the first answer, a small card in that conversation offers **Add Row-Bot to your phone**; it doesn't follow into new conversations. On a computer, **Show the code** shows a QR code that signs your phone in once; on a phone, the card shows how to add Row-Bot to the home screen. Close the card with **×** and it doesn't come back; **Settings › Devices & remote access** connects a phone any time.
+
+To start a Row-Bot on PikaPods, and for what's different there, see [Row-Bot In Your Browser](/docs/getting-started/in-your-browser).
+
 ## Setup Center
 
 <Screenshot id="setup-center" alt="Row-Bot Setup Center with goals and the setup checklist." caption="Setup Center asks what you want to use, moves the matching areas to the top, and tracks what is done." />
@@ -40,7 +59,7 @@ In an installed Row-Bot, the first screen also says that Row-Bot downloads updat
 Setup Center is where you finish the rest whenever you like. Open it from Overview's **Finish setup** card or from the command palette (**Setup Center**).
 
 1. **What would you like to use?** Pick any of: chat assistant, research and documents, workflow automation, designs, code, messaging channels, or local and private AI. Recommended areas move to the top.
-2. **Continue setup** lists each area with one button that goes where it is set up: Models, Knowledge, Workflows, Designer (starts a design in a chat), Developer, Apps (the services you use, including your accounts and messaging channels, in Settings › Apps), Skills, Tools, Voice, and a Final Check that opens Monitor to run the diagnosis. Picking messaging channels moves Apps to the top.
+2. **Continue setup** lists each area with one button that goes where it is set up: Models, Knowledge, Workflows, Designer (starts a design in a chat), Developer, Apps (the services you use, including your accounts and messaging channels, in Settings › Apps), Skills, Tools, Voice, and a Final Check that opens Monitor to run the diagnosis. Picking messaging channels moves Apps to the top. A hosted Row-Bot adds **Add your phone** (to **Settings › Devices & remote access**; it ticks itself once another device is signed in) and **Back up** (to **Settings › Data**), says that local and private AI there means your own model server or Row-Bot on your own computer, and its diagnosis starts with a **Hosted by …** row that reads **Reachable** when your server answers. It leaves out the public link's row: your host gives the server its address.
 3. Each area's **⋯** menu marks it done or skips it. Areas Row-Bot can check tick themselves once you have set them up: a model you chose, a workflow you made, turned on or ran, a code folder you connected. What Row-Bot comes with, such as the starter workflows, doesn't count.
 
 The links at the bottom import from Hermes or OpenClaw, or set up private knowledge search.

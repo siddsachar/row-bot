@@ -20,6 +20,7 @@ Open **Settings**, then choose **Providers** in the **Models** group, or search 
 - Connection Status summarizes how many providers are connected, local, API-based, subscription-based, or media-capable.
 - Local providers show runtimes such as Ollama. Refresh checks what the local service currently exposes.
 - Subscription accounts show providers that use a plan you already pay for: ChatGPT / Codex, Claude (your Claude plan) and xAI Grok. Use the row's actions to set one up, reconnect it, test it or refresh its models.
+- ChatGPT signs in with a code: open OpenAI's page, enter the code Row-Bot shows, and Row-Bot notices when you approve, on this computer or another device. Grok signs in on xAI's page, which then returns to the computer Row-Bot runs on. From another device, such as a phone or a hosted Row-Bot, that last page doesn't load: copy its address from the address bar and paste it into Row-Bot. Starting a sign-in again replaces one left waiting.
 - API providers show services that need an API key or compatible endpoint. Their credential buttons open the setup flow for that provider.
 - xAI API catalog refresh also discovers live image-generation models and their supported output formats, aspect ratios, resolutions, and quality choices. Row-Bot keeps that capability metadata separate from ordinary chat models.
 - Custom endpoint providers let advanced users point Row-Bot at OpenAI-compatible servers such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, or SGLang. [Use Your Own Model Server](/docs/guides/own-model-server) walks through each, and how to reach one at home safely from a Row-Bot elsewhere.
@@ -28,15 +29,29 @@ Open **Settings**, then choose **Providers** in the **Models** group, or search 
 
 ## Claude (Your Claude Plan)
 
-Claude through your own Claude plan runs Claude Code on this computer for every reply, and uses your plan's limits. Row-Bot never sees, stores or refreshes your Claude sign-in: Claude Code signs in by itself.
+Row-Bot runs Claude Code, Anthropic's program, with your own Claude plan (Pro, Max, Team or Enterprise), and your plan's limits apply. You sign in to Claude Code, in Claude Code: Row-Bot offers no Claude login of its own, and never sees, stores or relays your Claude sign-in.
 
-1. Install Claude Code from [Anthropic's setup page](https://code.claude.com/docs/en/setup).
-2. Open a terminal and run `claude auth login`, then sign in with your Claude plan (Pro, Max, Team or Enterprise).
-3. In **Settings › Providers**, choose **Set up Claude** on the Claude row, then **Check again**. The row says **Ready** with your plan's name, and Claude models appear in the model picker.
+1. In **Settings › Providers**, choose **Set up Claude** on the Claude row (or **With my subscription › Claude** the first time Row-Bot starts), then **Use my Claude plan**.
+2. If Claude Code isn't installed yet, Row-Bot installs it from Anthropic first, with its progress: the newest version, downloaded from Anthropic and checked against the checksum Anthropic publishes before it ever runs, and set up by Claude Code's own installer where it always lives in your home folder. Nothing is downloaded until you choose **Use my Claude plan**.
+3. Claude's own sign-in opens in a small terminal panel. Open the link it shows, sign in to Claude, then paste the code Claude gives you into the panel. On the computer Row-Bot runs on, Claude usually opens your browser by itself and needs no code: finish signing in there.
+4. When Claude Code says it's signed in, the panel closes by itself and the row says **Claude plan connected**; Claude models appear in the model picker. It works the same from a phone, on a Row-Bot you reach remotely or one a hosting service runs for you.
 
-The row says what Claude Code reports: **Not set up** (Claude Code isn't installed), **Not signed in** (run `claude auth login`), **Update needed** (run `claude update`; Row-Bot needs Claude Code 2.1.263 or newer) or **Couldn't check** (run `claude doctor` in a terminal to see why). Claude Code signed in with an API key or another cloud counts as not signed in, so a reply never bills anything but your plan.
+The panel runs Claude's sign-in (`claude auth login`) and nothing else: it isn't a terminal you can type commands into. Row-Bot carries what you type to Claude and what Claude shows back to you, and keeps none of it: nothing reaches logs, chats or storage. It closes when Claude's sign-in ends, when you close it, or after ten minutes with nothing happening. Whether you're signed in comes from Claude Code itself, never from Claude's files.
 
-Row-Bot starts Claude Code with its non-essential traffic turned off: no telemetry, error reports or automatic updates come from these runs. Claude Code's own tools are off; when Claude asks for one of Row-Bot's tools, Row-Bot runs it after its usual approval check. The models are the ones Claude Code lists for your plan.
+If the code is wrong, Claude says so in the panel and asks again. What the row and the panel say otherwise:
+
+| Row-Bot says | What to do |
+| --- | --- |
+| Claude Code couldn't be installed, and why (no internet connection, not enough disk space, a download that didn't match Anthropic's checksum, a system Claude Code doesn't run on) | Fix what it names, then **Try again**. A download that doesn't match is deleted, never run. |
+| Claude's sign-in was closed before it finished. | **Sign in again**. |
+| Row-Bot needs Claude Code 2.1.263 or newer. | **Update Claude Code** installs the newest version from Anthropic. |
+| Claude signed you out. Sign in again to keep using your plan. | **Sign in again**. |
+| Your Claude plan's limit is reached until a time Claude gives (in a chat). | Pick another model for now. |
+| Couldn't check | **Check again**, or **Update Claude Code**. |
+
+Claude Code signed in with an API key or another cloud counts as not signed in, so a reply never bills anything but your plan. **Update Claude Code** is also there when Claude is connected.
+
+Row-Bot starts Claude Code with its non-essential traffic turned off: no telemetry, error reports or automatic updates come from these runs, its installs included. Claude Code's own tools are off; when Claude asks for one of Row-Bot's tools, Row-Bot runs it after its usual approval check. The models are the ones Claude Code lists for your plan. Claude Code keeps its own files (its sign-in, settings and installs) in your home folder; Row-Bot's backups never include them.
 
 Earlier versions signed in to Claude inside Row-Bot. That sign-in is gone and its saved tokens were deleted when you updated; the Claude row says **Set up again** until Claude Code is ready.
 

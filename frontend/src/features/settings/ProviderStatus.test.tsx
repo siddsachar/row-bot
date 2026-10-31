@@ -6,9 +6,10 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ProviderLiveCard, ProviderLiveSnapshot } from '../../api/types';
 import ProviderStatus from './ProviderStatus';
+import { setPlace } from '../../api/place';
 
 const card: ProviderLiveCard = {
   provider_id: 'openai',
@@ -367,7 +368,7 @@ it('Claude says what Claude Code says, and Set up Claude opens the one next step
     'li',
   )!;
   expect(row).toHaveTextContent('Not signed in');
-  expect(row).toHaveTextContent('Sign in to Claude Code to use your plan');
+  expect(row).toHaveTextContent('Sign in to Claude to use your plan');
   // No Row-Bot sign-in, token import or disconnect: Claude Code signs in by itself.
   expect(
     within(row).queryByRole('button', { name: /More actions/ }),
@@ -381,9 +382,35 @@ it('Claude says what Claude Code says, and Set up Claude opens the one next step
     name: 'Claude (your Claude plan)',
   });
   expect(dialog).toHaveTextContent(
-    'Runs Claude Code on this computer; uses your Claude plan’s limits.',
+    'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.',
   );
-  expect(within(dialog).getByText('claude auth login')).toBeVisible();
+  // One next step, Claude's own sign-in; never a command to run in a terminal.
+  expect(
+    within(dialog).getByRole('button', { name: 'Use my Claude plan' }),
+  ).toBeVisible();
+  expect(dialog).not.toHaveTextContent(/terminal|claude auth login/i);
+});
+
+it('a Claude row that could not be checked asks Claude Code again from its dialog', async () => {
+  const load = vi.fn(async () => ({
+    schema_version: 1 as const,
+    providers: [claude({ state: 'error', detail: 'It did not answer.' })],
+  }));
+  render(
+    <ProviderStatus
+      load={load}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onSubscription={vi.fn()}
+    />,
+  );
+  const row = (await screen.findByText('Claude (your Claude plan)')).closest(
+    'li',
+  )!;
+  fireEvent.click(within(row).getByRole('button', { name: 'Set up Claude' }));
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Claude (your Claude plan)',
+  });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Check again' }));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
@@ -407,7 +434,7 @@ it('a ready Claude row: the plan and its models, with Claude Code’s status in 
   )!;
   expect(row).toHaveTextContent('Ready');
   expect(row).toHaveTextContent(
-    'Runs Claude Code on this computer · Claude Max · 3 models',
+    'Runs Claude Code with your Claude plan · Claude Max · 3 models',
   );
   expect(
     within(row).queryByRole('button', { name: 'Set up Claude' }),
@@ -422,7 +449,9 @@ it('a ready Claude row: the plan and its models, with Claude Code’s status in 
   fireEvent.click(screen.getByRole('menuitem', { name: 'Check Claude Code' }));
   expect(
     await screen.findByRole('dialog', { name: 'Claude (your Claude plan)' }),
-  ).toHaveTextContent('Ready Claude Max · Claude Code 2.1.282');
+  ).toHaveTextContent(
+    /Claude plan connected\s*Claude Max · Claude Code 2\.1\.282/,
+  );
 });
 
 it('a profile the old Claude sign-in had set up says to set Claude up again', async () => {
@@ -443,4 +472,77 @@ it('a profile the old Claude sign-in had set up says to set Claude up again', as
   expect(row).toHaveTextContent(
     'Claude now works through Claude Code. Set it up again',
   );
+});
+
+it('offers no Ollama on a hosted server, unless one is connected (U3)', async () => {
+  const ollama: ProviderLiveCard = {
+    ...card,
+    provider_id: 'ollama',
+    display_name: 'Ollama Local',
+    group: 'local',
+    configured: false,
+    source: 'not_running',
+  };
+  const { unmount } = render(
+    <ProviderStatus
+      hideLocal
+      load={async () => ({ schema_version: 1, providers: [card, ollama] })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  expect(await screen.findByLabelText('API providers')).toBeVisible();
+  expect(screen.queryByLabelText('On this device')).toBeNull();
+  expect(screen.queryByText('Ollama Local')).toBeNull();
+  unmount();
+  render(
+    <ProviderStatus
+      hideLocal
+      load={async () => ({
+        schema_version: 1,
+        providers: [
+          card,
+          { ...ollama, configured: true, source: 'local_daemon' },
+        ],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText('Ollama Local')).toBeVisible();
+});
+
+afterEach(() => setPlace(null));
+
+it('names where local models run: this device here, the Row-Bot server elsewhere (U7)', async () => {
+  const ollama: ProviderLiveCard = {
+    ...card,
+    provider_id: 'ollama',
+    display_name: 'Ollama Local',
+    group: 'local',
+    configured: true,
+    source: 'local_daemon',
+  };
+  const show = () =>
+    render(
+      <ProviderStatus
+        load={async () => ({ schema_version: 1, providers: [card, ollama] })}
+        refresh={vi.fn()}
+        refreshState={vi.fn()}
+      />,
+    );
+  const desktop = show();
+  const here = await screen.findByRole('region', { name: 'On this device' });
+  expect(here).toHaveTextContent('Running on this computer');
+  desktop.unmount();
+  for (const kind of ['hosted', 'server'] as const) {
+    setPlace({ kind, host_name: kind === 'hosted' ? 'PikaPods' : null });
+    const view = show();
+    const group = await screen.findByRole('region', {
+      name: 'On your Row-Bot server',
+    });
+    expect(group).toHaveTextContent('Running on your Row-Bot server');
+    expect(screen.queryByText(/this (computer|device)/)).toBeNull();
+    view.unmount();
+  }
 });

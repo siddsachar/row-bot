@@ -7,12 +7,14 @@ import {
 } from 'lucide-react';
 import type {
   DataBackupCommand,
+  DataBackupJob,
   DataBackupReceipt,
   DataBackupSignIn,
   DataBackupState,
   DataRestoreReview,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { saveBrowserDownload } from '../../platform/download';
 import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
@@ -97,7 +99,9 @@ const RESTORE_IN_DESKTOP_APP =
 /**
  * Settings › Data: Back up now, and Restore from backup on the next start,
  * from any signed-in device. A device that can't open the Backups folder
- * downloads the backup, and sends the file it restores from.
+ * downloads the backup, and sends the file it restores from. On a hosted
+ * Row-Bot, Move Row-Bot makes a fresh backup and downloads it, then says what
+ * that backup's own manifest leaves out and what to sign in to again (U9).
  */
 export function DataBackup({
   owner,
@@ -116,8 +120,13 @@ export function DataBackup({
   );
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Move Row-Bot (hosted): the backup made for moving, and whether it was saved.
+  const [moved, setMoved] = useState<DataBackupJob | null>(null);
+  const [saved, setSaved] = useState(false);
+  const hosted = usePlace().kind === 'hosted';
   const alive = useRef(true);
   const watched = useRef<string | null>(null);
+  const moving = useRef(false);
   const files = useRef<HTMLInputElement>(null);
   const transfer = useRef<AbortController | null>(null);
   // The archive this page sent, until its restore is confirmed or let go.
@@ -131,6 +140,8 @@ export function DataBackup({
       const job = next.job;
       if (job && job.status !== 'running' && watched.current === job.kind) {
         watched.current = null;
+        const forMove = moving.current && job.kind === 'backup';
+        moving.current = false;
         if (job.status === 'failed')
           setError(
             (job.code &&
@@ -138,7 +149,17 @@ export function DataBackup({
                 clientError({ code: job.code }).message)) ||
               JOB_FAILED[`${job.kind}_failed`],
           );
-        else if (job.kind === 'backup')
+        else if (forMove) {
+          // Saved at once while the click still counts (a browser saves only
+          // just after one); otherwise Download backup saves it.
+          setMoved(job);
+          setSaved(false);
+          if (job.name)
+            void owner.download(job.name).then(
+              (reason) => alive.current && setSaved(reason === null),
+              () => undefined,
+            );
+        } else if (job.kind === 'backup')
           setNotice(
             `Saved “${job.name ?? next.last_backup_name}” in ${next.folder}.` +
               (job.skipped?.length
@@ -193,16 +214,17 @@ export function DataBackup({
     }
   }
 
-  async function download() {
-    const name = state?.last_backup_name;
+  async function download(name = state?.last_backup_name) {
     if (!name) return;
     setError('');
     setDownloading(true);
     try {
       // Called straight from the click: the browser saves only for a gesture.
       const reason = await owner.download(name);
-      if (reason && alive.current)
+      if (!alive.current) return;
+      if (reason)
         setError(DOWNLOAD_FAILED[reason] ?? DOWNLOAD_FAILED.operation_failed);
+      else if (name === moved?.name) setSaved(true);
     } catch (cause) {
       if (!alive.current) return;
       setError(problem(cause));
@@ -211,6 +233,18 @@ export function DataBackup({
     } finally {
       if (alive.current) setDownloading(false);
     }
+  }
+
+  /** Move Row-Bot: save the backup made for moving, or make a fresh one. */
+  function moveOut() {
+    if (moved?.name && !saved) {
+      void download(moved.name);
+      return;
+    }
+    moving.current = true;
+    void send('backup').then((receipt) => {
+      if (receipt?.status !== 'accepted') moving.current = false;
+    });
   }
 
   async function chooseBackup() {
@@ -321,6 +355,47 @@ export function DataBackup({
           </Button>
         </div>
       )}
+      {hosted && (
+        <div className="settings-inline-row data-backup-row">
+          <div>
+            <strong>Move Row-Bot</strong>
+            <p>
+              Download a backup, then install Row-Bot on your computer, open
+              Settings › Data and choose Restore from backup.
+            </p>
+            {moved && (
+              <div className="data-backup-moved" role="status">
+                <p>
+                  {saved
+                    ? `Downloaded “${moved.name}”.`
+                    : `“${moved.name}” is ready. Choose Download backup to save it.`}
+                </p>
+                {Boolean(moved.left_out?.length) && (
+                  <p>Not in the backup: {moved.left_out!.join(' · ')}</p>
+                )}
+                {Boolean(moved.sign_in_again?.length) && (
+                  <>
+                    <p>After moving, set these up again:</p>
+                    <SignInList items={moved.sign_in_again!} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <Button
+            variant="primary"
+            disabled={locked || downloading}
+            onClick={moveOut}
+          >
+            <Download size={16} aria-hidden />
+            {running && state.job?.kind === 'backup'
+              ? 'Backing up…'
+              : downloading
+                ? 'Downloading…'
+                : 'Download backup'}
+          </Button>
+        </div>
+      )}
       <div className="settings-inline-row data-backup-row">
         <div>
           <strong>Back up now</strong>
@@ -350,7 +425,7 @@ export function DataBackup({
           </p>
         </div>
         <Button
-          variant="primary"
+          variant={hosted ? 'secondary' : 'primary'}
           disabled={locked}
           onClick={() => void send('backup')}
         >
@@ -385,6 +460,9 @@ export function DataBackup({
             {canPick
               ? 'Checks the backup first.'
               : 'Sends the backup file to Row-Bot and checks it first.'}{' '}
+            {hosted
+              ? 'A backup from Row-Bot on your computer works too.'
+              : 'A backup from a hosted Row-Bot works too.'}{' '}
             Your current profile is kept aside, and nothing changes until
             Row-Bot restarts.
           </p>

@@ -2955,6 +2955,107 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+/* U10: "Add Row-Bot to your phone", once, after the first answer. */
+.phone-card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 12px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 12px 8px 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-sizing: border-box;
+}
+.phone-card-icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--accent-solid);
+}
+.phone-card-text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.phone-card-text h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.phone-card-text p {
+  margin: 0;
+}
+.phone-card-steps {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.phone-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.phone-card-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.phone-card-code p {
+  flex: 1 1 180px;
+}
+.phone-card-connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+.phone-card-connected svg {
+  color: var(--status-success-text);
+}
+.phone-card-dismiss {
+  margin-top: -4px;
+}
+
+/* A hosted Row-Bot's first chat: one message, sent with a tap (U3). */
+.chat-empty-first-message {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  margin-top: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--accent-solid);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+  color: var(--text-primary);
+  font: var(--weight-medium) var(--text-15) / 20px var(--font-sans);
+  cursor: pointer;
+}
+.chat-empty-first-message svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-solid);
+}
+.chat-empty-first-message:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-solid) 14%, var(--surface));
+}
+.chat-empty-first-message:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.chat-empty-first-message:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .chat-empty-more {
   justify-self: start;
   padding: 4px 2px;

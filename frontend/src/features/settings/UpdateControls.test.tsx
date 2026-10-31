@@ -511,6 +511,7 @@ it('shows the host’s status and sends requests when the host applies updates',
     send,
   );
   expect(await screen.findByText('Ready to update')).toBeVisible();
+  expect(screen.getByText('Updated by your host')).toBeVisible();
   expect(
     screen.queryByRole('switch', { name: 'Download updates automatically' }),
   ).toBeNull();
@@ -546,25 +547,56 @@ it('offers to remove an earlier all-users install once', async () => {
   ).toBeVisible();
 });
 
+const container: UpdateSnapshot = {
+  ...snapshot,
+  mode: 'external',
+  host: {
+    state: 'unknown',
+    current_version: null,
+    available_version: null,
+    message: null,
+    notes_url: null,
+    updated_at: null,
+    request: null,
+  },
+};
+
 it('explains a container that no host updater reports for', async () => {
-  show(
-    vi.fn(async () => ({
-      ...snapshot,
-      mode: 'external' as const,
-      host: {
-        state: 'unknown' as const,
-        current_version: null,
-        available_version: null,
-        message: null,
-        notes_url: null,
-        updated_at: null,
-        request: null,
-      },
-    })),
-  );
-  expect(await screen.findByText(/pull a newer image/)).toBeVisible();
+  show(vi.fn(async () => container));
+  expect(await screen.findByText('Updated by your host')).toBeVisible();
+  expect(
+    screen.getByText(
+      'This Row-Bot doesn’t update itself. For Docker, pull a newer image and start the container again.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText('This Row-Bot’s host installs its updates.'),
+  ).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Pause updates' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Update now' })).toBeNull();
+});
+
+it('names a known host that applies updates and offers nothing to press (H3, U6)', async () => {
+  const notes = 'https://github.com/example/row-bot/releases/tag/v1.0.0';
+  const load = vi.fn(async () => ({
+    ...container,
+    host: { ...container.host!, notes_url: notes },
+  }));
+  const send = vi.fn();
+  render(<UpdateControls owner={{ load, send }} hostName="PikaPods" />);
+  expect(await screen.findByText('Updated by PikaPods')).toBeVisible();
+  expect(
+    screen.getByText(
+      'They test each release first, so new versions usually arrive within a week.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
+  ).toHaveAttribute('href', notes);
+  // No check, install, skip or pause: the host does all of it.
+  expect(screen.queryAllByRole('button')).toEqual([]);
+  expect(screen.queryByText(/Docker/)).toBeNull();
+  expect(send).not.toHaveBeenCalled();
 });
 
 it('reports an update that did not start once and downloads it again only when asked', async () => {

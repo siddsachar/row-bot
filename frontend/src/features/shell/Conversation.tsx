@@ -117,6 +117,9 @@ import {
   usePendingApprovals,
 } from './pending-approvals';
 import ChatEmpty from './ChatEmpty';
+import PhoneCard from './PhoneCard';
+import { clearFirstChat, firstChatPending } from './first-chat';
+import { FIRST_MESSAGE } from './welcome-prompts';
 import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
 import { ProcessIoContext, type ProcessIo } from './background-processes';
 import { RecordingIoContext, type RecordingIo } from './recordings';
@@ -2546,6 +2549,8 @@ export default function Conversation({
   // A sign-in that can't be used fails every resume the same way: say so,
   // with the one fix, instead of "interrupted · Resume" (B351).
   const signInNeeded = thisFailure?.signIn ?? '';
+  // Claude signs in through Claude Code itself: Claude signed the person out (U11).
+  const claudeSignedOut = signInNeeded === 'Claude';
   const failureReason = thisFailure?.reason ?? '';
   const interrupted =
     !isRunning && generation?.status === 'interrupted' && !signInNeeded;
@@ -2917,6 +2922,16 @@ export default function Conversation({
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);
+  // A known host runs this Row-Bot (U3, U10): its very first chat suggests one
+  // message, and after an answer the phone card shows until dismissed.
+  const onHostedServer = Boolean(
+    state.handshake?.application_capabilities?.includes('hosted'),
+  );
+  const firstChat = onHostedServer && Boolean(id) && firstChatPending();
+  // Any message in it, typed or tapped, ends the first chat's suggestion.
+  useEffect(() => {
+    if (firstChat && items.length) clearFirstChat();
+  }, [firstChat, items.length]);
   async function rename(next: string) {
     if (!id || !state.conversation) return;
     try {
@@ -3222,9 +3237,11 @@ export default function Conversation({
         stopped: 'Stopped.',
         waiting_approval: 'Waiting for your approval.',
         completed: 'Response complete.',
-        interrupted: signInNeeded
-          ? `Sign in to ${signInNeeded} again.`
-          : failureReason || 'The response was interrupted.',
+        interrupted: claudeSignedOut
+          ? 'Claude signed you out.'
+          : signInNeeded
+            ? `Sign in to ${signInNeeded} again.`
+            : failureReason || 'The response was interrupted.',
       }[generation.status] ?? '')
     : '';
   return (
@@ -3449,6 +3466,18 @@ export default function Conversation({
                   disabled={busy}
                   // A prompt fills the composer to edit first (U17).
                   onChoose={editMessage}
+                  // A hosted Row-Bot's first chat: one message to tap (U3).
+                  first={
+                    firstChat
+                      ? {
+                          prompt: FIRST_MESSAGE,
+                          onSend: (text) => {
+                            clearFirstChat();
+                            send(text);
+                          },
+                        }
+                      : undefined
+                  }
                   recent={state.conversations}
                   onOpen={(target) => navigate(`/conversations/${target}`)}
                   design={resources.some(
@@ -3623,15 +3652,20 @@ export default function Conversation({
                 <div className="turn-notice" data-tone="warning">
                   <TriangleAlert className="turn-notice-icon" aria-hidden />
                   <div className="turn-notice-text">
-                    <strong>Sign in to {signInNeeded} again</strong>
+                    <strong>
+                      {claudeSignedOut
+                        ? 'Claude signed you out'
+                        : `Sign in to ${signInNeeded} again`}
+                    </strong>
                     <span>
-                      Your {signInNeeded} sign-in can't be used any more.
-                      Reconnect it, then send your message again.
+                      {claudeSignedOut
+                        ? 'Sign in again to keep using your plan.'
+                        : `Your ${signInNeeded} sign-in can't be used any more. Reconnect it, then send your message again.`}
                     </span>
                   </div>
                   <div className="turn-notice-actions">
                     <Button onClick={() => navigate('/settings/providers')}>
-                      Reconnect
+                      {claudeSignedOut ? 'Sign in again' : 'Reconnect'}
                     </Button>
                   </div>
                 </div>
@@ -3691,6 +3725,13 @@ export default function Conversation({
                   </div>
                 </div>
               )}
+              {onHostedServer &&
+                id &&
+                !state.history &&
+                lastAssistant >= 0 &&
+                !turnInFlight &&
+                !interrupted &&
+                !failed && <PhoneCard conversationId={id} />}
               {state.history?.next_cursor && (
                 <div className="transcript-sentinel">
                   <Button

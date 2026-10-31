@@ -561,7 +561,7 @@ def verify_release(
 
 
 def release_notes(version: str, notes: str, report: Mapping[str, Any] | None = None) -> tuple[str, str]:
-    """The draft's title and body: the version's section of RELEASE_NOTES.md."""
+    """The draft's title and body: the version's section of RELEASE_NOTES.md, refused while it still says TODO:."""
     lines = notes.replace("\r\n", "\n").split("\n")
     start = next(
         (index for index, line in enumerate(lines) if re.match(rf"^##\s+v?{re.escape(version)}(\s|$)", line)), None
@@ -576,6 +576,9 @@ def release_notes(version: str, notes: str, report: Mapping[str, Any] | None = N
             section.pop()
         title = section[0].lstrip("#").strip()
         body = "\n".join(section) + "\n"
+        if "TODO:" in body:
+            # cut_release.py's For Hosts placeholder, or any other note left to write: hosts act on these notes.
+            raise PartsError(f"v{version}'s section of RELEASE_NOTES.md still says TODO: write it before releasing")
     if report and report.get("needs_full_installer") and FULL_INSTALLER_SENTENCE.lower() not in body.lower():
         body = body.rstrip("\n") + "\n\n" + FULL_INSTALLER_NOTE + "\n"
     return title, body

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { BadgeCheck } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import type { AppView, IntegrationEntry } from '../../api/types';
+import { usePlace, type PlaceWords } from '../../api/place';
 import { StatusDot, type Tone } from '../../ui/primitives';
 import './apps.css';
 
@@ -222,8 +223,12 @@ const methods: Record<string, string> = {
   hosted_sign_in: 'Hosted · Sign-in',
   api_key: 'API key',
   hosted: 'Hosted',
-  local: 'Runs on this computer',
 };
+
+/** An app named for this computer ("Files on this computer") goes by where Row-Bot runs (U7). */
+export function placedName(name: string, place: PlaceWords) {
+  return name.replace(/ on this computer$/, ` on ${place.name}`);
+}
 
 /** "by" only for a vendor verified by rule; otherwise who actually published it, or Community. */
 export function Publisher({ entry }: { entry: IntegrationEntry }) {
@@ -260,9 +265,10 @@ export function asApp(entry: IntegrationEntry) {
  * The way to connect an app's card stands for, as a chip: a built-in way by its own name ("GitHub account"),
  * the others by how they connect ("API key"). Nothing for a skill, or for a card already named by the way.
  */
-export function wayLabel(entry: IntegrationEntry) {
+export function wayLabel(entry: IntegrationEntry, place: PlaceWords) {
   if (entry.kind === 'skill') return '';
   if (entry.kind === 'builtin') return entry.app ? entry.name : '';
+  if (entry.method === 'local') return `Runs on ${place.name}`;
   return methods[entry.method ?? ''] ?? '';
 }
 
@@ -305,9 +311,10 @@ export function ItemCard({
   ways?: IntegrationEntry[];
 }) {
   const status = statusOf(entry);
+  const place = usePlace();
   const skill = entry.kind === 'skill';
-  const name = (!skill && entry.app?.name) || entry.name;
-  const chips = [...new Set(ways.map(wayLabel))].filter(
+  const name = placedName((!skill && entry.app?.name) || entry.name, place);
+  const chips = [...new Set(ways.map((way) => wayLabel(way, place)))].filter(
     (label) => label && label !== name,
   );
   return (
