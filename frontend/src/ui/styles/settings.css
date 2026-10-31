@@ -3071,6 +3071,51 @@
   margin: 0;
   padding-left: 18px;
 }
+/* Settings › Data on a hosted Row-Bot: what a backup made for moving
+   leaves out, in its own words (U9). */
+.data-backup-moved {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.data-backup-moved .data-backup-signins {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+
+/* Settings › System on a hosted Row-Bot (U5): who runs it, the memory in
+   use of the server's limit, and the host's own pages. */
+.hosted-by-memory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-variant-numeric: tabular-nums;
+}
+.hosted-by-memory > span {
+  white-space: nowrap;
+}
+.hosted-by-memory progress {
+  width: 120px;
+  height: 6px;
+}
+.hosted-by-links {
+  display: inline-flex;
+  gap: 2px;
+}
+/* On a phone the host's pages go under the words, in line with them. */
+@container settings-page (max-width: 560px) {
+  .hosted-by .settings-row[data-icon='true'] > .settings-row-control {
+    grid-column: 2 / -1;
+  }
+}
+.settings-row-extra > p.hosted-by-note {
+  color: var(--text-muted);
+}
 
 /* Settings › Devices & remote access (Phase 14). ------------------------ */
 /* Below desktop width the Settings header carries the navigation toggle

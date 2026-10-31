@@ -9,6 +9,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { setPlace } from '../../api/place';
 import { resolveSetting, settingsGroups, settingsLeaves } from './model';
 import SettingsShell from './SettingsShell';
 import {
@@ -180,6 +181,39 @@ it('finds pages and individual settings, then jumps to the matching row', async 
   expect(screen.getByText('No settings found.')).toBeVisible();
   await user.keyboard('{Escape}');
   expect(search).toHaveValue('');
+});
+
+it('on a hosted Row-Bot, search finds no Network or Public link rows: its host runs the network', async () => {
+  const user = userEvent.setup();
+  const find = async (words: string) => {
+    const search = screen.getByRole('searchbox', { name: 'Find a setting' });
+    await user.clear(search);
+    await user.type(search, words);
+    return screen.queryByRole('list', { name: 'Matching settings' });
+  };
+  try {
+    setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+    const hosted = show('/settings/providers');
+    expect(await find('ngrok')).toBeNull();
+    expect(await find('allowed addresses')).toBeNull();
+    // Connecting a phone is still found.
+    expect(
+      within((await find('qr'))!).getByRole('link', {
+        name: /Connect a phone or computer/,
+      }),
+    ).toBeVisible();
+    hosted.unmount();
+
+    setPlace({ kind: 'server' });
+    show('/settings/providers');
+    expect(
+      within((await find('ngrok'))!).getByRole('link', {
+        name: /Public link/,
+      }),
+    ).toBeVisible();
+  } finally {
+    setPlace(null);
+  }
 });
 
 it('moves through results with the arrow keys and opens the chosen one with Enter', async () => {

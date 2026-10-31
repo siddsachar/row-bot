@@ -2365,93 +2365,100 @@ export function SystemSnapshotPanel({
     appPwaClient.getSnapshot,
   );
   const place = usePlace();
+  // A hosted Row-Bot has its own https address and its host runs the
+  // network: nothing here sets how it is reached.
+  const hosted = place.kind === 'hosted';
   if (part === 'access')
     return (
       <div className="stack settings-snapshot-page settings-access-page">
         <SettingsSummary>
-          <SummaryChip
-            tone={
-              snapshot.remote_access.listen_mode === 'local_only'
-                ? 'success'
-                : 'warning'
-            }
-          >
-            {snapshot.remote_access.listen_mode === 'local_only'
-              ? `${place.label} only`
-              : 'Your network too'}
-          </SummaryChip>
+          {!hosted && (
+            <SummaryChip
+              tone={
+                snapshot.remote_access.listen_mode === 'local_only'
+                  ? 'success'
+                  : 'warning'
+              }
+            >
+              {snapshot.remote_access.listen_mode === 'local_only'
+                ? `${place.label} only`
+                : 'Your network too'}
+            </SummaryChip>
+          )}
           <SummaryChip>
             {snapshot.mobile_access.active_devices === 1
               ? '1 device'
               : `${snapshot.mobile_access.active_devices} devices`}
           </SummaryChip>
-          {snapshot.tunnel.runtime_state === 'active' && (
+          {!hosted && snapshot.tunnel.runtime_state === 'active' && (
             <SummaryChip tone="warning">Public link on</SummaryChip>
           )}
         </SettingsSummary>
-        <SettingsAdvanced
-          anchor="advanced"
-          meta="Network, allowed addresses and the public link"
-        >
-          <Section
-            title="Network"
-            description="Where Row-Bot listens and the addresses it accepts."
-            icon={ShieldCheck}
-            anchor="network"
+        {!hosted && (
+          <SettingsAdvanced
+            anchor="advanced"
+            meta="Network, allowed addresses and the public link"
           >
-            {network}
-          </Section>
-          <Section
-            title="Public link"
-            description="Reach Row-Bot from anywhere through ngrok. It opens only when you start it."
-            icon={Network}
-            anchor="tunnel"
-          >
-            <PublicLinkStatus
-              tunnel={snapshot.tunnel}
-              mutation={mutation}
-              writeClipboard={writeClipboard}
-            />
-            <SelectSetting
-              mutation={mutation}
-              field="tunnel.provider"
-              label="Tunnel provider"
-              value={snapshot.tunnel.provider}
-              options={[{ value: 'ngrok', label: 'ngrok' }]}
-            />
-            <SecretSetting
-              mutation={mutation}
-              field="tunnel.credential"
-              label="Tunnel credential"
-              configured={snapshot.tunnel.credential.configured}
-              source={snapshot.tunnel.credential.source}
-              fingerprint={snapshot.tunnel.credential.fingerprint}
-            />
-            <details>
-              <summary>Tunnel setup</summary>
-              <p className="settings-help">
-                Create an ngrok account at{' '}
-                <a
-                  href="https://ngrok.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  ngrok.com
-                </a>
-                , then copy your authtoken from the{' '}
-                <a
-                  href="https://dashboard.ngrok.com/get-started/your-authtoken"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  ngrok dashboard
-                </a>{' '}
-                and save it above. Opening Settings never starts the public
-                link.
-              </p>
-            </details>
-          </Section>
-        </SettingsAdvanced>
+            <Section
+              title="Network"
+              description="Where Row-Bot listens and the addresses it accepts."
+              icon={ShieldCheck}
+              anchor="network"
+            >
+              {network}
+            </Section>
+            <Section
+              title="Public link"
+              description="Reach Row-Bot from anywhere through ngrok. It opens only when you start it."
+              icon={Network}
+              anchor="tunnel"
+            >
+              <PublicLinkStatus
+                tunnel={snapshot.tunnel}
+                mutation={mutation}
+                writeClipboard={writeClipboard}
+              />
+              <SelectSetting
+                mutation={mutation}
+                field="tunnel.provider"
+                label="Tunnel provider"
+                value={snapshot.tunnel.provider}
+                options={[{ value: 'ngrok', label: 'ngrok' }]}
+              />
+              <SecretSetting
+                mutation={mutation}
+                field="tunnel.credential"
+                label="Tunnel credential"
+                configured={snapshot.tunnel.credential.configured}
+                source={snapshot.tunnel.credential.source}
+                fingerprint={snapshot.tunnel.credential.fingerprint}
+              />
+              <details>
+                <summary>Tunnel setup</summary>
+                <p className="settings-help">
+                  Create an ngrok account at{' '}
+                  <a
+                    href="https://ngrok.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    ngrok.com
+                  </a>
+                  , then copy your authtoken from the{' '}
+                  <a
+                    href="https://dashboard.ngrok.com/get-started/your-authtoken"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    ngrok dashboard
+                  </a>{' '}
+                  and save it above. Opening Settings never starts the public
+                  link.
+                </p>
+              </details>
+            </Section>
+          </SettingsAdvanced>
+        )}
       </div>
     );
   const cu = snapshot.computer_use;
@@ -5725,7 +5732,7 @@ export function PreferencesSnapshotPanel({
             description={
               place.kind === 'this_computer'
                 ? 'A copy of your Row-Bot on this computer, without passwords or sign-ins.'
-                : `A copy of everything ${place.on}, without passwords or sign-ins.`
+                : 'A copy of your conversations, memories, workflows, designs and settings, without passwords or sign-ins.'
             }
             icon={HardDrive}
             anchor="backup"

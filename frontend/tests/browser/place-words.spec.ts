@@ -54,7 +54,7 @@ test('says where Row-Bot runs from the browser’s side: this computer, a hosted
   await page.goto('/app-v2/settings/data');
   await expect(
     page.getByText(
-      'A copy of everything on your Row-Bot server at PikaPods, without passwords or sign-ins.',
+      'A copy of your conversations, memories, workflows, designs and settings, without passwords or sign-ins.',
     ),
   ).toBeVisible();
 
@@ -67,4 +67,10 @@ test('says where Row-Bot runs from the browser’s side: this computer, a hosted
   ).toBeVisible();
   await expect(page.getByText(/this computer/)).toHaveCount(0);
   await screenshot(page, testInfo, 'place-server-documents');
+  await page.goto('/app-v2/settings/data');
+  await expect(
+    page.getByText(
+      'A copy of your conversations, memories, workflows, designs and settings, without passwords or sign-ins.',
+    ),
+  ).toBeVisible();
 });

@@ -37,6 +37,23 @@
           "title": "Kind",
           "type": "string"
         },
+        "left_out": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 200,
+                "type": "string"
+              },
+              "maxItems": 10,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Left Out"
+        },
         "name": {
           "anyOf": [
             {
@@ -49,6 +66,22 @@
           ],
           "default": null,
           "title": "Name"
+        },
+        "sign_in_again": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DataBackupSignIn"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sign In Again"
         },
         "skipped": {
           "anyOf": [

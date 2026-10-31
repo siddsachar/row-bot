@@ -1375,6 +1375,28 @@
       "title": "SettingsRuntimeToggleSnapshot",
       "type": "object"
     },
+    "SettingsServerMemorySnapshot": {
+      "additionalProperties": false,
+      "description": "A server's memory limit and the working set now (H12), for the host card (U5).",
+      "properties": {
+        "limit_bytes": {
+          "minimum": 1,
+          "title": "Limit Bytes",
+          "type": "integer"
+        },
+        "used_bytes": {
+          "minimum": 0,
+          "title": "Used Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit_bytes",
+        "used_bytes"
+      ],
+      "title": "SettingsServerMemorySnapshot",
+      "type": "object"
+    },
     "SettingsShellSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1545,6 +1567,17 @@
         },
         "logging": {
           "$ref": "#/$defs/SettingsLoggingSnapshot"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsServerMemorySnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "mobile_access": {
           "$ref": "#/$defs/SettingsMobileAccessSnapshot"

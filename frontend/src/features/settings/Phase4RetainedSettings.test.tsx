@@ -2052,6 +2052,97 @@ it('a known host’s Updates page shows the version and who updates it, and noth
   ).toBeNull();
 });
 
+it('System starts with the Hosted by card only when a known host runs Row-Bot (U5)', async () => {
+  const state = { conversations: [], selectedConversationId: null };
+  const show = (value: SettingsSnapshot) => {
+    const known: Record<string, unknown> = {
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+      settingsSnapshot: async () => value,
+    };
+    const controller = new Proxy(known, {
+      get: (target, key: string) =>
+        key in target ? target[key] : () => new Promise(() => {}),
+    }) as unknown as ClientController;
+    return render(
+      <RuntimeContext.Provider
+        value={{ controller, platform: {} as ClientPlatform }}
+      >
+        <OverlayProvider>
+          <MemoryRouter initialEntries={['/settings/system']}>
+            <Routes>
+              <Route path="settings/:setting/*" element={<SettingRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </OverlayProvider>
+      </RuntimeContext.Provider>,
+    );
+  };
+  const hosted = {
+    ...snapshot,
+    system: {
+      ...snapshot.system,
+      hosted_by: {
+        id: 'pikapods',
+        name: 'PikaPods',
+        home_url: 'https://www.pikapods.com/',
+        support_url: 'https://docs.pikapods.com/',
+        status_url: null,
+        manage_url: 'https://www.pikapods.com/pods',
+      },
+      memory: { limit_bytes: 2 * 2 ** 30, used_bytes: 2 ** 29 },
+    },
+  } satisfies SettingsSnapshot;
+  show(hosted);
+  const card = await screen.findByRole('region', {
+    name: 'Hosted by PikaPods',
+  });
+  expect(
+    within(card).getByText('Row-Bot 1.0.0 · updated by PikaPods'),
+  ).toBeVisible();
+  expect(within(card).getByText('Memory 0.5 GB of 2 GB')).toBeVisible();
+  // At the top: before the page's own groups.
+  const workspace = screen.getByRole('region', { name: 'Workspace' });
+  expect(
+    card.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  cleanup();
+
+  // A server with no known host (or the desktop): today's System page.
+  show({
+    ...snapshot,
+    system: {
+      ...snapshot.system,
+      memory: { limit_bytes: 2 * 2 ** 30, used_bytes: 2 ** 29 },
+    },
+  });
+  expect(
+    await screen.findByRole('region', { name: 'Workspace' }),
+  ).toBeVisible();
+  expect(screen.queryByText(/Hosted by/)).toBeNull();
+  expect(screen.queryByText(/Memory .* of/)).toBeNull();
+});
+
+it('Devices on a hosted Row-Bot keeps the devices and drops how the server is reached', () => {
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  renderSetting('access');
+  expect(screen.getByText('0 devices')).toBeVisible();
+  // Its host runs the network: no listen mode, Tailscale or public link here.
+  expect(screen.queryByText('Your Row-Bot server only')).toBeNull();
+  expect(
+    screen.queryByText('Network, allowed addresses and the public link'),
+  ).toBeNull();
+  cleanup();
+
+  // A self-hosted server keeps all of it.
+  setPlace({ kind: 'server' });
+  renderSetting('access');
+  expect(screen.getByText('Your Row-Bot server only')).toBeVisible();
+  expect(
+    screen.getByText('Network, allowed addresses and the public link'),
+  ).toBeVisible();
+});
+
 it('uses NiceGUI friendly research-tool labels and owner order', () => {
   mutation.page = 'tools';
   const configured = {

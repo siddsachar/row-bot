@@ -69,6 +69,7 @@ import AccessDevices from './AccessDevices';
 import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
 import ConnectedPrivacy from './InstallCount';
+import HostedByCard from './HostedByCard';
 import { pickSettingsFolder } from './settings-folder';
 import {
   AccountsSnapshotPanel,
@@ -899,6 +900,13 @@ export default function SettingRoute() {
                   />
                   <AccessDevices reloadKey={devicesReload} />
                 </>
+              ) : null}
+              {leaf.id === 'system' && settingsSnapshot.system.hosted_by ? (
+                <HostedByCard
+                  host={settingsSnapshot.system.hosted_by}
+                  memory={settingsSnapshot.system.memory}
+                  version={settingsSnapshot.preferences.updates.current_version}
+                />
               ) : null}
               <Phase4RetainedSettings
                 setting={leaf.id as Phase4RetainedSetting}
