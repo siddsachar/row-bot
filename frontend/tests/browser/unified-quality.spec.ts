@@ -510,7 +510,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await expect(
           page
             .getByRole('alert')
-            .filter({ hasText: 'Choose a model before sending' }),
+            .filter({ hasText: "This model isn't ready, so nothing was sent" }),
         ).toBeVisible();
         await expect(composer(page)).toHaveValue(
           'Synthetic unavailable-model draft',

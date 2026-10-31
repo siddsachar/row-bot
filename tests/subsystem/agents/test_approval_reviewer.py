@@ -132,6 +132,56 @@ def test_it_reads_the_latest_few_messages_of_the_persons_conversation(tmp_path, 
     assert request.source == "normal_chat" and not request.shared
 
 
+def test_under_auto_a_tool_is_reviewed_against_the_message_just_sent_before_its_checkpoint_is_written(
+        tmp_path, monkeypatch):
+    """A turn's checkpoints are written in the background: the reviewer reads the running turn's own
+    messages, so what the person just said decides, never only their previous message."""
+    from langchain_core.tools import tool
+
+    from row_bot import threads
+    from tests.helpers.learning_turns import AgentTurns, ScriptedModel, asks, call, says
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+
+    @tool
+    def delete_file(path: str) -> str:
+        """Delete one of the person's files (asks first)."""
+        from row_bot.tools import approval_gate
+
+        refusal = approval_gate.gate_action({"tool": "delete_file", "label": "Delete a file",
+                                             "description": f"Delete {path}"})
+        return refusal or f"Deleted {path}."
+
+    model = ScriptedModel(responses=[says("Which ones?"), asks(call("delete_file", "d1", path="old.txt")),
+                                     says("Deleted old.txt.")], seen=[])
+    turns = AgentTurns(monkeypatch, model, [delete_file], approval_mode="auto")
+    reviewed: list = []
+    asked = threading.Event()
+
+    def reviewer(messages, _runtime):
+        reviewed.append(messages)
+        asked.set()
+        return '{"decision": "approve", "reason": "You asked to delete old.txt."}'
+
+    monkeypatch.setattr(approval_review, "_call_reviewer", reviewer)
+    monkeypatch.setattr(approval_review, "_model_ref", lambda _runtime: "model:openai:gpt-4.1")
+    turns.send("Tidy my files")
+
+    # The second turn's checkpoints land only after the review: as on a slow disk.
+    put = threads.checkpointer.put
+
+    def late_put(*args, **kwargs):
+        asked.wait(5)
+        return put(*args, **kwargs)
+
+    monkeypatch.setattr(threads.checkpointer, "put", late_put)
+    events = turns.send("Now delete old.txt")
+
+    assert ("done", "Deleted old.txt.") in events
+    [messages] = reviewed
+    assert "Now delete old.txt" in str(messages)
+
+
 def test_a_workflow_run_is_judged_by_its_saved_instructions_not_its_filled_in_prompts(tmp_path, monkeypatch,
                                                                                       reload_for_data_dir):
     tasks, threads = reload_for_data_dir(tmp_path / "data", "row_bot.tasks", "row_bot.threads")

@@ -4800,6 +4800,17 @@ _current_learning_turn_var: _contextvars.ContextVar[Any] = _contextvars.ContextV
 _current_learning_tool_call_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "current_learning_tool_call", default=""
 )
+# The turn's messages as the graph holds them while one of its tools runs. The Auto reviewer reads
+# the person's newest words here: the checkpoint is written in the background and may still be the
+# previous turn's.
+_current_turn_messages_var: _contextvars.ContextVar[tuple] = _contextvars.ContextVar(
+    "current_turn_messages", default=()
+)
+
+
+def current_turn_messages() -> tuple:
+    """The running turn's messages while one of its tools runs; empty outside a tool call."""
+    return _current_turn_messages_var.get()
 # Surfaces where a turn starts with the person's own message (a next-message marker).
 _LEARNING_PERSON_SURFACES = frozenset({"normal_chat", "remote_client", "channel"})
 # The stream's last event says how the turn ended.
@@ -7161,14 +7172,21 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
     exact ToolMessage in parallel tool batches. With Learning (preview) on, the call and its
     capped result are captured too.
     """
-    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
-    if turn is None:
-        return _platform_tool_call(request, execute, None)
-    token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+    state = getattr(request, "state", None)
+    messages = state if isinstance(state, list) else (
+        state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None))
+    messages_token = _current_turn_messages_var.set(tuple(messages or ()))
     try:
-        return _platform_tool_call(request, execute, turn)
+        turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+        if turn is None:
+            return _platform_tool_call(request, execute, None)
+        token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+        try:
+            return _platform_tool_call(request, execute, turn)
+        finally:
+            _current_learning_tool_call_var.reset(token)
     finally:
-        _current_learning_tool_call_var.reset(token)
+        _current_turn_messages_var.reset(messages_token)
 
 
 def _learning_tool_call(turn: Any, request: Any, result: Any = None, *, untrusted: bool = False,
