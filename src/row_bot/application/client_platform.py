@@ -1203,6 +1203,9 @@ class ClientPlatformService:
                 ).rowcount
                 if not changed:
                     raise ClientPlatformError("revision_conflict")
+            if normalize_approval_mode(payload["approval_mode"]) != normalize_approval_mode(row.get("approval_mode")):
+                # The person's choice: new conversations start there.
+                full_autonomy.remember_level(payload["approval_mode"])
             if reasoning_selection is not None:
                 from row_bot.providers.reasoning import clear_reasoning_suppression
                 clear_reasoning_suppression(target, model)
