@@ -269,6 +269,8 @@ function LocalPanel({
       itself when Ollama is running.
     </p>
   );
+  // From a phone or another device, a download would land on that device.
+  const here = runtime.on_this_computer;
   if (runtime.state === 'not_installed')
     return (
       <div className="first-run-panel-body">
@@ -278,6 +280,7 @@ function LocalPanel({
             ? 'Ollama runs models on this computer: private, free and offline once a model is downloaded.'
             : `Ollama runs models ${place.onAgain}: free, and your chats go to no AI provider.`}
         </p>
+        {!here && <p>Install it on that computer, not on this device.</p>}
         {runtime.platform === 'linux' ? (
           <ol className="first-run-steps">
             <li>
@@ -292,8 +295,8 @@ function LocalPanel({
           <ol className="first-run-steps">
             <li>
               Download Ollama for{' '}
-              {runtime.platform === 'macos' ? 'Mac' : 'Windows'} and run the
-              installer.
+              {runtime.platform === 'macos' ? 'Mac' : 'Windows'}
+              {here ? '' : ' from ollama.com'} and run the installer.
             </li>
             <li>
               {runtime.platform === 'macos'
@@ -302,7 +305,7 @@ function LocalPanel({
             </li>
           </ol>
         )}
-        {runtime.platform !== 'linux' && (
+        {here && runtime.platform !== 'linux' && (
           <a
             className="button primary first-run-download"
             href={runtime.download_url}

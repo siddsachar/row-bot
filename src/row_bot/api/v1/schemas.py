@@ -2510,6 +2510,8 @@ class LocalRuntimeSnapshot(WireModel):
     platform: Literal["windows", "macos", "linux"]
     download_url: str = Field(max_length=256)
     models: list[LocalRuntimeModel] = Field(max_length=256)
+    # False on another device (a phone): a download link would land there.
+    on_this_computer: bool
 
 
 class ModelTestResult(WireModel):
