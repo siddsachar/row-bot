@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Palette,
   PenLine,
+  Send,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -76,7 +77,8 @@ function Prompt({
  * A new chat: a greeting, four prompt suggestions (two more on request) and
  * the most recent threads. A prompt fills the composer to edit and send
  * (U17); recent threads open. A chat working on a design suggests work on
- * the design instead.
+ * the design instead. A hosted Row-Bot's very first chat suggests one
+ * message instead, sent as it is with one tap (U3).
  */
 export default function ChatEmpty({
   conversationId,
@@ -85,6 +87,7 @@ export default function ChatEmpty({
   recent,
   onOpen,
   design = false,
+  first,
 }: {
   conversationId: string | null;
   disabled: boolean;
@@ -93,6 +96,8 @@ export default function ChatEmpty({
   onOpen: (id: string) => void;
   /** The chat has a design in Working on. */
   design?: boolean;
+  /** The first chat on a hosted Row-Bot: one message to send with a tap. */
+  first?: { prompt: string; onSend: (prompt: string) => void };
 }) {
   const [more, setMore] = useState(false);
   if (!conversationId)
@@ -108,6 +113,23 @@ export default function ChatEmpty({
             Start with a message. Add a code folder or design anytime.
           </span>
         </p>
+      </div>
+    );
+  if (first)
+    return (
+      <div className="chat-empty chat-empty-first">
+        <p className="chat-empty-eyebrow">{greeting()}</p>
+        <h2 className="chat-empty-title">Say hello to Row-Bot</h2>
+        <p className="chat-empty-lede">Tap to send your first message.</p>
+        <button
+          type="button"
+          className="chat-empty-first-message"
+          disabled={disabled}
+          onClick={() => first.onSend(first.prompt)}
+        >
+          <span>{first.prompt}</span>
+          <Send aria-hidden />
+        </button>
       </div>
     );
   // Never-used chats and helpers' own threads stay out, as in the sidebar

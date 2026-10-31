@@ -185,6 +185,7 @@ export default function ProviderStatus({
   onSubscription,
   onSubscriptionOption,
   hideCustom = false,
+  hideLocal = false,
 }: {
   load: (signal?: AbortSignal) => Promise<ProviderLiveSnapshot>;
   refresh: (provider: string) => Promise<ProviderCatalogRefresh>;
@@ -199,6 +200,11 @@ export default function ProviderStatus({
   onSubscriptionOption?: (provider: string) => void;
   /** Custom endpoints listed by their own editor below. */
   hideCustom?: boolean;
+  /**
+   * A hosted Row-Bot (U3): the server has no GPU, so Ollama on it isn't
+   * offered. A local runtime that is connected still shows.
+   */
+  hideLocal?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
   const [selected, setSelected] = useState('');
@@ -488,7 +494,13 @@ export default function ProviderStatus({
           )}
           {(Object.keys(groups) as Array<keyof typeof groups>).map((group) => {
             const members = cards.filter((card) => card.group === group);
-            if (!members.length || (group === 'custom' && hideCustom))
+            if (
+              !members.length ||
+              (group === 'custom' && hideCustom) ||
+              (group === 'local' &&
+                hideLocal &&
+                !members.some((card) => card.configured))
+            )
               return null;
             const shown =
               group === 'api'

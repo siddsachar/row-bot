@@ -4542,6 +4542,22 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
     return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
 
 
+# ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
+# A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
+# buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's
+# restore (/__p10_fixture/first-run/restore) puts the setup state back, phone card included.
+@app.post("/__a6_fixture/hosted/{state}")
+def a6_hosted(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if state == "on":
+        os.environ["ROW_BOT_HOSTED_BY"] = "pikapods"
+    elif state == "off":
+        os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    else:
+        raise HTTPException(status_code=422, detail="Unknown hosted state")
+    return {"hosted": state == "on"}
+
+
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
 # (a pinned choice with its saved catalog row) and on the synthetic local

@@ -15,7 +15,7 @@ import {
   useSearchParams,
   useLocation,
 } from 'react-router-dom';
-import { useClientState, useRuntime } from '../../runtime';
+import { useClientState, useOnThisComputer, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
@@ -116,6 +116,7 @@ function AgentProfilesMoved() {
 export default function SettingRoute() {
   const { setting = 'preferences', '*': item = '' } = useParams();
   const navigate = useNavigate();
+  const onThisComputer = useOnThisComputer();
   const [search] = useSearchParams();
   const location = useLocation();
   const leaf = resolveSetting(setting);
@@ -553,6 +554,7 @@ export default function SettingRoute() {
               }
               onSubscriptionOption={setSelectedSubscriptionOption}
               hideCustom={Boolean(providerConfigurationOwner?.get())}
+              hideLocal={Boolean(settingsSnapshot?.system.hosted_by)}
             />
             {selectedSubscription && subscriptionAccountsOwner?.get() && (
               <ModalTask
@@ -572,6 +574,7 @@ export default function SettingRoute() {
                     }
                     initialAction={selectedSubscription.action}
                     signInExpired={selectedSubscription.expired}
+                    remote={!onThisComputer}
                     onClose={() => setSelectedSubscription(null)}
                     session={subscriptionAccountsOwner.get()}
                     load={controller.subscriptionAccounts}
@@ -618,6 +621,7 @@ export default function SettingRoute() {
                 compact
                 hostName={settingsSnapshot?.system.hosted_by?.name}
                 autoAdd={search.get('add') === 'custom-endpoint'}
+                addProfile={search.get('type')}
                 credentialRefreshRequest={
                   endpointCredentialRefresh?.session === session
                     ? endpointCredentialRefresh
@@ -652,6 +656,13 @@ export default function SettingRoute() {
                   ).status
                 }
                 onSaved={() => setProviderReload((value) => value + 1)}
+                onModelsReady={() => {
+                  // Opened from a hosted first run (U3): back to it, where the
+                  // endpoint's models are listed to pick from. One that can't
+                  // be reached stays here, with the reason.
+                  if (search.get('from') === 'setup')
+                    navigate('/setup', { replace: true });
+                }}
                 onCredentials={(providerId) => {
                   if (providerId) setSelectedCustomCredential(providerId);
                 }}

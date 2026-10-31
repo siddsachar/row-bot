@@ -55,3 +55,15 @@ SETUP_STEPS: dict[str, dict[str, str]] = {
         "description": "Review readiness and fix anything missing.",
     },
 }
+
+# A hosted Row-Bot (U4) adds these: "phone" after Models, "backup" before Final Check.
+HOSTED_STEPS: dict[str, dict[str, str]] = {
+    "phone": {
+        "title": "Add your phone",
+        "description": "Scan a code to use Row-Bot on your phone, then add it to your home screen.",
+    },
+    "backup": {
+        "title": "Back up",
+        "description": "Download a backup to keep, or to move Row-Bot to your own computer.",
+    },
+}

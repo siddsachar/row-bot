@@ -960,6 +960,17 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  // A Grok address pasted from another device (H5).
+  subscription_callback_invalid: [
+    'That address isn’t from this sign-in. Copy the address your browser shows after you sign in, and paste it again.',
+    'review',
+    RETRY,
+  ],
+  subscription_denied: [
+    'Grok didn’t allow the sign-in. Start it again.',
+    'retry',
+    RETRY,
+  ],
   subscription_capacity: [
     'Too many sign-ins are in progress. Wait for one to finish.',
     'retry',

@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -786,4 +787,77 @@ it('explains a private address refused on refresh, and a metadata address never 
       "That address belongs to the hosting company's own computer, not a model server. Row-Bot never connects to it.",
     ),
   ).toBeVisible();
+});
+
+it('opens from a hosted first run with Ollama picked and the guide to reaching it (U3)', async () => {
+  const props = options();
+  render(
+    <ProviderConfiguration
+      {...props}
+      compact
+      autoAdd
+      addProfile="ollama"
+      hostName="PikaPods"
+    />,
+  );
+  const type = await screen.findByLabelText('Server type');
+  expect(type).toHaveValue('ollama');
+  expect(
+    screen.getByRole('link', { name: 'How to reach your model server safely' }),
+  ).toHaveAttribute('href', 'https://row-bot.ai/docs/guides/own-model-server');
+});
+
+it('opens a plain form for a type it doesn’t know, and no guide on a computer', async () => {
+  const props = options();
+  render(
+    <ProviderConfiguration {...props} compact autoAdd addProfile="nonsense" />,
+  );
+  expect(await screen.findByLabelText('Server type')).toHaveValue(
+    'generic_openai',
+  );
+  expect(
+    screen.queryByRole('link', {
+      name: 'How to reach your model server safely',
+    }),
+  ).toBeNull();
+});
+
+it('says the endpoint is ready only once its models answered, never when it could not be reached (U3)', async () => {
+  const props = options();
+  const onModelsReady = vi.fn();
+  render(
+    <ProviderConfiguration
+      {...props}
+      compact
+      hostName="PikaPods"
+      onModelsReady={onModelsReady}
+    />,
+  );
+  await addEndpoint('https://gpu.example.com/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(onModelsReady).toHaveBeenCalledOnce());
+
+  cleanup();
+  const refused = options();
+  const notReady = vi.fn();
+  refused.apply
+    .mockResolvedValueOnce({ configuration_revision: 'b'.repeat(64) })
+    .mockRejectedValueOnce({ code: 'endpoint_unreachable', status: 409 });
+  render(
+    <ProviderConfiguration
+      {...refused}
+      compact
+      hostName="PikaPods"
+      onModelsReady={notReady}
+    />,
+  );
+  await addEndpoint('https://gpu.example.com/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(
+    await screen.findByText(
+      /Row-Bot couldn't reach https:\/\/gpu.example.com\/v1/,
+    ),
+  ).toBeVisible();
+  expect(notReady).not.toHaveBeenCalled();
 });

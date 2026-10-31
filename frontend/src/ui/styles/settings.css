@@ -2820,6 +2820,11 @@
   padding-inline-start: 20px;
   color: var(--text-secondary);
 }
+/* A hosted first run's one line in place of the steps (U3). */
+.subscription-flow-guide {
+  margin: 0;
+  color: var(--text-secondary);
+}
 .subscription-flow-open.button {
   justify-self: start;
 }

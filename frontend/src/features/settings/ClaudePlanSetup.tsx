@@ -128,17 +128,39 @@ export default function ClaudePlanSetup({
   checking,
   onCheck,
   onDone,
+  autoStart = false,
 }: {
   plan: ClaudePlanStatus | null | undefined;
   checking: boolean;
   onCheck: () => void;
   /** Ready: close the dialog (Settings) or carry on (first run). */
   onDone?: () => void;
+  /**
+   * The person already chose "Use my Claude plan" (a hosted first run's big
+   * button, U3): install or sign in at once instead of asking again.
+   */
+  autoStart?: boolean;
 }) {
   const controller = useContext(RuntimeContext)?.controller;
   const [step, setStep] = useState<Step>({ kind: 'idle' });
   const polling = useRef<AbortController | null>(null);
   useEffect(() => () => polling.current?.abort(), []);
+  const started = useRef(false);
+  useEffect(() => {
+    if (!autoStart || started.current || !plan) return;
+    started.current = true;
+    // An install already running (a reload) is followed by the effect below.
+    if (plan.state === 'not_installed')
+      void (controller?.claudeCodeInstall?.() ?? Promise.resolve(null))
+        .catch(() => null)
+        .then((progress) => {
+          if (progress?.state !== 'running') void install(false);
+        });
+    else if (plan.state === 'signed_out')
+      setStep({ kind: 'signing_in', installed: '' });
+    // Once, when the plan is first read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, plan]);
 
   async function follow(update: boolean, signal: AbortSignal) {
     if (!controller) return;

@@ -472,3 +472,41 @@ it('a profile the old Claude sign-in had set up says to set Claude up again', as
     'Claude now works through Claude Code. Set it up again',
   );
 });
+
+it('offers no Ollama on a hosted server, unless one is connected (U3)', async () => {
+  const ollama: ProviderLiveCard = {
+    ...card,
+    provider_id: 'ollama',
+    display_name: 'Ollama Local',
+    group: 'local',
+    configured: false,
+    source: 'not_running',
+  };
+  const { unmount } = render(
+    <ProviderStatus
+      hideLocal
+      load={async () => ({ schema_version: 1, providers: [card, ollama] })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  expect(await screen.findByLabelText('API providers')).toBeVisible();
+  expect(screen.queryByLabelText('On this device')).toBeNull();
+  expect(screen.queryByText('Ollama Local')).toBeNull();
+  unmount();
+  render(
+    <ProviderStatus
+      hideLocal
+      load={async () => ({
+        schema_version: 1,
+        providers: [
+          card,
+          { ...ollama, configured: true, source: 'local_daemon' },
+        ],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText('Ollama Local')).toBeVisible();
+});
