@@ -461,13 +461,15 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
 
 
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
-    """Where a picture of this size goes for a position preset, with a margin from the edges."""
+    """Where a picture of this size goes for a position preset, with a margin from the edges; ``lower`` is the
+    lower third, above where captions sit."""
     margin = round(frame_height * 0.045)
     vertical, _, horizontal = (position or "top-right").partition("-")
     if position in {"top", "bottom", "center"}:
         vertical, horizontal = position, "center"
     x = {"left": margin, "right": frame_width - width - margin}.get(horizontal, (frame_width - width) // 2)
-    y = {"top": margin, "bottom": frame_height - height - margin}.get(vertical, (frame_height - height) // 2)
+    y = {"top": margin, "bottom": frame_height - height - margin,
+         "lower": round(frame_height * 0.68) - height // 2}.get(vertical, (frame_height - height) // 2)
     return max(0, x), max(0, y)
 
 
@@ -838,7 +840,8 @@ class _Builder:
                 title = Step(op="text", text=scene.card, style="title", position="center", plain=True)
                 self.video = self.lay(self.video, text_overlay(title, self.width, self.height), start=begin, end=end)
             elif scene.card:
-                card = Step(op="text", text=scene.card, style="title", position="center", fill=fill)
+                # Over a picture, in the lower third: the middle is where the action is.
+                card = Step(op="text", text=scene.card, style="title", position="lower-left", fill=fill)
                 self.video = self.lay(self.video, text_overlay(card, self.width, self.height),
                                       start=begin, end=min(end, begin + CARD_SECONDS))
             if scene.line and step.style == "caption":

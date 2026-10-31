@@ -316,6 +316,9 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
     assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
+    # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
+    # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named).
+    assert f"overlay=x=16:y={round(360 * 0.68) - card.height // 2}:" in plan.graph
 
 
 def _every_stream_is_used(plan) -> bool:

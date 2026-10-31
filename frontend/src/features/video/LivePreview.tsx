@@ -176,7 +176,14 @@ export function LivePreview({
           </div>
         )}
         {voiceUrl && <audio ref={voice} src={voiceUrl} />}
-        {cardShown && <span className="video-preview-card">{piece.card}</span>}
+        {cardShown && (
+          <span
+            className="video-preview-card"
+            data-over={piece.ref ? 'picture' : 'card'}
+          >
+            {piece.card}
+          </span>
+        )}
         {captions && piece.line && (
           <span className="video-preview-caption">{piece.line}</span>
         )}
