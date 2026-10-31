@@ -154,9 +154,9 @@ class ClaudeSignIns:
             raise SignInRefused("claude_code_installing")
         command = sign_in_command(find_claude_code())
         with self._lock:
-            if self._current is not None:
+            if self._current is not None and self._current.ended is None:
                 self._end(self._current, "replaced")
-                self._current = None
+            self._current = None
             pty = self._factory(command, env=claude_code_environment(), cwd=str(claude_code_workdir()),
                                 cols=cols, rows=rows)
             sign_in = ClaudeSignIn(id=secrets.token_urlsafe(24), owner=owner, pty=pty, active_at=self._clock())
@@ -166,11 +166,15 @@ class ClaudeSignIns:
         return sign_in
 
     def close(self, sign_in_id: str, owner: str) -> None:
+        # Kept, ended and empty, like one Claude Code ended itself: a read already on its way sees it
+        # closed instead of a missing sign-in. The sweep drops it after ENDED_SECONDS.
         with self._lock:
             sign_in = self._find(sign_in_id, owner)
             if sign_in.ended is None:
                 self._end(sign_in, "closed")
-            self._current = None
+            else:  # It ended by itself and kept its last output for the panel; closing drops it.
+                sign_in.frames.clear()
+                sign_in.output_bytes = 0
 
     def close_running(self) -> None:
         """Close the sign-in, whichever device opened it (an install or update of Claude Code goes first)."""

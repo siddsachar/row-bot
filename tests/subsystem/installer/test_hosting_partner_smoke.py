@@ -117,3 +117,13 @@ def test_the_fake_model_answers_only_the_saved_key_and_calls_the_probe_tool(mode
         json.loads(line[6:])["choices"][0]["delta"].get("content") or ""
         for line in text.splitlines() if line.startswith("data: {")
     )
+
+
+def test_a_refused_key_reads_the_refusal_even_after_a_large_request(model_server: str) -> None:
+    # A refusal sent before the body was read reset the connection (macOS at once, Windows often), so
+    # the caller saw a dropped connection instead of the 401.
+    large = {"model": "row-bot-dummy-chat", "messages": [{"role": "user", "content": "x" * 2_000_000}]}
+
+    for _ in range(5):
+        status, text = _post(model_server, large, key="another-key")
+        assert status == 401 and json.loads(text)["error"]["type"] == "invalid_api_key"
