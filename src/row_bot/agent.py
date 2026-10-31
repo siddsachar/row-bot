@@ -1245,6 +1245,20 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
 
 
+# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
+# recording) is a long run of deliberate page actions, so it may take more.
+BROWSER_TOOL_LIMIT = 80
+RECORDING_BROWSER_TOOL_LIMIT = 400
+
+
+def _browser_tool_limit(thread_id: str) -> int:
+    """The browser actions this turn may take: more while this chat's browser is being recorded."""
+    from row_bot import recordings
+
+    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
+    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
+
+
 def _browser_action_name(tool_name: str) -> str:
     name = str(tool_name or "browser")
     if name.startswith("browser_"):
@@ -8917,7 +8931,7 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _BROWSER_TOOL_LIMIT = 80
+    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -9089,7 +9103,8 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot", "wait_for"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _browser_tool_count >= _BROWSER_TOOL_LIMIT or _snapshot_heavy:
+                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
+                                                       >= _browser_tool_limit(_browser_thread)):
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -9374,7 +9389,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            repair_orphaned_tool_calls(config=config, agent_graph=agent)
+            # Its unfinished step says why it stopped: not the person.
+            repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                                       orphan_message="[Stopped: too many browser actions in one turn]")
         except Exception:
             pass
         _browser_msg = (
