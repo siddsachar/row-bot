@@ -196,3 +196,40 @@ def test_streamed_tool_result_preserves_underlying_display_and_raw_bridge_identi
 
     assert tool_done["name"] == "display:plugin_lookup"
     assert tool_done["raw_name"] == "tool_invoke"
+
+
+def _browser_steps(count: int):
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    class FakeGraph:
+        def stream(self, *_args, **_kwargs):
+            for number in range(count):
+                yield "updates", {"agent": {"messages": [AIMessage(content="", tool_calls=[{
+                    "id": f"call-{number}", "name": "browser_click", "args": {"ref": f"e{number}"},
+                    "type": "tool_call"}])]}}
+                yield "updates", {"tools": {"messages": [ToolMessage(
+                    content="Clicked.", name="browser_click", tool_call_id=f"call-{number}")]}}
+
+        def get_state(self, _config):
+            return SimpleNamespace(next=(), values={"messages": []}, tasks=())
+
+    return FakeGraph()
+
+
+def test_a_turn_that_films_its_browser_may_take_many_more_page_actions(monkeypatch):
+    """5.3.2: filming a demo stopped at 80 browser actions, shown as "Cancelled by user"; a recording is a long run
+    of deliberate page actions, so it may take more. Without one the runaway guard is unchanged."""
+    import row_bot.agent as agent
+    from row_bot import recordings
+
+    def stopped(events) -> bool:
+        return any("too many browser actions" in str(payload) for _event, payload in events)
+
+    config = {"configurable": {"thread_id": "conversation-a"}}
+    monkeypatch.setattr(recordings, "active_for", lambda thread, kind: None)
+    assert stopped(list(agent._stream_graph(_browser_steps(agent.BROWSER_TOOL_LIMIT + 5), {}, config)))
+
+    monkeypatch.setattr(recordings, "active_for",
+                        lambda thread, kind: object() if (thread, kind) == ("conversation-a", "browser") else None)
+    assert not stopped(list(agent._stream_graph(_browser_steps(agent.BROWSER_TOOL_LIMIT + 5), {}, config)))
+    assert stopped(list(agent._stream_graph(_browser_steps(agent.RECORDING_BROWSER_TOOL_LIMIT + 5), {}, config)))
