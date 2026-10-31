@@ -11,6 +11,7 @@ The provider's side is a fake HTTP client: nothing reaches OpenAI or xAI.
 from __future__ import annotations
 
 import socket
+from threading import Event
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
@@ -161,9 +162,18 @@ def test_chatgpt_gives_another_device_a_code_and_finishes_on_the_server(store, n
     assert auth_store.get_provider_secret("codex", "access_token") == "synthetic-chatgpt-access"
 
 
-def test_a_sign_in_left_waiting_on_a_reloaded_page_gives_way_to_a_new_one(store, no_local_browser, monkeypatch):
+def test_a_sign_in_left_waiting_on_a_closed_page_gives_way_to_a_new_one(store, no_local_browser, monkeypatch):
     """A phone that switches to OpenAI's page, or a first run opened again, must never read "busy" for ten
-    minutes: the same device's new Start replaces its own waiting sign-in. Another device's is never touched."""
+    minutes: a new Start replaces a sign-in that only waits, as Claude's sign-in does. Each page load is its
+    own window, so the old one is another window's. One whose check is running is never touched."""
+    approve = Event()
+    checking = Event()
+
+    def poll(*_args, **_kwargs):
+        checking.set()
+        approve.wait(5)
+        return None
+
     monkeypatch.setattr(codex, "start_codex_device_flow", lambda **_kw: SimpleNamespace(
         verification_uri="https://auth.openai.com/codex/device", user_code="ABCD-EFGH", interval_seconds=0.05,
         expires_at="2030-01-01T00:00:00+00:00"))
@@ -171,15 +181,19 @@ def test_a_sign_in_left_waiting_on_a_reloaded_page_gives_way_to_a_new_one(store,
     owner = controls.SubscriptionFlows(client_factory=lambda _guard: SimpleNamespace(close=lambda: None))
     try:
         first = _execute(owner, _command("codex"))["flow"]
-        again = _execute(owner, _command("codex"))["flow"]
+        reloaded = _command("codex")
+        again = owner.execute(owner_id="reloaded-window", key=reloaded["command_id"], command=reloaded,
+                              validate=lambda: None, validate_review=lambda _review: None)["flow"]
         assert again["flow_id"] != first["flow_id"] and again["state"] == "waiting"
         old = owner.read(owner_id="phone-session", flow_id=first["flow_id"], server_epoch=first["server_epoch"],
                          validate=lambda: None)
         assert old.state == "cancelled"
-        # Another device's waiting sign-in still holds: it is that person's to finish or cancel.
-        other = _command("codex")
+
+        # While the server is checking a code with OpenAI, a new Start waits its turn.
+        monkeypatch.setattr(codex, "poll_codex_device_authorization", poll)
+        assert checking.wait(5)
         with pytest.raises(controls.SubscriptionError, match="subscription_busy"):
-            owner.execute(owner_id="laptop-session", key=other["command_id"], command=other,
-                          validate=lambda: None, validate_review=lambda _review: None)
+            _execute(owner, _command("codex"))
+        approve.set()
     finally:
         owner.dispose()
