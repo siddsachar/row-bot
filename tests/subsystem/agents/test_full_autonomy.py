@@ -4,6 +4,8 @@ for the person's own chats."""
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -71,6 +73,46 @@ def test_workflows_saved_with_the_old_auto_become_reviewed_auto_never_full(tmp_p
     assert [tasks.get_task(task_id)["safety_mode"] for task_id in ids] == ["auto", "auto", "auto", "approve"]
 
 
+def test_new_conversations_workflows_and_workspaces_start_at_the_level_chosen_last(tmp_path, reload_for_data_dir):
+    """Auto until the person chooses a level for a conversation; then that level. Hands-off is turned on in
+    each conversation, so it starts new ones at Auto. A conversation saved without a level stays on Ask."""
+    threads, tasks, task_tool = reload_for_data_dir(
+        tmp_path / "data", "row_bot.threads", "row_bot.tasks", "row_bot.tools.task_tool")
+    from row_bot import full_autonomy
+    from row_bot.developer.state import DeveloperWorkspace
+
+    def starts() -> tuple[str, ...]:
+        conversation = threads.create_thread("New")
+        task_tool._task_create("Asked for", prompts=["Tidy the notes"])
+        made_by_agent = tasks.list_tasks()[-1]
+        workflow = tasks.get_task(tasks.create_task("Daily", prompts=["Run"], enabled=False))
+        workspace = DeveloperWorkspace(id="w", name="w", path=str(tmp_path))
+        return (threads._get_thread_approval_mode(conversation), workflow["safety_mode"],
+                made_by_agent["safety_mode"], workspace.approval_mode)
+
+    assert starts() == ("auto",) * 4
+    full_autonomy.remember_level("approve")
+    assert starts() == ("approve",) * 4
+    full_autonomy.remember_level("full")
+    assert starts() == ("auto",) * 4
+
+    saved_before = threads.create_thread("Saved before")
+    with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
+        conn.execute("UPDATE thread_meta SET approval_mode = '' WHERE thread_id = ?", (saved_before,))
+    assert threads._get_thread_approval_mode(saved_before) == "approve"
+    assert DeveloperWorkspace.from_dict({"id": "old", "name": "old", "path": str(tmp_path)}).approval_mode == "approve"
+
+
+def test_a_sandbox_starts_new_conversations_at_the_level_of_the_chat_that_made_it(data_dir, monkeypatch):
+    from row_bot import full_autonomy
+    from row_bot.approval_policy import SANDBOX_LEVEL_ENV
+
+    full_autonomy.remember_level("auto")
+    monkeypatch.setenv("ROW_BOT_SANDBOX", "1")
+    monkeypatch.setenv(SANDBOX_LEVEL_ENV, "block")
+    assert full_autonomy.new_level() == "block"
+
+
 def test_a_profile_narrows_its_parents_level_and_never_widens_it():
     from row_bot.agent_profiles import _effective_approval
 
@@ -127,6 +169,11 @@ def test_full_autonomy_is_never_turned_on_from_a_channel(channel_threads, monkey
     assert "Auto" in cmd_approval("Slack", "auto", thread_id="slack-dm")
     assert threads._get_thread_approval_mode("slack-dm") == "auto"
     assert "allow_all" not in cmd_approval("Slack", "", thread_id="slack-dm")
+    # The person's choice in a channel is where new conversations start, as in the app.
+    from row_bot import full_autonomy
+
+    cmd_approval("Slack", "ask", thread_id="slack-dm")
+    assert full_autonomy.new_level() == "approve"
 
 
 @pytest.mark.parametrize(("adapter", "shared"), [

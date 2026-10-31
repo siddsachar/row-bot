@@ -424,10 +424,12 @@ _STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.052}
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
-                fill: tuple[int, int, int, int] | None = None, plain: bool = False) -> tuple[bytes, int, int]:
+                fill: tuple[int, int, int, int] | None = None, plain: bool = False,
+                shadow: bool = False) -> tuple[bytes, int, int]:
     """Draw text as a picture: a rounded dark badge, a large title, or a caption box; in a brand's colour
-    (``fill``), or ``plain``: no box, the letters outlined so they read on any picture."""
-    from PIL import Image, ImageDraw
+    (``fill``), or ``plain``: no box, the letters outlined so they read on any picture, or with a soft
+    ``shadow`` instead (a title card's own backdrop)."""
+    from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
     # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
@@ -448,11 +450,18 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
     if not plain:
         box = fill or ((17, 24, 39, 214) if style != "caption" else (0, 0, 0, 178))
         draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=box)
-    outline = max(2, round(size * 0.08)) if plain else 0
+    outline = max(2, round(size * 0.08)) if plain and not shadow else 0
+    places = []
     for index, line in enumerate(lines):
         line_width = probe.textlength(line, font=typeface)
-        left = (width - line_width) / 2
-        top = pad_y + index * line_height + (line_height - size) / 2 - size * 0.1
+        places.append(((width - line_width) / 2, pad_y + index * line_height + (line_height - size) / 2 - size * 0.1))
+    if shadow:
+        soft = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        shade = ImageDraw.Draw(soft)
+        for line, (left, top) in zip(lines, places, strict=True):
+            shade.text((left, top + size * 0.06), line, font=typeface, fill=(0, 0, 0, 150))
+        picture.alpha_composite(soft.filter(ImageFilter.GaussianBlur(max(2, size * 0.1))))
+    for line, (left, top) in zip(lines, places, strict=True):
         draw.text((left, top), line, font=typeface, fill=(255, 255, 255, 255), stroke_width=outline,
                   stroke_fill=(0, 0, 0, 230))
     output = io.BytesIO()
@@ -460,14 +469,35 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
     return output.getvalue(), width, height
 
 
+def card_backdrop(colour: tuple[int, int, int], width: int, height: int) -> bytes:
+    """A title card's backdrop: its colour lit softly from the top left, darker towards the edges, so a card
+    reads as a designed slide rather than a flat fill."""
+    from PIL import Image
+
+    small_width, small_height = 64, 36
+    picture = Image.new("RGB", (small_width, small_height))
+    pixels = picture.load()
+    for y in range(small_height):
+        for x in range(small_width):
+            across = 0.55 * x / (small_width - 1) + 0.45 * y / (small_height - 1)
+            edge = math.hypot(x / (small_width - 1) - 0.5, y / (small_height - 1) - 0.5) / math.hypot(0.5, 0.5)
+            light = 1.18 - 0.36 * across - 0.14 * edge * edge
+            pixels[x, y] = tuple(max(0, min(255, round(value * light + 10 * (1 - across)))) for value in colour)
+    output = io.BytesIO()
+    picture.resize((width, height), Image.Resampling.BICUBIC).save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
-    """Where a picture of this size goes for a position preset, with a margin from the edges."""
+    """Where a picture of this size goes for a position preset, with a margin from the edges; ``lower`` is the
+    lower third, above where captions sit."""
     margin = round(frame_height * 0.045)
     vertical, _, horizontal = (position or "top-right").partition("-")
     if position in {"top", "bottom", "center"}:
         vertical, horizontal = position, "center"
     x = {"left": margin, "right": frame_width - width - margin}.get(horizontal, (frame_width - width) // 2)
-    y = {"top": margin, "bottom": frame_height - height - margin}.get(vertical, (frame_height - height) // 2)
+    y = {"top": margin, "bottom": frame_height - height - margin,
+         "lower": round(frame_height * 0.68) - height // 2}.get(vertical, (frame_height - height) // 2)
     return max(0, x), max(0, y)
 
 
@@ -834,11 +864,14 @@ class _Builder:
                 badge = Step(op="text", text=speed_words(scene.speed), position="top-right", style="badge",
                              fill=fill)
                 self.video = self.lay(self.video, text_overlay(badge, self.width, self.height), start=begin, end=end)
-            if scene.input is None and scene.card:  # The whole scene, on its own colour (no box).
-                title = Step(op="text", text=scene.card, style="title", position="center", plain=True)
-                self.video = self.lay(self.video, text_overlay(title, self.width, self.height), start=begin, end=end)
+            if scene.input is None and scene.card:  # The whole scene, on its own backdrop (no box).
+                png, width, height = render_text(scene.card, "title", self.width, self.height, plain=True,
+                                                 shadow=True)
+                x, y = place("center", width, height, self.width, self.height)
+                self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end)
             elif scene.card:
-                card = Step(op="text", text=scene.card, style="title", position="center", fill=fill)
+                # Over a picture, in the lower third: the middle is where the action is.
+                card = Step(op="text", text=scene.card, style="title", position="lower-left", fill=fill)
                 self.video = self.lay(self.video, text_overlay(card, self.width, self.height),
                                       start=begin, end=min(end, begin + CARD_SECONDS))
             if scene.line and step.style == "caption":
@@ -861,9 +894,12 @@ class _Builder:
     def _blank(self, colour: tuple[int, int, int], length: float) -> tuple[str, str | None]:
         """A picture of one colour, *length* seconds long, with silence when the video has sound."""
         seconds = _seconds_text(length)
-        video = self.label("v")
+        flat = self.label("v")
         self.add(f"color=c=0x{colour[0]:02x}{colour[1]:02x}{colour[2]:02x}:s={self.width}x{self.height}:"
-                 f"r={_seconds_text(self.fps)}:d={seconds},setsar=1,format=yuv420p{video}")
+                 f"r={_seconds_text(self.fps)}:d={seconds},setsar=1{flat}")
+        lit = self.lay(flat, Overlay(card_backdrop(colour, self.width, self.height), self.width, self.height, 0, 0))
+        video = self.label("v")
+        self.add(f"{lit}format=yuv420p{video}")
         if not self.audio:
             return video, None
         sound = self.label("a")
@@ -883,26 +919,47 @@ class _Builder:
         self.duration += BOOKEND_SECONDS * (bool(look.intro) + bool(look.outro))
 
     def _reframe(self, aspect: str, scenes: list[SceneCut]) -> None:
-        """Each scene cropped to the shape around its focus: the middle of its zoom, else where its pointer was,
-        else the middle of the picture. A shape the video already has changes nothing."""
+        """Each scene in the shape at its standard size (1080×1920, 1080×1080). In a tall cut a scene's picture
+        (its zoom, else the whole picture) is shown whole, fitted to the width over a blurred copy of itself, when
+        it is wider than the cut: a crop would leave only a middle third, words cut in half. A title card, a
+        picture that is tall enough and every scene of a square cut are cropped around their focus (the middle
+        of the zoom, else where the pointer was, else the middle). A shape the video already has changes
+        nothing."""
         if aspect not in ASPECTS:
             raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {aspect}.")
         target, w, h = ASPECTS[aspect], self.width, self.height
         if abs(w / h - target) < 0.01:
             return
         cw, ch = (_even(h * target), h) if w / h > target else (w, _even(w / target))
+        ow, oh = CARD_SIZES[aspect]
         cuts = [(self.marks[index], self.marks[index + 1]) for index in range(len(scenes))]
         videos, _ = self._pieces(cuts, audio=False)
         for index, scene in enumerate(scenes):
-            fx, fy = ((scene.zoom[0] + scene.zoom[2] / 2, scene.zoom[1] + scene.zoom[3] / 2) if scene.zoom
-                      else scene.focus or (0.5, 0.5))
-            left = int(min(max(0.0, fx * w - cw / 2), w - cw))
-            top = int(min(max(0.0, fy * h - ch / 2), h - ch))
             out = self.label("v")
-            self.add(f"{videos[index]}crop={cw}:{ch}:{left}:{top},setsar=1{out}")
+            zw, zh = (scene.zoom[2] * w, scene.zoom[3] * h) if scene.zoom else (w, h)
+            if aspect == "9:16" and scene.input is not None and zw / zh > target * 1.15:
+                source = videos[index]
+                if scene.zoom:
+                    region = self.label("v")
+                    self.add(f"{source}crop={_even(zw)}:{_even(zh)}:{int(scene.zoom[0] * w)}:"
+                             f"{int(scene.zoom[1] * h)}{region}")
+                    source = region
+                back, front, blurred = self.label("v"), self.label("v"), self.label("v")
+                self.add(f"{source}split{back}{front}")
+                self.add(f"{back}scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh},"
+                         f"boxblur=24:2,eq=brightness=-0.12{blurred}")
+                fitted = self.label("v")
+                self.add(f"{front}scale={ow}:-2:flags=lanczos{fitted}")
+                self.add(f"{blurred}{fitted}overlay=(W-w)/2:(H-h)/2,setsar=1{out}")
+            else:
+                fx, fy = ((scene.zoom[0] + scene.zoom[2] / 2, scene.zoom[1] + scene.zoom[3] / 2) if scene.zoom
+                          else scene.focus or (0.5, 0.5))
+                left = int(min(max(0.0, fx * w - cw / 2), w - cw))
+                top = int(min(max(0.0, fy * h - ch / 2), h - ch))
+                self.add(f"{videos[index]}crop={cw}:{ch}:{left}:{top},scale={ow}:{oh}:flags=lanczos,setsar=1{out}")
             videos[index] = out
         self._join(videos, [])
-        self.width, self.height = cw, ch
+        self.width, self.height = ow, oh
 
     def _amix(self, labels: list[str]) -> str:
         if len(labels) == 1:

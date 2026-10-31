@@ -548,6 +548,11 @@ def create_thread(
             "SELECT 1 FROM thread_meta WHERE thread_id = ?",
             (tid,),
         ).fetchone() is not None
+        if not safe_approval and not existed:
+            # A new conversation starts at the level the person chose last (Auto until then).
+            from row_bot.full_autonomy import new_level
+
+            safe_approval = new_level()
         conn.execute(
             "INSERT INTO thread_meta ("
             "thread_id, name, created_at, updated_at, model_override, project_id, "

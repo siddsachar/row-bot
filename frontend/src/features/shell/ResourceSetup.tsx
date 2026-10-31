@@ -709,8 +709,9 @@ export default function ResourceSetup({
       const current = conversationId
         ? await controller.workspaceFor(conversationId)
         : null;
-      // A clone downloads from the internet: under Ask (a new conversation's
-      // level too) the person confirms it first; Block is refused by the server.
+      // A clone downloads from the internet: under Ask the person confirms it
+      // first, and without a conversation too (the level a new one starts at
+      // isn't known here); Block is refused by the server.
       const level = approvalLevel(
         current?.controls?.approval_mode ?? 'approve',
       );
