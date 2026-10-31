@@ -1,0 +1,93 @@
+---
+title: "Fix A Hosted Row-Bot"
+description: "Troubleshooting for a Row-Bot that PikaPods runs for you: a lost setup code, an out-of-memory restart, a sign-in that won't finish, missing local models and moving."
+---
+
+# Fix A Hosted Row-Bot
+
+This page is for a Row-Bot that PikaPods runs for you; [Row-Bot In Your Browser](/docs/getting-started/in-your-browser) explains how it works. For anything else, see [Troubleshooting](/docs/troubleshooting/).
+
+Problems with the server itself, such as billing, its size, or a pod that won't start or can't be reached, are for PikaPods: see [Getting Help](/docs/getting-started/in-your-browser#getting-help).
+
+## Lost The Setup Code
+
+**Before anyone has signed in,** Row-Bot prints the code every time it starts. In PikaPods, open your pod's **More › Show Logs** and look for "Row-Bot setup code". If it has scrolled away, restart the pod and it's printed again.
+
+What the page says:
+
+- **"That code doesn't match."** Copy the whole code from the log again. After a few wrong tries the page says how many are left: five wrong codes pause sign-in for 15 minutes, and the page counts down the time.
+- **"This code has already been used or has expired."** Change the setup code in your pod's settings in PikaPods and restart the pod, then enter the new code.
+- **"Row-Bot is starting."** Wait a few seconds; the page tries again by itself.
+
+**After you've signed in,** a new browser shows **This Row-Bot already has an owner**:
+
+- **If another device is still signed in,** add this browser from there: **Settings › Devices & remote access › Connect a phone or computer**.
+- **If no device is signed in any more,** change the setup code in your pod's settings in PikaPods to a new one of at least 12 letters or digits, and restart the pod. Then open your Row-Bot, choose **Lost access?** and enter the new code. It works once, and signs out every other browser. Row-Bot doesn't print this code in the log: you know it because you set it.
+
+## Row-Bot Restarted: Out Of Memory
+
+When Row-Bot runs out of memory, the server restarts it. Home's **Needs you** and Monitor then say "Row-Bot restarted because the server ran out of memory", with your server's size. Your data and sign-ins are safe.
+
+Local speech-to-text uses the most. With the search model and Row-Bot's browser, it needs about 3.2 GB. Do one of these:
+
+- **Make the pod 4 GB in PikaPods.** The notice's **How to resize** explains it, and **Manage your pod in PikaPods** opens PikaPods. The notice goes once the server is bigger.
+- **Use cloud speech-to-text.** The notice's **Use cloud speech-to-text** opens **Settings › Voice**: choose **OpenAI Realtime** under **Listen with**.
+
+**Dismiss** hides the notice until it happens again.
+
+On a server under 4 GB, Row-Bot helps you stay within it: **Settings › Voice** marks local speech-to-text **Needs a 4 GB server** and asks before you choose it, and **Settings › Documents** suggests **Free memory when idle** for the search model. Row-Bot's browser also closes by itself ten minutes after its last use. [Hosting Row-Bot](/docs/operations/hosting#memory) has the details.
+
+## A Sign-In That Won't Finish
+
+### ChatGPT
+
+- **"This code expired."** Choose **Get a new code**. It copies the new code too.
+- **OpenAI's page didn't open,** because the browser blocked the new tab: choose **Open sign-in page**. The code stays on screen with **Copy**.
+- **The code wasn't copied:** the panel says "Enter this code on OpenAI's page and approve." and shows the code to type in.
+- **You approved, and closed Row-Bot's tab:** Row-Bot finishes the sign-in on your server by itself. Open Row-Bot again to carry on.
+- **You reloaded the page, or started again:** that's fine. The newest sign-in replaces one that was still waiting.
+
+### Grok
+
+xAI's sign-in can only send your browser back to an address on the server's own computer, starting `http://127.0.0.1:56121/`, which your browser can't open. That's expected:
+
+1. Sign in on xAI's page. It ends on a page that doesn't load.
+2. Copy that page's whole address from the address bar.
+3. Paste it into **Address of the page that didn't load** and choose **Connect with code**.
+
+**"That address isn't from this sign-in"** means it came from an earlier try: copy the address shown after this sign-in and paste it again. **"Grok didn't allow the sign-in"** means xAI turned it down: start it again.
+
+### Your Claude Plan
+
+**Use my Claude plan** installs Claude Code from Anthropic on your server, then opens Claude's own sign-in in a small panel. Open the link it shows, sign in to Claude, and paste the code Claude gives you into the panel. Row-Bot never sees, stores or relays your Claude sign-in.
+
+- **"Claude Code couldn't be installed: …"** names the reason, such as no internet connection, not enough disk space, or a download that didn't match Anthropic's checksum (it's deleted, never run). Choose **Try again**.
+- **Claude turned the code down:** Claude's own message shows in the panel and it asks again. Paste the code again, all of it.
+- **"Claude's sign-in was closed before it finished."** The panel was closed, or nothing happened in it for ten minutes. Choose **Sign in again**.
+- **"Row-Bot needs Claude Code … or newer."** Choose **Update Claude Code**.
+- **"Claude signed you out."** Choose **Sign in again** in **Settings › Providers › Claude (your Claude plan)**.
+
+[Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan) explains the panel.
+
+## Can't Find Local Models
+
+Your hosted server has no graphics card, so it can't run chat models itself, and Row-Bot doesn't offer Ollama on it. Row-Bot's own search model for memory and documents does run there; only chat models need more. To use models on hardware of your own:
+
+- **Connect your own model server.** Run Ollama, llama.cpp, vLLM or LM Studio on a computer with a graphics card, and add it as a custom endpoint: **Other ways › Use my own model server** at first launch, or **Add custom endpoint** in **Settings › Providers**. Your hosted Row-Bot reaches it over the internet, so it needs an address the internet can reach, with a key or a tunnel in front: see [Reach It From Anywhere](/docs/guides/own-model-server#reach-it-from-anywhere).
+- **Use the desktop app,** which runs Ollama on your own computer. [Move your Row-Bot there](/docs/getting-started/in-your-browser#moving-to-your-computer-and-back) whenever you like.
+
+What Row-Bot says:
+
+- **"Row-Bot couldn't reach https://… Check it's running and reachable from the internet."** The model server isn't running, or its address works only on your home network. Try the guide's [check from outside](/docs/guides/own-model-server#check-it-from-outside).
+- **Allow a private address?** Seen from your server, a private address such as `192.168.1.20` or `10.0.0.5` is inside PikaPods' network, not your home. Allow it only if your model server really runs there. For one at home, use an address the internet can reach.
+
+## Moving
+
+- **The backup didn't save.** A big backup can take longer than the click. When the row says it's ready, choose **Download backup** again to save it.
+- **No Restore from backup at first launch on your computer.** It's only in **Settings › Data**. Choose **Set up later** at first launch, then open **Settings › Data** and choose **Restore from backup…**.
+- **The restore hasn't happened yet.** It applies the next time Row-Bot starts: on your computer, quit Row-Bot and open it again; on your hosted Row-Bot, restart the pod in PikaPods. **Cancel restore** stops it before then.
+- **"That backup comes from a newer Row-Bot."** Update the Row-Bot you're restoring on first. Your hosted Row-Bot updates when PikaPods installs the new version, usually within a week.
+- **Models and apps ask you to sign in again.** That's expected: backups never hold passwords, keys or sign-ins, and the restore lists what to set up again. For your Claude plan, choose **Use my Claude plan** again.
+- **Your phone and websites are signed out.** Signed-in devices and Row-Bot's browser sessions stay behind. [Add your phone](/docs/getting-started/in-your-browser#add-your-phone) again, and sign in to websites again in Row-Bot's browser.
+- **The search model or speech model is missing.** Downloaded models and runtimes stay behind. Download them again in **Settings › Documents** or **Settings › Voice**.
+- **"The restore didn't finish, so Row-Bot kept your profile as it was."** Nothing changed. Check the file is the backup you meant, and try again.
