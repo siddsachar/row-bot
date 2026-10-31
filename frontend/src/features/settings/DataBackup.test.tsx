@@ -5,6 +5,7 @@ import type {
   DataBackupState,
   DataRestoreReview,
 } from '../../api/types';
+import { setPlace } from '../../api/place';
 import { DataBackup, type DataBackupOwner } from './DataBackup';
 
 const idle: DataBackupState = {
@@ -61,7 +62,10 @@ function owner(first: DataBackupState = idle) {
   } satisfies DataBackupOwner;
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  setPlace(null);
+});
 
 it('backs up in the background, then says where it went and offers the folder', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -430,4 +434,117 @@ it('a stopped, refused or dismissed backup that was sent is let go', async () =>
     'That backup is larger than Row-Bot can restore.',
   );
   expect(fake.send).toHaveBeenCalledTimes(2);
+});
+
+const MOVED = 'Row-Bot backup 2026-10-31 1100.zip';
+/** A hosted Row-Bot's Move: the backup runs, then its own manifest says what moves. */
+function moving() {
+  const away: DataBackupState = { ...idle, reveal_available: false };
+  const fake = owner(away);
+  fake.send.mockResolvedValueOnce(
+    receipt(
+      {
+        ...away,
+        job: {
+          kind: 'backup',
+          status: 'running',
+          started_at: '2026-10-31T11:00:00',
+        },
+      },
+      { status: 'accepted' },
+    ),
+  );
+  const done: DataBackupState = {
+    ...away,
+    last_backup_at: '2026-10-31T11:00:00',
+    last_backup_name: MOVED,
+    job: {
+      kind: 'backup',
+      status: 'completed',
+      name: MOVED,
+      left_out: [
+        'API keys, sign-in tokens and passwords',
+        'Caches, logs and downloaded runtimes',
+      ],
+      sign_in_again: [{ kind: 'provider', name: 'openai' }],
+    },
+  };
+  return { fake, done };
+}
+
+it('a hosted Row-Bot moves to a computer: a fresh backup downloads, with what it leaves out and what to sign in to again (U9)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const { fake, done } = moving();
+  render(<DataBackup owner={fake} canPick={false} />);
+  expect(await screen.findByText('Move Row-Bot')).toBeVisible();
+  expect(
+    screen.getByText(
+      'Download a backup, then install Row-Bot on your computer, open Settings › Data and choose Restore from backup.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/A backup from Row-Bot on your computer works too\./),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Download backup' }));
+  expect(fake.send).toHaveBeenCalledWith('backup', undefined);
+  await screen.findAllByRole('button', { name: 'Backing up…' });
+  fake.read.mockResolvedValue(done);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(fake.download).toHaveBeenCalledWith(MOVED);
+  const moved = await screen.findByText(`Downloaded “${MOVED}”.`);
+  const status = moved.closest('[role="status"]') as HTMLElement;
+  expect(status).toHaveTextContent(
+    'Not in the backup: API keys, sign-in tokens and passwords · Caches, logs and downloaded runtimes',
+  );
+  expect(status).toHaveTextContent('After moving, set these up again:');
+  expect(
+    within(screen.getByRole('list', { name: 'Sign in again' })).getByText(
+      'OpenAI (provider)',
+    ),
+  ).toBeVisible();
+});
+
+it('a backup made for moving waits for a click when the browser won’t save it by itself', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const { fake, done } = moving();
+  fake.download.mockResolvedValueOnce('user_gesture_required');
+  render(<DataBackup owner={fake} canPick={false} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Download backup' }),
+  );
+  await screen.findAllByRole('button', { name: 'Backing up…' });
+  fake.read.mockResolvedValue(done);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(
+    await screen.findByText(
+      `“${MOVED}” is ready. Choose Download backup to save it.`,
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('alert')).toBeNull();
+  // The click saves that backup; it doesn't make another.
+  fireEvent.click(screen.getByRole('button', { name: 'Download backup' }));
+  expect(await screen.findByText(`Downloaded “${MOVED}”.`)).toBeVisible();
+  expect(fake.download).toHaveBeenLastCalledWith(MOVED);
+  expect(fake.send).toHaveBeenCalledTimes(1);
+});
+
+it('the desktop has no Move row, and its restore takes a hosted Row-Bot’s backup', async () => {
+  render(<DataBackup owner={owner()} />);
+  expect(await screen.findByText('Restore from backup')).toBeVisible();
+  expect(
+    screen.getByText(
+      'Checks the backup first. A backup from a hosted Row-Bot works too. Your current profile is kept aside, and nothing changes until Row-Bot restarts.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText('Move Row-Bot')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Download backup' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Back up now' })).toHaveClass(
+    'primary',
+  );
 });

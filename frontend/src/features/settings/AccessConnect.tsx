@@ -43,7 +43,7 @@ import {
 } from '../../ui/primitives';
 import { QrCode } from '../../ui/QrCode';
 import AccessTailscale from './AccessTailscale';
-import { useConnectCode, type Lifetime } from './connect-code';
+import { browserRoute, useConnectCode, type Lifetime } from './connect-code';
 
 export { ARRIVAL_POLL_MS, MAX_CODES, REFRESH_BEFORE_MS } from './connect-code';
 
@@ -109,7 +109,9 @@ export function installSteps(
  * code is a one-time, 10-minute invitation; the previous one is cancelled);
  * 3) it waits for the device, then shows "Connected: <name> · Rename" and how
  * to install Row-Bot on it. Nothing becomes reachable without an explicit,
- * confirmed step, and closing the flow cancels the open code.
+ * confirmed step, and closing the flow cancels the open code. A hosted
+ * Row-Bot already has its own https address and its host runs the network,
+ * so there the code opens the address this browser uses, with no way to choose.
  */
 export default function AccessConnect({
   client = accessInvitationClient,
@@ -217,8 +219,10 @@ export default function AccessConnect({
     lanUsable.find((route) => route.id === lanId) ?? lanUsable[0] ?? null;
   const otherRoute =
     otherRoutes.find((route) => route.id === otherId) ?? otherRoutes[0] ?? null;
-  const route =
-    choice === 'tailscale'
+  const hosted = place.kind === 'hosted';
+  const route = hosted
+    ? routes && browserRoute(routes)
+    : choice === 'tailscale'
       ? tailscaleRoute
       : choice === 'lan'
         ? lanRoute
@@ -388,174 +392,178 @@ export default function AccessConnect({
         )
       ) : (
         <ol className="access-steps">
-          <li className="access-step">
-            <h4>How will it reach {place.name}?</h4>
-            <div
-              role="radiogroup"
-              aria-label={`How it reaches ${place.name}`}
-              className="access-options"
-            >
-              {option(
-                'tailscale',
-                'Tailscale',
-                'Private and encrypted (HTTPS). Recommended; installs as an app.',
-                Lock,
-                Boolean(tailscaleRoute),
-              )}
-              {option(
-                'lan',
-                'Same Wi-Fi',
-                'At home or the office. Opens in the browser (HTTP).',
-                Wifi,
-                lanUsable.length > 0,
-              )}
-              {option(
-                'internet',
-                'Internet',
-                'From anywhere, through your public link (ngrok).',
-                Globe,
-                Boolean(internetRoute),
-              )}
-              {otherRoutes.length > 0 &&
-                option(
-                  'other',
-                  'Another address',
-                  'An address you set up yourself.',
-                  Globe,
-                  true,
+          {!hosted && (
+            <li className="access-step">
+              <h4>How will it reach {place.name}?</h4>
+              <div
+                role="radiogroup"
+                aria-label={`How it reaches ${place.name}`}
+                className="access-options"
+              >
+                {option(
+                  'tailscale',
+                  'Tailscale',
+                  'Private and encrypted (HTTPS). Recommended; installs as an app.',
+                  Lock,
+                  Boolean(tailscaleRoute),
                 )}
-            </div>
-            <div className="access-option-panel">
-              {choice === 'tailscale' && (
-                <AccessTailscale
-                  client={tailscale}
-                  onChanged={() => setReloadRoutes((value) => value + 1)}
-                  writeClipboard={writeClipboard}
-                />
-              )}
-              {choice === 'lan' &&
-                (network?.listen_mode === 'local_only' ? (
-                  <div className="access-option-detail">
-                    <p className="settings-help">
-                      Row-Bot only listens {place.on} now.
-                    </p>
-                    <div className="button-row">
-                      <Button
-                        variant="primary"
-                        disabled={busy}
-                        onClick={allowNetwork}
-                      >
-                        Allow on my network…
-                      </Button>
-                    </div>
-                  </div>
-                ) : network?.listening_on_network === false ? (
-                  // B184: the saved mode says network, the launch says no.
-                  <p className="settings-help">
-                    Row-Bot was started to listen {place.on} only, so Same Wi-Fi
-                    can’t reach it now. Restart Row-Bot normally to use Same
-                    Wi-Fi.
-                  </p>
-                ) : lanRoute ? (
-                  <div className="access-option-detail">
-                    <ol className="access-next-steps">
-                      <li>
-                        Connect the other device to the same Wi-Fi as this
-                        computer.
-                      </li>
-                      <li>
-                        Scan the code. Row-Bot opens in its browser; the
-                        connection isn’t encrypted (HTTP).
-                      </li>
-                    </ol>
-                    {lanUsable.length > 1 && (
-                      <div className="access-inline-field">
-                        <label htmlFor={lanSelectId}>Address</label>
-                        <Select
-                          id={lanSelectId}
-                          value={lanRoute.id}
-                          onChange={(event) => setLanId(event.target.value)}
+                {option(
+                  'lan',
+                  'Same Wi-Fi',
+                  'At home or the office. Opens in the browser (HTTP).',
+                  Wifi,
+                  lanUsable.length > 0,
+                )}
+                {option(
+                  'internet',
+                  'Internet',
+                  'From anywhere, through your public link (ngrok).',
+                  Globe,
+                  Boolean(internetRoute),
+                )}
+                {otherRoutes.length > 0 &&
+                  option(
+                    'other',
+                    'Another address',
+                    'An address you set up yourself.',
+                    Globe,
+                    true,
+                  )}
+              </div>
+              <div className="access-option-panel">
+                {choice === 'tailscale' && (
+                  <AccessTailscale
+                    client={tailscale}
+                    onChanged={() => setReloadRoutes((value) => value + 1)}
+                    writeClipboard={writeClipboard}
+                  />
+                )}
+                {choice === 'lan' &&
+                  (network?.listen_mode === 'local_only' ? (
+                    <div className="access-option-detail">
+                      <p className="settings-help">
+                        Row-Bot only listens {place.on} now.
+                      </p>
+                      <div className="button-row">
+                        <Button
+                          variant="primary"
+                          disabled={busy}
+                          onClick={allowNetwork}
                         >
-                          {lanUsable.map((item) => (
+                          Allow on my network…
+                        </Button>
+                      </div>
+                    </div>
+                  ) : network?.listening_on_network === false ? (
+                    // B184: the saved mode says network, the launch says no.
+                    <p className="settings-help">
+                      Row-Bot was started to listen {place.on} only, so Same
+                      Wi-Fi can’t reach it now. Restart Row-Bot normally to use
+                      Same Wi-Fi.
+                    </p>
+                  ) : lanRoute ? (
+                    <div className="access-option-detail">
+                      <ol className="access-next-steps">
+                        <li>
+                          Connect the other device to the same Wi-Fi as this
+                          computer.
+                        </li>
+                        <li>
+                          Scan the code. Row-Bot opens in its browser; the
+                          connection isn’t encrypted (HTTP).
+                        </li>
+                      </ol>
+                      {lanUsable.length > 1 && (
+                        <div className="access-inline-field">
+                          <label htmlFor={lanSelectId}>Address</label>
+                          <Select
+                            id={lanSelectId}
+                            value={lanRoute.id}
+                            onChange={(event) => setLanId(event.target.value)}
+                          >
+                            {lanUsable.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {withoutScheme(item.origin)}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      )}
+                      {lanRoute.warning && lanRank(lanRoute) >= 5 && (
+                        <p className="settings-help" data-tone="warning">
+                          {lanRoute.warning}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="settings-help">
+                      {place.label} has no network address right now. Check that
+                      it is connected to Wi-Fi.
+                    </p>
+                  ))}
+                {choice === 'internet' &&
+                  (internetRoute ? (
+                    <p className="settings-help">
+                      Public at {withoutScheme(internetRoute.origin)}. Anyone
+                      can reach the sign-in page; only a device with this code
+                      gets in. Stop the link under Advanced.
+                    </p>
+                  ) : (
+                    <div className="access-option-detail">
+                      <p className="settings-help">{tunnelWords}</p>
+                      {tunnel?.credential.configured ? (
+                        startPublic
+                      ) : tunnel ? (
+                        <p className="settings-help">
+                          <AppLink to="/settings/access#tunnel">
+                            Add your ngrok token under Advanced
+                          </AppLink>
+                          , then come back here.
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                {choice === 'other' && otherRoute && (
+                  <div className="access-option-detail">
+                    {otherRoutes.length > 1 ? (
+                      <div className="access-inline-field">
+                        <label htmlFor={otherSelectId}>Address</label>
+                        <Select
+                          id={otherSelectId}
+                          value={otherRoute.id}
+                          onChange={(event) => setOtherId(event.target.value)}
+                        >
+                          {otherRoutes.map((item) => (
                             <option key={item.id} value={item.id}>
                               {withoutScheme(item.origin)}
                             </option>
                           ))}
                         </Select>
                       </div>
-                    )}
-                    {lanRoute.warning && lanRank(lanRoute) >= 5 && (
-                      <p className="settings-help" data-tone="warning">
-                        {lanRoute.warning}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="settings-help">
-                    {place.label} has no network address right now. Check that
-                    it is connected to Wi-Fi.
-                  </p>
-                ))}
-              {choice === 'internet' &&
-                (internetRoute ? (
-                  <p className="settings-help">
-                    Public at {withoutScheme(internetRoute.origin)}. Anyone can
-                    reach the sign-in page; only a device with this code gets
-                    in. Stop the link under Advanced.
-                  </p>
-                ) : (
-                  <div className="access-option-detail">
-                    <p className="settings-help">{tunnelWords}</p>
-                    {tunnel?.credential.configured ? (
-                      startPublic
-                    ) : tunnel ? (
+                    ) : (
                       <p className="settings-help">
-                        <AppLink to="/settings/access#tunnel">
-                          Add your ngrok token under Advanced
-                        </AppLink>
-                        , then come back here.
+                        Opens {withoutScheme(otherRoute.origin)}.
                       </p>
-                    ) : null}
+                    )}
+                    {otherRoute.warning && (
+                      <p className="settings-help" data-tone="warning">
+                        {otherRoute.warning}
+                      </p>
+                    )}
                   </div>
-                ))}
-              {choice === 'other' && otherRoute && (
-                <div className="access-option-detail">
-                  {otherRoutes.length > 1 ? (
-                    <div className="access-inline-field">
-                      <label htmlFor={otherSelectId}>Address</label>
-                      <Select
-                        id={otherSelectId}
-                        value={otherRoute.id}
-                        onChange={(event) => setOtherId(event.target.value)}
-                      >
-                        {otherRoutes.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {withoutScheme(item.origin)}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  ) : (
-                    <p className="settings-help">
-                      Opens {withoutScheme(otherRoute.origin)}.
-                    </p>
-                  )}
-                  {otherRoute.warning && (
-                    <p className="settings-help" data-tone="warning">
-                      {otherRoute.warning}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </li>
+                )}
+              </div>
+            </li>
+          )}
           <li className="access-step">
             <h4>Scan the code</h4>
             {connected ? (
               <p className="settings-help">Used. Codes work only once.</p>
             ) : !route ? (
               <p className="settings-help">
-                The code appears here once the way above is ready.
+                {hosted
+                  ? 'Another device can’t reach the address this browser uses. Open Row-Bot at your server’s web address to show a code here.'
+                  : 'The code appears here once the way above is ready.'}
               </p>
             ) : expired ? (
               <div className="access-option-detail">

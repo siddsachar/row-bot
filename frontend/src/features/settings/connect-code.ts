@@ -3,8 +3,46 @@ import type {
   AccessClient,
   AccessDevice,
   AccessInvitationClient,
+  AccessRoute,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
+
+/** A loopback address never reaches another device (U56). */
+function loopback(origin: string) {
+  try {
+    const host = new URL(origin).hostname.replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || host.startsWith('127.');
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The address this browser uses, which another device reaches too; else
+ * another secure one. A hosted Row-Bot's own https address (U10, Devices).
+ */
+export function browserRoute(
+  routes: AccessRoute[],
+  origin: string = window.location.origin,
+) {
+  const usable = routes.filter(
+    (route) =>
+      route.available &&
+      route.eligible &&
+      Boolean(route.origin) &&
+      !loopback(route.origin),
+  );
+  return (
+    usable.find((route) => route.origin === origin) ??
+    usable.find(
+      (route) =>
+        route.origin.startsWith('https://') &&
+        route.kind !== 'lan' &&
+        route.kind !== 'localhost',
+    ) ??
+    null
+  );
+}
 
 /** Mint the next code this long before the current one expires. */
 export const REFRESH_BEFORE_MS = 30_000;

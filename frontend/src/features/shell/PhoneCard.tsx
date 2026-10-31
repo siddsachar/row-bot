@@ -14,7 +14,7 @@ import { AppLink } from '../../ui/app-link';
 import { Button, IconButton, Skeleton } from '../../ui/primitives';
 import { QrCode } from '../../ui/QrCode';
 import { installSteps } from '../settings/AccessConnect';
-import { useConnectCode } from '../settings/connect-code';
+import { browserRoute, useConnectCode } from '../settings/connect-code';
 
 export const PHONE_CARD_TITLE = 'Add Row-Bot to your phone';
 const DISMISS =
@@ -49,37 +49,6 @@ function installed() {
   } catch {
     return false;
   }
-}
-
-/** A loopback address never reaches a phone (U56). */
-function loopback(origin: string) {
-  try {
-    const host = new URL(origin).hostname.replace(/^\[|\]$/g, '');
-    return host === 'localhost' || host === '::1' || host.startsWith('127.');
-  } catch {
-    return true;
-  }
-}
-
-/** The address this browser uses, which a phone reaches too; else another secure one. */
-function phoneRoute(routes: AccessRoute[]) {
-  const usable = routes.filter(
-    (route) =>
-      route.available &&
-      route.eligible &&
-      Boolean(route.origin) &&
-      !loopback(route.origin),
-  );
-  return (
-    usable.find((route) => route.origin === window.location.origin) ??
-    usable.find(
-      (route) =>
-        route.origin.startsWith('https://') &&
-        route.kind !== 'lan' &&
-        route.kind !== 'localhost',
-    ) ??
-    null
-  );
 }
 
 /**
@@ -287,7 +256,7 @@ function ScanCode({
     const abort = new AbortController();
     void client.routes(abort.signal).then(
       (routes) => {
-        if (!abort.signal.aborted) setRoute(phoneRoute(routes));
+        if (!abort.signal.aborted) setRoute(browserRoute(routes));
       },
       () => {
         if (!abort.signal.aborted) setRoute(null);
