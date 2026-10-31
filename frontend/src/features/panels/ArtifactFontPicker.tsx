@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePlace } from '../../api/place';
 import { Button, Combobox, type ComboboxOption } from '../../ui/primitives';
 import type { DesignControlItem } from './ArtifactDesignControls';
 import type { DesignCatalog } from './artifact-design-catalog';
@@ -82,6 +83,7 @@ export default function ArtifactFontPicker({
   disabled: boolean;
   onChange: (font: string) => void;
 }) {
+  const place = usePlace();
   const { items: fonts, failed, retry } = catalog;
   const [recent] = useState(readRecentFonts);
   useBundledFaces(fonts);
@@ -103,7 +105,7 @@ export default function ArtifactFontPicker({
       .map((font) => option(font, 'Bundled')),
     ...rest
       .filter((font) => font.kind !== 'bundled')
-      .map((font) => option(font, 'On this computer')),
+      .map((font) => option(font, `On ${place.name}`)),
   ];
   return (
     <Combobox
@@ -127,8 +129,7 @@ export default function ArtifactFontPicker({
           </Button>
         ) : (
           <small className="muted">
-            Only fonts already on this computer are listed. Nothing is
-            downloaded.
+            Only fonts already {place.on} are listed. Nothing is downloaded.
           </small>
         )
       }

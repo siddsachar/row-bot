@@ -23,6 +23,7 @@ import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
 import { installInputModality } from './ui/input-modality';
 import { setServerTimezone, setServerUtcOffset } from './ui/format';
+import { setPlace } from './api/place';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
 import Workspace, { panelMetrics } from './features/shell/Workspace';
 import { EditMenu } from './features/shell/EditMenu';
@@ -188,6 +189,10 @@ async function start() {
   };
   followServerClock();
   const unfollowServerClock = controller.subscribe(followServerClock);
+  // Where Row-Bot runs, from this browser's side: "this computer" only when it is (U7).
+  const followPlace = () => setPlace(controller.getSnapshot().handshake?.place);
+  followPlace();
+  const unfollowPlace = controller.subscribe(followPlace);
   const releaseNativeLease = keepNativeLease(controller, platform);
   // A phone or computer signed in by invitation stays signed in (B137).
   const stopAccessRenewal = keepAccessSessionRenewed();
@@ -458,6 +463,7 @@ async function start() {
       unpublishBuddyTarget();
       unbindDraftSync();
       unfollowServerClock();
+      unfollowPlace();
       releaseNativeLease();
       stopAccessRenewal();
       controller.dispose();

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { usePlace } from '../../api/place';
 import {
   Activity,
   AppWindow,
@@ -118,6 +119,7 @@ export default function SettingsShell({
   learning?: boolean;
   children: ReactNode;
 }) {
+  const place = usePlace();
   const navigate = useNavigate();
   const location = useLocation();
   const compactControls = useWorkspaceActions()?.compactControls;
@@ -396,7 +398,11 @@ export default function SettingsShell({
               <h2 ref={heading} tabIndex={-1}>
                 {leaf.label}
               </h2>
-              <p>{descriptions[leaf.id]}</p>
+              <p>
+                {leaf.id === 'system' && place.kind !== 'this_computer'
+                  ? `Where Row-Bot works ${place.on}, and what it may do there.`
+                  : descriptions[leaf.id]}
+              </p>
               <div className="settings-pane-status" ref={setStatusSlot} />
             </div>
             <div className="settings-pane-summary" ref={setSlot} />

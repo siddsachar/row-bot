@@ -32,6 +32,7 @@ import type {
   SubscriptionFlowSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { RuntimeContext, useRuntime } from '../../runtime';
 import { copyTextLater, writeClipboardText } from '../../platform/clipboard';
 import {
@@ -254,11 +255,12 @@ function LocalPanel({
   runtime: LocalRuntimeSnapshot | null;
   onPick: (modelRef: string, label: string) => void;
 }) {
+  const place = usePlace();
   if (!runtime)
     return (
       <p className="first-run-waiting" role="status">
-        <Loader2 size={14} className="spin" aria-hidden /> Looking for Ollama on
-        this computer…
+        <Loader2 size={14} className="spin" aria-hidden /> Looking for Ollama{' '}
+        {place.on}…
       </p>
     );
   const watching = (
@@ -272,7 +274,7 @@ function LocalPanel({
       <div className="first-run-panel-body">
         <h3>Install Ollama</h3>
         <p>
-          Ollama runs models on this computer: private, free and offline once a
+          Ollama runs models {place.onAgain}: private, free and offline once a
           model is downloaded.
         </p>
         {runtime.platform === 'linux' ? (
@@ -379,6 +381,7 @@ function LocalModels({
   models: readonly LocalRuntimeModel[];
   onPick: (modelRef: string, label: string) => void;
 }) {
+  const place = usePlace();
   const favourites = models
     .filter((model) => model.favourite_rank != null)
     .sort((a, b) => (a.favourite_rank ?? 0) - (b.favourite_rank ?? 0));
@@ -394,7 +397,7 @@ function LocalModels({
   if (!short.size)
     return (
       <ModelOptions
-        label="Models on this computer"
+        label={`Models on ${place.name}`}
         options={others.map(localOption)}
         onPick={onPick}
       />
@@ -423,7 +426,7 @@ function LocalModels({
           summary={`Show all models (${others.length})`}
         >
           <ModelOptions
-            label="All models on this computer"
+            label={`All models on ${place.name}`}
             options={others.map(localOption)}
             onPick={onPick}
           />
@@ -993,6 +996,7 @@ export default function FirstRun({
   const { controller, subscriptionAccountsOwner } = useRuntime();
   const navigate = useNavigate();
   const workspace = useWorkspaceActions();
+  const place = usePlace();
   // A known host runs this Row-Bot (U3): two big buttons, and no local runtime.
   const host = snapshot.host_name ?? null;
   const runtime = useLocalRuntime(!host);
@@ -1162,7 +1166,7 @@ export default function FirstRun({
         <header className="first-run-header">
           <h1>Bring your {source.label} data along?</h1>
           <p>
-            Row-Bot found {source.label} on this computer. Import its memories,
+            Row-Bot found {source.label} {place.on}. Import its memories,
             persona and skills now, or later from Settings › Data.
           </p>
         </header>
@@ -1252,7 +1256,7 @@ export default function FirstRun({
       >
         <ChoiceCard
           icon={HardDrive}
-          title="On this computer"
+          title={`On ${place.name}`}
           detail="Private and free, with Ollama."
           status={localStatus}
           pressed={path === 'local'}
@@ -1278,7 +1282,7 @@ export default function FirstRun({
           className="first-run-panel"
           aria-label={
             path === 'local'
-              ? 'On this computer'
+              ? `On ${place.name}`
               : path === 'subscription'
                 ? 'With my subscription'
                 : 'With an API key'

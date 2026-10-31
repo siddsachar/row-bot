@@ -1,4 +1,5 @@
 import type { ClientPlatform } from './types';
+import { currentPlace } from '../api/place';
 
 /** Keep browser permission handling at the platform boundary. */
 export async function writeClipboardText(
@@ -78,7 +79,7 @@ export function canCopyText(): boolean {
 export function copyUnavailableMessage(): string {
   return window.isSecureContext
     ? 'Copy is unavailable in this browser.'
-    : 'Copy is unavailable here. Open Row-Bot over HTTPS, or on this computer, to copy.';
+    : `Copy is unavailable here. Open Row-Bot over HTTPS, or ${currentPlace().on}, to copy.`;
 }
 
 function copyWithSelection(text: string): boolean {

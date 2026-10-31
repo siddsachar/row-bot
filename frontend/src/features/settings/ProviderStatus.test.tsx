@@ -6,9 +6,10 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ProviderLiveCard, ProviderLiveSnapshot } from '../../api/types';
 import ProviderStatus from './ProviderStatus';
+import { setPlace } from '../../api/place';
 
 const card: ProviderLiveCard = {
   provider_id: 'openai',
@@ -509,4 +510,39 @@ it('offers no Ollama on a hosted server, unless one is connected (U3)', async ()
     />,
   );
   expect(await screen.findByText('Ollama Local')).toBeVisible();
+});
+
+afterEach(() => setPlace(null));
+
+it('names where local models run: this device here, the Row-Bot server elsewhere (U7)', async () => {
+  const ollama: ProviderLiveCard = {
+    ...card,
+    provider_id: 'ollama',
+    display_name: 'Ollama Local',
+    group: 'local',
+    configured: true,
+    source: 'local_daemon',
+  };
+  const show = () =>
+    render(
+      <ProviderStatus
+        load={async () => ({ schema_version: 1, providers: [card, ollama] })}
+        refresh={vi.fn()}
+        refreshState={vi.fn()}
+      />,
+    );
+  const desktop = show();
+  const here = await screen.findByRole('region', { name: 'On this device' });
+  expect(here).toHaveTextContent('Running on this computer');
+  desktop.unmount();
+  for (const kind of ['hosted', 'server'] as const) {
+    setPlace({ kind, host_name: kind === 'hosted' ? 'PikaPods' : null });
+    const view = show();
+    const group = await screen.findByRole('region', {
+      name: 'On your Row-Bot server',
+    });
+    expect(group).toHaveTextContent('Running on your Row-Bot server');
+    expect(screen.queryByText(/this (computer|device)/)).toBeNull();
+    view.unmount();
+  }
 });
