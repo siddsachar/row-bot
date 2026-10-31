@@ -1600,6 +1600,7 @@ def create_router(
             }
         # Where Row-Bot runs, from this browser's side (U7): "this computer" only when it is.
         from row_bot.hosting import hosted_by, request_place
+        from row_bot.server_memory import limit_bytes
 
         kind = request_place(not local_owner)
         host = hosted_by() if kind == "hosted" else None
@@ -1645,6 +1646,7 @@ def create_router(
                 "server_timezone": _schedule_zone_name(),
                 "sandbox": _is_sandbox(),
                 "place": place,
+                "memory_limit_bytes": limit_bytes(),
                 "native_adapter": {
                     "available": native_window,
                     "proof_required": True,
@@ -5302,6 +5304,15 @@ def create_router(
 
         result = await call(read_attention, include_update=True)
         return await respond(request, dto.AttentionSnapshot, result)
+
+    @router.delete("/monitor/memory-notice")
+    async def monitor_dismiss_memory_notice(request: Request) -> JSONResponse:
+        # The person read "Row-Bot restarted because the server ran out of memory" (U8): it stays away
+        # until the next such restart.
+        await session(request, lane="mutation")
+        from row_bot.server_memory import dismiss
+
+        return await respond(request, dto.MemoryNoticeDismissed, {"dismissed": await call(dismiss)})
 
     @router.get("/monitor/approvals")
     async def monitor_approvals(request: Request) -> JSONResponse:

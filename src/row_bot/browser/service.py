@@ -95,6 +95,8 @@ PERSON_STILL_SECONDS = 2.0
 # What the pane's Copy may carry.
 COPY_LIMIT = 65_536
 NAVIGATION_TIMEOUT_MS = 30_000
+# On a server with a memory limit, Chromium closes when nothing has used it this long (H4).
+IDLE_CLOSE_SECONDS = 5 * 60
 MAX_EXTRACT_CHARS = 20_000
 STOPPED = "Stopped: the person pressed Stop."
 _BLANK_URLS = frozenset({"", "about:blank", "chrome://newtab/", "edge://newtab/"})
@@ -1624,6 +1626,63 @@ class BrowserEngine:
             self.release_thread(chat_id)
         return len(idle)
 
+    def _in_use(self, cutoff: float) -> bool:
+        """A turn, an action, a pane or picture, a recording or the person uses the browser, or did since *cutoff*."""
+
+        busy = _active_generation_thread_ids() | set(self._recorders)
+        return bool(self._viewers) or any(
+            chat.id in busy or chat.acting or (chat.lock is not None and chat.lock.locked())
+            or self._person_active(chat) or chat.last_used >= cutoff
+            for chat in list(self._chats.values()))
+
+    def close_when_idle(self, idle_seconds: float, *, now: float | None = None) -> bool:
+        """Close Chromium once nothing has used it for *idle_seconds* (H4), so its memory goes back to the server.
+
+        Nothing is turned off: the next use starts it again, with the same signed-in profile. Never while
+        it is in use (``_in_use``); the idle conversations' tabs are let go as ``evict_idle`` lets them go.
+        *now* is a monotonic time.
+        """
+
+        if not self.running:
+            return False
+        cutoff = (time.monotonic() if now is None else now) - idle_seconds
+        if self._in_use(cutoff):
+            return False
+        closed = bool(self._run(lambda: self._close_unused(cutoff), timeout=30.0, cancellable=False))
+        if closed:
+            logger.info("Row-Bot's browser closed after %.0f idle minutes; it starts again when used",
+                        idle_seconds / 60)
+        return closed
+
+    async def _close_unused(self, cutoff: float) -> bool:
+        assert self._start_lock is not None
+        async with self._start_lock:
+            # Checked again on the browser's own loop: an action that began since keeps it open. One that
+            # comes during the close waits for this lock, then starts the browser again (_agent_tab, _start).
+            if self._context is None or self._in_use(cutoff):
+                return False
+            for chat in [chat for chat in self._chats.values() if chat.tabs]:
+                self.revoke_local_addresses(chat.id)
+                self._chats.pop(chat.id, None)
+            context, self._context = self._context, None
+            self._closing = True
+            try:
+                self._set_status("stopped")
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                self._forget_pages()
+                if self._pw is not None:
+                    try:
+                        await self._pw.stop()
+                    except Exception:
+                        pass
+                    self._pw = None
+            finally:
+                self._closing = False
+        return True
+
     def close(self) -> None:
         if self._closed:
             return
@@ -2004,6 +2063,18 @@ class BrowserSessionManager:
 
     def evict_idle(self, ttl_seconds: float = 600.0) -> int:
         return self._engine.evict_idle(ttl_seconds=ttl_seconds) if self._engine else 0
+
+    def close_when_idle(self, idle_seconds: float = IDLE_CLOSE_SECONDS, *, now: float | None = None) -> bool:
+        """Close Chromium after *idle_seconds* unused, only on a server with a memory limit (H4, a container).
+
+        The desktop has none, so its browser stays open as it always did.
+        """
+
+        from row_bot.server_memory import limit_bytes
+
+        if self._engine is None or limit_bytes() is None:
+            return False
+        return self._engine.close_when_idle(idle_seconds, now=now)
 
     def kill_session(self, thread_id: str) -> None:
         if self._engine:

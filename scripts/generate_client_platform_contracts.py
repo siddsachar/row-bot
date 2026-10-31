@@ -55,7 +55,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpChatState", "McpChatReviewRequest", "McpChatReview", "McpChatOutcome",
-    "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "PendingApproval", "PendingApprovalPage",
+    "ProblemLink", "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "MemoryNoticeDismissed", "PendingApproval", "PendingApprovalPage",
     "ScheduledPost", "ScheduledPostPage", "ScheduledPostCancelled", "ScheduledPostRetry", "ScheduledPostRetried",
     "ScheduledPostEdited", "XPostEdit",
     "RuntimeInstallationSnapshot", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview", "RuntimeInstallationReceipt",
@@ -258,6 +258,7 @@ OPERATIONS = (
     ("post", "/pages/{page_id}/download", "PageFrameRequest", "PageDownload"),
     ("post", "/pages/{page_id}/save", "PageFrameRequest", "ExportSaved"),
     ("get", "/monitor/attention", None, "AttentionSnapshot"),
+    ("delete", "/monitor/memory-notice", None, "MemoryNoticeDismissed"),
     ("get", "/monitor/approvals", None, "PendingApprovalPage"),
     ("get", "/monitor/scheduled-posts", None, "ScheduledPostPage"),
     ("delete", "/monitor/scheduled-posts/{post_id}", None, "ScheduledPostCancelled"),
@@ -927,6 +928,9 @@ export const savePageToExports = (base: string, proof: SessionProof, page: strin
   jsonRequest(base, `/pages/${id(page)}/save`, 'ExportSaved', proof, 'POST', validateWire('PageFrameRequest', body), undefined, signal);
 export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
   jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
+/** The person read the out-of-memory notice (U8): it stays away until the next such restart. */
+export const dismissMemoryNotice = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MemoryNoticeDismissed> =>
+  jsonRequest(base, '/monitor/memory-notice', 'MemoryNoticeDismissed', proof, 'DELETE', undefined, undefined, signal);
 export const getPendingApprovals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<PendingApprovalPage> =>
   jsonRequest(base, '/monitor/approvals', 'PendingApprovalPage', proof, 'GET', undefined, undefined, signal);
 export const getScheduledPosts = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ScheduledPostPage> =>

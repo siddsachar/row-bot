@@ -680,6 +680,23 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Background process leftover check failed")
 
+    # A server with a memory limit (a container, H12): a restart for lack of memory is noticed (U8), use is
+    # watched, and Row-Bot's browser closes when unused (H4). The desktop has no limit: nothing runs there.
+    try:
+        from row_bot import server_memory
+
+        def _close_idle_browser() -> None:
+            from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
+
+            _get_bs_mgr().close_when_idle()
+
+        with _startup_phase("server_memory"):
+            _memory_limit = await asyncio.to_thread(server_memory.started, tick=_close_idle_browser)
+        if _memory_limit:
+            _safe_console_print(f"[startup] Memory limit {server_memory.size_words(_memory_limit)}")
+    except Exception:
+        logger.exception("Server memory check failed")
+
     logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from row_bot.data_paths import describe_data_paths
@@ -1212,6 +1229,9 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
     if _shutdown_cleanup_started:
         return False
     _shutdown_cleanup_started = True
+    # Stopping on purpose, so this run didn't run out of memory (H12).
+    from row_bot import server_memory
+    server_memory.stopped()
 
     cleanup_started = time.perf_counter()
     # Tunnels are public exposure: they close on every exit, including one
