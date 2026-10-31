@@ -34,7 +34,6 @@ test.afterEach(async ({ page }) => {
 test('hosted: ChatGPT in one click, straight into a chat with one suggestion, then the phone card', async ({
   page,
   context,
-  isMobile,
   browserName,
 }, testInfo) => {
   test.skip(
@@ -111,12 +110,12 @@ test('hosted: ChatGPT in one click, straight into a chat with one suggestion, th
   // After the first answer: Add Row-Bot to your phone.
   const card = page.getByRole('region', { name: 'Add Row-Bot to your phone' });
   await expect(card).toBeVisible();
-  if (isMobile) await expect(card.getByRole('listitem').first()).toBeVisible();
-  else {
-    await card.getByRole('button', { name: 'Show the code' }).click();
-    // The fixture serves itself on a loopback address, which no phone reaches.
-    await expect(card).toContainText('Settings › Devices & remote access');
-  }
+  // The card follows the browser's own name, and these projects' browsers
+  // name a computer at every width: the QR code (PhoneCard.test.tsx has the
+  // phone's home-screen steps). The fixture serves itself on a loopback
+  // address, which no phone reaches, so Devices is named instead.
+  await card.getByRole('button', { name: 'Show the code' }).click();
+  await expect(card).toContainText('Settings › Devices & remote access');
   await screenshot(page, testInfo, 'hosted-phone-card');
   await assertNoOverflow(page);
   const saved = page.waitForResponse(
