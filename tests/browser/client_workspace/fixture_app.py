@@ -4655,6 +4655,28 @@ def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
     return {"notice": _server_memory.notice() is not None}
 
 
+# ── A9 (Devices on a hosted Row-Bot) ────────────────────────────────────────
+# The fixture's browser is on a loopback address, which no phone reaches. A pod's own https address is
+# what Devices offers there: "on" saves that address as the server's own, the way a pod's
+# ROW_BOT_PUBLIC_URL names it, and "off" takes it away again.
+_A9_POD_ADDRESS = "https://row-bot-demo.pikapod.net"
+
+
+@app.post("/__a9_fixture/pod-address/{state}")
+def a9_pod_address(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.access.access_routes import AccessRouteConfigStore
+
+    predecessor._authorize(x_fixture_token)
+    store = AccessRouteConfigStore()
+    if state == "on":
+        store.add_configured_origin(_A9_POD_ADDRESS)
+    elif state == "off":
+        store.remove_configured_origin(_A9_POD_ADDRESS)
+    else:
+        raise HTTPException(status_code=422, detail="Unknown pod address state")
+    return {"origins": list(store.load_or_default().configured_origins)}
+
+
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
 # (a pinned choice with its saved catalog row) and on the synthetic local
