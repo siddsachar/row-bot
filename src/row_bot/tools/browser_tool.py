@@ -165,7 +165,8 @@ class _RecordInput(BaseModel):
     max_minutes: int = Field(default=5, ge=1, le=15, description="For start: stops by itself after this many minutes")
     beat: Literal["live", "work", "cut"] = Field(
         default="live", description="For beat: live (watch as it is), work (a wait to speed up) or cut (leave out)")
-    note: str = Field(default="", description="For beat: what happens next, in a few words")
+    note: str = Field(default="", description="For beat: what happens next, in a few words (its title)")
+    line: str = Field(default="", description="For beat: the words said over this part (voiced in the video)")
 
 
 class _SandboxInput(BaseModel):
@@ -918,7 +919,7 @@ def _record_approval(minutes: int) -> dict:
     }
 
 
-def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: str = "") -> str:
+def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: str = "", line: str = "") -> str:
     """Start or stop recording this chat's page in Row-Bot's browser to a video, or mark a beat while it records."""
 
     from row_bot import recordings
@@ -929,10 +930,15 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         capture = _recording(thread_id)
         if capture is None:
             return "Row-Bot's browser isn't being recorded in this chat: start a recording first."
-        at = capture.beat(beat, note)
+        from row_bot.sound import speaking_seconds
+
+        at = capture.beat(beat, note, line)
+        said = speaking_seconds(line)
         return (f"Marked {beat} at {recordings.clock_words(at)}"
                 + {"live": ": shown as it happens.", "work": ": sped up in the video.",
-                   "cut": ": left out of the video."}[beat])
+                   "cut": ": left out of the video."}[beat]
+                + (f" Its line takes about {said:.0f} s to say: stay on this step about that long." if beat == "live"
+                   and said >= 1 else ""))
     if action == "stop":
         record = recordings.active_for(thread_id, "browser")
         if record is None:
@@ -993,9 +999,9 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         recordings.summary(record)
         + shape
         + " Do the steps to record (clicks, typing and scrolling go at a viewer's pace, with a drawn pointer); mark "
-        "beats as you go (beat=work before a wait, live when it's worth watching again, cut for a stretch to leave "
-        "out); then call browser_record with action stop. The video is saved to this chat's files, and the video "
-        "tool makes its scenes from the beats."
+        "a beat before each step, with its note and its line (beat=work before a wait, live when it's worth watching, "
+        "cut for a stretch to leave out); then call browser_record with action stop. The video is saved to this "
+        "chat's files, and the video tool makes the whole video from the beats (recording=…)."
     )
 
 

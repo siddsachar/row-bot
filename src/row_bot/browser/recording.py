@@ -111,7 +111,7 @@ class PageRecorder:
         # Where the pointer went, kept with the recording: a square or tall cut follows it (5.3.1).
         self.trail: list[tuple[float, float, float]] = []
         # Marked moments: (seconds into the recording, live | work | cut, a note).
-        self.beats: list[tuple[float, str, str]] = []
+        self.beats: list[tuple[float, str, str, str]] = []
         # What was done: [from, until, click | type | scroll | open, x, y, width, height, a note], seconds into the
         # recording and the control's box 0–1 across the page (the whole page when there's no control).
         self.actions: list[list[Any]] = []
@@ -151,13 +151,13 @@ class PageRecorder:
             self.trail.append((round(now, 2), round(x, 4), round(y, 4)))
             del self.trail[:-TRAIL_POINTS]
 
-    def beat(self, kind: str, note: str = "") -> float:
-        """Mark this moment; its seconds into the recording."""
+    def beat(self, kind: str, note: str = "", line: str = "") -> float:
+        """Mark this moment, with what happens next and the words said over it; its seconds into the recording."""
         if kind not in BEATS:
             raise ValueError(f"A beat is {', '.join(BEATS)}.")
         at = round(self._now(), 2)
         with self._lock:
-            self.beats.append((at, kind, str(note or "")[:120]))
+            self.beats.append((at, kind, str(note or "")[:120], str(line or "")[:300]))
         return at
 
     def act(self, kind: str, box: tuple[float, float, float, float] | None = None, note: str = "") -> None:

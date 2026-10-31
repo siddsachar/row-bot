@@ -70,7 +70,7 @@ class Recording:
     mime_type: str = ""
     size_bytes: int = 0
     problem: Problem = ""
-    # Marked moments: [seconds into the recording, live | work | cut, a note] (5.3.1 B4).
+    # Marked moments: [seconds into the recording, live | work | cut, a note, the line said over it] (5.3.1 B4).
     beats: list[list[Any]] = field(default_factory=list)
     # Where the pointer went: [seconds, x, y], x and y 0–1 across the page; a square cut follows it.
     trail: list[list[float]] = field(default_factory=list)
@@ -165,8 +165,8 @@ def _load(path: Path) -> Recording | None:
             ended_at=data.get("ended_at"), duration_seconds=float(data.get("duration_seconds") or 0),
             media_ref=str(data.get("media_ref") or ""), mime_type=str(data.get("mime_type") or ""),
             size_bytes=int(data.get("size_bytes") or 0), problem=data.get("problem") or "",
-            beats=[[float(at), str(kind), str(note)] for at, kind, note in data.get("beats") or []
-                   if kind in {"live", "work", "cut"}][:200],
+            beats=[[float(at), str(kind), str(note), str(line[0]) if line else ""]
+                   for at, kind, note, *line in data.get("beats") or [] if kind in {"live", "work", "cut"}][:200],
             trail=[[float(at), float(x), float(y)] for at, x, y in data.get("trail") or []][:2_000],
             actions=[[float(start), float(until), str(kind), float(x), float(y), float(w), float(h), str(note)[:80]]
                      for start, until, kind, x, y, w, h, note in data.get("actions") or []
@@ -496,7 +496,8 @@ def summary(record: Recording) -> str:
     if record.status == "saving":
         return f"Recording {record.recording_id}: stopped; the video of {what} is being saved."
     if record.status == "saved":
-        beats = "; ".join(f"{clock_words(at)} {kind}{f' ({note})' if note else ''}" for at, kind, note in record.beats)
+        beats = "; ".join(f"{clock_words(at)} {kind}{f' ({note})' if note else ''}"
+                          for at, kind, note, *_line in record.beats)
         return (f"Recording {record.recording_id}: saved {clock_words(record.duration_seconds)} of {what} "
                 f"({size_words(record.size_bytes)}) to this chat's files; the person sees it in the chat."
                 + (f" Beats: {beats}. The video tool makes scenes from them (recording={record.recording_id})."

@@ -313,7 +313,7 @@ WORK_SPEED = 4.0
 def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str, Any]]:
     """A recording's scenes from the beats marked while it recorded (5.3.1 B4): ``live`` stretches as they
     happened, ``work`` stretches sped up (with their badge), ``cut`` stretches left out; before the first
-    beat counts as live."""
+    beat counts as live. Each scene's title is its beat's note, and its line the beat's line."""
     from row_bot import recordings
 
     record = recordings.get(recording_id)
@@ -321,16 +321,18 @@ def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str,
         raise ProjectError(f"{recording_id} isn't a recording in this chat.")
     if record.status != "saved":
         raise ProjectError(f"{recording_id} has no saved video yet.")
-    marks = sorted((float(at), str(kind), str(note)) for at, kind, note in record.beats)
+    marks = sorted((float(at), str(kind), str(note), str(line[0]) if line else "")
+                   for at, kind, note, *line in record.beats)
     if not marks or marks[0][0] > 0.05:
-        marks.insert(0, (0.0, "live", ""))
+        marks.insert(0, (0.0, "live", "", ""))
     scenes: list[dict[str, Any]] = []
-    for index, (start, kind, _note) in enumerate(marks):
+    for index, (start, kind, note, line) in enumerate(marks):
         end = marks[index + 1][0] if index + 1 < len(marks) else None
         if kind == "cut" or (end is not None and end - start < 0.1):
             continue
         scenes.append({"source": recording_id, "start": round(start, 2), "end": None if end is None else round(end, 2),
-                       "speed": WORK_SPEED if kind == "work" else 1.0, "card": "", "line": ""})
+                       "speed": WORK_SPEED if kind == "work" else 1.0, "card": note[:MAX_CARD],
+                       "line": line[:MAX_LINE]})
     if not scenes:
         raise ProjectError(f"Every part of {recording_id} is marked cut: nothing is left to show.")
     return scenes

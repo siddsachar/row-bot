@@ -329,7 +329,7 @@ def test_a_recording_draws_the_pointer_and_keeps_its_beats(tmp_path):
     with av.open(str(ended[0])) as container:
         last = list(container.decode(video=0))[-1].to_image()
     assert min(last.getpixel((204, 156))) > 200, "the pointer is drawn into the video"
-    [(at, kind, note)] = recorder.beats
+    [(at, kind, note, _line)] = recorder.beats
     assert kind == "work" and note == "Waiting for the build" and at >= 0
 
 
@@ -343,8 +343,8 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
         def pointer(self, x, y, *, click=False):
             pass
 
-        def beat(self, kind, note=""):
-            self.beats.append((12.0, kind, note))
+        def beat(self, kind, note="", line=""):
+            self.beats.append((12.0, kind, note, line))
             return 12.0
 
     session = browser_tool._session_manager.get_session("conversation-a")
@@ -353,6 +353,8 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
     assert "isn't being recorded" in _record("beat", beat="work")
     _record("start")
     assert _record("beat", beat="work", note="Waiting for the build") == "Marked work at 0:12: sped up in the video."
+    assert _record("beat", beat="live", note="Orders", line="Here are this morning's orders, newest first.") == (
+        "Marked live at 0:12: shown as it happens. Its line takes about 3 s to say: stay on this step about that long.")
     record = recordings.active_for("conversation-a", "browser")
     video = Path(recordings.working_path(record))
     video.parent.mkdir(parents=True, exist_ok=True)
@@ -362,7 +364,8 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
     monkeypatch.setattr(attachments, "register_attachment", lambda conversation, name, data: {
         "attachment_ref": f"{conversation}:rec", "mime_type": "video/mp4"})
     recordings.finished(record, "agent", video)
-    assert record.beats == [[12.0, "work", "Waiting for the build"]]
+    assert record.beats == [[12.0, "work", "Waiting for the build", ""],
+                            [12.0, "live", "Orders", "Here are this morning's orders, newest first."]]
     assert record.actions == [[3.0, 4.0, "click", 0.1, 0.2, 0.3, 0.1, "Save"]]
     assert recordings._load(recordings._record_path(record)).actions == record.actions, "kept with the recording"
     assert "Beats: 0:12 work (Waiting for the build)" in recordings.summary(record)

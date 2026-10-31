@@ -41,7 +41,8 @@ class _VideoInput(BaseModel):
     project: str = Field(default="", description="change, make, status, undo: the project (vid-…).")
     title: str = Field(default="", description="create: the video's name.")
     recording: str = Field(default="", description="create: make the scenes from a browser recording's beats "
-                                                   "(rec-…): live as it is, work sped up, cut left out.")
+                                                   "(rec-…), each with its title and line: live as it is, work "
+                                                   "sped up, cut left out.")
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
     music: str | None = Field(default=None, description="A music file (make_music) under the whole video; '' none.")
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")

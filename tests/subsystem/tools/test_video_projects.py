@@ -319,14 +319,18 @@ def test_a_recordings_beats_become_its_scenes_live_as_it_is_work_sped_up_and_cut
     record = recordings.Recording(recording_id="rec-0a0b0c0d", conversation_id="conversation-a", kind="browser",
                                   started_at=time.time() - 30, max_seconds=300, status="saved",
                                   media_ref=saved["attachment_ref"], mime_type="video/mp4",
-                                  beats=[[4.0, "work", "Waiting for the build"], [16.5, "live", ""],
-                                         [22.0, "cut", ""], [25.0, "live", ""]])
+                                  beats=[[4.0, "work", "Waiting for the build"],
+                                         [16.5, "live", "Your shop's orders", "Here are this morning's orders."],
+                                         [22.0, "cut", "", ""], [25.0, "live", "", ""]])
     recordings._ensure_loaded()
     recordings._RECORDS[record.recording_id] = record
 
     scenes = video_projects.scenes_from_beats("rec-0a0b0c0d", "conversation-a")
     assert [(scene["start"], scene["end"], scene["speed"]) for scene in scenes] == [
         (0.0, 4.0, 1.0), (4.0, 16.5, 4.0), (16.5, 22.0, 1.0), (25.0, None, 1.0)]
+    assert [(scene["card"], scene["line"]) for scene in scenes[1:3]] == [
+        ("Waiting for the build", ""), ("Your shop's orders", "Here are this morning's orders.")], \
+        "each beat's note is its scene's title and its line is said over it (a beat from before 5.3.2 has none)"
     project = video_projects.create("conversation-a", "Sign-up walkthrough", scenes)
     assert [scene.source for scene in project.latest.scenes] == ["rec-0a0b0c0d"] * 4
     with pytest.raises(video_projects.ProjectError, match="isn't a recording in this chat"):
