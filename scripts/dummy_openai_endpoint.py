@@ -64,10 +64,12 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
         self._send_json({"error": {"message": "Not found", "type": "not_found"}}, status=404)
 
     def do_POST(self) -> None:
+        # Read the body first, even for a refusal: closing with unread bytes resets the connection
+        # (macOS does at once), and the client never sees the answer.
+        payload = self._read_json()
         if not self._authorized():
             return
         if self.path.rstrip("/") == "/v1/chat/completions":
-            payload = self._read_json()
             if _calls_probe_tool(payload):
                 self._send_probe_tool_call(payload)
             elif payload.get("stream"):
