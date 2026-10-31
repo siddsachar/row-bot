@@ -3722,7 +3722,7 @@ export default function Conversation({
                 lastAssistant >= 0 &&
                 !turnInFlight &&
                 !interrupted &&
-                !failed && <PhoneCard />}
+                !failed && <PhoneCard conversationId={id} />}
               {state.history?.next_cursor && (
                 <div className="transcript-sentinel">
                   <Button

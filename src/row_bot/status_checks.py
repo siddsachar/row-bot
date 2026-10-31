@@ -261,8 +261,16 @@ def check_channels() -> list[CheckResult]:
     return results
 
 
-def check_tunnel() -> CheckResult:
-    """Health check for the tunnel subsystem."""
+def check_tunnel() -> CheckResult | list[CheckResult]:
+    """Health check for the tunnel subsystem.
+
+    A hosted Row-Bot has its own address from its host, so no row: "NGROK_AUTHTOKEN is not
+    set · Not in use" only confuses there (U4). The desktop and self-hosted servers keep it.
+    """
+    from row_bot.hosting import hosted_by
+
+    if hosted_by() is not None:
+        return []
     try:
         from row_bot.tunnel import tunnel_manager
         # The manager reports what this process is doing, including a start

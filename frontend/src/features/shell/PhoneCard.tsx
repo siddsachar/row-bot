@@ -83,19 +83,55 @@ function phoneRoute(routes: AccessRoute[]) {
 }
 
 /**
- * U10: after the first answer on a hosted Row-Bot, one small card in the chat,
- * "Add Row-Bot to your phone". A phone gets the home-screen steps; a computer
- * shows a QR code (Devices' own one-time code) once asked. It never blocks the
- * chat, and once dismissed it never comes back; Settings › Devices & remote
- * access keeps it.
+ * The chat the card belongs to: the first that got an answer, kept on the
+ * server. The first chat to ask claims it; any later one reads who has it.
+ */
+async function claimFor(
+  controller: Controller,
+  conversationId: string,
+): Promise<OnboardingSnapshot | null> {
+  const setup = await readSetup(controller);
+  if (
+    !setup?.host_name ||
+    setup.dismissed_phone_card ||
+    setup.phone_card_conversation
+  )
+    return setup;
+  try {
+    const receipt = await controller.onboardingCommand({
+      command_id: crypto.randomUUID(),
+      expected_revision: setup.revision,
+      action: 'show_phone_card',
+      profile: [],
+      step: '',
+      conversation_id: conversationId,
+    });
+    reads.set(controller, Promise.resolve(receipt.snapshot));
+    return receipt.snapshot;
+  } catch {
+    // Another chat (or this one, twice) claimed it meanwhile: read who has it.
+    return readSetup(controller, true);
+  }
+}
+
+/**
+ * U10: after the first answer on a hosted Row-Bot, one small card in that
+ * chat, "Add Row-Bot to your phone". A phone gets the home-screen steps; a
+ * computer shows a QR code (Devices' own one-time code) once asked. It stays
+ * with the first answered chat and never follows into a new one; it never
+ * blocks the chat, and once dismissed it never comes back. Settings › Devices
+ * & remote access keeps it.
  */
 export default function PhoneCard({
+  conversationId,
   client = accessInvitationClient,
   devices = accessClient,
   pwa = appPwaClient,
   agent = navigator.userAgent,
   origin = window.location.origin,
 }: {
+  /** The chat with an answer this card would show in. */
+  conversationId: string;
   client?: AccessInvitationClient;
   devices?: Pick<AccessClient, 'devices'>;
   pwa?: PwaClient;
@@ -108,16 +144,22 @@ export default function PhoneCard({
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
     let current = true;
-    void readSetup(controller).then((value) => {
+    void claimFor(controller, conversationId).then((value) => {
       if (current) setSetup(value);
     });
     return () => {
       current = false;
     };
-  }, [controller]);
+  }, [controller, conversationId]);
 
   const phone = onPhone(agent);
-  if (hidden || !setup || setup.dismissed_phone_card || (phone && installed()))
+  if (
+    hidden ||
+    !setup ||
+    setup.dismissed_phone_card ||
+    setup.phone_card_conversation !== conversationId ||
+    (phone && installed())
+  )
     return null;
 
   async function dismiss() {

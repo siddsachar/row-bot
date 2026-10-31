@@ -6318,6 +6318,7 @@ def create_router(
             step=body.step,
             model_ref=body.model_ref,
             provider_id=body.provider_id,
+            conversation_id=body.conversation_id,
         )
         return await respond(request, dto.OnboardingReceipt, result)
 

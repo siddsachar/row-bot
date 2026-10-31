@@ -2459,6 +2459,8 @@ class OnboardingSnapshot(WireModel):
     dismissed_home_card: bool
     # The "Add Row-Bot to your phone" card (U10), once dismissed, never comes back.
     dismissed_phone_card: bool = False
+    # The one chat the phone card shows in: the first with an answer.
+    phone_card_conversation: str | None = Field(default=None, max_length=128)
     # The company hosting this Row-Bot (H13), when one is known: the hosted first run (U3)
     # and Setup Center (U4) name it and add "Add your phone" and "Back up".
     host_name: str | None = Field(default=None, max_length=64)
@@ -2471,7 +2473,7 @@ class OnboardingCommand(WireModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: Literal[
         "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters",
-        "choose_model", "choose_suggested", "dismiss_phone_card",
+        "choose_model", "choose_suggested", "dismiss_phone_card", "show_phone_card",
     ]
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         default_factory=list, max_length=7
@@ -2480,6 +2482,8 @@ class OnboardingCommand(WireModel):
     model_ref: str = Field(default="", max_length=1024)
     # "choose_suggested": the provider just signed in to, whose own first model becomes the default.
     provider_id: str = Field(default="", max_length=160)
+    # "show_phone_card": the chat whose first answer the phone card follows (U10).
+    conversation_id: str = Field(default="", max_length=128)
 
 
 class OnboardingReceipt(WireModel):

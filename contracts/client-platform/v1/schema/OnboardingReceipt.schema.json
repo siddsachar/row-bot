@@ -122,6 +122,19 @@
           "title": "Needs Model",
           "type": "boolean"
         },
+        "phone_card_conversation": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phone Card Conversation"
+        },
         "profile": {
           "items": {
             "maxLength": 32,

@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
@@ -14,7 +20,8 @@ import { ARRIVAL_POLL_MS } from '../settings/connect-code';
 import PhoneCard, { PHONE_CARD_TITLE } from './PhoneCard';
 
 // U10: after the first answer on a hosted Row-Bot, "Add Row-Bot to your
-// phone" once: home-screen steps on a phone, Devices' QR code on a computer.
+// phone" in that chat only: home-screen steps on a phone, Devices' QR code on
+// a computer. The server keeps which chat it belongs to and its dismissal.
 
 const mock = vi.hoisted(() => ({ controller: null as unknown }));
 vi.mock('../../runtime', () => ({
@@ -40,20 +47,39 @@ const setup: OnboardingSnapshot = {
   skipped_steps: [],
   dismissed_home_card: false,
   dismissed_phone_card: false,
+  phone_card_conversation: null,
   host_name: 'PikaPods',
   steps: [],
   intents: [],
 };
 
+/** The server's side: the first chat to ask keeps the card; dismissal is for good. */
 function controller(snapshot: Partial<OnboardingSnapshot> = {}) {
+  let saved: OnboardingSnapshot = { ...setup, ...snapshot };
   return {
-    onboarding: vi.fn(async () => ({ ...setup, ...snapshot })),
-    onboardingCommand: vi.fn(async (command: { command_id: string }) => ({
-      schema_version: 1,
-      command_id: command.command_id,
-      status: 'completed',
-      snapshot: { ...setup, dismissed_phone_card: true },
-    })),
+    onboarding: vi.fn(async () => saved),
+    onboardingCommand: vi.fn(
+      async (command: {
+        command_id: string;
+        action: string;
+        conversation_id?: string;
+      }) => {
+        if (command.action === 'dismiss_phone_card')
+          saved = { ...saved, dismissed_phone_card: true };
+        if (command.action === 'show_phone_card')
+          saved = {
+            ...saved,
+            phone_card_conversation:
+              saved.phone_card_conversation ?? command.conversation_id ?? null,
+          };
+        return {
+          schema_version: 1,
+          command_id: command.command_id,
+          status: 'completed',
+          snapshot: saved,
+        };
+      },
+    ),
   };
 }
 
@@ -133,10 +159,19 @@ function pwa(installAvailable = false) {
   return client;
 }
 
-function show(agent: string, extra: Parameters<typeof PhoneCard>[0] = {}) {
+function show(
+  agent: string,
+  extra: Partial<Parameters<typeof PhoneCard>[0]> = {},
+) {
   return render(
     <MemoryRouter>
-      <PhoneCard agent={agent} origin={POD} pwa={pwa()} {...extra} />
+      <PhoneCard
+        conversationId="first-chat"
+        agent={agent}
+        origin={POD}
+        pwa={pwa()}
+        {...extra}
+      />
     </MemoryRouter>,
   );
 }
@@ -194,7 +229,12 @@ it('on Android with the install prompt ready, Install', async () => {
   const installable = pwa(true);
   render(
     <MemoryRouter>
-      <PhoneCard agent={ANDROID} origin={POD} pwa={installable} />
+      <PhoneCard
+        conversationId="first-chat"
+        agent={ANDROID}
+        origin={POD}
+        pwa={installable}
+      />
     </MemoryRouter>,
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
@@ -223,4 +263,31 @@ it('once dismissed it never comes back', async () => {
   show(COMPUTER);
   await vi.waitFor(() => expect(owner.onboarding).toHaveBeenCalledTimes(3));
   expect(screen.queryByRole('heading', { name: PHONE_CARD_TITLE })).toBeNull();
+});
+
+it('stays with the first chat that got an answer and never follows into a new one', async () => {
+  const owner = mock.controller as ReturnType<typeof controller>;
+  const { unmount } = show(COMPUTER);
+  expect(
+    await screen.findByRole('heading', { name: PHONE_CARD_TITLE }),
+  ).toBeVisible();
+  expect(owner.onboardingCommand).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'show_phone_card',
+      conversation_id: 'first-chat',
+    }),
+  );
+  unmount();
+  // A later chat gets its answer: no card there, and the first keeps it.
+  show(COMPUTER, { conversationId: 'later-chat' });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole('heading', { name: PHONE_CARD_TITLE })).toBeNull();
+  expect(owner.onboardingCommand).toHaveBeenCalledOnce();
+  cleanup();
+  show(COMPUTER);
+  expect(
+    await screen.findByRole('heading', { name: PHONE_CARD_TITLE }),
+  ).toBeVisible();
 });

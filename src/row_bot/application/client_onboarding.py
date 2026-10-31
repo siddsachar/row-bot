@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import threading
 from typing import Any
@@ -19,7 +20,7 @@ _LOCK = threading.RLock()
 _FIELDS = (
     "setup_complete", "onboarding_profile", "onboarding_completed_steps",
     "onboarding_skipped_steps", "onboarding_dismissed_home_card", "onboarding_version",
-    "onboarding_dismissed_phone_card",
+    "onboarding_dismissed_phone_card", "onboarding_phone_card_conversation",
 )
 _RECEIPTS = "react_onboarding_receipts"
 _STARTER_WORKFLOW_NAMES = (
@@ -89,6 +90,25 @@ def _clean_steps(values: object, steps: dict[str, dict[str, str]]) -> list[str]:
     return _clean(values, steps, steps=True)
 
 
+def _another_device() -> bool:
+    """Another device is signed in besides the browser that claimed this hosted Row-Bot:
+    "Add your phone" is done (U4). Windows Row-Bot opens on its own computer don't count."""
+    from row_bot.access.service import THIS_COMPUTER_ROUTE
+    from row_bot.access.store import AccessStore
+    from row_bot.data_paths import get_access_db_path
+
+    store = AccessStore(get_access_db_path(create_parent=False))
+    return store.active_device_count(excluding_route=THIS_COMPUTER_ROUTE) >= 2
+
+
+_CONVERSATION_ID = re.compile(r"[A-Za-z0-9:_-]{1,128}")
+
+
+def _phone_card_conversation(config: dict[str, Any]) -> str | None:
+    value = config.get("onboarding_phone_card_conversation")
+    return value if isinstance(value, str) and _CONVERSATION_ID.fullmatch(value) else None
+
+
 def _missing_starter_workflows() -> int:
     """Count missing templates without creating or repairing the task database."""
     path = get_tasks_db_path(create_parent=False)
@@ -155,6 +175,7 @@ def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
             ("models", bool(default_model)),
             ("workflows", complete_setup and _own_workflow()),
             ("developer", _code_folder_connected()),
+            ("phone", host is not None and _another_device()),
         ) if done
     ]
     # Setup shows the real state: "models" is done only while a default model exists.
@@ -178,6 +199,8 @@ def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
         "dismissed_home_card": bool(config.get("onboarding_dismissed_home_card")),
         # The phone card after the first answer (U10) never comes back once dismissed.
         "dismissed_phone_card": bool(config.get("onboarding_dismissed_phone_card")),
+        # The one chat it shows in: the first with an answer. It never follows into another.
+        "phone_card_conversation": _phone_card_conversation(config),
         # The company hosting this Row-Bot (H13): its first run and Setup Center differ (U3, U4).
         "host_name": host.name if host is not None else None,
         "steps": [
@@ -215,6 +238,7 @@ def _save(config: dict[str, Any]) -> None:
 def execute_onboarding(
     *, command_id: str, expected_revision: str, action: str,
     profile: list[str], step: str, model_ref: str = "", provider_id: str = "",
+    conversation_id: str = "",
 ) -> dict[str, Any]:
     """Apply one explicit, idempotent setup choice while preserving other config."""
     try:
@@ -227,6 +251,8 @@ def execute_onboarding(
         payload["model_ref"] = model_ref
     if provider_id:
         payload["provider_id"] = provider_id
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     with _LOCK:
         config = _read()
@@ -297,9 +323,16 @@ def execute_onboarding(
         elif action == "dismiss_home":
             config["onboarding_dismissed_home_card"] = True
         elif action == "dismiss_phone_card":
-            if profile or step or model_ref or provider_id:
+            if profile or step or model_ref or provider_id or conversation_id:
                 raise ClientPlatformError("invalid_onboarding_command")
             config["onboarding_dismissed_phone_card"] = True
+        elif action == "show_phone_card":
+            # The phone card belongs to the first chat that got an answer (U10); a later
+            # chat asking for it gets the snapshot that names the first.
+            if profile or step or model_ref or provider_id or not _CONVERSATION_ID.fullmatch(conversation_id):
+                raise ClientPlatformError("invalid_onboarding_command")
+            if _phone_card_conversation(config) is None:
+                config["onboarding_phone_card_conversation"] = conversation_id
         else:
             raise ClientPlatformError("invalid_onboarding_command")
         config["onboarding_version"] = ONBOARDING_VERSION

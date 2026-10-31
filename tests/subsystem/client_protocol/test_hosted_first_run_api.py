@@ -195,3 +195,71 @@ def test_the_handshake_says_when_a_known_host_runs_row_bot(profile, monkeypatch)
                            headers={**headers, "Idempotency-Key": command["command_id"]})
         assert sent.status_code == 200, sent.text
         assert sent.json()["snapshot"]["dismissed_phone_card"] is True
+
+
+def test_the_phone_card_belongs_to_the_first_chat_with_an_answer(profile, monkeypatch):
+    """U10: it shows in the first answered chat only, and never follows into a new one."""
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    _finished(profile)
+    assert client_onboarding.read_onboarding()["phone_card_conversation"] is None
+    with pytest.raises(Exception, match="invalid_onboarding_command"):
+        _send("show_phone_card")
+    with pytest.raises(Exception, match="invalid_onboarding_command"):
+        _send("show_phone_card", conversation_id="../not an id")
+
+    first = _send("show_phone_card", conversation_id="conversation-first")
+    assert first["phone_card_conversation"] == "conversation-first"
+    later = _send("show_phone_card", conversation_id="conversation-later")
+    assert later["phone_card_conversation"] == "conversation-first"
+    # Dismissed, it is gone from that chat too.
+    assert _send("dismiss_phone_card")["dismissed_phone_card"] is True
+    assert client_onboarding.read_onboarding()["phone_card_conversation"] == "conversation-first"
+
+
+def _device(store, device_id: str, *, route: str | None = None, revoked: bool = False):
+    from datetime import datetime, timezone
+
+    from row_bot.access.models import AccessDevice
+
+    now = datetime(2026, 10, 31, 9, 0, tzinfo=timezone.utc)
+    store.create_device_record(AccessDevice(
+        id=device_id, display_name=device_id, created_at=now, last_seen_at=now,
+        revoked_at=now if revoked else None, user_agent=None, paired_from=None,
+        access_route=route, legacy_source_id=None,
+    ))
+
+
+def test_add_your_phone_ticks_itself_once_another_device_is_signed_in(profile, monkeypatch):
+    from row_bot.access.service import THIS_COMPUTER_ROUTE
+    from row_bot.access.store import AccessStore
+
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    _finished(profile)
+    # Before anything is signed in there is no access store, and reading creates none.
+    assert "phone" not in client_onboarding.read_onboarding()["live_done"]
+    assert not (profile / "mobile.db").exists()
+
+    store = AccessStore(profile / "mobile.db")
+    _device(store, "the-browser-that-claimed-it")
+    _device(store, "a-revoked-phone", revoked=True)
+    _device(store, "a-window-on-the-server", route=THIS_COMPUTER_ROUTE)
+    assert "phone" not in client_onboarding.read_onboarding()["live_done"]
+
+    _device(store, "the-phone")
+    snapshot = client_onboarding.read_onboarding()
+    assert "phone" in snapshot["live_done"] and "phone" in snapshot["completed_steps"]
+    # A computer has no such area, whatever is signed in.
+    monkeypatch.delenv("ROW_BOT_HOSTED_BY")
+    assert "phone" not in client_onboarding.read_onboarding()["live_done"]
+
+
+def test_a_hosted_diagnosis_leaves_out_the_public_link(profile, monkeypatch):
+    """U4: a pod has its host's address, so "NGROK_AUTHTOKEN is not set" only confuses there."""
+    from row_bot import status_checks
+    from row_bot.application import client_diagnosis
+
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_tunnel,))
+    monkeypatch.setattr(status_checks, "NETWORK_CHECKS", ())
+    assert [check["name"] for check in client_diagnosis.run_system_diagnosis()["checks"]] == ["Tunnel"]
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    assert client_diagnosis.run_system_diagnosis()["checks"] == []

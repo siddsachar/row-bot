@@ -11,7 +11,8 @@
         "add_starters",
         "choose_model",
         "choose_suggested",
-        "dismiss_phone_card"
+        "dismiss_phone_card",
+        "show_phone_card"
       ],
       "title": "Action",
       "type": "string"
@@ -19,6 +20,12 @@
     "command_id": {
       "format": "uuid",
       "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Conversation Id",
       "type": "string"
     },
     "expected_revision": {
