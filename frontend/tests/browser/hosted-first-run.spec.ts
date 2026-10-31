@@ -97,12 +97,15 @@ test('hosted: ChatGPT in one click, straight into a chat with one suggestion, th
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await screenshot(page, testInfo, 'hosted-first-chat');
   await assertNoOverflow(page);
+  const conversation = new URL(page.url()).pathname.split('/').at(-1);
   await first.click();
-  await expect
-    .poll(async () => (await fixtureState(page)).calls.length)
-    .toBeGreaterThan(0);
-  const calls = (await fixtureState(page)).calls;
-  await releaseProducer(page, calls[calls.length - 1]);
+  // This chat's turn, not one an earlier project left in the shared backend.
+  const turn = async () =>
+    (await fixtureState(page)).calls.find(
+      (call) => call.conversation_id === conversation && !call.quiesced,
+    );
+  await expect.poll(async () => Boolean(await turn())).toBe(true);
+  await releaseProducer(page, (await turn())!);
   await expect(page.getByText('Synthetic stream settled.')).toBeVisible();
 
   // After the first answer: Add Row-Bot to your phone.
