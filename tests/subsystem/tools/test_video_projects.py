@@ -37,10 +37,12 @@ def studio(platform, monkeypatch):  # noqa: F811
     for name in ("signup.mp4", "pricing.mp4"):
         register_attachment("conversation-a", name, MP4)
     said: list[str] = []
+    voices: list[dict] = []
     started: list = []
 
-    def speak(text, **_options):
+    def speak(text, **options):
         said.append(text)
+        voices.append(options)
         return sound.Speech(wav=_wav(1.5), seconds=1.5, voice="test-voice")
 
     def start(request):
@@ -55,7 +57,7 @@ def studio(platform, monkeypatch):  # noqa: F811
     monkeypatch.setattr(sound, "speak", speak)
     monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: True)  # Row-Bot's voice is here.
     monkeypatch.setattr(video_edits, "start", start)
-    return {"said": said, "started": started}
+    return {"said": said, "voices": voices, "started": started}
 
 
 def _wait(project_id: str, number: int):
@@ -307,6 +309,39 @@ def test_the_brand_kit_is_used_for_every_video_unless_a_version_turns_it_off(stu
     _wait(project.project_id, plain.number)
     assert studio["started"][-1].steps[0].look is None
     assert video_projects.view(video_projects.get(project.project_id))["brand"] is False
+
+
+def test_how_recordings_show_and_who_says_the_lines_are_the_persons_choice(studio):
+    """5.3.2: nothing about a video's look or voice is fixed: the brand kit sets it for every video, and a video
+    may choose its own voice; choosing another voice says its lines again in it."""
+    from row_bot import video_brand, video_projects
+
+    for wrong, words in (({"framing": "tilted"}, "Footage is"), ({"camera": "shaky"}, "The camera is"),
+                         ({"voice": "nobody"}, "no voice called"), ({"voice_speed": 3}, "speed is")):
+        with pytest.raises(video_brand.BrandError, match=words):
+            video_brand.save(wrong)
+    video_brand.save({"framing": "full", "camera": "still", "voice": "bm_george", "voice_speed": 0.9})
+
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    look = studio["started"][-1].steps[0].look
+    assert (look.framing, look.camera) == ("full", "still")
+    assert studio["voices"] and all(options == {"voice": "bm_george", "speed": 0.9} for options in studio["voices"])
+
+    studio["voices"].clear()
+    own = video_projects.change(project, by="you", voice="af_heart", note="Another voice")
+    video_projects.make(project, own.number)
+    _wait(project.project_id, own.number)
+    assert len(studio["voices"]) == len(SCENES) and studio["voices"][0] == {"voice": "af_heart", "speed": 0.9}, \
+        "every line said again in the video's own voice, at the kit's speed"
+    view = video_projects.view(video_projects.get(project.project_id))
+    assert (view["voice"], view["voice_speed"]) == ("af_heart", 0.0)
+    studio["voices"].clear()
+    again = video_projects.change(project, by="you", note="Same voice")
+    video_projects.make(project, again.number)
+    _wait(project.project_id, again.number)
+    assert studio["voices"] == [], "lines already said in that voice aren't said again"
 
 
 def test_a_recordings_beats_become_its_scenes_live_as_it_is_work_sped_up_and_cuts_left_out(studio):

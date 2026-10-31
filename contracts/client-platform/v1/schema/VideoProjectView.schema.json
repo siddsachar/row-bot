@@ -571,9 +571,22 @@
       "title": "Versions",
       "type": "array"
     },
+    "voice": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Voice",
+      "type": "string"
+    },
     "voice_lines": {
       "title": "Voice Lines",
       "type": "boolean"
+    },
+    "voice_speed": {
+      "default": 0.0,
+      "maximum": 1.25,
+      "minimum": 0,
+      "title": "Voice Speed",
+      "type": "number"
     }
   },
   "required": [

@@ -660,7 +660,7 @@ def _slide_show(scenes: list[SceneCut], marks: list[float]) -> list[str]:
                      "over it (a scene's card).")
     found += [f"Card at {clock(at)} stays {length:.0f} s: a still card that long loses people. Say less over it, "
               "or put its line over a recorded scene." for at, length in cards if length > LONG_CARD_SECONDS]
-    return found
+    return found[:4]
 
 
 @dataclass
