@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -12,10 +13,14 @@ import {
   BadgeCheck,
   Check,
   Copy,
+  Cpu,
   Download,
   HardDrive,
   KeyRound,
   Loader2,
+  LogIn,
+  Server,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import type {
@@ -24,14 +29,22 @@ import type {
   LocalRuntimeSnapshot,
   OnboardingSnapshot,
   ProviderLiveCard,
+  SubscriptionFlowSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { RuntimeContext, useRuntime } from '../../runtime';
-import { writeClipboardText } from '../../platform/clipboard';
-import { Button, Disclosure, Input, Segmented } from '../../ui/primitives';
+import { copyTextLater, writeClipboardText } from '../../platform/clipboard';
+import {
+  Button,
+  Disclosure,
+  Input,
+  Segmented,
+  StatusDot,
+} from '../../ui/primitives';
 import SubscriptionAccounts from '../settings/SubscriptionAccounts';
 import ClaudePlanSetup, {
   CLAUDE_PLAN_SUMMARY,
+  USE_MY_CLAUDE_PLAN,
 } from '../settings/ClaudePlanSetup';
 import ProviderSettingsPanel from '../settings/ProviderSettingsPanel';
 import {
@@ -39,6 +52,8 @@ import {
   RECOMMENDED_KEY_PROVIDERS,
 } from '../settings/provider-keys';
 import { BillingTag } from './ModelList';
+import { useWorkspaceActions } from './workspace-actions';
+import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
 
 /** "Set up later" for this window: Home stops opening Setup until next time. */
 export const SETUP_LATER_KEY = 'row-bot:setup-later:v1';
@@ -51,19 +66,37 @@ export function setupDeferred(): boolean {
   }
 }
 
-type Path = 'local' | 'subscription' | 'key';
+type Path = 'local' | 'subscription' | 'key' | 'grok';
 type Step =
   | { kind: 'pick' }
-  | { kind: 'testing'; label: string }
+  | { kind: 'testing'; label: string; connected?: string }
   | { kind: 'failed'; label: string; detail: string }
   | { kind: 'import' };
 
 export type FirstRunActions = {
   /** Save the person's pick as the default (decision 9). */
   choose: (modelRef: string) => Promise<OnboardingSnapshot>;
+  /**
+   * A hosted first run (U3): the provider the person just signed in to starts
+   * on its own first model, so a sign-in goes straight to a chat.
+   */
+  chooseSuggested?: (providerId: string) => Promise<OnboardingSnapshot>;
   /** Finish the first run once the pick answered. */
   finish: () => Promise<OnboardingSnapshot>;
 };
+
+/** What a hosted first run's sign-ins are called. */
+const SIGN_IN_LABELS: Record<string, string> = {
+  codex: 'ChatGPT',
+  claude_subscription: 'Claude',
+  xai_oauth: 'Grok',
+};
+
+/** U3's line while ChatGPT's code waits. */
+export const CODE_COPIED =
+  'Paste the code (it’s copied) and approve. Row-Bot notices when you’re done.';
+export const CODE_NOT_COPIED =
+  'Enter this code on OpenAI’s page and approve. Row-Bot notices when you’re done.';
 
 const SUBSCRIPTIONS = [
   { value: 'codex', label: 'ChatGPT' },
@@ -87,10 +120,12 @@ const KEY_LABELS: Record<string, string> = {
 };
 
 /** Re-detects the local runtime every 3 s while Setup is open and visible. */
-function useLocalRuntime() {
+function useLocalRuntime(enabled: boolean) {
   const { controller } = useRuntime();
   const [runtime, setRuntime] = useState<LocalRuntimeSnapshot | null>(null);
   useEffect(() => {
+    // A hosted Row-Bot has no local runtime to look for (U3).
+    if (!enabled) return;
     let stopped = false;
     let timer = 0;
     const read = async () => {
@@ -110,7 +145,7 @@ function useLocalRuntime() {
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [controller]);
+  }, [controller, enabled]);
   return runtime;
 }
 
@@ -548,6 +583,394 @@ function ProviderModels({
   );
 }
 
+/** "With an API key": the providers, then the chosen one's key and models. */
+function KeyPanel({
+  keyProvider,
+  setKeyProvider,
+  connected,
+  billing,
+  onPick,
+  onSaved,
+}: {
+  keyProvider: string | null;
+  setKeyProvider: (id: string | null) => void;
+  connected: Set<string>;
+  billing: (id: string) => ProviderLiveCard['billing'] | null;
+  onPick: (modelRef: string, label: string) => void;
+  onSaved: () => void;
+}) {
+  const { providerSettingsSessions } = useRuntime();
+  if (keyProvider)
+    return (
+      <div className="first-run-panel-body">
+        <Button
+          variant="ghost"
+          className="small first-run-back"
+          onClick={() => setKeyProvider(null)}
+        >
+          <ArrowLeft size={14} aria-hidden /> All providers
+        </Button>
+        {connected.has(keyProvider) ? (
+          <ProviderModels
+            key={keyProvider}
+            providerId={keyProvider}
+            label={KEY_LABELS[keyProvider] ?? keyProvider}
+            onPick={onPick}
+          />
+        ) : providerSettingsSessions ? (
+          <ProviderSettingsPanel
+            compact
+            owner={providerSettingsSessions}
+            providerId={keyProvider}
+            onSaved={(saved) => {
+              if (saved.configured) onSaved();
+            }}
+            onCancel={() => setKeyProvider(null)}
+          />
+        ) : (
+          <p role="status">Keys can be added once Row-Bot is connected.</p>
+        )}
+      </div>
+    );
+  return (
+    <div className="first-run-panel-body">
+      <ul className="first-run-providers" aria-label="Providers">
+        {RECOMMENDED_KEY_PROVIDERS.map((id) => (
+          <li key={id}>
+            <button
+              type="button"
+              className="first-run-provider"
+              onClick={() => setKeyProvider(id)}
+            >
+              <span>{KEY_LABELS[id]}</span>
+              {connected.has(id) && (
+                <span className="first-run-model-tag">Connected</span>
+              )}
+              <BillingTag billing={billing(id) ?? 'pay_per_use'} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Disclosure summary="More providers">
+        <ul className="first-run-providers" aria-label="More providers">
+          {MORE_KEY_PROVIDERS.map((id) => (
+            <li key={id}>
+              <button
+                type="button"
+                className="first-run-provider"
+                onClick={() => setKeyProvider(id)}
+              >
+                <span>{KEY_LABELS[id]}</span>
+                {connected.has(id) && (
+                  <span className="first-run-model-tag">Connected</span>
+                )}
+                <BillingTag billing={billing(id)} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Disclosure>
+    </div>
+  );
+}
+
+type Hosted = 'chatgpt' | 'claude' | 'key' | 'grok';
+
+/** A promise the click that starts ChatGPT's sign-in copies from (U3). */
+function deferred() {
+  let resolve: (value: string) => void = () => undefined;
+  let reject: () => void = () => undefined;
+  const promise = new Promise<string>((done, fail) => {
+    resolve = done;
+    reject = () => fail(new Error('not started'));
+  });
+  promise.catch(() => undefined);
+  return { promise, resolve, reject };
+}
+
+/** Opens a sign-in page in a new tab; false when the browser blocked it. */
+function openSignInPage(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const opened = window.open(url, '_blank');
+    if (!opened) return false;
+    opened.opener = null;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * U3, a hosted first run: two big buttons, "Sign in with ChatGPT" and "Use my
+ * Claude plan"; "Other ways" holds an API key, your own model server and Grok.
+ * Models can't run on the server itself, so there is no local choice: one
+ * quiet line says so and points to the desktop app.
+ */
+function HostedChoices({
+  cards,
+  connected,
+  listed,
+  onListedClose,
+  reload,
+  signedIn,
+  pick,
+  keyPanel,
+  endpointModels,
+  setUpLater,
+}: {
+  cards: ProviderLiveCard[];
+  connected: Set<string>;
+  listed: string | null;
+  onListedClose: () => void;
+  reload: () => Promise<void>;
+  signedIn: (providerId: string) => void;
+  pick: (modelRef: string, label: string) => void;
+  keyPanel: ReactNode;
+  endpointModels: ReactNode;
+  setUpLater: ReactNode;
+}) {
+  const { controller, subscriptionAccountsOwner } = useRuntime();
+  const writer = useContext(RuntimeContext)?.platform.writeClipboard;
+  const [path, setPath] = useState<Hosted | null>(null);
+  const [checkingClaude, setCheckingClaude] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const code = useRef<ReturnType<typeof deferred> | null>(null);
+  const copying = useRef<Promise<boolean>>(Promise.resolve(false));
+  const continued = useRef(new Set<string>());
+  const provider =
+    path === 'chatgpt'
+      ? 'codex'
+      : path === 'claude'
+        ? 'claude_subscription'
+        : path === 'grok'
+          ? 'xai_oauth'
+          : null;
+
+  // A sign-in that connects (here, or already before) carries straight on.
+  useEffect(() => {
+    if (!provider || !connected.has(provider)) return;
+    if (continued.current.has(provider)) return;
+    continued.current.add(provider);
+    signedIn(provider);
+  }, [provider, connected, signedIn]);
+
+  /** Inside the click: copy ChatGPT's code the moment the server has it. */
+  function prepareCopy() {
+    code.current?.reject();
+    const next = deferred();
+    code.current = next;
+    setCopied(false);
+    copying.current = copyTextLater(next.promise, writer);
+  }
+
+  function started(flow: SubscriptionFlowSnapshot | null) {
+    if (!flow) {
+      code.current?.reject();
+      return;
+    }
+    if (flow.device_code) {
+      code.current?.resolve(flow.device_code);
+      // Copy first: the new tab takes the focus a copy needs.
+      void copying.current.then((done) => {
+        setCopied(done);
+        openSignInPage(flow.authorization_url);
+      });
+    } else openSignInPage(flow.authorization_url);
+  }
+
+  function choose(next: Hosted) {
+    if (next === 'chatgpt' && path !== 'chatgpt' && !connected.has('codex'))
+      prepareCopy();
+    setPath(next);
+  }
+
+  const session = subscriptionAccountsOwner?.get();
+  const signIn = (id: 'codex' | 'xai_oauth') =>
+    session ? (
+      <SubscriptionAccounts
+        key={id}
+        compact
+        autoStart
+        remote
+        initialProvider={id}
+        initialAction="connect"
+        guide={id === 'codex' ? (copied ? CODE_COPIED : CODE_NOT_COPIED) : null}
+        beforeStart={id === 'codex' ? prepareCopy : undefined}
+        onStarted={started}
+        session={session}
+        load={controller.subscriptionAccounts}
+        review={controller.reviewSubscriptionAction}
+        apply={controller.applySubscriptionAction}
+        readFlow={controller.subscriptionFlow}
+        cancel={controller.cancelSubscriptionFlow}
+        cancelStart={controller.cancelSubscriptionStart}
+        receipt={controller.subscriptionReceipt}
+        onSaved={() => void reload()}
+        onClose={() => setPath(null)}
+      />
+    ) : (
+      <p role="status">Signing in is available once Row-Bot is connected.</p>
+    );
+
+  const panel = (body: ReactNode, label: string) => (
+    <section className="first-run-panel" aria-label={label}>
+      {body}
+    </section>
+  );
+  const listedLabel = listed ? (SIGN_IN_LABELS[listed] ?? listed) : '';
+
+  return (
+    <section className="first-run first-run-hosted" aria-label="First run">
+      <header className="first-run-header">
+        <h1>How should Row-Bot think?</h1>
+        <p>Sign in with a plan you already have. You can add others later.</p>
+      </header>
+      <div
+        className="first-run-big"
+        role="group"
+        aria-label="How should Row-Bot think?"
+      >
+        <button
+          type="button"
+          className="first-run-big-choice"
+          aria-pressed={path === 'chatgpt'}
+          onClick={() => choose('chatgpt')}
+        >
+          <LogIn size={20} aria-hidden />
+          <span>Sign in with ChatGPT</span>
+        </button>
+        <button
+          type="button"
+          className="first-run-big-choice"
+          aria-pressed={path === 'claude'}
+          onClick={() => choose('claude')}
+        >
+          <BadgeCheck size={20} aria-hidden />
+          <span>{USE_MY_CLAUDE_PLAN}</span>
+        </button>
+      </div>
+      {listed &&
+        panel(
+          <div className="first-run-panel-body">
+            <ProviderModels
+              key={listed}
+              providerId={listed}
+              label={listedLabel}
+              onPick={pick}
+            />
+            <Button
+              variant="ghost"
+              className="small first-run-back"
+              onClick={onListedClose}
+            >
+              <ArrowLeft size={14} aria-hidden /> Back
+            </Button>
+          </div>,
+          `${listedLabel} models`,
+        )}
+      {!listed &&
+        path === 'chatgpt' &&
+        !connected.has('codex') &&
+        panel(signIn('codex'), 'Sign in with ChatGPT')}
+      {!listed &&
+        path === 'claude' &&
+        !connected.has('claude_subscription') &&
+        panel(
+          <div className="stack">
+            <p>{CLAUDE_PLAN_SUMMARY}</p>
+            <ClaudePlanSetup
+              autoStart
+              plan={
+                cards.find((card) => card.provider_id === 'claude_subscription')
+                  ?.claude_plan
+              }
+              checking={checkingClaude}
+              onCheck={() => {
+                setCheckingClaude(true);
+                void reload().finally(() => setCheckingClaude(false));
+              }}
+            />
+          </div>,
+          USE_MY_CLAUDE_PLAN,
+        )}
+      <Disclosure
+        className="first-run-other"
+        summary="Other ways"
+        defaultOpen={path === 'key' || path === 'grok'}
+      >
+        <ul className="first-run-other-list" aria-label="Other ways">
+          <li>
+            <button
+              type="button"
+              className="first-run-other-choice"
+              aria-pressed={path === 'key'}
+              onClick={() => choose('key')}
+            >
+              <KeyRound size={18} aria-hidden />
+              <span>
+                <strong>Use an API key</strong>
+                <small>OpenAI, Anthropic, Google, OpenRouter and more</small>
+              </span>
+            </button>
+          </li>
+          <li>
+            <Link
+              className="first-run-other-choice"
+              to="/settings/providers?add=custom-endpoint&type=ollama&from=setup"
+            >
+              <Server size={18} aria-hidden />
+              <span>
+                <strong>Use my own model server</strong>
+                <small>Ollama, llama.cpp, vLLM, LM Studio and more</small>
+              </span>
+            </Link>
+            <a
+              className="first-run-other-guide"
+              href={OWN_MODEL_SERVER_GUIDE}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              How to reach it safely
+            </a>
+          </li>
+          <li>
+            <button
+              type="button"
+              className="first-run-other-choice"
+              aria-pressed={path === 'grok'}
+              onClick={() => choose('grok')}
+            >
+              <Sparkles size={18} aria-hidden />
+              <span>
+                <strong>Sign in with Grok</strong>
+                <small>Your xAI account</small>
+              </span>
+            </button>
+          </li>
+        </ul>
+        {!listed && path === 'key' && panel(keyPanel, 'Use an API key')}
+        {!listed &&
+          path === 'grok' &&
+          !connected.has('xai_oauth') &&
+          panel(signIn('xai_oauth'), 'Sign in with Grok')}
+      </Disclosure>
+      {endpointModels}
+      <p className="first-run-note">
+        <Cpu size={14} aria-hidden />
+        <span>
+          Running models on this server needs a GPU. Use your own model server,
+          or{' '}
+          <a href={DESKTOP_APP_URL} target="_blank" rel="noopener noreferrer">
+            get the desktop app →
+          </a>
+        </span>
+      </p>
+      <footer className="first-run-footer">{setUpLater}</footer>
+    </section>
+  );
+}
+
 /**
  * The first run (decision 10): one question, "How should Row-Bot think?".
  * The pick becomes the default, a quick test runs, then Home opens. The only
@@ -560,10 +983,12 @@ export default function FirstRun({
   snapshot: OnboardingSnapshot;
   actions: FirstRunActions;
 }) {
-  const { controller, providerSettingsSessions, subscriptionAccountsOwner } =
-    useRuntime();
+  const { controller, subscriptionAccountsOwner } = useRuntime();
   const navigate = useNavigate();
-  const runtime = useLocalRuntime();
+  const workspace = useWorkspaceActions();
+  // A known host runs this Row-Bot (U3): two big buttons, and no local runtime.
+  const host = snapshot.host_name ?? null;
+  const runtime = useLocalRuntime(!host);
   const backgroundUpdates = useBackgroundUpdates();
   const { cards, reload } = useProviderCards();
   const [path, setPath] = useState<Path | null>(null);
@@ -571,6 +996,8 @@ export default function FirstRun({
   const [keyProvider, setKeyProvider] = useState<string | null>(null);
   const [step, setStep] = useState<Step>({ kind: 'pick' });
   const [checkingClaude, setCheckingClaude] = useState(false);
+  // A hosted sign-in whose provider had no model ready to start on: its list.
+  const [listed, setListed] = useState<string | null>(null);
   const importSources = useRef(snapshot.import_sources ?? []);
   const connected = useMemo(
     () =>
@@ -604,8 +1031,8 @@ export default function FirstRun({
   }
 
   /** The quick test, then Home (or the import offer). */
-  async function verify(label: string) {
-    setStep({ kind: 'testing', label });
+  async function verify(label: string, connected?: string) {
+    setStep({ kind: 'testing', label, connected });
     let result: { ok: boolean; detail: string } | null;
     try {
       result = (await controller.testChosenModel()) ?? null;
@@ -628,7 +1055,34 @@ export default function FirstRun({
     }
     void controller.refreshChoices().catch(() => undefined);
     if (importSources.current.length) setStep({ kind: 'import' });
+    else if (host && workspace?.newChat)
+      // Straight into a chat with one suggested first message (U3).
+      workspace.newChat();
     else navigate('/', { replace: true });
+  }
+
+  /**
+   * A hosted sign-in finished: load the provider's models, start on its own
+   * first pick and test it. With none ready yet, its models are listed.
+   */
+  async function signedIn(providerId: string) {
+    const label = SIGN_IN_LABELS[providerId] ?? providerId;
+    setStep({ kind: 'testing', label, connected: label });
+    try {
+      await controller.refreshLiveProvider(providerId).catch(() => null);
+      for (let tries = 0; tries < 90; tries += 1) {
+        const state = await controller.liveProviderRefresh();
+        if (!state?.running) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      if (!actions.chooseSuggested) throw new Error('unavailable');
+      await actions.chooseSuggested(providerId);
+    } catch {
+      setListed(providerId);
+      setStep({ kind: 'pick' });
+      return;
+    }
+    await verify(label, label);
   }
 
   if (step.kind === 'testing' || step.kind === 'failed')
@@ -641,11 +1095,21 @@ export default function FirstRun({
               : 'That model didn’t answer'}
           </h1>
         </header>
+        {step.kind === 'testing' && step.connected && (
+          <p className="first-run-connected" role="status">
+            <StatusDot
+              tone="success"
+              label={`Connected to ${step.connected}`}
+              showLabel
+            />
+          </p>
+        )}
         {step.kind === 'testing' ? (
           <p className="first-run-waiting" role="status">
             <Loader2 size={16} className="spin" aria-hidden /> Sending{' '}
-            {step.label} a short test message. A local model can take a minute
-            to load the first time.
+            {step.label} a short test message.
+            {!host &&
+              ' A local model can take a minute to load the first time.'}
           </p>
         ) : (
           <div className="first-run-panel-body" role="alert">
@@ -688,6 +1152,61 @@ export default function FirstRun({
       </section>
     );
   }
+
+  const setUpLater = (
+    <button
+      type="button"
+      className="first-run-later"
+      onClick={() => {
+        try {
+          sessionStorage.setItem(SETUP_LATER_KEY, '1');
+        } catch {
+          /* Private windows simply ask again next time. */
+        }
+        navigate('/');
+      }}
+    >
+      Set up later
+    </button>
+  );
+  const endpointModels = endpoints.length > 0 && (
+    <section className="first-run-panel" aria-label="Your endpoints">
+      {endpoints.map((card) => (
+        <ProviderModels
+          key={card.provider_id}
+          providerId={card.provider_id}
+          label={card.display_name}
+          onPick={pick}
+        />
+      ))}
+    </section>
+  );
+  const keyPanel = (
+    <KeyPanel
+      keyProvider={keyProvider}
+      setKeyProvider={setKeyProvider}
+      connected={connected}
+      billing={billing}
+      onPick={pick}
+      onSaved={() => void reload()}
+    />
+  );
+
+  if (host)
+    return (
+      <HostedChoices
+        cards={cards}
+        connected={connected}
+        listed={listed}
+        onListedClose={() => setListed(null)}
+        reload={reload}
+        signedIn={(providerId) => void signedIn(providerId)}
+        pick={pick}
+        keyPanel={keyPanel}
+        endpointModels={endpointModels}
+        setUpLater={setUpLater}
+      />
+    );
 
   return (
     <section className="first-run" aria-label="First run">
@@ -796,117 +1315,16 @@ export default function FirstRun({
               )}
             </div>
           )}
-          {path === 'key' &&
-            (keyProvider ? (
-              <div className="first-run-panel-body">
-                <Button
-                  variant="ghost"
-                  className="small first-run-back"
-                  onClick={() => setKeyProvider(null)}
-                >
-                  <ArrowLeft size={14} aria-hidden /> All providers
-                </Button>
-                {connected.has(keyProvider) ? (
-                  <ProviderModels
-                    key={keyProvider}
-                    providerId={keyProvider}
-                    label={KEY_LABELS[keyProvider] ?? keyProvider}
-                    onPick={pick}
-                  />
-                ) : providerSettingsSessions ? (
-                  <ProviderSettingsPanel
-                    compact
-                    owner={providerSettingsSessions}
-                    providerId={keyProvider}
-                    onSaved={(saved) => {
-                      if (saved.configured) void reload();
-                    }}
-                    onCancel={() => setKeyProvider(null)}
-                  />
-                ) : (
-                  <p role="status">
-                    Keys can be added once Row-Bot is connected.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="first-run-panel-body">
-                <ul className="first-run-providers" aria-label="Providers">
-                  {RECOMMENDED_KEY_PROVIDERS.map((id) => (
-                    <li key={id}>
-                      <button
-                        type="button"
-                        className="first-run-provider"
-                        onClick={() => setKeyProvider(id)}
-                      >
-                        <span>{KEY_LABELS[id]}</span>
-                        {connected.has(id) && (
-                          <span className="first-run-model-tag">Connected</span>
-                        )}
-                        <BillingTag billing={billing(id) ?? 'pay_per_use'} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <Disclosure summary="More providers">
-                  <ul
-                    className="first-run-providers"
-                    aria-label="More providers"
-                  >
-                    {MORE_KEY_PROVIDERS.map((id) => (
-                      <li key={id}>
-                        <button
-                          type="button"
-                          className="first-run-provider"
-                          onClick={() => setKeyProvider(id)}
-                        >
-                          <span>{KEY_LABELS[id]}</span>
-                          {connected.has(id) && (
-                            <span className="first-run-model-tag">
-                              Connected
-                            </span>
-                          )}
-                          <BillingTag billing={billing(id)} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </Disclosure>
-              </div>
-            ))}
+          {path === 'key' && keyPanel}
         </section>
       )}
-      {endpoints.length > 0 && (
-        <section className="first-run-panel" aria-label="Your endpoints">
-          {endpoints.map((card) => (
-            <ProviderModels
-              key={card.provider_id}
-              providerId={card.provider_id}
-              label={card.display_name}
-              onPick={pick}
-            />
-          ))}
-        </section>
-      )}
+      {endpointModels}
       <footer className="first-run-footer">
         <Link to="/settings/providers?add=custom-endpoint">
           Other (custom endpoint)
         </Link>
         <span aria-hidden>·</span>
-        <button
-          type="button"
-          className="first-run-later"
-          onClick={() => {
-            try {
-              sessionStorage.setItem(SETUP_LATER_KEY, '1');
-            } catch {
-              /* Private windows simply ask again next time. */
-            }
-            navigate('/');
-          }}
-        >
-          Set up later
-        </button>
+        {setUpLater}
       </footer>
       {backgroundUpdates && (
         <p className="first-run-note">

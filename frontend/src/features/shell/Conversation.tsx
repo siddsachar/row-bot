@@ -117,6 +117,9 @@ import {
   usePendingApprovals,
 } from './pending-approvals';
 import ChatEmpty from './ChatEmpty';
+import PhoneCard from './PhoneCard';
+import { neverUsed } from './new-chat';
+import { FIRST_MESSAGE } from './welcome-prompts';
 import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
 import { ProcessIoContext, type ProcessIo } from './background-processes';
 import { RecordingIoContext, type RecordingIo } from './recordings';
@@ -2911,6 +2914,18 @@ export default function Conversation({
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);
+  // A known host runs this Row-Bot (U3, U10): its very first chat suggests one
+  // message, and after an answer the phone card shows until dismissed.
+  const onHostedServer = Boolean(
+    state.handshake?.application_capabilities?.includes('hosted'),
+  );
+  const firstChat =
+    onHostedServer &&
+    Boolean(id) &&
+    !state.conversations.some(
+      (item) =>
+        item.id !== id && !item.parent_conversation_id && !neverUsed(item),
+    );
   async function rename(next: string) {
     if (!id || !state.conversation) return;
     try {
@@ -3445,6 +3460,12 @@ export default function Conversation({
                   disabled={busy}
                   // A prompt fills the composer to edit first (U17).
                   onChoose={editMessage}
+                  // A hosted Row-Bot's first chat: one message to tap (U3).
+                  first={
+                    firstChat
+                      ? { prompt: FIRST_MESSAGE, onSend: (text) => send(text) }
+                      : undefined
+                  }
                   recent={state.conversations}
                   onOpen={(target) => navigate(`/conversations/${target}`)}
                   design={resources.some(
@@ -3691,6 +3712,13 @@ export default function Conversation({
                   </div>
                 </div>
               )}
+              {onHostedServer &&
+                id &&
+                !state.history &&
+                lastAssistant >= 0 &&
+                !turnInFlight &&
+                !interrupted &&
+                !failed && <PhoneCard />}
               {state.history?.next_cursor && (
                 <div className="transcript-sentinel">
                   <Button

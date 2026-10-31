@@ -31,6 +31,7 @@ import {
 } from '../../ui/primitives';
 import { apiKeyLabel, humanizeToken } from '../../ui/format';
 import { ModalTask } from '../../ui/overlays';
+import { OWN_MODEL_SERVER_GUIDE } from '../shell/hosted-links';
 
 type Operation =
   | 'provider.endpoint.create'
@@ -241,6 +242,8 @@ export type ProviderConfigurationProps = {
   compact?: boolean;
   /** Open "Add custom endpoint" once the list has loaded (Setup's link). */
   autoAdd?: boolean;
+  /** The server type it opens with: a hosted first run's "Use my own model server" picks Ollama (U3). */
+  addProfile?: string | null;
   credentialRefreshRequest?: { providerId: string; token: number };
   session?: ProviderConfigurationSession;
   load: (
@@ -293,15 +296,18 @@ export default function ProviderConfiguration(
     if (!props.autoAdd || autoAdded.current || !page || locked || state.editing)
       return;
     autoAdded.current = true;
+    const known = serverTypes(page).some(
+      (type) => type.value === props.addProfile,
+    );
     session.update({
-      fields: blank(),
+      fields: known ? { ...blank(), profile: props.addProfile! } : blank(),
       revision: page.revision,
       existing: false,
       editing: true,
       operation: 'provider.endpoint.create',
       reviewed: null,
     });
-  }, [props.autoAdd, page, locked, state.editing, session]);
+  }, [props.autoAdd, props.addProfile, page, locked, state.editing, session]);
   const modelAction = operation.startsWith('provider.model.');
   const networkAction =
     operation === 'provider.endpoint.probe' ||
@@ -781,13 +787,29 @@ export default function ProviderConfiguration(
       </Select>
     </Field>
   );
-  const ollamaHint =
-    fields.profile === OLLAMA && !state.existing ? (
-      <p className="settings-help">
-        Ollama's address ends in /v1, such as http://&lt;computer&gt;:11434/v1.
-        Set its context size under Advanced: Ollama doesn't report it.
-      </p>
-    ) : null;
+  const ollamaHint = (
+    <>
+      {fields.profile === OLLAMA && !state.existing && (
+        <p className="settings-help">
+          Ollama's address ends in /v1, such as
+          http://&lt;computer&gt;:11434/v1. Set its context size under Advanced:
+          Ollama doesn't report it.
+        </p>
+      )}
+      {hostName && !state.existing && (
+        // A hosted Row-Bot reaches a model server over the internet (U3, W4.5).
+        <p className="settings-help">
+          <a
+            href={OWN_MODEL_SERVER_GUIDE}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            How to reach your model server safely
+          </a>
+        </p>
+      )}
+    </>
+  );
   if (props.compact)
     return (
       <section

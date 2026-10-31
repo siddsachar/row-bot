@@ -787,3 +787,36 @@ it('explains a private address refused on refresh, and a metadata address never 
     ),
   ).toBeVisible();
 });
+
+it('opens from a hosted first run with Ollama picked and the guide to reaching it (U3)', async () => {
+  const props = options();
+  render(
+    <ProviderConfiguration
+      {...props}
+      compact
+      autoAdd
+      addProfile="ollama"
+      hostName="PikaPods"
+    />,
+  );
+  const type = await screen.findByLabelText('Server type');
+  expect(type).toHaveValue('ollama');
+  expect(
+    screen.getByRole('link', { name: 'How to reach your model server safely' }),
+  ).toHaveAttribute('href', 'https://row-bot.ai/docs/guides/own-model-server');
+});
+
+it('opens a plain form for a type it doesn’t know, and no guide on a computer', async () => {
+  const props = options();
+  render(
+    <ProviderConfiguration {...props} compact autoAdd addProfile="nonsense" />,
+  );
+  expect(await screen.findByLabelText('Server type')).toHaveValue(
+    'generic_openai',
+  );
+  expect(
+    screen.queryByRole('link', {
+      name: 'How to reach your model server safely',
+    }),
+  ).toBeNull();
+});

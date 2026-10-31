@@ -509,3 +509,65 @@ it('reports successful publication when cancellation arrives after connection', 
   expect(screen.queryByText('Sign-in is cancelled.')).not.toBeInTheDocument();
   expect(screen.getByText(/Sign-in: connected/)).toBeInTheDocument();
 });
+
+it('starts at once for a hosted first run, says its one line, and offers a new code when it expires (U3)', async () => {
+  const beforeStart = vi.fn();
+  const onStarted = vi.fn();
+  const p = props({
+    compact: true,
+    autoStart: true,
+    remote: true,
+    initialProvider: 'codex',
+    initialAction: 'connect',
+    guide: 'Paste the code and approve.',
+    beforeStart,
+    onStarted,
+  });
+  const { rerender } = render(<SubscriptionAccounts {...p} />);
+  expect(await screen.findByText('Paste the code and approve.')).toBeVisible();
+  expect(p.apply).toHaveBeenCalledOnce();
+  expect(onStarted).toHaveBeenCalledWith(flow);
+  expect(screen.queryByText('Enter this code when it asks.')).toBeNull();
+  rerender(<SubscriptionAccounts {...p} />);
+  expect(p.apply).toHaveBeenCalledOnce();
+
+  // The code ran out: one button gets a new one, copied from its own click.
+  vi.mocked(p.readFlow).mockResolvedValue({ ...flow, state: 'expired' });
+  fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Get a new code' }),
+  );
+  expect(beforeStart).toHaveBeenCalledOnce();
+  await waitFor(() => expect(p.apply).toHaveBeenCalledTimes(2));
+});
+
+it('tells a browser on another device what to paste for Grok (H5)', async () => {
+  const grok = {
+    ...flow,
+    provider_id: 'xai_oauth',
+    method: 'loopback',
+    device_code: null,
+  } as SubscriptionFlowSnapshot;
+  const p = props({
+    compact: true,
+    remote: true,
+    initialProvider: 'xai_oauth',
+    initialAction: 'connect',
+    apply: vi.fn<SubscriptionAccountsProps['apply']>(async (_i, _r, id) => ({
+      command_id: id,
+      status: 'completed',
+      accounts: snapshot,
+      flow: grok,
+    })),
+  });
+  render(<SubscriptionAccounts {...p} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  expect(
+    await screen.findByText(
+      'Sign in on the page that opens. It then sends you to a page that doesn’t load: copy that page’s address from the address bar and paste it below.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByLabelText('Address of the page that didn’t load'),
+  ).toBeVisible();
+});

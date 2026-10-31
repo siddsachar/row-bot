@@ -314,6 +314,22 @@
 .setup-area-actions > .button:not(.setup-area-more) {
   white-space: nowrap;
 }
+/* A hosted Row-Bot: where local/private AI comes from instead (U4). */
+.setup-intent-note {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.setup-intent-note svg {
+  flex: none;
+  align-self: center;
+}
+.setup-intent-note a {
+  color: var(--text-link);
+}
 .setup-more {
   display: flex;
   flex-wrap: wrap;
@@ -626,6 +642,123 @@
 .first-run-note a {
   color: var(--text-link);
 }
+/*
+ * U3, a hosted first run: two big buttons (ChatGPT, Claude plan), "Other
+ * ways" below, and the one line about models needing a GPU.
+ */
+.first-run-hosted {
+  max-width: 720px;
+}
+.first-run-big {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.first-run-big-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 14px 18px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-17);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+.first-run-big-choice svg {
+  flex: none;
+  color: var(--accent-solid);
+}
+.first-run-big-choice:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--accent-solid) 45%,
+    var(--border-hairline)
+  );
+}
+.first-run-big-choice[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface-raised));
+}
+.first-run-big-choice:focus-visible,
+.first-run-other-choice:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: 2px;
+}
+.first-run-other .disclosure-body {
+  display: grid;
+  gap: 12px;
+  padding: 10px 0 0;
+}
+.first-run-other-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.first-run-other-list li {
+  display: grid;
+  gap: 4px;
+}
+.first-run-other-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.first-run-other-choice svg {
+  flex: none;
+  color: var(--text-secondary);
+}
+.first-run-other-choice > span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.first-run-other-choice strong {
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.first-run-other-choice small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.first-run-other-choice:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--accent-solid) 40%,
+    var(--border-hairline)
+  );
+}
+.first-run-other-choice[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+}
+.first-run-other-guide {
+  justify-self: start;
+  margin-inline-start: 44px;
+  color: var(--text-link);
+  font-size: var(--text-13);
+}
+.first-run-connected {
+  margin: 0;
+}
 .home-gate {
   min-height: 60vh;
 }
@@ -649,8 +782,19 @@
   .first-run-panel {
     padding: 14px;
   }
+  .first-run-big {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .first-run-big-choice {
+    min-height: 56px;
+  }
 }
 @media (pointer: coarse) {
+  .first-run-other-guide {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
   .first-run-model,
   .first-run-provider,
   .first-run-later,

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { writeClipboardText } from '../../platform/clipboard';
 import { RuntimeContext } from '../../runtime';
@@ -57,6 +57,20 @@ export type SubscriptionAccountsProps = {
   initialAction?: 'connect' | 'manage' | 'disconnect';
   /** The saved sign-in can't be used any more: it says so and offers Reconnect (B342). */
   signInExpired?: boolean;
+  /** Start the sign-in at once, when nothing else is in progress (U3's one click). */
+  autoStart?: boolean;
+  /** Runs inside the click that starts a sign-in, before anything is sent. */
+  beforeStart?: () => void;
+  /** A Start finished: the sign-in's page and code, or null when it didn't start. */
+  onStarted?: (flow: SubscriptionFlowSnapshot | null) => void;
+  /** One line that replaces the numbered steps while a code waits (U3). */
+  guide?: ReactNode;
+  /**
+   * This browser isn't on the computer Row-Bot runs on (H5). Grok's page
+   * returns to that computer's own address, so here it ends on a page that
+   * doesn't load, and its address is pasted instead.
+   */
+  remote?: boolean;
   onClose?: () => void;
   session?: SubscriptionAccountsSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionAccountsSnapshot>;
@@ -292,6 +306,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setBusy('');
+      if (operation === 'start') props.onStarted?.(null);
       return;
     }
     if (!session.active) return;
@@ -318,6 +333,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       setCode('');
       setPending(null);
       session.resolved();
+      if (operation === 'start') props.onStarted?.(result.flow ?? null);
       // A check that is still waiting says nothing (the status line does).
       setNotice(
         operation === 'check'
@@ -330,6 +346,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     } catch (cause) {
       const refused = clientError(cause);
       setError(refused.message);
+      if (operation === 'start') props.onStarted?.(null);
       if (settledRefusal(operation, refused)) {
         // The server said no and nothing was saved (a locked keychain, say):
         // only the reason shows, and Connect tries again (B413).
@@ -343,6 +360,24 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       setBusy('');
     }
   }
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (
+      !props.autoStart ||
+      autoStarted.current ||
+      !props.compact ||
+      !snapshot ||
+      locked ||
+      retained ||
+      provider !== props.initialProvider ||
+      account?.saved_state === 'saved'
+    )
+      return;
+    autoStarted.current = true;
+    void performDirect('start');
+    // performDirect reads the current session; the guard runs it once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.autoStart, snapshot, locked, retained, provider]);
   async function readReceipt() {
     if (busy || !pending || !session.active) return;
     const abort = session.read();
@@ -571,23 +606,28 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           <div className="stack subscription-flow">
             <p className="subscription-flow-state" role="status">
               {signInStateLabel(flow.state)}
-              {active && POLLED.has(provider) && !error && (
+              {active && POLLED.has(provider) && !error && !props.guide && (
                 <span className="subscription-flow-auto">
                   {' '}
                   · Row-Bot notices when you're done
                 </span>
               )}
             </p>
-            {active && flow.device_code && (
-              <ol className="subscription-flow-steps">
-                <li>Open the sign-in page and sign in.</li>
-                <li>Enter this code when it asks.</li>
-              </ol>
-            )}
+            {active &&
+              flow.device_code &&
+              (props.guide ? (
+                <p className="subscription-flow-guide">{props.guide}</p>
+              ) : (
+                <ol className="subscription-flow-steps">
+                  <li>Open the sign-in page and sign in.</li>
+                  <li>Enter this code when it asks.</li>
+                </ol>
+              ))}
             {active && !flow.device_code && provider !== 'codex' && (
               <p className="settings-help">
-                Sign in on the page that opens. If it ends on an error page,
-                copy its address into the field below.
+                {props.remote
+                  ? 'Sign in on the page that opens. It then sends you to a page that doesn’t load: copy that page’s address from the address bar and paste it below.'
+                  : 'Sign in on the page that opens. If it ends on an error page, copy its address into the field below.'}
               </p>
             )}
             {active && login && (
@@ -621,7 +661,13 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           </div>
         )}
         {active && provider !== 'codex' && (
-          <Field label="Authorization code or callback URL">
+          <Field
+            label={
+              props.remote
+                ? 'Address of the page that didn’t load'
+                : 'Authorization code or callback URL'
+            }
+          >
             <Input
               type="password"
               value={code}
@@ -634,10 +680,18 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           {!active &&
             (props.initialAction === 'connect' || props.signInExpired) && (
               <Button
+                variant={flow?.state === 'expired' ? 'primary' : undefined}
                 disabled={locked}
-                onClick={() => void performDirect('start')}
+                onClick={() => {
+                  props.beforeStart?.();
+                  void performDirect('start');
+                }}
               >
-                {account?.saved_state === 'saved' ? 'Reconnect' : 'Connect'}
+                {flow?.state === 'expired' && provider === 'codex'
+                  ? 'Get a new code'
+                  : account?.saved_state === 'saved'
+                    ? 'Reconnect'
+                    : 'Connect'}
               </Button>
             )}
           {active && provider !== 'codex' && (

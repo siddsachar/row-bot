@@ -1,8 +1,6 @@
 import {
-  useCallback,
   useEffect,
   useId,
-  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -44,17 +42,11 @@ import {
 } from '../../ui/primitives';
 import { QrCode } from '../../ui/QrCode';
 import AccessTailscale from './AccessTailscale';
+import { useConnectCode, type Lifetime } from './connect-code';
 
-/** Mint the next code this long before the current one expires. */
-export const REFRESH_BEFORE_MS = 30_000;
-/** Codes one open flow mints before it asks for a new one (about 40 min). */
-export const MAX_CODES = 4;
-/** How often the flow looks for the device while a code is open. */
-export const ARRIVAL_POLL_MS = 2_000;
+export { ARRIVAL_POLL_MS, MAX_CODES, REFRESH_BEFORE_MS } from './connect-code';
 
 type Choice = 'tailscale' | 'lan' | 'internet' | 'other';
-type Lifetime = 'trusted' | 'temporary';
-type Code = { id: string; url: string; expiresAt: string; origin: string };
 type Tunnel = SettingsSnapshot['system']['tunnel'];
 
 function hostOf(origin: string) {
@@ -149,35 +141,12 @@ export default function AccessConnect({
   const [lanId, setLanId] = useState('');
   const [otherId, setOtherId] = useState('');
   const [lifetime, setLifetime] = useState<Lifetime>('trusted');
-  const [code, setCode] = useState<Code | null>(null);
-  const [minted, setMinted] = useState(0);
-  const [generation, setGeneration] = useState(0);
-  const [expired, setExpired] = useState(false);
-  const [connected, setConnected] = useState<AccessDevice | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useCopyFeedback();
-  const live = useRef<string | null>(null);
-
-  const cancelLive = useCallback(() => {
-    const id = live.current;
-    live.current = null;
-    if (id) void client.cancel(id).catch(() => undefined);
-  }, [client]);
-  // Leaving the flow cancels the open code; so does leaving the page
-  // (closing the tab or reloading runs no React cleanup).
-  useEffect(() => cancelLive, [cancelLive]);
-  useEffect(() => {
-    const leave = () => {
-      const id = live.current;
-      if (id) void client.cancel(id, undefined, true).catch(() => undefined);
-    };
-    window.addEventListener('pagehide', leave);
-    return () => window.removeEventListener('pagehide', leave);
-  }, [client]);
 
   useEffect(() => {
     if (!open) return;
@@ -256,111 +225,22 @@ export default function AccessConnect({
           : choice === 'other'
             ? otherRoute
             : null;
-  const routeId = open && !connected && !expired ? (route?.id ?? '') : '';
-
-  // Step 2: one code at a time for the chosen way; a newer one replaces it.
-  useEffect(() => {
-    if (!routeId) {
-      cancelLive();
-      setCode(null);
-      return;
-    }
-    let current = true;
-    setError('');
-    void client.create(routeId, lifetime).then(
-      (result) => {
-        if (!current) {
-          void client.cancel(result.invitation.id).catch(() => undefined);
-          return;
-        }
-        const previous = live.current;
-        live.current = result.invitation.id;
-        setCode({
-          id: result.invitation.id,
-          url: result.url,
-          expiresAt: result.invitation.expires_at,
-          origin: result.invitation.intended_origin,
-        });
-        setMinted((count) => count + 1);
-        // The code on screen is the only one that works.
-        if (previous) void client.cancel(previous).catch(() => undefined);
-      },
-      (cause) => {
-        if (!current) return;
-        const failure = clientError(cause);
-        setError(failure.message);
-        if (failure.code === 'route_changed')
-          setReloadRoutes((value) => value + 1);
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [client, routeId, lifetime, generation, cancelLive]);
-
-  // The code renews itself shortly before it expires, a few times at most.
-  useEffect(() => {
-    if (!code || connected) return;
-    const wait = Math.max(
-      0,
-      Date.parse(code.expiresAt) - REFRESH_BEFORE_MS - Date.now(),
-    );
-    const timer = window.setTimeout(() => {
-      if (minted >= MAX_CODES) {
-        cancelLive();
-        setCode(null);
-        setExpired(true);
-      } else setGeneration((value) => value + 1);
-    }, wait);
-    return () => window.clearTimeout(timer);
-  }, [code, connected, minted, cancelLive]);
-
-  // Step 3: wait for the device.
-  useEffect(() => {
-    if (!code || connected) return;
-    let looking = false;
-    let active = true;
-    const timer = window.setInterval(async () => {
-      if (looking) return;
-      looking = true;
-      try {
-        const mine = (await client.invitations()).find(
-          (item) => item.id === code.id,
-        );
-        if (!active || !mine?.claimed_at) return;
-        live.current = null;
-        const list = await devices.devices();
-        if (!active) return;
-        const device =
-          list.find((item) => item.id === mine.claimed_device_id) ??
-          [...list]
-            .filter((item) => !item.revoked_at)
-            .sort(
-              (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
-            )[0];
-        if (device) {
-          setConnected(device);
-          setName(device.display_name);
-          onConnected?.();
-        }
-      } catch {
-        /* Look again on the next tick. */
-      } finally {
-        looking = false;
-      }
-    }, ARRIVAL_POLL_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [client, devices, code, connected, onConnected]);
+  // Steps 2 and 3: one code at a time for the chosen way, then the device.
+  const { code, expired, connected, setConnected, ...codes } = useConnectCode({
+    client,
+    devices,
+    routeId: open ? (route?.id ?? '') : '',
+    lifetime,
+    onConnected: (device) => {
+      setName(device.display_name);
+      onConnected?.();
+    },
+    onError: setError,
+    onRouteChanged: () => setReloadRoutes((value) => value + 1),
+  });
 
   function reset() {
-    cancelLive();
-    setCode(null);
-    setMinted(0);
-    setExpired(false);
-    setConnected(null);
+    codes.reset();
     setRenaming(false);
     setNotice('');
     setError('');
@@ -723,7 +603,7 @@ export default function AccessConnect({
                     size="sm"
                     value={lifetime}
                     onChange={(value) => {
-                      setMinted(0);
+                      codes.restartCount();
                       setLifetime(value);
                     }}
                     options={[
