@@ -2520,18 +2520,25 @@ export default function Conversation({
     generation: string;
     // Whose sign-in can't be used any more ("ChatGPT"); "" for any other failure.
     signIn: string;
+    // The provider's own words on why it couldn't answer (a plan's limit); "" if it gave none.
+    reason: string;
   } | null>(null);
-  const captureFailure = useEffectEvent((event: string) =>
+  const captureFailure = useEffectEvent((event: string) => {
+    const payload =
+      lastErrorEvent?.type === 'generation.error'
+        ? lastErrorEvent.payload
+        : null;
     setFailure({
       event,
       generation: generation?.generation_id ?? '',
       signIn:
-        lastErrorEvent?.type === 'generation.error' &&
-        lastErrorEvent.payload.code === 'sign_in_required'
-          ? lastErrorEvent.payload.provider || 'your account'
+        payload?.code === 'sign_in_required'
+          ? payload.provider || 'your account'
           : '',
-    }),
-  );
+      reason:
+        payload?.code === 'provider_unavailable' ? (payload.message ?? '') : '',
+    });
+  });
   useEffect(() => {
     if (lastError) captureFailure(lastError);
   }, [lastError]);
@@ -2544,6 +2551,7 @@ export default function Conversation({
   const signInNeeded = thisFailure?.signIn ?? '';
   // Claude signs in through Claude Code itself: Claude signed the person out (U11).
   const claudeSignedOut = signInNeeded === 'Claude';
+  const failureReason = thisFailure?.reason ?? '';
   const interrupted =
     !isRunning && generation?.status === 'interrupted' && !signInNeeded;
   const failed = !interrupted && !signInNeeded && Boolean(thisFailure);
@@ -3233,7 +3241,7 @@ export default function Conversation({
           ? 'Claude signed you out.'
           : signInNeeded
             ? `Sign in to ${signInNeeded} again.`
-            : 'The response was interrupted.',
+            : failureReason || 'The response was interrupted.',
       }[generation.status] ?? '')
     : '';
   return (
@@ -3675,9 +3683,10 @@ export default function Conversation({
                         : 'The response could not finish'}
                     </strong>
                     <span>
-                      {interrupted
-                        ? 'Resume to continue where it stopped, or switch to another model.'
-                        : 'Try again, or switch to another model.'}
+                      {failureReason ||
+                        (interrupted
+                          ? 'Resume to continue where it stopped, or switch to another model.'
+                          : 'Try again, or switch to another model.')}
                       {generation?.external_outcome === 'uncertain'
                         ? ' Some steps may already have run, so check what changed before you try again.'
                         : ''}

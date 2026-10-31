@@ -1948,8 +1948,10 @@ class ClientPlatformService:
                 self.projection.publish(conversation_id, "approval.required", {
                     "status": "waiting_approval", "approval_id": handle.approval_id,
                     **public_approval})
+        elif kind == "provider_refusal":
+            handle.refusal = dict(payload)
         elif kind == "error":
-            self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
+            self.projection.publish(conversation_id, "generation.error", handle.refusal or {"code": "generation_failed"})
 
     def get_approval(self, approval_id: str) -> dict:
         from row_bot.application.approval_projection import project_approval_context

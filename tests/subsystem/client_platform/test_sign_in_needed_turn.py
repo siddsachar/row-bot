@@ -34,3 +34,55 @@ def test_a_turn_refused_for_an_expired_sign_in_names_whose_sign_in(platform, mon
 
     errors = [payload for kind, payload in published if kind == "generation.error"]
     assert errors == [{"code": "sign_in_required", "provider": "ChatGPT"}]
+
+
+class _RefusedMidReply:
+    """The real agent loop over a graph whose model call the provider refuses part-way through a reply."""
+
+    def __init__(self, refusal: Exception) -> None:
+        self.refusal = refusal
+
+    def stream(self, *_args, **_kwargs):
+        from row_bot import agent
+
+        refusal = self.refusal
+
+        class Graph:
+            def stream(self, *_args, **_kwargs):
+                raise RuntimeError("the model call failed") from refusal
+                yield  # A generator, as a real stream is.
+
+        return agent._stream_graph(Graph(), {}, {"configurable": {}})
+
+    def resume(self, *_args, **_kwargs):
+        return self.stream()
+
+
+def _errors_after(platform, monkeypatch, stream) -> list[dict]:  # noqa: F811
+    published: list[tuple[str, dict]] = []
+    original = platform.projection.publish
+
+    def recording(conversation_id, kind, payload, *args, **kwargs):
+        published.append((kind, dict(payload)))
+        return original(conversation_id, kind, payload, *args, **kwargs)
+
+    monkeypatch.setattr(platform.projection, "publish", recording)
+    accepted = submit(platform, stream, "refused-mid-reply")
+    assert platform.registry.get(accepted["execution_id"]).producer_done.wait(10)
+    return [payload for kind, payload in published if kind == "generation.error"]
+
+
+def test_a_plan_limit_mid_reply_reaches_the_chat_in_the_providers_words(platform, monkeypatch):  # noqa: F811
+    from row_bot.providers.claude_subscription import ClaudePlanUnavailable
+
+    words = "Claude is limiting requests right now. Wait a moment, then try again."
+    errors = _errors_after(platform, monkeypatch, _RefusedMidReply(ClaudePlanUnavailable(words, state="limited")))
+    assert errors == [{"code": "provider_unavailable", "message": words}]
+
+
+def test_a_sign_out_mid_reply_asks_to_sign_in_again(platform, monkeypatch):  # noqa: F811
+    from row_bot.providers.runtime import ProviderSignInRequired
+
+    signed_out = ProviderSignInRequired("claude_subscription", "Claude", "Claude Code is signed out.")
+    errors = _errors_after(platform, monkeypatch, _RefusedMidReply(signed_out))
+    assert errors == [{"code": "sign_in_required", "provider": "Claude"}]

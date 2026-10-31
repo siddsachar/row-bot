@@ -979,9 +979,16 @@
         "code": {
           "enum": [
             "generation_failed",
-            "sign_in_required"
+            "sign_in_required",
+            "provider_unavailable"
           ],
           "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Message",
           "type": "string"
         },
         "provider": {

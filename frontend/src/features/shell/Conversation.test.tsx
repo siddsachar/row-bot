@@ -1556,6 +1556,37 @@ it('a sign-in that can no longer be used asks to reconnect instead of offering R
   expect(mock.navigate).toHaveBeenLastCalledWith('/settings/providers');
 });
 
+it("an interrupted reply says the provider's own reason, such as a plan's limit", async () => {
+  interruptedConversation();
+  const words =
+    'Claude is limiting requests right now. Wait a moment, then try again.';
+  mock.state.activity = [
+    {
+      cursor: '5',
+      event: {
+        event_id: 'event-limit',
+        type: 'generation.error',
+        topic: 'conversation-a',
+        conversation_id: 'conversation-a',
+        projection_revision: '5',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '5',
+        source_sequence_end: '5',
+        payload: { code: 'provider_unavailable', message: words },
+      },
+    },
+  ] as unknown as typeof mock.state.activity;
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent(words);
+  expect(log).not.toHaveTextContent('Resume to continue where it stopped');
+  expect(within(log).getByRole('button', { name: 'Resume' })).toBeVisible();
+});
+
 it('Claude signed the person out: says so in U11’s words, with Sign in again', async () => {
   interruptedConversation();
   mock.state.activity = [
