@@ -99,7 +99,17 @@ def _save(sandbox: Sandbox) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"sandbox.json.{uuid.uuid4().hex[:6]}.part")
     partial.write_text(json.dumps(asdict(sandbox)), encoding="utf-8", newline="\n")
-    os.replace(partial, path)
+    # Windows refuses the replace while anyone has sandbox.json open (another thread reading it, such as
+    # wait_running's poll, or an antivirus scan); a moment later it succeeds.
+    for attempt in range(5):
+        try:
+            os.replace(partial, path)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in {5, 32} or attempt == 4:
+                partial.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _load(path: Path) -> Sandbox | None:
