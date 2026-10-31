@@ -793,6 +793,7 @@ function HostedChoices({
         key={id}
         compact
         autoStart
+        quiet
         remote
         initialProvider={id}
         initialAction="connect"

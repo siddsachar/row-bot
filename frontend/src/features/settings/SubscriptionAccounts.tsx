@@ -66,6 +66,11 @@ export type SubscriptionAccountsProps = {
   /** One line that replaces the numbered steps while a code waits (U3). */
   guide?: ReactNode;
   /**
+   * Inside a first run (U3): the button above already names the sign-in, so
+   * no title, account line, start notice or Close; Cancel ends it.
+   */
+  quiet?: boolean;
+  /**
    * This browser isn't on the computer Row-Bot runs on (H5). Grok's page
    * returns to that computer's own address, so here it ends on a page that
    * doesn't load, and its address is pasted instead.
@@ -580,11 +585,11 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         aria-label={`${labels[provider]} account`}
         aria-busy={!!busy}
       >
-        <h2>{labels[provider]}</h2>
+        {!props.quiet && <h2>{labels[provider]}</h2>}
         {busy === 'load' && <Skeleton label="Loading account" />}
         {error && <p role="alert">{error}</p>}
-        {notice && <p role="status">{notice}</p>}
-        {account && (
+        {notice && !props.quiet && <p role="status">{notice}</p>}
+        {account && !props.quiet && (
           <p>
             {account.saved_state === 'saved' && props.signInExpired
               ? 'Sign-in expired'
@@ -605,7 +610,9 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         {flow && (active || ['expired', 'uncertain'].includes(flow.state)) && (
           <div className="stack subscription-flow">
             <p className="subscription-flow-state" role="status">
-              {signInStateLabel(flow.state)}
+              {props.quiet && flow.state === 'expired' && provider === 'codex'
+                ? 'This code expired.'
+                : signInStateLabel(flow.state)}
               {active && POLLED.has(provider) && !error && !props.guide && (
                 <span className="subscription-flow-auto">
                   {' '}
@@ -727,9 +734,11 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
               Check again
             </Button>
           )}
-          <Button disabled={!!busy || !!pending} onClick={props.onClose}>
-            Close
-          </Button>
+          {!props.quiet && (
+            <Button disabled={!!busy || !!pending} onClick={props.onClose}>
+              Close
+            </Button>
+          )}
         </div>
       </section>
     );

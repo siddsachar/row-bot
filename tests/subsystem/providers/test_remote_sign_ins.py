@@ -159,3 +159,27 @@ def test_chatgpt_gives_another_device_a_code_and_finishes_on_the_server(store, n
 
     assert seen.state == "connected"
     assert auth_store.get_provider_secret("codex", "access_token") == "synthetic-chatgpt-access"
+
+
+def test_a_sign_in_left_waiting_on_a_reloaded_page_gives_way_to_a_new_one(store, no_local_browser, monkeypatch):
+    """A phone that switches to OpenAI's page, or a first run opened again, must never read "busy" for ten
+    minutes: the same device's new Start replaces its own waiting sign-in. Another device's is never touched."""
+    monkeypatch.setattr(codex, "start_codex_device_flow", lambda **_kw: SimpleNamespace(
+        verification_uri="https://auth.openai.com/codex/device", user_code="ABCD-EFGH", interval_seconds=0.05,
+        expires_at="2030-01-01T00:00:00+00:00"))
+    monkeypatch.setattr(codex, "poll_codex_device_authorization", lambda *_a, **_kw: None)
+    owner = controls.SubscriptionFlows(client_factory=lambda _guard: SimpleNamespace(close=lambda: None))
+    try:
+        first = _execute(owner, _command("codex"))["flow"]
+        again = _execute(owner, _command("codex"))["flow"]
+        assert again["flow_id"] != first["flow_id"] and again["state"] == "waiting"
+        old = owner.read(owner_id="phone-session", flow_id=first["flow_id"], server_epoch=first["server_epoch"],
+                         validate=lambda: None)
+        assert old.state == "cancelled"
+        # Another device's waiting sign-in still holds: it is that person's to finish or cancel.
+        other = _command("codex")
+        with pytest.raises(controls.SubscriptionError, match="subscription_busy"):
+            owner.execute(owner_id="laptop-session", key=other["command_id"], command=other,
+                          validate=lambda: None, validate_review=lambda _review: None)
+    finally:
+        owner.dispose()
