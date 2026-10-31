@@ -27,12 +27,14 @@ When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what ca
 
 Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the level for the conversation.
 
+A new conversation, workflow or Developer workspace starts at the level you last chose for a conversation (in the app, with **Use Auto in this chat** on a card, or with `/approval` in a channel), and at **Auto** until you choose one. Hands-off is turned on in each conversation, so after it new ones start at **Auto**. A conversation another conversation starts takes that conversation's level, Auto at most. Conversations you already have keep their level.
+
 ### Approval Levels
 
 | Level | What happens to an action that needs approval |
 | --- | --- |
-| **Ask** (the default) | You approve each one on its card. |
-| **Auto** | A reviewer approves what clearly matches what you asked for in this conversation; anything else, and anything it isn't sure of, asks you. |
+| **Ask** | You approve each one on its card. |
+| **Auto** (the default) | A reviewer approves what clearly matches what you asked for in this conversation; anything else, and anything it isn't sure of, asks you. |
 | **Hands-off** | Every action runs without asking, and each one is recorded. |
 | **Block** | Anything that would change something is refused. |
 

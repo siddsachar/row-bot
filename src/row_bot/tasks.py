@@ -1215,7 +1215,7 @@ def create_task(
     delay_minutes: float | None = None,
     skills_override: list[str] | None = None,
     steps: list[dict] | None = None,
-    safety_mode: str = "block",
+    safety_mode: str = "",
     concurrency_group: str | None = None,
     trigger: dict | None = None,
     tools_override: list[str] | None = None,
@@ -1274,6 +1274,10 @@ def create_task(
     agent_profile_id = _canonicalize_agent_profile_reference(
         agent_profile_id or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
     )
+    if not str(safety_mode or "").strip():
+        from row_bot.full_autonomy import new_level
+
+        safety_mode = new_level()
     safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
     profile_migration_status = "not_needed"
     profile_migration_note = "Profile-first workflow."

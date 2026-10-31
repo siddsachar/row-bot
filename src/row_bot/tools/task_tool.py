@@ -175,7 +175,8 @@ def _task_create(
         # Default to notify_only for a timer or a one-off time with no prompts
         if (delay_minutes or at) and not prompts:
             notify_only = True
-        effective_approval_mode = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
+        effective_approval_mode = (legacy_safety_mode_to_approval_mode(approval_mode or safety_mode)
+                                   if approval_mode or safety_mode else "")
         if effective_approval_mode == "full":
             return _FULL_AUTONOMY_REFUSAL
 
