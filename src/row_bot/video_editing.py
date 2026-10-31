@@ -472,7 +472,16 @@ class Overlay:
     end: float | None = None
 
 
-_STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.052}
+# A caption's phrase (PHRASE_CHARACTERS) fits on one line; bold captions (no box) are larger.
+_STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.045}
+BOLD_CAPTION = 1.3
+
+
+def phrase_limit(captions: str) -> int:
+    """The characters of a phrase that fit on one line in a caption look: fewer, the larger its letters."""
+    share = _STYLE_SIZES["title"] if captions == "title" else _STYLE_SIZES["caption"] * (
+        BOLD_CAPTION if captions == "bold" else 1)
+    return int(PHRASE_CHARACTERS * _STYLE_SIZES["caption"] / share)
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
@@ -486,7 +495,7 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
     style = style or "badge"
     # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
     reference = min(frame_height, frame_width * 9 / 16)
-    size = max(12, round(reference * _STYLE_SIZES[style] * (1.3 if plain and style == "caption" else 1)))
+    size = max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
     typeface = font(size)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
@@ -1053,7 +1062,7 @@ class _Builder:
             if scene.line and step.style == "caption":
                 # One phrase at a time, each for its share of the line's time: never a paragraph.
                 said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
-                parts = phrases(scene.line)
+                parts = phrases(scene.line, phrase_limit(look.captions))
                 at = begin
                 for part in parts:
                     until = at + (said - begin) * len(part) / max(1, sum(len(each) for each in parts))

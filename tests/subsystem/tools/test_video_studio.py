@@ -179,16 +179,30 @@ def test_a_phones_picture_is_set_in_a_device_on_the_backdrop():
     assert framed.getpixel((200, 540))[2] > framed.getpixel((200, 540))[0], "the brand's backdrop either side"
 
 
-def test_with_captions_a_phone_sits_above_them_instead_of_under_them():
-    """5.3.2: the phone demo's captions covered the phone's message box while the frame's sides were empty."""
-    picture = Image.new("RGB", (390, 844), (250, 250, 250))
-    plain = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140)))
-    captioned = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140), captions=video_studio.CAPTION_ROOM))
+def test_with_captions_the_picture_sits_above_them_instead_of_under_them():
+    """5.3.2: the phone demo's captions covered the phone's message box, and the desktop demo's its composer."""
+    from row_bot.video_editing import Step, phrase_limit, phrases, text_overlay
 
-    def screen_bottom(frame):
-        return max(y for y in range(1080) if frame.getpixel((960, y)) == (250, 250, 250))
+    line = "The written findings remain available while the deck takes shape, slide by slide."
+    looks = {"boxed": ("caption", False), "bold": ("caption", True), "title": ("title", True)}
 
-    assert screen_bottom(captioned) < 1080 * (1 - video_studio.CAPTION_ROOM) < screen_bottom(plain)
+    def shown(look, text):
+        style, plain = looks[look]
+        return text_overlay(Step(op="text", text=text, style=style, position="bottom", plain=plain), 1920, 1080)
+
+    for look in looks:
+        longest = max(phrases(line, phrase_limit(look)), key=len)
+        assert shown(look, longest).height == shown(look, "Hi").height, f"a {look} phrase is one line"
+    caption = shown("bold", max(phrases(line, phrase_limit("bold")), key=len))
+    for size in ((390, 844), (1600, 1000)):
+        picture = Image.new("RGB", size, (250, 250, 250))
+        plain = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140)))
+        captioned = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140), captions=video_studio.CAPTION_ROOM))
+
+        def screen_bottom(frame):
+            return max(y for y in range(1080) if frame.getpixel((960, y)) == (250, 250, 250))
+
+        assert screen_bottom(captioned) < caption.y < screen_bottom(plain), size
 
 
 def test_a_videos_voice_lines_are_laid_at_their_times_into_one_track(tmp_path):

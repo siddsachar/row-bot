@@ -45,8 +45,8 @@ CORNER = 0.016
 # A phone's picture (taller than wide) is set in a device: a dark rim this thick and rounded (fractions of its
 # width), a little smaller in the frame so the rim fits.
 PHONE_FILL, PHONE_RIM, PHONE_CORNER = 0.84, 0.045, 0.12
-# Room a caption takes at the bottom of a 16:9 frame (two lines and its margin).
-CAPTION_ROOM = 0.17
+# Room a caption takes at the bottom of a 16:9 frame (a line in its largest style, and its margin).
+CAPTION_ROOM = 0.13
 SHADOW_BLUR, SHADOW_DROP, SHADOW_ALPHA = 0.022, 0.012, 120
 
 
@@ -130,7 +130,7 @@ class Frame:
     size: tuple[int, int]
     framing: str = "framed"
     colour: tuple[int, int, int] = (31, 41, 55)
-    # The share of the frame's height kept clear at the bottom for captions: a phone sits above them.
+    # The share of the frame's height kept clear at the bottom for captions: the picture sits above them.
     captions: float = 0.0
 
 
@@ -145,7 +145,7 @@ def _setting(frame: Frame, picture: tuple[int, int]) -> tuple[Any, tuple[int, in
     width, height = frame.size
     phone = picture[1] > picture[0]
     fill = PHONE_FILL if phone else FRAME_FILL
-    above = height * (1 - frame.captions) if phone else height  # A phone stays clear of the captions.
+    above = height * (1 - frame.captions)
     scale = min(width * fill / picture[0], above * fill / picture[1])
     inner = (max(2, round(picture[0] * scale)), max(2, round(picture[1] * scale)))
     at = ((width - inner[0]) // 2, round((above - inner[1]) / 2))
