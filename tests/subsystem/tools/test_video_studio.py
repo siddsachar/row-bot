@@ -177,3 +177,15 @@ def test_a_phones_picture_is_set_in_a_device_on_the_backdrop():
     rim = framed.getpixel((middle_x, screen_top - 4))
     assert max(rim) < 60, "a dark rim around it, like the phone it was used on"
     assert framed.getpixel((200, 540))[2] > framed.getpixel((200, 540))[0], "the brand's backdrop either side"
+
+
+def test_with_captions_a_phone_sits_above_them_instead_of_under_them():
+    """5.3.2: the phone demo's captions covered the phone's message box while the frame's sides were empty."""
+    picture = Image.new("RGB", (390, 844), (250, 250, 250))
+    plain = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140)))
+    captioned = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140), captions=video_studio.CAPTION_ROOM))
+
+    def screen_bottom(frame):
+        return max(y for y in range(1080) if frame.getpixel((960, y)) == (250, 250, 250))
+
+    assert screen_bottom(captioned) < 1080 * (1 - video_studio.CAPTION_ROOM) < screen_bottom(plain)
