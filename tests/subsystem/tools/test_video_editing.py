@@ -249,6 +249,36 @@ def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_the
                    [Step(op="scenes", scenes=[SceneCut(input=0, start=8)])], "output.mp4")
 
 
+def test_each_scene_lasts_until_its_voice_line_ends_so_no_line_runs_into_the_next():
+    """5.3.2: a line longer than its scene made two voices talk at once. Now a card grows, a fast-forward slows,
+    footage runs on into its recording where no other scene uses it, and what's still short holds its last frame."""
+    from row_bot.video_editing import LINE_PAD, SceneCut, Step
+
+    long = 12.0
+    scenes = Step(op="scenes", scenes=[
+        SceneCut(input=None, end=2, card="Your morning", voice="a.wav", voice_seconds=3.4),
+        SceneCut(input=0, start=0, end=4, speed=4, voice="b.wav", voice_seconds=1.9),
+        SceneCut(input=0, start=6, end=7, voice="c.wav", voice_seconds=2.4),
+        SceneCut(input=0, start=9, end=10, voice="d.wav", voice_seconds=2.4),
+        SceneCut(input=0, start=10, end=11, card="Done"),
+    ])
+    plan = build_plan([InputVideo("input-1.mp4", VideoInfo(duration=long, width=640, height=360, fps=30.0,
+                                                           has_audio=True))], [scenes], "output.mp4",
+                      sounds={name: f"sound-{name}" for name in ("a.wav", "b.wav", "c.wav", "d.wav")})
+
+    lengths = [round(b - a, 2) for a, b in zip(plan.marks, plan.marks[1:])]
+    assert lengths[0] == round(3.4 + LINE_PAD, 2), "the card grows to its line"
+    assert "setpts=PTS/1.6" in plan.graph and lengths[1] == 2.5, "4× slows to fit, badge and all"
+    assert "trim=start=6:end=9" in plan.graph and lengths[2] == 3.0, "runs on to where the next scene starts"
+    assert "tpad=stop_mode=clone:stop_duration=2" in plan.graph and lengths[3] == 3.0,         "the next second is another scene's: its last frame holds instead"
+    assert "apad=pad_dur=2" in plan.graph, "its sound stays in step"
+    assert lengths[4] == 1.0, "a scene without a voice keeps its length"
+    voiced = [(plan.marks[index], seconds) for index, seconds in enumerate((3.4, 1.9, 2.4, 2.4))]
+    for (begin, seconds), next_begin in zip(voiced, plan.marks[1:]):
+        assert begin + seconds + LINE_PAD <= next_begin + 0.01, "each line ends before the next scene starts"
+    assert _every_stream_is_used(plan)
+
+
 def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_the_speed_badge_in_frame():
     from row_bot.video_editing import SceneCut, Step, gif_arguments
 

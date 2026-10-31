@@ -26,6 +26,7 @@ import re
 import threading
 import time
 import uuid
+import wave
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -531,6 +532,18 @@ def pointer_focus(source: str, start: float, end: float | None) -> tuple[float, 
     return (round(median(x for x, _y in moves), 4), round(median(y for _x, y in moves), 4))
 
 
+def _voice_seconds(path: Path | None, data: bytes | None, suffix: str) -> float:
+    """How long a voice file lasts; 0 when it isn't a WAV (a scene then keeps the length it was given)."""
+    from row_bot.sound import wav_seconds
+
+    if suffix.casefold() != ".wav":
+        return 0.0
+    try:
+        return wav_seconds(data if data else path.read_bytes() if path else b"")
+    except (OSError, EOFError, wave.Error):
+        return 0.0
+
+
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:
     """Voice what needs it, then make the version's video (or, with ``shape``, the same in that shape)."""
     from row_bot import sound, video_edits
@@ -549,6 +562,14 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             scene.voice = save_sound(_file_name(project.title, ".wav", scene.scene_id), speech.wav,
                                      conversation_id)
             scene.voiced = scene.line
+        lasts: dict[str, float] = {}
+        sounds: dict[str, tuple[Any, bytes, str]] = {}
+        for scene in version.scenes if _says_lines(version) else []:
+            if not scene.voice:
+                continue
+            _label, path, data, suffix = sound_source(scene.voice, conversation_id)
+            sounds[scene.voice] = (path, data or b"", suffix)
+            lasts[scene.voice] = _voice_seconds(path, data, suffix)
         if _says_lines(version) and not shape:
             _update(project, number, scenes=version.scenes, status="rendering")
         sources = list(dict.fromkeys(scene.source for scene in version.scenes if scene.source))
@@ -562,12 +583,12 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          end=scene.end, speed=scene.speed,
                          zoom=tuple(scene.zoom) if scene.zoom else None, card=scene.card, line=scene.line,
                          voice=scene.voice if _says_lines(version) else "",
+                         voice_seconds=lasts.get(scene.voice, 0.0) if _says_lines(version) else 0.0,
                          focus=None if scene.zoom or not scene.source
                          else pointer_focus(scene.source, scene.start, scene.end))
                 for scene in version.scenes]
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
                       aspect=shape or version.aspect, look=_look() if version.brand else None)]
-        sounds: dict[str, tuple[Any, bytes, str]] = {}
         extra = [name for name in (version.narration, version.music) if name]
         for name in [cut.voice for cut in cuts if cut.voice] + extra:
             if name not in sounds:
