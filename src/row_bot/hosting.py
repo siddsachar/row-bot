@@ -13,11 +13,16 @@ import functools
 import logging
 import os
 from types import MappingProxyType
-from typing import Mapping
+from typing import Literal, Mapping
 
 logger = logging.getLogger(__name__)
 
 HOSTED_BY_ENV = "ROW_BOT_HOSTED_BY"
+DEPLOYMENT_MODE_ENV = "ROW_BOT_DEPLOYMENT_MODE"
+
+# Where Row-Bot runs, from the reader's side (U7): the browser is on its computer, a known host runs
+# it, or it is some other server (a container, or a computer reached from a phone).
+Place = Literal["this_computer", "hosted", "server"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,4 +84,44 @@ def _warn_unknown_host(value: str) -> None:
     )
 
 
-__all__ = ["HOSTED_BY_ENV", "KNOWN_HOSTS", "Host", "hosted_by"]
+def server_place(environ: Mapping[str, str] | None = None) -> Place:
+    """The place for a message with no single reader (U7): a known host, a headless server, or the desktop app.
+
+    A request knows its reader's side better (the handshake's ``place``); this is for what the server
+    says to whoever reads it. The desktop app keeps "this computer", as it always said.
+    """
+    env = os.environ if environ is None else environ
+    if hosted_by(env) is not None:
+        return "hosted"
+    if str(env.get(DEPLOYMENT_MODE_ENV) or "").strip().lower() == "server":
+        return "server"
+    return "this_computer"
+
+
+def request_place(remote: bool, environ: Mapping[str, str] | None = None) -> Place:
+    """One request's place (U7): ``this_computer`` when the browser is on the computer Row-Bot runs on
+    (``remote`` False: the handshake's ``on_this_computer``), else a known host's or another server."""
+    if not remote:
+        return "this_computer"
+    return "hosted" if hosted_by(environ) is not None else "server"
+
+
+def where_row_bot_runs(environ: Mapping[str, str] | None = None, *, remote: bool | None = None) -> str:
+    """Where Row-Bot runs, in a sentence (U7): "this computer", "your Row-Bot server at PikaPods" or
+    "the computer Row-Bot runs on". ``remote`` is one request's side; without it, the server-wide place."""
+    place = server_place(environ) if remote is None else request_place(remote, environ)
+    host = hosted_by(environ)
+    if place == "hosted" and host is not None:
+        return f"your Row-Bot server at {host.name}"
+    return "the computer Row-Bot runs on" if place == "server" else "this computer"
+
+
+def on_server(environ: Mapping[str, str] | None = None, *, remote: bool | None = None) -> str:
+    """The same with "on": "on this computer", "on your Row-Bot server at PikaPods"…"""
+    return "on " + where_row_bot_runs(environ, remote=remote)
+
+
+__all__ = [
+    "HOSTED_BY_ENV", "KNOWN_HOSTS", "Host", "Place", "hosted_by", "on_server", "request_place", "server_place",
+    "where_row_bot_runs",
+]

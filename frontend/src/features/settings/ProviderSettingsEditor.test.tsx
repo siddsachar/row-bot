@@ -5,8 +5,9 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ProviderSettingsSnapshot } from '../../api/types';
+import { setPlace } from '../../api/place';
 import ProviderSettingsEditor from './ProviderSettingsEditor';
 import { ProviderSettingsSession } from './provider-settings-sessions';
 
@@ -424,4 +425,49 @@ it('never checks a custom endpoint key with a public provider', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
   await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
   expect(check).not.toHaveBeenCalled();
+});
+
+afterEach(() => setPlace(null));
+
+it('says where a saved key is kept: this computer’s keychain, or encrypted on the server (U7)', async () => {
+  const show = () =>
+    render(
+      <ProviderSettingsEditor
+        {...props()}
+        load={vi
+          .fn()
+          .mockResolvedValue({ ...snapshot, source: 'encrypted_file' })}
+        compact
+      />,
+    );
+  const desktop = show();
+  expect(
+    await screen.findByText(
+      "Saving sends the key to OpenAI to check it, then keeps it in this computer's keychain.",
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText('Connected · Key saved · encrypted on this device'),
+  ).toBeVisible();
+  desktop.unmount();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const hosted = show();
+  expect(
+    await screen.findByText(
+      'Saving sends the key to OpenAI to check it, then keeps it encrypted on your Row-Bot server at PikaPods.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Connected · Key saved · encrypted on your Row-Bot server',
+    ),
+  ).toBeVisible();
+  hosted.unmount();
+  setPlace({ kind: 'server' });
+  show();
+  expect(
+    await screen.findByText(
+      'Saving sends the key to OpenAI to check it, then keeps it encrypted on the computer Row-Bot runs on.',
+    ),
+  ).toBeVisible();
 });

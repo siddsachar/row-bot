@@ -8,6 +8,7 @@ import type {
   ModelVisibilityMutation,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { markModels } from '../../api/model-visibility';
 import { Button, Disclosure, IconButton, Skeleton } from '../../ui/primitives';
 import { useNotify } from '../../ui/overlays';
@@ -35,6 +36,7 @@ export default function LocalModelSettings({
   /** The pickers on this page re-read their order. */
   onChanged: () => void;
 }) {
+  const place = usePlace();
   const notify = useNotify();
   const [models, setModels] = useState<LocalRuntimeModel[]>([]);
   const [busy, setBusy] = useState(false);
@@ -152,7 +154,7 @@ export default function LocalModelSettings({
   };
   return (
     <SettingsGroup
-      title="On this computer"
+      title={`On ${place.name}`}
       anchor="local-models"
       note="A starred model is listed first wherever you choose a model. Hidden models wait under More models and still work."
       meta={
@@ -185,13 +187,13 @@ export default function LocalModelSettings({
       )}
       {runtime === undefined ? (
         <div className="settings-divided settings-catalog-note">
-          <Skeleton label="Looking for models on this computer" />
+          <Skeleton label={`Looking for models ${place.on}`} />
         </div>
       ) : runtime?.state !== 'running' ? (
         <p className="settings-divided settings-catalog-note">
           {runtime?.state === 'installed'
-            ? 'Ollama isn’t running. Start it to see the models on this computer.'
-            : 'No models on this computer.'}
+            ? `Ollama isn’t running. Start it to see the models ${place.on}.`
+            : `No models ${place.on}.`}
         </p>
       ) : !models.length ? (
         <p className="settings-divided settings-catalog-note">
@@ -202,7 +204,7 @@ export default function LocalModelSettings({
           {shown.length > 0 && (
             <ul
               className="settings-model-row-list"
-              aria-label="Models on this computer"
+              aria-label={`Models on ${place.name}`}
             >
               {shown.map(row)}
             </ul>

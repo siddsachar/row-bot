@@ -250,6 +250,40 @@
       },
       "title": "NativeAdapter",
       "type": "object"
+    },
+    "Place": {
+      "additionalProperties": false,
+      "description": "Where Row-Bot runs, from this browser's side (U7): its own computer, a known host, or a server.",
+      "properties": {
+        "host_name": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host Name"
+        },
+        "kind": {
+          "enum": [
+            "this_computer",
+            "hosted",
+            "server"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Place",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -343,6 +377,9 @@
     "native_adapter": {
       "$ref": "#/$defs/NativeAdapter"
     },
+    "place": {
+      "$ref": "#/$defs/Place"
+    },
     "policy_revision": {
       "pattern": "^(0|[1-9][0-9]{0,19})$",
       "title": "Policy Revision",
@@ -423,6 +460,7 @@
     "authentication_kind",
     "policy_revision",
     "session_ttl_seconds",
+    "place",
     "native_adapter",
     "limits"
   ],

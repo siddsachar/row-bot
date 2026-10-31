@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,7 @@ import {
 } from '@testing-library/react';
 import { useState } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type {
   AccountAuthCommand,
@@ -20,6 +21,7 @@ import type {
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
+import { setPlace } from '../../api/place';
 import { OverlayProvider } from '../../ui/overlays';
 import { ThemeProvider } from '../../ui/theme';
 import { settingsRows, type SettingsLeafId } from './model';
@@ -443,6 +445,48 @@ function openSetup() {
 function notice(text: string | RegExp) {
   return screen.findByText(text, { selector: '.toast *' });
 }
+
+afterEach(() => setPlace(null));
+
+it('Voice says what runs where: this computer, or only the speech model on the Row-Bot server (U7)', () => {
+  renderSetting('voice');
+  expect(
+    screen.getByText('On this computer keeps your voice private.'),
+  ).toBeVisible();
+  cleanup();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  renderSetting('voice');
+  expect(
+    screen.getAllByRole('option', { name: 'Whisper · on your Row-Bot server' }),
+  ).toHaveLength(2);
+  expect(
+    screen.getByText(
+      'Download the speech model to your Row-Bot server to talk',
+    ),
+  ).toBeVisible();
+  // The audio does travel to the server: say so, not that it stays private.
+  expect(
+    screen.getByText(
+      'Your voice goes only to your Row-Bot server at PikaPods, never to a speech service.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Downloads once from Hugging Face (Systran), then runs on your server.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/private|offline/);
+  expect(document.body).not.toHaveTextContent(/this computer/);
+  cleanup();
+  setPlace({ kind: 'server' });
+  renderSetting('voice');
+  expect(
+    screen.getByText(
+      'Your voice goes only to the computer Row-Bot runs on, never to a speech service.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/this computer/);
+});
 
 it('renders real voice controls without probing a device or provider', async () => {
   renderSetting('voice');
@@ -1734,6 +1778,43 @@ it.each([
     );
   },
 );
+
+it('Documents say where search runs: this computer, or the Row-Bot server (U7)', () => {
+  mutation.page = 'documents';
+  const show = () =>
+    render(
+      <DocumentEmbeddingSnapshot
+        snapshot={snapshot.documents}
+        mutation={mutation}
+      />,
+    );
+  const desktop = show();
+  expect(
+    screen.getByText('On this computer, your documents never leave it.'),
+  ).toBeVisible();
+  desktop.unmount();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const hosted = show();
+  const runs = screen.getByRole('radiogroup', { name: 'Search runs' });
+  expect(
+    within(runs).getByRole('radio', { name: 'Your Row-Bot server' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByText('search runs on your Row-Bot server')).toBeVisible();
+  expect(
+    screen.getByText(
+      'On your Row-Bot server at PikaPods, your documents never leave it.',
+    ),
+  ).toBeVisible();
+  hosted.unmount();
+  setPlace({ kind: 'server' });
+  show();
+  expect(
+    screen.getByText(
+      'On the computer Row-Bot runs on, your documents never leave it.',
+    ),
+  ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/this computer/);
+});
 
 it('renders editable document, tool, and preference owners', async () => {
   mutation.page = 'documents';

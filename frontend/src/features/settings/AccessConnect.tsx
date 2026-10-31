@@ -26,6 +26,7 @@ import {
   type AccessTailscaleClient,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import type { SettingsSnapshot } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -130,6 +131,7 @@ export default function AccessConnect({
   /** A device connected or was renamed: read the device list again. */
   onConnected?: () => void;
 }) {
+  const place = usePlace();
   const overlay = useOverlay();
   const lanSelectId = useId();
   const otherSelectId = useId();
@@ -382,15 +384,15 @@ export default function AccessConnect({
         error ? (
           <p role="alert">{error}</p>
         ) : (
-          <Skeleton label="Looking for ways to reach this computer" />
+          <Skeleton label={`Looking for ways to reach ${place.name}`} />
         )
       ) : (
         <ol className="access-steps">
           <li className="access-step">
-            <h4>How will it reach this computer?</h4>
+            <h4>How will it reach {place.name}?</h4>
             <div
               role="radiogroup"
-              aria-label="How it reaches this computer"
+              aria-label={`How it reaches ${place.name}`}
               className="access-options"
             >
               {option(
@@ -435,7 +437,7 @@ export default function AccessConnect({
                 (network?.listen_mode === 'local_only' ? (
                   <div className="access-option-detail">
                     <p className="settings-help">
-                      Row-Bot only listens on this computer now.
+                      Row-Bot only listens {place.on} now.
                     </p>
                     <div className="button-row">
                       <Button
@@ -450,9 +452,9 @@ export default function AccessConnect({
                 ) : network?.listening_on_network === false ? (
                   // B184: the saved mode says network, the launch says no.
                   <p className="settings-help">
-                    Row-Bot was started to listen on this computer only, so Same
-                    Wi-Fi can’t reach it now. Restart Row-Bot normally to use
-                    Same Wi-Fi.
+                    Row-Bot was started to listen {place.on} only, so Same Wi-Fi
+                    can’t reach it now. Restart Row-Bot normally to use Same
+                    Wi-Fi.
                   </p>
                 ) : lanRoute ? (
                   <div className="access-option-detail">
@@ -490,7 +492,7 @@ export default function AccessConnect({
                   </div>
                 ) : (
                   <p className="settings-help">
-                    This computer has no network address right now. Check that
+                    {place.label} has no network address right now. Check that
                     it is connected to Wi-Fi.
                   </p>
                 ))}

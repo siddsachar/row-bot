@@ -653,8 +653,9 @@ def execute_account_auth(
             handle = next((f"@{row['username']}" for row in x_accounts.summaries()
                            if row["id"] == x_account and row["username"]), "The X account")
             x_accounts.remove(x_account)  # Only this one; the others stay signed in.
-            phase, message = "completed", (f"{handle} was removed from this computer. X may still list Row-Bot "
-                                           "as allowed; you can revoke it there.")
+            from row_bot.hosting import where_row_bot_runs
+            phase, message = "completed", (f"{handle} was removed from {where_row_bot_runs()}. X may still list "
+                                           "Row-Bot as allowed; you can revoke it there.")
         elif action == "disconnect":
             validate()
             if account == "microsoft":

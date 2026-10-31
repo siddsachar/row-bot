@@ -856,6 +856,7 @@ export class ClientController {
         server_utc_offset_minutes: result.server_utc_offset_minutes ?? null,
         server_timezone: result.server_timezone ?? null,
         sandbox: result.sandbox ?? false,
+        place: result.place,
         native_adapter: result.native_adapter,
         limits: result.limits,
       };

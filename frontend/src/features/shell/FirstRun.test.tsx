@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { OnboardingSnapshot } from '../../api/types';
+import { setPlace } from '../../api/place';
 import FirstRun, { SETUP_LATER_KEY } from './FirstRun';
 
 const mock = vi.hoisted(() => ({
@@ -113,6 +114,41 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  setPlace(null);
+});
+
+it('on a phone reaching Row-Bot, local models are on the computer Row-Bot runs on (U7)', async () => {
+  setPlace({ kind: 'server' });
+  show();
+  const choices = screen.getByRole('group', {
+    name: 'How should Row-Bot think?',
+  });
+  expect(
+    within(choices)
+      .getAllByRole('button')
+      .map((button) => button.querySelector('strong')?.textContent),
+  ).toEqual([
+    'On your Row-Bot server',
+    'With my subscription',
+    'With an API key',
+  ]);
+  await within(choices).findByText("Ollama isn't installed yet");
+  fireEvent.click(
+    within(choices).getByRole('button', { name: /On your Row-Bot server/ }),
+  );
+  expect(
+    screen.getByText(/^Ollama runs models on the computer Row-Bot runs on:/),
+  ).toBeVisible();
+  expect(screen.queryByText(/this computer/)).toBeNull();
+  mock.controller.localRuntime.mockResolvedValue(
+    runtime('running', ['qwen3.8:27b']),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3100);
+  });
+  expect(
+    await screen.findByRole('list', { name: 'Models on your Row-Bot server' }),
+  ).toBeVisible();
 });
 
 it('asks one question and detects Ollama without a refresh button', async () => {

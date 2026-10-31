@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { humanizeToken } from '../../ui/format';
 import { When } from '../../ui/When';
 import {
@@ -370,6 +371,7 @@ const POLICY_WORDS: Record<string, string> = {
 export default function DeveloperRepositoryPanel(
   props: DeveloperRepositoryPanelProps,
 ) {
+  const where = usePlace();
   const callbacks = useRef(props);
   callbacks.current = props;
   const { session } = props;
@@ -1025,7 +1027,7 @@ export default function DeveloperRepositoryPanel(
                       <span>
                         {github === 'github_cli_missing'
                           ? 'Pull requests go through the GitHub command-line tool (gh). Install it, then connect GitHub.'
-                          : 'Sign in to GitHub on this computer to open pull requests.'}
+                          : `Sign in to GitHub ${where.on} to open pull requests.`}
                       </span>
                     </div>
                     <div className="transcript-card-actions">
@@ -1203,7 +1205,7 @@ export default function DeveloperRepositoryPanel(
                 })
               }
             >
-              <option value="local">This computer</option>
+              <option value="local">{where.label}</option>
               <option value="docker">Docker sandbox</option>
             </Select>
           </Field>

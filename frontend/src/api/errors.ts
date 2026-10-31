@@ -1,5 +1,6 @@
 import type { ClientError, ClientStatus, ErrorAction } from './types';
 import { isNetworkFailure } from './network-failure';
+import { currentPlace, type PlaceWords } from './place';
 
 /**
  * The error catalog. Every code the server can put in a problem response
@@ -14,7 +15,8 @@ import { isNetworkFailure } from './network-failure';
  */
 type Recovery = ClientError['recovery'];
 type Entry = readonly [
-  message: string,
+  // Words about where Row-Bot runs follow the place (U7): "this computer" only when it is.
+  message: string | ((place: PlaceWords) => string),
   recovery?: Recovery,
   action?: ErrorAction,
 ];
@@ -117,7 +119,8 @@ const CATALOG: Record<string, Entry> = {
     'review',
   ],
   bundle_unsupported: [
-    "Row-Bot can't run this bundle on this computer: it's for another system or needs something Row-Bot doesn't set up.",
+    (place) =>
+      `Row-Bot can't run this bundle ${place.on}: it's for another system or needs something Row-Bot doesn't set up.`,
     'review',
   ],
   unsupported_upload: [
@@ -464,7 +467,7 @@ const CATALOG: Record<string, Entry> = {
     GITHUB,
   ],
   github_cli_unauthenticated: [
-    'Sign in to GitHub on this computer to open pull requests.',
+    (place) => `Sign in to GitHub ${place.on} to open pull requests.`,
     'review',
     GITHUB,
   ],
@@ -1052,7 +1055,12 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   subscription_storage_unavailable: [
-    "Row-Bot can't save the sign-in: this computer's keychain is locked or unavailable. Unlock it (on a Mac, in Keychain Access), then try again.",
+    (place) =>
+      place.kind === 'this_computer'
+        ? "Row-Bot can't save the sign-in: this computer's keychain is locked or unavailable. Unlock it (on a Mac, in Keychain Access), then try again."
+        : place.kind === 'hosted'
+          ? `Row-Bot can't save the sign-in: secure storage ${place.on} is unavailable. Try again.`
+          : `Row-Bot can't save the sign-in: secure storage ${place.on} is locked or unavailable. Unlock it there (on a Mac, in Keychain Access), then try again.`,
     'retry',
     PROVIDERS,
   ],
@@ -1494,7 +1502,8 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   brand_website_unavailable: [
-    "Row-Bot couldn't read that website. Check the address; pages on this computer or your local network aren't read.",
+    (place) =>
+      `Row-Bot couldn't read that website. Check the address; pages ${place.on} or your local network aren't read.`,
     'review',
   ],
   editing_record_too_large: [
@@ -1908,7 +1917,8 @@ const CATALOG: Record<string, Entry> = {
   ],
   sandbox_job_unavailable: ['That sandbox job is no longer listed.', 'none'],
   sandbox_docker_required: [
-    'This code folder runs commands on this computer, not in the Docker sandbox, so there is nothing to prepare.',
+    (place) =>
+      `This code folder runs commands ${place.on}, not in the Docker sandbox, so there is nothing to prepare.`,
     'none',
   ],
   sandbox_nothing_to_install: [
@@ -1916,7 +1926,8 @@ const CATALOG: Record<string, Entry> = {
     'none',
   ],
   sandbox_runtime_unavailable: [
-    "Docker isn't running on this computer. Start Docker Desktop (or Docker), then try again.",
+    (place) =>
+      `Docker isn't running ${place.on}. Start Docker Desktop (or Docker), then try again.`,
     'retry',
   ],
   sandbox_prepare_blocked: [
@@ -2666,7 +2677,8 @@ const CATALOG: Record<string, Entry> = {
     'none',
   ],
   document_processing_search_model_missing: [
-    'Documents need the search model on this computer first. In Documents › Advanced, under Search model files, choose Download.',
+    (place) =>
+      `Documents need the search model ${place.on} first. In Documents › Advanced, under Search model files, choose Download.`,
     'none',
     open('documents', 'Documents'),
   ],
@@ -3074,7 +3086,8 @@ const CATALOG: Record<string, Entry> = {
     PROVIDERS,
   ],
   sensevoice_unavailable: [
-    "SenseVoice isn't ready on this computer. Install it in Voice settings, or choose Whisper.",
+    (place) =>
+      `SenseVoice isn't ready ${place.on}. Install it in Voice settings, or choose Whisper.`,
     'review',
     VOICE,
   ],
@@ -3228,7 +3241,8 @@ const refusals = new Set([
 function describe(code: string): ClientError | null {
   const entry = CATALOG[code];
   if (!entry) return null;
-  const [message, recovery = 'review', action] = entry;
+  const [words, recovery = 'review', action] = entry;
+  const message = typeof words === 'function' ? words(currentPlace()) : words;
   return action
     ? { code, message, recovery, action }
     : { code, message, recovery };

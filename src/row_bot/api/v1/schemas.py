@@ -8780,6 +8780,14 @@ class Choices(WireModel):
     catalog_stale: bool = True
 
 
+class Place(WireModel):
+    """Where Row-Bot runs, from this browser's side (U7): its own computer, a known host, or a server."""
+
+    kind: Literal["this_computer", "hosted", "server"]
+    # The known host's name (H13), for "on your Row-Bot server at PikaPods"; only when hosted.
+    host_name: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class NativeAdapter(WireModel):
     available: bool = False
     proof_required: Literal[True] = True
@@ -8943,6 +8951,8 @@ class HandshakeView(Choices):
     server_timezone: str | None = Field(default=None, max_length=64)
     # A sandbox (5.3.1 B4): a second Row-Bot on made-up data; the client shows its mark.
     sandbox: bool = False
+    # Where Row-Bot runs, from this browser's side (U7): the client says "this computer" only when it is.
+    place: Place
     native_adapter: NativeAdapter
     limits: Limits
 
