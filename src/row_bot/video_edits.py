@@ -491,10 +491,15 @@ def check_file(ffmpeg: Any, path: Path, folder: Path, *, narrated: bool = False)
     return read_checks(done.stderr or "", info, narrated=narrated)
 
 
-def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, *, narrated: bool = False) -> None:
+def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, *, narrated: bool = False,
+                 review: list[str] | None = None) -> None:
+    """The checks of the finished video, with what its plan does that a good video doesn't (``Plan.review``)."""
     _check(edit)
     checks = check_file(ffmpeg, folder / "output.mp4", folder, narrated=narrated)
-    _set(edit, checks=list(checks.lines), checks_passed=bool(checks.passed))
+    lines = list(checks.lines)
+    if review:
+        lines[-1:] = [*review, "Result: needs attention before it's done."]
+    _set(edit, checks=lines, checks_passed=bool(checks.passed) and not review)
 
 
 def _run(edit: VideoEdit, request: Request) -> None:
@@ -547,7 +552,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
             _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
             _measure(edit, ffmpeg, folder)
             if request.check or plan.narrated:  # A video given a voice is checked for gaps in it.
-                _check_video(edit, ffmpeg, folder, narrated=plan.narrated)
+                _check_video(edit, ffmpeg, folder, narrated=plan.narrated, review=plan.review)
             _save_video(edit, folder / "output.mp4")
         else:
             info = inputs[0].info

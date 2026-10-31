@@ -7,6 +7,7 @@ only as local video files; text is drawn into pictures, never written into the g
 from __future__ import annotations
 
 import io
+import re
 
 import pytest
 from PIL import Image
@@ -356,14 +357,47 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     backdrops = [picture for picture in pictures if picture.size == (640, 360)]
     card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
     assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
-    assert card.getpixel((2, card.height // 2))[:3] == (17, 34, 51), "the title card is the brand's colour"
+    lit, right = card.getpixel((card.width // 3, card.height // 2)), card.getpixel((card.width - 12, card.height // 2))
+    assert all(abs(a - b) < 12 for a, b in zip(right[:3], (17, 34, 51))) and sum(lit[:3]) > sum(right[:3]), \
+        "the scene's title is a card of the brand's colour, lit from the left"
+    assert card.getpixel((0, 0))[3] < 60, "its edge is a soft shadow, not a hard box"
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
     assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
     # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
-    # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named).
-    assert f"overlay=x=16:y={round(360 * 0.68) - card.height // 2}:" in plan.graph
+    # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named), and slides in and out.
+    [(x, y, begin, end)] = re.findall(r"overlay=x='(\d+)-[^']*':y=(\d+):eof_action=repeat:enable='between\(t,([\d.]+),"
+                                      r"([\d.]+)\)'", plan.graph)
+    assert abs(int(y) + card.height / 2 - 360 * 0.68) <= 2 and int(x) < 16
+    assert (float(begin), float(end)) == (2.3, 5.0), "in a moment after its scene starts, gone when it ends"
+
+
+def test_a_caption_shows_the_line_a_phrase_at_a_time_while_it_is_said():
+    """5.3.2: a whole line in a box, cut off after three lines, read as a paragraph under the picture."""
+    from row_bot.video_editing import SceneCut, Step, phrases
+
+    line = ("Row-Bot opens the shop's orders, finds the three that haven't shipped, and drafts a note to each "
+            "customer. You check them, and send.")
+    assert phrases(line) == ["Row-Bot opens the shop's orders,", "finds the three that haven't shipped,",
+                             "and drafts a note to each customer.", "You check them, and send."]
+    scenes = Step(op="scenes", style="caption", scenes=[
+        SceneCut(input=0, end=6, line=line, voice="line-1.wav", voice_seconds=5.0)])
+    plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4", sounds={"line-1.wav": "sound-1.wav"})
+    shown = [(float(a), float(b)) for a, b in re.findall(r"between\(t,([\d.]+),([\d.]+)\)", plan.graph)]
+    assert len(shown) == 4 and shown[0][0] == 0 and shown[-1][1] == 5.0, "the phrases over the line's own time"
+    assert all(a[1] == pytest.approx(b[0], abs=1e-3) for a, b in zip(shown, shown[1:])), "one after another"
+
+
+def test_a_video_with_footage_that_is_mostly_title_cards_needs_attention():
+    from row_bot.video_editing import SceneCut, Step
+
+    scenes = Step(op="scenes", scenes=[SceneCut(input=None, end=9, card="Welcome to the shop"),
+                                       SceneCut(input=0, end=4), SceneCut(input=None, end=3, card="Thanks")])
+    review = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4").review
+    assert [line.split(":")[0] for line in review] == ["Cards", "Card at 0"], "75% cards, and one held 9 s"
+    cards_only = Step(op="scenes", scenes=[SceneCut(input=None, end=3, card="Row-Bot 5.3")])
+    assert build_plan([], [cards_only], "output.mp4").review == [], "a video of cards, asked for, is fine"
 
 
 def _every_stream_is_used(plan) -> bool:

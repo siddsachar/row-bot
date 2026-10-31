@@ -173,6 +173,12 @@ class SceneCut:
 
 CARD_SECONDS = 3.0
 BOOKEND_SECONDS = 2.0
+# A scene's title over its picture: in a moment after the scene starts, for this long, sliding in and out.
+TITLE_DELAY, TITLE_SECONDS, SLIDE_IN, SLIDE_OUT = 0.3, 3.5, 0.45, 0.35
+# A caption shows one phrase of the line at a time, at most this many characters.
+PHRASE_CHARACTERS = 64
+# What makes a video a slide show: cards past this share of a video that has footage, or one card held this long.
+CARD_SHARE, LONG_CARD_SECONDS = 0.25, 6.0
 # A scene runs on this long after its voice line ends: a breath between lines, and never one over the next.
 LINE_PAD = 0.6
 
@@ -530,6 +536,68 @@ def card_backdrop(colour: tuple[int, int, int], width: int, height: int) -> byte
     return output.getvalue()
 
 
+def lower_third(text: str, colour: tuple[int, int, int], frame_width: int, frame_height: int) -> Overlay:
+    """A scene's title over its picture, as a studio's are: white words on a card of the brand's colour, lit from
+    the left, with a light edge and a soft shadow, in the lower left."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    reference = min(frame_height, frame_width * 9 / 16)
+    size = max(12, round(reference * 0.045))
+    typeface = font(size)
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    lines = _wrap(probe, text, typeface, int(frame_width * 0.42), 2) or [" "]
+    pad_x, pad_y, line_height = round(size * 0.9), round(size * 0.6), round(size * 1.25)
+    edge = max(3, round(size * 0.16))
+    width = edge + 2 * pad_x + max(math.ceil(probe.textlength(line, font=typeface)) for line in lines)
+    height = line_height * len(lines) + 2 * pad_y
+    blur = round(size * 0.5)
+    picture = Image.new("RGBA", (width + 2 * blur, height + 2 * blur), (0, 0, 0, 0))
+    radius = round(size * 0.35)
+    shadow = Image.new("L", picture.size, 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((blur, blur + blur // 3, blur + width, blur + blur // 3 + height),
+                                             radius=radius, fill=110)
+    picture.putalpha(shadow.filter(ImageFilter.GaussianBlur(blur / 2)))
+    light = tuple(min(255, round(value * 1.25 + 24)) for value in colour)
+    across = Image.linear_gradient("L").rotate(90).resize((width, height))
+    card = Image.composite(Image.new("RGBA", (width, height), (*colour, 240)),
+                           Image.new("RGBA", (width, height), (*light, 240)), across)
+    shape = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
+    ImageDraw.Draw(card).rectangle((0, 0, edge - 1, height), fill=(255, 255, 255, 235))
+    picture.paste(card, (blur, blur), shape)
+    draw = ImageDraw.Draw(picture)
+    for index, line in enumerate(lines):
+        draw.text((blur + edge + pad_x, blur + pad_y + index * line_height + (line_height - size) / 2 - size * 0.1),
+                  line, font=typeface, fill=(255, 255, 255, 255))
+    output = io.BytesIO()
+    picture.save(output, format="PNG", optimize=True)
+    x, y = place("lower-left", width, height, frame_width, frame_height)
+    return Overlay(output.getvalue(), picture.width, picture.height, max(0, x - blur), max(0, y - blur))
+
+
+def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
+    """A line in the phrases a caption shows one at a time: split where it pauses (a full stop, a comma), and
+    between words where a phrase would still be too long."""
+    parts = [part.strip() for part in re.split(r"(?<=[.!?;:,])\s+", " ".join(str(line or "").split())) if part.strip()]
+    shown: list[str] = []
+    for part in parts:
+        words = part.split(" ")
+        current = ""
+        for word in words:
+            trial = f"{current} {word}".strip()
+            if current and len(trial) > limit:
+                shown.append(current)
+                current = word
+            else:
+                current = trial
+        if current:
+            if shown and len(shown[-1]) + len(current) + 1 <= limit // 2 and not shown[-1].endswith((".", "!", "?")):
+                shown[-1] = f"{shown[-1]} {current}"
+            else:
+                shown.append(current)
+    return shown
+
+
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
     """Where a picture of this size goes for a position preset, with a margin from the edges; ``lower`` is the
     lower third, above where captions sit."""
@@ -578,6 +646,23 @@ class InputVideo:
     label: str = ""
 
 
+def _slide_show(scenes: list[SceneCut], marks: list[float]) -> list[str]:
+    """What makes a video with footage a slide show: too much of it title cards, or one card held long."""
+    if all(scene.input is None for scene in scenes) or len(marks) < len(scenes) + 1:
+        return []
+    found: list[str] = []
+    cards = [(marks[index], marks[index + 1] - marks[index]) for index, scene in enumerate(scenes)
+             if scene.input is None]
+    total = marks[len(scenes)] - marks[0]
+    share = sum(length for _at, length in cards) / max(total, 0.1)
+    if share > CARD_SHARE:
+        found.append(f"Cards: {share:.0%} of the video is title cards. Show what's done instead, with each title "
+                     "over it (a scene's card).")
+    found += [f"Card at {clock(at)} stays {length:.0f} s: a still card that long loses people. Say less over it, "
+              "or put its line over a recorded scene." for at, length in cards if length > LONG_CARD_SECONDS]
+    return found
+
+
 @dataclass
 class Plan:
     """One ffmpeg run: its arguments (after the program), its filter graph and the pictures it lays over."""
@@ -595,6 +680,8 @@ class Plan:
     marks: list[float] = field(default_factory=list)
     # A voice is laid over it: a long quiet stretch is then a gap in the narration.
     narrated: bool = False
+    # What a project's scenes do that a good video doesn't (too many title cards, one held too long).
+    review: list[str] = field(default_factory=list)
 
 
 def _even(value: float) -> int:
@@ -639,6 +726,7 @@ class _Builder:
         self.voice_cues: list[tuple[float, str]] = []
         self.marks: list[float] = []
         self.narrated = False
+        self.review: list[str] = []
 
     def label(self, kind: str) -> str:
         self.count += 1
@@ -762,16 +850,23 @@ class _Builder:
         self.overlay_index += 1
         return f"[{index}:v]"
 
-    def lay(self, video: str, picture: Overlay, *, start: float | None = None, end: float | None = None) -> str:
-        """Lay a picture over a video stream (between start and end when given); the new stream."""
+    def lay(self, video: str, picture: Overlay, *, start: float | None = None, end: float | None = None,
+            slide: bool = False) -> str:
+        """Lay a picture over a video stream (between start and end when given; ``slide``: easing in from the
+        left edge and back out); the new stream."""
         source = self.overlay_input(picture)
         out = self.label("v")
         enable = ""
+        x = str(picture.x)
         if start is not None or end is not None:
             begin = _seconds_text(max(0.0, start or 0.0))
             finish = _seconds_text(end) if end is not None else "1e9"
             enable = f":enable='between(t,{begin},{finish})'"
-        self.add(f"{video}{source}overlay=x={picture.x}:y={picture.y}:eof_action=repeat{enable}{out}")
+            if slide and end is not None:
+                shown = (f"min(1-pow(1-min(1,max(0,(t-{begin})/{SLIDE_IN})),3),"
+                         f"1-pow(1-min(1,max(0,({finish}-t)/{SLIDE_OUT})),3))")
+                x = f"'{picture.x}-(1-{shown})*(w+{picture.x})'"
+        self.add(f"{video}{source}overlay=x={x}:y={picture.y}:eof_action=repeat{enable}{out}")
         return out
 
     def speed(self, step: Step) -> None:
@@ -923,20 +1018,27 @@ class _Builder:
                                                  shadow=True)
                 x, y = place("center", width, height, self.width, self.height)
                 self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end)
-            elif scene.card:
-                # Over a picture, in the lower third: the middle is where the action is.
-                card = Step(op="text", text=scene.card, style="title", position="lower-left", fill=fill)
-                self.video = self.lay(self.video, text_overlay(card, self.width, self.height),
-                                      start=begin, end=min(end, begin + CARD_SECONDS))
+            elif scene.card:  # Over a picture, a lower third: the middle is where the action is.
+                shown = (begin + min(TITLE_DELAY, (end - begin) / 4), min(end, begin + TITLE_DELAY + TITLE_SECONDS))
+                self.video = self.lay(self.video, lower_third(scene.card, look.colour, self.width, self.height),
+                                      start=shown[0], end=shown[1], slide=True)
             if scene.line and step.style == "caption":
-                caption = (Step(op="text", text=scene.line, style="title", position="center", plain=True)
-                           if look.captions == "title" else
-                           Step(op="text", text=scene.line, style="caption", position="bottom",
-                                plain=look.captions == "bold"))
-                self.video = self.lay(self.video, text_overlay(caption, self.width, self.height),
-                                      start=begin, end=end)
+                # One phrase at a time, each for its share of the line's time: never a paragraph.
+                said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
+                parts = phrases(scene.line)
+                at = begin
+                for part in parts:
+                    until = at + (said - begin) * len(part) / max(1, sum(len(each) for each in parts))
+                    caption = (Step(op="text", text=part, style="title", position="center", plain=True)
+                               if look.captions == "title" else
+                               Step(op="text", text=part, style="caption", position="bottom",
+                                    plain=look.captions == "bold"))
+                    self.video = self.lay(self.video, text_overlay(caption, self.width, self.height), start=at,
+                                          end=until if part != parts[-1] else max(until, said))
+                    at = until
             if scene.voice:
                 self.voice_cues.append((begin, scene.voice))
+        self.review += _slide_show(step.scenes, self.marks)
         for text, start in ((look.intro, 0.0), (look.outro, self.duration - BOOKEND_SECONDS)):
             if text:
                 title = Step(op="text", text=text, style="title", position="center", plain=True)
@@ -1134,7 +1236,7 @@ def build_plan(
     return Plan(args=args, graph=";\n".join(builder.lines), overlays=builder.overlays,
                 duration=builder.duration, width=builder.width, height=builder.height,
                 has_audio=bool(builder.audio), summary=describe(steps, len(inputs)), outputs=[output],
-                marks=builder.marks, narrated=builder.narrated)
+                marks=builder.marks, narrated=builder.narrated, review=builder.review)
 
 
 def gif_arguments(source: str, output: str, *, width: int = 480, fps: int = 12) -> list[str]:
