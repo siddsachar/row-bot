@@ -166,6 +166,9 @@ class SceneCut:
     focus: tuple[float, float] | None = None
     # How long its voice line lasts: the scene is made at least that long (``fit_to_lines``).
     voice_seconds: float = 0.0
+    # Its camera, from what was done while it was recorded (``video_studio.camera``): keys of (seconds from the
+    # scene's start, middle x, middle y, zoom).
+    camera: tuple[tuple[float, float, float, float], ...] = ()
 
 
 CARD_SECONDS = 3.0
@@ -216,6 +219,10 @@ class Look:
     logo_corner: str = "top-left"
     intro: str = ""
     outro: str = ""
+    # How footage sits in a 16:9 video: "framed" (on the backdrop, rounded, shadowed) or "full" (edge to edge); and
+    # whether the camera follows what was done ("follow") or stays on the whole picture ("still").
+    framing: str = "framed"
+    camera: str = "follow"
 ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
 # A video of title cards only has no picture to take its size from.
 CARD_SIZES = {"16:9": (1920, 1080), "1:1": (1080, 1080), "9:16": (1080, 1920)}

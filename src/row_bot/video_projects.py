@@ -544,6 +544,17 @@ def _voice_seconds(path: Path | None, data: bytes | None, suffix: str) -> float:
         return 0.0
 
 
+def scene_camera(source: str, start: float, end: float | None, speed: float) -> tuple[Any, ...]:
+    """A scene's camera from what was done while its recording ran (``video_studio.camera``); none for a video
+    that isn't a recording."""
+    from row_bot import recordings, video_studio
+
+    record = recordings.get(source) if str(source).startswith("rec-") else None
+    if record is None or not record.actions:
+        return ()
+    return video_studio.camera(record.actions, start, record.duration_seconds if end is None else end, speed)
+
+
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:
     """Voice what needs it, then make the version's video (or, with ``shape``, the same in that shape)."""
     from row_bot import sound, video_edits
@@ -585,7 +596,9 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          voice=scene.voice if _says_lines(version) else "",
                          voice_seconds=lasts.get(scene.voice, 0.0) if _says_lines(version) else 0.0,
                          focus=None if scene.zoom or not scene.source
-                         else pointer_focus(scene.source, scene.start, scene.end))
+                         else pointer_focus(scene.source, scene.start, scene.end),
+                         camera=scene_camera(scene.source, scene.start, scene.end, scene.speed)
+                         if scene.source and not scene.zoom else ())
                 for scene in version.scenes]
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
                       aspect=shape or version.aspect, look=_look() if version.brand else None)]

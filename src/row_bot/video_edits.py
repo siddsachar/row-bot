@@ -527,7 +527,17 @@ def _run(edit: VideoEdit, request: Request) -> None:
                     sounds[name] = copied
                 else:
                     sounds[name] = str(path)
-            plan = build_plan(inputs, list(request.steps), "output.mp4", sounds=sounds,
+            steps = list(request.steps)
+            if steps and steps[0].op == "scenes":  # A video project: each recorded scene's camera and look.
+                from row_bot import video_studio
+
+                def drawing(done: int, total: int) -> None:
+                    _set(edit, detail=f"Drawing scene {done + 1} of {total}")
+
+                inputs, steps[0] = video_studio.prepare(inputs, steps[0], folder, stopped=edit.stop_event.is_set,
+                                                        progress=drawing)
+                _check(edit)
+            plan = build_plan(inputs, steps, "output.mp4", sounds=sounds,
                               graph_option=graph_option_for(ffmpeg.version),
                               encoder=ffmpeg_runtime.h264_encoder(ffmpeg))
             (folder / "graph.txt").write_text(plan.graph, encoding="utf-8", newline="\n")
