@@ -1675,7 +1675,7 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
   });
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
   const data = await response.blob();
-  if (data.size > 26214400) throw new Error('protocol_incompatible');
+  if (data.size > 209715200) throw new Error('protocol_incompatible');
   return data;
 }
 export async function readAttachmentThumbnail(base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<Blob> {
@@ -2080,6 +2080,7 @@ def outputs() -> dict[Path, str]:
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":
                             67108864 if suffix.endswith("/exports/{export_id}/download") else
+                            209715200 if suffix.endswith("/attachments/{reference}") else
                             65536 if suffix.endswith("/webhook-configuration") else
                             8388608 if suffix.endswith(SPEECH_OUTPUTS) else
                             1048576 if suffix.endswith("/voice/realtime/{lease_id}/exchange") else 26214400} if response == "bytes"
