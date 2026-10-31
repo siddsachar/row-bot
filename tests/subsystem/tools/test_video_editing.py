@@ -253,16 +253,22 @@ def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_th
     from row_bot.video_editing import SceneCut, Step, gif_arguments
 
     scenes = Step(op="scenes", aspect="9:16", scenes=[
-        SceneCut(input=0, end=2, zoom=(0.75, 0.0, 0.25, 0.5)), SceneCut(input=0, start=2, end=6, speed=2)])
+        SceneCut(input=0, end=2, zoom=(0.8, 0.0, 0.1, 1.0)), SceneCut(input=0, start=2, end=6, speed=2)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # A tall cut is 1080×1920 whatever the source. The zoomed scene is cropped on its zoom (640×360 tall is
-    # 202×360, at the right edge); the wide scene without one is shown whole over a blurred copy of itself,
-    # never cropped to its middle third with its words cut in half (31 Oct: the teaser's phone cut was 606×1080).
+    # A tall cut is 1080×1920 whatever the source. The zoom here is tall enough (64×360): cropped on it, 640×360
+    # tall being 202×360 at the right edge; the wide scene without one is shown whole over a blurred copy of
+    # itself, never cropped to its middle third with its words cut in half (31 Oct: the teaser's phone cut was
+    # 606×1080).
     assert "crop=202:360:438:0,scale=1080:1920" in plan.graph and "crop=202:360:219:0" not in plan.graph
     assert "boxblur" in plan.graph and "scale=1080:-2" in plan.graph and "overlay=(W-w)/2:(H-h)/2" in plan.graph
     assert (plan.width, plan.height, plan.marks) == (1080, 1920, [0.0, 2.0, 4.0])
     assert _every_stream_is_used(plan)
+    # A wide zoom (a heading, a row of cards) is shown whole too: its area, fitted over a blur, not its middle.
+    wide = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="9:16", scenes=[
+        SceneCut(input=0, end=2, zoom=(0.1, 0.4, 0.6, 0.2))])], "output.mp4")
+    assert "crop=384:72:64:144" in wide.graph and "boxblur" in wide.graph and "crop=202:360" not in wide.graph
+    assert _every_stream_is_used(wide)
     assert len(plan.overlays) == 1, "the 2× badge, laid on the tall picture"
     same = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="16:9", scenes=[SceneCut(input=0)])],
                       "output.mp4")

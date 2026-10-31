@@ -919,11 +919,12 @@ class _Builder:
         self.duration += BOOKEND_SECONDS * (bool(look.intro) + bool(look.outro))
 
     def _reframe(self, aspect: str, scenes: list[SceneCut]) -> None:
-        """Each scene in the shape at its standard size (1080×1920, 1080×1080). A scene with a zoom, a title card
-        and any scene of a square cut is cropped around its focus (the middle of its zoom, else where its pointer
-        was, else the middle); a wide scene in a tall cut is shown whole, fitted to the width over a blurred copy
-        of itself, as a tall cut of a crop would leave only a third of it, words cut in half. A shape the video
-        already has changes nothing."""
+        """Each scene in the shape at its standard size (1080×1920, 1080×1080). In a tall cut a scene's picture
+        (its zoom, else the whole picture) is shown whole, fitted to the width over a blurred copy of itself, when
+        it is wider than the cut: a crop would leave only a middle third, words cut in half. A title card, a
+        picture that is tall enough and every scene of a square cut are cropped around their focus (the middle
+        of the zoom, else where the pointer was, else the middle). A shape the video already has changes
+        nothing."""
         if aspect not in ASPECTS:
             raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {aspect}.")
         target, w, h = ASPECTS[aspect], self.width, self.height
@@ -935,9 +936,16 @@ class _Builder:
         videos, _ = self._pieces(cuts, audio=False)
         for index, scene in enumerate(scenes):
             out = self.label("v")
-            if aspect == "9:16" and scene.input is not None and not scene.zoom and w / h > 1:
+            zw, zh = (scene.zoom[2] * w, scene.zoom[3] * h) if scene.zoom else (w, h)
+            if aspect == "9:16" and scene.input is not None and zw / zh > target * 1.15:
+                source = videos[index]
+                if scene.zoom:
+                    region = self.label("v")
+                    self.add(f"{source}crop={_even(zw)}:{_even(zh)}:{int(scene.zoom[0] * w)}:"
+                             f"{int(scene.zoom[1] * h)}{region}")
+                    source = region
                 back, front, blurred = self.label("v"), self.label("v"), self.label("v")
-                self.add(f"{videos[index]}split{back}{front}")
+                self.add(f"{source}split{back}{front}")
                 self.add(f"{back}scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh},"
                          f"boxblur=24:2,eq=brightness=-0.12{blurred}")
                 fitted = self.label("v")
