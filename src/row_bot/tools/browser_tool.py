@@ -154,7 +154,8 @@ class _DownloadInput(BaseModel):
 
 
 class _ViewportInput(BaseModel):
-    preset: Literal["phone", "tablet", "desktop"] = Field(description="Page size: phone, tablet or desktop")
+    preset: Literal["phone", "tablet", "desktop", "pane"] = Field(
+        description="Page size: phone, tablet, desktop, or pane (the Browser pane's)")
     device_scale: Optional[float] = Field(default=None, ge=1, le=3, description="Optional device pixel ratio, 1 to 3")
 
 
