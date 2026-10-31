@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type {
   DataBackupReceipt,
+  DataBackupSignIn,
   DataBackupState,
   DataRestoreReview,
 } from '../../api/types';
@@ -438,7 +439,9 @@ it('a stopped, refused or dismissed backup that was sent is let go', async () =>
 
 const MOVED = 'Row-Bot backup 2026-10-31 1100.zip';
 /** A hosted Row-Bot's Move: the backup runs, then its own manifest says what moves. */
-function moving() {
+function moving(
+  signIns: DataBackupSignIn[] = [{ kind: 'provider', name: 'openai' }],
+) {
   const away: DataBackupState = { ...idle, reveal_available: false };
   const fake = owner(away);
   fake.send.mockResolvedValueOnce(
@@ -466,7 +469,7 @@ function moving() {
         'API keys, sign-in tokens and passwords',
         'Caches, logs and downloaded runtimes',
       ],
-      sign_in_again: [{ kind: 'provider', name: 'openai' }],
+      sign_in_again: signIns,
     },
   };
   return { fake, done };
@@ -547,4 +550,41 @@ it('the desktop has no Move row, and its restore takes a hosted Row-Bot’s back
   expect(screen.getByRole('button', { name: 'Back up now' })).toHaveClass(
     'primary',
   );
+});
+
+it('the Move row lists exactly what the backup says to sign in to again, and nothing when it says nothing', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const move = async (signIns: DataBackupSignIn[]) => {
+    const { fake, done } = moving(signIns);
+    const view = render(<DataBackup owner={fake} canPick={false} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Download backup' }),
+    );
+    await screen.findAllByRole('button', { name: 'Backing up…' });
+    fake.read.mockResolvedValue(done);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await screen.findByText(`Downloaded “${MOVED}”.`);
+    return view;
+  };
+
+  const nothing = await move([]);
+  expect(screen.queryByText('After moving, set these up again:')).toBeNull();
+  expect(screen.queryByRole('list', { name: 'Sign in again' })).toBeNull();
+  nothing.unmount();
+
+  await move([
+    { kind: 'provider', name: 'anthropic' },
+    { kind: 'mcp', name: 'Notes server' },
+  ]);
+  expect(screen.getByText('After moving, set these up again:')).toBeVisible();
+  const items = within(
+    screen.getByRole('list', { name: 'Sign in again' }),
+  ).getAllByRole('listitem');
+  expect(items.map((item) => item.textContent)).toEqual([
+    'Anthropic (provider)',
+    'Notes server (MCP server)',
+  ]);
 });

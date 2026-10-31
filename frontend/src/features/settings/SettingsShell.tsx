@@ -159,7 +159,14 @@ export default function SettingsShell({
   const leaves = visibleLeaves(learning);
   const searching = Boolean(query.trim());
   const pages = searching ? searchSettings(query, learning) : [];
-  const rows = searching ? searchSettingsRows(query, learning) : [];
+  // A hosted Row-Bot's host runs its network: Devices has no Network or
+  // Public link section to find.
+  const rows = (searching ? searchSettingsRows(query, learning) : []).filter(
+    (row) =>
+      place.kind !== 'hosted' ||
+      row.leaf !== 'access' ||
+      !['network', 'tunnel'].includes(row.anchor),
+  );
   const profileLibrary = searching && searchFindsAgentProfiles(query);
   const leafLabel = (id: string) =>
     leaves.find((item) => item.id === id)?.label ?? id;

@@ -5732,7 +5732,7 @@ export function PreferencesSnapshotPanel({
             description={
               place.kind === 'this_computer'
                 ? 'A copy of your Row-Bot on this computer, without passwords or sign-ins.'
-                : `A copy of everything ${place.on}, without passwords or sign-ins.`
+                : 'A copy of your conversations, memories, workflows, designs and settings, without passwords or sign-ins.'
             }
             icon={HardDrive}
             anchor="backup"
