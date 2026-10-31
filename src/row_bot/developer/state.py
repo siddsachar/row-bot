@@ -17,6 +17,13 @@ DEFAULT_SANDBOX_NETWORK: SandboxNetworkPolicy = "off"
 DEFAULT_SANDBOX_IMAGE = "nikolaik/python-nodejs:python3.11-nodejs20"
 
 
+def _new_level() -> ApprovalMode:
+    """A new workspace starts at the level new conversations start at."""
+    from row_bot.full_autonomy import new_level
+
+    return new_level()
+
+
 @dataclass
 class DeveloperWorkspace:
     """Persisted user-owned repository/workspace entry."""
@@ -28,7 +35,7 @@ class DeveloperWorkspace:
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     default_thread_id: str = ""
-    approval_mode: ApprovalMode = DEFAULT_APPROVAL_MODE
+    approval_mode: ApprovalMode = field(default_factory=_new_level)
     execution_mode: ExecutionMode = DEFAULT_EXECUTION_MODE
     sandbox_network: SandboxNetworkPolicy = DEFAULT_SANDBOX_NETWORK
     sandbox_image: str = DEFAULT_SANDBOX_IMAGE
@@ -64,6 +71,7 @@ class DeveloperWorkspace:
     def from_dict(cls, data: dict) -> "DeveloperWorkspace":
         allowed = set(cls.__dataclass_fields__)
         values = {k: v for k, v in data.items() if k in allowed}
+        values.setdefault("approval_mode", DEFAULT_APPROVAL_MODE)
         ws = cls(**values)
         ws.approval_mode = legacy_developer_mode_to_approval_mode(ws.approval_mode)
         if ws.execution_mode not in {"local", "docker"}:

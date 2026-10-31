@@ -75,6 +75,20 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   // Edit by text: the line changes, a scene moves; nothing is saved until Save.
   const line = panel.getByLabel('Scene 2 line');
   await line.fill('Then pick the plan that fits your team.');
+  {
+    const preview = panel.getByLabel('Preview of your edits');
+    // A card over a picture sits in the lower third on the left, as the made video has it, not over the action.
+    const overPicture = preview.locator('.video-preview-card');
+    await expect(overPicture).toHaveText('Sign up');
+    const stage = await preview.locator('.video-preview-stage').boundingBox();
+    const placed = await overPicture.boundingBox();
+    expect(stage && placed).toBeTruthy();
+    expect(placed!.x - stage!.x).toBeLessThan(stage!.width * 0.1);
+    expect(placed!.y + placed!.height / 2 - stage!.y).toBeGreaterThan(
+      stage!.height * 0.6,
+    );
+    await views(page, info, 'video-panel-preview-card', preview);
+  }
   await panel.getByRole('button', { name: 'Move scene 2 up' }).click();
   const save = panel.getByRole('group', { name: 'Unsaved changes' });
   await expect(save).toBeVisible();
@@ -87,6 +101,7 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
 
   await page.setViewportSize(PHONE);
   await expect(panel).toBeVisible();
+  await views(page, info, 'video-panel-preview-phone', preview);
   await views(page, info, 'video-panel-phone', scenes);
   await save.getByRole('button', { name: 'Discard' }).click();
   await expect(save).toHaveCount(0);

@@ -253,12 +253,22 @@ def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_th
     from row_bot.video_editing import SceneCut, Step, gif_arguments
 
     scenes = Step(op="scenes", aspect="9:16", scenes=[
-        SceneCut(input=0, end=2, zoom=(0.75, 0.0, 0.25, 0.5)), SceneCut(input=0, start=2, end=6, speed=2)])
+        SceneCut(input=0, end=2, zoom=(0.8, 0.0, 0.1, 1.0)), SceneCut(input=0, start=2, end=6, speed=2)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # 640×360 tall is 202×360: the first scene centred on its zoom (the right edge), the second in the middle.
-    assert "crop=202:360:438:0" in plan.graph and "crop=202:360:219:0" in plan.graph
-    assert (plan.width, plan.height, plan.marks) == (202, 360, [0.0, 2.0, 4.0])
+    # A tall cut is 1080×1920 whatever the source. The zoom here is tall enough (64×360): cropped on it, 640×360
+    # tall being 202×360 at the right edge; the wide scene without one is shown whole over a blurred copy of
+    # itself, never cropped to its middle third with its words cut in half (31 Oct: the teaser's phone cut was
+    # 606×1080).
+    assert "crop=202:360:438:0,scale=1080:1920" in plan.graph and "crop=202:360:219:0" not in plan.graph
+    assert "boxblur" in plan.graph and "scale=1080:-2" in plan.graph and "overlay=(W-w)/2:(H-h)/2" in plan.graph
+    assert (plan.width, plan.height, plan.marks) == (1080, 1920, [0.0, 2.0, 4.0])
+    assert _every_stream_is_used(plan)
+    # A wide zoom (a heading, a row of cards) is shown whole too: its area, fitted over a blur, not its middle.
+    wide = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="9:16", scenes=[
+        SceneCut(input=0, end=2, zoom=(0.1, 0.4, 0.6, 0.2))])], "output.mp4")
+    assert "crop=384:72:64:144" in wide.graph and "boxblur" in wide.graph and "crop=202:360" not in wide.graph
+    assert _every_stream_is_used(wide)
     assert len(plan.overlays) == 1, "the 2× badge, laid on the tall picture"
     same = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="16:9", scenes=[SceneCut(input=0)])],
                       "output.mp4")
@@ -291,8 +301,10 @@ def test_a_square_cut_of_a_scene_without_a_zoom_is_centred_where_its_pointer_was
         SceneCut(input=0, end=2, focus=(0.9, 0.2)), SceneCut(input=0, start=2, end=4)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # 640×360 square is 360×360: the first scene at the right edge, where the pointer was; the second in the middle.
-    assert "crop=360:360:280:0" in plan.graph and "crop=360:360:140:0" in plan.graph
+    # 640×360 square is 360×360: the first scene at the right edge, where the pointer was; the second in the middle;
+    # each at the standard 1080×1080.
+    assert "crop=360:360:280:0,scale=1080:1080" in plan.graph and "crop=360:360:140:0,scale=1080:1080" in plan.graph
+    assert (plan.width, plan.height) == (1080, 1080)
 
 
 def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_corner():
@@ -310,12 +322,18 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert plan.graph.count("anullsrc") == 2, "each with silence, so the sound stays in step"
     assert (plan.duration, plan.marks) == (7.0, [2.0, 5.0]), "the scene starts after the intro"
     assert "adelay=2000|2000" in plan.graph, "its line starts with the scene, after the intro"
-    card, caption, intro, outro, mark = (_picture(png) for _name, png in plan.overlays)
+    pictures = [_picture(png) for _name, png in plan.overlays]
+    backdrops = [picture for picture in pictures if picture.size == (640, 360)]
+    card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
+    assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
     assert card.getpixel((2, card.height // 2))[:3] == (17, 34, 51), "the title card is the brand's colour"
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
     assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
+    # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
+    # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named).
+    assert f"overlay=x=16:y={round(360 * 0.68) - card.height // 2}:" in plan.graph
 
 
 def _every_stream_is_used(plan) -> bool:
@@ -338,9 +356,19 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
 
     assert alone.graph.count("color=c=0x112233:s=1080x1080") == 2, "each card on the brand colour, square"
     assert (alone.duration, alone.marks) == (5.0, [0.0, 3.0, 5.0]), "a card keeps its length: no speed"
-    assert len(alone.overlays) == 2 and "[0:a]" in alone.graph, "both titles, and the voice is the only input"
-    title = _picture(alone.overlays[0][1])
-    assert title.getpixel((0, 0))[3] == 0, "a plain title: the card's colour is its box"
+    pictures = [_picture(png) for _name, png in alone.overlays]
+    backdrops = [picture for picture in pictures if picture.size == (1080, 1080)]
+    titles = [picture for picture in pictures if picture.size != (1080, 1080)]
+    assert len(backdrops) == 2 and len(titles) == 2 and "[0:a]" in alone.graph, \
+        "each card on its backdrop with its title, and the voice is the only input"
+    assert titles[0].getpixel((0, 0))[3] == 0, "a plain title: the card's backdrop is its box"
+    # The backdrop is the brand's colour, lit from the top left and darker at the edges: a slide, not a flat fill.
+    top_left, centre, bottom_right = (backdrops[0].getpixel(at)[:3] for at in ((40, 40), (540, 540), (1040, 1040)))
+    assert sum(top_left) > sum(centre) > sum(bottom_right)
+    assert all(abs(value - brand) < 30 for value, brand in zip(centre, (17, 34, 51), strict=True))
+    # Its title has a soft shadow, not a hard black outline.
+    shadowed = [titles[0].getpixel((x, y)) for x in range(titles[0].width) for y in range(titles[0].height)]
+    assert any(0 < alpha < 120 for *_rgb, alpha in shadowed), "a soft edge"
     assert _every_stream_is_used(alone)
 
     mixed = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", look=look, scenes=[

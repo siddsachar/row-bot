@@ -2239,7 +2239,7 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
   });
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
   const data = await response.blob();
-  if (data.size > 26214400) throw new Error('protocol_incompatible');
+  if (data.size > 209715200) throw new Error('protocol_incompatible');
   return data;
 }
 export async function readAttachmentThumbnail(base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<Blob> {

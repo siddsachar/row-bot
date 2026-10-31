@@ -115,6 +115,13 @@
   background: rgba(17, 24, 39, 0.84);
   transform: translate(-50%, -50%);
 }
+/* Over a picture the card sits in the lower third on the left, as the made video has it. */
+.video-preview-card[data-over='picture'] {
+  top: 68%;
+  left: 4.5%;
+  text-align: left;
+  transform: translateY(-50%);
+}
 .video-preview-caption {
   bottom: 6%;
   font-size: var(--type-size-body);
