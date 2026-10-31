@@ -4558,6 +4558,62 @@ def a6_hosted(state: str, x_fixture_token: str = Header(default="")) -> dict:
     return {"hosted": state == "on"}
 
 
+# ── A7 (U7): where Row-Bot runs, from the browser's side ───────────────────
+# The browser here is always on the fixture's own computer, so its handshake says this_computer.
+# "hosted" and "server" make the handshake say what a phone or a hosted pod's browser is told
+# (hosted also names PikaPods, as A6's switch does); "this_computer" puts it back. A page reads
+# the place at its next handshake, so a spec reloads after switching.
+_a7_place: dict | None = None
+
+
+@app.post("/__a7_fixture/place/{place}")
+def a7_place(place: str, x_fixture_token: str = Header(default="")) -> dict:
+    global _a7_place
+    predecessor._authorize(x_fixture_token)
+    if place not in {"this_computer", "hosted", "server"}:
+        raise HTTPException(status_code=422, detail="Unknown place")
+    if place == "hosted":
+        os.environ["ROW_BOT_HOSTED_BY"] = "pikapods"
+    else:
+        os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    _a7_place = None if place == "this_computer" else {
+        "kind": place, "host_name": "PikaPods" if place == "hosted" else None}
+    return {"place": place}
+
+
+class _A7Place:
+    """Only the handshake's ``place`` changes, and only while a spec chose one."""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send) -> None:
+        if _a7_place is None or scope["type"] != "http" or scope["path"] != "/api/v1/handshake":
+            await self.inner(scope, receive, send)
+            return
+        start: dict = {}
+        chunks: list[bytes] = []
+
+        async def rewrite(message) -> None:
+            if message["type"] == "http.response.start":
+                start.update(message)
+                return
+            chunks.append(message.get("body", b""))
+            if message.get("more_body"):
+                return
+            body = b"".join(chunks)
+            if start["status"] == 200:
+                body = json.dumps({**json.loads(body), "place": _a7_place}).encode()
+            headers = [(k, v) for k, v in start["headers"] if k.lower() != b"content-length"]
+            await send({**start, "headers": [*headers, (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+
+        await self.inner(scope, receive, rewrite)
+
+
+app.add_middleware(_A7Place)
+
+
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
 # (a pinned choice with its saved catalog row) and on the synthetic local
