@@ -987,6 +987,7 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ExportSaved>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
+  dismissMemoryNotice?(): Promise<Wire.MemoryNoticeDismissed>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   media?(
     filter: { query?: string; kind?: string },

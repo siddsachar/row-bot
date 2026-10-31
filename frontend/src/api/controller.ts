@@ -857,6 +857,7 @@ export class ClientController {
         server_timezone: result.server_timezone ?? null,
         sandbox: result.sandbox ?? false,
         place: result.place,
+        memory_limit_bytes: result.memory_limit_bytes ?? null,
         native_adapter: result.native_adapter,
         limits: result.limits,
       };
@@ -2838,6 +2839,9 @@ export class ClientController {
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));
+  /** The out-of-memory notice is read (U8): gone until the next such restart. */
+  dismissMemoryNotice = () =>
+    this.query(() => this.transport.dismissMemoryNotice?.());
   /** Library › Media (5.3.1 B3). */
   media = (filter: { query?: string; kind?: string }, signal?: AbortSignal) =>
     this.query(() => this.transport.media?.(filter, signal));

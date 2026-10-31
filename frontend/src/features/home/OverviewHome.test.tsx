@@ -39,6 +39,7 @@ const runtime = vi.hoisted(() => ({
   taskRun: vi.fn(),
   waits: vi.fn(async () => ({ schema_version: 1, items: [] as unknown[] })),
   stopWait: vi.fn(async () => ({ schema_version: 1, items: [] })),
+  dismissMemoryNotice: vi.fn(async () => ({ dismissed: true })),
 }));
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: runtime }),
@@ -1615,4 +1616,89 @@ it('keeps a scheduled post that didn’t go out in Review, with why, Try again, 
     screen.queryByRole('list', { name: "Posts that didn't go out" }),
   ).toBeNull();
   expect(dismiss).not.toHaveBeenCalled();
+});
+
+const GUIDE = 'https://row-bot.ai/docs/operations/hosting#memory';
+/** U8: what the server says after Row-Bot restarted for lack of memory on a 2 GB pod. */
+function outOfMemory(host: boolean): AttentionProblem {
+  return {
+    id: 'memory:restarted',
+    title: 'Row-Bot restarted because the server ran out of memory',
+    detail: `Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. ${host ? 'Make the pod 4 GB in PikaPods' : 'Give the server 4 GB'}, or use cloud speech-to-text.`,
+    place: 'memory',
+    fix: null,
+    links: [
+      { label: 'How to resize', url: GUIDE },
+      ...(host
+        ? [
+            {
+              label: 'Manage your pod in PikaPods',
+              url: 'https://www.pikapods.com/pods',
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
+it('says Row-Bot restarted for lack of memory, how to resize and how to dismiss it (U8)', async () => {
+  const loadAttention = vi
+    .fn()
+    .mockResolvedValueOnce({
+      schema_version: 1,
+      update: null,
+      problems: [outOfMemory(true)],
+    })
+    .mockResolvedValue({ schema_version: 1, update: null, problems: [] });
+  show({ loadAttention });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText(
+    'Row-Bot restarted because the server ran out of memory',
+  );
+  expect(needs).toHaveTextContent(
+    'Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. Make the pod 4 GB in PikaPods, or use cloud speech-to-text.',
+  );
+  // How to resize: the guide and the host's own page, each in a new tab.
+  for (const [name, href] of [
+    ['How to resize', GUIDE],
+    ['Manage your pod in PikaPods', 'https://www.pikapods.com/pods'],
+  ]) {
+    const link = within(needs).getByRole('link', { name });
+    expect(link).toHaveAttribute('href', href);
+    expect(link).toHaveAttribute('target', '_blank');
+  }
+  expect(
+    within(needs).getByRole('link', { name: 'Use cloud speech-to-text' }),
+  ).toHaveAttribute('href', '/settings/voice#talk');
+  fireEvent.click(
+    within(needs).getByRole('button', {
+      name: 'Open Row-Bot restarted because the server ran out of memory',
+    }),
+  );
+  expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
+
+  fireEvent.click(within(needs).getByRole('button', { name: 'Dismiss' }));
+  expect(runtime.dismissMemoryNotice).toHaveBeenCalledOnce();
+  await vi.waitFor(() =>
+    expect(
+      screen.queryByText(
+        'Row-Bot restarted because the server ran out of memory',
+      ),
+    ).toBeNull(),
+  );
+  expect(loadAttention).toHaveBeenCalledTimes(2);
+  expect(summary()).toBe('All quiet.');
+});
+
+it('without a known host the memory notice links only the guide (U8)', async () => {
+  show({ loadAttention: attention(outOfMemory(false)) });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText(/Give the server 4 GB/);
+  expect(
+    within(needs).getByRole('link', { name: 'How to resize' }),
+  ).toBeVisible();
+  expect(
+    within(needs).queryByRole('link', { name: /Manage your pod/ }),
+  ).toBeNull();
+  expect(summary()).toBe('1 thing needs you.');
 });

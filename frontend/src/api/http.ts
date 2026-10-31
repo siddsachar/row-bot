@@ -427,6 +427,9 @@ export class HttpTransport implements ClientTransport {
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
   }
+  dismissMemoryNotice() {
+    return wire.dismissMemoryNotice(this.base, this.session());
+  }
   media(filter: { query?: string; kind?: string }, signal?: AbortSignal) {
     return wire.getMedia(this.base, this.session(), filter, signal);
   }

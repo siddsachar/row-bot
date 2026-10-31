@@ -22,6 +22,7 @@ import type {
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
 import { setPlace } from '../../api/place';
+import { setMemoryLimit } from '../../api/server-memory';
 import { OverlayProvider } from '../../ui/overlays';
 import { ThemeProvider } from '../../ui/theme';
 import { settingsRows, type SettingsLeafId } from './model';
@@ -446,7 +447,10 @@ function notice(text: string | RegExp) {
   return screen.findByText(text, { selector: '.toast *' });
 }
 
-afterEach(() => setPlace(null));
+afterEach(() => {
+  setPlace(null);
+  setMemoryLimit(null);
+});
 
 it('Voice says what runs where: this computer, or only the speech model on the Row-Bot server (U7)', () => {
   renderSetting('voice');
@@ -2419,4 +2423,123 @@ it('offers a speech engine choice in Voice › Advanced only once there is one',
   expect(screen.getByLabelText('Dictation listens with')).toBeVisible();
   // Read aloud always speaks with Kokoro: nothing to choose.
   expect(screen.queryByLabelText(/Read-aloud model/)).toBeNull();
+});
+
+const GB = 2 ** 30;
+
+function showVoice(talkProvider: string) {
+  mutation.page = 'voice';
+  return render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{
+            ...snapshot.voice,
+            runtime: { ...snapshot.voice.runtime, talk_provider: talkProvider },
+          }}
+          conversationId={null}
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+}
+
+it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks before it is chosen (U8)', async () => {
+  setMemoryLimit(2 * GB);
+  showVoice('openai_realtime');
+  // Dictation listens with Whisper here: its quiet pill. Listen with is in the cloud: none.
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(1);
+
+  const listen = screen.getByLabelText('Listen with');
+  fireEvent.change(listen, { target: { value: 'local' } });
+  const sheet = screen.getByRole('dialog', {
+    name: 'Use local speech-to-text?',
+  });
+  expect(sheet).toHaveTextContent(
+    'This server has 2 GB. Local speech-to-text may make Row-Bot restart.',
+  );
+  expect(listen).toHaveValue('openai_realtime');
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Use cloud speech-to-text' }),
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(listen).toHaveValue('openai_realtime');
+  expect(mutation.review).not.toHaveBeenCalled();
+
+  fireEvent.change(listen, { target: { value: 'local' } });
+  fireEvent.click(
+    within(
+      screen.getByRole('dialog', { name: 'Use local speech-to-text?' }),
+    ).getByRole('button', { name: 'Use local anyway' }),
+  );
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_provider',
+        value: 'local',
+      }),
+      expect.anything(),
+    ),
+  );
+  expect(listen).toHaveValue('local');
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
+});
+
+it.each([
+  ['with 4 GB', 4 * GB],
+  ['on the desktop, with no limit', null],
+])(
+  'local speech-to-text needs no pill or sheet %s (U8)',
+  async (_where, limit) => {
+    setMemoryLimit(limit);
+    showVoice('openai_realtime');
+    expect(screen.queryByText('Needs a 4 GB server')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Listen with'), {
+      target: { value: 'local' },
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() =>
+      expect(mutation.review).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'runtime.talk_provider',
+          value: 'local',
+        }),
+        expect.anything(),
+      ),
+    );
+  },
+);
+
+it('suggests Free memory when idle where the search model is chosen on a small server (U8)', () => {
+  mutation.page = 'documents';
+  const show = (autoUnload: boolean, provider: 'local' | 'cloud' = 'local') =>
+    render(
+      <DocumentEmbeddingSnapshot
+        snapshot={{
+          ...snapshot.documents,
+          embedding: {
+            ...snapshot.documents.embedding,
+            provider,
+            auto_unload: autoUnload,
+          },
+        }}
+        mutation={mutation}
+      />,
+    );
+  setMemoryLimit(2 * GB);
+  const off = show(false);
+  const suggestion = screen.getByText('Suggested on a 2 GB server');
+  expect(suggestion.closest('[data-setting-anchor]')).toHaveAttribute(
+    'data-setting-anchor',
+    'embedding.auto_unload',
+  );
+  off.unmount();
+  // Already on, or search in the cloud: nothing to suggest.
+  show(true).unmount();
+  show(false, 'cloud').unmount();
+  expect(screen.queryByText(/Suggested on a/)).toBeNull();
+  setMemoryLimit(4 * GB);
+  show(false);
+  expect(screen.queryByText(/Suggested on a/)).toBeNull();
 });
