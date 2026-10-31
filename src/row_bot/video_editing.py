@@ -424,10 +424,12 @@ _STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.052}
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
-                fill: tuple[int, int, int, int] | None = None, plain: bool = False) -> tuple[bytes, int, int]:
+                fill: tuple[int, int, int, int] | None = None, plain: bool = False,
+                shadow: bool = False) -> tuple[bytes, int, int]:
     """Draw text as a picture: a rounded dark badge, a large title, or a caption box; in a brand's colour
-    (``fill``), or ``plain``: no box, the letters outlined so they read on any picture."""
-    from PIL import Image, ImageDraw
+    (``fill``), or ``plain``: no box, the letters outlined so they read on any picture, or with a soft
+    ``shadow`` instead (a title card's own backdrop)."""
+    from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
     # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
@@ -448,16 +450,42 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
     if not plain:
         box = fill or ((17, 24, 39, 214) if style != "caption" else (0, 0, 0, 178))
         draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=box)
-    outline = max(2, round(size * 0.08)) if plain else 0
+    outline = max(2, round(size * 0.08)) if plain and not shadow else 0
+    places = []
     for index, line in enumerate(lines):
         line_width = probe.textlength(line, font=typeface)
-        left = (width - line_width) / 2
-        top = pad_y + index * line_height + (line_height - size) / 2 - size * 0.1
+        places.append(((width - line_width) / 2, pad_y + index * line_height + (line_height - size) / 2 - size * 0.1))
+    if shadow:
+        soft = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        shade = ImageDraw.Draw(soft)
+        for line, (left, top) in zip(lines, places, strict=True):
+            shade.text((left, top + size * 0.06), line, font=typeface, fill=(0, 0, 0, 150))
+        picture.alpha_composite(soft.filter(ImageFilter.GaussianBlur(max(2, size * 0.1))))
+    for line, (left, top) in zip(lines, places, strict=True):
         draw.text((left, top), line, font=typeface, fill=(255, 255, 255, 255), stroke_width=outline,
                   stroke_fill=(0, 0, 0, 230))
     output = io.BytesIO()
     picture.save(output, format="PNG", optimize=True)
     return output.getvalue(), width, height
+
+
+def card_backdrop(colour: tuple[int, int, int], width: int, height: int) -> bytes:
+    """A title card's backdrop: its colour lit softly from the top left, darker towards the edges, so a card
+    reads as a designed slide rather than a flat fill."""
+    from PIL import Image
+
+    small_width, small_height = 64, 36
+    picture = Image.new("RGB", (small_width, small_height))
+    pixels = picture.load()
+    for y in range(small_height):
+        for x in range(small_width):
+            across = 0.55 * x / (small_width - 1) + 0.45 * y / (small_height - 1)
+            edge = math.hypot(x / (small_width - 1) - 0.5, y / (small_height - 1) - 0.5) / math.hypot(0.5, 0.5)
+            light = 1.18 - 0.36 * across - 0.14 * edge * edge
+            pixels[x, y] = tuple(max(0, min(255, round(value * light + 10 * (1 - across)))) for value in colour)
+    output = io.BytesIO()
+    picture.resize((width, height), Image.Resampling.BICUBIC).save(output, format="PNG", optimize=True)
+    return output.getvalue()
 
 
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
@@ -834,9 +862,11 @@ class _Builder:
                 badge = Step(op="text", text=speed_words(scene.speed), position="top-right", style="badge",
                              fill=fill)
                 self.video = self.lay(self.video, text_overlay(badge, self.width, self.height), start=begin, end=end)
-            if scene.input is None and scene.card:  # The whole scene, on its own colour (no box).
-                title = Step(op="text", text=scene.card, style="title", position="center", plain=True)
-                self.video = self.lay(self.video, text_overlay(title, self.width, self.height), start=begin, end=end)
+            if scene.input is None and scene.card:  # The whole scene, on its own backdrop (no box).
+                png, width, height = render_text(scene.card, "title", self.width, self.height, plain=True,
+                                                 shadow=True)
+                x, y = place("center", width, height, self.width, self.height)
+                self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end)
             elif scene.card:
                 card = Step(op="text", text=scene.card, style="title", position="center", fill=fill)
                 self.video = self.lay(self.video, text_overlay(card, self.width, self.height),
@@ -861,9 +891,12 @@ class _Builder:
     def _blank(self, colour: tuple[int, int, int], length: float) -> tuple[str, str | None]:
         """A picture of one colour, *length* seconds long, with silence when the video has sound."""
         seconds = _seconds_text(length)
-        video = self.label("v")
+        flat = self.label("v")
         self.add(f"color=c=0x{colour[0]:02x}{colour[1]:02x}{colour[2]:02x}:s={self.width}x{self.height}:"
-                 f"r={_seconds_text(self.fps)}:d={seconds},setsar=1,format=yuv420p{video}")
+                 f"r={_seconds_text(self.fps)}:d={seconds},setsar=1{flat}")
+        lit = self.lay(flat, Overlay(card_backdrop(colour, self.width, self.height), self.width, self.height, 0, 0))
+        video = self.label("v")
+        self.add(f"{lit}format=yuv420p{video}")
         if not self.audio:
             return video, None
         sound = self.label("a")

@@ -310,7 +310,10 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert plan.graph.count("anullsrc") == 2, "each with silence, so the sound stays in step"
     assert (plan.duration, plan.marks) == (7.0, [2.0, 5.0]), "the scene starts after the intro"
     assert "adelay=2000|2000" in plan.graph, "its line starts with the scene, after the intro"
-    card, caption, intro, outro, mark = (_picture(png) for _name, png in plan.overlays)
+    pictures = [_picture(png) for _name, png in plan.overlays]
+    backdrops = [picture for picture in pictures if picture.size == (640, 360)]
+    card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
+    assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
     assert card.getpixel((2, card.height // 2))[:3] == (17, 34, 51), "the title card is the brand's colour"
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
@@ -338,9 +341,19 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
 
     assert alone.graph.count("color=c=0x112233:s=1080x1080") == 2, "each card on the brand colour, square"
     assert (alone.duration, alone.marks) == (5.0, [0.0, 3.0, 5.0]), "a card keeps its length: no speed"
-    assert len(alone.overlays) == 2 and "[0:a]" in alone.graph, "both titles, and the voice is the only input"
-    title = _picture(alone.overlays[0][1])
-    assert title.getpixel((0, 0))[3] == 0, "a plain title: the card's colour is its box"
+    pictures = [_picture(png) for _name, png in alone.overlays]
+    backdrops = [picture for picture in pictures if picture.size == (1080, 1080)]
+    titles = [picture for picture in pictures if picture.size != (1080, 1080)]
+    assert len(backdrops) == 2 and len(titles) == 2 and "[0:a]" in alone.graph, \
+        "each card on its backdrop with its title, and the voice is the only input"
+    assert titles[0].getpixel((0, 0))[3] == 0, "a plain title: the card's backdrop is its box"
+    # The backdrop is the brand's colour, lit from the top left and darker at the edges: a slide, not a flat fill.
+    top_left, centre, bottom_right = (backdrops[0].getpixel(at)[:3] for at in ((40, 40), (540, 540), (1040, 1040)))
+    assert sum(top_left) > sum(centre) > sum(bottom_right)
+    assert all(abs(value - brand) < 30 for value, brand in zip(centre, (17, 34, 51), strict=True))
+    # Its title has a soft shadow, not a hard black outline.
+    shadowed = [titles[0].getpixel((x, y)) for x in range(titles[0].width) for y in range(titles[0].height)]
+    assert any(0 < alpha < 120 for *_rgb, alpha in shadowed), "a soft edge"
     assert _every_stream_is_used(alone)
 
     mixed = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", look=look, scenes=[
