@@ -184,6 +184,24 @@ guides:
     - src/row_bot/secret_store.py
     - src/row_bot/environment_secrets.py
     - src/row_bot/install_count.py
+  use-row-bot-in-your-browser:
+    title: Use Row-Bot In Your Browser
+    route: /docs/getting-started/in-your-browser
+    sources:
+    - src/row_bot/access/setup_page.py
+    - src/row_bot/hosting.py
+    - frontend/src/features/shell/FirstRun.tsx
+    - frontend/src/features/shell/PhoneCard.tsx
+    - frontend/src/features/settings/DataBackup.tsx
+  fix-hosted-row-bot:
+    title: Fix A Hosted Row-Bot
+    route: /docs/troubleshooting/hosted
+    sources:
+    - src/row_bot/access/setup_page.py
+    - src/row_bot/application/client_monitor.py
+    - frontend/src/features/settings/SubscriptionAccounts.tsx
+    - frontend/src/features/settings/ClaudePlanSetup.tsx
+    - frontend/src/features/settings/DataBackup.tsx
   extend-row-bot:
     title: Choose An Extension Type
     route: /docs/extending/
