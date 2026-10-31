@@ -9,8 +9,8 @@
     "files": {
       "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
       "src/row_bot/api/v1/document_upload_stream.py": "9d7f480472630d5aa7298503af7b9451607b1856406caa115cb6578bbe700494",
-      "src/row_bot/api/v1/routes.py": "d86fcfc344c83a188ff2d4b2066d728abc171a7d5d8c6f9276df8fd5d75573c1",
-      "src/row_bot/api/v1/schemas.py": "a95ac165bae47bb9d2bb490c2913b86c6aba22ee21c0241c24a47f978d3d394c",
+      "src/row_bot/api/v1/routes.py": "f7aab5f39abdc11064f59e5aed71e4eb1241553094b80429e30a03358edb3ee3",
+      "src/row_bot/api/v1/schemas.py": "1391ba41ec936c3b9daa46f245b41073dca22a5bbf451d404f93942f98550519",
       "src/row_bot/api/v1/security.py": "d94a1f82917863bd2a6bd7996b268557d742c3a5f0c564dd18c2673c16a63ea3",
       "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
       "src/row_bot/application/app_notices.py": "6dbc5e635a81f5a6cf27f5c4cdff1581fedc6951450e5032d2de4f225f58e1d1",
@@ -31,7 +31,7 @@
       "src/row_bot/application/capability_policy_controls.py": "d61a95b0572f2999072a57d7298a2f2ff59022e9c76d1514d639097977a6249b",
       "src/row_bot/application/capability_runtime_controls.py": "f5ab9a6c1b86ccb30f407e668eb8964d574b89565a85d9d56ab1bfbe162af798",
       "src/row_bot/application/channel_controls.py": "db71ca58aad403f305769120ba92701097c29e9097d1c6387b720b4502f8d3f7",
-      "src/row_bot/application/client_account_oauth.py": "f97fedd8a46ecec629d246ff4b1000143be877060debecc79059495f73e621fe",
+      "src/row_bot/application/client_account_oauth.py": "2aff5267ab4f4a5c79e6cdc5b5e5ce428b51399c292c8d310ecfb268c5405353",
       "src/row_bot/application/client_accounts.py": "84e81743f8666810f59f43df14df1dfed7b9a867c8f6d0096baf4e22367dde7d",
       "src/row_bot/application/client_browser.py": "f04c54c0587b3e323f9910ce727e0cc30d82c95329d14687b060c638cc434939",
       "src/row_bot/application/client_computer_controls.py": "d2c055a828b504dc41d66ffa3517c6feadf388bbce06c10f9f6866162c2e566f",
@@ -39,13 +39,13 @@
       "src/row_bot/application/client_diagnosis.py": "45fea44bb6dc960980f42ca122bef899f51fc2b590af989879e98583e226321b",
       "src/row_bot/application/client_first_run.py": "2211c24c3157df8d8ea2ec646aaee4a18effab3a3b256be4cc94f32fe69ed193",
       "src/row_bot/application/client_goal_profile_commands.py": "a7213969daf1d0c63dffe559c3057dfa205df46904647290c86b6ed519731c6c",
-      "src/row_bot/application/client_insights.py": "3af78e372ddb638128567574246f9da86e06748523a62566c5a6ed4f74ae0a5b",
-      "src/row_bot/application/client_integrations.py": "cc24a13e9420900edd9e8a51ce25dbc3756fd9f9378d42cf8a194309e5ffa7d9",
+      "src/row_bot/application/client_insights.py": "28e09475a988cf9c2bb5f06d941ba704252f74a286920efd75c95afd1e1969d0",
+      "src/row_bot/application/client_integrations.py": "98dc1e6c9ffb5f3f62210110101ec2e2ad22caa749c6d3880e7763dfa72f4f21",
       "src/row_bot/application/client_learning.py": "9b5f20d72105a33da939328ce988fd96b3822de9d2002cc7e4117acb8d1b5d0e",
       "src/row_bot/application/client_mcp_auth.py": "1e60a74eb25b16e0bcbe836ed48b4a21ca3771b1903e56a129ebf170123d1f5e",
       "src/row_bot/application/client_migration.py": "418cd8c11918556125656f47143304e6cd19cf3e121a3bce31b58090698fa4f3",
       "src/row_bot/application/client_models_settings.py": "37d4cb707f1d6d6958eb5734d0c5d8a0a299bca6025c40e237b1c405dac47db7",
-      "src/row_bot/application/client_monitor.py": "98fbd4291cb5d29c03c27b33d6fc09a2fb9ec514e91d0db7030e604d495834f2",
+      "src/row_bot/application/client_monitor.py": "0c61210e646a6761e75f28d841a8336d9d3abe22e04f3e1ffd688e081bb5a365",
       "src/row_bot/application/client_onboarding.py": "c416f6af4584052cb931ab450888ce0c58787e4981bb1410ea7c907e3dbb8e44",
       "src/row_bot/application/client_platform.py": "25711e3d8121aba02cfc55ba294bb7716eeba457d9655b7906ffb2a62ab2612d",
       "src/row_bot/application/client_plugin_lifecycle.py": "ca5325542cfff090276fd8eb48aa873cfe53a53bf45938edbc570dc03df1f6d0",
@@ -100,7 +100,7 @@
       "src/row_bot/application/reasoning_controls.py": "3a9c5f172743df52a978bb444c4c18f11b96037ebdcc4ffc8d4e57bfd67f1b34",
       "src/row_bot/application/recording_views.py": "8b3a696d24642d32ee3d46a0a57ebafec16e198ae48918e7bf1d15b05389242f",
       "src/row_bot/application/sandbox_views.py": "9a3738dff8bd369045af516152a239504a76b8661d5e577a9fbaebfecd228ebd",
-      "src/row_bot/application/settings_commands.py": "e53ad4dbcdd8b8a347bf6662c6a4859c7aa3005475a618cf49fbc4de1f4136ed",
+      "src/row_bot/application/settings_commands.py": "18a5ae70b950a0bb2323622755cef6478b02b9e7fb9e1bdd765ce2b0628a4e74",
       "src/row_bot/application/settings_snapshot.py": "48be178c13d6e81c3f0a7ba412b98a15bb063e37f5f4d10e45d30ef7ecfd2b51",
       "src/row_bot/application/skill_commands.py": "070b557f0bfc55007c6ef0be24122862d63b2b4132f94afe9ae672f5ff1d412b",
       "src/row_bot/application/startup_state.py": "5743e19c166a454929675ef960f090852a34901098e28023a69644a97bd33959",
@@ -134,7 +134,7 @@
       "src/row_bot/threads.py": "37b181032d28f55c37f0aa9906b67180118d9f6ba64432cff9883d9995eb2c7b",
       "tests/helpers/client_platform_fakes.py": "d42f99a12400aa20b34994a0dbb01904a160f0dd918258e5a3930a0054df898d"
     },
-    "sha256": "332b6088c589426ba48b53ddfe0a9660a296f2639bc9cc1770c1f6e1f7a1a91d"
+    "sha256": "ec4a20b65a4d57d169553802bdd124ca666a7eba8e9f58dc949d3bbb3c2f3363"
   },
   "records": [
     {
@@ -179,6 +179,7 @@
           "kind": "this_computer",
           "host_name": null
         },
+        "memory_limit_bytes": null,
         "native_adapter": {
           "available": true,
           "proof_required": true,

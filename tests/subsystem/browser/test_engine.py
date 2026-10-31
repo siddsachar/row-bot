@@ -14,6 +14,7 @@ import time
 
 import pytest
 
+from row_bot import server_memory
 from row_bot.browser import service as service_module
 from row_bot.browser.runtime import BrowserRuntimeReadiness
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
@@ -144,6 +145,7 @@ def chromium(monkeypatch, tmp_path):
         return engines[-1]
 
     fake.engine = engine
+    fake.playwright = playwright
     yield fake
     for item in engines:
         item.close()
@@ -487,3 +489,87 @@ def test_a_recording_of_a_phone_size_keeps_the_phone_shape(chromium, tmp_path):
     assert recorder.size == (886, 1920), "390×844 at 3×, at most 1920 tall"
     engine.stop_recording("chat-a", "agent")
     assert recorder.join(10)
+
+
+# ── H4: on a server with a memory limit, Chromium closes when unused ─────────────────────────
+
+
+@pytest.fixture
+def server(chromium, tmp_path, monkeypatch):
+    """Row-Bot's browser on a server with a 2 GB memory limit (a fake cgroup folder)."""
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "memory.max").write_text(str(2 * 2**30), encoding="ascii")
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", root)
+    manager = service_module.BrowserSessionManager()
+    yield manager
+    manager.kill_all()
+
+
+async def _open_tab(tab):
+    tab.page.url = "https://shop.example/"
+    return tab.id
+
+
+def test_on_a_server_the_browser_closes_when_unused_gives_its_memory_back_and_starts_again_when_used(
+        server, chromium):
+    engine = server.get_session()
+    engine.act("chat-a", "Open", _open_tab, settle=False)
+    used = time.monotonic()
+    contexts = len(chromium.contexts)
+
+    assert server.close_when_idle(now=used + service_module.IDLE_CLOSE_SECONDS - 1) is False
+    assert engine.running
+
+    assert server.close_when_idle(now=used + service_module.IDLE_CLOSE_SECONDS + 1) is True
+    # Nothing of Chromium is left running: its browser and Playwright's driver are closed.
+    assert all(context.closed for context in chromium.contexts) and chromium.playwright.stopped
+    assert (engine.running, engine.status) == (False, "stopped")
+    assert engine.pane_state("chat-a")["tabs"] == []
+
+    # Nothing was turned off: the next use starts it again, with the same profile.
+    result = engine.act("chat-a", "Open", _open_tab, settle=False)
+    assert engine.running and result.url == "https://shop.example/"
+    assert len(chromium.contexts) == contexts + 1
+    assert chromium.launches[-1]["user_data_dir"] == str(service_module.PROFILE_DIR)
+
+
+def test_on_a_server_the_browser_never_closes_while_an_action_runs_or_a_pane_shows_it(server):
+    engine = server.get_session()
+    started, release = threading.Event(), threading.Event()
+
+    async def reading(tab):
+        import asyncio
+
+        started.set()
+        await asyncio.to_thread(release.wait, 10)
+        return "Read the page"
+
+    results: list = []
+    worker = threading.Thread(target=lambda: results.append(engine.act("chat-a", "Reading", reading, settle=False)))
+    worker.start()
+    assert started.wait(10)
+    long_after = time.monotonic() + 24 * 3600
+    assert server.close_when_idle(now=long_after) is False
+    assert engine.running
+    release.set()
+    worker.join(10)
+    assert results and "Read the page" in results[0].text
+
+    pane = engine.watch("chat-a", kind="pane", width=800)
+    assert server.close_when_idle(now=long_after) is False
+    assert engine.running and engine.pane_state("chat-a")["tabs"]
+    pane.close()
+    assert server.close_when_idle(now=long_after) is True
+
+
+def test_the_desktop_browser_never_closes_by_itself(server, chromium, monkeypatch):
+    """The desktop has no memory limit: its browser stays open as it always did (and Learning's study sees
+    the same browser it always saw)."""
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", None)
+    engine = server.get_session()
+    engine.act("chat-a", "Open", _open_tab, settle=False)
+
+    assert server.close_when_idle(now=time.monotonic() + 24 * 3600) is False
+    assert engine.running and not chromium.contexts[-1].closed
+    assert engine.pane_state("chat-a")["tabs"]

@@ -5126,13 +5126,28 @@ class RuntimeInstallationReceipt(WireModel):
     installation: RuntimeInstallationOutcome
 
 
+class ProblemLink(WireModel):
+    """A page outside Row-Bot that helps with a problem (U8): how to resize, the host's own page."""
+
+    label: str = Field(min_length=1, max_length=128)
+    url: str = Field(max_length=512, pattern=r"^https://")
+
+
 class AttentionProblem(WireModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(max_length=160)
     detail: str = Field(max_length=512)
-    # "health": a Monitor check whose last result is an error (B252); "data": a sandbox without a model (W12).
-    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health", "data"]
+    # "health": a Monitor check whose last result is an error (B252); "data": a sandbox without a model (W12);
+    # "memory": Row-Bot restarted because the server ran out of memory (U8).
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health", "data", "memory"]
     fix: ProblemFix | None = None
+    links: list[ProblemLink] = Field(default_factory=list, max_length=2)
+
+
+class MemoryNoticeDismissed(WireModel):
+    """The out-of-memory notice is gone until the next such restart (U8); false when there was none."""
+
+    dismissed: bool
 
 
 class AttentionUpdate(WireModel):
@@ -8955,6 +8970,9 @@ class HandshakeView(Choices):
     sandbox: bool = False
     # Where Row-Bot runs, from this browser's side (U7): the client says "this computer" only when it is.
     place: Place
+    # The server's memory limit when it has one (a container's, H12), so Voice and Documents say what
+    # fits (U8); null on the desktop.
+    memory_limit_bytes: int | None = Field(default=None, ge=1)
     native_adapter: NativeAdapter
     limits: Limits
 

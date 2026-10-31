@@ -57,6 +57,7 @@ import {
 } from 'react';
 import { clientError } from '../../api/errors';
 import { usePlace, type PlaceWords } from '../../api/place';
+import { useSmallServer } from '../../api/server-memory';
 import { RuntimeContext } from '../../runtime';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
@@ -1158,6 +1159,7 @@ export function SelectSetting({
   row,
   savedMessage,
   layout,
+  intercept,
 }: {
   mutation: SettingsMutationIO;
   field: string;
@@ -1170,6 +1172,8 @@ export function SelectSetting({
   row?: RowLook;
   savedMessage?: (value: SettingsValue) => string;
   layout?: 'row' | 'bare';
+  /** A choice that asks in a sheet of its own first: true holds it; `choose` makes a choice later. */
+  intercept?: (value: string, choose: (value: string) => void) => boolean;
 }) {
   const available = options.some((option) => option.value === value)
     ? options
@@ -1192,7 +1196,10 @@ export function SelectSetting({
           aria-label={layout === 'bare' ? label : undefined}
           value={String(draft)}
           disabled={disabled}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            if (!intercept?.(event.target.value, setValue))
+              setValue(event.target.value);
+          }}
         >
           {available.map((option) => (
             <option key={option.value} value={option.value}>
@@ -1812,6 +1819,19 @@ export function VoiceSnapshotPanel({
     (!realtime || localDictation) && !snapshot.local.whisper_installed;
   // Elsewhere the person talks on their own device; only the speech model runs where Row-Bot runs (U7).
   const here = place.kind === 'this_computer';
+  // A server too small for local speech-to-text (U8): its size ("2 GB"); '' with room or no limit.
+  const small = useSmallServer();
+  const needsBigger = small
+    ? { status: <span className="status-chip">Needs a 4 GB server</span> }
+    : undefined;
+  // Choosing Whisper there asks first; this makes the choice the person makes in the sheet.
+  const [localChoice, setLocalChoice] = useState<
+    ((value: string) => void) | null
+  >(null);
+  const chooseFromSheet = (value: string) => {
+    localChoice?.(value);
+    setLocalChoice(null);
+  };
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
@@ -1861,6 +1881,16 @@ export function VoiceSnapshotPanel({
             label: voiceProviderLabel('listen', option, place),
           }))}
           onDraftChange={setTalkProvider}
+          row={talkProvider === 'local' ? needsBigger : undefined}
+          intercept={
+            small
+              ? (next, choose) => {
+                  if (next !== 'local') return false;
+                  setLocalChoice(() => choose);
+                  return true;
+                }
+              : undefined
+          }
           savedMessage={(next) =>
             next === 'openai_realtime'
               ? 'Talk now listens with OpenAI Realtime'
@@ -1887,6 +1917,7 @@ export function VoiceSnapshotPanel({
             }
             hint="If Realtime is unavailable, Talk listens with Whisper instead."
             value={snapshot.runtime.realtime_fallback_to_local}
+            row={needsBigger}
           />
         )}
         <SettingsItem
@@ -1917,6 +1948,7 @@ export function VoiceSnapshotPanel({
           label="Dictate with"
           hint="Uses the same speech model as Talk."
           value={snapshot.runtime.dictation_provider}
+          row={localDictation ? needsBigger : undefined}
           options={snapshot.dictation_providers.map((option) => ({
             value: option.value,
             label: voiceProviderLabel('listen', option, place),
@@ -2171,6 +2203,28 @@ export function VoiceSnapshotPanel({
           />
         </SettingsGroup>
       </SettingsAdvanced>
+      <ModalTask
+        open={localChoice !== null}
+        onOpenChange={(open) => {
+          if (!open) setLocalChoice(null);
+        }}
+        kind="sheet"
+        title="Use local speech-to-text?"
+        description={`This server has ${small}. Local speech-to-text may make Row-Bot restart.`}
+      >
+        <div className="button-row">
+          <Button onClick={() => chooseFromSheet('local')}>
+            Use local anyway
+          </Button>
+          <Button
+            variant="primary"
+            data-initial-focus
+            onClick={() => chooseFromSheet('openai_realtime')}
+          >
+            Use cloud speech-to-text
+          </Button>
+        </div>
+      </ModalTask>
     </div>
   );
 }
@@ -5065,6 +5119,8 @@ export function DocumentEmbeddingSnapshot({
 }) {
   const embedding = snapshot.embedding;
   const place = usePlace();
+  // A small server (U8): suggest giving the search model's memory back between searches.
+  const small = useSmallServer();
   const [provider, setProvider] = useState(() =>
     mutation.drafts.has(mutation.page, 'embedding.provider')
       ? String(mutation.drafts.read(mutation.page, 'embedding.provider'))
@@ -5196,6 +5252,17 @@ export function DocumentEmbeddingSnapshot({
           label="Free memory when idle"
           hint="Unloads the search model after a few minutes."
           value={embedding.auto_unload}
+          row={
+            small && local && !embedding.auto_unload
+              ? {
+                  status: (
+                    <span className="status-chip">
+                      Suggested on a {small} server
+                    </span>
+                  ),
+                }
+              : undefined
+          }
         />
       </SettingsGroup>
       <SettingsAdvanced meta="Index health, rebuild, repair the model">

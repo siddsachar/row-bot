@@ -1,6 +1,6 @@
 ---
 title: "Hosting Row-Bot"
-description: "Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes and updates."
+description: "Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes, memory and updates."
 ---
 
 # Hosting Row-Bot
@@ -160,6 +160,19 @@ Measured with full Row-Bot in a container:
 - **At rest:** about 360–420 MB just started. Idle, it uses about 0.2% of a core with no page open, and up to about 2% with one open.
 - **Disk:** the image is about 1.6 GB to download and 6.6 GB unpacked. `/data` reached 1.7 GB in the first hour, with the local search model (641 MB) and speech-to-text (464 MB) downloaded; workspaces and documents grow from there.
 - **Out of memory:** the kernel stops the container. Restarted, Row-Bot is ready again within seconds, with its data and sign-ins intact.
+
+## Memory
+
+Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps, in `/data`, the highest working set it has seen: its use without the file cache the kernel can drop, as Docker and Kubernetes count it. Nothing is turned off on a small server:
+
+- **Row-Bot's browser** closes by itself ten minutes after its last use, when a conversation's idle tabs close anyway, and starts again the next time it's needed, still signed in to sites.
+- **Settings › Documents** suggests **Free memory when idle** below 3.5 GB, so the search model unloads between searches.
+- **Settings › Voice** marks local speech-to-text "Needs a 4 GB server" below 3.5 GB, and asks before it is chosen.
+
+If Row-Bot restarts because the server ran out of memory, Home and System Monitor say so, with the server's size, until the owner dismisses it. To fix it, do one of these:
+
+- **Give the server 4 GB.** Resize it where your host manages it; on PikaPods, that's your pod in **My Pods**. Row-Bot keeps its data and sign-ins, and the notice goes once the server is bigger.
+- **Use cloud speech-to-text.** In **Settings › Voice**, choose **OpenAI Realtime** under **Listen with**. Local speech-to-text is what doesn't fit beside the rest in 2 GB.
 
 ## Updates
 

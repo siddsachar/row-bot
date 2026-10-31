@@ -361,6 +361,19 @@
       "title": "May Act",
       "type": "boolean"
     },
+    "memory_limit_bytes": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Memory Limit Bytes"
+    },
     "minimum_client_version": {
       "const": "1.0",
       "title": "Minimum Client Version",
