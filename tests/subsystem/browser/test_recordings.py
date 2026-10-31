@@ -221,6 +221,25 @@ def test_a_recording_keeps_where_its_pointer_went_for_another_shape(tmp_path):
     assert recorder.trail == [(2.5, 0.25, 0.75), (3.0, 1.0, 0.0)], "seconds into it, and on the page"
 
 
+def test_a_recording_logs_what_was_done_and_where_for_the_videos_camera(tmp_path):
+    """5.3.2: a video's camera follows what Row-Bot did, so each action is kept with the control's box."""
+    clock = _Clock(0.0)
+    recorder = PageRecorder(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000, on_end=lambda *_: None,
+                            clock=clock)
+    recorder.started_at = 1.0
+    clock.now = 3.0
+    recorder.act("type", (0.8, 0.1, 0.5, 0.05), 'textbox "Email"')
+    clock.now = 5.5
+    recorder.act_done()
+    recorder.act("open", note="example.com")
+
+    assert recorder.actions == [[2.0, 4.5, "type", 0.8, 0.1, 0.2, 0.05, 'textbox "Email"'],
+                                [4.5, 4.5, "open", 0.0, 0.0, 1.0, 1.0, "example.com"]], \
+        "from when to when, the box kept on the page, and the whole page for a page opened"
+    with pytest.raises(ValueError):
+        recorder.act("wave")
+
+
 @needs_encoder
 def test_a_recording_stops_before_its_video_outgrows_the_chat(tmp_path):
     ended: list[str] = []
@@ -319,6 +338,7 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
         def __init__(self, on_end):
             super().__init__(on_end)
             self.beats: list[tuple[float, str, str]] = []
+            self.actions = [[3.0, 4.0, "click", 0.1, 0.2, 0.3, 0.1, "Save"]]
 
         def pointer(self, x, y, *, click=False):
             pass
@@ -343,6 +363,8 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
         "attachment_ref": f"{conversation}:rec", "mime_type": "video/mp4"})
     recordings.finished(record, "agent", video)
     assert record.beats == [[12.0, "work", "Waiting for the build"]]
+    assert record.actions == [[3.0, 4.0, "click", 0.1, 0.2, 0.3, 0.1, "Save"]]
+    assert recordings._load(recordings._record_path(record)).actions == record.actions, "kept with the recording"
     assert "Beats: 0:12 work (Waiting for the build)" in recordings.summary(record)
     assert recordings._load(recordings._record_path(record)).beats == record.beats
 
@@ -353,9 +375,17 @@ def test_while_recording_clicks_and_typing_go_at_a_viewers_pace_with_the_pointer
     pointed: list[tuple[float, float, bool]] = []
     typed: list[tuple[str, str]] = []
 
+    acted: list[tuple] = []
+
     class _Capture2:
         def pointer(self, x, y, *, click=False):
             pointed.append((round(x, 2), round(y, 2), click))
+
+        def act(self, kind, box=None, note=""):
+            acted.append((kind, tuple(round(value, 2) for value in box), note))
+
+        def act_done(self):
+            acted.append(("done",))
 
     class _Locator:
         async def bounding_box(self, timeout=None):
@@ -387,6 +417,9 @@ def test_while_recording_clicks_and_typing_go_at_a_viewers_pace_with_the_pointer
     typed.clear()
     browser_tool.browser_type("e1", "ada@example.com")
     assert [kind for kind, _ in typed] == ["move", "fill", "keys"] and typed[-1][1] == "ada@example.com"
+    assert acted == [("click", (0.25, 0.25, 0.1, 0.1), 'textbox "Email"'), ("done",),
+                     ("type", (0.25, 0.25, 0.1, 0.1), 'textbox "Email"'), ("done",)], \
+        "each action logged on the control's box, never the words typed"
 
 
 async def _async(value):

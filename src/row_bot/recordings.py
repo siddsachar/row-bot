@@ -74,6 +74,9 @@ class Recording:
     beats: list[list[Any]] = field(default_factory=list)
     # Where the pointer went: [seconds, x, y], x and y 0–1 across the page; a square cut follows it.
     trail: list[list[float]] = field(default_factory=list)
+    # What Row-Bot did: [from, until, click | type | scroll | open, x, y, width, height, a note], the box 0–1 across
+    # the page; a video's camera follows it.
+    actions: list[list[Any]] = field(default_factory=list)
     capture: Any = None
     done: threading.Event = field(default_factory=threading.Event)
 
@@ -125,7 +128,7 @@ def _data(record: Recording) -> dict[str, Any]:
         "started_at": record.started_at, "max_seconds": record.max_seconds, "status": record.status,
         "stopped_by": record.stopped_by, "ended_at": record.ended_at, "duration_seconds": record.duration_seconds,
         "media_ref": record.media_ref, "mime_type": record.mime_type, "size_bytes": record.size_bytes,
-        "problem": record.problem, "beats": record.beats, "trail": record.trail,
+        "problem": record.problem, "beats": record.beats, "trail": record.trail, "actions": record.actions,
     }
 
 
@@ -165,6 +168,9 @@ def _load(path: Path) -> Recording | None:
             beats=[[float(at), str(kind), str(note)] for at, kind, note in data.get("beats") or []
                    if kind in {"live", "work", "cut"}][:200],
             trail=[[float(at), float(x), float(y)] for at, x, y in data.get("trail") or []][:2_000],
+            actions=[[float(start), float(until), str(kind), float(x), float(y), float(w), float(h), str(note)[:80]]
+                     for start, until, kind, x, y, w, h, note in data.get("actions") or []
+                     if kind in {"click", "type", "scroll", "open"}][:500],
         )
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -290,6 +296,7 @@ def finished(record: Recording, reason: str, video: Path | None) -> None:
         record.status = "saving"
         record.beats = [list(beat) for beat in getattr(record.capture, "beats", None) or []][:200]
         record.trail = [list(point) for point in getattr(record.capture, "trail", None) or []][-2_000:]
+        record.actions = [list(action) for action in getattr(record.capture, "actions", None) or []][-500:]
         record.stopped_by = record.stopped_by or _stopped_by(reason)
         record.ended_at = time.time()
         record.duration_seconds = max(0.0, record.ended_at - record.started_at)

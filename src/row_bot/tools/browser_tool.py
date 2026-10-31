@@ -191,22 +191,27 @@ def _recording(thread_id: str) -> Any:
     return record.capture if record is not None and hasattr(record.capture, "pointer") else None
 
 
-async def _point(tab: Any, locator: Any, capture: Any, *, click: bool = False) -> None:
-    """While recording: move the pointer to the control at a viewer's pace, so the video shows where it goes."""
+async def _point(tab: Any, locator: Any, capture: Any, *, click: bool = False, kind: str = "click",
+                 note: str = "") -> bool:
+    """While recording: move the pointer to the control at a viewer's pace, so the video shows where it goes,
+    and log what is done there for the video's camera; whether it was (a control with no box is neither)."""
     import asyncio
 
     from row_bot.browser.recording import MOVE_SECONDS
 
     box = await locator.bounding_box(timeout=ACTION_TIMEOUT_MS)
     if not box:
-        return
+        return False
     width, height = await tab.page.evaluate("() => [innerWidth, innerHeight]")
+    width, height = max(1, width), max(1, height)
+    capture.act(kind, (box["x"] / width, box["y"] / height, box["width"] / width, box["height"] / height), note)
     x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-    capture.pointer(x / max(1, width), y / max(1, height))
+    capture.pointer(x / width, y / height)
     await tab.page.mouse.move(x, y, steps=12)
     await asyncio.sleep(MOVE_SECONDS)
     if click:
-        capture.pointer(x / max(1, width), y / max(1, height), click=True)
+        capture.pointer(x / width, y / height, click=True)
+    return True
 
 
 def _normalise_url(url: str) -> tuple[str | None, str]:
@@ -480,9 +485,15 @@ def browser_navigate(url: str) -> str:
     if refusal:
         return refusal
 
+    capture = _recording(thread_id)
+
     async def step(tab: Any) -> str:
         try:
+            if capture is not None:
+                capture.act("open", note=_history_url(selected))
             await tab.page.goto(selected, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+            if capture is not None:
+                capture.act_done()
         except Exception as exc:
             return _plain_error("open", selected, exc)
         tab.refs.reset()
@@ -517,12 +528,13 @@ def browser_click(ref: str, double: bool = False, right: bool = False) -> str:
     async def step(tab: Any) -> str:
         locator = await session.locate(tab, ref)
         try:
-            if capture is not None:
-                await _point(tab, locator, capture, click=True)
+            pointed = capture is not None and await _point(tab, locator, capture, click=True, note=_what(info, ref))
             if double:
                 await locator.dblclick(timeout=ACTION_TIMEOUT_MS)
             else:
                 await locator.click(button="right" if right else "left", timeout=ACTION_TIMEOUT_MS)
+            if pointed:
+                capture.act_done()
         except Exception as exc:
             return _plain_error("click", _what(info, ref), exc)
         return f"Clicked {_what(info, ref)}."
@@ -557,16 +569,19 @@ def browser_type(ref: str, text: str, submit: bool = False) -> str:
 
     async def step(tab: Any) -> str:
         locator = await session.locate(tab, ref)
+        pointed = False
         try:
             if capture is not None:
                 # While recording, type as a person would, so the video shows the words appear.
-                await _point(tab, locator, capture, click=True)
+                pointed = await _point(tab, locator, capture, click=True, kind="type", note=_what(info, ref))
                 await locator.fill("", timeout=ACTION_TIMEOUT_MS)
                 await locator.press_sequentially(text, delay=45, timeout=ACTION_TIMEOUT_MS + 60 * len(text))
             else:
                 await locator.fill(text, timeout=ACTION_TIMEOUT_MS)
             if submit:
                 await locator.press("Enter", timeout=ACTION_TIMEOUT_MS)
+            if pointed:
+                capture.act_done()
         except Exception as exc:
             return _plain_error("type into", _what(info, ref), exc)
         return f"Typed into {_what(info, ref)}" + (" and pressed Enter." if submit else ".")
@@ -674,10 +689,12 @@ def browser_scroll(direction: str = "down", amount: int = 3, ref: str | None = N
             if capture is None:
                 await tab.page.mouse.wheel(0, sign * steps * 400)
             else:  # While recording, scroll smoothly, a little at a time.
+                capture.act("scroll", note=direction)
                 capture.pointer(0.5, 0.5)
                 for _ in range(steps * 8):
                     await tab.page.mouse.wheel(0, sign * 50)
                     await asyncio.sleep(0.02)
+                capture.act_done()
         except Exception as exc:
             return _plain_error("scroll", "the page", exc)
         return f"Scrolled {direction}."

@@ -35,6 +35,9 @@ TRAIL_POINTS = 2_000
 MOVE_SECONDS = 0.45
 RING_SECONDS = 0.5
 BEATS = ("live", "work", "cut")
+# What Row-Bot did while recording, for a video's camera to follow: clicks, typing, scrolls, pages opened.
+ACTIONS = ("click", "type", "scroll", "open")
+MAX_ACTIONS = 500
 # Fields whose contents a recording never shows (the same as the live preview's shield).
 PROTECTED_FIELDS = (
     'input[type="password"], input[autocomplete="one-time-code"], '
@@ -109,6 +112,9 @@ class PageRecorder:
         self.trail: list[tuple[float, float, float]] = []
         # Marked moments: (seconds into the recording, live | work | cut, a note).
         self.beats: list[tuple[float, str, str]] = []
+        # What was done: [from, until, click | type | scroll | open, x, y, width, height, a note], seconds into the
+        # recording and the control's box 0–1 across the page (the whole page when there's no control).
+        self.actions: list[list[Any]] = []
         self._thread = threading.Thread(target=self._run, daemon=True, name="row-bot-browser-recording")
 
     # ---- Control ----------------------------------------------------------------------
@@ -153,6 +159,25 @@ class PageRecorder:
         with self._lock:
             self.beats.append((at, kind, str(note or "")[:120]))
         return at
+
+    def act(self, kind: str, box: tuple[float, float, float, float] | None = None, note: str = "") -> None:
+        """Something is being done now, on this box of the page (x, y, width, height, each 0–1 across it)."""
+        if kind not in ACTIONS:
+            raise ValueError(f"An action is {', '.join(ACTIONS)}.")
+        x, y, width, height = box or (0.0, 0.0, 1.0, 1.0)
+        x, y = min(1.0, max(0.0, float(x))), min(1.0, max(0.0, float(y)))
+        width, height = min(1.0 - x, max(0.0, float(width))), min(1.0 - y, max(0.0, float(height)))
+        now = round(self._now(), 2)
+        with self._lock:
+            self.actions.append([now, now, kind, round(x, 4), round(y, 4), round(width, 4), round(height, 4),
+                                 str(note or "")[:80]])
+            del self.actions[:-MAX_ACTIONS]
+
+    def act_done(self) -> None:
+        """The last action has finished (typing ends after its last key)."""
+        with self._lock:
+            if self.actions:
+                self.actions[-1][1] = round(self._now(), 2)
 
     def offer_frame(self, data: bytes) -> None:
         """The page's latest picture (a JPEG)."""
