@@ -448,6 +448,89 @@ def test_snapshot_names_the_host_only_when_row_bot_knows_it(api, monkeypatch):
     assert host() is None
 
 
+def _cgroup(folder: Path, *, limit: str, current: int, inactive_file: int = 0) -> Path:
+    """A container's cgroup v2 memory files, as the kernel writes them."""
+    folder.mkdir(exist_ok=True)
+    (folder / "memory.max").write_text(limit, encoding="ascii")
+    (folder / "memory.current").write_text(str(current), encoding="ascii")
+    (folder / "memory.stat").write_text(f"anon 4096\ninactive_file {inactive_file}\n", encoding="ascii")
+    return folder
+
+
+def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(api, monkeypatch, tmp_path):
+    """U5: the System snapshot carries what the Hosted by card shows, and only what is known."""
+    from row_bot import hosting, server_memory
+
+    client, headers, _data, _ = api
+    gib, mib = 2**30, 2**20
+
+    def system():
+        response = client.get(BASE, headers=headers)
+        assert response.status_code == 200, response.text
+        return SettingsSnapshot.model_validate(response.json()).system
+
+    # The desktop: no host and no memory limit, so no card and nothing read.
+    monkeypatch.delenv("ROW_BOT_HOSTED_BY", raising=False)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", None)
+    desktop = system()
+    assert desktop.hosted_by is None and desktop.memory is None
+
+    # A pod: every link PikaPods confirmed, and its working set of its 2 GB (the cache it can drop
+    # isn't counted).
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    cgroup = _cgroup(tmp_path / "cgroup", limit=str(2 * gib), current=900 * mib, inactive_file=300 * mib)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+    pod = system()
+    assert pod.hosted_by is not None and pod.hosted_by.model_dump() == {
+        "id": "pikapods",
+        "name": "PikaPods",
+        "home_url": "https://www.pikapods.com/",
+        "support_url": "https://docs.pikapods.com/",
+        "status_url": "https://docs.pikapods.com/faq/account#business-use-and-service-level",
+        "manage_url": "https://www.pikapods.com/pods",
+    }
+    assert pod.memory is not None
+    assert (pod.memory.limit_bytes, pod.memory.used_bytes) == (2 * gib, 600 * mib)
+
+    # A host whose pages nobody confirmed: only its name and home, no link to guess.
+    unconfirmed = hosting.Host(id="pikapods", name="PikaPods", home_url="https://www.pikapods.com/",
+                               support_url=None, status_url=None, manage_url=None)
+    with monkeypatch.context() as patch:
+        patch.setattr(hosting, "KNOWN_HOSTS", {"pikapods": unconfirmed})
+        bare = system().hosted_by
+    assert bare is not None and (bare.support_url, bare.status_url, bare.manage_url) == (None, None, None)
+
+    # A host Row-Bot doesn't know: no card, even on a server with a limit.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "somewhere-else")
+    assert system().hosted_by is None
+
+    # No limit ("max"): the card has no memory row.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    _cgroup(cgroup, limit="max", current=900 * mib)
+    unlimited = system()
+    assert unlimited.hosted_by is not None and unlimited.memory is None
+
+
+def test_memory_use_moving_on_a_server_does_not_make_a_save_stale(api, monkeypatch, tmp_path):
+    # The working set changes all the time; it isn't a setting, so a change the person is making stays good.
+    from row_bot import server_memory
+
+    client, headers, data, _ = api
+    cgroup = _cgroup(tmp_path / "cgroup", limit=str(2**31), current=2**29)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+    before = client.get(BASE, headers=headers).json()
+    request = {"settings_revision": before["revision"], "page": "preferences", "field": "updates.channel",
+               "value": "stable"}
+    review = _review(client, headers, request)
+    _cgroup(cgroup, limit=str(2**31), current=2**30)
+    assert client.get(BASE, headers=headers).json()["system"]["memory"]["used_bytes"] == 2**30
+
+    response = _execute(client, headers, request, review)
+
+    assert response.status_code == 200, response.text
+    assert json.loads((data / "update_config.json").read_text(encoding="utf-8"))["channel"] == "stable"
+
+
 def test_x_account_requires_saved_client_credentials_before_token_state(
     tmp_path, monkeypatch
 ):

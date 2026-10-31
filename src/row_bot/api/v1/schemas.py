@@ -856,6 +856,13 @@ class SettingsHostSnapshot(WireModel):
     manage_url: str | None = Field(max_length=512)
 
 
+class SettingsServerMemorySnapshot(WireModel):
+    """A server's memory limit and the working set now (H12), for the host card (U5)."""
+
+    limit_bytes: int = Field(ge=1)
+    used_bytes: int = Field(ge=0)
+
+
 class SystemSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     workspace: SettingsWorkspaceSnapshot
@@ -868,6 +875,8 @@ class SystemSettingsSnapshot(WireModel):
     mobile_access: SettingsMobileAccessSnapshot
     logging: SettingsLoggingSnapshot
     hosted_by: SettingsHostSnapshot | None = None
+    # Null without a memory limit (the desktop), or when the use can't be read.
+    memory: SettingsServerMemorySnapshot | None = None
 
 
 class TrackerSettingsItem(WireModel):
@@ -3860,6 +3869,9 @@ class DataBackupJob(WireModel):
     code: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=260)
     skipped: list[Annotated[str, Field(max_length=260)]] | None = Field(default=None, max_length=20)
+    # A finished backup's own manifest: what it leaves out and what to sign in to again (U9).
+    left_out: list[Annotated[str, StringConstraints(max_length=200)]] | None = Field(default=None, max_length=10)
+    sign_in_again: list[DataBackupSignIn] | None = Field(default=None, max_length=100)
 
 
 class DataRestorePending(WireModel):
