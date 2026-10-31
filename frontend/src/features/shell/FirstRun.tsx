@@ -71,7 +71,7 @@ type Path = 'local' | 'subscription' | 'key' | 'grok';
 type Step =
   | { kind: 'pick' }
   | { kind: 'testing'; label: string; connected?: string }
-  | { kind: 'failed'; label: string; detail: string }
+  | { kind: 'failed'; label: string; detail: string; onlyLooks?: boolean }
   | { kind: 'import' };
 
 export type FirstRunActions = {
@@ -1026,12 +1026,23 @@ export default function FirstRun({
         ? 'Ollama is installed · not running'
         : "Ollama isn't installed yet";
 
+  /** A refusal, not the model: a window that isn't signed in can only look. */
+  function refused(label: string, cause: unknown) {
+    const error = clientError(cause);
+    setStep({
+      kind: 'failed',
+      label,
+      detail: error.message,
+      onlyLooks: error.code === 'sign_in_required',
+    });
+  }
+
   async function pick(modelRef: string, label: string) {
     setStep({ kind: 'testing', label });
     try {
       await actions.choose(modelRef);
     } catch (cause) {
-      setStep({ kind: 'failed', label, detail: clientError(cause).message });
+      refused(label, cause);
       return;
     }
     await verify(label);
@@ -1044,7 +1055,8 @@ export default function FirstRun({
     try {
       result = (await controller.testChosenModel()) ?? null;
     } catch (cause) {
-      result = { ok: false, detail: clientError(cause).message };
+      refused(label, cause);
+      return;
     }
     if (!result?.ok) {
       setStep({
@@ -1057,7 +1069,7 @@ export default function FirstRun({
     try {
       await actions.finish();
     } catch (cause) {
-      setStep({ kind: 'failed', label, detail: clientError(cause).message });
+      refused(label, cause);
       return;
     }
     void controller.refreshChoices().catch(() => undefined);
@@ -1100,7 +1112,9 @@ export default function FirstRun({
           <h1>
             {step.kind === 'testing'
               ? 'Checking the model'
-              : 'That model didn’t answer'}
+              : step.onlyLooks
+                ? 'This window can only look'
+                : 'That model didn’t answer'}
           </h1>
         </header>
         {step.kind === 'testing' && step.connected && (
@@ -1122,14 +1136,20 @@ export default function FirstRun({
         ) : (
           <div className="first-run-panel-body" role="alert">
             <p>{step.detail}</p>
-            <div className="actions">
-              <Button variant="primary" onClick={() => void verify(step.label)}>
-                Try again
-              </Button>
-              <Button onClick={() => setStep({ kind: 'pick' })}>
-                Choose another model
-              </Button>
-            </div>
+            {/* Trying again here would be refused the same way. */}
+            {step.onlyLooks ? null : (
+              <div className="actions">
+                <Button
+                  variant="primary"
+                  onClick={() => void verify(step.label)}
+                >
+                  Try again
+                </Button>
+                <Button onClick={() => setStep({ kind: 'pick' })}>
+                  Choose another model
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </section>
