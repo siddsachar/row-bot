@@ -883,26 +883,39 @@ class _Builder:
         self.duration += BOOKEND_SECONDS * (bool(look.intro) + bool(look.outro))
 
     def _reframe(self, aspect: str, scenes: list[SceneCut]) -> None:
-        """Each scene cropped to the shape around its focus: the middle of its zoom, else where its pointer was,
-        else the middle of the picture. A shape the video already has changes nothing."""
+        """Each scene in the shape at its standard size (1080×1920, 1080×1080). A scene with a zoom, a title card
+        and any scene of a square cut is cropped around its focus (the middle of its zoom, else where its pointer
+        was, else the middle); a wide scene in a tall cut is shown whole, fitted to the width over a blurred copy
+        of itself, as a tall cut of a crop would leave only a third of it, words cut in half. A shape the video
+        already has changes nothing."""
         if aspect not in ASPECTS:
             raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {aspect}.")
         target, w, h = ASPECTS[aspect], self.width, self.height
         if abs(w / h - target) < 0.01:
             return
         cw, ch = (_even(h * target), h) if w / h > target else (w, _even(w / target))
+        ow, oh = CARD_SIZES[aspect]
         cuts = [(self.marks[index], self.marks[index + 1]) for index in range(len(scenes))]
         videos, _ = self._pieces(cuts, audio=False)
         for index, scene in enumerate(scenes):
-            fx, fy = ((scene.zoom[0] + scene.zoom[2] / 2, scene.zoom[1] + scene.zoom[3] / 2) if scene.zoom
-                      else scene.focus or (0.5, 0.5))
-            left = int(min(max(0.0, fx * w - cw / 2), w - cw))
-            top = int(min(max(0.0, fy * h - ch / 2), h - ch))
             out = self.label("v")
-            self.add(f"{videos[index]}crop={cw}:{ch}:{left}:{top},setsar=1{out}")
+            if aspect == "9:16" and scene.input is not None and not scene.zoom and w / h > 1:
+                back, front, blurred = self.label("v"), self.label("v"), self.label("v")
+                self.add(f"{videos[index]}split{back}{front}")
+                self.add(f"{back}scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh},"
+                         f"boxblur=24:2,eq=brightness=-0.12{blurred}")
+                fitted = self.label("v")
+                self.add(f"{front}scale={ow}:-2:flags=lanczos{fitted}")
+                self.add(f"{blurred}{fitted}overlay=(W-w)/2:(H-h)/2,setsar=1{out}")
+            else:
+                fx, fy = ((scene.zoom[0] + scene.zoom[2] / 2, scene.zoom[1] + scene.zoom[3] / 2) if scene.zoom
+                          else scene.focus or (0.5, 0.5))
+                left = int(min(max(0.0, fx * w - cw / 2), w - cw))
+                top = int(min(max(0.0, fy * h - ch / 2), h - ch))
+                self.add(f"{videos[index]}crop={cw}:{ch}:{left}:{top},scale={ow}:{oh}:flags=lanczos,setsar=1{out}")
             videos[index] = out
         self._join(videos, [])
-        self.width, self.height = cw, ch
+        self.width, self.height = ow, oh
 
     def _amix(self, labels: list[str]) -> str:
         if len(labels) == 1:
