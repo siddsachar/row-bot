@@ -541,11 +541,11 @@ def lower_third(text: str, colour: tuple[int, int, int], frame_width: int, frame
     the left, with a light edge and a soft shadow, in the lower left."""
     from PIL import Image, ImageDraw, ImageFilter
 
-    reference = min(frame_height, frame_width * 9 / 16)
-    size = max(12, round(reference * 0.045))
+    # Sized by the frame's shorter side: as large on a tall phone video as on a wide one, and wider there.
+    size = max(12, round(min(frame_width, frame_height) * 0.045))
     typeface = font(size)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    lines = _wrap(probe, text, typeface, int(frame_width * 0.42), 2) or [" "]
+    lines = _wrap(probe, text, typeface, int(frame_width * (0.42 if frame_width > frame_height else 0.8)), 2) or [" "]
     pad_x, pad_y, line_height = round(size * 0.9), round(size * 0.6), round(size * 1.25)
     edge = max(3, round(size * 0.16))
     width = edge + 2 * pad_x + max(math.ceil(probe.textlength(line, font=typeface)) for line in lines)

@@ -373,6 +373,15 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert (float(begin), float(end)) == (2.3, 5.0), "in a moment after its scene starts, gone when it ends"
 
 
+def test_a_scenes_title_is_as_large_on_a_tall_video_as_on_a_wide_one():
+    """5.3.2: on a phone video (1080x1920) the title came out a third smaller than on 1920x1080."""
+    from row_bot.video_editing import lower_third
+
+    wide = lower_third("Ask, check, done", (31, 41, 55), 1920, 1080)
+    tall = lower_third("Ask, check, done", (31, 41, 55), 1080, 1920)
+    assert abs(wide.height - tall.height) <= 2 and tall.x + tall.width <= 1080
+
+
 def test_a_caption_shows_the_line_a_phrase_at_a_time_while_it_is_said():
     """5.3.2: a whole line in a box, cut off after three lines, read as a paragraph under the picture."""
     from row_bot.video_editing import SceneCut, Step, phrases
