@@ -655,10 +655,11 @@ export default function SettingRoute() {
                     )
                   ).status
                 }
-                onSaved={() => {
-                  setProviderReload((value) => value + 1);
+                onSaved={() => setProviderReload((value) => value + 1)}
+                onModelsReady={() => {
                   // Opened from a hosted first run (U3): back to it, where the
-                  // endpoint's models are listed to pick from.
+                  // endpoint's models are listed to pick from. One that can't
+                  // be reached stays here, with the reason.
                   if (search.get('from') === 'setup')
                     navigate('/setup', { replace: true });
                 }}

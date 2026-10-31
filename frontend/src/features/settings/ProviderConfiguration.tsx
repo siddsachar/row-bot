@@ -244,6 +244,8 @@ export type ProviderConfigurationProps = {
   autoAdd?: boolean;
   /** The server type it opens with: a hosted first run's "Use my own model server" picks Ollama (U3). */
   addProfile?: string | null;
+  /** A new or edited endpoint answered with its models (not when it couldn't be reached). */
+  onModelsReady?: () => void;
   credentialRefreshRequest?: { providerId: string; token: number };
   session?: ProviderConfigurationSession;
   load: (
@@ -642,7 +644,10 @@ export default function ProviderConfiguration(
               busy: '',
               notice: 'Endpoint saved and models refreshed.',
             });
-            if (generation === epoch.current) props.onSaved();
+            if (generation === epoch.current) {
+              props.onSaved();
+              props.onModelsReady?.();
+            }
             void load();
           } catch (cause) {
             const failure = clientError(cause);

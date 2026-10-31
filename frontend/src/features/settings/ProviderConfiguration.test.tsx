@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -819,4 +820,44 @@ it('opens a plain form for a type it doesn’t know, and no guide on a computer'
       name: 'How to reach your model server safely',
     }),
   ).toBeNull();
+});
+
+it('says the endpoint is ready only once its models answered, never when it could not be reached (U3)', async () => {
+  const props = options();
+  const onModelsReady = vi.fn();
+  render(
+    <ProviderConfiguration
+      {...props}
+      compact
+      hostName="PikaPods"
+      onModelsReady={onModelsReady}
+    />,
+  );
+  await addEndpoint('https://gpu.example.com/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(onModelsReady).toHaveBeenCalledOnce());
+
+  cleanup();
+  const refused = options();
+  const notReady = vi.fn();
+  refused.apply
+    .mockResolvedValueOnce({ configuration_revision: 'b'.repeat(64) })
+    .mockRejectedValueOnce({ code: 'endpoint_unreachable', status: 409 });
+  render(
+    <ProviderConfiguration
+      {...refused}
+      compact
+      hostName="PikaPods"
+      onModelsReady={notReady}
+    />,
+  );
+  await addEndpoint('https://gpu.example.com/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(
+    await screen.findByText(
+      /Row-Bot couldn't reach https:\/\/gpu.example.com\/v1/,
+    ),
+  ).toBeVisible();
+  expect(notReady).not.toHaveBeenCalled();
 });

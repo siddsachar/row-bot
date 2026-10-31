@@ -567,7 +567,27 @@ it('tells a browser on another device what to paste for Grok (H5)', async () => 
       'Sign in on the page that opens. It then sends you to a page that doesn’t load: copy that page’s address from the address bar and paste it below.',
     ),
   ).toBeVisible();
+  const field = screen.getByLabelText('Address of the page that didn’t load');
+  expect(field).toBeVisible();
+  expect(screen.queryByText(/Row-Bot notices when you're done/)).toBeNull();
+  // An address from another sign-in is refused unread: it says so, and the
+  // right one can be pasted at once.
+  vi.mocked(p.apply).mockRejectedValueOnce({
+    code: 'subscription_callback_invalid',
+    status: 409,
+  });
+  fireEvent.change(field, {
+    target: { value: 'http://127.0.0.1:56121/callback?code=x&state=old' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect with code' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'That address isn’t from this sign-in.',
+  );
+  expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
+  fireEvent.change(field, {
+    target: { value: 'http://127.0.0.1:56121/callback?code=y&state=s' },
+  });
   expect(
-    screen.getByLabelText('Address of the page that didn’t load'),
-  ).toBeVisible();
+    screen.getByRole('button', { name: 'Connect with code' }),
+  ).toBeEnabled();
 });

@@ -139,7 +139,11 @@ export function signInStateLabel(state: SubscriptionFlowSnapshot['state']) {
 function settledRefusal(operation: Action, error: ClientError) {
   return (
     rejectedBeforeRunning(error) &&
-    (operation === 'start' || error.code === 'subscription_storage_unavailable')
+    (operation === 'start' ||
+      error.code === 'subscription_storage_unavailable' ||
+      // A pasted Grok address the server refused unread (H5): paste again.
+      error.code === 'subscription_callback_invalid' ||
+      error.code === 'subscription_denied')
   );
 }
 /** ChatGPT / Codex and xAI sign-ins are checked while they wait. */
@@ -613,12 +617,17 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
               {props.quiet && flow.state === 'expired' && provider === 'codex'
                 ? 'This code expired.'
                 : signInStateLabel(flow.state)}
-              {active && POLLED.has(provider) && !error && !props.guide && (
-                <span className="subscription-flow-auto">
-                  {' '}
-                  · Row-Bot notices when you're done
-                </span>
-              )}
+              {active &&
+                POLLED.has(provider) &&
+                !error &&
+                !props.guide &&
+                // Grok's page can't come back to a browser elsewhere: it's pasted.
+                !(props.remote && provider === 'xai_oauth') && (
+                  <span className="subscription-flow-auto">
+                    {' '}
+                    · Row-Bot notices when you're done
+                  </span>
+                )}
             </p>
             {active &&
               flow.device_code &&
