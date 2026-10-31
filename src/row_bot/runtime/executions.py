@@ -48,6 +48,8 @@ class ExecutionHandle:
     followups: bool = False
     # The admitted input's message id (a stopped reply is keyed on it).
     submission_id: str = ""
+    # Why the provider couldn't answer, in its own words, for the turn's error (signed out, a plan's limit).
+    refusal: dict | None = None
 
 
     def view(self) -> dict:

@@ -1188,6 +1188,26 @@ def _refused_by_caller(exc: BaseException) -> bool:
     return False
 
 
+def _provider_refusal(exc: BaseException) -> list[tuple] | None:
+    """The events for a provider that said why it can't answer (signed out, a plan's limit), possibly
+    wrapped: ``provider_refusal`` with a code the chat shows instead of "interrupted", then the error."""
+    from row_bot.providers.claude_subscription import ClaudePlanUnavailable
+    from row_bot.providers.runtime import ProviderSignInRequired
+    current: BaseException | None = exc
+    for _ in range(8):
+        if current is None:
+            return None
+        if isinstance(current, ProviderSignInRequired):
+            refusal = {"code": "sign_in_required", "provider": current.label}
+        elif isinstance(current, ClaudePlanUnavailable):
+            refusal = {"code": "provider_unavailable", "message": str(current)[:400]}
+        else:
+            current = current.__cause__ or current.__context__
+            continue
+        return [("provider_refusal", refusal), ("error", str(current))]
+    return None
+
+
 def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
     try:
@@ -8922,6 +8942,11 @@ def _stream_graph(agent, input_data, config: dict,
         return
     except Exception as exc:
         exc_str = str(exc)
+        refusal = _provider_refusal(exc)
+        if refusal:
+            logger.warning("The provider can't answer: %s", exc_str)
+            yield from refusal
+            return
         # Auto-repair orphaned tool calls and retry once. A provider overflow reaching here already
         # had its one compacted retry inside the model call (_AgentModelCall): the graph is not replayed.
         if _is_context_overflow_error(exc):
@@ -9177,6 +9202,12 @@ def _stream_graph(agent, input_data, config: dict,
             # The caller's own limit (Learning's evaluation budget), not the provider: no API-error notice.
             logger.info("A model call was refused by its caller's limit: %s", exc_str)
             yield ("error", exc_str)
+            return
+        refusal = _provider_refusal(exc)
+        if refusal:
+            logger.warning("The provider can't answer: %s", exc_str)
+            _notify_api_error(refusal[-1][1])
+            yield from refusal
             return
         # Auto-repair orphaned tool calls and retry once. Never replay overflow (its retry was in the call).
         if _is_context_overflow_error(exc):
