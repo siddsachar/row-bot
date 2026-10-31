@@ -43,6 +43,12 @@ test('says where Row-Bot runs from the browser’s side: this computer, a hosted
     ),
   ).toBeVisible();
   await page.goto('/app-v2/settings/voice');
+  // These are Whisper's words; another spec on the shared fixture may have
+  // left Talk on Realtime.
+  await page.getByLabel('Listen with', { exact: true }).selectOption('local');
+  await expect(
+    page.getByRole('button', { name: 'Reset Listen with to default' }),
+  ).toHaveCount(0);
   await expect(
     page.getByText(
       'Your voice goes only to your Row-Bot server at PikaPods, never to a speech service.',

@@ -218,8 +218,10 @@ def test_no_terminal_content_reaches_logs_transcripts_or_storage(panel, caplog, 
         # Until closed, its last output waits in memory only; closing drops it.
         assert panel.manager._current.frames
         closed = client.delete(f"/api/v1/settings/providers/claude-plan/sign-in/{identifier}", headers=headers)
-        assert closed.status_code == 200 and panel.manager._current is None
-        assert _read(client, headers, identifier).status_code == 404
+        assert closed.status_code == 200 and not panel.manager._current.frames
+        # A read already on its way sees it end, with nothing left to show.
+        after = _read(client, headers, identifier)
+        assert after.status_code == 200 and after.json()["status"] == "ended" and not after.json()["frames"]
 
     # Every file written while it ran (the profile and the test's own folder), but the fake's own log.
     written = [path for path, facts in _files(data_dir, tmp_path).items()
@@ -273,6 +275,11 @@ def test_one_sign_in_at_a_time(panel) -> None:
         closed = client.delete(f"/api/v1/settings/providers/claude-plan/sign-in/{second}", headers=headers)
         assert closed.status_code == 200 and panel.started[1].closed
         assert not panel.manager.running()
+        # Closing early: the panel's read already on its way is told it closed, not "not found".
+        after = _read(client, headers, second).json()
+        assert after["status"] == "ended" and after["ended"] == "closed"
+        third = _open(client, headers).json()["sign_in_id"]
+        assert _read(client, headers, third).json()["status"] == "running"
 
 
 def test_installing_claude_code_closes_a_sign_in_left_open_and_waits_for_none(panel, monkeypatch) -> None:
