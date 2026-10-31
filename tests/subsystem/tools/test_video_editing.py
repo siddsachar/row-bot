@@ -256,9 +256,13 @@ def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_th
         SceneCut(input=0, end=2, zoom=(0.75, 0.0, 0.25, 0.5)), SceneCut(input=0, start=2, end=6, speed=2)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # 640×360 tall is 202×360: the first scene centred on its zoom (the right edge), the second in the middle.
-    assert "crop=202:360:438:0" in plan.graph and "crop=202:360:219:0" in plan.graph
-    assert (plan.width, plan.height, plan.marks) == (202, 360, [0.0, 2.0, 4.0])
+    # A tall cut is 1080×1920 whatever the source. The zoomed scene is cropped on its zoom (640×360 tall is
+    # 202×360, at the right edge); the wide scene without one is shown whole over a blurred copy of itself,
+    # never cropped to its middle third with its words cut in half (31 Oct: the teaser's phone cut was 606×1080).
+    assert "crop=202:360:438:0,scale=1080:1920" in plan.graph and "crop=202:360:219:0" not in plan.graph
+    assert "boxblur" in plan.graph and "scale=1080:-2" in plan.graph and "overlay=(W-w)/2:(H-h)/2" in plan.graph
+    assert (plan.width, plan.height, plan.marks) == (1080, 1920, [0.0, 2.0, 4.0])
+    assert _every_stream_is_used(plan)
     assert len(plan.overlays) == 1, "the 2× badge, laid on the tall picture"
     same = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="16:9", scenes=[SceneCut(input=0)])],
                       "output.mp4")
@@ -291,8 +295,10 @@ def test_a_square_cut_of_a_scene_without_a_zoom_is_centred_where_its_pointer_was
         SceneCut(input=0, end=2, focus=(0.9, 0.2)), SceneCut(input=0, start=2, end=4)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # 640×360 square is 360×360: the first scene at the right edge, where the pointer was; the second in the middle.
-    assert "crop=360:360:280:0" in plan.graph and "crop=360:360:140:0" in plan.graph
+    # 640×360 square is 360×360: the first scene at the right edge, where the pointer was; the second in the middle;
+    # each at the standard 1080×1080.
+    assert "crop=360:360:280:0,scale=1080:1080" in plan.graph and "crop=360:360:140:0,scale=1080:1080" in plan.graph
+    assert (plan.width, plan.height) == (1080, 1080)
 
 
 def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_corner():
