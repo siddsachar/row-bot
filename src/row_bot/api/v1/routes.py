@@ -6289,8 +6289,10 @@ def create_router(
         await session(request)
         from row_bot.application.client_first_run import detect_local_runtime
 
+        snapshot = await call(detect_local_runtime)
+        on_machine = on_this_computer(await _context(request))
         return await respond(
-            request, dto.LocalRuntimeSnapshot, await call(detect_local_runtime)
+            request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
 
     @router.post("/setup/model-test")

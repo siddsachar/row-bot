@@ -672,7 +672,10 @@ export default function ModelsPanel({
       icon: <RefreshCw size={16} aria-hidden />,
       onSelect: () => void reload().catch(() => undefined),
     },
-    ...(ollamaRunning === false && openExternal
+    // Only on Row-Bot's own computer: elsewhere the download lands on the phone.
+    ...(ollamaRunning === false &&
+    localRuntime?.on_this_computer &&
+    openExternal
       ? [
           {
             label: 'Get models for this computer…',
