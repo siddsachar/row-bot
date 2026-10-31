@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
+
 from PIL import Image
 
 from row_bot import video_studio
@@ -62,18 +64,17 @@ def test_framed_footage_sits_on_the_brand_backdrop_with_rounded_corners_and_full
     assert full.size == (640, 360) and full.getpixel((2, 2)) == (250, 250, 250), "edge to edge"
 
 
-@pytest.fixture
-def clip(tmp_path):
-    av = pytest.importorskip("av")
-    try:
-        av.codec.Codec("libx264", "w")
-    except Exception:
-        pytest.skip("No H.264 encoder in this copy")
-    path = tmp_path / "rec.mp4"
+def _video(path, *, sound: bool) -> Path:
+    """Three seconds at 10 frames a second; the right half turns red from the second second; with ``sound``, a
+    tone throughout."""
+    import av
+    import numpy
+
     with av.open(str(path), "w") as writer:
         stream = writer.add_stream("libx264", rate=10)
         stream.width, stream.height, stream.pix_fmt = 320, 180, "yuv420p"
-        for index in range(30):  # Three seconds; the right half turns red from the second second.
+        audio = writer.add_stream("aac", rate=48000, layout="stereo") if sound else None
+        for index in range(30):
             picture = Image.new("RGB", (320, 180), (240, 240, 240))
             if index >= 10:
                 picture.paste((220, 20, 20), (160, 0, 320, 180))
@@ -83,44 +84,87 @@ def clip(tmp_path):
                 writer.mux(packet)
         for packet in stream.encode(None):
             writer.mux(packet)
+        if audio is not None:
+            tone = (0.3 * numpy.sin(numpy.arange(48000 * 3) * 2 * numpy.pi * 440 / 48000)).astype("float32")
+            for at in range(0, tone.size, 1024):
+                piece = av.AudioFrame.from_ndarray(numpy.stack([tone[at:at + 1024]] * 2), format="fltp",
+                                                   layout="stereo")
+                piece.sample_rate, piece.pts = 48000, at
+                for packet in audio.encode(piece):
+                    writer.mux(packet)
+            for packet in audio.encode(None):
+                writer.mux(packet)
     return path
 
 
-def test_a_scene_is_drawn_through_its_camera_into_a_clip_of_its_length(clip, tmp_path):
+@pytest.fixture
+def clip(tmp_path):
+    av = pytest.importorskip("av")
+    try:
+        av.codec.Codec("libx264", "w")
+    except Exception:
+        pytest.skip("No H.264 encoder in this copy")
+    return _video(tmp_path / "rec.mp4", sound=False)
+
+
+def test_scenes_are_drawn_one_after_another_into_one_clip_through_their_cameras(clip, tmp_path):
     import av
 
-    keys = ((0.0, 0.5, 0.5, 1.0), (0.3, 0.9, 0.5, 2.0))
-    seconds, sound = video_studio.render_scene(clip, 1.0, 2.5, keys, Frame((320, 180), "full"),
-                                               tmp_path / "scene.mp4", fps=10)
+    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10)
+    zoomed = studio.add(clip, 1.0, 2.5, ((0.0, 0.5, 0.5, 1.0), (0.3, 0.9, 0.5, 2.0)), Frame((320, 180), "full"))
+    plain = studio.add(clip, 0.0, 1.0, (), Frame((320, 180), "full"))
+    studio.close()
 
-    assert (seconds, sound) == (1.5, False)
-    with av.open(str(tmp_path / "scene.mp4")) as reader:
+    assert (zoomed, plain) == ((0.0, 1.5), (1.5, 1.0)), "where each starts in the clip, and how long"
+    with av.open(str(tmp_path / "scenes.mp4")) as reader:
         frames = [frame.to_image() for frame in reader.decode(video=0)]
-    assert len(frames) == 15 and frames[0].size == (320, 180)
+    assert len(frames) == 25 and frames[0].size == (320, 180)
     assert frames[0].getpixel((240, 90))[1] < 80 < frames[0].getpixel((40, 90))[1], \
         "from one second in: the red half is there, the whole picture in view"
-    assert frames[-1].getpixel((40, 90))[1] < 80, "zoomed in on the right: red fills the frame"
+    assert frames[14].getpixel((40, 90))[1] < 80, "zoomed in on the right: red fills the frame"
+    assert frames[15].getpixel((240, 90))[1] > 200, "the next scene from the start: before the red"
+    stopping = video_studio.Studio(tmp_path / "stop.mp4", (320, 180), fps=10)
     with pytest.raises(Exception, match="Stopped"):
-        video_studio.render_scene(clip, 0.0, 3.0, (), Frame((320, 180), "full"), tmp_path / "stop.mp4",
-                                  fps=10, stopped=lambda: True)
+        stopping.add(clip, 0.0, 3.0, (), Frame((320, 180), "full"), stopped=lambda: True)
+    stopping.close()
 
 
-def test_a_projects_recorded_scenes_reach_the_edit_as_drawn_clips_and_title_cards_stay_cards(clip, tmp_path):
+def test_a_scenes_sound_stays_with_its_pictures_and_a_silent_scene_is_silence(clip, tmp_path):
+    import av
+    import numpy
+
+    noisy = _video(tmp_path / "talk.mp4", sound=True)
+    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10, sound=True)
+    studio.add(noisy, 0.5, 1.5, (), Frame((320, 180), "full"))
+    studio.add(clip, 0.0, 1.0, (), Frame((320, 180), "full"))
+    studio.close()
+
+    with av.open(str(tmp_path / "scenes.mp4")) as reader:
+        sound = numpy.concatenate([frame.to_ndarray()[0] for frame in reader.decode(audio=0)])
+    assert abs(sound.size / 48000 - 2.0) < 0.1, "as long as the pictures"
+    assert numpy.abs(sound[4800:43200]).mean() > 0.1, "the first scene's tone"
+    assert numpy.abs(sound[52800:91200]).max() < 0.01, "silence under the scene that has none"
+
+
+def test_a_projects_recorded_scenes_reach_the_edit_as_one_drawn_clip_however_many(clip, tmp_path):
+    """5.3.2: a clip per scene passed the edit's ten inputs, and an 11-scene video failed to make."""
     from row_bot.video_editing import InputVideo, Look, SceneCut, Step, VideoInfo, build_plan
 
     source = InputVideo(path=str(clip), info=VideoInfo(duration=3.0, width=320, height=180, fps=10.0,
                                                        has_audio=False))
     step = Step(op="scenes", aspect="16:9", look=Look(framing="framed"), scenes=[
         SceneCut(input=None, end=2, card="Hello"),
-        SceneCut(input=0, start=0.5, end=2.0, camera=((0.0, 0.5, 0.5, 1.0), (0.3, 0.9, 0.5, 2.0))),
+        *[SceneCut(input=0, start=0.2 * index, end=0.2 * index + 0.2,
+                   camera=((0.0, 0.5, 0.5, 1.0), (0.1, 0.9, 0.5, 2.0))) for index in range(12)],
     ])
     inputs, drawn = video_studio.prepare([source], step, tmp_path)
 
-    assert [item.path for item in inputs] == ["scene-01.mp4"], "the recording itself isn't read again"
-    assert (inputs[0].info.width, inputs[0].info.height, inputs[0].info.duration) == (1920, 1080, 1.5)
-    card, scene = drawn.scenes
-    assert card.input is None and (scene.input, scene.start, scene.end, scene.camera) == (0, 0.0, 1.5, ())
-    assert build_plan(inputs, [drawn], "output.mp4").duration == 3.5
+    assert [item.path for item in inputs] == ["scenes.mp4"], "the recording itself isn't read again"
+    assert (inputs[0].info.width, inputs[0].info.height) == (1920, 1080)
+    card, *scenes = drawn.scenes
+    assert card.input is None and all(scene.input == 0 and scene.camera == () for scene in scenes)
+    assert [scene.start for scene in scenes] == pytest.approx([0.2 * index for index in range(12)])
+    assert build_plan(inputs, [drawn], "output.mp4").duration == pytest.approx(2 + 2.4)
 
 
 def test_a_phones_picture_is_set_in_a_device_on_the_backdrop():
