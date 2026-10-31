@@ -17,7 +17,7 @@ import pytest
 from row_bot import profile_restore
 from row_bot.application import profile_backup as backup
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 KEY = "sk-live-SYNTHETIC-DO-NOT-ARCHIVE-1234567890"
 WEBHOOK = "webhook-SYNTHETIC-secret-abcdef"
