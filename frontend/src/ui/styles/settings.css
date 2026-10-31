@@ -2845,34 +2845,77 @@
 .subscription-device-code small {
   color: var(--text-muted);
 }
-/* Claude (your Claude plan): Claude Code's state and the command to run (N1). */
+/* Claude (your Claude plan): its state, the install from Anthropic and
+   Claude's own sign-in in a small terminal (N1, U11, U12). */
 .claude-plan-state {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 4px 8px;
   margin: 0;
   color: var(--text-secondary);
   font-weight: var(--weight-medium);
 }
-.claude-plan-command {
+.claude-plan-state .status-indicator-label {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+/* The plan and Claude Code's version, quietly under "Claude plan connected". */
+.claude-plan-version {
+  flex-basis: 100%;
+  padding-left: 14px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  font-weight: var(--weight-regular);
+}
+.claude-plan-progress {
+  display: grid;
+  gap: 4px;
+}
+.claude-plan-progress progress {
+  width: 100%;
+}
+.claude-plan-progress small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.claude-sign-in {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
   min-width: 0;
-  max-width: 100%;
-  padding: 4px 4px 4px 12px;
+  overflow: hidden;
   border: 1px solid var(--border-hairline);
   border-radius: 8px;
+  background: var(--code-background);
+}
+.claude-sign-in-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px 8px 12px;
+  border-bottom: 1px solid var(--border-hairline);
   background: var(--surface);
 }
-.claude-plan-command code {
+.claude-sign-in-guide {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
+  margin: 0;
   color: var(--text-primary);
-  font: var(--weight-medium) var(--text-14) / 1.4 var(--font-mono);
-  user-select: all;
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.claude-sign-in-header .icon-action {
+  flex: none;
+  color: var(--text-muted);
+}
+.claude-sign-in-screen {
+  height: 260px;
+}
+@media (max-width: 640px) {
+  .claude-sign-in-screen {
+    height: 220px;
+  }
 }
 .claude-plan-setup .settings-help.claude-plan-note {
   margin: 0;

@@ -293,7 +293,7 @@ it('never traps the person: Set up later and the custom endpoint link', () => {
   expect(location()).toBe('/');
 });
 
-it('Claude in the first run says what Claude Code says and the command to run, never a Row-Bot sign-in', async () => {
+it('Claude in the first run offers Use my Claude plan: Claude’s own sign-in, never a Row-Bot one', async () => {
   mock.controller.liveProviderStatus.mockResolvedValue({
     schema_version: 1,
     providers: [
@@ -318,15 +318,14 @@ it('Claude in the first run says what Claude Code says and the command to run, n
   fireEvent.click(await screen.findByRole('radio', { name: 'Claude' }));
   expect(
     await screen.findByText(
-      'Runs Claude Code on this computer; uses your Claude plan’s limits.',
+      'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.',
     ),
   ).toBeVisible();
-  expect(screen.getByText('claude auth login')).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Use my Claude plan' }),
+  ).toBeVisible();
+  expect(screen.queryByText(/claude auth login/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
-  await vi.waitFor(() =>
-    expect(mock.controller.liveProviderStatus).toHaveBeenCalledTimes(2),
-  );
 });
 
 it("lists a connected provider's usable chat models from the assessed catalog", async () => {

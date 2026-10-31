@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "description": "Install Claude Code from Anthropic (H14); ``update`` reinstalls the newest over one already there.",
+  "properties": {
+    "update": {
+      "default": false,
+      "title": "Update",
+      "type": "boolean"
+    }
+  },
+  "title": "ClaudeCodeInstallRequest",
+  "type": "object"
+}

@@ -35,6 +35,8 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | --- | --- | --- | --- |
 | The models you choose | That provider (OpenAI, Anthropic, Google, OpenRouter, Ollama on this computer, and others) | When a chat, workflow or background job uses the model | Your prompts, files you attach, and tool results for that request |
 | Claude with your Claude plan | Anthropic, through your own Claude Code | When a chat uses a Claude plan model | The request. Row-Bot runs Claude Code with its telemetry, error reports and auto-updates turned off |
+| Installing Claude Code | Anthropic's release location (`downloads.claude.ai`), then Claude Code's own installer | Only when you choose **Use my Claude plan** without Claude Code, or **Update Claude Code** | Nothing personal; checked against Anthropic's published checksum before it runs |
+| Claude's sign-in | Anthropic, through Claude Code's own sign-in | When you sign in to your Claude plan | What you enter in Claude's sign-in. Row-Bot only carries it to Claude Code and keeps none of it |
 | Web search, reading pages, Row-Bot's browser | The search service and the sites involved | When Row-Bot looks something up or browses for you | The search words or the page request |
 | Apps and accounts (GitHub, Google, Outlook through Microsoft Graph, X, MCP servers, plugins) | That service | When a tool of the app runs | What that action needs |
 | Messaging channels | Telegram, Discord, Slack, WhatsApp or your SMS provider | When you or a workflow send through them | The message |

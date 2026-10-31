@@ -727,6 +727,19 @@ _STATUS.update(
 )
 # "Enable in chat" (B130): the MCP tool isn't registered in this process.
 _STATUS["native_mcp_unavailable"] = 409
+# The Claude plan (H14, H15): Claude Code to install, or Claude's own sign-in.
+_STATUS.update(
+    dict.fromkeys(
+        (
+            "claude_code_missing",
+            "claude_code_present",
+            "claude_code_installing",
+            "claude_sign_in_ended",
+            "claude_sign_in_unavailable",
+        ),
+        409,
+    )
+)
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(
@@ -1421,6 +1434,10 @@ def create_router(
                 terminal_clients.clear()
             for terminal_client in closing_terminals:
                 terminal_client.disconnect()
+            # Claude's sign-in never outlives the server (never opened: never loaded).
+            claude_sign_in = sys.modules.get("row_bot.providers.claude_sign_in")
+            if claude_sign_in is not None:
+                await asyncio.to_thread(claude_sign_in.close_claude_sign_ins)
             if not await asyncio.to_thread(runtime_installations.close):
                 logger.warning(
                     "Managed runtime shutdown has admitted work still stopping"
@@ -7119,6 +7136,122 @@ def create_router(
                 else "Runtime test failed",
             },
         )
+
+    # ── The Claude plan: Claude Code on request (H14) and Claude's own sign-in (H15) ──
+
+    @router.get("/settings/providers/claude-plan/install")
+    async def claude_code_install_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.providers.claude_install import claude_code_installer
+
+        state = (await call(claude_code_installer().state)).to_json()
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.ClaudeCodeInstallState, state)
+
+    @router.post("/settings/providers/claude-plan/install")
+    async def claude_code_install(request: Request) -> JSONResponse:
+        """Install the newest Claude Code from Anthropic, only when the person asks (never at start-up)."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ClaudeCodeInstallRequest, 1024)
+        from row_bot.providers.claude_install import claude_code_installer
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+        from row_bot.providers.claude_subscription import find_claude_code
+
+        await call(dispatch_validation(request, current))
+        if not body.update and await call(find_claude_code):
+            raise ProtocolError("claude_code_present", 409)
+        # A sign-in left open (a closed tab, another device) never holds an install or update back.
+        await call(claude_sign_ins().close_running)
+        state = (await call(claude_code_installer().start)).to_json()
+        return await respond(request, dto.ClaudeCodeInstallState, state)
+
+    def claude_sign_in_problem(exc: Exception) -> ProtocolError:
+        code = getattr(exc, "code", "")
+        if code == "not_found":
+            return ProtocolError("not_found", 404)
+        if code == "sign_in_ended":
+            return ProtocolError("claude_sign_in_ended", 409)
+        if code in {"claude_code_missing", "claude_code_installing"}:
+            return ProtocolError(code, 409)
+        if isinstance(exc, ValueError):
+            return ProtocolError("invalid_command", 422)
+        return ProtocolError("claude_sign_in_unavailable", 409)
+
+    @router.post("/settings/providers/claude-plan/sign-in")
+    async def claude_sign_in_open(request: Request) -> JSONResponse:
+        """Start Claude's own sign-in: ``claude auth login`` and nothing else, for this device session."""
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        body = await _body(request, dto.ClaudeSignInOpenRequest, 1024)
+        from row_bot.providers.claude_install import claude_code_installer
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        await call(dispatch_validation(request, current))
+        try:
+            sign_in = await call(
+                claude_sign_ins().open,
+                current.id,
+                cols=body.cols,
+                rows=body.rows,
+                busy=claude_code_installer().running,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not getattr(exc, "code", ""):
+                logger.info("Claude's sign-in didn't start", exc_info=True)
+            raise claude_sign_in_problem(exc) from None
+        return await respond(
+            request,
+            dto.ClaudeSignInView,
+            {"sign_in_id": sign_in.id, "browser_opens": on_this_computer(context)},
+        )
+
+    @router.get("/settings/providers/claude-plan/sign-in/{sign_in_id}")
+    async def claude_sign_in_read(
+        sign_in_id: str, request: Request, cursor: int = 0
+    ) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            value = await call(claude_sign_ins().read, sign_in_id, current.id, cursor)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.ClaudeSignInOutput, value)
+
+    @router.post("/settings/providers/claude-plan/sign-in/{sign_in_id}/input")
+    async def claude_sign_in_input(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        body = await _body(request, dto.NativeTerminalInput, 32768)
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().input, sign_in_id, current.id, body.data)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/settings/providers/claude-plan/sign-in/{sign_in_id}/resize")
+    async def claude_sign_in_resize(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        body = await _body(request, dto.NativeTerminalResize, 4096)
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().resize, sign_in_id, current.id, body.cols, body.rows)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.delete("/settings/providers/claude-plan/sign-in/{sign_in_id}")
+    async def claude_sign_in_close(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().close, sign_in_id, current.id)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalClosed, {"disconnected": True})
 
     @router.post("/settings/providers/commands")
     async def provider_mutation(request: Request) -> JSONResponse:

@@ -2393,6 +2393,51 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.testLiveProviderRuntime(provider, signal);
     });
+  /** Claude Code's install from Anthropic (H14): its progress. */
+  claudeCodeInstall = (signal?: AbortSignal) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.claudeCodeInstall)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.claudeCodeInstall(current);
+    }, signal);
+  /** Install (or, with `update`, reinstall) the newest Claude Code. */
+  installClaudeCode = (update: boolean) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.installClaudeCode)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.installClaudeCode(update, signal);
+    });
+  /** Claude's own sign-in (H15). */
+  openClaudeSignIn = (cols: number, rows: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.openClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.openClaudeSignIn(cols, rows, signal);
+    });
+  readClaudeSignIn = (signIn: string, cursor: number, signal?: AbortSignal) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.readClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.readClaudeSignIn(signIn, cursor, current);
+    }, signal);
+  writeClaudeSignIn = (signIn: string, data: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.writeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.writeClaudeSignIn(signIn, data, signal);
+    });
+  resizeClaudeSignIn = (signIn: string, cols: number, rows: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.resizeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.resizeClaudeSignIn(signIn, cols, rows, signal);
+    });
+  closeClaudeSignIn = (signIn: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.closeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.closeClaudeSignIn(signIn, signal);
+    });
   integrationSources = (signal?: AbortSignal) =>
     this.query(() => this.transport.integrationSources?.(signal));
   updateIntegrationSource = (source: string, signal?: AbortSignal) =>

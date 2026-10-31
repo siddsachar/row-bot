@@ -121,6 +121,101 @@ def s9_claude_plan(state: str, set_up_again: bool = False, x_fixture_token: str 
     update_provider_config(_update)
     _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES[state]
     _claude_plan.forget_claude_plan_status()
+    # Each spec starts with no sign-in open and an install that would work.
+    _claude_sign_in._sign_ins.close_running()
+    _claude_install_fixture["outcome"] = "ok"
+    return {"ready": True}
+
+
+# "Use my Claude plan" (H14, H15), synthetic too: the install never downloads (a spec picks how it ends with
+# /__a5_fixture/claude-install/{outcome}; "hold" keeps it at 45%), and Claude's sign-in panel runs a stand-in
+# for `claude auth login` in process: Claude's link and paste prompt; FIXTURE-CODE signs in, anything else is
+# refused as Claude refuses it. Nothing starts a program or reaches Anthropic.
+import threading as _threading  # noqa: E402
+
+from row_bot.providers import claude_install as _claude_install  # noqa: E402
+from row_bot.providers import claude_sign_in as _claude_sign_in  # noqa: E402
+
+_claude_install_fixture = {"outcome": "ok"}
+_CLAUDE_LOGIN_SCREEN = (
+    "\r\n Claude Code can be used with your Claude subscription or billed based on API usage through your"
+    " Console account.\r\n\r\n Browser didn't open? Use the url below to sign in:\r\n\r\n"
+    "https://claude.ai/oauth/authorize?code=true&client_id=fixture&response_type=code&state=fixture\r\n\r\n"
+    " Paste code here if prompted > "
+)
+
+
+class _FixtureInstaller(_claude_install.ClaudeCodeInstaller):
+    def install(self) -> str:
+        self._set(step="download", received=45 * 1024 * 1024, total=100 * 1024 * 1024)
+        while _claude_install_fixture["outcome"] == "hold":
+            _threading.Event().wait(0.1)
+        _threading.Event().wait(0.6)
+        outcome = _claude_install_fixture["outcome"]
+        if outcome != "ok":
+            raise _claude_install.InstallFailed(outcome)  # type: ignore[arg-type]
+        _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES["signed_out"]
+        _claude_plan.forget_claude_plan_status()
+        return "2.1.300"
+
+
+class _FixtureLogin:
+    def __init__(self, _argv, **_options) -> None:
+        self.output = [_CLAUDE_LOGIN_SCREEN]
+        self.line = ""
+        self.alive = True
+
+    def read(self) -> str:
+        text = "".join(self.output)
+        self.output.clear()
+        return text
+
+    def write(self, data: str) -> None:
+        self.output.append(data)
+        self.line += data
+        if "\r" not in self.line:
+            return
+        code, self.line = self.line.split("\r", 1)[0], ""
+        if code.strip() == "FIXTURE-CODE":
+            _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES["ready"]
+            _claude_plan.forget_claude_plan_status()
+            self.output.append("\r\n Login successful. Press Enter to continue\r\n")
+            self.alive = False
+        else:
+            self.output.append("\r\n OAuth error: Invalid code\r\n\r\n Paste code here if prompted > ")
+
+    def resize(self, cols: int, rows: int) -> None:
+        pass
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def close(self) -> None:
+        self.alive = False
+
+
+def _fixture_claude_program() -> str:
+    """A synthetic program name (never started): the fixture's state says whether Claude Code is there."""
+    return "" if _claude_plan_fixture["status"].state == "not_installed" else "claude"
+
+
+_claude_install._installer = _FixtureInstaller()
+_claude_sign_in._sign_ins = _claude_sign_in.ClaudeSignIns(
+    pty_factory=_FixtureLogin, status=lambda: _claude_plan_fixture["status"])
+_claude_sign_in.find_claude_code = _fixture_claude_program
+_claude_plan.find_claude_code = _fixture_claude_program
+_CLAUDE_INSTALL_OUTCOMES = {"ok", "hold", "no_internet", "download_failed", "checksum_mismatch", "disk_full",
+                            "unsupported_platform", "install_failed"}
+
+
+@app.post("/__a5_fixture/claude-install/{outcome}")
+def a5_claude_install(outcome: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if outcome not in _CLAUDE_INSTALL_OUTCOMES:
+        raise HTTPException(status_code=404, detail="Unknown install outcome")
+    _claude_install_fixture["outcome"] = outcome
+    if outcome != "hold" and not _claude_install._installer.running():
+        _claude_install._installer = _FixtureInstaller()
     return {"ready": True}
 
 

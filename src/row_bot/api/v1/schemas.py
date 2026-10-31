@@ -5968,6 +5968,26 @@ class ClaudePlanStatus(WireModel):
     detail: str = Field(max_length=256)
     # The old Claude sign-in had this profile set up: Settings says to set it up again.
     set_up_again: bool
+    # Signed out after Claude had worked here: Claude signed the person out (U11).
+    signed_in_before: bool = False
+
+
+class ClaudeCodeInstallRequest(WireModel):
+    """Install Claude Code from Anthropic (H14); ``update`` reinstalls the newest over one already there."""
+
+    update: bool = False
+
+
+class ClaudeCodeInstallState(WireModel):
+    """Installing Claude Code: progress and a plain reason, never a path, a URL or the installer's output."""
+
+    state: Literal["idle", "running", "done", "failed"]
+    step: Literal["", "download", "check", "install"]
+    received: int = Field(ge=0)
+    total: int = Field(ge=0)
+    version: str = Field(max_length=40)
+    reason: Literal["", "no_internet", "download_failed", "checksum_mismatch", "disk_full",
+                    "unsupported_platform", "install_failed"]
 
 
 class ProviderLiveCard(WireModel):
@@ -8832,6 +8852,32 @@ class NativeTerminalOutput(WireModel):
 
 class NativeTerminalClosed(WireModel):
     disconnected: Literal[True] = True
+
+
+class ClaudeSignInOpenRequest(WireModel):
+    """Open Claude's own sign-in (H15). It names no program: the server runs only ``claude auth login``."""
+
+    cols: int = Field(ge=20, le=500)
+    rows: int = Field(ge=5, le=200)
+
+
+class ClaudeSignInView(WireModel):
+    sign_in_id: OpaqueId
+    # The person is at the computer Claude runs on (the desktop app), so the browser Claude opens is theirs.
+    browser_opens: bool
+
+
+class ClaudeSignInOutput(WireModel):
+    """What Claude's sign-in printed since ``cursor``, carried as it is; then how it ended."""
+
+    cursor: int = Field(ge=0)
+    latest: int = Field(ge=0)
+    truncated: bool
+    frames: list[NativeTerminalFrame] = Field(max_length=16)
+    status: Literal["running", "ended"]
+    ended: Literal["exited", "closed", "idle", "replaced"] | None = None
+    # After Claude Code exits: what ``claude auth status`` says now.
+    plan: ClaudePlanStatus | None = None
 
 
 class NativeTerminalChanged(WireModel):
