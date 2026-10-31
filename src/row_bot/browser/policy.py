@@ -4,6 +4,9 @@ Paying, buying, booking with a charge, sending, posting, deleting and changing
 account settings ask first: under Ask the person decides; under Auto the
 reviewer may approve what clearly matches the person's request; Hands-off
 runs it. Everything else on a page just runs, as a person would click it.
+Sending on one of Row-Bot's own sandboxes runs too: it stays in that sandbox's
+made-up data on this computer, and the sandbox's own Row-Bot asks before
+anything real. Paying, deleting, account changes and uploads there still ask.
 
 An action is classified by the control's own words (its accessible name and
 role), the form around it (card fields, a search form) and the page (its
@@ -206,7 +209,10 @@ def classify(
     from row_bot import sandboxes
 
     named = sandboxes.name_at(page.url)
-    return replace(found, sandbox=named) if named else found
+    if not named:
+        return found
+    # Sending there (talking to its Row-Bot, or a made-up customer's reply) reaches no one.
+    return None if found.kind == "send" else replace(found, sandbox=named)
 
 
 def _consequence(action: str, control: str, role: str, page: PageFacts, site: str) -> Consequence | None:
