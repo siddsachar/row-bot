@@ -956,6 +956,8 @@ _STATUS.update(
     {
         "invalid_model_selection": 422,
         "model_configuration_unavailable": 409,
+        # A send whose model isn't ready (signed out, not running): unlisted, it read "Part of Row-Bot isn't responding".
+        "model_configuration_required": 409,
         "model_settings_unavailable": 503,
         "command_metadata_unavailable": 503,
         "provider_settings_unavailable": 503,

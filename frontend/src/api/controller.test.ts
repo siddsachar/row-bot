@@ -184,7 +184,7 @@ describe('accepted protocol recordings', () => {
 it.each([
   ['approval_expired', 'expired'],
   ['approval_already_resolved', 'already answered'],
-  ['model_configuration_required', 'Choose a model before sending'],
+  ['model_configuration_required', "This model isn't ready"],
 ])(
   'offers explicit review for %s without exposing server details',
   (code, text) => {

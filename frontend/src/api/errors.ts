@@ -859,7 +859,7 @@ const CATALOG: Record<string, Entry> = {
     'review',
   ],
   model_configuration_required: [
-    'Choose a model before sending. Your message is kept.',
+    "This model isn't ready, so nothing was sent. Choose another model, or set this one up in Settings › Providers. Your message is kept.",
     'review',
     CHOOSE_MODEL,
   ],

@@ -584,6 +584,32 @@ class ProviderSignInRequired(ValueError):
         self.label = label
 
 
+def require_signed_in(provider_id: str) -> None:
+    """Raise a sign-in provider's own reason it can't take a call (signed out, Claude Code missing); else nothing."""
+    if provider_id == "codex":
+        from row_bot.providers.codex import codex_runtime_available
+
+        if not codex_runtime_available():
+            raise ProviderSignInRequired(
+                "codex", "ChatGPT",
+                "Codex subscription runtime needs an in-app ChatGPT login with runnable OAuth tokens. "
+                "Connect ChatGPT in Settings -> Providers, then try the Codex model again."
+            )
+    elif provider_id == "claude_subscription":
+        from row_bot.providers.claude_subscription import require_claude_plan
+
+        require_claude_plan()
+    elif provider_id == "xai_oauth":
+        from row_bot.providers.xai_oauth import xai_oauth_runtime_available
+
+        if not xai_oauth_runtime_available():
+            raise ProviderSignInRequired(
+                "xai_oauth", "xAI Grok",
+                "xAI Grok runtime needs Row-Bot-owned OAuth tokens. "
+                "Connect xAI Grok in Settings -> Providers, then try the provider-qualified model again."
+            )
+
+
 def provider_status(provider_id: str, *, refresh_tokens: bool = True) -> dict:
     if provider_id == "codex":
         from row_bot.providers.codex import check_codex_token_health
@@ -948,32 +974,19 @@ def _create_chat_model(
             reasoning_plan=reasoning_plan,
         )
     if provider == "codex":
-        from row_bot.providers.codex import codex_runtime_available
         from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
-        if not codex_runtime_available():
-            raise ProviderSignInRequired(
-                "codex", "ChatGPT",
-                "Codex subscription runtime needs an in-app ChatGPT login with runnable OAuth tokens. "
-                "Connect ChatGPT in Settings -> Providers, then try the Codex model again."
-            )
+        require_signed_in(provider)
         return ChatCodexResponses(model_name=model_name, reasoning_plan=reasoning_plan)
     if provider == "claude_subscription":
-        from row_bot.providers.claude_subscription import require_claude_plan
         from row_bot.providers.transports.claude_plan_cli import ChatClaudePlan
 
-        require_claude_plan()
+        require_signed_in(provider)
         return ChatClaudePlan(model_name=model_name, reasoning_plan=reasoning_plan)
     if provider == "xai_oauth":
         from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
-        from row_bot.providers.xai_oauth import xai_oauth_runtime_available
 
-        if not xai_oauth_runtime_available():
-            raise ProviderSignInRequired(
-                "xai_oauth", "xAI Grok",
-                "xAI Grok runtime needs Row-Bot-owned OAuth tokens. "
-                "Connect xAI Grok in Settings -> Providers, then try the provider-qualified model again."
-            )
+        require_signed_in(provider)
         return ChatXAIOAuthResponses(model_name=model_name, reasoning_plan=reasoning_plan)
     if provider == "openai":
         from row_bot.providers.transports.cancellable_http import cancellable_http_client
