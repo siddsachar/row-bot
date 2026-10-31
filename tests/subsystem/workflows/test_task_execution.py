@@ -48,7 +48,7 @@ def start(runtime, reviewed=None, **overrides):
 def test_review_does_not_run_and_its_policy_is_stable(runtime):
     first, second = review(runtime), review(runtime)
     assert first == second
-    assert (first.approval_mode, first.steps_total, first.conversation_id) == ("block", 1, runtime[2])
+    assert (first.approval_mode, first.steps_total, first.conversation_id) == ("auto", 1, runtime[2])
     assert runtime[0].get_run_history(runtime[1]) == []
     assert not runtime[3]
     assert "Original prompt" not in json.dumps(asdict(first))

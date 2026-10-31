@@ -3,7 +3,8 @@
 An action that needs approval is decided by the level the person chose:
 
 - **Block** (``block``): refused.
-- **Ask** (``approve``, the default): the person approves each one.
+- **Ask** (``approve``): the person approves each one. It is also what an unknown
+  or missing stored level means.
 - **Auto** (``auto``): a reviewer model approves what clearly matches the person's
   request and asks the person about everything else (``approval_review``).
 - **Hands-off** (``full``): approved without asking, and still recorded.
@@ -16,6 +17,10 @@ there is asked of the person, so a missed call site asks rather than runs.
 Legacy values (``allow_all``, ``auto_edit``, ``agent_run``…) are the old
 "Auto" and map to reviewed ``auto``. Nothing maps to ``full``: a person turns it
 on, never a migration.
+
+A new conversation, workflow or Developer workspace starts at the level the person
+last chose for a conversation, Auto until they choose one
+(``full_autonomy.new_level``).
 """
 
 from __future__ import annotations
@@ -74,7 +79,7 @@ _LEGACY_APPROVAL_ALIASES: dict[str, ApprovalMode] = {
 
 
 def starting_level(environ: Mapping[str, str] | None = None) -> ApprovalMode:
-    """A new chat's level: Ask. In a sandbox, the level of the chat that made it (Block, Ask or Auto), so a
+    """The fallback level: Ask. In a sandbox, the level of the chat that made it (Block, Ask or Auto), so a
     demo filmed there never waits on an approval nobody can see."""
     environ = os.environ if environ is None else environ
     if environ.get("ROW_BOT_SANDBOX") == "1":
