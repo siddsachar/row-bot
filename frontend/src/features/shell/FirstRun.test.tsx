@@ -196,6 +196,27 @@ it('keeps the person in Setup with the reason when the quick test fails', async 
   expect(actions.finish).toHaveBeenCalledTimes(1);
 });
 
+it('says a window that is not signed in can only look, not that the model failed', async () => {
+  mock.controller.localRuntime.mockResolvedValue(
+    runtime('running', ['qwen3.8:27b']),
+  );
+  mock.controller.testChosenModel.mockRejectedValueOnce({
+    code: 'sign_in_required',
+    status: 403,
+  });
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /qwen3\.8:27b/ }));
+  expect(
+    await screen.findByRole('heading', { name: 'This window can only look' }),
+  ).toBeVisible();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    "This window isn't signed in",
+  );
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  expect(location()).toBe('/setup');
+});
+
 it('offers an import only when another assistant was found', async () => {
   mock.controller.localRuntime.mockResolvedValue(
     runtime('running', ['qwen3.8:27b']),
