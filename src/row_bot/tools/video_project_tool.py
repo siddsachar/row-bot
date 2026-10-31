@@ -193,8 +193,9 @@ def langchain_tool():
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
             "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
-            "saved to this chat. Read the checks in the result: never say it's done until they pass. undo goes "
-            "back one version; export makes the same version in another shape or a GIF. For one quick edit use "
+            "saved to this chat. Read the checks and look at its review sheet: never say it's done until both are "
+            "right. undo goes back one version; export makes the same version in another shape or a GIF. For one "
+            "quick edit use "
             "edit_video. A title or end card is a scene without a video: never make background videos or other "
             "working files in the person's workspace for it."
         ),

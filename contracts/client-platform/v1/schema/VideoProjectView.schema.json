@@ -537,6 +537,12 @@
       "title": "Project Id",
       "type": "string"
     },
+    "review_sheet": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Review Sheet",
+      "type": "string"
+    },
     "scenes": {
       "items": {
         "$ref": "#/$defs/VideoScene"

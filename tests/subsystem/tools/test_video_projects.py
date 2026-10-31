@@ -463,3 +463,21 @@ def test_making_a_narrated_video_without_rowbots_voice_asks_for_it_first(studio,
     assert said.startswith("The person didn't allow downloading Row-Bot's voice")
     assert asked == ["Narrating this video needs Row-Bot's voice (Kokoro, about 206 MB) from GitHub. Download it now?"]
     assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
+
+
+def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_its_done(studio):
+    """5.3.2: Row-Bot checks what it made, as a viewer sees it, before it says the video is finished."""
+    from row_bot import video_edits, video_projects
+
+    assert video_edits.review_times([0.0, 5.0, 6.0]) == [(1, 1.0), (1, 4.4), (2, 5.5)], \
+        "a second into each scene and near its end; a short scene once"
+    assert len(video_edits.review_times([float(at) for at in range(0, 200, 5)])) == video_edits.REVIEW_TILES
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    made = video_edits.get(_wait(project.project_id, 1).edit_id)
+    assert "Review sheet" not in video_projects.summary(video_projects.get(project.project_id)), "not before it's made"
+    video_edits._set(made, status="saved", sheet="Launch demo v1 review.jpg")
+
+    words = video_projects.summary(video_projects.get(project.project_id))
+    assert "Review sheet: Launch demo v1 review.jpg" in words and "analyze_image before saying the video is done" in words
+    assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"

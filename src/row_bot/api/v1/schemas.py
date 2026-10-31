@@ -5385,6 +5385,8 @@ class VideoProjectView(WireModel):
     # Its own voice and speed for its lines ("" and 0: the brand kit's).
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
+    review_sheet: str = Field(default="", max_length=200)
 
 
 class VideoProjectChange(WireModel):

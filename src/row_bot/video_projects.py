@@ -764,6 +764,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "brand": version.brand,
         "voice": version.voice,
         "voice_speed": version.voice_speed,
+        "review_sheet": edit.sheet if edit is not None and _status(version, edit) == "made" else "",
         "exports": [{"shape": shape, "edit": video_edits.view(found)} for shape in EXPORTS
                     if (found := video_edits.get(version.exports.get(shape, ""))) is not None],
     }
@@ -775,6 +776,14 @@ def _status(version: Version, edit: Any) -> str:
     if edit is None:
         return "rendering" if version.status == "rendering" and not version.edit_id else "draft"
     return {"saved": "made", "failed": "failed", "stopped": "stopped"}.get(edit.status, "rendering")
+
+
+# What Row-Bot looks for in a made video before it says it's done (5.3.2): the checks read sound and stillness,
+# the sheet shows what a viewer sees.
+REVIEW = ("Review sheet: {sheet} (each scene a second in and near its end). Look at it with analyze_image before "
+          "saying the video is done, and fix what's off, then make it again: is what's being done in view and big "
+          "enough to read; does each zoom land on it; do titles or captions cover it; is anything cut off, black or "
+          "broken; does each scene show what its line says; is it mostly the app, not title cards.")
 
 
 def summary(project: Project, number: int | None = None) -> str:
@@ -802,4 +811,6 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["checks"]:
         verdict = "passed" if data["checks_passed"] else "NOT passed: fix these before saying it's done"
         lines.append(f"Checks {verdict}:\n" + "\n".join(f"- {line}" for line in data["checks"]))
+    if data["review_sheet"]:
+        lines.append(REVIEW.format(sheet=data["review_sheet"]))
     return "\n".join(lines)
