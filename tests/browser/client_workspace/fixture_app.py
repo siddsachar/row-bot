@@ -4621,9 +4621,14 @@ app.add_middleware(_A7Place)
 # whose use came near the limit and that never shut down: Home and Monitor show the notice.
 from row_bot import server_memory as _server_memory  # noqa: E402
 
+# The fake folder, made once. Never the server's own CGROUP_ROOT: on Linux that is the real
+# /sys/fs/cgroup, which the fixture must not write.
+_a8_cgroup: Path | None = None
+
 
 @app.post("/__a8_fixture/memory/{gb}")
 def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
+    global _a8_cgroup
     predecessor._authorize(x_fixture_token)
     if gb == "off":
         _server_memory.dismiss()
@@ -4636,7 +4641,9 @@ def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
         raise HTTPException(status_code=422, detail="Unknown memory size") from None
     import tempfile
 
-    root = _server_memory.CGROUP_ROOT or Path(tempfile.mkdtemp(prefix="row-bot-a8-"))
+    if _a8_cgroup is None:
+        _a8_cgroup = Path(tempfile.mkdtemp(prefix="row-bot-a8-"))
+    root = _a8_cgroup
     (root / "memory.max").write_text(str(size), encoding="ascii")
     (root / "memory.current").write_text(str(size // 4), encoding="ascii")
     _server_memory.CGROUP_ROOT = root
