@@ -91,7 +91,8 @@ test('hosted: ChatGPT in one click, straight into a chat with one suggestion, th
 
   // The synthetic code is approved by itself: Row-Bot notices, starts on
   // ChatGPT's own pick, checks it and opens a new chat.
-  const first = page.getByRole('button', { name: 'What can you do for me?' });
+  // The chat's own suggestion, not a past chat of that name in the sidebar.
+  const first = page.locator('.chat-empty-first-message');
   await expect(first).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await screenshot(page, testInfo, 'hosted-first-chat');
@@ -115,12 +116,18 @@ test('hosted: ChatGPT in one click, straight into a chat with one suggestion, th
   }
   await screenshot(page, testInfo, 'hosted-phone-card');
   await assertNoOverflow(page);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/setup/onboarding/commands') &&
+      response.request().method() === 'POST',
+  );
   await card
     .getByRole('button', {
       name: 'Hide this. You can add your phone later in Settings › Devices & remote access.',
     })
     .click();
   await expect(card).toHaveCount(0);
+  expect((await saved).ok()).toBe(true);
   await page.reload();
   await expect(page.getByText('Synthetic stream settled.')).toBeVisible();
   await expect(

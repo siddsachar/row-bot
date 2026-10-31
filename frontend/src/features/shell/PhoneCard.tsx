@@ -164,20 +164,29 @@ export default function PhoneCard({
 
   async function dismiss() {
     setHidden(true);
-    try {
-      const latest = (await readSetup(controller, true)) ?? setup;
-      if (!latest || latest.dismissed_phone_card) return;
-      await controller.onboardingCommand({
+    const send = (known: OnboardingSnapshot) =>
+      controller.onboardingCommand({
         command_id: crypto.randomUUID(),
-        expected_revision: latest.revision,
+        expected_revision: known.revision,
         action: 'dismiss_phone_card',
         profile: [],
         step: '',
       });
+    // Other chats on this page know at once.
+    if (setup)
+      reads.set(
+        controller,
+        Promise.resolve({ ...setup, dismissed_phone_card: true }),
+      );
+    try {
+      // At once, with the state this card read: one request, so a reload
+      // right after rarely beats it. Changed meanwhile: read it and send again.
+      await send(setup!).catch(async () => {
+        const latest = await readSetup(controller, true);
+        if (latest && !latest.dismissed_phone_card) await send(latest);
+      });
     } catch {
       /* Hidden here; it may show once more after a reload. */
-    } finally {
-      reads.delete(controller);
     }
   }
 

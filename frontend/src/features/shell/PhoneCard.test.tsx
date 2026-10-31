@@ -259,9 +259,17 @@ it('once dismissed it never comes back', async () => {
     ),
   );
   unmount();
-  owner.onboarding.mockResolvedValue({ ...setup, dismissed_phone_card: true });
+  // The same chat opened again on this page: still hidden.
   show(COMPUTER);
-  await vi.waitFor(() => expect(owner.onboarding).toHaveBeenCalledTimes(3));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole('heading', { name: PHONE_CARD_TITLE })).toBeNull();
+  cleanup();
+  // Another browser, or a reload, reads what the server kept: still hidden.
+  mock.controller = { ...owner };
+  show(COMPUTER);
+  await vi.waitFor(() => expect(owner.onboarding).toHaveBeenCalledTimes(2));
   expect(screen.queryByRole('heading', { name: PHONE_CARD_TITLE })).toBeNull();
 });
 
