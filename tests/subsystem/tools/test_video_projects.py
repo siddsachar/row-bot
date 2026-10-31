@@ -14,6 +14,20 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"0" * 64
 
 
+def _wav(seconds: float) -> bytes:
+    """A silent WAV this long: the length a scene's voice line is measured by."""
+    import io
+    import wave
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\x00\x00" * int(8000 * seconds))
+    return out.getvalue()
+
+
 @pytest.fixture
 def studio(platform, monkeypatch):  # noqa: F811
     """A chat holding two clips; speaking returns a tiny voice file; edits are captured, not run."""
@@ -27,7 +41,7 @@ def studio(platform, monkeypatch):  # noqa: F811
 
     def speak(text, **_options):
         said.append(text)
-        return sound.Speech(wav=b"RIFF\x00\x00\x00\x00WAVE" + b"0" * 32, seconds=1.5, voice="test-voice")
+        return sound.Speech(wav=_wav(1.5), seconds=1.5, voice="test-voice")
 
     def start(request):
         started.append(request)
@@ -152,6 +166,7 @@ def test_making_a_version_renders_its_scenes_in_one_edit_with_its_voices_music_a
     assert scenes.scenes[1].zoom == (0.5, 0.0, 0.5, 0.5)
     assert (music.op, music.role, music.source, music.volume) == ("sound", "music", "music-calm.wav", 0.3)
     assert set(request.sounds) == {cut.voice for cut in scenes.scenes} | {"music-calm.wav"}
+    assert [cut.voice_seconds for cut in scenes.scenes] == [1.5, 1.5], "each scene lasts at least its line"
     assert request.check, "the review card's checks are read from the finished video"
     view = video_projects.view(video_projects.get(project.project_id))
     assert (view["status"], view["edit"]["edit_id"]) == ("rendering", version.edit_id)

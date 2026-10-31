@@ -18,7 +18,7 @@ from __future__ import annotations
 import io
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
@@ -164,10 +164,45 @@ class SceneCut:
     # Where the action is when there's no zoom (the recording's pointer, 0–1 across): a square or tall cut
     # is centred there, so what's being used stays in frame.
     focus: tuple[float, float] | None = None
+    # How long its voice line lasts: the scene is made at least that long (``fit_to_lines``).
+    voice_seconds: float = 0.0
 
 
 CARD_SECONDS = 3.0
 BOOKEND_SECONDS = 2.0
+# A scene runs on this long after its voice line ends: a breath between lines, and never one over the next.
+LINE_PAD = 0.6
+
+
+def fit_to_lines(scenes: list[SceneCut], lengths: list[float]) -> list[tuple[SceneCut, float]]:
+    """Each scene made long enough for its voice line and a breath after it, so no line runs into the next: a card
+    grows; a fast-forward slows, never below normal speed; footage runs on into its recording where no other scene
+    uses it; and what's still short holds its last frame. Each scene with the seconds of that hold."""
+    fitted: list[tuple[SceneCut, float]] = []
+    for index, scene in enumerate(scenes):
+        needed = scene.voice_seconds + LINE_PAD if scene.voice and scene.voice_seconds > 0 else 0.0
+        if scene.input is None:
+            if needed and scene.end is not None and scene.end - scene.start < needed:
+                scene = replace(scene, end=round(scene.start + needed, 3))
+            fitted.append((scene, 0.0))
+            continue
+        if not needed or not 0 <= scene.input < len(lengths):  # (``scenes`` says what's wrong with a bad one.)
+            fitted.append((scene, 0.0))
+            continue
+        length = lengths[scene.input]
+        start = min(max(0.0, scene.start), length)
+        end = length if scene.end is None else min(scene.end, length)
+        if end - start < 0.05 or (end - start) / scene.speed >= needed:
+            fitted.append((scene, 0.0))
+            continue
+        speed = max(1.0, math.floor((end - start) / needed * 10) / 10) if scene.speed > 1 else scene.speed
+        if (end - start) / speed < needed:
+            later = [other.start for number, other in enumerate(scenes)
+                     if number != index and other.input == scene.input and other.start >= end - 0.01]
+            end += max(0.0, min(min([length, *later]) - end, needed * speed - (end - start)))
+        hold = max(0.0, needed - (end - start) / speed)
+        fitted.append((replace(scene, start=start, end=round(end, 3), speed=speed), round(hold, 3)))
+    return fitted
 
 
 @dataclass(frozen=True)
@@ -808,9 +843,12 @@ class _Builder:
     def scenes(self, step: Step) -> None:
         """A video project's scenes in order: each piece cut from its input, at its speed, with its zoom,
         its card for the first seconds and its line as a caption (``style="caption"``); its voice line
-        is laid at the scene's start on the finished video."""
+        is laid at the scene's start on the finished video, and the scene lasts until it ends (``fit_to_lines``)."""
         if not step.scenes:
             raise EditError("A video needs at least one scene.")
+        fitted = fit_to_lines(step.scenes, self.lengths)
+        step = replace(step, scenes=[scene for scene, _hold in fitted])
+        holds = [hold for _scene, hold in fitted if _scene.input is not None]
         offsets = [sum(self.lengths[:index]) for index in range(len(self.lengths))]
         cuts: list[tuple[float, float]] = []
         lengths: list[float] = []
@@ -829,9 +867,18 @@ class _Builder:
                 raise EditError(f"Scene {number}: {_seconds_text(start)}–{_seconds_text(end)} s is outside its "
                                 f"video, which is {_seconds_text(length)} s long.")
             cuts.append((offsets[scene.input] + start, offsets[scene.input] + end))
-            lengths.append(end - start)
+            lengths.append(end - start + holds[len(cuts) - 1])
         look = step.look or Look()
         videos, sounds = self._pieces(cuts, audio=True) if cuts else ([], [])
+        for index, hold in enumerate(holds):
+            if hold:  # Its last frame held, in silence, until its line ends.
+                video = self.label("v")
+                self.add(f"{videos[index]}tpad=stop_mode=clone:stop_duration={_seconds_text(hold)}{video}")
+                videos[index] = video
+                if sounds:
+                    sound = self.label("a")
+                    self.add(f"{sounds[index]}apad=pad_dur={_seconds_text(hold)}{sound}")
+                    sounds[index] = sound
         pieces = iter(zip(videos, sounds or [None] * len(videos)))
         joined = [self._blank(look.colour, length) if scene.input is None else next(pieces)
                   for scene, length in zip(step.scenes, lengths)]
