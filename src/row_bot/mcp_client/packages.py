@@ -414,7 +414,7 @@ def _mcpb_lock(cfg: dict, check: Callable[[], None]) -> dict:
             "integrity": "sha256:" + bundle.sha256, "server_type": bundle.server_type}
 
 
-def review(lock: dict) -> dict:
+def review(lock: dict, *, remote: bool = False) -> dict:
     """What the person sees before anything is installed: every package, exact version and checksum."""
     count = len(lock["items"])
     skipped = [item["name"] for item in lock["items"] if item.get("scripts")]
@@ -423,13 +423,13 @@ def review(lock: dict) -> dict:
              "pypi": [f"{count} Python package{'s' if count != 1 else ''}, ready-built only, checked against their checksums.",
                       "Installed in a private folder for this app; nothing is installed for the whole computer."],
              "oci": ["Docker runs this image by its exact digest, with network access and no folders from "
-                     + where_row_bot_runs() + ".",
+                     + where_row_bot_runs(remote=remote) + ".",
                      "It gets only the settings you add here."],
              "mcpb": [("Signed with a certificate that names itself " + lock["signature"]["signer"] + " (fingerprint "
                        + str(lock["signature"].get("fingerprint", ""))[:16] + "…). Row-Bot checked the signature matches the "
                        "bundle; nobody checked that name.") if lock.get("signature", {}).get("status") == "signed" else
                       "Not signed, so Row-Bot can't tell who made it. Add it only if you trust where it came from.",
-                      f"Unpacked into a private folder and run {on_server()}, with the settings you add here."]}[lock["kind"]]
+                      f"Unpacked into a private folder and run {on_server(remote=remote)}, with the settings you add here."]}[lock["kind"]]
     if skipped:
         lines.append("These have install scripts, which Row-Bot skips, so they may not work: " + ", ".join(skipped[:8])
                      + ("…" if len(skipped) > 8 else ""))

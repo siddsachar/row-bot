@@ -1810,22 +1810,34 @@ export function VoiceSnapshotPanel({
   // Listening on this computer needs the speech model: until it is downloaded, the header says so.
   const missingSpeech =
     (!realtime || localDictation) && !snapshot.local.whisper_installed;
+  // Elsewhere the person talks on their own device; only the speech model runs where Row-Bot runs (U7).
+  const here = place.kind === 'this_computer';
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
         tone={missingSpeech ? 'warning' : 'success'}
         more={[
-          realtime && localDictation ? `dictation on ${place.name}` : '',
+          realtime && localDictation
+            ? here
+              ? 'dictation on this computer'
+              : `dictation transcribed on ${place.name}`
+            : '',
           readAloudOn ? 'read aloud on' : 'read aloud off',
         ]}
       >
         {missingSpeech
-          ? `Download the speech model to talk on ${place.name}`
+          ? here
+            ? 'Download the speech model to talk on this computer'
+            : `Download the speech model to ${place.name} to talk`
           : realtime
             ? 'Realtime Talk online'
             : localDictation
-              ? `Talk and dictation on ${place.name}`
-              : `Talk on ${place.name}`}
+              ? here
+                ? 'Talk and dictation on this computer'
+                : `Talk and dictation transcribed on ${place.name}`
+              : here
+                ? 'Talk on this computer'
+                : `Talk transcribed on ${place.name}`}
       </SettingsStatus>
       <SettingsGroup
         title="Talk"
@@ -1839,7 +1851,9 @@ export function VoiceSnapshotPanel({
           hint={
             realtime
               ? 'Sends live microphone audio only while you are talking.'
-              : `On ${place.noun} keeps your voice private.`
+              : here
+                ? 'On this computer keeps your voice private.'
+                : `Your voice goes only to ${place.noun}, never to a speech service.`
           }
           value={snapshot.runtime.talk_provider}
           options={snapshot.talk_providers.map((option) => ({
@@ -1850,7 +1864,9 @@ export function VoiceSnapshotPanel({
           savedMessage={(next) =>
             next === 'openai_realtime'
               ? 'Talk now listens with OpenAI Realtime'
-              : `Talk now listens ${place.onAgain}`
+              : here
+                ? 'Talk now listens on this computer'
+                : `Talk now transcribes ${place.onAgain}`
           }
         />
         <SwitchSetting
@@ -1864,7 +1880,11 @@ export function VoiceSnapshotPanel({
           <SwitchSetting
             mutation={mutation}
             field="runtime.realtime_fallback_to_local"
-            label={`Fall back to ${place.name}`}
+            label={
+              here
+                ? 'Fall back to this computer'
+                : `Fall back to Whisper on ${place.name}`
+            }
             hint="If Realtime is unavailable, Talk listens with Whisper instead."
             value={snapshot.runtime.realtime_fallback_to_local}
           />
@@ -1907,7 +1927,11 @@ export function VoiceSnapshotPanel({
           mutation={mutation}
           field="local.whisper_model"
           label="Speech model"
-          hint="Downloads once from Hugging Face (Systran), then works offline."
+          hint={
+            here
+              ? 'Downloads once from Hugging Face (Systran), then works offline.'
+              : `Downloads once from Hugging Face (Systran), then runs ${place.onAgain}.`
+          }
           value={snapshot.local.whisper_model}
           options={snapshot.whisper_options.map((option) => ({
             value: option.value,
@@ -1926,7 +1950,7 @@ export function VoiceSnapshotPanel({
                 field="whisper.install"
                 label={`Install Whisper ${size}`}
                 text="Install"
-                description={`Downloads the speech recognition model from Hugging Face (Systran) once and keeps it ${place.onAgain}; Dictate then works offline. This action uses network access.`}
+                description={`Downloads the speech recognition model from Hugging Face (Systran) once and keeps it ${place.onAgain}; Dictate then ${here ? 'works offline' : 'needs no speech service'}. This action uses network access.`}
                 presentation="button"
               />
             ),
@@ -5631,7 +5655,11 @@ export function PreferencesSnapshotPanel({
         {showUpdateControls && (
           <Section
             title="Back up and restore"
-            description={`A copy of your Row-Bot ${place.on}, without passwords or sign-ins.`}
+            description={
+              place.kind === 'this_computer'
+                ? 'A copy of your Row-Bot on this computer, without passwords or sign-ins.'
+                : `A copy of everything ${place.on}, without passwords or sign-ins.`
+            }
             icon={HardDrive}
             anchor="backup"
           >

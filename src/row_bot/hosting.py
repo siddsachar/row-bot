@@ -98,20 +98,30 @@ def server_place(environ: Mapping[str, str] | None = None) -> Place:
     return "this_computer"
 
 
-def where_row_bot_runs(environ: Mapping[str, str] | None = None) -> str:
+def request_place(remote: bool, environ: Mapping[str, str] | None = None) -> Place:
+    """One request's place (U7): ``this_computer`` when the browser is on the computer Row-Bot runs on
+    (``remote`` False: the handshake's ``on_this_computer``), else a known host's or another server."""
+    if not remote:
+        return "this_computer"
+    return "hosted" if hosted_by(environ) is not None else "server"
+
+
+def where_row_bot_runs(environ: Mapping[str, str] | None = None, *, remote: bool | None = None) -> str:
     """Where Row-Bot runs, in a sentence (U7): "this computer", "your Row-Bot server at PikaPods" or
-    "the computer Row-Bot runs on"."""
+    "the computer Row-Bot runs on". ``remote`` is one request's side; without it, the server-wide place."""
+    place = server_place(environ) if remote is None else request_place(remote, environ)
     host = hosted_by(environ)
-    if host is not None:
+    if place == "hosted" and host is not None:
         return f"your Row-Bot server at {host.name}"
-    return "the computer Row-Bot runs on" if server_place(environ) == "server" else "this computer"
+    return "the computer Row-Bot runs on" if place == "server" else "this computer"
 
 
-def on_server(environ: Mapping[str, str] | None = None) -> str:
+def on_server(environ: Mapping[str, str] | None = None, *, remote: bool | None = None) -> str:
     """The same with "on": "on this computer", "on your Row-Bot server at PikaPods"…"""
-    return "on " + where_row_bot_runs(environ)
+    return "on " + where_row_bot_runs(environ, remote=remote)
 
 
 __all__ = [
-    "HOSTED_BY_ENV", "KNOWN_HOSTS", "Host", "Place", "hosted_by", "on_server", "server_place", "where_row_bot_runs",
+    "HOSTED_BY_ENV", "KNOWN_HOSTS", "Host", "Place", "hosted_by", "on_server", "request_place", "server_place",
+    "where_row_bot_runs",
 ]

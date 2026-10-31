@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 from row_bot.access.config import AccessConfigError, canonical_host, canonical_origin
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.hosting import on_server, where_row_bot_runs
 
 ROUTE_CONFIG_VERSION = 2
 ROUTE_CONFIG_FILENAME = "access_routes.json"
@@ -410,8 +411,11 @@ def build_route_inventory(
     ngrok_url: str | None = None,
     reverse_proxy_origins: Iterable[str] = (),
     current_server_origin: str | None = None,
+    remote: bool = False,
 ) -> AccessRouteInventory:
     """Build route candidates from injected, already-verified state.
+
+    ``remote``: the request comes from another device, so the words say where Row-Bot runs (U7).
 
     ``current_server_origin`` must have passed the normal request Host/proxy
     validation before it reaches this side-effect-free builder.
@@ -426,12 +430,12 @@ def build_route_inventory(
                 canonical_origin(f"http://127.0.0.1:{int(port)}"),
             ),
             kind=AccessRouteKind.LOCALHOST,
-            label="This computer",
+            label="Your Row-Bot server" if remote else "This computer",
             origin=canonical_origin(f"http://127.0.0.1:{int(port)}"),
             available=True,
             private=True,
             enabled=True,
-            detail="Direct desktop access on this computer.",
+            detail=f"Direct desktop access {on_server(remote=remote)}.",
             eligible=False,
             priority=_ROUTE_PRIORITY[AccessRouteKind.LOCALHOST],
         )
@@ -458,8 +462,8 @@ def build_route_inventory(
                 private=is_private,
                 enabled=selected_config.lan_enabled,
                 detail=(
-                    "Address assigned to this computer; reachability depends on the "
-                    "network and firewall."
+                    f"Address assigned to {where_row_bot_runs(remote=remote)}; reachability "
+                    "depends on the network and firewall."
                 ),
                 warning=(
                     _PRIVATE_LAN_WARNING if is_private else _NON_PRIVATE_LAN_WARNING

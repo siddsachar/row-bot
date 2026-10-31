@@ -274,8 +274,9 @@ function LocalPanel({
       <div className="first-run-panel-body">
         <h3>Install Ollama</h3>
         <p>
-          Ollama runs models {place.onAgain}: private, free and offline once a
-          model is downloaded.
+          {place.kind === 'this_computer'
+            ? 'Ollama runs models on this computer: private, free and offline once a model is downloaded.'
+            : `Ollama runs models ${place.onAgain}: free, and your chats go to no AI provider.`}
         </p>
         {runtime.platform === 'linux' ? (
           <ol className="first-run-steps">
@@ -1257,7 +1258,11 @@ export default function FirstRun({
         <ChoiceCard
           icon={HardDrive}
           title={`On ${place.name}`}
-          detail="Private and free, with Ollama."
+          detail={
+            place.kind === 'this_computer'
+              ? 'Private and free, with Ollama.'
+              : 'Free, with Ollama.'
+          }
           status={localStatus}
           pressed={path === 'local'}
           onClick={() => setPath('local')}

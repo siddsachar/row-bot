@@ -146,6 +146,45 @@ def test_reviewed_package_uses_same_owner_across_http_plan_install_and_recovery(
         assert not admissions.read_unfinished_target_commands("settings:plugin:lifecycle:" + plugin_id)["items"]
 
 
+@pytest.mark.parametrize(("address", "where"), [
+    ("127.0.0.1", "on this computer"),  # The person's own window on the desktop.
+    ("192.168.1.40", "on the computer Row-Bot runs on"),  # A phone reaching that desktop Row-Bot.
+])
+def test_a_package_review_says_where_row_bot_runs_from_the_browser_s_side(service, isolated, monkeypatch,
+                                                                           reload_for_data_dir, address, where):
+    """U7: what a package runs and may do is worded for the device reading the plan."""
+    from fastapi.testclient import TestClient
+    from row_bot.access.config import AccessConfig, DeploymentMode
+    from row_bot.access.request_context import SessionIdentity
+    from row_bot.api.v1.routes import create_client_platform_app
+    from row_bot.integrations import plans
+    from row_bot.plugins import loader
+    reload_for_data_dir(isolated, "row_bot.plugins.installer")
+    monkeypatch.delenv("ROW_BOT_HOSTED_BY", raising=False)
+    monkeypatch.setattr(loader, "refresh_plugin_runtime", lambda *a, **k: None)
+    monkeypatch.setattr(plans, "_spawn", lambda work: work())
+    app = create_client_platform_app(service, access_config=AccessConfig(deployment_mode=DeploymentMode.DESKTOP),
+                                     choices=lambda: {"models": [], "capabilities": []},
+                                     session_authenticator=lambda scope, provenance: SessionIdentity("device", "session"))
+    with TestClient(app, base_url="http://localhost", client=(address, 12345)) as client:
+        _, headers = bootstrap(client)
+        page = client.post("/api/v1/integrations/items/search", headers=headers, json={"sources": ["examples"]}).json()
+        bundle = next(row for row in page["items"] if row["name"] == "Local text tools")
+        review = client.post("/api/v1/integrations/plans/review", headers=headers,
+                             json={"item_id": bundle["id"], "revision": page["revision"]})
+        assert review.status_code == 200, review.text
+        plan_id = str(uuid4())
+        body = {"plan_id": plan_id, "item_id": bundle["id"], "revision": page["revision"], "digest": review.json()["digest"],
+                "consent_token": review.json()["consent_token"]}
+        response = client.post("/api/v1/integrations/plans", headers={**headers, "Idempotency-Key": plan_id}, json=body)
+        assert response.status_code == 200, response.text
+        lines = next(s for s in response.json()["steps"] if s["type"] == "test")["review"]["lines"]
+        assert f"Asks to run programs {where}." in lines
+        assert any(line.startswith("Runs ") and line.endswith(f" {where}.") for line in lines)
+        if where != "on this computer":
+            assert not any("this computer" in line for line in lines)
+
+
 def test_mcp_publication_recovery_needs_a_session_and_does_not_resave(service, isolated, monkeypatch):
     from row_bot.runtime import admissions
     from tests.subsystem.client_protocol.test_mcp_configuration_api import review, send

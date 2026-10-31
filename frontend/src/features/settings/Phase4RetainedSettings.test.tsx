@@ -448,7 +448,7 @@ function notice(text: string | RegExp) {
 
 afterEach(() => setPlace(null));
 
-it('Voice says where it listens: this computer, or the Row-Bot server (U7)', () => {
+it('Voice says what runs where: this computer, or only the speech model on the Row-Bot server (U7)', () => {
   renderSetting('voice');
   expect(
     screen.getByText('On this computer keeps your voice private.'),
@@ -461,21 +461,28 @@ it('Voice says where it listens: this computer, or the Row-Bot server (U7)', () 
   ).toHaveLength(2);
   expect(
     screen.getByText(
-      'Download the speech model to talk on your Row-Bot server',
+      'Download the speech model to your Row-Bot server to talk',
+    ),
+  ).toBeVisible();
+  // The audio does travel to the server: say so, not that it stays private.
+  expect(
+    screen.getByText(
+      'Your voice goes only to your Row-Bot server at PikaPods, never to a speech service.',
     ),
   ).toBeVisible();
   expect(
     screen.getByText(
-      'On your Row-Bot server at PikaPods keeps your voice private.',
+      'Downloads once from Hugging Face (Systran), then runs on your server.',
     ),
   ).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/private|offline/);
   expect(document.body).not.toHaveTextContent(/this computer/);
   cleanup();
   setPlace({ kind: 'server' });
   renderSetting('voice');
   expect(
     screen.getByText(
-      'On the computer Row-Bot runs on keeps your voice private.',
+      'Your voice goes only to the computer Row-Bot runs on, never to a speech service.',
     ),
   ).toBeVisible();
   expect(document.body).not.toHaveTextContent(/this computer/);

@@ -1599,13 +1599,11 @@ def create_router(
                 ],
             }
         # Where Row-Bot runs, from this browser's side (U7): "this computer" only when it is.
-        from row_bot.hosting import hosted_by
+        from row_bot.hosting import hosted_by, request_place
 
-        host = None if local_owner else hosted_by()
-        place = {
-            "kind": "this_computer" if local_owner else "hosted" if host else "server",
-            "host_name": host.name if host else None,
-        }
+        kind = request_place(not local_owner)
+        host = hosted_by() if kind == "hosted" else None
+        place = {"kind": kind, "host_name": host.name if host else None}
         # The native bridge is a person's window: only a signed-in one gets its token.
         native_window = local_owner and context.may_act
         native_attestation = (

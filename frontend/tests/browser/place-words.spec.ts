@@ -45,12 +45,18 @@ test('says where Row-Bot runs from the browser’s side: this computer, a hosted
   await page.goto('/app-v2/settings/voice');
   await expect(
     page.getByText(
-      'On your Row-Bot server at PikaPods keeps your voice private.',
+      'Your voice goes only to your Row-Bot server at PikaPods, never to a speech service.',
     ),
   ).toBeVisible();
   await expect(page.getByText(/this computer/)).toHaveCount(0);
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'place-hosted-voice');
+  await page.goto('/app-v2/settings/data');
+  await expect(
+    page.getByText(
+      'A copy of everything on your Row-Bot server at PikaPods, without passwords or sign-ins.',
+    ),
+  ).toBeVisible();
 
   await fixture(page, '/__a7_fixture/place/server');
   await page.goto('/app-v2/settings/documents');

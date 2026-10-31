@@ -60,3 +60,17 @@ def test_a_server_message_says_where_row_bot_runs(environ, place, words):
     assert hosting.server_place(environ) == place
     assert hosting.on_server(environ) == words
     assert hosting.where_row_bot_runs(environ) == words.removeprefix("on ")
+
+
+@pytest.mark.parametrize(
+    ("environ", "remote", "words"),
+    [
+        ({}, False, "on this computer"),
+        ({}, True, "on the computer Row-Bot runs on"),  # A phone reaching a desktop Row-Bot.
+        ({"ROW_BOT_DEPLOYMENT_MODE": "server"}, True, "on the computer Row-Bot runs on"),
+        ({"ROW_BOT_HOSTED_BY": "pikapods"}, True, "on your Row-Bot server at PikaPods"),
+        ({"ROW_BOT_HOSTED_BY": "pikapods"}, False, "on this computer"),
+    ],
+)
+def test_a_request_message_says_where_row_bot_runs_from_its_side(environ, remote, words):
+    assert hosting.on_server(environ, remote=remote) == words
