@@ -201,6 +201,32 @@ def test_ordinary_steps_run_without_asking(browser):
     assert browser.asked == [] and len(browser.acts) == 3
 
 
+def test_in_a_sandbox_auto_goes_ahead_ask_still_asks_and_block_refuses(browser, monkeypatch):
+    """5.3.2: a demo stalled on "Send in the Demo tea shop sandbox?" each time Row-Bot sent a request to the
+    sandbox's own Row-Bot; the reviewer took it for the customer's reply. A sandbox's made-up data never leaves this
+    computer, so on Auto Row-Bot goes ahead as the person would."""
+    from row_bot import sandboxes
+
+    monkeypatch.setattr(sandboxes, "name_at", lambda url: "Demo tea shop" if ":62293/" in url else "")
+    browser.targets["e5"] = {**NEXT, "role": "textbox", "name": "Message", "submit": "Send",
+                             "url": "http://127.0.0.1:62293/app-v2/conversations/x"}
+    for level in ("auto", "full"):
+        browser.mode = level
+        _tool("browser_type", ref="e5", text="Check today's orders", submit=True)
+    assert browser.asked == [] and browser.reviewed == [] and len(browser.acts) == 2
+
+    browser.mode = "approve"
+    _tool("browser_type", ref="e5", text="Check today's orders", submit=True)
+    assert browser.asked[-1]["question"] == "Send in the Demo tea shop sandbox?", "Ask still asks the person"
+    browser.mode = "block"
+    assert _tool("browser_type", ref="e5", text="Hello", submit=True).startswith("BLOCKED: Send in the Demo tea")
+
+    browser.mode = "auto"
+    browser.targets["e9"] = CHECKOUT  # Outside a sandbox the reviewer still decides.
+    _tool("browser_click", ref="e9")
+    assert len(browser.reviewed) == 1
+
+
 def test_pressing_enter_in_a_message_box_asks_like_its_send_button(browser):
     browser.targets["e4"] = {**NEXT, "role": "textbox", "name": "Message", "submit": "Send",
                              "url": "https://mail.example.com/compose"}

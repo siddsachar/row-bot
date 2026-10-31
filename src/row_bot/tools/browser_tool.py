@@ -399,10 +399,18 @@ def _run(session: BrowserSession, thread_id: str, label: str, step: Any, *, sett
 
 def _ask_first(session: BrowserSession, thread_id: str, tool: str, consequence: Consequence, url: str,
                verb: str) -> str | None:
-    """The approval a consequential action needs (D19); a refusal, or None to go ahead."""
+    """The approval a consequential action needs (D19); a refusal, or None to go ahead.
 
-    from row_bot.tools.approval_gate import approval_check
+    In a sandbox it stays in the sandbox's made-up data, on this computer: under Auto and Hands-off Row-Bot goes
+    ahead as the person would (the reviewer would only be guessing at a sandbox's Send); Ask still asks the person
+    and Block refuses.
+    """
 
+    from row_bot.approval_policy import decision_for_action
+    from row_bot.tools.approval_gate import approval_check, current_approval_mode
+
+    if consequence.sandbox and decision_for_action(current_approval_mode(), by_person=True) == "allow":
+        return None
     session.set_waiting(thread_id, "Waiting for your OK in the chat")
     refusal, _line = approval_check(
         approval_request(tool, consequence, url=url, verb=verb),
