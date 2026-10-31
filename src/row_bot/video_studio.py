@@ -42,6 +42,9 @@ FAST = 1.5
 # The framed look: the picture's share of the frame, its corner radius and its shadow (fractions of the height).
 FRAME_FILL = 0.88
 CORNER = 0.016
+# A phone's picture (taller than wide) is set in a device: a dark rim this thick and rounded (fractions of its
+# width), a little smaller in the frame so the rim fits.
+PHONE_FILL, PHONE_RIM, PHONE_CORNER = 0.84, 0.045, 0.12
 SHADOW_BLUR, SHADOW_DROP, SHADOW_ALPHA = 0.022, 0.012, 120
 
 
@@ -136,19 +139,27 @@ def _setting(frame: Frame, picture: tuple[int, int]) -> tuple[Any, tuple[int, in
     from row_bot.video_editing import card_backdrop
 
     width, height = frame.size
-    scale = min(width * FRAME_FILL / picture[0], height * FRAME_FILL / picture[1])
+    phone = picture[1] > picture[0]
+    fill = PHONE_FILL if phone else FRAME_FILL
+    scale = min(width * fill / picture[0], height * fill / picture[1])
     inner = (max(2, round(picture[0] * scale)), max(2, round(picture[1] * scale)))
     at = ((width - inner[0]) // 2, (height - inner[1]) // 2)
-    radius = round(height * CORNER)
+    radius = round(inner[0] * PHONE_CORNER) if phone else round(height * CORNER)
+    rim = round(inner[0] * PHONE_RIM) if phone else 0
     mask = Image.new("L", inner, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner[0] - 1, inner[1] - 1), radius=radius, fill=255)
     backdrop = Image.open(io.BytesIO(card_backdrop(frame.colour, width, height))).convert("RGB")
+    outer = (at[0] - rim, at[1] - rim, at[0] + inner[0] + rim, at[1] + inner[1] + rim)
     shadow = Image.new("L", frame.size, 0)
     drop = round(height * SHADOW_DROP)
-    ImageDraw.Draw(shadow).rounded_rectangle((at[0], at[1] + drop, at[0] + inner[0], at[1] + drop + inner[1]),
-                                             radius=radius, fill=SHADOW_ALPHA)
+    ImageDraw.Draw(shadow).rounded_rectangle((outer[0], outer[1] + drop, outer[2], outer[3] + drop),
+                                             radius=radius + rim, fill=SHADOW_ALPHA)
     shadow = shadow.filter(ImageFilter.GaussianBlur(height * SHADOW_BLUR))
     backdrop.paste(Image.new("RGB", frame.size, (0, 0, 0)), (0, 0), shadow)
+    if phone:  # The device: a dark rim with a faint edge of light.
+        device = ImageDraw.Draw(backdrop)
+        device.rounded_rectangle(outer, radius=radius + rim, fill=(17, 19, 24), outline=(78, 82, 92),
+                                 width=max(1, rim // 6))
     return backdrop, at, inner, mask
 
 

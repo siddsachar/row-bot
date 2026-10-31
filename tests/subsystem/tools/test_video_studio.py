@@ -121,3 +121,15 @@ def test_a_projects_recorded_scenes_reach_the_edit_as_drawn_clips_and_title_card
     card, scene = drawn.scenes
     assert card.input is None and (scene.input, scene.start, scene.end, scene.camera) == (0, 0.0, 1.5, ())
     assert build_plan(inputs, [drawn], "output.mp4").duration == 3.5
+
+
+def test_a_phones_picture_is_set_in_a_device_on_the_backdrop():
+    picture = Image.new("RGB", (390, 844), (250, 250, 250))
+    framed = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140)))
+
+    middle_x = 960
+    screen_top = (1080 - round(844 * 1080 * video_studio.PHONE_FILL / 844)) // 2
+    assert framed.getpixel((middle_x, 540)) == (250, 250, 250), "the screen in the middle"
+    rim = framed.getpixel((middle_x, screen_top - 4))
+    assert max(rim) < 60, "a dark rim around it, like the phone it was used on"
+    assert framed.getpixel((200, 540))[2] > framed.getpixel((200, 540))[0], "the brand's backdrop either side"

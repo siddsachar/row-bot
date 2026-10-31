@@ -83,6 +83,7 @@ class PageRecorder:
         tick: float = 1.0 / FPS,
         size: tuple[int, int] | None = None,
         pointer_size: float = 0.0,
+        touch: bool = False,
     ) -> None:
         self.path = Path(path)
         # The video's size, fixed for the whole recording: the page's size while it records. A picture of
@@ -91,6 +92,8 @@ class PageRecorder:
         self.size = (_even(size[0]), _even(size[1])) if size else None
         # The drawn pointer's height in the video's pixels (0: from the picture's size).
         self.pointer_size = float(pointer_size)
+        # A touch screen (a phone or tablet size): taps show as a touch, not an arrow.
+        self.touch = bool(touch)
         self._tick = float(tick)
         self.max_seconds = float(max_seconds)
         self.size_limit = int(size_limit)
@@ -256,12 +259,13 @@ class PageRecorder:
                     caught_up = 0
                     while index <= due and caught_up < FPS * 2:
                         with self._lock:
-                            state = None if shielded else pointer_at(self._pointer, index / FPS)
+                            state = None if shielded else (touch_at if self.touch else pointer_at)(
+                                self._pointer, index / FPS)
                         if last_frame is None or state != drawn:
                             image = base
                             if state is not None:
                                 image = base.copy()
-                                draw_pointer(image, *state, size=self.pointer_size)
+                                (draw_touch if self.touch else draw_pointer)(image, *state, size=self.pointer_size)
                             last_frame, drawn = av.VideoFrame.from_image(image), state
                         last_frame.pts = index
                         for packet in stream.encode(last_frame):
@@ -300,6 +304,42 @@ def pointer_at(events: list[tuple[float, float, float, bool, float, float]],
     clicks = [event[0] for event in current if event[3] and at - event[0] < RING_SECONDS]
     ring = round((at - clicks[-1]) / RING_SECONDS, 3) if clicks else 0.0
     return round(here_x, 4), round(here_y, 4), ring
+
+
+def touch_at(events: list[tuple[float, float, float, bool, float, float]],
+             at: float) -> tuple[float, float, float, float] | None:
+    """Where a touch shows at ``at`` seconds: (x, y, how far its tap's ring has grown, how strong it is), or None
+    between touches. A finger has no pointer to follow: the touch fades in where it lands, rings as it taps and
+    fades away."""
+    current = [event for event in events if event[0] <= at]
+    if not current:
+        return None
+    when, x, y, click, _from_x, _from_y = current[-1]
+    age = at - when
+    if not click:
+        return (round(x, 4), round(y, 4), 0.0, round(min(1.0, age / 0.2), 3)) if age <= MOVE_SECONDS + 0.3 else None
+    if age >= RING_SECONDS + 0.25:
+        return None
+    return round(x, 4), round(y, 4), round(min(1.0, age / RING_SECONDS), 3), round(min(1.0, (RING_SECONDS + 0.25
+                                                                                            - age) / 0.25), 3)
+
+
+def draw_touch(image: Any, x: float, y: float, ring: float = 0.0, strength: float = 1.0, *,
+               size: float = 0.0) -> None:
+    """Draw a touch at (x, y), 0–1 across the picture: a soft round mark, and a tap's ring while it grows."""
+    from PIL import ImageDraw
+
+    draw = ImageDraw.Draw(image, "RGBA")
+    width, height = image.size
+    left, top = x * width, y * height
+    size = size or max(12.0, min(width, height) * 0.032)
+    radius = size * 0.55
+    draw.ellipse((left - radius, top - radius, left + radius, top + radius), fill=(255, 255, 255, round(150 * strength)),
+                 outline=(17, 24, 39, round(170 * strength)), width=max(1, round(size * 0.07)))
+    if 0 < ring < 1:
+        grown = size * (0.6 + 1.1 * ring)
+        draw.ellipse((left - grown, top - grown, left + grown, top + grown),
+                     outline=(59, 130, 246, round(200 * (1 - ring))), width=max(2, round(size * 0.14)))
 
 
 def draw_pointer(image: Any, x: float, y: float, ring: float = 0.0, *, size: float = 0.0) -> None:

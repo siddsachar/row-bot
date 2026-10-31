@@ -16,7 +16,7 @@ import pytest
 
 from row_bot import recordings
 from row_bot.approval_review import ReviewVerdict
-from row_bot.browser.recording import PageRecorder, encoder_problem
+from row_bot.browser.recording import PageRecorder, draw_touch, encoder_problem, touch_at
 from row_bot.browser.service import BrowserSessionManager
 from row_bot.tools import approval_gate, browser_tool
 
@@ -427,3 +427,18 @@ def test_while_recording_clicks_and_typing_go_at_a_viewers_pace_with_the_pointer
 
 async def _async(value):
     return value
+
+
+def test_on_a_touch_screen_a_tap_shows_where_it_lands_and_fades_with_no_pointer_between_taps():
+    """5.3.2: a phone demo showed a desktop arrow gliding over the screen."""
+    from PIL import Image
+
+    events = [(1.0, 0.5, 0.6, False, 0.1, 0.1), (1.45, 0.5, 0.6, True, 0.5, 0.6)]
+    assert touch_at(events, 0.5) is None, "nothing before the first touch"
+    assert touch_at(events, 1.1)[:3] == (0.5, 0.6, 0.0), "it lands where the control is, without travelling there"
+    x, y, ring, strength = touch_at(events, 1.7)
+    assert 0 < ring < 1 and strength == 1.0, "the tap rings"
+    assert touch_at(events, 3.0) is None, "and then it's gone"
+    image = Image.new("RGB", (390, 844), (0, 0, 0))
+    draw_touch(image, 0.5, 0.6, 0.5, 1.0, size=24)
+    assert image.getpixel((195, 506))[0] > 100, "a soft round mark where it lands"
