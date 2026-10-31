@@ -400,6 +400,16 @@ def test_a_video_with_footage_that_is_mostly_title_cards_needs_attention():
     assert build_plan([], [cards_only], "output.mp4").review == [], "a video of cards, asked for, is fine"
 
 
+def test_a_review_sheets_stills_come_from_one_short_command_however_many_there_are():
+    """5.3.2: twenty stills, one input each, passed the process runner's 256 arguments and the sheet never came."""
+    from row_bot.video_editing import stills_arguments
+
+    args = stills_arguments("output.mp4", [1.0 + index for index in range(24)], "review-%02d.jpg", max_width=960)
+    assert len(args) < 30 and args.count("-i") == 1
+    assert "gte(t,1)*lt(prev_t,1)+gte(t,2)*lt(prev_t,2)" in args[args.index("-vf") + 1]
+    assert args[-1] == "file:review-%02d.jpg"
+
+
 def _every_stream_is_used(plan) -> bool:
     """ffmpeg refuses a graph with a made stream nothing reads ("Error binding filtergraph inputs/outputs")."""
     import re

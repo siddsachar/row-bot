@@ -1278,6 +1278,16 @@ def frames_arguments(source: str, times: list[float], names: list[str], *, max_w
     return args
 
 
+def stills_arguments(source: str, times: list[float], pattern: str, *, max_width: int = 0) -> list[str]:
+    """One ffmpeg run that reads the video once and saves the first picture at or after each time, numbered
+    (``review-%02d.jpg``): a short command however many pictures (one input per time would pass the process
+    runner's limit on arguments)."""
+    chosen = "+".join(f"gte(t,{_seconds_text(moment)})*lt(prev_t,{_seconds_text(moment)})" for moment in times)
+    scale = f",scale='min({max_width},iw)':-2" if max_width else ""
+    return ["-hide_banner", "-nostdin", "-y", *input_arguments(source), "-vf", f"select='{chosen}'{scale}",
+            "-fps_mode", "vfr", "-q:v", "3", file_argument(pattern)]
+
+
 # ── Progress ────────────────────────────────────────────────────────────────
 
 _PROGRESS = re.compile(r"out_time_(?:us|ms)=(\d+)")

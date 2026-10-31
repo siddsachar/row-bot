@@ -529,7 +529,7 @@ def _review_sheet(edit: VideoEdit, ffmpeg: Any, folder: Path, marks: list[float]
     looks at what it made before saying it's done."""
     from row_bot.application.attachments import AttachmentError, register_attachment
     from row_bot.contact_sheet import SheetError, make_sheet
-    from row_bot.video_editing import EditError, frames_arguments
+    from row_bot.video_editing import EditError, stills_arguments
 
     looks = review_times(marks)
     if not looks:
@@ -537,7 +537,7 @@ def _review_sheet(edit: VideoEdit, ffmpeg: Any, folder: Path, marks: list[float]
     names = [f"review-{index:02d}.jpg" for index in range(1, len(looks) + 1)]
     _check(edit)
     try:
-        _run_process(edit, ffmpeg, frames_arguments("output.mp4", [at for _scene, at in looks], names,
+        _run_process(edit, ffmpeg, stills_arguments("output.mp4", [at for _scene, at in looks], "review-%02d.jpg",
                                                    max_width=960), folder, "Video review")
         pictures = [((folder / name).read_bytes(), f"scene {scene} · {clock(at)}")
                     for name, (scene, at) in zip(names, looks) if (folder / name).is_file()]
@@ -589,6 +589,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 inputs, steps[0] = video_studio.prepare(inputs, steps[0], folder, stopped=edit.stop_event.is_set,
                                                         progress=drawing)
                 _check(edit)
+                _set(edit, detail="")
             plan = build_plan(inputs, steps, "output.mp4", sounds=sounds,
                               graph_option=graph_option_for(ffmpeg.version),
                               encoder=ffmpeg_runtime.h264_encoder(ffmpeg))
