@@ -143,6 +143,35 @@ test('Claude plan: Use my Claude plan installs Claude Code, then Claude’s own 
   await expect(panel).toContainText('Paste code here if prompted');
   await shoot(page, info, 'claude-plan-sign-in');
 
+  // Claude's link, wrapped across rows, opens whole in a new tab. (The tab
+  // itself is only recorded: nothing here reaches claude.ai.)
+  await page.evaluate(() => {
+    const opened: { href: string; target: string }[] = [];
+    Object.assign(window, { openedLinks: opened });
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      opened.push({ href: this.href, target: this.target });
+    };
+  });
+  const row = panel
+    .locator('.xterm-rows > div')
+    .filter({ hasText: 'https://claude.ai' });
+  const box = (await row.boundingBox())!;
+  await page.mouse.move(box.x + 24, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  await page.mouse.click(box.x + 24, box.y + box.height / 2);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { openedLinks: unknown[] }).openedLinks,
+      ),
+    )
+    .toEqual([
+      {
+        href: 'https://claude.ai/oauth/authorize?code=true&client_id=fixture&response_type=code&state=fixture',
+        target: '_blank',
+      },
+    ]);
+
   const terminal = panel.getByRole('textbox', { name: 'Terminal input' });
   await terminal.focus();
   await page.keyboard.type('not-the-code');
