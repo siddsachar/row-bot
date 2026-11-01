@@ -9,6 +9,7 @@ browser: the engine's page work is a fake that records what would have run.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from types import SimpleNamespace
@@ -246,6 +247,28 @@ def test_hovering_never_makes_row_bot_wait_and_the_person_is_never_refused(brows
     assert engine.person_input("conversation-a", [{"type": "key", "action": "down", "key": "a"}])["status"] == "ok"
     assert engine.person_still_for("conversation-a") < 1
     assert len(page_open) == 2
+
+
+def test_the_wait_counts_from_the_last_key_the_page_received_however_long_the_typing_took(
+        browser, monkeypatch):
+    """A long password plays key by key; Row-Bot's wait starts when the last key lands, not when the first did."""
+
+    clock = [100.0]
+    monkeypatch.setattr(service_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(BrowserEngine, "running", property(lambda self: True))
+
+    async def press(_key: str) -> None:
+        clock[0] += 0.5  # A slow machine: each key takes half a second to reach the page.
+
+    keyboard = SimpleNamespace(down=press, up=press)
+    engine = browser.engine
+    engine._chat("conversation-a").active = SimpleNamespace(page=SimpleNamespace(keyboard=keyboard))
+    monkeypatch.setattr(engine, "_run", lambda job, **_kw: asyncio.run(job()))
+    keys = [{"type": "key", "action": action, "key": "a"} for _ in range(4) for action in ("down", "up")]
+
+    assert engine.person_input("conversation-a", keys)["status"] == "ok"
+    assert clock[0] == 104.0  # Four seconds of typing, longer than the wait itself.
+    assert engine.person_still_for("conversation-a") == 0.0
 
 
 def test_while_the_person_uses_the_page_the_agent_waits_until_they_are_still(browser, page_open, monkeypatch):
