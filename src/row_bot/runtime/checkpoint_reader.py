@@ -33,11 +33,18 @@ class Node:
 
 class BlobReader:
     MAX_NODES = 2_000_000
+    # Every value takes at least a byte, so one pass over a checkpoint visits at most its size in values: a
+    # long chat can be scanned a few times over (finding a message walks each one about twice), while a
+    # read still can't run on without end.
+    NODES_PER_BYTE = 8
 
     def __init__(self, blob: Any, revision: str) -> None:
         self.blob = blob
         self.revision = revision
         self._nodes = 0
+        blob.seek(0, 2)
+        self._budget = max(self.MAX_NODES, self.NODES_PER_BYTE * blob.tell())
+        blob.seek(0)
         # Learning (preview, L3b): the memories that are lessons in use, and whether the turn being read
         # recalled one ("Used a lesson" under its reply). One path check while there is none.
         self._lessons: frozenset[str] | None = None
@@ -51,7 +58,7 @@ class BlobReader:
 
     def node(self, position: int) -> Node:
         self._nodes += 1
-        if self._nodes > self.MAX_NODES:
+        if self._nodes > self._budget:
             raise ValueError("checkpoint_read_limit")
         self.blob.seek(position)
         tag = self._read(1)[0]
