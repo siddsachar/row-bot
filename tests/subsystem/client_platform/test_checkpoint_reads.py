@@ -241,11 +241,14 @@ def test_reloaded_trace_keeps_generated_media_failure_under_closed_code(platform
     assert "must-not-project" not in json.dumps(trace)
 
 
-def test_checkpoint_container_work_and_depth_are_explicitly_bounded():
+def test_checkpoint_container_work_and_depth_are_explicitly_bounded(monkeypatch):
+    """A read may walk a checkpoint a few times over, never without end."""
     import msgpack
     from row_bot.runtime.checkpoint_reader import BlobReader
+    monkeypatch.setattr(BlobReader, "MAX_NODES", 32)
     reader = BlobReader(io.BytesIO(msgpack.packb([None] * 1000)), "synthetic")
-    reader.MAX_NODES = 32
+    for _ in range(BlobReader.NODES_PER_BYTE):
+        reader.end(0)
     with pytest.raises(ValueError, match="checkpoint_read_limit"):
         reader.end(0)
     nested = None
@@ -254,6 +257,32 @@ def test_checkpoint_container_work_and_depth_are_explicitly_bounded():
     reader = BlobReader(io.BytesIO(msgpack.packb(nested)), "synthetic")
     with pytest.raises(ValueError, match="checkpoint_format_invalid"):
         reader.end(0)
+
+
+def test_a_turn_in_a_very_long_chat_finishes_instead_of_reading_as_interrupted(platform, monkeypatch):
+    """Saving a reply finds it in the whole chat; a chat past the flat read budget (hours of tool calls) still
+    settles its turn rather than showing "The response was interrupted"."""
+    from row_bot import threads
+    from row_bot.runtime.checkpoint_reader import BlobReader
+    from tests.contracts.client_platform.test_headless_lifecycle import submit
+    from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream
+
+    history = []
+    for index in range(150):
+        call = f"call-{index}"
+        history += [AIMessage(content="", id=f"step-{index}",
+                              tool_calls=[{"id": call, "name": "browser_click", "args": {"control": "Next"}}]),
+                    ToolMessage(content="Clicked", tool_call_id=call, id=f"result-{index}")]
+    assert threads.append_checkpoint_messages("conversation-a", history)
+    monkeypatch.setattr(BlobReader, "MAX_NODES", 2000)  # The flat budget, scaled to this chat's size.
+    fake = ScriptedAgentStream((("token", "All done"),
+        CheckpointCommit((AIMessage(content="All done", id="long-chat-reply"),), "long-chat-reply"),
+        ("done", "All done")))
+    handle = platform.registry.get(submit(platform, fake, "long-chat")["execution_id"])
+
+    assert handle.producer_done.wait(10)
+    assert handle.status == "completed"
+    assert platform.snapshot("conversation-a")["rows"][-1]["id"] == "assistant:checkpoint:long-chat-reply"
 
 
 def test_multimodal_native_content_never_adopts_by_matching_only_text(platform):
