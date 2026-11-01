@@ -183,6 +183,10 @@ def test_the_persons_own_training_is_seen_from_its_engine_process(tmp_path):
     engine = str(profile / "runtimes" / "learning" / "engine" / "abc" / "py" / "python.exe")
     assert scratch.person_is_training(lambda: ["C:/other/python.exe", engine], profile)
     assert not scratch.person_is_training(lambda: ["C:/other/python.exe", ""], profile)
+    # The in-app browser and MCP's Python run from the same runtimes folder but never train.
+    browser = str(profile / "runtimes" / "playwright-chrome" / "chromium-1234" / "chrome.exe")
+    mcp = str(profile / "runtimes" / "uv-python" / "cpython-3.13" / "python.exe")
+    assert not scratch.person_is_training(lambda: [browser, mcp], profile)
 
 
 def _args(tmp_path, **extra):
