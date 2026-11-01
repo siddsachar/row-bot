@@ -1298,6 +1298,11 @@ class BrowserEngine:
             except Exception:
                 # An unknown key name, or the page moved on: the next event still plays.
                 logger.debug("A pane input event was skipped", exc_info=True)
+            finally:
+                if not (kind == "mouse" and event.get("action") == "move"):
+                    # The wait counts from the person's last key or click as it lands, not from the batch's first:
+                    # a long typed password can take longer to play than the wait itself.
+                    chat.person_at = time.monotonic()
         chat.last_used = time.monotonic()
         return {"status": "ok", "copied": copied}
 
