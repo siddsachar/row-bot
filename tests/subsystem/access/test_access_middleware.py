@@ -236,19 +236,27 @@ def test_state_changing_session_route_requires_exact_same_origin() -> None:
     assert allowed.status_code == 200
 
 
-def test_a_containers_own_health_check_is_answered_whatever_hosts_the_server_allows() -> None:
-    """A VPS sets ROW_BOT_ALLOWED_HOSTS to its public name only; the image's health check still asks 127.0.0.1."""
+def test_this_computer_reaches_a_server_by_127_0_0_1_whatever_hosts_it_allows() -> None:
+    """A VPS sets ROW_BOT_ALLOWED_HOSTS to its public name only; the image's health check and Row-Bot's own
+    launcher (its readiness ping, shutdown, update) still ask by 127.0.0.1. Without this the container was
+    unhealthy and `row-bot serve` exited after two minutes."""
     client = _app(_server_config(allowed_hosts=("row-bot.example.com",)))
     loopback = {"host": "127.0.0.1:8080"}
 
     assert client.get("/healthz", headers=loopback).json() == {"ok": True}
-    assert client.get("/readyz", headers=loopback).json() == {"ready": True}
-    # Nothing else is: not another page, not a forwarded probe, not one from another computer.
-    assert client.get("/connect", headers=loopback).json()["error"] == "unexpected_host"
-    forwarded = client.get("/healthz", headers={**loopback, "x-forwarded-for": "203.0.113.5"})
-    assert forwarded.status_code == 400
+    assert client.get("/readyz", headers={"host": "localhost:8080"}).json() == {"ready": True}
+    shutdown = client.post("/api/launcher-shutdown", headers={**loopback, "x-test-launch-secret": "expected-secret"})
+    assert shutdown.json() == {"shutdown": True}
+    # Only a loopback name, straight from this computer: another name, a forwarded request or another computer
+    # still needs an allowed host.
+    assert client.get("/healthz", headers={"host": "attacker.example"}).json()["error"] == "unexpected_host"
+    assert client.get("/healthz", headers={**loopback, "x-forwarded-for": "203.0.113.5"}).status_code == 400
     remote = TestClient(client.app, base_url="http://localhost:8080", client=("203.0.113.5", 51000))
     assert remote.get("/healthz", headers=loopback).json()["error"] == "unexpected_host"
+    # On the desktop loopback is the owner, so an exact list stays exact there: a same-host proxy that sends no
+    # forwarding headers can't make every visitor the owner.
+    desktop = _app(AccessConfig.build(deployment_mode="desktop", allowed_hosts=("row-bot.example.com",)))
+    assert desktop.get("/healthz", headers=loopback).json()["error"] == "unexpected_host"
 
 
 def test_unexpected_host_and_untrusted_forwarding_are_rejected() -> None:
