@@ -21,7 +21,7 @@ import time
 import wave
 from pathlib import Path
 from queue import Queue, Empty
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from row_bot.data_paths import get_row_bot_data_dir
@@ -150,6 +150,27 @@ _TRUNCATION_SUFFIX = " The full response is shown in the app."
 # TTSService
 # ═════════════════════════════════════════════════════════════════════════════
 
+class _SerialKokoro:
+    """The Kokoro model, one voice at a time: its phonemizer (espeak) is not thread-safe, and voices made together
+    traded lines ("number of lines in input and output must be equal")."""
+
+    def __init__(self, model: Any) -> None:
+        self._model = model
+        self._lock = threading.Lock()
+
+    def create(self, *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return self._model.create(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._model, name)
+
+
+# One Kokoro model (~169 MB) for every TTSService in the process.
+_SHARED_KOKORO: list[_SerialKokoro] = []
+_KOKORO_LOAD_LOCK = threading.Lock()
+
+
 class TTSService:
     """Text-to-speech using Kokoro TTS via ONNX Runtime (local, offline).
 
@@ -173,7 +194,6 @@ class TTSService:
 
         # Lazy-loaded Kokoro instance (heavy — loads ~169 MB model)
         self._kokoro = None
-        self._kokoro_lock = threading.Lock()
 
         # Persisted settings
         self._voice: str = _DEFAULT_VOICE
@@ -185,12 +205,13 @@ class TTSService:
     # ── Kokoro model (lazy-loaded) ───────────────────────────────────────
 
     def _get_kokoro(self):
-        """Return the Kokoro instance, loading the model on first call."""
+        """Return the Kokoro instance, loading the model on first call (one model for every service)."""
         if self._kokoro is not None:
             return self._kokoro
 
-        with self._kokoro_lock:
-            if self._kokoro is not None:
+        with _KOKORO_LOAD_LOCK:
+            if _SHARED_KOKORO:
+                self._kokoro = _SHARED_KOKORO[0]
                 return self._kokoro
 
             if not self.is_installed():
@@ -199,7 +220,8 @@ class TTSService:
             try:
                 from kokoro_onnx import Kokoro
                 logger.info("Loading Kokoro TTS model from %s", _MODEL_PATH)
-                self._kokoro = Kokoro(str(_MODEL_PATH), str(_VOICES_PATH))
+                _SHARED_KOKORO.append(_SerialKokoro(Kokoro(str(_MODEL_PATH), str(_VOICES_PATH))))
+                self._kokoro = _SHARED_KOKORO[0]
                 logger.info("Kokoro TTS model loaded successfully")
             except Exception:
                 logger.warning("Failed to load Kokoro TTS model", exc_info=True)

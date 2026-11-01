@@ -74,6 +74,10 @@
       "title": "Models",
       "type": "array"
     },
+    "on_this_computer": {
+      "title": "On This Computer",
+      "type": "boolean"
+    },
     "platform": {
       "enum": [
         "windows",
@@ -103,7 +107,8 @@
     "state",
     "platform",
     "download_url",
-    "models"
+    "models",
+    "on_this_computer"
   ],
   "title": "LocalRuntimeSnapshot",
   "type": "object"

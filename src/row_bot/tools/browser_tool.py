@@ -154,7 +154,8 @@ class _DownloadInput(BaseModel):
 
 
 class _ViewportInput(BaseModel):
-    preset: Literal["phone", "tablet", "desktop"] = Field(description="Page size: phone, tablet or desktop")
+    preset: Literal["phone", "tablet", "desktop", "pane"] = Field(
+        description="Page size: phone, tablet, desktop, or pane (the Browser pane's)")
     device_scale: Optional[float] = Field(default=None, ge=1, le=3, description="Optional device pixel ratio, 1 to 3")
 
 
@@ -164,7 +165,8 @@ class _RecordInput(BaseModel):
     max_minutes: int = Field(default=5, ge=1, le=15, description="For start: stops by itself after this many minutes")
     beat: Literal["live", "work", "cut"] = Field(
         default="live", description="For beat: live (watch as it is), work (a wait to speed up) or cut (leave out)")
-    note: str = Field(default="", description="For beat: what happens next, in a few words")
+    note: str = Field(default="", description="For beat: what happens next, in a few words (its title)")
+    line: str = Field(default="", description="For beat: the words said over this part (voiced in the video)")
 
 
 class _SandboxInput(BaseModel):
@@ -175,6 +177,8 @@ class _SandboxInput(BaseModel):
     name: str = Field(default="", description="For create: its name, e.g. Demo shop")
     pack: Literal["empty", "shop", "charity", "paperwork", "code"] = Field(
         default="empty", description="For create: the made-up data it starts with")
+    new: bool = Field(default=False, description="For create: a new one even if one with this pack is signed in "
+                                                 "(only when the person asks)")
 
 
 # ── Shared steps ──────────────────────────────────────────────────────────────
@@ -188,22 +192,27 @@ def _recording(thread_id: str) -> Any:
     return record.capture if record is not None and hasattr(record.capture, "pointer") else None
 
 
-async def _point(tab: Any, locator: Any, capture: Any, *, click: bool = False) -> None:
-    """While recording: move the pointer to the control at a viewer's pace, so the video shows where it goes."""
+async def _point(tab: Any, locator: Any, capture: Any, *, click: bool = False, kind: str = "click",
+                 note: str = "") -> bool:
+    """While recording: move the pointer to the control at a viewer's pace, so the video shows where it goes,
+    and log what is done there for the video's camera; whether it was (a control with no box is neither)."""
     import asyncio
 
     from row_bot.browser.recording import MOVE_SECONDS
 
     box = await locator.bounding_box(timeout=ACTION_TIMEOUT_MS)
     if not box:
-        return
+        return False
     width, height = await tab.page.evaluate("() => [innerWidth, innerHeight]")
+    width, height = max(1, width), max(1, height)
+    capture.act(kind, (box["x"] / width, box["y"] / height, box["width"] / width, box["height"] / height), note)
     x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-    capture.pointer(x / max(1, width), y / max(1, height))
+    capture.pointer(x / width, y / height)
     await tab.page.mouse.move(x, y, steps=12)
     await asyncio.sleep(MOVE_SECONDS)
     if click:
-        capture.pointer(x / max(1, width), y / max(1, height), click=True)
+        capture.pointer(x / width, y / height, click=True)
+    return True
 
 
 def _normalise_url(url: str) -> tuple[str | None, str]:
@@ -477,9 +486,15 @@ def browser_navigate(url: str) -> str:
     if refusal:
         return refusal
 
+    capture = _recording(thread_id)
+
     async def step(tab: Any) -> str:
         try:
+            if capture is not None:
+                capture.act("open", note=_history_url(selected))
             await tab.page.goto(selected, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+            if capture is not None:
+                capture.act_done()
         except Exception as exc:
             return _plain_error("open", selected, exc)
         tab.refs.reset()
@@ -514,12 +529,13 @@ def browser_click(ref: str, double: bool = False, right: bool = False) -> str:
     async def step(tab: Any) -> str:
         locator = await session.locate(tab, ref)
         try:
-            if capture is not None:
-                await _point(tab, locator, capture, click=True)
+            pointed = capture is not None and await _point(tab, locator, capture, click=True, note=_what(info, ref))
             if double:
                 await locator.dblclick(timeout=ACTION_TIMEOUT_MS)
             else:
                 await locator.click(button="right" if right else "left", timeout=ACTION_TIMEOUT_MS)
+            if pointed:
+                capture.act_done()
         except Exception as exc:
             return _plain_error("click", _what(info, ref), exc)
         return f"Clicked {_what(info, ref)}."
@@ -554,16 +570,19 @@ def browser_type(ref: str, text: str, submit: bool = False) -> str:
 
     async def step(tab: Any) -> str:
         locator = await session.locate(tab, ref)
+        pointed = False
         try:
             if capture is not None:
                 # While recording, type as a person would, so the video shows the words appear.
-                await _point(tab, locator, capture, click=True)
+                pointed = await _point(tab, locator, capture, click=True, kind="type", note=_what(info, ref))
                 await locator.fill("", timeout=ACTION_TIMEOUT_MS)
                 await locator.press_sequentially(text, delay=45, timeout=ACTION_TIMEOUT_MS + 60 * len(text))
             else:
                 await locator.fill(text, timeout=ACTION_TIMEOUT_MS)
             if submit:
                 await locator.press("Enter", timeout=ACTION_TIMEOUT_MS)
+            if pointed:
+                capture.act_done()
         except Exception as exc:
             return _plain_error("type into", _what(info, ref), exc)
         return f"Typed into {_what(info, ref)}" + (" and pressed Enter." if submit else ".")
@@ -671,10 +690,12 @@ def browser_scroll(direction: str = "down", amount: int = 3, ref: str | None = N
             if capture is None:
                 await tab.page.mouse.wheel(0, sign * steps * 400)
             else:  # While recording, scroll smoothly, a little at a time.
+                capture.act("scroll", note=direction)
                 capture.pointer(0.5, 0.5)
                 for _ in range(steps * 8):
                     await tab.page.mouse.wheel(0, sign * 50)
                     await asyncio.sleep(0.02)
+                capture.act_done()
         except Exception as exc:
             return _plain_error("scroll", "the page", exc)
         return f"Scrolled {direction}."
@@ -898,7 +919,7 @@ def _record_approval(minutes: int) -> dict:
     }
 
 
-def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: str = "") -> str:
+def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: str = "", line: str = "") -> str:
     """Start or stop recording this chat's page in Row-Bot's browser to a video, or mark a beat while it records."""
 
     from row_bot import recordings
@@ -909,10 +930,15 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         capture = _recording(thread_id)
         if capture is None:
             return "Row-Bot's browser isn't being recorded in this chat: start a recording first."
-        at = capture.beat(beat, note)
+        from row_bot.sound import speaking_seconds
+
+        at = capture.beat(beat, note, line)
+        said = speaking_seconds(line)
         return (f"Marked {beat} at {recordings.clock_words(at)}"
                 + {"live": ": shown as it happens.", "work": ": sped up in the video.",
-                   "cut": ": left out of the video."}[beat])
+                   "cut": ": left out of the video."}[beat]
+                + (f" Its line takes about {said:.0f} s to say: stay on this step about that long." if beat == "live"
+                   and said >= 1 else ""))
     if action == "stop":
         record = recordings.active_for(thread_id, "browser")
         if record is None:
@@ -965,12 +991,17 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         return str(exc)
     except Exception:
         return "Row-Bot's browser couldn't start recording. Try again in a moment."
+    capture = record.capture
+    size = getattr(capture, "size", None)
+    shape = (f" While it records, the page keeps one size, {size[0]}×{size[1]}, whatever the Browser pane shows: "
+             "the video fills its frame." if size else "")
     return (
         recordings.summary(record)
+        + shape
         + " Do the steps to record (clicks, typing and scrolling go at a viewer's pace, with a drawn pointer); mark "
-        "beats as you go (beat=work before a wait, live when it's worth watching again, cut for a stretch to leave "
-        "out); then call browser_record with action stop. The video is saved to this chat's files, and the video "
-        "tool makes its scenes from the beats."
+        "a beat before each step, with its note and its line (beat=work before a wait, live when it's worth watching, "
+        "cut for a stretch to leave out); then call browser_record with action stop. The video is saved to this "
+        "chat's files, and the video tool makes the whole video from the beats (recording=…)."
     )
 
 
@@ -992,13 +1023,27 @@ def _sandbox_line(item: Any) -> str:
     view = sandboxes.view(item)
     where = f" at {view['url']}" if view["url"] else ""
     why = f" ({view['problem']})" if view["problem"] else ""
-    return f"Sandbox {item.sandbox_id}: \"{item.name}\", {view['pack_name'].lower()}, {item.status}{where}{why}."
+    model = sandboxes.model(item.sandbox_id)
+    signed = f", signed in ({model.split(':')[-1]})" if model else ", no model yet"
+    return (f"Sandbox {item.sandbox_id}: \"{item.name}\", {view['pack_name'].lower()}, {item.status}{where}{why}"
+            f"{signed}.")
 
 
-def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str = "empty") -> str:
+def _chat_model() -> str:
+    """This chat's model (its own choice, else the default)."""
+    from row_bot.models import get_current_model
+    from row_bot.threads import _get_thread_model_override
+
+    try:
+        return _get_thread_model_override(_get_thread_id()) or get_current_model()
+    except Exception:
+        return get_current_model()
+
+
+def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str = "empty", new: bool = False) -> str:
     """A sandbox: a second Row-Bot on made-up data, to try things safely or film a demo in this chat's browser."""
     from row_bot import sandboxes
-    from row_bot.tools.approval_gate import approval_check, with_approval
+    from row_bot.tools.approval_gate import approval_check, current_approval_mode, with_approval
 
     if sandboxes.is_sandbox():
         return "This is a sandbox already: it starts no sandboxes of its own."
@@ -1006,6 +1051,12 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
         found = sandboxes.list_sandboxes()
         return "\n".join(_sandbox_line(item) for item in found) if found else "There are no sandboxes yet."
     line = ""
+    reused = None
+    if action == "create" and not new:
+        # One with this pack that's signed in already: reuse it rather than ask the person to sign in again.
+        reused = sandboxes.reusable(pack)
+        if reused is not None:
+            action, sandbox = "start", reused.sandbox_id
     try:
         if action == "create":
             refusal, line = approval_check(
@@ -1015,14 +1066,16 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
                 cancelled_message="The person didn't want a sandbox; none was made.")
             if refusal:
                 return refusal
-            item = sandboxes.create(name, pack)
+            item = sandboxes.create(name, pack, approval=current_approval_mode(), model=_chat_model())
             sandboxes.start(item.sandbox_id)
             item = sandboxes.wait_running(item.sandbox_id, 90) or item
         else:
             item = sandboxes.get(sandbox.strip())
             if item is None:
                 return f"{sandbox or 'That'} isn't a sandbox here: list them, or create one."
-            if action == "start":
+            if action == "start" and item.status == "running":
+                pass
+            elif action == "start":
                 refusal, line = approval_check(
                     _sandbox_approval("Start", item.name), risks=("starts a second Row-Bot on this computer",),
                     blocked_message="BLOCKED: Starting a sandbox needs approval, and this chat is on Block.",
@@ -1041,6 +1094,9 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
     except sandboxes.SandboxError as error:
         return str(error)
     text = _sandbox_line(item)
+    if reused is not None:
+        text = (f"Reusing it: it has this pack and keeps its sign-in (reset brings its made-up data back; new=true "
+                f"makes another only if the person asks).\n{text}")
     if item.status == "running" and action in {"create", "start"}:
         text += " Open it with action open: this chat's browser signs in to it."
         if not sandboxes.has_model(item.sandbox_id):
@@ -1082,8 +1138,9 @@ _TOOLS: tuple[tuple[Any, str, str, type[BaseModel] | None], ...] = (
      _RecordInput),
     (sandbox, "sandbox",
      "A sandbox: a second Row-Bot on made-up data (a shop with its app, a charity's documents, paperwork, sample "
-     "code, or empty) to try a workflow safely or film a demo. create starts one (asks first); open signs this "
-     "chat's browser in to it; stop, reset, list.", _SandboxInput),
+     "code, or empty) to try a workflow safely or film a demo. create starts one (asks first), reusing a signed-in "
+     "one with that pack; open signs this chat's browser in to it; stop, reset (sign-in kept), list.",
+     _SandboxInput),
 )
 
 

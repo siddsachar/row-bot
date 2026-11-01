@@ -138,12 +138,17 @@ def test_the_persons_input_is_checked_and_played_on_the_page(service, browser): 
         # Copy reads the page's selection for the person's clipboard.
         copied = client.post(url, json={"events": [{"type": "copy"}]}, headers=headers)
         assert copied.json() == {"status": "ok", "copied": "ABCD-1234"}
+        # A paste is the page's own paste, long text included (a pasted message, not only a code).
+        pasted = client.post(url, json={"events": [{"type": "paste", "text": "x" * 20_000}]}, headers=headers)
+        assert pasted.status_code == 200, pasted.text
         for bad in ([{"type": "mouse", "action": "type", "x": 1, "y": 1}],
                     [{"type": "key", "action": "down", "key": ""}],
                     [{"type": "text", "text": "\x1b[2J"}],
+                    [{"type": "paste", "text": ""}],
                     [{"type": "mouse", "action": "move"}] * 65):
             assert client.post(url, json={"events": bad}, headers=headers).status_code == 422
-    assert len(engine.played) == 2 and engine.played[0][2]["text"] == "Leak under the sink"
+    assert len(engine.played) == 3 and engine.played[0][2]["text"] == "Leak under the sink"
+    assert engine.played[2][0]["type"] == "paste" and len(engine.played[2][0]["text"]) == 20_000
 
 
 def test_the_address_bar_refuses_what_never_opens_and_allows_what_the_person_typed(service, browser):  # noqa: F811

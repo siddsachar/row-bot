@@ -357,3 +357,17 @@ def test_an_approval_read_over_http_names_the_app_asking(service, composer_libra
         view = client.get(f"/api/v1/approvals/{handle.approval_id}", headers=headers)
         assert view.status_code == 200, view.text
         assert view.json()["app"] == {"item_id": "mcp:notion", "name": "Notion", "icon": "si:notion"}
+
+
+def test_a_send_refused_because_its_model_isnt_ready_says_so_not_that_row_bot_isnt_responding(service, composer_library):
+    """A signed-out Claude plan at send: the refusal reaches the client as itself, not as a 503."""
+    service.readiness_factory = lambda _controls: False
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _create(client, headers)["conversation_id"]
+        response = _command(client, headers, "conversation.submit", {
+            "submission_id": str(uuid4()), "text": "hello", "attachment_refs": [], "write_targets": [],
+            "model_selection": {"provider_id": "claude_subscription",
+                                "model_ref": "model:claude_subscription:claude-sonnet-5"}},
+            target=conversation, revision=service.get_conversation(conversation)["revision"])
+    assert (response.status_code, response.json()["code"]) == (409, "model_configuration_required")

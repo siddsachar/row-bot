@@ -931,6 +931,8 @@ _STATUS.update(
     {
         "invalid_model_selection": 422,
         "model_configuration_unavailable": 409,
+        # A send whose model isn't ready (signed out, not running): unlisted, it read "Part of Row-Bot isn't responding".
+        "model_configuration_required": 409,
         "model_settings_unavailable": 503,
         "command_metadata_unavailable": 503,
         "provider_settings_unavailable": 503,
@@ -6287,8 +6289,10 @@ def create_router(
         await session(request)
         from row_bot.application.client_first_run import detect_local_runtime
 
+        snapshot = await call(detect_local_runtime)
+        on_machine = on_this_computer(await _context(request))
         return await respond(
-            request, dto.LocalRuntimeSnapshot, await call(detect_local_runtime)
+            request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
 
     @router.post("/setup/model-test")

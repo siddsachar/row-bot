@@ -57,6 +57,26 @@ def fake_process(home, monkeypatch):
     sandboxes._SECRETS.clear()
 
 
+def test_a_sandbox_is_saved_while_windows_briefly_holds_its_file_open(home, monkeypatch):
+    """Windows refuses replacing sandbox.json while another thread reads it (Access is denied):
+    the save waits a moment and tries again instead of failing the sandbox."""
+    real_replace, refused = os.replace, []
+
+    def held_once(source, target):
+        if not refused:
+            refused.append(target)
+            denied = PermissionError(13, "Access is denied")
+            denied.winerror = 5
+            raise denied
+        real_replace(source, target)
+
+    monkeypatch.setattr(sandboxes.os, "replace", held_once)
+    made = sandboxes.create("Shop", "shop")
+    assert refused, "the first replace was refused"
+    assert sandboxes.get(made.sandbox_id).name == "Shop"
+    assert not list(sandboxes.sandboxes_root().glob("*/*.part"))
+
+
 def test_a_sandbox_gets_none_of_this_row_bots_keys_settings_or_folders(home):
     sandbox = sandboxes.create("Demo shop", "shop")
     env = sandboxes.environment(sandbox, 51234, "x" * 43, base={
@@ -235,3 +255,79 @@ def test_a_sandbox_says_when_it_has_no_model_yet(home):
     settings = home / "data" / "sandboxes" / sandbox.sandbox_id / "data" / "model_settings.json"
     settings.write_text(json.dumps({"model": "model:codex:gpt-6.1-sol"}), encoding="utf-8")
     assert sandboxes.view(sandbox)["needs_model"] is False
+
+
+def _sign_in(home, sandbox_id: str, model: str = "model:codex:gpt-6.1-sol") -> Path:
+    import json
+
+    data = home / "data" / "sandboxes" / sandbox_id / "data"
+    (data / "model_settings.json").write_text(json.dumps({"model": model}), encoding="utf-8")
+    (data / "providers.json").write_text("{}", encoding="utf-8")
+    (data / "secure-secrets").mkdir(exist_ok=True)
+    (data / "secure-secrets" / "codex.bin").write_bytes(b"sealed")
+    return data
+
+
+def test_a_reset_brings_the_pack_back_but_keeps_the_sandboxs_sign_in(fake_process, home):
+    sandbox = sandboxes.create("Demo shop", "shop")
+    data = _sign_in(home, sandbox.sandbox_id)
+    (data / "threads.db").write_bytes(b"chats")
+
+    sandboxes.reset(sandbox.sandbox_id)
+
+    assert not (data / "threads.db").exists(), "its chats go"
+    assert sandboxes.model(sandbox.sandbox_id) == "model:codex:gpt-6.1-sol", "it doesn't ask for a sign-in again"
+    assert (data / "providers.json").is_file() and (data / "secure-secrets" / "codex.bin").read_bytes() == b"sealed"
+
+
+def test_a_sandboxs_new_chats_start_at_the_level_of_the_chat_that_made_it_never_hands_off(home):
+    from row_bot.approval_policy import SANDBOX_LEVEL_ENV, starting_level
+
+    for made_at, starts in (("auto", "auto"), ("full", "auto"), ("approve", "approve"), ("block", "block"),
+                            ("", "approve")):
+        sandbox = sandboxes.create(f"From {made_at or 'settings'}", "shop", approval=made_at)
+        env = sandboxes.environment(sandbox, 51234, "x" * 43, base={SANDBOX_LEVEL_ENV: "full"})
+        assert starting_level(env) == starts, made_at
+        sandboxes.delete(sandbox.sandbox_id)
+    assert starting_level({SANDBOX_LEVEL_ENV: "auto"}) == "approve", "only a sandbox reads it"
+
+
+def test_a_sandbox_made_from_a_chat_on_a_local_model_answers_with_it_at_once(fake_process, home, monkeypatch):
+    from row_bot.approval_review import ReviewVerdict
+    from row_bot.tools import approval_gate, browser_tool
+
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "auto")
+    monkeypatch.setattr("row_bot.approval_review.review", lambda payload, **_kw: ReviewVerdict("approve", "Asked."))
+    monkeypatch.setattr(browser_tool, "_chat_model", lambda: "model:ollama:qwen3.8:27b")
+    made = browser_tool.sandbox("create", name="Local demo", pack="shop")
+    assert "signed in (27b)" in made and "no model yet" not in made, "a model on this computer needs no sign-in"
+
+    monkeypatch.setattr(browser_tool, "_chat_model", lambda: "model:codex:gpt-6.1-sol")
+    made = browser_tool.sandbox("create", name="Cloud demo", pack="charity")
+    assert "no model yet" in made, "a hosted model's sign-in is never carried over"
+
+
+def test_creating_a_sandbox_reuses_a_signed_in_one_with_that_pack(fake_process, home, monkeypatch):
+    from row_bot.approval_review import ReviewVerdict
+    from row_bot.tools import approval_gate, browser_tool
+
+    asked: list[dict] = []
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "auto")
+    monkeypatch.setattr("row_bot.approval_review.review",
+                        lambda payload, **_kw: asked.append(payload) or ReviewVerdict("approve", "You asked for it."))
+    browser_tool.sandbox("create", name="Video 1", pack="shop")
+    [first] = sandboxes.list_sandboxes()
+    assert first.approval == "auto", "made from a chat on Auto"
+    _sign_in(home, first.sandbox_id)
+    sandboxes.wait_running(first.sandbox_id, 10)
+    asked.clear()
+
+    again = browser_tool.sandbox("create", name="Video 2", pack="shop")
+
+    assert again.startswith("Reusing it") and "signed in (gpt-6.1-sol)" in again
+    assert [item.sandbox_id for item in sandboxes.list_sandboxes()] == [first.sandbox_id]
+    assert asked == [], "a running one is used as it is"
+    assert "no model yet" in browser_tool.sandbox("create", name="Charity", pack="charity")
+    browser_tool.sandbox("create", name="Second shop", pack="shop", new=True)
+    assert len([item for item in sandboxes.list_sandboxes() if item.pack == "shop"]) == 2
+    assert "signed in (gpt-6.1-sol)" in browser_tool.sandbox("list")

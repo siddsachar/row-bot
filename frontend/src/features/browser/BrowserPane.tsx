@@ -11,6 +11,7 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  ClipboardPaste,
   Globe,
   KeyRound,
   Laptop,
@@ -338,10 +339,32 @@ export default function BrowserPane({
   function onText(text: string) {
     if (page && text) input.push({ type: 'text', text });
   }
+  /** The person's paste reaches the page as its own paste, so code boxes and editors that read it get it. */
+  function paste(text: string) {
+    if (page && text) input.push({ type: 'paste', text });
+  }
+  async function pasteFromMenu() {
+    const pasted = await platform.readClipboard();
+    if (pasted.status === 'ok' && pasted.value) {
+      paste(pasted.value);
+      keys.current?.focus({ preventScroll: true });
+    } else
+      notify(
+        "Row-Bot couldn't read the clipboard. Click the field in the page, then paste with the keyboard.",
+        'warning',
+      );
+  }
 
   const menu = [
     {
+      label: 'Paste into the page',
+      icon: <ClipboardPaste size={16} aria-hidden />,
+      disabled: !page,
+      onSelect: () => void pasteFromMenu(),
+    },
+    {
       label: 'Signed-in sites…',
+      separatorBefore: true,
       icon: <UserRoundCheck size={16} aria-hidden />,
       onSelect: () =>
         overlay.open({
@@ -586,7 +609,7 @@ export default function BrowserPane({
           onKeyUp={(event) => onKey(event, 'up')}
           onPaste={(event) => {
             event.preventDefault();
-            onText(event.clipboardData.getData('text/plain'));
+            paste(event.clipboardData.getData('text/plain'));
           }}
           onInput={(event) => {
             const target = event.currentTarget;

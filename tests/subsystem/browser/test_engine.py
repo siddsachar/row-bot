@@ -34,6 +34,8 @@ class FakeSession:
 
     async def send(self, method, params=None):
         self.sent.append((method, params or {}))
+        if method == "Emulation.setTouchEmulationEnabled" and not 1 <= (params or {}).get("maxTouchPoints", 1) <= 16:
+            raise RuntimeError("Touch points must be between 1 and 16")  # As Chromium answers.
         if method == "Browser.getVersion":
             return {"userAgent": HEADLESS_UA, "product": "HeadlessChrome/155.0"}
         return {}
@@ -397,8 +399,91 @@ def test_a_size_the_agent_chose_wins_over_the_pane_until_it_goes_back_to_desktop
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
     assert sizes[-1]["width"] == 390  # The pane doesn't undo the agent's phone size.
 
-    words = engine.set_viewport("desktop", None, "chat-a")
+    words = engine.set_viewport("pane", None, "chat-a")
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
     assert sizes[-1] == {"width": 500, "height": 700, "deviceScaleFactor": 1.0, "mobile": False}
     assert words.startswith("The page now shows at the Browser pane's size: 500×700 at 1× scale.")
+
+    # Asked for desktop, a narrow pane still gets a desktop window (demo run 4 got 420×902 and filmed a phone).
+    words = engine.set_viewport("desktop", None, "chat-a")
+    sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
+    assert sizes[-1] == {"width": 1280, "height": 800, "deviceScaleFactor": 1.0, "mobile": False}
+    assert words.startswith("The page now shows at desktop size: 1280×800 at 1× scale.")
+
+    words = engine.set_viewport("desktop", 2, "chat-a")
+    sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
+    assert sizes[-1] == {"width": 1280, "height": 800, "deviceScaleFactor": 2.0, "mobile": False}
+    assert words.startswith("The page now shows at desktop size: 1280×800 at 2× scale.")
     pane.close()
+
+
+def test_while_recording_the_page_keeps_the_recordings_size_whatever_the_pane_does(chromium, tmp_path, monkeypatch):
+    """A recording is one fixed 16:9 picture at full size: the pane opening, closing or resizing never changes it."""
+
+    monkeypatch.setattr(service_module, "PANE_GONE_GRACE_SECONDS", 0.0)
+    engine = chromium.engine()
+    engine.ensure_started()
+    context = chromium.contexts[-1]
+
+    async def open_tab(tab):
+        tab.page.url = "https://shop.example/orders"
+        return tab.id
+
+    engine.act("chat-a", "Open", open_tab, settle=False)
+    tab = engine._chats["chat-a"].active
+
+    def page_size():
+        return [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"][-1]
+
+    def picture():
+        sent = [params for session in context.sessions for method, params in session.sent
+                if method == "Page.startScreencast"]
+        return sent[-1]["maxWidth"], sent[-1]["maxHeight"], sent[-1]["quality"]
+
+    def settle():
+        engine._run(lambda: engine._follow_live("chat-a"))
+
+    narrow = engine.watch("chat-a", kind="pane", width=420, height=1226, scale=1.5)
+    settle()
+    engine.set_viewport("desktop", 1, "chat-a")  # A desktop size chosen before gives way to the recording's.
+    ended: list[str] = []
+    recorder = engine.start_recording(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000,
+                                      on_end=lambda reason, _video: ended.append(reason), thread_id="chat-a")
+    recording = {"width": 1440, "height": 810, "deviceScaleFactor": 4 / 3, "mobile": False}
+    assert recorder.size == (1920, 1080)
+    assert page_size() == recording
+    assert "the recording's size" in engine.set_viewport("desktop", None, "chat-a"), "desktop while it records"
+    assert page_size() == recording
+    assert picture() == (1920, 1080, 90), "the recording's own pixels; the pane shows them scaled"
+
+    wide = engine.watch("chat-a", kind="pane", width=900, height=640, scale=1.0)
+    narrow.close()
+    settle()
+    wide.close()
+    settle()
+    assert page_size() == recording, "the pane resizing or closing never changes a recording's page"
+
+    pane = engine.watch("chat-a", kind="pane", width=500, height=700, scale=1.0)
+    engine.stop_recording("chat-a", "agent")
+    assert recorder.join(10) and ended == ["agent"]
+    settle()
+    assert page_size() == {"width": 500, "height": 700, "deviceScaleFactor": 1.0, "mobile": False}, \
+        "afterwards the page follows the pane again"
+    pane.close()
+
+
+def test_a_recording_of_a_phone_size_keeps_the_phone_shape(chromium, tmp_path):
+    engine = chromium.engine()
+    engine.ensure_started()
+
+    async def open_tab(tab):
+        tab.page.url = "https://shop.example/"
+        return tab.id
+
+    engine.act("chat-a", "Open", open_tab, settle=False)
+    engine.set_viewport("phone", None, "chat-a")
+    recorder = engine.start_recording(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000,
+                                      on_end=lambda *_: None, thread_id="chat-a")
+    assert recorder.size == (886, 1920), "390×844 at 3×, at most 1920 tall"
+    engine.stop_recording("chat-a", "agent")
+    assert recorder.join(10)

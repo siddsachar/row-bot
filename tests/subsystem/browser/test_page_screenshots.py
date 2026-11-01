@@ -201,8 +201,9 @@ def test_page_sizes_apply_to_the_conversations_page(engines, preset, scale, expe
 
     [cdp] = session._context.sessions
     assert cdp.sent[0] == ("Emulation.setDeviceMetricsOverride", expected)
+    # Chromium refuses touch points outside 1-16, so switching touch off sends none.
     assert cdp.sent[1] == ("Emulation.setTouchEmulationEnabled",
-                           {"enabled": expected["mobile"], "maxTouchPoints": 5 if expected["mobile"] else 0})
+                           {"enabled": True, "maxTouchPoints": 5} if expected["mobile"] else {"enabled": False})
     assert words.startswith(f"The page now shows at {preset} size: {expected['width']}×{expected['height']}")
 
     # The screenshot says which size it shows.
@@ -218,12 +219,12 @@ def test_back_to_desktop_is_a_desktop_window_again_and_bad_sizes_are_refused(eng
 
     [cdp] = session._context.sessions
     assert cdp.sent[2:] == [
-        ("Emulation.setTouchEmulationEnabled", {"enabled": False}),
         ("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1.0,
                                                 "mobile": False}),
+        ("Emulation.setTouchEmulationEnabled", {"enabled": False}),
     ]
     assert words.startswith("The page now shows at desktop size: 1280×800 at 1× scale.")
-    assert session.set_viewport("watch", None, "chat") == "Choose phone, tablet or desktop."
+    assert session.set_viewport("watch", None, "chat") == "Choose phone, tablet, desktop or pane."
     assert session.set_viewport("phone", 5, "chat") == "The device scale must be a number from 1 to 3."
 
 

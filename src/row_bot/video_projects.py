@@ -26,6 +26,7 @@ import re
 import threading
 import time
 import uuid
+import wave
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,8 @@ class Scene:
     # The voice file said over it (a file in the chat's files) and the words that file says.
     voice: str = ""
     voiced: str = ""
+    # Who said it: the voice and speed Row-Bot voiced it in ("af_heart@1"), or "given" for a file made for it.
+    voiced_as: str = ""
 
 
 @dataclass
@@ -91,6 +94,9 @@ class Version:
     exports: dict[str, str] = field(default_factory=dict)
     # Use the brand kit (its colour, captions, logo, intro and outro).
     brand: bool = True
+    # This video's own voice and speed for its lines ("" and 0: the brand kit's).
+    voice: str = ""
+    voice_speed: float = 0.0
     # Making its video: "" (not yet), "voicing", "rendering" (edit_id follows the edit) or "failed".
     status: str = ""
     edit_id: str = ""
@@ -142,6 +148,7 @@ def _scene_from(data: dict[str, Any]) -> Scene:
         end=None if data.get("end") is None else float(data["end"]), speed=float(data.get("speed") or 1),
         zoom=[float(value) for value in zoom][:4] if zoom else None, card=str(data.get("card") or ""),
         line=str(data.get("line") or ""), voice=str(data.get("voice") or ""), voiced=str(data.get("voiced") or ""),
+        voiced_as=str(data.get("voiced_as") or ""),
     )
 
 
@@ -162,6 +169,7 @@ def _load(path: Path) -> Project | None:
                 captions=bool(item.get("captions")),
                 voice_lines=bool(item.get("voice_lines", True)), status=str(item.get("status") or ""),
                 aspect=str(item.get("aspect") or ""), brand=bool(item.get("brand", True)),
+                voice=str(item.get("voice") or ""), voice_speed=float(item.get("voice_speed") or 0),
                 exports={str(key): str(value) for key, value in (item.get("exports") or {}).items()
                          if key in EXPORTS},
                 edit_id=str(item.get("edit_id") or ""), problem=str(item.get("problem") or ""),
@@ -285,15 +293,15 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
         voice = _text(data.get("voice"), 200)
         old = known.get(scene_id)
         if voice and (old is None or voice != old.voice):
-            voiced = line  # A voice file Row-Bot made for this line with speak.
+            voiced, voiced_as = line, "given"  # A voice file made for this line with speak.
         elif old is not None and old.voice and old.voiced == line:
-            voice, voiced = old.voice, old.voiced
+            voice, voiced, voiced_as = old.voice, old.voiced, old.voiced_as
         else:
-            voice, voiced = "", ""
+            voice, voiced, voiced_as = "", "", ""
         scenes.append(Scene(scene_id=scene_id, source=source, start=start, end=end,
                             speed=round(speed, 3) if source else 1.0,
                             zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
-                            voiced=voiced))
+                            voiced=voiced, voiced_as=voiced_as))
     if len({scene.source for scene in scenes if scene.source}) > MAX_INPUTS:
         raise ProjectError(f"A video can use at most {MAX_INPUTS} different sources: join some first.")
     return scenes
@@ -312,7 +320,7 @@ WORK_SPEED = 4.0
 def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str, Any]]:
     """A recording's scenes from the beats marked while it recorded (5.3.1 B4): ``live`` stretches as they
     happened, ``work`` stretches sped up (with their badge), ``cut`` stretches left out; before the first
-    beat counts as live."""
+    beat counts as live. Each scene's title is its beat's note, and its line the beat's line."""
     from row_bot import recordings
 
     record = recordings.get(recording_id)
@@ -320,16 +328,18 @@ def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str,
         raise ProjectError(f"{recording_id} isn't a recording in this chat.")
     if record.status != "saved":
         raise ProjectError(f"{recording_id} has no saved video yet.")
-    marks = sorted((float(at), str(kind), str(note)) for at, kind, note in record.beats)
+    marks = sorted((float(at), str(kind), str(note), str(line[0]) if line else "")
+                   for at, kind, note, *line in record.beats)
     if not marks or marks[0][0] > 0.05:
-        marks.insert(0, (0.0, "live", ""))
+        marks.insert(0, (0.0, "live", "", ""))
     scenes: list[dict[str, Any]] = []
-    for index, (start, kind, _note) in enumerate(marks):
+    for index, (start, kind, note, line) in enumerate(marks):
         end = marks[index + 1][0] if index + 1 < len(marks) else None
         if kind == "cut" or (end is not None and end - start < 0.1):
             continue
         scenes.append({"source": recording_id, "start": round(start, 2), "end": None if end is None else round(end, 2),
-                       "speed": WORK_SPEED if kind == "work" else 1.0, "card": "", "line": ""})
+                       "speed": WORK_SPEED if kind == "work" else 1.0, "card": note[:MAX_CARD],
+                       "line": line[:MAX_LINE]})
     if not scenes:
         raise ProjectError(f"Every part of {recording_id} is marked cut: nothing is left to show.")
     return scenes
@@ -344,7 +354,7 @@ def _add_version(project: Project, version: Version) -> Version:
 
 def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = "", music_volume: float = 0.3,
            narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
-           by: By = "row-bot", note: str = "") -> Project:
+           by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None) -> Project:
     """A new project with its first version."""
     conversation = str(conversation_id or "").strip()
     if not conversation:
@@ -355,10 +365,32 @@ def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = 
         version = Version(number=1, at=time.time(), by=by, note=_text(note, MAX_NOTE) or "First version",
                           scenes=_clean_scenes(scenes, conversation, []), music=_text(music, 200),
                           music_volume=_volume(music_volume), narration=_text(narration, 200), captions=bool(captions),
-                          voice_lines=bool(voice_lines), aspect=_aspect(aspect), brand=bool(brand))
+                          voice_lines=bool(voice_lines), aspect=_aspect(aspect), brand=bool(brand),
+                          voice=_voice(voice), voice_speed=_voice_speed(voice_speed))
         _add_version(project, version)
     logger.info("Video project created (%d scenes)", len(version.scenes))
     return project
+
+
+def _voice(value: Any) -> str:
+    from row_bot import video_brand
+
+    try:
+        return video_brand.narration_voice(value)
+    except video_brand.BrandError as error:
+        raise ProjectError(str(error)) from None
+
+
+def _voice_speed(value: Any) -> float:
+    """A video's own speed for its lines, or 0 for the brand kit's."""
+    from row_bot import video_brand
+
+    if value in (None, "", 0):
+        return 0.0
+    try:
+        return video_brand.narration_speed(value)
+    except video_brand.BrandError as error:
+        raise ProjectError(str(error)) from None
 
 
 def _volume(value: Any) -> float:
@@ -371,7 +403,7 @@ def _volume(value: Any) -> float:
 def change(project: Project, *, by: By, note: str = "", base: int | None = None, scenes: list[Any] | None = None,
            title: str | None = None, music: str | None = None, music_volume: float | None = None,
            narration: str | None = None, captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
-           brand: bool | None = None) -> Version:
+           brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None) -> Version:
     """A new version with these changes; ``base`` is the version they were made on (refused when it isn't the
     latest, so two editors never overwrite each other)."""
     with _LOCK:
@@ -395,6 +427,8 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
             voice_lines=latest.voice_lines if voice_lines is None else bool(voice_lines),
             aspect=latest.aspect if aspect is None else _aspect(aspect),
             brand=latest.brand if brand is None else bool(brand),
+            voice=latest.voice if voice is None else _voice(voice),
+            voice_speed=latest.voice_speed if voice_speed is None else _voice_speed(voice_speed),
         )
         _add_version(fresh, version)
         project.title, project.versions = fresh.title, fresh.versions
@@ -412,7 +446,8 @@ def restore(project: Project, number: int, *, by: By) -> Version:
                           scenes=[Scene(**asdict(scene)) for scene in old.scenes], music=old.music,
                           music_volume=old.music_volume, narration=old.narration, captions=old.captions,
                           voice_lines=old.voice_lines,
-                          aspect=old.aspect, exports=dict(old.exports), brand=old.brand,
+                          aspect=old.aspect, exports=dict(old.exports), brand=old.brand, voice=old.voice,
+                          voice_speed=old.voice_speed,
                           status="rendering" if old.edit_id else "", edit_id=old.edit_id)
         _add_version(fresh, version)
         project.versions = fresh.versions
@@ -447,9 +482,25 @@ def _update(project: Project, number: int, **changes: Any) -> None:
         _save(fresh)
 
 
+def narrator(version: Version) -> tuple[str, float]:
+    """The voice and speed a version's lines are said in: its own, else the brand kit's."""
+    from row_bot import video_brand
+
+    kit = video_brand.load()
+    return version.voice or kit.voice, version.voice_speed or kit.voice_speed
+
+
+def _said_as(voice: str, speed: float) -> str:
+    return f"{voice or 'settings'}@{speed:g}"
+
+
 def needs_voice(version: Version) -> list[Scene]:
+    """The scenes whose line must be voiced: none yet, its words changed, or another voice or speed chosen."""
+    if not _says_lines(version):
+        return []
+    said = _said_as(*narrator(version))
     return [scene for scene in version.scenes
-            if _says_lines(version) and scene.line and (not scene.voice or scene.voiced != scene.line)]
+            if scene.line and (not scene.voice or scene.voiced != scene.line or scene.voiced_as not in ("given", said))]
 
 
 def _says_lines(version: Version) -> bool:
@@ -513,7 +564,8 @@ def _look() -> Any:
 
     kit = video_brand.load()
     return Look(colour=video_brand.rgb(kit.colour), captions=kit.captions, logo=video_brand.logo_png(kit),
-                logo_corner=kit.logo_corner, intro=kit.intro, outro=kit.outro)
+                logo_corner=kit.logo_corner, intro=kit.intro, outro=kit.outro, framing=kit.framing,
+                camera=kit.camera)
 
 
 def pointer_focus(source: str, start: float, end: float | None) -> tuple[float, float] | None:
@@ -531,6 +583,29 @@ def pointer_focus(source: str, start: float, end: float | None) -> tuple[float, 
     return (round(median(x for x, _y in moves), 4), round(median(y for _x, y in moves), 4))
 
 
+def _voice_seconds(path: Path | None, data: bytes | None, suffix: str) -> float:
+    """How long a voice file lasts; 0 when it isn't a WAV (a scene then keeps the length it was given)."""
+    from row_bot.sound import wav_seconds
+
+    if suffix.casefold() != ".wav":
+        return 0.0
+    try:
+        return wav_seconds(data if data else path.read_bytes() if path else b"")
+    except (OSError, EOFError, wave.Error):
+        return 0.0
+
+
+def scene_camera(source: str, start: float, end: float | None, speed: float) -> tuple[Any, ...]:
+    """A scene's camera from what was done while its recording ran (``video_studio.camera``); none for a video
+    that isn't a recording."""
+    from row_bot import recordings, video_studio
+
+    record = recordings.get(source) if str(source).startswith("rec-") else None
+    if record is None or not record.actions:
+        return ()
+    return video_studio.camera(record.actions, start, record.duration_seconds if end is None else end, speed)
+
+
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:
     """Voice what needs it, then make the version's video (or, with ``shape``, the same in that shape)."""
     from row_bot import sound, video_edits
@@ -544,11 +619,20 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
     if project is None or version is None:
         return
     try:
+        voice, speed = narrator(version)
         for scene in needs_voice(version):
-            speech = sound.speak(scene.line)
+            speech = sound.speak(scene.line, voice=voice, speed=speed)
             scene.voice = save_sound(_file_name(project.title, ".wav", scene.scene_id), speech.wav,
                                      conversation_id)
-            scene.voiced = scene.line
+            scene.voiced, scene.voiced_as = scene.line, _said_as(voice, speed)
+        lasts: dict[str, float] = {}
+        sounds: dict[str, tuple[Any, bytes, str]] = {}
+        for scene in version.scenes if _says_lines(version) else []:
+            if not scene.voice:
+                continue
+            _label, path, data, suffix = sound_source(scene.voice, conversation_id)
+            sounds[scene.voice] = (path, data or b"", suffix)
+            lasts[scene.voice] = _voice_seconds(path, data, suffix)
         if _says_lines(version) and not shape:
             _update(project, number, scenes=version.scenes, status="rendering")
         sources = list(dict.fromkeys(scene.source for scene in version.scenes if scene.source))
@@ -562,12 +646,14 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          end=scene.end, speed=scene.speed,
                          zoom=tuple(scene.zoom) if scene.zoom else None, card=scene.card, line=scene.line,
                          voice=scene.voice if _says_lines(version) else "",
+                         voice_seconds=lasts.get(scene.voice, 0.0) if _says_lines(version) else 0.0,
                          focus=None if scene.zoom or not scene.source
-                         else pointer_focus(scene.source, scene.start, scene.end))
+                         else pointer_focus(scene.source, scene.start, scene.end),
+                         camera=scene_camera(scene.source, scene.start, scene.end, scene.speed)
+                         if scene.source and not scene.zoom else ())
                 for scene in version.scenes]
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
                       aspect=shape or version.aspect, look=_look() if version.brand else None)]
-        sounds: dict[str, tuple[Any, bytes, str]] = {}
         extra = [name for name in (version.narration, version.music) if name]
         for name in [cut.voice for cut in cuts if cut.voice] + extra:
             if name not in sounds:
@@ -676,6 +762,9 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "checks_passed": edit.checks_passed if edit is not None else None,
         "aspect": version.aspect,
         "brand": version.brand,
+        "voice": version.voice,
+        "voice_speed": version.voice_speed,
+        "review_sheet": edit.sheet if edit is not None and _status(version, edit) == "made" else "",
         "exports": [{"shape": shape, "edit": video_edits.view(found)} for shape in EXPORTS
                     if (found := video_edits.get(version.exports.get(shape, ""))) is not None],
     }
@@ -687,6 +776,14 @@ def _status(version: Version, edit: Any) -> str:
     if edit is None:
         return "rendering" if version.status == "rendering" and not version.edit_id else "draft"
     return {"saved": "made", "failed": "failed", "stopped": "stopped"}.get(edit.status, "rendering")
+
+
+# What Row-Bot looks for in a made video before it says it's done (5.3.2): the checks read sound and stillness,
+# the sheet shows what a viewer sees.
+REVIEW = ("Review sheet: {sheet} (each scene a second in and near its end). Look at it with analyze_image before "
+          "saying the video is done, and fix what's off, then make it again: is what's being done in view and big "
+          "enough to read; does each zoom land on it; do titles or captions cover it; is anything cut off, black or "
+          "broken; does each scene show what its line says; is it mostly the app, not title cards.")
 
 
 def summary(project: Project, number: int | None = None) -> str:
@@ -714,4 +811,6 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["checks"]:
         verdict = "passed" if data["checks_passed"] else "NOT passed: fix these before saying it's done"
         lines.append(f"Checks {verdict}:\n" + "\n".join(f"- {line}" for line in data["checks"]))
+    if data["review_sheet"]:
+        lines.append(REVIEW.format(sheet=data["review_sheet"]))
     return "\n".join(lines)

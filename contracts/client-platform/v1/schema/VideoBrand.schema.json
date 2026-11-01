@@ -2,6 +2,15 @@
   "additionalProperties": false,
   "description": "The brand kit (5.3.1 B3): the look every video project uses unless a version turns it off.",
   "properties": {
+    "camera": {
+      "default": "follow",
+      "enum": [
+        "follow",
+        "still"
+      ],
+      "title": "Camera",
+      "type": "string"
+    },
     "captions": {
       "enum": [
         "box",
@@ -14,6 +23,15 @@
     "colour": {
       "pattern": "^#[0-9a-fA-F]{6}$",
       "title": "Colour",
+      "type": "string"
+    },
+    "framing": {
+      "default": "framed",
+      "enum": [
+        "framed",
+        "full"
+      ],
+      "title": "Framing",
       "type": "string"
     },
     "intro": {
@@ -50,6 +68,19 @@
       "maxLength": 120,
       "title": "Outro",
       "type": "string"
+    },
+    "voice": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Voice",
+      "type": "string"
+    },
+    "voice_speed": {
+      "default": 1.0,
+      "maximum": 1.25,
+      "minimum": 0.9,
+      "title": "Voice Speed",
+      "type": "number"
     }
   },
   "required": [

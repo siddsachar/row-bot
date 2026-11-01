@@ -158,9 +158,21 @@ def _sign_in_again(data_dir: Path, mcp: list[str], webhooks: int) -> list[dict]:
     for provider_id, config in sorted(providers.items()) if isinstance(providers, dict) else []:
         if isinstance(config, dict) and any(key.endswith("_ref") and value for key, value in config.items()):
             items.append({"kind": "provider", "name": str(provider_id)})
-    for folder, name in (("gmail", "Gmail"), ("calendar", "Google Calendar"), ("x", "X")):
-        if (data_dir / folder).exists():
-            items.append({"kind": "account", "name": name})
+    # A saved sign-in, never an app's folder (its tool makes that whenever Row-Bot loads it).
+    from row_bot import account_tokens
+
+    try:
+        accounts = account_tokens.saved_sign_ins()
+    except Exception:
+        logger.debug("Could not read which accounts are signed in", exc_info=True)
+        accounts = []
+    # A sign-in from before the keychain, not copied there yet, is still its old token file.
+    for name, old_file in (("Gmail", "gmail/token.json"), ("Google Calendar", "calendar/token.json"),
+                           ("X", "x/token.json")):
+        if name not in accounts and (data_dir / old_file).is_file():
+            accounts.append(name)
+    order = ("Gmail", "Google Calendar", "X", "Outlook")
+    items.extend({"kind": "account", "name": name} for name in sorted(accounts, key=order.index))
     if (data_dir / "whatsapp_session").exists():
         items.append({"kind": "channel", "name": "WhatsApp"})
     items.extend({"kind": "mcp", "name": name} for name in mcp)

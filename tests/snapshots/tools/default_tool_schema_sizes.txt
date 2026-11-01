@@ -14,7 +14,7 @@ check_process: 638
 clone_repository: 608
 conversation_links: 205
 conversation_send: 858
-conversation_start: 894
+conversation_start: 904
 create_chart: 1950
 create_code_folder: 654
 create_design: 931
@@ -98,7 +98,7 @@ tracker_query: 597
 transcribe: 447
 update_memory: 1056
 use_code_folder: 628
-video: 4578
+video: 5004
 wait_for: 1899
 wait_stop: 259
 waits: 160
@@ -116,4 +116,4 @@ workspace_read_file: 867
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (118 tools): 87117
+TOTAL (118 tools): 87553

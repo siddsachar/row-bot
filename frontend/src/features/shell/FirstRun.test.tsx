@@ -59,6 +59,7 @@ const runtime = (
   state,
   platform: 'windows' as const,
   download_url: 'https://ollama.com/download',
+  on_this_computer: true,
   models: models.map((name) => ({
     model_ref: `model:ollama:${name}`,
     name,
@@ -113,6 +114,25 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+it('from a phone, says to install Ollama on the computer Row-Bot runs on instead of offering a download', async () => {
+  mock.controller.localRuntime.mockResolvedValue({
+    ...runtime('not_installed'),
+    on_this_computer: false,
+  });
+  show();
+  const choices = screen.getByRole('group', {
+    name: 'How should Row-Bot think?',
+  });
+  fireEvent.click(
+    await within(choices).findByRole('button', { name: /On this computer/ }),
+  );
+  expect(screen.getByRole('heading', { name: 'Install Ollama' })).toBeVisible();
+  expect(
+    screen.getByText('Install it on that computer, not on this device.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Download Ollama' })).toBeNull();
 });
 
 it('asks one question and detects Ollama without a refresh button', async () => {
@@ -194,6 +214,27 @@ it('keeps the person in Setup with the reason when the quick test fails', async 
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   await vi.waitFor(() => expect(location()).toBe('/'));
   expect(actions.finish).toHaveBeenCalledTimes(1);
+});
+
+it('says a window that is not signed in can only look, not that the model failed', async () => {
+  mock.controller.localRuntime.mockResolvedValue(
+    runtime('running', ['qwen3.8:27b']),
+  );
+  mock.controller.testChosenModel.mockRejectedValueOnce({
+    code: 'sign_in_required',
+    status: 403,
+  });
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /qwen3\.8:27b/ }));
+  expect(
+    await screen.findByRole('heading', { name: 'This window can only look' }),
+  ).toBeVisible();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    "This window isn't signed in",
+  );
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  expect(location()).toBe('/setup');
 });
 
 it('offers an import only when another assistant was found', async () => {

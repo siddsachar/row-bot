@@ -112,17 +112,17 @@ def clone_gate(target: str, payload: dict) -> None:
     The person asked for it (Add resource, the folder browser, or a clone card the agent showed),
     so Auto and Hands-off let it go ahead; Ask needs the person's confirmation of the download
     (``confirm_network``); Block refuses. Add resource without a conversation starts one at the
-    default level.
+    level new conversations start at.
     """
-    from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
     from row_bot.developer.client_clone import CloneCreationError, source_name
+    from row_bot.full_autonomy import new_level
     from row_bot.developer.sandbox import decide_action
 
     try:  # An address Row-Bot never clones is refused first, at every level.
         source_name(str((payload.get("clone_workspace") or {}).get("repo_url") or ""))
     except CloneCreationError as exc:
         raise ClientPlatformError(exc.code) from exc
-    level = DEFAULT_APPROVAL_MODE
+    level = new_level()
     if target != "resources":
         from row_bot.threads import _get_thread_approval_mode
 

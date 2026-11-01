@@ -393,8 +393,9 @@ class BrowserFrame(WireModel):
 
 
 class BrowserInputEvent(WireModel):
-    """The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection."""
-    type: Literal["mouse", "key", "text", "copy"]
+    """The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection and
+    ``paste`` pastes text as the page's own paste."""
+    type: Literal["mouse", "key", "text", "paste", "copy"]
     action: Literal["move", "down", "up", "wheel", ""] = ""
     x: float = Field(default=0, ge=-10_000, le=100_000)
     y: float = Field(default=0, ge=-10_000, le=100_000)
@@ -403,7 +404,7 @@ class BrowserInputEvent(WireModel):
     button: Literal["left", "right", "middle"] = "left"
     clicks: int = Field(default=1, ge=1, le=3)
     key: str = Field(default="", max_length=32)
-    text: str = Field(default="", max_length=4096)
+    text: str = Field(default="", max_length=65_536)
 
     @model_validator(mode="after")
     def complete(self) -> BrowserInputEvent:
@@ -411,8 +412,8 @@ class BrowserInputEvent(WireModel):
             raise ValueError("A mouse event moves, presses, releases or turns the wheel.")
         if self.type == "key" and (self.action not in {"down", "up"} or not self.key):
             raise ValueError("A key event presses or releases one named key.")
-        if self.type == "text" and not self.text:
-            raise ValueError("A text event has text.")
+        if self.type in {"text", "paste"} and not self.text:
+            raise ValueError("A text or paste event has text.")
         if any(ord(character) < 32 and character not in "\t\n" for character in self.key + self.text):
             raise ValueError("Control characters aren't keys or text.")
         return self
@@ -2493,6 +2494,8 @@ class LocalRuntimeSnapshot(WireModel):
     platform: Literal["windows", "macos", "linux"]
     download_url: str = Field(max_length=256)
     models: list[LocalRuntimeModel] = Field(max_length=256)
+    # False on another device (a phone): a download link would land there.
+    on_this_computer: bool
 
 
 class ModelTestResult(WireModel):
@@ -5340,6 +5343,12 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
+    # Footage on the backdrop or edge to edge; a camera that follows what was done or stays still.
+    framing: Literal["framed", "full"] = "framed"
+    camera: Literal["follow", "still"] = "follow"
+    # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
+    voice: str = Field(default="", max_length=64)
+    voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
 
 
 class VideoProjectView(WireModel):
@@ -5373,6 +5382,11 @@ class VideoProjectView(WireModel):
     exports: list[VideoExportView] = Field(max_length=4)
     # Made with the brand kit.
     brand: bool
+    # Its own voice and speed for its lines ("" and 0: the brand kit's).
+    voice: str = Field(default="", max_length=64)
+    voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
+    review_sheet: str = Field(default="", max_length=200)
 
 
 class VideoProjectChange(WireModel):
@@ -5383,6 +5397,7 @@ class VideoProjectChange(WireModel):
     music_volume: float | None = Field(default=None, ge=0, le=1)
     captions: bool | None = None
     brand: bool | None = None
+    voice: str | None = Field(default=None, max_length=64)
     note: str = Field(default="", max_length=200)
 
 
@@ -7921,9 +7936,11 @@ class ApprovalRequired(WireModel):
 
 
 class GenerationError(WireModel):
-    code: Literal["generation_failed", "sign_in_required"]
+    code: Literal["generation_failed", "sign_in_required", "provider_unavailable"]
     # sign_in_required: whose sign-in to renew ("ChatGPT").
     provider: str = Field(default="", max_length=64)
+    # provider_unavailable: the provider's own words on why and what to do ("Claude is limiting requests…").
+    message: str = Field(default="", max_length=400)
 
 
 class TranscriptCheckpoint(WireModel):

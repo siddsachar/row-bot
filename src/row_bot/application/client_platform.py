@@ -1203,6 +1203,9 @@ class ClientPlatformService:
                 ).rowcount
                 if not changed:
                     raise ClientPlatformError("revision_conflict")
+            if normalize_approval_mode(payload["approval_mode"]) != normalize_approval_mode(row.get("approval_mode")):
+                # The person's choice: new conversations start there.
+                full_autonomy.remember_level(payload["approval_mode"])
             if reasoning_selection is not None:
                 from row_bot.providers.reasoning import clear_reasoning_suppression
                 clear_reasoning_suppression(target, model)
@@ -1948,8 +1951,10 @@ class ClientPlatformService:
                 self.projection.publish(conversation_id, "approval.required", {
                     "status": "waiting_approval", "approval_id": handle.approval_id,
                     **public_approval})
+        elif kind == "provider_refusal":
+            handle.refusal = dict(payload)
         elif kind == "error":
-            self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
+            self.projection.publish(conversation_id, "generation.error", handle.refusal or {"code": "generation_failed"})
 
     def get_approval(self, approval_id: str) -> dict:
         from row_bot.application.approval_projection import project_approval_context

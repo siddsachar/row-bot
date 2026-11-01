@@ -51,6 +51,8 @@ _ABILITIES_GUIDELINES = (
     "  ask_person, never as questions in your reply. Skip what you can find out or sensibly assume.\n"
     "- Research on several separate things (products, apps, sources): give each to a helper with\n"
     "  delegate_work (wait=false), do the rest yourself, then join them.\n"
+    "- A request made here is done here, however big: start another conversation only when the person\n"
+    "  asks for one.\n"
     "- Something that should keep running, such as a local file server or a watcher: start_process.\n"
     "  The shell and processes start in the person's workspace folder; never guess its path.\n"
     "- Repeating or timed work, a reminder, or 'keep me on track': create or offer a task. For a long\n"

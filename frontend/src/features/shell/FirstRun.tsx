@@ -55,7 +55,7 @@ type Path = 'local' | 'subscription' | 'key';
 type Step =
   | { kind: 'pick' }
   | { kind: 'testing'; label: string }
-  | { kind: 'failed'; label: string; detail: string }
+  | { kind: 'failed'; label: string; detail: string; onlyLooks?: boolean }
   | { kind: 'import' };
 
 export type FirstRunActions = {
@@ -231,14 +231,18 @@ function LocalPanel({
       itself when Ollama is running.
     </p>
   );
+  // From a phone or another device, a download would land on that device.
+  const here = runtime.on_this_computer;
   if (runtime.state === 'not_installed')
     return (
       <div className="first-run-panel-body">
         <h3>Install Ollama</h3>
         <p>
-          Ollama runs models on this computer: private, free and offline once a
-          model is downloaded.
+          Ollama runs models on{' '}
+          {here ? 'this computer' : 'the computer Row-Bot runs on'}: private,
+          free and offline once a model is downloaded.
         </p>
+        {!here && <p>Install it on that computer, not on this device.</p>}
         {runtime.platform === 'linux' ? (
           <ol className="first-run-steps">
             <li>
@@ -253,8 +257,8 @@ function LocalPanel({
           <ol className="first-run-steps">
             <li>
               Download Ollama for{' '}
-              {runtime.platform === 'macos' ? 'Mac' : 'Windows'} and run the
-              installer.
+              {runtime.platform === 'macos' ? 'Mac' : 'Windows'}
+              {here ? '' : ' from ollama.com'} and run the installer.
             </li>
             <li>
               {runtime.platform === 'macos'
@@ -263,7 +267,7 @@ function LocalPanel({
             </li>
           </ol>
         )}
-        {runtime.platform !== 'linux' && (
+        {here && runtime.platform !== 'linux' && (
           <a
             className="button primary first-run-download"
             href={runtime.download_url}
@@ -592,12 +596,23 @@ export default function FirstRun({
         ? 'Ollama is installed · not running'
         : "Ollama isn't installed yet";
 
+  /** A refusal, not the model: a window that isn't signed in can only look. */
+  function refused(label: string, cause: unknown) {
+    const error = clientError(cause);
+    setStep({
+      kind: 'failed',
+      label,
+      detail: error.message,
+      onlyLooks: error.code === 'sign_in_required',
+    });
+  }
+
   async function pick(modelRef: string, label: string) {
     setStep({ kind: 'testing', label });
     try {
       await actions.choose(modelRef);
     } catch (cause) {
-      setStep({ kind: 'failed', label, detail: clientError(cause).message });
+      refused(label, cause);
       return;
     }
     await verify(label);
@@ -610,7 +625,8 @@ export default function FirstRun({
     try {
       result = (await controller.testChosenModel()) ?? null;
     } catch (cause) {
-      result = { ok: false, detail: clientError(cause).message };
+      refused(label, cause);
+      return;
     }
     if (!result?.ok) {
       setStep({
@@ -623,7 +639,7 @@ export default function FirstRun({
     try {
       await actions.finish();
     } catch (cause) {
-      setStep({ kind: 'failed', label, detail: clientError(cause).message });
+      refused(label, cause);
       return;
     }
     void controller.refreshChoices().catch(() => undefined);
@@ -638,7 +654,9 @@ export default function FirstRun({
           <h1>
             {step.kind === 'testing'
               ? 'Checking the model'
-              : 'That model didn’t answer'}
+              : step.onlyLooks
+                ? 'This window can only look'
+                : 'That model didn’t answer'}
           </h1>
         </header>
         {step.kind === 'testing' ? (
@@ -650,14 +668,20 @@ export default function FirstRun({
         ) : (
           <div className="first-run-panel-body" role="alert">
             <p>{step.detail}</p>
-            <div className="actions">
-              <Button variant="primary" onClick={() => void verify(step.label)}>
-                Try again
-              </Button>
-              <Button onClick={() => setStep({ kind: 'pick' })}>
-                Choose another model
-              </Button>
-            </div>
+            {/* Trying again here would be refused the same way. */}
+            {step.onlyLooks ? null : (
+              <div className="actions">
+                <Button
+                  variant="primary"
+                  onClick={() => void verify(step.label)}
+                >
+                  Try again
+                </Button>
+                <Button onClick={() => setStep({ kind: 'pick' })}>
+                  Choose another model
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </section>

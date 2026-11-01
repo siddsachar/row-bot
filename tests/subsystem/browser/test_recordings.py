@@ -8,6 +8,7 @@ MP4 from a few pictures through PyAV, with a clock that runs fast.
 from __future__ import annotations
 
 import io
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,7 +16,7 @@ import pytest
 
 from row_bot import recordings
 from row_bot.approval_review import ReviewVerdict
-from row_bot.browser.recording import PageRecorder, encoder_problem
+from row_bot.browser.recording import PageRecorder, draw_touch, encoder_problem, touch_at
 from row_bot.browser.service import BrowserSessionManager
 from row_bot.tools import approval_gate, browser_tool
 
@@ -184,12 +185,17 @@ def test_a_recording_stops_at_its_time_limit_with_a_playable_video(tmp_path):
 
 
 @needs_encoder
-def test_a_recording_that_starts_on_the_small_live_thumbnail_is_still_made_full_size(tmp_path):
+def test_a_recording_keeps_its_size_whatever_size_its_pictures_come_at(tmp_path):
+    """A narrow picture first (the page at a narrow pane's size for a moment) never sets the video's shape."""
     ended: list[tuple[str, Path | None]] = []
-    recorder = PageRecorder(tmp_path / "rec.mp4", max_seconds=1, size_limit=10_000_000, width=1280,
-                            on_end=lambda reason, video: ended.append((reason, video)), clock=_Clock(0.25), tick=0.001)
-    recorder.offer_frame(_jpeg((200, 30, 30)))  # 320×200, like the 480-wide thumbnail someone watching sees
+    clock = _Clock(0.05)
+    recorder = PageRecorder(tmp_path / "rec.mp4", max_seconds=1, size_limit=10_000_000, size=(1920, 1080),
+                            on_end=lambda reason, video: ended.append((reason, video)), clock=clock, tick=0.001)
+    recorder.offer_frame(_jpeg((200, 30, 30), size=(632, 1840)))
     recorder.start()
+    while clock.now < 0.5:
+        time.sleep(0.001)
+    recorder.offer_frame(_jpeg((30, 30, 200), size=(1920, 1080)))
     assert recorder.join(10)
 
     [(_reason, video)] = ended
@@ -197,7 +203,9 @@ def test_a_recording_that_starts_on_the_small_live_thumbnail_is_still_made_full_
 
     with av.open(str(video)) as container:
         stream = container.streams.video[0]
-        assert (stream.codec_context.width, stream.codec_context.height) == (1280, 800)
+        assert (stream.codec_context.width, stream.codec_context.height) == (1920, 1080)
+        last = list(container.decode(video=0))[-1].to_image()
+    assert last.getpixel((10, 540))[2] > 150, "the full-size picture fills the frame, edge to edge"
 
 
 def test_a_recording_keeps_where_its_pointer_went_for_another_shape(tmp_path):
@@ -211,6 +219,25 @@ def test_a_recording_keeps_where_its_pointer_went_for_another_shape(tmp_path):
     recorder.pointer(1.4, -2)
 
     assert recorder.trail == [(2.5, 0.25, 0.75), (3.0, 1.0, 0.0)], "seconds into it, and on the page"
+
+
+def test_a_recording_logs_what_was_done_and_where_for_the_videos_camera(tmp_path):
+    """5.3.2: a video's camera follows what Row-Bot did, so each action is kept with the control's box."""
+    clock = _Clock(0.0)
+    recorder = PageRecorder(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000, on_end=lambda *_: None,
+                            clock=clock)
+    recorder.started_at = 1.0
+    clock.now = 3.0
+    recorder.act("type", (0.8, 0.1, 0.5, 0.05), 'textbox "Email"')
+    clock.now = 5.5
+    recorder.act_done()
+    recorder.act("open", note="example.com")
+
+    assert recorder.actions == [[2.0, 4.5, "type", 0.8, 0.1, 0.2, 0.05, 'textbox "Email"'],
+                                [4.5, 4.5, "open", 0.0, 0.0, 1.0, 1.0, "example.com"]], \
+        "from when to when, the box kept on the page, and the whole page for a page opened"
+    with pytest.raises(ValueError):
+        recorder.act("wave")
 
 
 @needs_encoder
@@ -277,6 +304,11 @@ def test_the_drawn_pointer_eases_to_each_target_and_rings_where_it_clicks():
     assert picture.getpixel((202, 154)) == (255, 255, 255), "a white arrow at the point"
     assert picture.getpixel((380, 20)) == (200, 30, 30), "nothing elsewhere"
 
+    tall = Image.new("RGB", (632, 1920), (200, 30, 30))
+    draw_pointer(tall, 0.5, 0.5, size=32)
+    assert tall.getpixel((322, 976)) == (255, 255, 255), "a white arrow at the point"
+    assert tall.getpixel((322, 1000)) == (200, 30, 30), "as tall as asked, not sized from a tall picture's height"
+
 
 @needs_encoder
 def test_a_recording_draws_the_pointer_and_keeps_its_beats(tmp_path):
@@ -297,7 +329,7 @@ def test_a_recording_draws_the_pointer_and_keeps_its_beats(tmp_path):
     with av.open(str(ended[0])) as container:
         last = list(container.decode(video=0))[-1].to_image()
     assert min(last.getpixel((204, 156))) > 200, "the pointer is drawn into the video"
-    [(at, kind, note)] = recorder.beats
+    [(at, kind, note, _line)] = recorder.beats
     assert kind == "work" and note == "Waiting for the build" and at >= 0
 
 
@@ -306,12 +338,13 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
         def __init__(self, on_end):
             super().__init__(on_end)
             self.beats: list[tuple[float, str, str]] = []
+            self.actions = [[3.0, 4.0, "click", 0.1, 0.2, 0.3, 0.1, "Save"]]
 
         def pointer(self, x, y, *, click=False):
             pass
 
-        def beat(self, kind, note=""):
-            self.beats.append((12.0, kind, note))
+        def beat(self, kind, note="", line=""):
+            self.beats.append((12.0, kind, note, line))
             return 12.0
 
     session = browser_tool._session_manager.get_session("conversation-a")
@@ -320,6 +353,8 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
     assert "isn't being recorded" in _record("beat", beat="work")
     _record("start")
     assert _record("beat", beat="work", note="Waiting for the build") == "Marked work at 0:12: sped up in the video."
+    assert _record("beat", beat="live", note="Orders", line="Here are this morning's orders, newest first.") == (
+        "Marked live at 0:12: shown as it happens. Its line takes about 3 s to say: stay on this step about that long.")
     record = recordings.active_for("conversation-a", "browser")
     video = Path(recordings.working_path(record))
     video.parent.mkdir(parents=True, exist_ok=True)
@@ -329,7 +364,10 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
     monkeypatch.setattr(attachments, "register_attachment", lambda conversation, name, data: {
         "attachment_ref": f"{conversation}:rec", "mime_type": "video/mp4"})
     recordings.finished(record, "agent", video)
-    assert record.beats == [[12.0, "work", "Waiting for the build"]]
+    assert record.beats == [[12.0, "work", "Waiting for the build", ""],
+                            [12.0, "live", "Orders", "Here are this morning's orders, newest first."]]
+    assert record.actions == [[3.0, 4.0, "click", 0.1, 0.2, 0.3, 0.1, "Save"]]
+    assert recordings._load(recordings._record_path(record)).actions == record.actions, "kept with the recording"
     assert "Beats: 0:12 work (Waiting for the build)" in recordings.summary(record)
     assert recordings._load(recordings._record_path(record)).beats == record.beats
 
@@ -340,9 +378,17 @@ def test_while_recording_clicks_and_typing_go_at_a_viewers_pace_with_the_pointer
     pointed: list[tuple[float, float, bool]] = []
     typed: list[tuple[str, str]] = []
 
+    acted: list[tuple] = []
+
     class _Capture2:
         def pointer(self, x, y, *, click=False):
             pointed.append((round(x, 2), round(y, 2), click))
+
+        def act(self, kind, box=None, note=""):
+            acted.append((kind, tuple(round(value, 2) for value in box), note))
+
+        def act_done(self):
+            acted.append(("done",))
 
     class _Locator:
         async def bounding_box(self, timeout=None):
@@ -374,7 +420,25 @@ def test_while_recording_clicks_and_typing_go_at_a_viewers_pace_with_the_pointer
     typed.clear()
     browser_tool.browser_type("e1", "ada@example.com")
     assert [kind for kind, _ in typed] == ["move", "fill", "keys"] and typed[-1][1] == "ada@example.com"
+    assert acted == [("click", (0.25, 0.25, 0.1, 0.1), 'textbox "Email"'), ("done",),
+                     ("type", (0.25, 0.25, 0.1, 0.1), 'textbox "Email"'), ("done",)], \
+        "each action logged on the control's box, never the words typed"
 
 
 async def _async(value):
     return value
+
+
+def test_on_a_touch_screen_a_tap_shows_where_it_lands_and_fades_with_no_pointer_between_taps():
+    """5.3.2: a phone demo showed a desktop arrow gliding over the screen."""
+    from PIL import Image
+
+    events = [(1.0, 0.5, 0.6, False, 0.1, 0.1), (1.45, 0.5, 0.6, True, 0.5, 0.6)]
+    assert touch_at(events, 0.5) is None, "nothing before the first touch"
+    assert touch_at(events, 1.1)[:3] == (0.5, 0.6, 0.0), "it lands where the control is, without travelling there"
+    x, y, ring, strength = touch_at(events, 1.7)
+    assert 0 < ring < 1 and strength == 1.0, "the tap rings"
+    assert touch_at(events, 3.0) is None, "and then it's gone"
+    image = Image.new("RGB", (390, 844), (0, 0, 0))
+    draw_touch(image, 0.5, 0.6, 0.5, 1.0, size=24)
+    assert image.getpixel((195, 506))[0] > 100, "a soft round mark where it lands"
