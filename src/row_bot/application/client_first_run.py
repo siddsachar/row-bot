@@ -178,6 +178,46 @@ def _chat_row(model_ref: str):
     return next((row for row in rows if row.selection_ref == model_ref and "chat" in row.categories), None)
 
 
+def _provider_order(provider_id: str) -> list[str]:
+    """A signed-in provider's models in its own order: ChatGPT's recommended model first,
+    Claude Code's list as it gives it (its default first), Grok's as xAI lists it."""
+    from row_bot.providers import claude_subscription, codex, xai_oauth
+
+    if provider_id == codex.CODEX_PROVIDER_ID:
+        recommended = [str(model["id"]) for model in codex.FALLBACK_CODEX_MODELS if model.get("recommended")]
+        return [*recommended, *(info.model_id for info in codex.list_codex_model_infos_for_status())]
+    if provider_id == claude_subscription.CLAUDE_SUBSCRIPTION_PROVIDER_ID:
+        return [info.model_id for info in claude_subscription.list_claude_subscription_model_infos_for_status()]
+    if provider_id == xai_oauth.XAI_OAUTH_PROVIDER_ID:
+        return [info.model_id for info in xai_oauth.list_xai_oauth_model_infos_for_status()]
+    return []
+
+
+def suggested_model(provider_id: str) -> str | None:
+    """The model a sign-in starts on, or None while the provider lists none ready.
+
+    A hosted first run (U3) goes from "Sign in with ChatGPT" or "Use my Claude plan"
+    straight to a chat, so it doesn't ask which model: the provider's own first pick
+    among its chat models that are ready now. The person changes it any time in the
+    model picker; nothing is chosen until they sign in (decision 9).
+    """
+    from row_bot.providers import client_status
+
+    _snapshot, rows = client_status._read(None, include_readiness=True)
+    ready = [row for row in rows if row.provider_id == provider_id and "chat" in row.categories
+             and row.configured and row.runtime_ready and row.installed]
+    if not ready:
+        return None
+    try:
+        order = _provider_order(provider_id)
+    except Exception:
+        logger.warning("The provider's own model order could not be read", exc_info=True)
+        order = []
+    place = {model_id: index for index, model_id in reversed(list(enumerate(order)))}
+    ready.sort(key=lambda row: place.get(row.model_id, len(place)))
+    return ready[0].selection_ref
+
+
 def choose_model(model_ref: str) -> str:
     """Save the person's pick as the default and pin it for the composer.
 

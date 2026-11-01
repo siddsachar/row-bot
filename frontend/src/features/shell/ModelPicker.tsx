@@ -7,6 +7,7 @@ import type {
   ReasoningSelectionValue,
   ReasoningView,
 } from '../../api/types';
+import { usePlace } from '../../api/place';
 import {
   Button,
   Disclosure,
@@ -83,6 +84,7 @@ export default function ModelPicker({
   /** Where focus goes when a triggerless picker closes. */
   returnFocusTo?: () => HTMLElement | null;
 }) {
+  const place = usePlace();
   const [budget, setBudget] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const selected = models.find((model) => model.model_ref === current);
@@ -145,7 +147,13 @@ export default function ModelPicker({
                   className="composer-model-glyph"
                   size={13}
                   role="img"
-                  aria-label={local ? 'Runs on this device' : 'Cloud model'}
+                  aria-label={
+                    !local
+                      ? 'Cloud model'
+                      : place.kind === 'this_computer'
+                        ? 'Runs on this device'
+                        : `Runs on ${place.name}`
+                  }
                 />
               )}
               <span className="composer-model-name">{name}</span>

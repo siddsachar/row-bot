@@ -15,6 +15,7 @@ import type {
   ProviderRuntimeProbe,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import {
   CompactAction,
   Disclosure,
@@ -44,6 +45,12 @@ const groups = {
   api: 'API providers',
   custom: 'Custom endpoints',
 } as const;
+/** A group's heading; local models run where Row-Bot runs (U7). */
+function groupLabel(group: keyof typeof groups, place: PlaceWords) {
+  return group === 'local' && place.kind !== 'this_computer'
+    ? `On ${place.name}`
+    : groups[group];
+}
 const stateTones: Record<string, Tone> = {
   enabled: 'success',
   saved: 'info',
@@ -60,7 +67,6 @@ const sourceLabels: Record<string, string> = {
   oauth_device: 'Signed in with ChatGPT',
   oauth_pkce: 'Signed in through Row-Bot',
   no_auth: 'No API key required',
-  local_daemon: 'Running on this computer',
   not_running: 'Not running',
 };
 /** The app whose sign-in a subscription can borrow. */
@@ -76,11 +82,12 @@ function notConnectedDetail(card: ProviderLiveCard) {
   const account = subscriptionAccounts[card.provider_id] ?? card.display_name;
   return `Sign in with your ${account} account`;
 }
-function sourceLabel(card: ProviderLiveCard) {
+function sourceLabel(card: ProviderLiveCard, place: PlaceWords) {
   const app = cliApps[card.provider_id] ?? 'its own app';
   if (card.source === 'external_cli') return `Uses your ${app} sign-in`;
   if (card.source === 'external_cli_detected')
-    return `${app} is signed in on this computer; not used yet`;
+    return `${app} is signed in on ${place.name}; not used yet`;
+  if (card.source === 'local_daemon') return `Running on ${place.name}`;
   return sourceLabels[card.source];
 }
 /** One mark style for every provider: its initial on a tile. */
@@ -137,7 +144,7 @@ function canDisconnect(card: ProviderLiveCard) {
     (card.provider_id === 'codex' && card.source === 'external_cli')
   );
 }
-function cardDetail(card: ProviderLiveCard) {
+function cardDetail(card: ProviderLiveCard, place: PlaceWords) {
   if (card.claude_plan) {
     const details = [claudePlanSummary(card.claude_plan).detail];
     if (card.claude_plan.state === 'ready') {
@@ -157,7 +164,7 @@ function cardDetail(card: ProviderLiveCard) {
           ? card.oauth_client_id_configured
             ? 'Ready to sign in with your xAI account'
             : 'Needs an xAI client ID first: ⋯ › Set up xAI sign-in'
-          : sourceLabel(card) ||
+          : sourceLabel(card, place) ||
             (card.configured ? 'Connected' : notConnectedDetail(card));
   const details = [source];
   if (card.plan_type) details.push(`${humanizeToken(card.plan_type)} plan`);
@@ -185,6 +192,7 @@ export default function ProviderStatus({
   onSubscription,
   onSubscriptionOption,
   hideCustom = false,
+  hideLocal = false,
 }: {
   load: (signal?: AbortSignal) => Promise<ProviderLiveSnapshot>;
   refresh: (provider: string) => Promise<ProviderCatalogRefresh>;
@@ -199,7 +207,13 @@ export default function ProviderStatus({
   onSubscriptionOption?: (provider: string) => void;
   /** Custom endpoints listed by their own editor below. */
   hideCustom?: boolean;
+  /**
+   * A hosted Row-Bot (U3): the server has no GPU, so Ollama on it isn't
+   * offered. A local runtime that is connected still shows.
+   */
+  hideLocal?: boolean;
 }) {
+  const place = usePlace();
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
   const [selected, setSelected] = useState('');
   const [claudeOpen, setClaudeOpen] = useState(false);
@@ -293,7 +307,7 @@ export default function ProviderStatus({
   /** `folded`: a not-yet-connected API provider under "Connect…": its name and key button only. */
   const renderRow = (card: ProviderLiveCard, folded = false) => {
     const state = cardState(card);
-    const detail = folded ? '' : cardDetail(card);
+    const detail = folded ? '' : cardDetail(card, place);
     const menu: MenuAction[] = [];
     const claude = card.claude_plan;
     if (claude?.state === 'ready')
@@ -488,7 +502,13 @@ export default function ProviderStatus({
           )}
           {(Object.keys(groups) as Array<keyof typeof groups>).map((group) => {
             const members = cards.filter((card) => card.group === group);
-            if (!members.length || (group === 'custom' && hideCustom))
+            if (
+              !members.length ||
+              (group === 'custom' && hideCustom) ||
+              (group === 'local' &&
+                hideLocal &&
+                !members.some((card) => card.configured))
+            )
               return null;
             const shown =
               group === 'api'
@@ -499,12 +519,12 @@ export default function ProviderStatus({
             return (
               <section
                 className="settings-provider-group"
-                aria-label={groups[group]}
+                aria-label={groupLabel(group, place)}
                 key={group}
                 data-setting-anchor={`providers-${group}`}
               >
                 <h3 className="settings-provider-group-heading">
-                  {groups[group]}
+                  {groupLabel(group, place)}
                 </h3>
                 {shown.length > 0 && (
                   <ul className="settings-provider-list">

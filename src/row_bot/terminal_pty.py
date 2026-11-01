@@ -10,6 +10,7 @@ OS and shell so commands are written in the correct syntax.
 
 from __future__ import annotations
 
+import codecs
 import logging
 import os
 import platform
@@ -374,3 +375,166 @@ class PtySession:
                 return self._process.pid
         except Exception:
             return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# One program in a PTY (no shell)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_COMMAND_OUTPUT_LIMIT = 256 * 1024
+
+
+class CommandPty:
+    """One program with fixed arguments in a pseudo-terminal: no shell, the given environment and folder.
+
+    Output is read in the background into a bounded buffer (the oldest text goes first when a reader falls
+    behind) and handed over by ``read()``, which never blocks. Nothing here looks at, logs or keeps what
+    passes beyond that buffer.
+    """
+
+    def __init__(self, argv: list[str], *, env: dict[str, str], cwd: str, cols: int = 100,
+                 rows: int = 30) -> None:
+        _validate_dimensions(cols, rows)
+        if not argv or not all(isinstance(part, str) and part for part in argv):
+            raise ValueError("invalid_command")
+        self._closed = False
+        self._lock = threading.Lock()
+        self._buffer: list[str] = []
+        self._buffered = 0
+        self._ended = threading.Event()
+        environment = dict(env)
+        environment.setdefault("TERM", "xterm-256color")
+        if _IS_WINDOWS:
+            from winpty import PtyProcess  # type: ignore[import-untyped]
+
+            self._process = PtyProcess.spawn(list(argv), cwd=cwd, env=environment, dimensions=(rows, cols))
+            self._fd = None
+        else:
+            import fcntl
+            import pty
+            import struct
+            import termios
+
+            master_fd, slave_fd = pty.openpty()
+            fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            try:
+                self._process = subprocess.Popen(
+                    list(argv), stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, cwd=cwd, env=environment,
+                    start_new_session=True, close_fds=True,
+                )
+            except BaseException:
+                os.close(master_fd)
+                raise
+            finally:
+                os.close(slave_fd)
+            self._fd = master_fd
+        self._reader = threading.Thread(target=self._read_loop, name="command-pty-reader", daemon=True)
+        self._reader.start()
+
+    def _keep(self, data: str) -> None:
+        with self._lock:
+            self._buffer.append(data)
+            self._buffered += len(data)
+            while self._buffered > _COMMAND_OUTPUT_LIMIT and len(self._buffer) > 1:
+                self._buffered -= len(self._buffer.pop(0))
+
+    def _read_loop(self) -> None:
+        try:
+            if _IS_WINDOWS:
+                while not self._closed:
+                    try:
+                        data = self._process.read(4096)
+                    except (EOFError, OSError):
+                        break
+                    if data:
+                        self._keep(data)
+            else:
+                import select
+
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                while not self._closed:
+                    try:
+                        ready, _, _ = select.select([self._fd], [], [], 0.1)
+                        if not ready:
+                            if self._process.poll() is not None:
+                                break
+                            continue
+                        data = os.read(self._fd, 4096)
+                    except OSError:
+                        break  # EIO: the program ended and the terminal closed
+                    if not data:
+                        break
+                    text = decoder.decode(data)
+                    if text:
+                        self._keep(text)
+        finally:
+            self._ended.set()
+
+    def read(self) -> str:
+        """What the program wrote since the last call; "" when nothing new."""
+        with self._lock:
+            text = "".join(self._buffer)
+            self._buffer.clear()
+            self._buffered = 0
+        return text
+
+    def write(self, data: str) -> None:
+        if self._closed:
+            return
+        with self._lock:
+            if _IS_WINDOWS:
+                self._process.write(data)
+            else:
+                os.write(self._fd, data.encode("utf-8", errors="replace"))
+
+    def resize(self, cols: int, rows: int) -> None:
+        _validate_dimensions(cols, rows)
+        if self._closed:
+            return
+        try:
+            if _IS_WINDOWS:
+                self._process.setwinsize(rows, cols)
+            else:
+                import fcntl
+                import struct
+                import termios
+
+                fcntl.ioctl(self._fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        except Exception:
+            logger.debug("Resizing a command terminal failed", exc_info=True)
+
+    def is_alive(self) -> bool:
+        """The program still runs, or its last output is still being read."""
+        if self._closed:
+            return False
+        running = self._process.isalive() if _IS_WINDOWS else self._process.poll() is None
+        return running or not self._ended.is_set()
+
+    def close(self) -> None:
+        """Stop the program (and anything it started in its terminal) and close the terminal."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if _IS_WINDOWS:
+                self._process.close(force=True)
+            else:
+                import signal
+
+                try:
+                    os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    self._process.kill()
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                try:
+                    os.close(self._fd)
+                except OSError:
+                    pass
+        except Exception:
+            logger.debug("Closing a command terminal failed", exc_info=True)
+        with self._lock:
+            self._buffer.clear()
+            self._buffered = 0

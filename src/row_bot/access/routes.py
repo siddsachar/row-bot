@@ -418,6 +418,9 @@ def _route_inventory(request: Request, context: AccessContext):
             *AccessConfig.from_env().public_origins,
         ),
         current_server_origin=context.origin,
+        # The handshake's rule (api/v1 routes' on_this_computer): only the owner's own window on
+        # direct loopback is on this computer (U7).
+        remote=not (context.is_local_owner and context.direct_loopback),
     )
 
 

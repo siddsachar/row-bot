@@ -9,6 +9,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import type {
   AppRef,
   IntegrationDetail,
@@ -47,6 +48,7 @@ import {
   attentionOrder,
   idPath,
   ItemCard,
+  placedName,
   Publisher,
   statusOf,
   useAppCatalog,
@@ -59,7 +61,6 @@ const WAYS: Record<string, string> = {
   hosted_sign_in: 'Hosted · Sign-in',
   api_key: 'Hosted · API key',
   hosted: 'Hosted',
-  local: 'Runs on this computer',
 };
 
 /** How an account built into Row-Bot connects: none of them takes a key. */
@@ -75,12 +76,15 @@ function builtInLine(id: string, name: string) {
 }
 
 function WayText({ way }: { way: IntegrationWay }) {
+  const place = usePlace();
   return (
     <span className="app-way-text">
       <strong>{way.name}</strong>
       <small>
         {[
-          WAYS[way.method] ?? '',
+          way.method === 'local'
+            ? `Runs on ${place.name}`
+            : (WAYS[way.method] ?? ''),
           way.verified ? `by ${way.publisher}` : way.publisher,
           way.recommended ? 'Recommended' : '',
           way.supported ? '' : 'Not available yet',
@@ -378,7 +382,10 @@ function Detail({
     heading.current?.focus({ preventScroll: true });
   }, [Boolean(detail)]); // eslint-disable-line react-hooks/exhaustive-deps
   const entry = detail?.entry;
-  const name = entry ? (asApp(entry) && entry.app?.name) || entry.name : '';
+  const place = usePlace();
+  const name = entry
+    ? placedName((asApp(entry) && entry.app?.name) || entry.name, place)
+    : '';
   // One app, its ways and its skills: which of them are yours, and the skills made for it.
   const yours = useYourApps(Boolean(entry?.app));
   const appSkills = useAppSkills(
@@ -652,13 +659,13 @@ function Detail({
           )}
           <StatusLine>
             {entry.kind === 'skill'
-              ? 'Instructions stay on this computer.'
+              ? `Instructions stay ${place.on}.`
               : builtIn
                 ? builtInLine(entry.id, entry.app?.name || name)
                 : about.destination
                   ? `What you ask goes to ${hostOf(about.destination)}.`
                   : about.runs_locally
-                    ? 'Runs on this computer.'
+                    ? `Runs ${place.on}.`
                     : 'Hosted by its publisher.'}
           </StatusLine>
         </div>
@@ -801,7 +808,7 @@ function Detail({
             ))}
             <Fact label="Runs">
               {about.runs_locally
-                ? 'On this computer'
+                ? `On ${place.name}`
                 : 'Hosted by its publisher'}
             </Fact>
           </dl>

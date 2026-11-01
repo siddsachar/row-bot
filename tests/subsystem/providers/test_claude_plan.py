@@ -223,13 +223,16 @@ def test_a_document_job_needs_a_claude_code_that_can_take_it(store, tmp_path, mo
 
 
 @pytest.mark.parametrize(("setup", "expected", "words"), [
-    ({"installed": False}, "ClaudePlanUnavailable", "isn't installed"),
-    ({"version": "2.1.100 (Claude Code)"}, "ClaudePlanUnavailable", "claude update"),
-    ({"auth": {"loggedIn": False}, "auth_exit": 1}, "ProviderSignInRequired", "claude auth login"),
+    ({"installed": False}, "ClaudePlanUnavailable",
+     "Your Claude plan isn't set up. Choose Use my Claude plan in Settings › Providers › Claude (your Claude plan)."),
+    ({"version": "2.1.100 (Claude Code)"}, "ClaudePlanUnavailable",
+     "Row-Bot needs Claude Code 2.1.263 or newer. Update Claude Code in Settings › Providers"),
+    ({"auth": {"loggedIn": False}, "auth_exit": 1}, "ProviderSignInRequired",
+     "Claude signed you out. Sign in again to keep using your plan."),
     ({"reply": error_reply("authentication_failed", "OAuth token has expired")}, "ProviderSignInRequired",
-     "claude auth login"),
+     "Claude signed you out. Sign in again to keep using your plan."),
     ({"reply": error_reply("rate_limit", "You've hit your weekly limit · resets Mon 9am")}, "ClaudePlanUnavailable",
-     "usage limit is reached (You've hit your weekly limit · resets Mon 9am)"),
+     "Your Claude plan's limit is reached until Mon 9am. Pick another model for now."),
     ({"reply": error_reply("rate_limit", "API Error: 429")}, "ClaudePlanUnavailable", "limiting requests"),
     ({"reply": text_reply("Half an ans")[:4] + [{"exit": 3}]}, "ClaudeCodeEnded", "ended before it finished"),
 ])
@@ -249,7 +252,7 @@ def test_claude_code_gone_since_it_was_checked_says_so_and_is_checked_again(stor
     for shim in fake.bin_dir.glob("claude*"):
         shim.unlink()
 
-    with pytest.raises(claude.ClaudePlanUnavailable, match="Claude Code didn't start on this computer"):
+    with pytest.raises(claude.ClaudePlanUnavailable, match="Claude Code didn't start. Check Claude"):
         _model().invoke([HumanMessage(content="Hello")])
     assert claude.claude_plan_status().state == "not_installed"
 

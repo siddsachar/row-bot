@@ -514,7 +514,7 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
         current = plans.open_plan(context, row["id"])
     if current is not None:
         return {"entry": entry(row), "plan": current, "about": _about(row, validate, current, reference.get("cfg"))}, None
-    plan = plans.compute(row, reference, intent=intent, cleanup=cleanup)
+    plan = plans.compute(row, reference, intent=intent, cleanup=cleanup, remote=context.remote)
     validate()
     return {"entry": entry(row), "plan": plans.view(plan) if plan else None,
             "about": _about(row, validate, plan, reference.get("cfg"))}, plan

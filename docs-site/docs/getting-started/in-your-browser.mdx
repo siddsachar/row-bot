@@ -1,0 +1,116 @@
+---
+title: "Row-Bot In Your Browser"
+description: "Run your own Row-Bot on PikaPods and use it from any browser or your phone: start it, enter the setup code, choose a model, and see what's different from the desktop app."
+---
+
+# Row-Bot In Your Browser
+
+PikaPods, an independent hosting company, can run your own private Row-Bot for you on a small server. There's nothing to install: you open it from any browser, on a computer or a phone, and it keeps working while your devices are off, so schedules and channels keep running.
+
+It's the same Row-Bot as the desktop app, and it's yours alone: one owner, signed in from as many devices as you like. You bring the model: a ChatGPT or Claude plan, an API key, or your own model server.
+
+PikaPods runs the server, its billing and its backups; Row-Bot runs on it. [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) says plainly what that means for your data.
+
+## Start On PikaPods
+
+1. Choose [Run on PikaPods](https://www.pikapods.com/pods?run=row-bot). It opens PikaPods with Row-Bot chosen at the recommended size.
+2. Sign in to PikaPods, or create an account. PikaPods asks for a payment method before starting Row-Bot.
+3. Add the pod. Its name, size and setup code are filled in for you, and it gets its own address ending in `pikapod.net`.
+
+## Enter The Setup Code
+
+The setup code makes your browser the owner, so nobody else can use your Row-Bot.
+
+1. In PikaPods, open your pod's **More › Show Logs** and copy the code from the line that starts `Row-Bot setup code:`.
+2. Open your Row-Bot with PikaPods' **Open** button. It says **Welcome to your Row-Bot**.
+3. Paste the code into **Setup code** and choose **Continue**. Dashes, spaces and capitals don't matter.
+
+Row-Bot says "This browser is signed in." and asks how it should think. The code works once: from then on, anyone else who opens your address sees **This Row-Bot already has an owner**, and you add your other devices from Row-Bot itself ([Add Your Phone](#add-your-phone)).
+
+Keep the code private until you've used it. If you can't find it, or later lose access, see [Lost The Setup Code](/docs/troubleshooting/hosted#lost-the-setup-code).
+
+## Choose A Model
+
+Row-Bot asks **How should Row-Bot think?** with two big buttons:
+
+- **Sign in with ChatGPT**: one click copies a code and opens OpenAI's page in a new tab. Paste the code there and approve; Row-Bot notices when you're done.
+- **Use my Claude plan**: Row-Bot installs Claude Code, Anthropic's program, on your server, then opens Claude's own sign-in in a small panel. Open the link it shows, sign in to Claude, and paste the code Claude gives you into the panel. Your plan's limits apply, and Row-Bot never sees, stores or relays your Claude sign-in.
+
+**Other ways** holds **Use an API key** (OpenAI, Anthropic, Google, OpenRouter and more), **Use my own model server** and **Sign in with Grok**.
+
+After you sign in, Row-Bot picks that provider's first model, checks that it answers, and opens a chat with one suggestion to tap: **What can you do for me?** Change the model any time in the model picker. [First Launch](/docs/getting-started/first-launch#on-a-hosted-row-bot) explains each choice.
+
+Your server has no graphics card, so it can't run chat models itself. To use models on hardware of your own, connect it as [your own model server](/docs/guides/own-model-server), or use the desktop app.
+
+## Add Your Phone
+
+Opening your Row-Bot's address on another device isn't enough: Row-Bot doesn't know that browser yet. Sign the new device in from one that's already signed in:
+
+- **After your first answer,** a card in that chat offers **Add Row-Bot to your phone**. On a computer, choose **Show the code** and scan it with your phone's camera. The phone signs in once and stays signed in.
+- **Any time later,** open **Settings › Devices & remote access** and choose **Connect a phone or computer**. **Copy link** gives the same one-time sign-in as a link, for a device without a camera.
+
+Then add Row-Bot to your phone's home screen, so it opens like an app:
+
+- **iPhone:** in Safari, tap Share, then **Add to Home Screen**.
+- **Android:** in Chrome, tap ⋮, then **Add to Home screen** or **Install app**.
+
+**Settings › Devices & remote access** also lists every signed-in device, and signs one out.
+
+## What's Different
+
+A Row-Bot on PikaPods is the full Row-Bot, without the parts that need your own computer or a graphics card.
+
+### Works The Same
+
+- Chat, agents, workflows and schedules, always on: they keep running while your devices are off.
+- Memory, knowledge and documents, with Row-Bot's own search model.
+- Row-Bot's browser: watch it work, take control, and sign in to a site once, from your phone too.
+- Commands and Python, Developer Studio and Designer Studio.
+- Apps, MCP servers, and channels such as Telegram and Slack.
+- Row-Bot on your phone's home screen.
+- ChatGPT sign-in and API keys.
+
+### Different On A Hosted Row-Bot
+
+- **Your files live on the server,** not on your computer. Attach a file in a chat to give it to Row-Bot.
+- **Row-Bot says "your Row-Bot server"** where the desktop app says "this computer".
+- **Websites see a datacenter's address** when Row-Bot's browser visits them, so some may ask for extra checks.
+- **PikaPods installs updates.** They test each release first, so new versions usually arrive within a week. **Settings › Updates** shows your version and a **What's new** link; there's nothing for you to install.
+- **Local speech-to-text needs a 4 GB server.** On a smaller one, **Settings › Voice** marks it **Needs a 4 GB server**: use cloud speech-to-text there.
+- **Your Claude plan** works through Claude Code, which Row-Bot installs on your server when you choose **Use my Claude plan**.
+- **Models on your own hardware** work through a custom endpoint your server can reach over the internet, with a key or a tunnel in front: see [Use Your Own Model Server](/docs/guides/own-model-server).
+- **PikaPods looks after the server's backups.** For a copy you keep yourself, download a backup from **Settings › Data** ([Moving To Your Computer And Back](#moving-to-your-computer-and-back)).
+
+### Not On A Hosted Row-Bot
+
+- Chat models running on the server itself, since it has no graphics card. Your own model server elsewhere works.
+- Computer use of your own screen, and your own browser with its sign-ins. Row-Bot's own browser works.
+- The desktop window, your computer's file pickers, and a terminal window on your computer.
+
+For those, use the [desktop app](/docs/getting-started/installation). You can move between the two whenever you like.
+
+## Costs
+
+- **The server:** priced by PikaPods by size; the recommended size is 4 GB. A 2 GB server also works if you use cloud speech-to-text. PikaPods asks for a payment method before starting Row-Bot.
+- **The model:** billed by whoever provides it. A ChatGPT or Claude plan is the subscription you already pay for, with its limits. An API key is billed by its provider for what you use. Your own model server costs whatever running it costs you.
+- **Row-Bot itself** is free and open source, and bills you for nothing.
+
+## Moving To Your Computer And Back
+
+Your Row-Bot isn't tied to PikaPods. A backup carries your conversations, memories, workflows, designs and settings between a hosted Row-Bot and the desktop app, either way.
+
+To move to your computer:
+
+1. On your hosted Row-Bot, open **Settings › Data** and, under **Move Row-Bot**, choose **Download backup**.
+2. [Install Row-Bot](/docs/getting-started/installation) on your computer. At first launch you can choose **Set up later**.
+3. Open **Settings › Data**, choose **Restore from backup…**, pick the file, and choose **Restore on restart**. The restore applies the next time Row-Bot starts.
+4. Sign in to your model again, and set up whatever the backup lists under "After moving, set these up again".
+
+To move back, choose **Back up now** in the desktop app's **Settings › Data**. Then, on your hosted Row-Bot, choose **Restore from backup…** in **Settings › Data**, pick the file, choose **Restore on restart**, and restart the pod in PikaPods.
+
+A backup never holds passwords, API keys or sign-ins, your Claude plan's included, so you sign in again after moving. It also leaves out Row-Bot's browser sessions, your signed-in devices, and downloaded models and runtimes, which you download again where you need them. Once everything has arrived, you can remove the pod in PikaPods.
+
+## Getting Help
+
+- **PikaPods** helps with the server: billing, its size, its backups, and whether it's up. In Row-Bot, **Settings › System** shows **Hosted by PikaPods** with links to manage your pod, to PikaPods' support and to its status. See [PikaPods' support](https://docs.pikapods.com/) and its [uptime and maintenance windows](https://docs.pikapods.com/faq/account#business-use-and-service-level).
+- **Row-Bot** helps with everything inside Row-Bot: chats, models and sign-ins, workflows, memory, apps, the setup code and the out-of-memory notice. Start with [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted). Ask in [Discussions](https://github.com/siddsachar/row-bot/discussions), or [report a bug](https://github.com/siddsachar/row-bot/issues/new/choose): under "Where does Row-Bot run?" choose a hosting service, and name PikaPods and your pod's size. Monitor's **Copy diagnosis report** gives a summary to paste in.

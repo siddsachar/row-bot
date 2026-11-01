@@ -1,6 +1,6 @@
 ---
 title: "Hosting Row-Bot"
-description: "Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes and updates."
+description: "Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes, memory and updates."
 ---
 
 # Hosting Row-Bot
@@ -9,7 +9,7 @@ This page is for hosting services, and for anyone who runs the published image t
 
 Each container is one person's Row-Bot: one owner, signed in from as many devices as they like. It is not a service for several people, and not a boundary between people who don't trust each other.
 
-If a hosting service runs Row-Bot for you, read [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) instead.
+If a hosting service runs Row-Bot for you, read [Row-Bot In Your Browser](/docs/getting-started/in-your-browser), [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted) and [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) instead.
 
 ## At A Glance
 
@@ -18,7 +18,7 @@ If a hosting service runs Row-Bot for you, read [What Your Host Can See](/docs/p
 - **User:** uid 10001, gid 10001, never root.
 - **Volume:** one, at `/data`.
 - **Port:** 8080, plain HTTP. HTTPS ends at your proxy.
-- **Health:** `/healthz` answers while the process runs; `/readyz` answers 200 once Row-Bot is ready, and 503 while it starts. Like every request, they need a host name Row-Bot knows ([Address And Proxy](#address-and-proxy)).
+- **Health:** `/healthz` answers while the process runs; `/readyz` answers 200 once Row-Bot is ready, and 503 while it starts. A check from the container itself (a loopback address, with no `Forwarded` or `X-Forwarded-*` header) works whatever host names Row-Bot allows; a check through a proxy or from another computer needs a host name Row-Bot knows ([Address And Proxy](#address-and-proxy)).
 - **Set-up:** none. There's no init container and no set-up job: `row-bot serve` sets up what it needs as it starts.
 - **Logs:** the container output. The setup code and any reason Row-Bot won't start appear there, so show it to the owner.
 
@@ -120,11 +120,11 @@ To recover:
 Row-Bot answers only requests addressed to a host name it knows. By default those are `localhost`, `127.0.0.1` and `[::1]`, so every server needs its own address set. Behind an HTTPS proxy, Row-Bot also needs to trust that proxy.
 
 - **`ROW_BOT_PUBLIC_URL`:** the exact origin people open, such as `https://row-bot.example.com`: a scheme, a host and an optional port, nothing else. Row-Bot adds its host name to the default ones, and through a proxy accepts only this origin.
-- **`ROW_BOT_ALLOWED_HOSTS`:** exact host names, separated by commas, with no wildcards. It **replaces** the default list. The image's health check calls `http://127.0.0.1:8080/healthz`, so keep `127.0.0.1` in the list if you set it. `ROW_BOT_PUBLIC_URL` alone is usually enough.
+- **`ROW_BOT_ALLOWED_HOSTS`:** exact host names, separated by commas, with no wildcards. It **replaces** the default list. Row-Bot checks its own server at `127.0.0.1` as it starts, so keep `127.0.0.1` in the list if you set it. `ROW_BOT_PUBLIC_URL` alone is usually enough.
 - **`ROW_BOT_TRUSTED_PROXY_CIDRS`:** the addresses or ranges (CIDR) the proxy connects from, separated by commas. Row-Bot also reads `ROW_BOT_TRUSTED_PROXIES`. Only these may tell Row-Bot the visitor's address and scheme.
 - **`ROW_BOT_UNTRUSTED_FORWARDED_ACTION`:** what happens to forwarding headers from anyone else. `reject`, the default, refuses the request with `untrusted_forwarding_headers`; `ignore` drops the headers.
 
-Name the proxy in `ROW_BOT_TRUSTED_PROXY_CIDRS`, and have it send `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), or `Forwarded`. Row-Bot then sees each visitor's own address, and knows the browser uses HTTPS.
+Name the proxy in `ROW_BOT_TRUSTED_PROXY_CIDRS`, and have it send `X-Forwarded-For` with `X-Forwarded-Proto` (and `X-Forwarded-Host` if it changes the host), or `Forwarded`. Row-Bot then sees each visitor's own address, and knows the browser uses HTTPS. A proxy that leaves those headers out makes every visitor look as if they came from the proxy, or from the server itself when the proxy runs on the same machine, so it must send them on every request.
 
 Without a trusted proxy, a browser on an HTTPS address can't sign in. With `reject`, Row-Bot refuses the proxy's forwarding headers. With `ignore`, or a proxy that sends none, Row-Bot sees plain HTTP from the proxy's address, and signing in checks that the browser's origin matches exactly. `ignore` also makes every visitor share the proxy's address, so one stranger's wrong setup codes would pause the owner too.
 
@@ -160,6 +160,19 @@ Measured with full Row-Bot in a container:
 - **At rest:** about 360–420 MB just started. Idle, it uses about 0.2% of a core with no page open, and up to about 2% with one open.
 - **Disk:** the image is about 1.6 GB to download and 6.6 GB unpacked. `/data` reached 1.7 GB in the first hour, with the local search model (641 MB) and speech-to-text (464 MB) downloaded; workspaces and documents grow from there.
 - **Out of memory:** the kernel stops the container. Restarted, Row-Bot is ready again within seconds, with its data and sign-ins intact.
+
+## Memory
+
+Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps, in `/data`, the highest working set it has seen: its use without the file cache the kernel can drop, as Docker and Kubernetes count it. Nothing is turned off on a small server:
+
+- **Row-Bot's browser** closes by itself ten minutes after its last use, when a conversation's idle tabs close anyway, and starts again the next time it's needed, still signed in to sites.
+- **Settings › Documents** suggests **Free memory when idle** below 3.5 GB, so the search model unloads between searches.
+- **Settings › Voice** marks local speech-to-text "Needs a 4 GB server" below 3.5 GB, and asks before it is chosen.
+
+If Row-Bot restarts because the server ran out of memory, Home and System Monitor say so, with the server's size, until the owner dismisses it. To fix it, do one of these:
+
+- **Give the server 4 GB.** Resize it where your host manages it; on PikaPods, that's your pod in **My Pods**. Row-Bot keeps its data and sign-ins, and the notice goes once the server is bigger.
+- **Use cloud speech-to-text.** In **Settings › Voice**, choose **OpenAI Realtime** under **Listen with**. Local speech-to-text is what doesn't fit beside the rest in 2 GB.
 
 ## Updates
 

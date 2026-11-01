@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -42,6 +43,7 @@ const fields: ProviderEndpointFields = {
   supports_reasoning_content: false,
   supports_reasoning_replay: false,
   extra_body_json: '{}',
+  allow_private_address: false,
 };
 const page: ProviderConfigurationPage = {
   schema_version: 1,
@@ -57,7 +59,11 @@ const page: ProviderConfigurationPage = {
   ],
   total: 1,
   next_cursor: null,
-  profiles: ['generic_openai', 'vllm'],
+  profiles: [
+    { id: 'generic_openai', name: 'OpenAI-compatible' },
+    { id: 'llama_cpp', name: 'llama.cpp' },
+    { id: 'vllm', name: 'vLLM' },
+  ],
 };
 function options() {
   return {
@@ -221,12 +227,12 @@ it('reads saved status without implicit probes, secrets or configuration changes
   expect(screen.getByText(fields.base_url)).toBeVisible();
   expect(
     screen.getByLabelText('Synthetic endpoint saved configuration'),
-  ).toHaveTextContent('Enabledlocalgeneric_openaimodels unknown');
+  ).toHaveTextContent('EnabledlocalOpenAI-compatiblemodels unknown');
   expect(screen.getByText('Not checked')).toBeVisible();
   await edit();
   expect(screen.getByLabelText('Base URL')).toHaveValue(fields.base_url);
   expect(screen.getByLabelText('Endpoint ID')).toBeDisabled();
-  expect(screen.getByLabelText('Endpoint profile')).toBeDisabled();
+  expect(screen.getByLabelText('Server type')).toBeDisabled();
   expect(screen.getByLabelText('Execution location')).toBeDisabled();
   expect(document.querySelector('input[type=password]')).toBeNull();
   expect(props.apply).not.toHaveBeenCalled();
@@ -502,11 +508,356 @@ it('says what is wrong inside the endpoint dialog and keeps the list after a ref
     .mockResolvedValueOnce({ configuration_revision: 'b'.repeat(64) })
     .mockRejectedValueOnce({ code: 'endpoint_unreachable' });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  expect(await screen.findByText(/couldn't reach that endpoint/)).toBeVisible();
+  expect(
+    await screen.findByText(
+      "Endpoint saved. Row-Bot couldn't reach http://127.0.0.1:1299/v1. Check the address and that the server is running.",
+    ),
+  ).toBeVisible();
   // The list stays, nothing is left "unconfirmed", Add works again.
   expect(screen.getByText('Synthetic endpoint')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
   expect(
     screen.getByRole('button', { name: 'Add custom endpoint' }),
   ).toBeEnabled();
+});
+
+async function addEndpoint(baseUrl: string) {
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add custom endpoint' }),
+  );
+  fireEvent.change(screen.getByLabelText('Endpoint id'), {
+    target: { value: 'office' },
+  });
+  fireEvent.change(screen.getByLabelText('Display name'), {
+    target: { value: 'Office GPU' },
+  });
+  fireEvent.change(screen.getByLabelText('Base URL'), {
+    target: { value: baseUrl },
+  });
+}
+
+it('names each server type, with Ollama saved as OpenAI-compatible', async () => {
+  const props = options();
+  render(<ProviderConfiguration {...props} compact />);
+  expect(
+    await screen.findByText(
+      'http://127.0.0.1:8123/v1 · Local · OpenAI-compatible',
+    ),
+  ).toBeVisible();
+  await addEndpoint('http://192.168.1.20:11434/v1');
+  const type = screen.getByLabelText('Server type');
+  expect(
+    within(type)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['OpenAI-compatible', 'Ollama', 'llama.cpp', 'vLLM']);
+  fireEvent.change(type, { target: { value: 'ollama' } });
+  expect(
+    screen.getByText(
+      "Ollama's address ends in /v1, such as http://<computer>:11434/v1. Set its context size under Advanced: Ollama doesn't report it.",
+    ),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(props.review).toHaveBeenCalledWith(
+      'provider.endpoint.create',
+      page.revision,
+      expect.objectContaining({
+        base_url: 'http://192.168.1.20:11434/v1',
+        profile: 'generic_openai',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('asks before a hosted endpoint reaches a private address, and saves once allowed (H16)', async () => {
+  const props = options();
+  props.review.mockRejectedValueOnce({
+    code: 'endpoint_private_address',
+    status: 409,
+  });
+  render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+  await addEndpoint('http://10.0.0.5:11434/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  const ask = await screen.findByRole('alertdialog', {
+    name: 'Allow a private address',
+  });
+  expect(ask).toHaveTextContent('Allow a private address?');
+  expect(ask).toHaveTextContent(
+    "10.0.0.5 is a private address inside PikaPods' network, not on the internet. Row-Bot connects there only if you allow it for this endpoint. Allow it only if your model server runs there.",
+  );
+  // The ask is the one next step: the dialog's own Save waits behind it.
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  expect(props.apply).not.toHaveBeenCalled();
+  fireEvent.click(within(ask).getByRole('button', { name: 'Allow and save' }));
+  await waitFor(() =>
+    expect(props.apply).toHaveBeenCalledWith(
+      'provider.endpoint.create',
+      page.revision,
+      expect.objectContaining({
+        base_url: 'http://10.0.0.5:11434/v1',
+        allow_private_address: true,
+      }),
+      expect.any(String),
+      expect.objectContaining({ nonce: 'original-session-nonce' }),
+    ),
+  );
+  await waitFor(() =>
+    expect(props.review).toHaveBeenLastCalledWith(
+      'provider.endpoint.refresh',
+      page.revision,
+      { endpoint_id: 'office' },
+    ),
+  );
+});
+
+it('says a name leads to a private address, and asks again for a changed address', async () => {
+  const props = options();
+  props.review.mockRejectedValue({
+    code: 'endpoint_private_address',
+    status: 409,
+  });
+  render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+  await addEndpoint('http://models.internal.example/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(
+    await screen.findByRole('alertdialog', { name: 'Allow a private address' }),
+  ).toHaveTextContent(
+    "models.internal.example leads to a private address inside PikaPods' network",
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Base URL'), {
+    target: { value: 'http://10.0.0.9/v1' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByRole('alertdialog', { name: 'Allow a private address' });
+  expect(props.review).toHaveBeenLastCalledWith(
+    'provider.endpoint.create',
+    page.revision,
+    expect.objectContaining({
+      base_url: 'http://10.0.0.9/v1',
+      allow_private_address: false,
+    }),
+    expect.any(AbortSignal),
+  );
+});
+
+it('shows an allowed private address and keeps the OK while other fields change', async () => {
+  const props = options();
+  const allowed = {
+    ...fields,
+    base_url: 'http://10.0.0.5:11434/v1',
+    allow_private_address: true,
+  };
+  props.load.mockResolvedValue({
+    ...page,
+    items: [{ ...page.items[0], fields: allowed }],
+  });
+  render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+  await chooseEndpoint('Edit Synthetic endpoint');
+  expect(
+    screen.getByText(
+      "Allowed to use a private address inside PikaPods' network.",
+    ),
+  ).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Display name'), {
+    target: { value: 'Office GPU' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(props.review).toHaveBeenCalledWith(
+      'provider.endpoint.save',
+      page.revision,
+      expect.objectContaining({
+        display_name: 'Office GPU',
+        allow_private_address: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('says the key was refused, not that the server was unreachable, and offers the key', async () => {
+  const props = options();
+  props.apply.mockRejectedValueOnce({
+    code: 'endpoint_key_rejected',
+    status: 409,
+  });
+  render(<ProviderConfiguration {...props} compact />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Refresh Synthetic endpoint models',
+    }),
+  );
+  expect(
+    await screen.findByText(
+      'The model server refused the API key. Check the key and try again.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/couldn't reach/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter API key' }));
+  expect(props.onCredentials).toHaveBeenCalledWith('custom_openai_synthetic');
+});
+
+it("names the address it couldn't reach, in words for a hosted server", async () => {
+  const props = options();
+  const remote = { ...fields, base_url: 'https://models.example.com/v1' };
+  props.load.mockResolvedValue({
+    ...page,
+    items: [{ ...page.items[0], fields: remote }],
+  });
+  props.apply.mockRejectedValueOnce({
+    code: 'endpoint_unreachable',
+    status: 409,
+  });
+  render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Refresh Synthetic endpoint models',
+    }),
+  );
+  expect(
+    await screen.findByText(
+      "Row-Bot couldn't reach https://models.example.com/v1. Check it's running and reachable from the internet.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Enter API key' })).toBeNull();
+});
+
+it.each([
+  ['an allowed private address', 'http://10.0.0.5:11434/v1', true],
+  ['the server itself', 'http://127.0.0.1:8080/v1', false],
+])(
+  "doesn't send a hosted owner to the internet for %s",
+  async (_, url, allowed) => {
+    const props = options();
+    const endpoint = {
+      ...fields,
+      base_url: url,
+      allow_private_address: allowed,
+    };
+    props.load.mockResolvedValue({
+      ...page,
+      items: [{ ...page.items[0], fields: endpoint }],
+    });
+    props.apply.mockRejectedValueOnce({
+      code: 'endpoint_unreachable',
+      status: 409,
+    });
+    render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Refresh Synthetic endpoint models',
+      }),
+    );
+    expect(
+      await screen.findByText(
+        `Row-Bot couldn't reach ${url}. Check the address and that the server is running.`,
+      ),
+    ).toBeVisible();
+  },
+);
+
+it('explains a private address refused on refresh, and a metadata address never allowed', async () => {
+  const props = options();
+  const office = { ...fields, base_url: 'http://192.168.1.20:11434/v1' };
+  props.load.mockResolvedValue({
+    ...page,
+    items: [{ ...page.items[0], fields: office }],
+  });
+  props.apply
+    .mockRejectedValueOnce({ code: 'endpoint_private_address', status: 409 })
+    .mockRejectedValueOnce({ code: 'endpoint_address_blocked', status: 409 });
+  render(<ProviderConfiguration {...props} compact hostName="PikaPods" />);
+  const refresh = await screen.findByRole('button', {
+    name: 'Refresh Synthetic endpoint models',
+  });
+  fireEvent.click(refresh);
+  expect(
+    await screen.findByText(
+      "192.168.1.20 is on PikaPods' private network. Edit the endpoint to allow it.",
+    ),
+  ).toBeVisible();
+  await waitFor(() => expect(refresh).toBeEnabled());
+  fireEvent.click(refresh);
+  expect(
+    await screen.findByText(
+      "That address belongs to the hosting company's own computer, not a model server. Row-Bot never connects to it.",
+    ),
+  ).toBeVisible();
+});
+
+it('opens from a hosted first run with Ollama picked and the guide to reaching it (U3)', async () => {
+  const props = options();
+  render(
+    <ProviderConfiguration
+      {...props}
+      compact
+      autoAdd
+      addProfile="ollama"
+      hostName="PikaPods"
+    />,
+  );
+  const type = await screen.findByLabelText('Server type');
+  expect(type).toHaveValue('ollama');
+  expect(
+    screen.getByRole('link', { name: 'How to reach your model server safely' }),
+  ).toHaveAttribute('href', 'https://row-bot.ai/docs/guides/own-model-server');
+});
+
+it('opens a plain form for a type it doesn’t know, and no guide on a computer', async () => {
+  const props = options();
+  render(
+    <ProviderConfiguration {...props} compact autoAdd addProfile="nonsense" />,
+  );
+  expect(await screen.findByLabelText('Server type')).toHaveValue(
+    'generic_openai',
+  );
+  expect(
+    screen.queryByRole('link', {
+      name: 'How to reach your model server safely',
+    }),
+  ).toBeNull();
+});
+
+it('says the endpoint is ready only once its models answered, never when it could not be reached (U3)', async () => {
+  const props = options();
+  const onModelsReady = vi.fn();
+  render(
+    <ProviderConfiguration
+      {...props}
+      compact
+      hostName="PikaPods"
+      onModelsReady={onModelsReady}
+    />,
+  );
+  await addEndpoint('https://gpu.example.com/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(onModelsReady).toHaveBeenCalledOnce());
+
+  cleanup();
+  const refused = options();
+  const notReady = vi.fn();
+  refused.apply
+    .mockResolvedValueOnce({ configuration_revision: 'b'.repeat(64) })
+    .mockRejectedValueOnce({ code: 'endpoint_unreachable', status: 409 });
+  render(
+    <ProviderConfiguration
+      {...refused}
+      compact
+      hostName="PikaPods"
+      onModelsReady={notReady}
+    />,
+  );
+  await addEndpoint('https://gpu.example.com/v1');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(
+    await screen.findByText(
+      /Row-Bot couldn't reach https:\/\/gpu.example.com\/v1/,
+    ),
+  ).toBeVisible();
+  expect(notReady).not.toHaveBeenCalled();
 });

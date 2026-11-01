@@ -5,7 +5,7 @@ description: "When a hosting service runs your Row-Bot: what the host can reach,
 
 # What Your Host Can See
 
-When a hosting service runs Row-Bot for you, your Row-Bot lives on that company's computer, not yours. This page says plainly what the host can reach, what Row-Bot does to protect your saved sign-ins, and what you can do. It applies to any host. For a Row-Bot on your own computer, read [Privacy And Safety](/docs/privacy-safety/).
+When a hosting service runs Row-Bot for you, your Row-Bot lives on that company's computer, not yours. This page says plainly what the host can reach, what Row-Bot does to protect your saved sign-ins, and what you can do. It applies to any host. For a Row-Bot on your own computer, read [Privacy And Safety](/docs/privacy-safety/). To start and use a hosted Row-Bot, see [Row-Bot In Your Browser](/docs/getting-started/in-your-browser).
 
 ## In Short
 
@@ -35,6 +35,8 @@ Where the key that opens your saved sign-ins lives depends on your host:
 - **Your host gives none.** Row-Bot makes a key at its first start and keeps it in the data folder (`secret-store-key`), readable only by Row-Bot. Anyone with a full copy of the data folder, including the host's backups, can then open your saved sign-ins.
 
 Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave out both the key and your saved sign-ins.
+
+**Your Claude plan's sign-in** isn't one of them: Claude Code keeps it itself, in its own folder in the server's home (`.claude`), which on a hosted server is part of the data disk. Row-Bot never reads it and its backups leave it out, but the host can reach it like any file on the disk.
 
 ## The Key And The Setup Code
 

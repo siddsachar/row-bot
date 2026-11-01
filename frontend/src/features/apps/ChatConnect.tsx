@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useRuntime } from '../../runtime';
 import type { IntegrationDetail, TraceAppRef } from '../../api/types';
+import { usePlace } from '../../api/place';
 import { Button, StatusDot } from '../../ui/primitives';
 import { ConsentSheet, PlanProgress, usePlan } from './SetupFlow';
-import { AppIcon, idPath, Publisher, statusOf } from './parts';
+import { AppIcon, idPath, placedName, Publisher, statusOf } from './parts';
 
 /**
  * The Connect card the agent leaves in a chat: apps from Row-Bot's own
@@ -63,7 +64,11 @@ function SuggestedApp({
     return () => abort.abort();
   }, [load]);
   const entry = detail?.entry;
-  const name = entry ? entry.app?.name || entry.name : app.name;
+  const place = usePlace();
+  const name = placedName(
+    entry ? entry.app?.name || entry.name : app.name,
+    place,
+  );
   const control = usePlan({ itemId, revision: '', name }, (plan) => {
     // Set up from the catalog: follow the app to what it became.
     if (plan.installed_id && plan.installed_id !== itemId)

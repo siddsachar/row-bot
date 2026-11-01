@@ -12,7 +12,7 @@ import stat
 import time
 from urllib.parse import urlsplit
 
-from row_bot.providers import custom, selection
+from row_bot.providers import custom, endpoint_addresses, selection
 from row_bot.providers.config import load_provider_config, save_provider_config, provider_config_revision, provider_config_transaction, ProviderConfigError
 from row_bot.runtime import admissions
 from row_bot.application.provider_settings_commands import invalidate_provider_runtime
@@ -35,6 +35,8 @@ class ProviderEndpointFields:
     supports_reasoning_content: bool = False
     supports_reasoning_replay: bool = False
     extra_body_json: str = "{}"
+    # The owner's OK for this address to be private on a hosted server (H16).
+    allow_private_address: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ class ProviderConfigurationPage:
     items: tuple[ProviderEndpointSnapshot, ...]
     total: int
     next_cursor: str | None
-    profiles: tuple[str, ...]
+    profiles: tuple[dict[str, str], ...]
 
 
 def _text(value, maximum, *, empty=False):
@@ -85,7 +87,8 @@ def _fields(value: dict) -> tuple[ProviderEndpointFields, dict]:
     for mode in (fields.vision_mode, fields.tool_mode, fields.reasoning_mode):
         if mode not in {"auto", "on", "off"}:
             raise ProviderConfigError("invalid_provider_configuration")
-    for boolean in (fields.enabled, fields.auth_required, fields.supports_reasoning_content, fields.supports_reasoning_replay):
+    for boolean in (fields.enabled, fields.auth_required, fields.supports_reasoning_content, fields.supports_reasoning_replay,
+                    fields.allow_private_address):
         if type(boolean) is not bool:
             raise ProviderConfigError("invalid_provider_configuration")
     for integer in (fields.context_window, fields.thinking_budget):
@@ -108,7 +111,8 @@ def _fields(value: dict) -> tuple[ProviderEndpointFields, dict]:
         "profile": fields.profile, "execution_location": fields.execution_location, "enabled": fields.enabled,
         "auth_required": fields.auth_required, "manual_capabilities": manual, "reasoning_mode": fields.reasoning_mode,
         "supports_reasoning_content": fields.supports_reasoning_content, "supports_reasoning_replay": fields.supports_reasoning_replay,
-        "extra_body": extra, "thinking_budget": fields.thinking_budget}
+        "extra_body": extra, "thinking_budget": fields.thinking_budget,
+        endpoint_addresses.ALLOWED_ORIGIN: endpoint_addresses.endpoint_origin(url) if fields.allow_private_address else ""}
     return fields, endpoint
 
 
@@ -125,7 +129,8 @@ def _snapshot(raw: dict) -> ProviderEndpointSnapshot:
         "auth_required": endpoint["auth_required"], "vision_mode": mode("vision"), "tool_mode": mode("tool_calling"),
         "context_window": manual.get("context_window"), "reasoning_mode": endpoint["reasoning_mode"],
         "thinking_budget": endpoint.get("thinking_budget"), "supports_reasoning_content": endpoint["supports_reasoning_content"],
-        "supports_reasoning_replay": endpoint["supports_reasoning_replay"], "extra_body_json": json.dumps(extra)})
+        "supports_reasoning_replay": endpoint["supports_reasoning_replay"], "extra_body_json": json.dumps(extra),
+        "allow_private_address": endpoint_addresses.allowed(endpoint)})
     probe = endpoint.get("last_probe", {})
     classification = probe.get("classification")
     summary = custom.custom_probe_summary(probe if isinstance(probe, dict) else {})
@@ -167,7 +172,8 @@ def read_provider_configuration(*, query: str = "", cursor: str | None = None, l
         used += size
     end = offset + len(items)
     continuation = base64.urlsafe_b64encode(json.dumps([revision, query, end]).encode()).decode() if end < len(matches) else None
-    return ProviderConfigurationPage(1, revision, tuple(items), len(matches), continuation, tuple(custom.CUSTOM_ENDPOINT_PROFILES))
+    profiles = tuple({"id": key, "name": str(value["display_name"])} for key, value in custom.CUSTOM_ENDPOINT_PROFILES.items())
+    return ProviderConfigurationPage(1, revision, tuple(items), len(matches), continuation, profiles)
 
 
 def review_provider_configuration(operation: str, expected_revision: str, payload: dict, *, validate: Callable[[], None]) -> dict:
@@ -176,7 +182,9 @@ def review_provider_configuration(operation: str, expected_revision: str, payloa
     if provider_config_revision(cfg) != expected_revision:
         raise ProviderConfigError("revision_conflict")
     if operation in {"provider.endpoint.create", "provider.endpoint.save"}:
-        fields, _ = _fields(payload)
+        fields, endpoint = _fields(payload)
+        # On a hosted server, an address on the host's private network needs the owner's OK (H16).
+        endpoint_addresses.check_new_address(endpoint["base_url"], allow_private=fields.allow_private_address)
         old = next((item for item in cfg["custom_endpoints"] if isinstance(item, dict) and item.get("id") == fields.endpoint_id), None)
         if operation.endswith(".create") and old:
             raise ProviderConfigError("provider_endpoint_identity_conflict")
@@ -296,20 +304,27 @@ def _execute_probe(owner_id: str, key: str, command: dict, validate: Callable[[]
             custom.probe_custom_endpoint(endpoint_id, validate=authority, strict=True)
         else:
             custom.refresh_custom_endpoint_models(endpoint_id, validate=authority, strict=True)
+    except endpoint_addresses.EndpointAddressRefused as exc:
+        failure = exc.code
     except ProviderConfigError:
         raise
-    except Exception:
-        # The endpoint didn't answer (B114). Nothing was published, so the
-        # outcome is definite: the endpoint reads Not reachable and the
-        # command is refused, instead of staying unconfirmed forever.
+    except Exception as exc:
+        failure = ("endpoint_key_rejected" if custom.key_rejected(exc)
+                   else "endpoint_key_missing" if isinstance(exc, custom.EndpointKeyMissing)
+                   else "endpoint_unreachable")
+    else:
+        failure = ""
+    if failure:
+        # The endpoint didn't answer, refused the key, or its address was refused (B114, H16).
+        # Nothing was published, so the outcome is definite: the endpoint reads Unavailable
+        # and the command is refused with the reason, instead of staying unconfirmed forever.
         custom._store_custom_endpoint_probe(
             endpoint_id,
-            {"classification": "unavailable", "ok": False, "models_ok": False,
-             "errors": ["models: the endpoint did not answer"]},
+            {"classification": "unavailable", "ok": False, "models_ok": False, "errors": [f"models: {failure}"]},
             validate=authority,
         )
-        admissions.reject_command(owner_id, key, "endpoint_unreachable")
-        raise ProviderConfigError("endpoint_unreachable") from None
+        admissions.reject_command(owner_id, key, failure)
+        raise ProviderConfigError(failure) from None
     with provider_config_transaction():
         authority()
         cfg = load_provider_config(strict=True)

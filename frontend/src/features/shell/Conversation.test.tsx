@@ -1587,6 +1587,40 @@ it("an interrupted reply says the provider's own reason, such as a plan's limit"
   expect(within(log).getByRole('button', { name: 'Resume' })).toBeVisible();
 });
 
+it('Claude signed the person out: says so in U11’s words, with Sign in again', async () => {
+  interruptedConversation();
+  mock.state.activity = [
+    {
+      cursor: '5',
+      event: {
+        event_id: 'event-claude-sign-in',
+        type: 'generation.error',
+        topic: 'conversation-a',
+        conversation_id: 'conversation-a',
+        projection_revision: '5',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '5',
+        source_sequence_end: '5',
+        payload: { code: 'sign_in_required', provider: 'Claude' },
+      },
+    },
+  ] as unknown as typeof mock.state.activity;
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent(
+    'Claude signed you outSign in again to keep using your plan.',
+  );
+  expect(within(log).queryByRole('button', { name: 'Resume' })).toBeNull();
+  await userEvent
+    .setup()
+    .click(within(log).getByRole('button', { name: 'Sign in again' }));
+  expect(mock.navigate).toHaveBeenLastCalledWith('/settings/providers');
+});
+
 it('says when a stop left the last message unanswered and offers to send it again', async () => {
   idleConversation();
   mock.state.projection = {

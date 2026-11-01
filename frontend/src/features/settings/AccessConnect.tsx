@@ -1,8 +1,6 @@
 import {
-  useCallback,
   useEffect,
   useId,
-  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -28,6 +26,7 @@ import {
   type AccessTailscaleClient,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import type { SettingsSnapshot } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -44,17 +43,11 @@ import {
 } from '../../ui/primitives';
 import { QrCode } from '../../ui/QrCode';
 import AccessTailscale from './AccessTailscale';
+import { browserRoute, useConnectCode, type Lifetime } from './connect-code';
 
-/** Mint the next code this long before the current one expires. */
-export const REFRESH_BEFORE_MS = 30_000;
-/** Codes one open flow mints before it asks for a new one (about 40 min). */
-export const MAX_CODES = 4;
-/** How often the flow looks for the device while a code is open. */
-export const ARRIVAL_POLL_MS = 2_000;
+export { ARRIVAL_POLL_MS, MAX_CODES, REFRESH_BEFORE_MS } from './connect-code';
 
 type Choice = 'tailscale' | 'lan' | 'internet' | 'other';
-type Lifetime = 'trusted' | 'temporary';
-type Code = { id: string; url: string; expiresAt: string; origin: string };
 type Tunnel = SettingsSnapshot['system']['tunnel'];
 
 function hostOf(origin: string) {
@@ -116,7 +109,9 @@ export function installSteps(
  * code is a one-time, 10-minute invitation; the previous one is cancelled);
  * 3) it waits for the device, then shows "Connected: <name> · Rename" and how
  * to install Row-Bot on it. Nothing becomes reachable without an explicit,
- * confirmed step, and closing the flow cancels the open code.
+ * confirmed step, and closing the flow cancels the open code. A hosted
+ * Row-Bot already has its own https address and its host runs the network,
+ * so there the code opens the address this browser uses, with no way to choose.
  */
 export default function AccessConnect({
   client = accessInvitationClient,
@@ -138,6 +133,7 @@ export default function AccessConnect({
   /** A device connected or was renamed: read the device list again. */
   onConnected?: () => void;
 }) {
+  const place = usePlace();
   const overlay = useOverlay();
   const lanSelectId = useId();
   const otherSelectId = useId();
@@ -149,35 +145,12 @@ export default function AccessConnect({
   const [lanId, setLanId] = useState('');
   const [otherId, setOtherId] = useState('');
   const [lifetime, setLifetime] = useState<Lifetime>('trusted');
-  const [code, setCode] = useState<Code | null>(null);
-  const [minted, setMinted] = useState(0);
-  const [generation, setGeneration] = useState(0);
-  const [expired, setExpired] = useState(false);
-  const [connected, setConnected] = useState<AccessDevice | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useCopyFeedback();
-  const live = useRef<string | null>(null);
-
-  const cancelLive = useCallback(() => {
-    const id = live.current;
-    live.current = null;
-    if (id) void client.cancel(id).catch(() => undefined);
-  }, [client]);
-  // Leaving the flow cancels the open code; so does leaving the page
-  // (closing the tab or reloading runs no React cleanup).
-  useEffect(() => cancelLive, [cancelLive]);
-  useEffect(() => {
-    const leave = () => {
-      const id = live.current;
-      if (id) void client.cancel(id, undefined, true).catch(() => undefined);
-    };
-    window.addEventListener('pagehide', leave);
-    return () => window.removeEventListener('pagehide', leave);
-  }, [client]);
 
   useEffect(() => {
     if (!open) return;
@@ -246,8 +219,10 @@ export default function AccessConnect({
     lanUsable.find((route) => route.id === lanId) ?? lanUsable[0] ?? null;
   const otherRoute =
     otherRoutes.find((route) => route.id === otherId) ?? otherRoutes[0] ?? null;
-  const route =
-    choice === 'tailscale'
+  const hosted = place.kind === 'hosted';
+  const route = hosted
+    ? routes && browserRoute(routes)
+    : choice === 'tailscale'
       ? tailscaleRoute
       : choice === 'lan'
         ? lanRoute
@@ -256,111 +231,22 @@ export default function AccessConnect({
           : choice === 'other'
             ? otherRoute
             : null;
-  const routeId = open && !connected && !expired ? (route?.id ?? '') : '';
-
-  // Step 2: one code at a time for the chosen way; a newer one replaces it.
-  useEffect(() => {
-    if (!routeId) {
-      cancelLive();
-      setCode(null);
-      return;
-    }
-    let current = true;
-    setError('');
-    void client.create(routeId, lifetime).then(
-      (result) => {
-        if (!current) {
-          void client.cancel(result.invitation.id).catch(() => undefined);
-          return;
-        }
-        const previous = live.current;
-        live.current = result.invitation.id;
-        setCode({
-          id: result.invitation.id,
-          url: result.url,
-          expiresAt: result.invitation.expires_at,
-          origin: result.invitation.intended_origin,
-        });
-        setMinted((count) => count + 1);
-        // The code on screen is the only one that works.
-        if (previous) void client.cancel(previous).catch(() => undefined);
-      },
-      (cause) => {
-        if (!current) return;
-        const failure = clientError(cause);
-        setError(failure.message);
-        if (failure.code === 'route_changed')
-          setReloadRoutes((value) => value + 1);
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [client, routeId, lifetime, generation, cancelLive]);
-
-  // The code renews itself shortly before it expires, a few times at most.
-  useEffect(() => {
-    if (!code || connected) return;
-    const wait = Math.max(
-      0,
-      Date.parse(code.expiresAt) - REFRESH_BEFORE_MS - Date.now(),
-    );
-    const timer = window.setTimeout(() => {
-      if (minted >= MAX_CODES) {
-        cancelLive();
-        setCode(null);
-        setExpired(true);
-      } else setGeneration((value) => value + 1);
-    }, wait);
-    return () => window.clearTimeout(timer);
-  }, [code, connected, minted, cancelLive]);
-
-  // Step 3: wait for the device.
-  useEffect(() => {
-    if (!code || connected) return;
-    let looking = false;
-    let active = true;
-    const timer = window.setInterval(async () => {
-      if (looking) return;
-      looking = true;
-      try {
-        const mine = (await client.invitations()).find(
-          (item) => item.id === code.id,
-        );
-        if (!active || !mine?.claimed_at) return;
-        live.current = null;
-        const list = await devices.devices();
-        if (!active) return;
-        const device =
-          list.find((item) => item.id === mine.claimed_device_id) ??
-          [...list]
-            .filter((item) => !item.revoked_at)
-            .sort(
-              (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
-            )[0];
-        if (device) {
-          setConnected(device);
-          setName(device.display_name);
-          onConnected?.();
-        }
-      } catch {
-        /* Look again on the next tick. */
-      } finally {
-        looking = false;
-      }
-    }, ARRIVAL_POLL_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [client, devices, code, connected, onConnected]);
+  // Steps 2 and 3: one code at a time for the chosen way, then the device.
+  const { code, expired, connected, setConnected, ...codes } = useConnectCode({
+    client,
+    devices,
+    routeId: open ? (route?.id ?? '') : '',
+    lifetime,
+    onConnected: (device) => {
+      setName(device.display_name);
+      onConnected?.();
+    },
+    onError: setError,
+    onRouteChanged: () => setReloadRoutes((value) => value + 1),
+  });
 
   function reset() {
-    cancelLive();
-    setCode(null);
-    setMinted(0);
-    setExpired(false);
-    setConnected(null);
+    codes.reset();
     setRenaming(false);
     setNotice('');
     setError('');
@@ -502,178 +388,182 @@ export default function AccessConnect({
         error ? (
           <p role="alert">{error}</p>
         ) : (
-          <Skeleton label="Looking for ways to reach this computer" />
+          <Skeleton label={`Looking for ways to reach ${place.name}`} />
         )
       ) : (
         <ol className="access-steps">
-          <li className="access-step">
-            <h4>How will it reach this computer?</h4>
-            <div
-              role="radiogroup"
-              aria-label="How it reaches this computer"
-              className="access-options"
-            >
-              {option(
-                'tailscale',
-                'Tailscale',
-                'Private and encrypted (HTTPS). Recommended; installs as an app.',
-                Lock,
-                Boolean(tailscaleRoute),
-              )}
-              {option(
-                'lan',
-                'Same Wi-Fi',
-                'At home or the office. Opens in the browser (HTTP).',
-                Wifi,
-                lanUsable.length > 0,
-              )}
-              {option(
-                'internet',
-                'Internet',
-                'From anywhere, through your public link (ngrok).',
-                Globe,
-                Boolean(internetRoute),
-              )}
-              {otherRoutes.length > 0 &&
-                option(
-                  'other',
-                  'Another address',
-                  'An address you set up yourself.',
-                  Globe,
-                  true,
+          {!hosted && (
+            <li className="access-step">
+              <h4>How will it reach {place.name}?</h4>
+              <div
+                role="radiogroup"
+                aria-label={`How it reaches ${place.name}`}
+                className="access-options"
+              >
+                {option(
+                  'tailscale',
+                  'Tailscale',
+                  'Private and encrypted (HTTPS). Recommended; installs as an app.',
+                  Lock,
+                  Boolean(tailscaleRoute),
                 )}
-            </div>
-            <div className="access-option-panel">
-              {choice === 'tailscale' && (
-                <AccessTailscale
-                  client={tailscale}
-                  onChanged={() => setReloadRoutes((value) => value + 1)}
-                  writeClipboard={writeClipboard}
-                />
-              )}
-              {choice === 'lan' &&
-                (network?.listen_mode === 'local_only' ? (
-                  <div className="access-option-detail">
-                    <p className="settings-help">
-                      Row-Bot only listens on this computer now.
-                    </p>
-                    <div className="button-row">
-                      <Button
-                        variant="primary"
-                        disabled={busy}
-                        onClick={allowNetwork}
-                      >
-                        Allow on my network…
-                      </Button>
-                    </div>
-                  </div>
-                ) : network?.listening_on_network === false ? (
-                  // B184: the saved mode says network, the launch says no.
-                  <p className="settings-help">
-                    Row-Bot was started to listen on this computer only, so Same
-                    Wi-Fi can’t reach it now. Restart Row-Bot normally to use
-                    Same Wi-Fi.
-                  </p>
-                ) : lanRoute ? (
-                  <div className="access-option-detail">
-                    <ol className="access-next-steps">
-                      <li>
-                        Connect the other device to the same Wi-Fi as this
-                        computer.
-                      </li>
-                      <li>
-                        Scan the code. Row-Bot opens in its browser; the
-                        connection isn’t encrypted (HTTP).
-                      </li>
-                    </ol>
-                    {lanUsable.length > 1 && (
-                      <div className="access-inline-field">
-                        <label htmlFor={lanSelectId}>Address</label>
-                        <Select
-                          id={lanSelectId}
-                          value={lanRoute.id}
-                          onChange={(event) => setLanId(event.target.value)}
+                {option(
+                  'lan',
+                  'Same Wi-Fi',
+                  'At home or the office. Opens in the browser (HTTP).',
+                  Wifi,
+                  lanUsable.length > 0,
+                )}
+                {option(
+                  'internet',
+                  'Internet',
+                  'From anywhere, through your public link (ngrok).',
+                  Globe,
+                  Boolean(internetRoute),
+                )}
+                {otherRoutes.length > 0 &&
+                  option(
+                    'other',
+                    'Another address',
+                    'An address you set up yourself.',
+                    Globe,
+                    true,
+                  )}
+              </div>
+              <div className="access-option-panel">
+                {choice === 'tailscale' && (
+                  <AccessTailscale
+                    client={tailscale}
+                    onChanged={() => setReloadRoutes((value) => value + 1)}
+                    writeClipboard={writeClipboard}
+                  />
+                )}
+                {choice === 'lan' &&
+                  (network?.listen_mode === 'local_only' ? (
+                    <div className="access-option-detail">
+                      <p className="settings-help">
+                        Row-Bot only listens {place.on} now.
+                      </p>
+                      <div className="button-row">
+                        <Button
+                          variant="primary"
+                          disabled={busy}
+                          onClick={allowNetwork}
                         >
-                          {lanUsable.map((item) => (
+                          Allow on my network…
+                        </Button>
+                      </div>
+                    </div>
+                  ) : network?.listening_on_network === false ? (
+                    // B184: the saved mode says network, the launch says no.
+                    <p className="settings-help">
+                      Row-Bot was started to listen {place.on} only, so Same
+                      Wi-Fi can’t reach it now. Restart Row-Bot normally to use
+                      Same Wi-Fi.
+                    </p>
+                  ) : lanRoute ? (
+                    <div className="access-option-detail">
+                      <ol className="access-next-steps">
+                        <li>
+                          Connect the other device to the same Wi-Fi as this
+                          computer.
+                        </li>
+                        <li>
+                          Scan the code. Row-Bot opens in its browser; the
+                          connection isn’t encrypted (HTTP).
+                        </li>
+                      </ol>
+                      {lanUsable.length > 1 && (
+                        <div className="access-inline-field">
+                          <label htmlFor={lanSelectId}>Address</label>
+                          <Select
+                            id={lanSelectId}
+                            value={lanRoute.id}
+                            onChange={(event) => setLanId(event.target.value)}
+                          >
+                            {lanUsable.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {withoutScheme(item.origin)}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      )}
+                      {lanRoute.warning && lanRank(lanRoute) >= 5 && (
+                        <p className="settings-help" data-tone="warning">
+                          {lanRoute.warning}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="settings-help">
+                      {place.label} has no network address right now. Check that
+                      it is connected to Wi-Fi.
+                    </p>
+                  ))}
+                {choice === 'internet' &&
+                  (internetRoute ? (
+                    <p className="settings-help">
+                      Public at {withoutScheme(internetRoute.origin)}. Anyone
+                      can reach the sign-in page; only a device with this code
+                      gets in. Stop the link under Advanced.
+                    </p>
+                  ) : (
+                    <div className="access-option-detail">
+                      <p className="settings-help">{tunnelWords}</p>
+                      {tunnel?.credential.configured ? (
+                        startPublic
+                      ) : tunnel ? (
+                        <p className="settings-help">
+                          <AppLink to="/settings/access#tunnel">
+                            Add your ngrok token under Advanced
+                          </AppLink>
+                          , then come back here.
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                {choice === 'other' && otherRoute && (
+                  <div className="access-option-detail">
+                    {otherRoutes.length > 1 ? (
+                      <div className="access-inline-field">
+                        <label htmlFor={otherSelectId}>Address</label>
+                        <Select
+                          id={otherSelectId}
+                          value={otherRoute.id}
+                          onChange={(event) => setOtherId(event.target.value)}
+                        >
+                          {otherRoutes.map((item) => (
                             <option key={item.id} value={item.id}>
                               {withoutScheme(item.origin)}
                             </option>
                           ))}
                         </Select>
                       </div>
-                    )}
-                    {lanRoute.warning && lanRank(lanRoute) >= 5 && (
-                      <p className="settings-help" data-tone="warning">
-                        {lanRoute.warning}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="settings-help">
-                    This computer has no network address right now. Check that
-                    it is connected to Wi-Fi.
-                  </p>
-                ))}
-              {choice === 'internet' &&
-                (internetRoute ? (
-                  <p className="settings-help">
-                    Public at {withoutScheme(internetRoute.origin)}. Anyone can
-                    reach the sign-in page; only a device with this code gets
-                    in. Stop the link under Advanced.
-                  </p>
-                ) : (
-                  <div className="access-option-detail">
-                    <p className="settings-help">{tunnelWords}</p>
-                    {tunnel?.credential.configured ? (
-                      startPublic
-                    ) : tunnel ? (
+                    ) : (
                       <p className="settings-help">
-                        <AppLink to="/settings/access#tunnel">
-                          Add your ngrok token under Advanced
-                        </AppLink>
-                        , then come back here.
+                        Opens {withoutScheme(otherRoute.origin)}.
                       </p>
-                    ) : null}
+                    )}
+                    {otherRoute.warning && (
+                      <p className="settings-help" data-tone="warning">
+                        {otherRoute.warning}
+                      </p>
+                    )}
                   </div>
-                ))}
-              {choice === 'other' && otherRoute && (
-                <div className="access-option-detail">
-                  {otherRoutes.length > 1 ? (
-                    <div className="access-inline-field">
-                      <label htmlFor={otherSelectId}>Address</label>
-                      <Select
-                        id={otherSelectId}
-                        value={otherRoute.id}
-                        onChange={(event) => setOtherId(event.target.value)}
-                      >
-                        {otherRoutes.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {withoutScheme(item.origin)}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  ) : (
-                    <p className="settings-help">
-                      Opens {withoutScheme(otherRoute.origin)}.
-                    </p>
-                  )}
-                  {otherRoute.warning && (
-                    <p className="settings-help" data-tone="warning">
-                      {otherRoute.warning}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </li>
+                )}
+              </div>
+            </li>
+          )}
           <li className="access-step">
             <h4>Scan the code</h4>
             {connected ? (
               <p className="settings-help">Used. Codes work only once.</p>
             ) : !route ? (
               <p className="settings-help">
-                The code appears here once the way above is ready.
+                {hosted
+                  ? 'Another device can’t reach the address this browser uses. Open Row-Bot at your server’s web address to show a code here.'
+                  : 'The code appears here once the way above is ready.'}
               </p>
             ) : expired ? (
               <div className="access-option-detail">
@@ -723,7 +613,7 @@ export default function AccessConnect({
                     size="sm"
                     value={lifetime}
                     onChange={(value) => {
-                      setMinted(0);
+                      codes.restartCount();
                       setLifetime(value);
                     }}
                     options={[

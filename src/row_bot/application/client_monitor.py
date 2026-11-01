@@ -538,10 +538,36 @@ def _health_problems() -> list[dict[str, str]]:
     return attention_problems()
 
 
+def _memory_problems() -> list[dict[str, Any]]:
+    """Row-Bot restarted because the server ran out of memory (H12, U8): its size, what needs more, and
+    how to resize, with the host's own page when a known host runs it. Only where there is a limit."""
+    from row_bot import server_memory
+    from row_bot.hosting import hosted_by
+
+    notice = server_memory.notice()
+    if notice is None:
+        return []
+    host = hosted_by()
+    size = notice["limit_bytes"]
+    target = "4 GB" if size < server_memory.SMALL_SERVER_BYTES else "bigger"
+    resize = f"Make the pod {target} in {host.name}" if host else (
+        "Give the server 4 GB" if target == "4 GB" else "Give the server more memory")
+    links = [{"label": "How to resize", "url": server_memory.RESIZE_GUIDE}]
+    if host is not None and host.manage_url:
+        links.append({"label": f"Manage your pod in {host.name}", "url": host.manage_url})
+    return [{
+        **_problem("memory:restarted", "Row-Bot restarted because the server ran out of memory",
+                   f"Your server has {server_memory.size_words(size)}. Local speech-to-text together with the "
+                   f"search model and browser needs about 3.2 GB. {resize}, or use cloud speech-to-text.",
+                   "memory"),
+        "links": links,
+    }]
+
+
 def read_attention(*, include_update: bool) -> dict[str, Any]:
     """What needs the person now, for the sidebar's one indicator."""
     problems: list[dict[str, Any]] = []
-    for reader in (_channel_problems, _tunnel_problems, _plugin_problems,
+    for reader in (_memory_problems, _channel_problems, _tunnel_problems, _plugin_problems,
                    _app_problems, _mcp_problems, _workflow_problems, _sandbox_problems, _health_problems):
         try:
             found = reader()

@@ -423,6 +423,10 @@ def captured_chat_model(
                 context_captured=True)
         elif provider in {"openai", "xai", "requesty", "atlascloud"} or transport == "openai_responses":
             from langchain_openai import ChatOpenAI
+            if is_custom_openai_provider(provider):
+                from row_bot.providers.endpoint_addresses import check_clients
+
+                check_clients(resolved.endpoint, sync, asynchronous)
             responses = transport == "openai_responses" or (
                 provider == "openai" and openai_model_uses_responses_api(resolved.runtime_model))
             kwargs = {"model":resolved.runtime_model,"api_key":capture.credential,"base_url":resolved.base_url,
@@ -939,14 +943,17 @@ def _create_chat_model(
         api_key = api_key or "not-needed"
         if endpoint.get("transport") == "openai_responses":
             from langchain_openai import ChatOpenAI
+            from row_bot.providers.endpoint_addresses import check_clients
             from row_bot.providers.transports.cancellable_http import cancellable_http_client
             from row_bot.providers.transports.openai_direct import OpenAIRequestStopped
 
+            http_client = cancellable_http_client(stopped=OpenAIRequestStopped)
+            check_clients(endpoint, http_client)
             kwargs = {
                 "model": model_name,
                 "api_key": api_key,
                 "base_url": endpoint["base_url"],
-                "http_client": cancellable_http_client(stopped=OpenAIRequestStopped),
+                "http_client": http_client,
                 # A custom http_client silently turns stream usage off.
                 "stream_usage": True,
             }
