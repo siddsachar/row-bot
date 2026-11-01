@@ -39,7 +39,7 @@ import { shortTime } from '../shell/conversation-groups';
 import { editLive } from '../shell/video-edits';
 import { LivePreview } from './LivePreview';
 import { acquire, release } from './media-urls';
-import { VideoBrandEditor } from './VideoBrandEditor';
+import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
 import {
   SHAPES,
@@ -56,7 +56,12 @@ import {
 const FRAME = 1 / 30;
 const POLL_MS = 1500;
 
-type Draft = { scenes: VideoSceneWrite[]; captions: boolean; brand: boolean };
+type Draft = {
+  scenes: VideoSceneWrite[];
+  captions: boolean;
+  brand: boolean;
+  voice: string;
+};
 /** Unsaved edits per project and version, so they outlive the panel moving between side and full screen. */
 const drafts = new Map<string, Draft>();
 const WIDE = '(min-width: 768px)';
@@ -144,6 +149,7 @@ export default function VideoPanel({
   const [mode, setMode] = useState<'scenes' | 'timeline'>('scenes');
   // The brand kit loads the first time its section opens.
   const [brandOpen, setBrandOpen] = useState(false);
+  const voices = useVoiceChoices();
   const [time, setTime] = useState(0);
   const history = useRef<Draft[]>([]);
   const wide = useWide();
@@ -273,6 +279,7 @@ export default function VideoPanel({
             scenes: edited.scenes,
             captions: edited.captions,
             brand: edited.brand,
+            voice: edited.voice,
             note: 'Edited in the panel',
           }),
         )
@@ -543,6 +550,20 @@ export default function VideoPanel({
           />
           <span aria-hidden>Brand</span>
         </label>
+        <Select
+          aria-label="Voice for this video"
+          className="video-voice"
+          value={edited.voice}
+          disabled={!latest}
+          onChange={(event) => edit({ ...edited, voice: event.target.value })}
+        >
+          <option value="">Brand kit's voice</option>
+          {voices.map((voice) => (
+            <option key={voice.value} value={voice.value}>
+              {voice.label}
+            </option>
+          ))}
+        </Select>
       </div>
       {wide && mode === 'timeline' && (
         <VideoTimeline

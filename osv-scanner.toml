@@ -74,3 +74,19 @@ ecosystem = "npm"
 vulnerability.ignore = true
 effectiveUntil = 2026-11-30
 reason = "GHSA-gcqx-w48m-w2h4 (prototype poisoning of merged objects, low) lists no fixed release; 4.3.1 is the latest (re-checked 2026-10-29). Only the docs-site build uses it, through @svgr/plugin-svgo merging its own SVGO config; nothing Row-Bot ships includes it."
+
+[[PackageOverrides]]
+name = "minimatch"
+version = "3.1.5"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-11-30
+reason = "GHSA-g3hv-75wg-m249 (glob pattern amplification) is fixed only in 11.0.1, and serve-handler (6.1.7, the latest) pins minimatch 3.1.5 exactly (re-checked 2026-11-01). Only the docs-site's local preview server uses it, on the repository's own patterns; nothing Row-Bot ships includes it."
+
+[[PackageOverrides]]
+name = "minimatch"
+version = "10.2.6"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-11-30
+reason = "GHSA-g3hv-75wg-m249 (glob pattern amplification) is fixed only in 11.0.1, and ESLint 10.14.0 (the latest) and its config and TypeScript parsers require ^10.2 (re-checked 2026-11-01). A dev-only lint dependency of the client, run on the repository's own patterns; nothing Row-Bot ships includes it."

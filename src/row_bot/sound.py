@@ -37,6 +37,15 @@ class Segment:
     words: tuple[tuple[float, float, str], ...] = field(default_factory=tuple)
 
 
+# About how fast the voices speak: what a line's length is guessed from before it is voiced.
+WORDS_PER_SECOND = 2.6
+
+
+def speaking_seconds(text: str) -> float:
+    """About how long *text* takes to say."""
+    return len(str(text or "").split()) / WORDS_PER_SECOND
+
+
 def wav_seconds(data: bytes) -> float:
     with wave.open(io.BytesIO(data), "rb") as audio:
         return audio.getnframes() / float(audio.getframerate() or 1)

@@ -202,6 +202,7 @@ it('saves edits as a new version made on the one shown, and offers nothing until
     base: 2,
     brand: true,
     captions: false,
+    voice: '',
     note: 'Edited in the panel',
     scenes: [
       expect.objectContaining({

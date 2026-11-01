@@ -70,10 +70,13 @@ class Recording:
     mime_type: str = ""
     size_bytes: int = 0
     problem: Problem = ""
-    # Marked moments: [seconds into the recording, live | work | cut, a note] (5.3.1 B4).
+    # Marked moments: [seconds into the recording, live | work | cut, a note, the line said over it] (5.3.1 B4).
     beats: list[list[Any]] = field(default_factory=list)
     # Where the pointer went: [seconds, x, y], x and y 0–1 across the page; a square cut follows it.
     trail: list[list[float]] = field(default_factory=list)
+    # What Row-Bot did: [from, until, click | type | scroll | open, x, y, width, height, a note], the box 0–1 across
+    # the page; a video's camera follows it.
+    actions: list[list[Any]] = field(default_factory=list)
     capture: Any = None
     done: threading.Event = field(default_factory=threading.Event)
 
@@ -125,7 +128,7 @@ def _data(record: Recording) -> dict[str, Any]:
         "started_at": record.started_at, "max_seconds": record.max_seconds, "status": record.status,
         "stopped_by": record.stopped_by, "ended_at": record.ended_at, "duration_seconds": record.duration_seconds,
         "media_ref": record.media_ref, "mime_type": record.mime_type, "size_bytes": record.size_bytes,
-        "problem": record.problem, "beats": record.beats, "trail": record.trail,
+        "problem": record.problem, "beats": record.beats, "trail": record.trail, "actions": record.actions,
     }
 
 
@@ -162,9 +165,12 @@ def _load(path: Path) -> Recording | None:
             ended_at=data.get("ended_at"), duration_seconds=float(data.get("duration_seconds") or 0),
             media_ref=str(data.get("media_ref") or ""), mime_type=str(data.get("mime_type") or ""),
             size_bytes=int(data.get("size_bytes") or 0), problem=data.get("problem") or "",
-            beats=[[float(at), str(kind), str(note)] for at, kind, note in data.get("beats") or []
-                   if kind in {"live", "work", "cut"}][:200],
+            beats=[[float(at), str(kind), str(note), str(line[0]) if line else ""]
+                   for at, kind, note, *line in data.get("beats") or [] if kind in {"live", "work", "cut"}][:200],
             trail=[[float(at), float(x), float(y)] for at, x, y in data.get("trail") or []][:2_000],
+            actions=[[float(start), float(until), str(kind), float(x), float(y), float(w), float(h), str(note)[:80]]
+                     for start, until, kind, x, y, w, h, note in data.get("actions") or []
+                     if kind in {"click", "type", "scroll", "open"}][:500],
         )
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -290,6 +296,7 @@ def finished(record: Recording, reason: str, video: Path | None) -> None:
         record.status = "saving"
         record.beats = [list(beat) for beat in getattr(record.capture, "beats", None) or []][:200]
         record.trail = [list(point) for point in getattr(record.capture, "trail", None) or []][-2_000:]
+        record.actions = [list(action) for action in getattr(record.capture, "actions", None) or []][-500:]
         record.stopped_by = record.stopped_by or _stopped_by(reason)
         record.ended_at = time.time()
         record.duration_seconds = max(0.0, record.ended_at - record.started_at)
@@ -489,7 +496,8 @@ def summary(record: Recording) -> str:
     if record.status == "saving":
         return f"Recording {record.recording_id}: stopped; the video of {what} is being saved."
     if record.status == "saved":
-        beats = "; ".join(f"{clock_words(at)} {kind}{f' ({note})' if note else ''}" for at, kind, note in record.beats)
+        beats = "; ".join(f"{clock_words(at)} {kind}{f' ({note})' if note else ''}"
+                          for at, kind, note, *_line in record.beats)
         return (f"Recording {record.recording_id}: saved {clock_words(record.duration_seconds)} of {what} "
                 f"({size_words(record.size_bytes)}) to this chat's files; the person sees it in the chat."
                 + (f" Beats: {beats}. The video tool makes scenes from them (recording={record.recording_id})."

@@ -265,9 +265,20 @@ test.describe('browser lifecycle', () => {
           '/api/v1/conversations/p1-browser-a/subscriptions' &&
         response.status() === 200,
     );
-    await page
-      .getByRole('button', { name: 'Phase 1 conversation A', exact: true })
-      .click();
+    // Earlier specs on this fixture add chats, which can push it past the
+    // sidebar's preview: open the whole list when it isn't among the rows.
+    const nav = page.getByRole('navigation', {
+      name: 'Workspace navigation',
+      exact: true,
+    });
+    const row = nav.getByRole('button', {
+      name: 'Phase 1 conversation A',
+      exact: true,
+    });
+    const showAll = nav.getByRole('button', { name: 'Show all', exact: true });
+    await expect(row.or(showAll).first()).toBeVisible();
+    if (!(await row.isVisible())) await showAll.click();
+    await row.click();
     await expect(
       page.getByRole('heading', {
         name: 'Phase 1 conversation A',

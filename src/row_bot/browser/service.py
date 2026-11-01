@@ -1888,6 +1888,8 @@ class BrowserEngine:
         recorder = PageRecorder(path, max_seconds=max_seconds, size_limit=size_limit,
                                 size=(round(width * shrink), round(height * shrink)),
                                 pointer_size=RECORD_POINTER_CSS * scale * shrink,
+                                touch=chat.active.viewport is not None
+                                and VIEWPORT_PRESETS.get(chat.active.viewport[0], (0, 0, 1.0, False))[3],
                                 on_end=lambda reason, video: self._recording_ended(thread_id, on_end, reason, video))
         self._recorders[thread_id] = recorder
         # The page takes the recording's size before the first picture is kept.

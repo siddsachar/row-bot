@@ -7,6 +7,7 @@ only as local video files; text is drawn into pictures, never written into the g
 from __future__ import annotations
 
 import io
+import re
 
 import pytest
 from PIL import Image
@@ -86,11 +87,11 @@ def test_speeding_up_part_of_a_video_labels_it_and_keeps_the_sound_in_step():
     assert "atempo=2,atempo=2" in plan.graph  # atempo takes at most 2 per filter.
     assert "concat=n=3:v=1:a=1" in plan.graph
     assert plan.duration == pytest.approx(3.0)  # 1 s, then 4 s at 4×, then 1 s.
-    [(name, data)] = plan.overlays
+    [data] = plan.overlays
     label = _picture(data)
-    assert name == "o001.png" and label.mode == "RGBA" and label.width < 640 / 2
+    assert label.mode == "RGBA" and label.width < 640 / 2
     assert f"overlay=x={640 - label.width - 16}:y=16" in plan.graph  # Top right, inside the margin.
-    assert "file:o001.png" in plan.args
+    assert "file:overlays.png" in plan.args
     assert plan.summary == "Sped up 4×"
 
 
@@ -107,7 +108,7 @@ def test_text_is_drawn_into_a_picture_shown_between_its_times_and_never_put_in_t
                   {"op": "text", "text": "Row-Bot 5.3", "style": "title"}])
     assert words not in plan.graph and "drawtext" not in plan.graph
     assert not any(words in arg for arg in plan.args)
-    badge, title = (_picture(data) for _name, data in plan.overlays)
+    badge, title = (_picture(data) for data in plan.overlays)
     assert badge.height < title.height  # A title is larger than a badge.
     assert f"overlay=x=16:y={360 - badge.height - 16}:eof_action=repeat:enable='between(t,1,3)'" in plan.graph
     assert f"overlay=x={(640 - title.width) // 2}:y={(360 - title.height) // 2}:eof_action=repeat[" in plan.graph
@@ -241,12 +242,42 @@ def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_the
     assert "setpts=PTS/2" in plan.graph and "atempo=2" in plan.graph
     assert "crop=" in plan.graph, "the second scene punches in"
     assert len(plan.overlays) == 3, "the card, the first scene's caption and the 2× badge"
-    assert "file:sound-1.wav" in plan.args and "adelay=2000|2000" in plan.graph, "its line starts with it"
+    assert plan.voices == [(2.0, "sound-1.wav")] and "file:narration.wav" in plan.args, "its line starts with it"
     assert (plan.duration, plan.marks) == (4.0, [0.0, 2.0, 4.0])
     assert plan.summary == "Joined 2 videos and cut 2 scenes"
     with pytest.raises(EditError, match="Scene 1: .* outside its video"):
         build_plan([InputVideo("input-1.mp4", HD)],
                    [Step(op="scenes", scenes=[SceneCut(input=0, start=8)])], "output.mp4")
+
+
+def test_each_scene_lasts_until_its_voice_line_ends_so_no_line_runs_into_the_next():
+    """5.3.2: a line longer than its scene made two voices talk at once. Now a card grows, a fast-forward slows,
+    footage runs on into its recording where no other scene uses it, and what's still short holds its last frame."""
+    from row_bot.video_editing import LINE_PAD, SceneCut, Step
+
+    long = 12.0
+    scenes = Step(op="scenes", scenes=[
+        SceneCut(input=None, end=2, card="Your morning", voice="a.wav", voice_seconds=3.4),
+        SceneCut(input=0, start=0, end=4, speed=4, voice="b.wav", voice_seconds=1.9),
+        SceneCut(input=0, start=6, end=7, voice="c.wav", voice_seconds=2.4),
+        SceneCut(input=0, start=9, end=10, voice="d.wav", voice_seconds=2.4),
+        SceneCut(input=0, start=10, end=11, card="Done"),
+    ])
+    plan = build_plan([InputVideo("input-1.mp4", VideoInfo(duration=long, width=640, height=360, fps=30.0,
+                                                           has_audio=True))], [scenes], "output.mp4",
+                      sounds={name: f"sound-{name}" for name in ("a.wav", "b.wav", "c.wav", "d.wav")})
+
+    lengths = [round(b - a, 2) for a, b in zip(plan.marks, plan.marks[1:])]
+    assert lengths[0] == round(3.4 + LINE_PAD, 2), "the card grows to its line"
+    assert "setpts=PTS/1.6" in plan.graph and lengths[1] == 2.5, "4× slows to fit, badge and all"
+    assert "trim=start=6:end=9" in plan.graph and lengths[2] == 3.0, "runs on to where the next scene starts"
+    assert "tpad=stop_mode=clone:stop_duration=2" in plan.graph and lengths[3] == 3.0,         "the next second is another scene's: its last frame holds instead"
+    assert "apad=pad_dur=2" in plan.graph, "its sound stays in step"
+    assert lengths[4] == 1.0, "a scene without a voice keeps its length"
+    voiced = [(plan.marks[index], seconds) for index, seconds in enumerate((3.4, 1.9, 2.4, 2.4))]
+    for (begin, seconds), next_begin in zip(voiced, plan.marks[1:]):
+        assert begin + seconds + LINE_PAD <= next_begin + 0.01, "each line ends before the next scene starts"
+    assert _every_stream_is_used(plan)
 
 
 def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_the_speed_badge_in_frame():
@@ -321,19 +352,71 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert plan.graph.count("color=c=0x112233:s=640x360") == 2, "an intro and an outro card on its colour"
     assert plan.graph.count("anullsrc") == 2, "each with silence, so the sound stays in step"
     assert (plan.duration, plan.marks) == (7.0, [2.0, 5.0]), "the scene starts after the intro"
-    assert "adelay=2000|2000" in plan.graph, "its line starts with the scene, after the intro"
-    pictures = [_picture(png) for _name, png in plan.overlays]
+    assert plan.voices == [(2.0, "sound-1.wav")], "its line starts with the scene, after the intro"
+    pictures = [_picture(png) for png in plan.overlays]
     backdrops = [picture for picture in pictures if picture.size == (640, 360)]
     card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
     assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
-    assert card.getpixel((2, card.height // 2))[:3] == (17, 34, 51), "the title card is the brand's colour"
+    lit, right = card.getpixel((card.width // 3, card.height // 2)), card.getpixel((card.width - 12, card.height // 2))
+    assert all(abs(a - b) < 12 for a, b in zip(right[:3], (17, 34, 51))) and sum(lit[:3]) > sum(right[:3]), \
+        "the scene's title is a card of the brand's colour, lit from the left"
+    assert card.getpixel((0, 0))[3] < 60, "its edge is a soft shadow, not a hard box"
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
     assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
     # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
-    # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named).
-    assert f"overlay=x=16:y={round(360 * 0.68) - card.height // 2}:" in plan.graph
+    # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named), and slides in and out.
+    [(x, y, begin, end)] = re.findall(r"overlay=x='(\d+)-[^']*':y=(\d+):eof_action=repeat:enable='between\(t,([\d.]+),"
+                                      r"([\d.]+)\)'", plan.graph)
+    assert abs(int(y) + card.height / 2 - 360 * 0.68) <= 2 and int(x) < 16
+    assert (float(begin), float(end)) == (2.3, 5.0), "in a moment after its scene starts, gone when it ends"
+
+
+def test_a_scenes_title_is_as_large_on_a_tall_video_as_on_a_wide_one():
+    """5.3.2: on a phone video (1080x1920) the title came out a third smaller than on 1920x1080."""
+    from row_bot.video_editing import lower_third
+
+    wide = lower_third("Ask, check, done", (31, 41, 55), 1920, 1080)
+    tall = lower_third("Ask, check, done", (31, 41, 55), 1080, 1920)
+    assert abs(wide.height - tall.height) <= 2 and tall.x + tall.width <= 1080
+
+
+def test_a_caption_shows_the_line_a_phrase_at_a_time_while_it_is_said():
+    """5.3.2: a whole line in a box, cut off after three lines, read as a paragraph under the picture."""
+    from row_bot.video_editing import SceneCut, Step, phrases
+
+    line = ("Row-Bot opens the shop's orders, finds the three that haven't shipped, and drafts a note to each "
+            "customer. You check them, and send.")
+    assert phrases(line) == ["Row-Bot opens the shop's orders,", "finds the three that haven't shipped,",
+                             "and drafts a note to each customer.", "You check them, and send."]
+    scenes = Step(op="scenes", style="caption", scenes=[
+        SceneCut(input=0, end=6, line=line, voice="line-1.wav", voice_seconds=5.0)])
+    plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4", sounds={"line-1.wav": "sound-1.wav"})
+    shown = [(float(a), float(b)) for a, b in re.findall(r"between\(t,([\d.]+),([\d.]+)\)", plan.graph)]
+    assert len(shown) == 4 and shown[0][0] == 0 and shown[-1][1] == 5.0, "the phrases over the line's own time"
+    assert all(a[1] == pytest.approx(b[0], abs=1e-3) for a, b in zip(shown, shown[1:])), "one after another"
+
+
+def test_a_video_with_footage_that_is_mostly_title_cards_needs_attention():
+    from row_bot.video_editing import SceneCut, Step
+
+    scenes = Step(op="scenes", scenes=[SceneCut(input=None, end=9, card="Welcome to the shop"),
+                                       SceneCut(input=0, end=4), SceneCut(input=None, end=3, card="Thanks")])
+    review = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4").review
+    assert [line.split(":")[0] for line in review] == ["Cards", "Card at 0"], "75% cards, and one held 9 s"
+    cards_only = Step(op="scenes", scenes=[SceneCut(input=None, end=3, card="Row-Bot 5.3")])
+    assert build_plan([], [cards_only], "output.mp4").review == [], "a video of cards, asked for, is fine"
+
+
+def test_a_review_sheets_stills_come_from_one_short_command_however_many_there_are():
+    """5.3.2: twenty stills, one input each, passed the process runner's 256 arguments and the sheet never came."""
+    from row_bot.video_editing import stills_arguments
+
+    args = stills_arguments("output.mp4", [1.0 + index for index in range(24)], "review-%02d.jpg", max_width=960)
+    assert len(args) < 30 and args.count("-i") == 1
+    assert "gte(t,1)*lt(prev_t,1)+gte(t,2)*lt(prev_t,2)" in args[args.index("-vf") + 1]
+    assert args[-1] == "file:review-%02d.jpg"
 
 
 def _every_stream_is_used(plan) -> bool:
@@ -356,7 +439,7 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
 
     assert alone.graph.count("color=c=0x112233:s=1080x1080") == 2, "each card on the brand colour, square"
     assert (alone.duration, alone.marks) == (5.0, [0.0, 3.0, 5.0]), "a card keeps its length: no speed"
-    pictures = [_picture(png) for _name, png in alone.overlays]
+    pictures = [_picture(png) for png in alone.overlays]
     backdrops = [picture for picture in pictures if picture.size == (1080, 1080)]
     titles = [picture for picture in pictures if picture.size != (1080, 1080)]
     assert len(backdrops) == 2 and len(titles) == 2 and "[0:a]" in alone.graph, \
@@ -458,3 +541,28 @@ def test_checks_pass_a_video_with_sound_and_list_what_needs_attention():
     quiet = read_checks("mean_volume: -48.0 dB\nmax_volume: -30.0 dB\nblack_start:2 black_end:4 black_duration:2\n", HD)
     assert not quiet.passed and "too quiet" in quiet.lines[1] and quiet.lines[2] == "Black: 0:02–0:04."
     assert read_checks("", SILENT).lines[1].startswith("Sound: none.")
+
+
+def test_a_long_narrated_captioned_project_is_one_short_command_with_each_picture_cut_from_one_sheet():
+    """5.3.2 demo run 10: a two-minute video's captions, lower-thirds and voice lines were an input each, passed
+    the process runner's 256 arguments, and every render failed with "no details"."""
+    from row_bot.video_editing import OVERLAYS, SceneCut, Step, overlay_sheet
+
+    scenes = Step(op="scenes", style="caption", scenes=[
+        SceneCut(input=0, start=index * 0.5, end=index * 0.5 + 0.5, card=f"Step {index}",
+                 line=f"Scene {index} opens the page, finds the row, and saves it.", voice=f"line-{index}.wav",
+                 voice_seconds=0.4)
+        for index in range(60)])
+    plan = build_plan([InputVideo("input-1.mp4", VideoInfo(duration=30.0, width=640, height=360, fps=30.0,
+                                                           has_audio=True))], [scenes], "output.mp4",
+                      sounds={f"line-{index}.wav": f"C:/voices/line-{index}.wav" for index in range(60)})
+
+    assert len(plan.overlays) > 120 and len(plan.voices) == 60
+    assert len(plan.args) < 60 and plan.args.count("-i") == 3, "the video, its narration and the picture sheet"
+    assert plan.voices[1] == (pytest.approx(plan.marks[1]), "C:/voices/line-1.wav")
+    assert f"file:{OVERLAYS}" in plan.args and _every_stream_is_used(plan)
+    sheet = _picture(plan.overlay_sheet)
+    _png, boxes = overlay_sheet(plan.overlays)
+    for png, (x, y, width, height) in zip(plan.overlays, boxes):
+        assert f"crop={width}:{height}:{x}:{y}" in plan.graph
+        assert sheet.crop((x, y, x + width, y + height)).tobytes() == _picture(png).convert("RGBA").tobytes()

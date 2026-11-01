@@ -443,10 +443,13 @@ def after_turn(conversation_id: str, *, generation_id: str, status: str, reply: 
                                (conversation_id, generation_id)).fetchone()
         if row is not None:
             record = dict(zip(_COLUMNS, row))
-            _update(record["id"], status="done" if status == "completed" else status)
-            if record["reply_expected"] and status == "completed" and reply.strip():
+            # The reply is queued before the message is marked done, so it's never in neither state.
+            answered = bool(record["reply_expected"] and status == "completed" and reply.strip())
+            if answered:
                 _insert(source_id=conversation_id, target_id=record["source_id"], kind="reply", status="queued",
                         message=reply.strip()[:_REPLY_CHARS], hops=int(record["hops"]) + 1)
+            _update(record["id"], status="done" if status == "completed" else status)
+            if answered:
                 _later(record["source_id"])
     _later(conversation_id)
 
