@@ -143,6 +143,19 @@
       "maxLength": 80,
       "title": "Title",
       "type": "string"
+    },
+    "voice": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Voice"
     }
   },
   "required": [

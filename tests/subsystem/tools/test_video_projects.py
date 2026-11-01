@@ -37,10 +37,12 @@ def studio(platform, monkeypatch):  # noqa: F811
     for name in ("signup.mp4", "pricing.mp4"):
         register_attachment("conversation-a", name, MP4)
     said: list[str] = []
+    voices: list[dict] = []
     started: list = []
 
-    def speak(text, **_options):
+    def speak(text, **options):
         said.append(text)
+        voices.append(options)
         return sound.Speech(wav=_wav(1.5), seconds=1.5, voice="test-voice")
 
     def start(request):
@@ -55,7 +57,7 @@ def studio(platform, monkeypatch):  # noqa: F811
     monkeypatch.setattr(sound, "speak", speak)
     monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: True)  # Row-Bot's voice is here.
     monkeypatch.setattr(video_edits, "start", start)
-    return {"said": said, "started": started}
+    return {"said": said, "voices": voices, "started": started}
 
 
 def _wait(project_id: str, number: int):
@@ -309,6 +311,39 @@ def test_the_brand_kit_is_used_for_every_video_unless_a_version_turns_it_off(stu
     assert video_projects.view(video_projects.get(project.project_id))["brand"] is False
 
 
+def test_how_recordings_show_and_who_says_the_lines_are_the_persons_choice(studio):
+    """5.3.2: nothing about a video's look or voice is fixed: the brand kit sets it for every video, and a video
+    may choose its own voice; choosing another voice says its lines again in it."""
+    from row_bot import video_brand, video_projects
+
+    for wrong, words in (({"framing": "tilted"}, "Footage is"), ({"camera": "shaky"}, "The camera is"),
+                         ({"voice": "nobody"}, "no voice called"), ({"voice_speed": 3}, "speed is")):
+        with pytest.raises(video_brand.BrandError, match=words):
+            video_brand.save(wrong)
+    video_brand.save({"framing": "full", "camera": "still", "voice": "bm_george", "voice_speed": 0.9})
+
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    look = studio["started"][-1].steps[0].look
+    assert (look.framing, look.camera) == ("full", "still")
+    assert studio["voices"] and all(options == {"voice": "bm_george", "speed": 0.9} for options in studio["voices"])
+
+    studio["voices"].clear()
+    own = video_projects.change(project, by="you", voice="af_heart", note="Another voice")
+    video_projects.make(project, own.number)
+    _wait(project.project_id, own.number)
+    assert len(studio["voices"]) == len(SCENES) and studio["voices"][0] == {"voice": "af_heart", "speed": 0.9}, \
+        "every line said again in the video's own voice, at the kit's speed"
+    view = video_projects.view(video_projects.get(project.project_id))
+    assert (view["voice"], view["voice_speed"]) == ("af_heart", 0.0)
+    studio["voices"].clear()
+    again = video_projects.change(project, by="you", note="Same voice")
+    video_projects.make(project, again.number)
+    _wait(project.project_id, again.number)
+    assert studio["voices"] == [], "lines already said in that voice aren't said again"
+
+
 def test_a_recordings_beats_become_its_scenes_live_as_it_is_work_sped_up_and_cuts_left_out(studio):
     import time
 
@@ -319,14 +354,18 @@ def test_a_recordings_beats_become_its_scenes_live_as_it_is_work_sped_up_and_cut
     record = recordings.Recording(recording_id="rec-0a0b0c0d", conversation_id="conversation-a", kind="browser",
                                   started_at=time.time() - 30, max_seconds=300, status="saved",
                                   media_ref=saved["attachment_ref"], mime_type="video/mp4",
-                                  beats=[[4.0, "work", "Waiting for the build"], [16.5, "live", ""],
-                                         [22.0, "cut", ""], [25.0, "live", ""]])
+                                  beats=[[4.0, "work", "Waiting for the build"],
+                                         [16.5, "live", "Your shop's orders", "Here are this morning's orders."],
+                                         [22.0, "cut", "", ""], [25.0, "live", "", ""]])
     recordings._ensure_loaded()
     recordings._RECORDS[record.recording_id] = record
 
     scenes = video_projects.scenes_from_beats("rec-0a0b0c0d", "conversation-a")
     assert [(scene["start"], scene["end"], scene["speed"]) for scene in scenes] == [
         (0.0, 4.0, 1.0), (4.0, 16.5, 4.0), (16.5, 22.0, 1.0), (25.0, None, 1.0)]
+    assert [(scene["card"], scene["line"]) for scene in scenes[1:3]] == [
+        ("Waiting for the build", ""), ("Your shop's orders", "Here are this morning's orders.")], \
+        "each beat's note is its scene's title and its line is said over it (a beat from before 5.3.2 has none)"
     project = video_projects.create("conversation-a", "Sign-up walkthrough", scenes)
     assert [scene.source for scene in project.latest.scenes] == ["rec-0a0b0c0d"] * 4
     with pytest.raises(video_projects.ProjectError, match="isn't a recording in this chat"):
@@ -424,3 +463,21 @@ def test_making_a_narrated_video_without_rowbots_voice_asks_for_it_first(studio,
     assert said.startswith("The person didn't allow downloading Row-Bot's voice")
     assert asked == ["Narrating this video needs Row-Bot's voice (Kokoro, about 206 MB) from GitHub. Download it now?"]
     assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
+
+
+def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_its_done(studio):
+    """5.3.2: Row-Bot checks what it made, as a viewer sees it, before it says the video is finished."""
+    from row_bot import video_edits, video_projects
+
+    assert video_edits.review_times([0.0, 5.0, 6.0]) == [(1, 1.0), (1, 4.4), (2, 5.5)], \
+        "a second into each scene and near its end; a short scene once"
+    assert len(video_edits.review_times([float(at) for at in range(0, 200, 5)])) == video_edits.REVIEW_TILES
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    made = video_edits.get(_wait(project.project_id, 1).edit_id)
+    assert "Review sheet" not in video_projects.summary(video_projects.get(project.project_id)), "not before it's made"
+    video_edits._set(made, status="saved", sheet="Launch demo v1 review.jpg")
+
+    words = video_projects.summary(video_projects.get(project.project_id))
+    assert "Review sheet: Launch demo v1 review.jpg" in words and "analyze_image before saying the video is done" in words
+    assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"

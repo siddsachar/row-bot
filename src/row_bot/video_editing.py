@@ -45,6 +45,10 @@ MAX_FRAMES = 48
 INPUT_FORMATS = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpegts,flv,gif,ogg,asf"
 # A voice line or music: the same, plus plain audio files.
 SOUND_FORMATS = INPUT_FORMATS + ",wav,mp3,flac,aac"
+# What an edit reads besides the videos and sound files, however many pictures and lines it lays (the process
+# runner takes 256 arguments): every picture on one sheet, and a project's voice lines laid into one track.
+OVERLAYS = "overlays.png"
+NARRATION = "narration.wav"
 
 
 class EditError(ValueError):
@@ -166,10 +170,19 @@ class SceneCut:
     focus: tuple[float, float] | None = None
     # How long its voice line lasts: the scene is made at least that long (``fit_to_lines``).
     voice_seconds: float = 0.0
+    # Its camera, from what was done while it was recorded (``video_studio.camera``): keys of (seconds from the
+    # scene's start, middle x, middle y, zoom).
+    camera: tuple[tuple[float, float, float, float], ...] = ()
 
 
 CARD_SECONDS = 3.0
 BOOKEND_SECONDS = 2.0
+# A scene's title over its picture: in a moment after the scene starts, for this long, sliding in and out.
+TITLE_DELAY, TITLE_SECONDS, SLIDE_IN, SLIDE_OUT = 0.3, 3.5, 0.45, 0.35
+# A caption shows one phrase of the line at a time, at most this many characters.
+PHRASE_CHARACTERS = 64
+# What makes a video a slide show: cards past this share of a video that has footage, or one card held this long.
+CARD_SHARE, LONG_CARD_SECONDS = 0.25, 6.0
 # A scene runs on this long after its voice line ends: a breath between lines, and never one over the next.
 LINE_PAD = 0.6
 
@@ -216,6 +229,10 @@ class Look:
     logo_corner: str = "top-left"
     intro: str = ""
     outro: str = ""
+    # How footage sits in a 16:9 video: "framed" (on the backdrop, rounded, shadowed) or "full" (edge to edge); and
+    # whether the camera follows what was done ("follow") or stays on the whole picture ("still").
+    framing: str = "framed"
+    camera: str = "follow"
 ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
 # A video of title cards only has no picture to take its size from.
 CARD_SIZES = {"16:9": (1920, 1080), "1:1": (1080, 1080), "9:16": (1080, 1920)}
@@ -455,7 +472,28 @@ class Overlay:
     end: float | None = None
 
 
-_STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.052}
+# A caption's phrase (PHRASE_CHARACTERS) fits on one line; bold captions (no box) are larger.
+_STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.045}
+BOLD_CAPTION = 1.3
+
+
+def _letter_size(style: str, plain: bool, frame_width: int, frame_height: int) -> int:
+    # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
+    reference = min(frame_height, frame_width * 9 / 16)
+    return max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
+
+
+def phrase_limit(captions: str, frame_width: int, frame_height: int) -> int:
+    """The characters of a phrase that fit on one line in a caption look, measured in the typeface this computer
+    draws with (they differ in width): fewer, the larger its letters."""
+    from PIL import Image, ImageDraw
+
+    style = "title" if captions == "title" else "caption"
+    size = _letter_size(style, captions in {"bold", "title"}, frame_width, frame_height)
+    sample = "Row-Bot opens the shop's orders and drafts a note to each customer."
+    each = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textlength(sample, font=font(size)) / len(sample)
+    # A tenth to spare: a phrase of wide letters still fits.
+    return max(16, min(PHRASE_CHARACTERS, int(frame_width * 0.86 * 0.9 / each)))
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
@@ -467,9 +505,7 @@ def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
     from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
-    # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
-    reference = min(frame_height, frame_width * 9 / 16)
-    size = max(12, round(reference * _STYLE_SIZES[style] * (1.3 if plain and style == "caption" else 1)))
+    size = _letter_size(style, plain, frame_width, frame_height)
     typeface = font(size)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
@@ -523,6 +559,68 @@ def card_backdrop(colour: tuple[int, int, int], width: int, height: int) -> byte
     return output.getvalue()
 
 
+def lower_third(text: str, colour: tuple[int, int, int], frame_width: int, frame_height: int) -> Overlay:
+    """A scene's title over its picture, as a studio's are: white words on a card of the brand's colour, lit from
+    the left, with a light edge and a soft shadow, in the lower left."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    # Sized by the frame's shorter side: as large on a tall phone video as on a wide one, and wider there.
+    size = max(12, round(min(frame_width, frame_height) * 0.045))
+    typeface = font(size)
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    lines = _wrap(probe, text, typeface, int(frame_width * (0.42 if frame_width > frame_height else 0.8)), 2) or [" "]
+    pad_x, pad_y, line_height = round(size * 0.9), round(size * 0.6), round(size * 1.25)
+    edge = max(3, round(size * 0.16))
+    width = edge + 2 * pad_x + max(math.ceil(probe.textlength(line, font=typeface)) for line in lines)
+    height = line_height * len(lines) + 2 * pad_y
+    blur = round(size * 0.5)
+    picture = Image.new("RGBA", (width + 2 * blur, height + 2 * blur), (0, 0, 0, 0))
+    radius = round(size * 0.35)
+    shadow = Image.new("L", picture.size, 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((blur, blur + blur // 3, blur + width, blur + blur // 3 + height),
+                                             radius=radius, fill=110)
+    picture.putalpha(shadow.filter(ImageFilter.GaussianBlur(blur / 2)))
+    light = tuple(min(255, round(value * 1.25 + 24)) for value in colour)
+    across = Image.linear_gradient("L").rotate(90).resize((width, height))
+    card = Image.composite(Image.new("RGBA", (width, height), (*colour, 240)),
+                           Image.new("RGBA", (width, height), (*light, 240)), across)
+    shape = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
+    ImageDraw.Draw(card).rectangle((0, 0, edge - 1, height), fill=(255, 255, 255, 235))
+    picture.paste(card, (blur, blur), shape)
+    draw = ImageDraw.Draw(picture)
+    for index, line in enumerate(lines):
+        draw.text((blur + edge + pad_x, blur + pad_y + index * line_height + (line_height - size) / 2 - size * 0.1),
+                  line, font=typeface, fill=(255, 255, 255, 255))
+    output = io.BytesIO()
+    picture.save(output, format="PNG", optimize=True)
+    x, y = place("lower-left", width, height, frame_width, frame_height)
+    return Overlay(output.getvalue(), picture.width, picture.height, max(0, x - blur), max(0, y - blur))
+
+
+def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
+    """A line in the phrases a caption shows one at a time: split where it pauses (a full stop, a comma), and
+    between words where a phrase would still be too long."""
+    parts = [part.strip() for part in re.split(r"(?<=[.!?;:,])\s+", " ".join(str(line or "").split())) if part.strip()]
+    shown: list[str] = []
+    for part in parts:
+        words = part.split(" ")
+        current = ""
+        for word in words:
+            trial = f"{current} {word}".strip()
+            if current and len(trial) > limit:
+                shown.append(current)
+                current = word
+            else:
+                current = trial
+        if current:
+            if shown and len(shown[-1]) + len(current) + 1 <= limit // 2 and not shown[-1].endswith((".", "!", "?")):
+                shown[-1] = f"{shown[-1]} {current}"
+            else:
+                shown.append(current)
+    return shown
+
+
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
     """Where a picture of this size goes for a position preset, with a margin from the edges; ``lower`` is the
     lower third, above where captions sit."""
@@ -571,13 +669,31 @@ class InputVideo:
     label: str = ""
 
 
+def _slide_show(scenes: list[SceneCut], marks: list[float]) -> list[str]:
+    """What makes a video with footage a slide show: too much of it title cards, or one card held long."""
+    if all(scene.input is None for scene in scenes) or len(marks) < len(scenes) + 1:
+        return []
+    found: list[str] = []
+    cards = [(marks[index], marks[index + 1] - marks[index]) for index, scene in enumerate(scenes)
+             if scene.input is None]
+    total = marks[len(scenes)] - marks[0]
+    share = sum(length for _at, length in cards) / max(total, 0.1)
+    if share > CARD_SHARE:
+        found.append(f"Cards: {share:.0%} of the video is title cards. Show what's done instead, with each title "
+                     "over it (a scene's card).")
+    found += [f"Card at {clock(at)} stays {length:.0f} s: a still card that long loses people. Say less over it, "
+              "or put its line over a recorded scene." for at, length in cards if length > LONG_CARD_SECONDS]
+    return found[:4]
+
+
 @dataclass
 class Plan:
     """One ffmpeg run: its arguments (after the program), its filter graph and the pictures it lays over."""
 
     args: list[str]
     graph: str
-    overlays: list[tuple[str, bytes]]
+    # Each picture it lays, in order; ``overlay_sheet`` has them all, and is the picture ffmpeg reads (OVERLAYS).
+    overlays: list[bytes]
     duration: float
     width: int
     height: int
@@ -588,6 +704,34 @@ class Plan:
     marks: list[float] = field(default_factory=list)
     # A voice is laid over it: a long quiet stretch is then a gap in the narration.
     narrated: bool = False
+    # What a project's scenes do that a good video doesn't (too many title cards, one held too long).
+    review: list[str] = field(default_factory=list)
+    overlay_sheet: bytes = b""
+    # A project's voice lines: where each starts on the finished video, and its file; laid into NARRATION first.
+    voices: list[tuple[float, str]] = field(default_factory=list)
+
+
+def overlay_sheet(pictures: list[bytes]) -> tuple[bytes, list[tuple[int, int, int, int]]]:
+    """Pictures side by side in rows on one transparent sheet, and where each is (x, y, width, height)."""
+    from PIL import Image
+
+    images = [Image.open(io.BytesIO(png)).convert("RGBA") for png in pictures]
+    width = max(image.width for image in images)
+    boxes: list[tuple[int, int, int, int]] = []
+    x = y = row = 0
+    for image in images:
+        if x and x + image.width > width:
+            x, y, row = 0, y + row, 0
+        boxes.append((x, y, image.width, image.height))
+        # Even places with a gap: no picture's edge bleeds into the next one cut out beside it.
+        x += (image.width + 3) // 2 * 2
+        row = max(row, (image.height + 3) // 2 * 2)
+    sheet = Image.new("RGBA", (width, y + row), (0, 0, 0, 0))
+    for image, (left, top, _width, _height) in zip(images, boxes):
+        sheet.paste(image, (left, top))
+    output = io.BytesIO()
+    sheet.save(output, format="PNG", compress_level=1)
+    return output.getvalue(), boxes
 
 
 def _even(value: float) -> int:
@@ -614,12 +758,11 @@ def _atempo(factor: float) -> str:
 
 
 class _Builder:
-    def __init__(self, inputs: list[InputVideo], overlay_start: int,
-                 size: tuple[int, int] = CARD_SIZES["16:9"]) -> None:
+    def __init__(self, inputs: list[InputVideo], size: tuple[int, int] = CARD_SIZES["16:9"]) -> None:
         self.lines: list[str] = []
         self.count = 0
-        self.overlays: list[tuple[str, bytes]] = []
-        self.overlay_index = overlay_start
+        # Each picture laid, and the stream it's cut into from the sheet of them all.
+        self.overlays: list[tuple[bytes, str]] = []
         first = inputs[0].info if inputs else None
         self.width, self.height = (_even(first.width), _even(first.height)) if first else size
         self.fps = round(first.fps, 3) if first else 30.0
@@ -632,6 +775,7 @@ class _Builder:
         self.voice_cues: list[tuple[float, str]] = []
         self.marks: list[float] = []
         self.narrated = False
+        self.review: list[str] = []
 
     def label(self, kind: str) -> str:
         self.count += 1
@@ -749,22 +893,27 @@ class _Builder:
         self.duration = end - start
 
     def overlay_input(self, picture: Overlay) -> str:
-        name = f"o{len(self.overlays) + 1:03d}.png"
-        self.overlays.append((name, picture.png))
-        index = self.overlay_index
-        self.overlay_index += 1
-        return f"[{index}:v]"
+        label = self.label("v")
+        self.overlays.append((picture.png, label))
+        return label
 
-    def lay(self, video: str, picture: Overlay, *, start: float | None = None, end: float | None = None) -> str:
-        """Lay a picture over a video stream (between start and end when given); the new stream."""
+    def lay(self, video: str, picture: Overlay, *, start: float | None = None, end: float | None = None,
+            slide: bool = False) -> str:
+        """Lay a picture over a video stream (between start and end when given; ``slide``: easing in from the
+        left edge and back out); the new stream."""
         source = self.overlay_input(picture)
         out = self.label("v")
         enable = ""
+        x = str(picture.x)
         if start is not None or end is not None:
             begin = _seconds_text(max(0.0, start or 0.0))
             finish = _seconds_text(end) if end is not None else "1e9"
             enable = f":enable='between(t,{begin},{finish})'"
-        self.add(f"{video}{source}overlay=x={picture.x}:y={picture.y}:eof_action=repeat{enable}{out}")
+            if slide and end is not None:
+                shown = (f"min(1-pow(1-min(1,max(0,(t-{begin})/{SLIDE_IN})),3),"
+                         f"1-pow(1-min(1,max(0,({finish}-t)/{SLIDE_OUT})),3))")
+                x = f"'{picture.x}-(1-{shown})*(w+{picture.x})'"
+        self.add(f"{video}{source}overlay=x={x}:y={picture.y}:eof_action=repeat{enable}{out}")
         return out
 
     def speed(self, step: Step) -> None:
@@ -916,20 +1065,27 @@ class _Builder:
                                                  shadow=True)
                 x, y = place("center", width, height, self.width, self.height)
                 self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end)
-            elif scene.card:
-                # Over a picture, in the lower third: the middle is where the action is.
-                card = Step(op="text", text=scene.card, style="title", position="lower-left", fill=fill)
-                self.video = self.lay(self.video, text_overlay(card, self.width, self.height),
-                                      start=begin, end=min(end, begin + CARD_SECONDS))
+            elif scene.card:  # Over a picture, a lower third: the middle is where the action is.
+                shown = (begin + min(TITLE_DELAY, (end - begin) / 4), min(end, begin + TITLE_DELAY + TITLE_SECONDS))
+                self.video = self.lay(self.video, lower_third(scene.card, look.colour, self.width, self.height),
+                                      start=shown[0], end=shown[1], slide=True)
             if scene.line and step.style == "caption":
-                caption = (Step(op="text", text=scene.line, style="title", position="center", plain=True)
-                           if look.captions == "title" else
-                           Step(op="text", text=scene.line, style="caption", position="bottom",
-                                plain=look.captions == "bold"))
-                self.video = self.lay(self.video, text_overlay(caption, self.width, self.height),
-                                      start=begin, end=end)
+                # One phrase at a time, each for its share of the line's time: never a paragraph.
+                said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
+                parts = phrases(scene.line, phrase_limit(look.captions, self.width, self.height))
+                at = begin
+                for part in parts:
+                    until = at + (said - begin) * len(part) / max(1, sum(len(each) for each in parts))
+                    caption = (Step(op="text", text=part, style="title", position="center", plain=True)
+                               if look.captions == "title" else
+                               Step(op="text", text=part, style="caption", position="bottom",
+                                    plain=look.captions == "bold"))
+                    self.video = self.lay(self.video, text_overlay(caption, self.width, self.height), start=at,
+                                          end=until if part != parts[-1] else max(until, said))
+                    at = until
             if scene.voice:
                 self.voice_cues.append((begin, scene.voice))
+        self.review += _slide_show(step.scenes, self.marks)
         for text, start in ((look.intro, 0.0), (look.outro, self.duration - BOOKEND_SECONDS)):
             if text:
                 title = Step(op="text", text=text, style="title", position="center", plain=True)
@@ -1017,9 +1173,11 @@ class _Builder:
 
     def mix(self, steps: list[Step], first_input: int, sources: list[str]) -> None:
         """Voice lines at their times, music under them (ducked while a voice speaks) and the video's own sound,
-        mixed and brought to one loudness: the narrated video's sound in one pass."""
+        mixed and brought to one loudness: the narrated video's sound in one pass. A project's lines come as one
+        track (NARRATION), the input after the sound files."""
         sounds = [step for step in steps if step.op == "sound"]
-        sounds += [Step(op="sound", source=voice, role="voice", start=moment) for moment, voice in self.voice_cues]
+        if self.voice_cues:
+            sounds.append(Step(op="sound", role="voice"))
         if not sounds:
             return
         total = _seconds_text(self.duration)
@@ -1034,7 +1192,7 @@ class _Builder:
             start = step.start or 0.0
             if start >= self.duration:
                 raise EditError(f"A sound starts at {_seconds_text(start)} s, after the video ends ({total} s).")
-            index = first_input + sources.index(step.source)
+            index = first_input + (sources.index(step.source) if step.source else len(sources))
             volume = step.volume if step.volume is not None else (1.0 if step.role == "voice" else 0.3)
             delay = int(round(start * 1000))
             chain = f"[{index}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={volume:.3f}"
@@ -1097,12 +1255,13 @@ def build_plan(
         raise EditError("Give at least one video to edit.")
     if len(inputs) > MAX_INPUTS:
         raise EditError(f"At most {MAX_INPUTS} videos can be joined in one edit.")
-    sources = sound_sources(steps)
-    missing = [name for name in sources if name not in (sounds or {})]
+    sounds = sounds or {}
+    missing = [name for name in sound_sources(steps) if name not in sounds]
     if missing:
         raise EditError(f"{missing[0]} isn't a sound file Row-Bot found.")
+    sources = sound_sources([step for step in steps if step.op == "sound"])
     size = CARD_SIZES.get(steps[0].aspect, CARD_SIZES["16:9"]) if cards_only else CARD_SIZES["16:9"]
-    builder = _Builder(inputs, overlay_start=len(inputs) + len(sources), size=size)
+    builder = _Builder(inputs, size=size)
     builder.start(inputs)
     for step in steps:
         getattr(builder, step.op)(step)
@@ -1115,19 +1274,29 @@ def build_plan(
     for item in inputs:
         args += input_arguments(item.path)
     for name in sources:
-        args += sound_input_arguments((sounds or {})[name])
-    for name, _data in builder.overlays:
-        args += ["-protocol_whitelist", "file", "-i", file_argument(name)]
+        args += sound_input_arguments(sounds[name])
+    if builder.voice_cues:
+        args += sound_input_arguments(NARRATION)
+    sheet = b""
+    if builder.overlays:
+        sheet, boxes = overlay_sheet([png for png, _label in builder.overlays])
+        index = len(inputs) + len(sources) + bool(builder.voice_cues)
+        pieces = [builder.label("v") for _box in boxes]
+        builder.lines[:0] = [f"[{index}:v]format=rgba,split={len(pieces)}{''.join(pieces)}"] + [
+            f"{piece}crop={width}:{height}:{x}:{y}{label}"
+            for piece, (x, y, width, height), (_png, label) in zip(pieces, boxes, builder.overlays)]
+        args += ["-protocol_whitelist", "file", "-i", file_argument(OVERLAYS)]
     args += [graph_option, graph_file, "-map", builder.video]
     if builder.audio:
         args += ["-map", builder.audio]
     args += encoder_arguments(encoder) + ["-pix_fmt", "yuv420p", "-movflags", "+faststart"]
     args += ["-c:a", "aac", "-b:a", "160k"] if builder.audio else ["-an"]
     args += ["-progress", "pipe:1", "-nostats", file_argument(output)]
-    return Plan(args=args, graph=";\n".join(builder.lines), overlays=builder.overlays,
+    return Plan(args=args, graph=";\n".join(builder.lines), overlays=[png for png, _label in builder.overlays],
                 duration=builder.duration, width=builder.width, height=builder.height,
                 has_audio=bool(builder.audio), summary=describe(steps, len(inputs)), outputs=[output],
-                marks=builder.marks, narrated=builder.narrated)
+                marks=builder.marks, narrated=builder.narrated, review=builder.review, overlay_sheet=sheet,
+                voices=[(moment, sounds[name]) for moment, name in builder.voice_cues])
 
 
 def gif_arguments(source: str, output: str, *, width: int = 480, fps: int = 12) -> list[str]:
@@ -1167,6 +1336,16 @@ def frames_arguments(source: str, times: list[float], names: list[str], *, max_w
             args += ["-vf", f"scale='min({max_width},iw)':-2"]
         args += ["-q:v", "3" if name.endswith(".jpg") else "1", file_argument(name)]
     return args
+
+
+def stills_arguments(source: str, times: list[float], pattern: str, *, max_width: int = 0) -> list[str]:
+    """One ffmpeg run that reads the video once and saves the first picture at or after each time, numbered
+    (``review-%02d.jpg``): a short command however many pictures (one input per time would pass the process
+    runner's limit on arguments)."""
+    chosen = "+".join(f"gte(t,{_seconds_text(moment)})*lt(prev_t,{_seconds_text(moment)})" for moment in times)
+    scale = f",scale='min({max_width},iw)':-2" if max_width else ""
+    return ["-hide_banner", "-nostdin", "-y", *input_arguments(source), "-vf", f"select='{chosen}'{scale}",
+            "-fps_mode", "vfr", "-q:v", "3", file_argument(pattern)]
 
 
 # ── Progress ────────────────────────────────────────────────────────────────
