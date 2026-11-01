@@ -118,6 +118,7 @@ GROUPS = {
         "torch",
     ),
     "media": (
+        "av",
         "cv2",
         "mss",
         "youtube_search",
