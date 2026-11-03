@@ -408,9 +408,11 @@ def _decide_in_graph(payload: dict[str, Any], *, mode: str, risks: Iterable[str]
 
 GIT_IDENTITY_RISK = "sets the name and email Git records on commits, which only the person can choose"
 X_POST_RISK = "posts, replies, quotes or deletes on X as one of the person's accounts, which only the person approves"
+SYSTEM_INSTALL_RISK = "installs software on this computer for everyone, outside Row-Bot, which only the person decides"
 # Risks the Auto reviewer never accepts for the person: they go straight to the person's card.
 _PERSON_ONLY_RISKS = {GIT_IDENTITY_RISK: "Only you can choose the name and email your commits are from.",
-                      X_POST_RISK: "Only you can approve what goes out on X in your name."}
+                      X_POST_RISK: "Only you can approve what goes out on X in your name.",
+                      SYSTEM_INSTALL_RISK: "Only you can decide what software is installed on this computer."}
 
 
 def _decide_afresh(payload: dict[str, Any], *, mode: str, risks: Iterable[str], ask: Callable[[dict[str, Any]], Any],

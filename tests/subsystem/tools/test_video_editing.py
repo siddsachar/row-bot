@@ -569,3 +569,17 @@ def test_a_long_narrated_captioned_project_is_one_short_command_with_each_pictur
     for png, (x, y, width, height) in zip(plan.overlays, boxes):
         assert f"crop={width}:{height}:{x}:{y}" in plan.graph
         assert sheet.crop((x, y, x + width, y + height)).tobytes() == _picture(png).convert("RGBA").tobytes()
+
+
+def test_a_long_caption_shows_phrase_by_phrase_over_its_own_time_never_cut_short():
+    """D16: a long SRT cue was cut short with "…" (a walking-directions demo dropped its captions for it). It now
+    shows phrase by phrase, each for its share of the cue's time, as a project's lines do; a short cue is one."""
+    long = ("Row-Bot opens the map, finds the walking route from the station to the museum, and reads out each "
+            "turn while you follow along on the screen.")
+    srt = f"1\n00:00:00,500 --> 00:00:05,500\n{long}\n\n2\n00:00:05,500 --> 00:00:06,000\nDone."
+    plan = _plan([{"op": "captions", "text": srt}])
+    shown = [(float(a), float(b)) for a, b in re.findall(r"between\(t,([\d.]+),([\d.]+)\)", plan.graph)]
+    assert len(shown) >= 4, "the long cue in phrases, then the short one"
+    assert shown[0][0] == 0.5 and shown[-2][1] == pytest.approx(5.5, abs=1e-3), "within the cue's own time"
+    assert all(a[1] == pytest.approx(b[0], abs=1e-3) for a, b in zip(shown, shown[1:])), "one after another"
+    assert shown[-1] == (5.5, 6.0)

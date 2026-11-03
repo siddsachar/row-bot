@@ -889,6 +889,29 @@ class ClientPlatformService:
                 "external_outcome": "not_applicable", "approval_id": approval_id,
                 "can_stop": False}
 
+    @staticmethod
+    def _interrupted_generation(conversation_id: str) -> dict | None:
+        """The conversation's last turn, when it ended interrupted (it failed, or Row-Bot closed while it ran).
+
+        Its live state is in memory only, so after a restart the chat showed neither that it stopped nor Resume
+        (D6); the turn's own record restores both. Resume reads the saved conversation, not that state.
+        """
+        try:
+            with admissions.transaction() as conn:
+                row = conn.execute(
+                    "SELECT pass_id, generation_id, state FROM generation_passes WHERE conversation_id=? AND "
+                    "state IN ('terminal','interrupted') ORDER BY admission_sequence DESC LIMIT 1",
+                    (conversation_id,)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None or row["state"] != "interrupted":
+            return None
+        return {"execution_id": f"pass:{row['pass_id']}", "conversation_id": conversation_id,
+                "generation_id": str(row["generation_id"]), "pass_id": str(row["pass_id"]), "segment_id": None,
+                "status": "interrupted", "revision": "0", "cancel_requested": False, "quiesced": True,
+                "cleanup_complete": True, "external_outcome": "not_applicable", "approval_id": None,
+                "can_stop": False}
+
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
         with _COMMAND_LOCK:
@@ -896,7 +919,8 @@ class ClientPlatformService:
             self._refresh_checkpoint(conversation_id)
             snapshot = self.projection.snapshot(conversation_id)
             if snapshot.get("generation") is None and not self.registry.active(conversation_id):
-                snapshot["generation"] = self._paused_approval_generation(conversation_id)
+                snapshot["generation"] = (self._paused_approval_generation(conversation_id)
+                                          or self._interrupted_generation(conversation_id))
             present = {row["id"] for row in snapshot["rows"]}
             # Only live rows the projection dropped to stay within its bound come back from their live text. A
             # live row retired as the twin of its saved answer never does: it came back as an empty "Paged

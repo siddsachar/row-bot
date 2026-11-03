@@ -546,6 +546,13 @@ def _sets_git_identity(command: str) -> bool:
 
     return sets_git_identity(command)
 
+
+def _installs_system_software(command: str) -> bool:
+    """Whether the command installs software for everyone on the computer (only the person may)."""
+    from row_bot.developer.runtime import installs_system_software
+
+    return installs_system_software(command)
+
 class ShellSession:
     """A logical shell session that tracks cwd across commands.
 
@@ -991,6 +998,9 @@ class ShellTool(BaseTool):
             risks += (_BACKGROUND_RISK,)
         if _sets_git_identity(command):
             risks += (approval_gate.GIT_IDENTITY_RISK,)
+        if _installs_system_software(command):
+            # The Auto reviewer passed `winget install` as "a necessary step" of a video (D3): never its call.
+            risks += (approval_gate.SYSTEM_INSTALL_RISK,)
         thread_id, session_key, session = self._session_for(runtime_config)
         refusal, approval = self._gate(
             command=command,
