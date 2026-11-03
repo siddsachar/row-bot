@@ -202,14 +202,16 @@ def test_row_bot_starts_a_sandbox_only_after_asking_and_opens_it_signed_in(fake_
     assert asked[0]["label"] == "Start a sandbox" and sandboxes.list_sandboxes() == []
 
     monkeypatch.setattr("langgraph.types.interrupt", lambda payload: True)
-    made = browser_tool.sandbox("create", name="Demo", pack="shop")
-    assert "running at http://127.0.0.1:" in made and "Open it with action open" in made
-    box = sandboxes.list_sandboxes()[0].sandbox_id
     opened: list[str] = []
     monkeypatch.setattr(sandboxes, "sign_in_url", lambda _box: "http://127.0.0.1:1/app-v2/#sign-in=t")
     monkeypatch.setattr(browser_tool, "browser_navigate", lambda url: opened.append(url) or "Opened.")
-    assert browser_tool.sandbox("open", sandbox=box).startswith("Opened Demo in this chat's browser, signed in.")
+    made = browser_tool.sandbox("create", name="Demo", pack="shop")
+    # A sandbox made to be used opens in this chat's browser, signed in (U15).
+    assert "running at http://127.0.0.1:" in made and "Opened it in this chat's browser, signed in." in made
     assert opened == ["http://127.0.0.1:1/app-v2/#sign-in=t"]
+    box = sandboxes.list_sandboxes()[0].sandbox_id
+    assert browser_tool.sandbox("open", sandbox=box).startswith("Opened Demo in this chat's browser, signed in.")
+    assert opened == ["http://127.0.0.1:1/app-v2/#sign-in=t"] * 2
     monkeypatch.setenv(sandboxes.SANDBOX_ENV, "1")
     assert "starts no sandboxes" in browser_tool.sandbox("list")
 

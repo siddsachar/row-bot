@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileKind, forgetMediaPreviews, MediaPreview } from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn() }));
-const platform = vi.hoisted(() => ({ save: vi.fn() }));
+const platform = vi.hoisted(() => ({ save: vi.fn(), discover: vi.fn() }));
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: mock, platform }),
 }));
@@ -372,4 +372,30 @@ it('shows a large file it cannot preview at once and fetches it only when saved'
     ),
   );
   expect(mock.download).not.toHaveBeenCalled();
+});
+
+it('saves a preview through the desktop window’s Save dialog, which ignores a download link (U46)', async () => {
+  mock.download.mockResolvedValue(new Blob(['clip'], { type: 'video/mp4' }));
+  platform.discover.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'pywebview', platform: 'windows', capabilities: ['save'] },
+  });
+  platform.save.mockResolvedValue({ status: 'ok', value: { kind: 'file' } });
+  render(
+    <MediaPreview
+      reference="clip-reference"
+      mime="video/mp4"
+      label="demo.mp4"
+      downloadName="demo.mp4"
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('link', { name: 'Download demo.mp4' }),
+  );
+  await vi.waitFor(() =>
+    expect(platform.save).toHaveBeenCalledExactlyOnceWith(
+      'clip-reference',
+      'demo.mp4',
+    ),
+  );
 });

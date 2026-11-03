@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react';
 import { Download, File as FileIcon, Maximize2 } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -204,7 +210,7 @@ export function MediaPreview({
 }) {
   const accessibleLabel = label || 'Generated result';
   const displayLabel = label || 'generated result';
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
   const overlay = useOverlay();
   const [result, setResult] = useState<{
     reference: string;
@@ -334,11 +340,27 @@ export function MediaPreview({
 
   const decodeFailed = failedUrl === current.url;
   const onError = () => setFailedUrl(current.url);
+  // The desktop window ignores a link's download: it saves through its own
+  // Save dialog instead; a browser keeps the link (U46).
+  const save = (event: MouseEvent<HTMLAnchorElement>) => {
+    const link = event.currentTarget;
+    if (link.dataset.browser) return;
+    event.preventDefault();
+    void platform.discover().then((found) => {
+      if (found.status === 'ok' && found.value.kind === 'pywebview')
+        void platform.save(reference, downloadName);
+      else {
+        link.dataset.browser = 'true';
+        link.click();
+      }
+    });
+  };
   const download = (
     <a
       className="media-preview-download"
       href={current.url}
       download={downloadName}
+      onClick={save}
       aria-label={`Download ${displayLabel}`}
       title={`Download ${displayLabel}`}
     >
@@ -358,6 +380,7 @@ export function MediaPreview({
             className="button secondary"
             href={current.url}
             download={downloadName}
+            onClick={save}
           >
             <Download size={16} aria-hidden /> Download
           </a>
