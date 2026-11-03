@@ -173,6 +173,10 @@ def test_without_chrome_or_edge_the_browser_asks_once_to_download_its_own_then_g
     [card] = browser.asked
     assert card["question"] == ("Using websites needs a browser, and this computer has no Chrome or Edge. "
                                 "Download Row-Bot's own (about 300 MB) now?")
+    # What it downloads, from where, and the room it takes once unpacked (U29).
+    assert card["description"] == ("Row-Bot will download Chromium, the open-source browser Chrome is built on: "
+                                   "about 300 MB from cdn.playwright.dev, about 550 MB once unpacked in Row-Bot's "
+                                   "data folder. This happens once.")
 
     browser.mode = "block"
     assert _tool("browser_click", ref="e2").startswith("BLOCKED: using websites needs a browser")
