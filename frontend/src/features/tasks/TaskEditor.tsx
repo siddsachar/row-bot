@@ -434,7 +434,17 @@ export default function TaskEditor({
               timezone={fields.timezone ?? null}
               enabled={fields.enabled}
               onChange={(next) =>
-                setFields((current) => ({ ...current, ...next }))
+                setFields((current) => ({
+                  ...current,
+                  ...next,
+                  // Giving a workflow that had none a time to run turns it on: a
+                  // schedule nobody switched on would never run (U20).
+                  enabled:
+                    current.enabled ||
+                    (!current.schedule &&
+                      !current.at &&
+                      !!(next.schedule || next.at)),
+                }))
               }
             />
             <div className="task-rail-switch">
