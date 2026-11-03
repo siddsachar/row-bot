@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 from row_bot.runtime import admissions
 from row_bot.runtime.executions import generation_registry
-from row_bot.projection.conversation import conversation_projection
+from row_bot.projection.conversation import conversation_projection, without_saved_steps
 from row_bot.application.live_updates import publish as _publish_live, publishes as _publishes_live
 
 
@@ -854,6 +854,7 @@ class ClientPlatformService:
                     snapshot["rows"].append(row)
                     while len(json.dumps(snapshot["rows"], ensure_ascii=False).encode()) > self.projection.MAX_CONTENT_BYTES:
                         snapshot["rows"].pop(0)
+            snapshot["rows"] = without_saved_steps(snapshot["rows"])
             return snapshot
 
     def transcript(self, conversation_id: str, limit: int = 100, cursor: str | None = None) -> dict:
