@@ -964,10 +964,13 @@ it('hides a saved optional setup reminder on one click', async () => {
     snapshot: { ...optionalSetup, dismissed_home_card: true },
   });
   show();
-  const region = await screen.findByRole('region', { name: 'Continue setup' });
-  expect(
-    within(region).getByRole('link', { name: 'Continue setup' }),
-  ).toHaveAttribute('href', '/setup');
+  const region = await screen.findByRole('region', {
+    name: 'More you can set up',
+  });
+  expect(within(region).getByRole('link', { name: 'Explore' })).toHaveAttribute(
+    'href',
+    '/setup',
+  );
   fireEvent.click(
     within(region).getByRole('button', { name: 'Hide setup reminder' }),
   );
@@ -979,7 +982,9 @@ it('hides a saved optional setup reminder on one click', async () => {
     }),
   );
   await waitFor(() =>
-    expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull(),
+    expect(
+      screen.queryByRole('region', { name: 'More you can set up' }),
+    ).toBeNull(),
   );
 });
 
@@ -992,7 +997,7 @@ it('keeps the reminder and explains a failed hide', async () => {
   fireEvent.click(
     await screen.findByRole('button', { name: 'Hide setup reminder' }),
   );
-  const region = screen.getByRole('region', { name: 'Continue setup' });
+  const region = screen.getByRole('region', { name: 'More you can set up' });
   expect(await within(region).findByRole('status')).toHaveTextContent(
     'Could not hide the setup reminder. Refresh this page and try again.',
   );

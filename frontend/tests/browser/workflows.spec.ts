@@ -90,7 +90,7 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
   await searchWorkflows(page, name);
   const row = workflowCards(page).filter({ hasText: name });
   await expect(row).toHaveCount(1);
-  await expect(row.getByText('Never run', { exact: true })).toBeVisible();
+  await expect(row.getByText('No runs yet', { exact: true })).toBeVisible();
   await row
     .getByRole('button', { name: `Edit workflow: ${name}`, exact: true })
     .click();
@@ -150,7 +150,7 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
       'Edited in the unified client',
     );
   else await expect(description).toBeVisible();
-  await expect(page.getByText('Never run', { exact: true })).toBeVisible();
+  await expect(page.getByText('No runs yet', { exact: true })).toBeVisible();
   await screenshot(page, info, 'workflow-saved');
 });
 
@@ -233,7 +233,7 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
   ).toBeVisible();
   await searchWorkflows(page, 'Phase 4 saved task 102');
   await expect(workflowCards(page)).toHaveCount(1);
-  await expect(page.getByText('Never run', { exact: true })).toBeVisible();
+  await expect(page.getByText('No runs yet', { exact: true })).toBeVisible();
   await chooseWorkflowAction(
     page,
     'Phase 4 saved task 102',
@@ -530,7 +530,7 @@ test('workflow rows and the new-workflow editor fit, retain drafts, and restore 
   const card = page.locator('.workflow-grid > li').first();
   await expect(card).toBeVisible();
   await expect(card.locator('.workflow-metadata')).toHaveText(
-    /Reminder.*Never run.*Run manually/,
+    /Reminder.*Run manually/,
   );
   await assertNoOverflow(page);
   await screenshot(page, info, 'slice5-card');

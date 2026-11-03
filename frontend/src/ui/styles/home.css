@@ -3956,3 +3956,15 @@
   flex: none;
   align-self: center;
 }
+
+/* Monitor when everything passes: one line, details on request (U38). */
+.monitor-all-good {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}

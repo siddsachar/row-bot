@@ -936,7 +936,7 @@ export default function OverviewHome({
         )}
       </header>
 
-      {!needsModel && (needRows.length > 0 || showSetup) && (
+      {!needsModel && needRows.length > 0 && (
         <Section
           id="overview-needs"
           className="overview-card overview-needs"
@@ -987,38 +987,6 @@ export default function OverviewHome({
                 <ChevronRight size={13} aria-hidden />
               )}
             </button>
-          )}
-          {showSetup && (
-            <div
-              className="overview-setup"
-              role="region"
-              aria-label="Continue setup"
-            >
-              <span className="overview-row-text">
-                <strong className="overview-row-title">Finish setup</strong>
-                <span className="overview-row-meta">
-                  {setupDone} of {setup.steps.length} done
-                  {setupSkipped ? ` · ${setupSkipped} skipped` : ''}
-                </span>
-              </span>
-              <Link className="button small" to="/setup">
-                Continue setup
-              </Link>
-              {onHideSetup && (
-                <IconButton
-                  size="sm"
-                  label="Hide setup reminder"
-                  onClick={onHideSetup}
-                >
-                  <X size={15} aria-hidden />
-                </IconButton>
-              )}
-              {setupError && (
-                <p role="status" className="overview-setup-error">
-                  {setupError}
-                </p>
-              )}
-            </div>
           )}
         </Section>
       )}
@@ -1222,6 +1190,46 @@ export default function OverviewHome({
               <Row key={item.key} item={item} />
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Once a model works Row-Bot is set up; the rest is optional, never
+          a "needs you" item or a count of what's left (U1, U2). */}
+      {showSetup && (
+        <Section id="overview-explore" title="Explore" order={4}>
+          {showSetup && (
+            <div
+              className="overview-setup"
+              role="region"
+              aria-label="More you can set up"
+            >
+              <span className="overview-row-text">
+                <strong className="overview-row-title">
+                  More you can set up
+                </strong>
+                <span className="overview-row-meta">
+                  Optional: voice, your phone, apps and more, whenever you like.
+                </span>
+              </span>
+              <Link className="button small" to="/setup">
+                Explore
+              </Link>
+              {onHideSetup && (
+                <IconButton
+                  size="sm"
+                  label="Hide setup reminder"
+                  onClick={onHideSetup}
+                >
+                  <X size={15} aria-hidden />
+                </IconButton>
+              )}
+              {setupError && (
+                <p role="status" className="overview-setup-error">
+                  {setupError}
+                </p>
+              )}
+            </div>
+          )}
         </Section>
       )}
 

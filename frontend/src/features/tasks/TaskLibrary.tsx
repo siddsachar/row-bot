@@ -742,13 +742,13 @@ export function SavedTasks({
                 const run = task.active_run;
                 const next = parseTimestamp(task.next_run);
                 const schedule = scheduleWords(task.schedule, task.at);
+                // Never run is said once, by the run chart (U36).
                 const lastRun = task.last_run ? (
                   <>
                     Ran <When value={task.last_run} />
                   </>
-                ) : (
-                  'Never run'
-                );
+                ) : null;
+                const profile = profileTag(task.agent_profile_id);
                 const actions: MenuAction[] = [
                   ...(onRuns
                     ? [
@@ -870,29 +870,33 @@ export function SavedTasks({
                             ? 'Reminder'
                             : `${task.step_count} ${task.step_count === 1 ? 'message' : 'messages'}`}
                         </span>
-                        <span aria-hidden>·</span>
-                        <span>{lastRun}</span>
+                        {lastRun && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span>{lastRun}</span>
+                          </>
+                        )}
                         <span aria-hidden>·</span>
                         <span>
                           {schedule === 'Manual' ? 'Run manually' : schedule}
                         </span>
+                        {/* The agent only when it isn't the default one (U36);
+                            what a run may do is always said (B254). */}
+                        {!task.notify_only && profile !== 'Default' && (
+                          <span className="workflow-tag">{profile}</span>
+                        )}
                         {!task.notify_only && (
-                          <>
-                            <span className="workflow-tag">
-                              {profileTag(task.agent_profile_id)}
-                            </span>
-                            <span
-                              className="workflow-tag"
-                              // Only Hands-off carries the warning tone.
-                              data-attention={
-                                approvalLevel(task.approval_mode) === 'full'
-                                  ? 'true'
-                                  : undefined
-                              }
-                            >
-                              {approvalTag(task.approval_mode)}
-                            </span>
-                          </>
+                          <span
+                            className="workflow-tag"
+                            // Only Hands-off carries the warning tone.
+                            data-attention={
+                              approvalLevel(task.approval_mode) === 'full'
+                                ? 'true'
+                                : undefined
+                            }
+                          >
+                            {approvalTag(task.approval_mode)}
+                          </span>
                         )}
                       </p>
                     </div>
@@ -936,18 +940,23 @@ export function SavedTasks({
                         />
                       )}
                     </span>
-                    <Toggle
-                      label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
-                      checked={task.enabled}
-                      disabled={!onToggleEnabled || Boolean(action)}
-                      onChange={(event) =>
-                        void invoke(
-                          `toggle:${task.id}`,
-                          () => onToggleEnabled!(task.id, event.target.checked),
-                          `${task.name} ${event.target.checked ? 'enabled' : 'disabled'}.`,
-                        )
-                      }
-                    />
+                    {ranOnce(task) ? (
+                      <span aria-hidden />
+                    ) : (
+                      <Toggle
+                        label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
+                        checked={task.enabled}
+                        disabled={!onToggleEnabled || Boolean(action)}
+                        onChange={(event) =>
+                          void invoke(
+                            `toggle:${task.id}`,
+                            () =>
+                              onToggleEnabled!(task.id, event.target.checked),
+                            `${task.name} ${event.target.checked ? 'enabled' : 'disabled'}.`,
+                          )
+                        }
+                      />
+                    )}
                     <div className="workflow-row-actions">
                       {running
                         ? onStop && (
