@@ -194,10 +194,6 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await expect(
     page.getByRole('heading', { name: 'Appearance', exact: true }),
   ).toBeVisible();
-  const appearance = page.getByRole('combobox', {
-    name: 'Appearance',
-    exact: true,
-  });
   const accent = page.getByRole('combobox', {
     name: 'Colour theme',
     exact: true,
@@ -207,7 +203,16 @@ test('compact themes, accents and accessibility preferences retain one mounted w
     ['dark', 'violet'],
     ['system', 'amber'],
   ] as const) {
-    await appearance.selectOption(theme);
+    await page
+      .getByRole('button', {
+        name: {
+          light: 'Light',
+          dark: 'Dark',
+          system: /^System, follows your device/,
+        }[theme],
+        exact: theme !== 'system',
+      })
+      .click();
     await accent.selectOption(colour);
     await expect(page.locator('html')).toHaveAttribute(
       'data-theme',

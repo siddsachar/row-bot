@@ -283,7 +283,12 @@ export default function MemorySettings({
           />
         </SettingsGroup>
       )}
-      {snapshot && <GraphHealth snapshot={snapshot} />}
+      {/* Counts of nothing say nothing: shown once there are memories, or
+          when they can't be read (U40). */}
+      {snapshot &&
+        (snapshot.availability === 'unavailable' || snapshot.entities > 0) && (
+          <GraphHealth snapshot={snapshot} />
+        )}
       {wikiSession && (
         <WikiSettings compact session={wikiSession} snapshot={wikiSnapshot} />
       )}
@@ -358,7 +363,7 @@ export default function MemorySettings({
 /** How many memories there are and how well they connect. */
 function GraphHealth({ snapshot }: { snapshot: KnowledgeSettingsSnapshot }) {
   return (
-    <SettingsGroup title="Graph health" anchor="memory-graph">
+    <SettingsGroup title="How your memories link" anchor="memory-graph">
       {snapshot.availability === 'available' ? (
         <>
           <SettingsItem
@@ -380,8 +385,8 @@ function GraphHealth({ snapshot }: { snapshot: KnowledgeSettingsSnapshot }) {
             }
           />
           <SettingsItem
-            label="Connected groups"
-            help={`The largest holds ${snapshot.largest_component.toLocaleString()} memories.`}
+            label="Groups of linked memories"
+            help={`The largest holds ${snapshot.largest_component.toLocaleString()} ${snapshot.largest_component === 1 ? 'memory' : 'memories'}.`}
             bind={false}
             control={
               <span className="settings-row-value">
@@ -390,8 +395,8 @@ function GraphHealth({ snapshot }: { snapshot: KnowledgeSettingsSnapshot }) {
             }
           />
           <SettingsItem
-            label="Unconnected memories"
-            help="Memories with no links to others yet."
+            label="Memories on their own"
+            help="Not linked to any other memory yet."
             bind={false}
             control={
               <span className="settings-row-value">
