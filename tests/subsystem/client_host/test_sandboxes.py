@@ -125,9 +125,11 @@ def test_a_sandbox_starts_from_its_pack_runs_stops_resets_and_goes(fake_process,
 
     sandbox = sandboxes.create("", "shop")
     workspace = home / "data" / "sandboxes" / sandbox.sandbox_id / "workspace"
-    assert sandbox.name == "A small shop, with its own web app"
+    assert sandbox.name == "A small shop, with its own web app and inbox"
     assert sorted(str(path.relative_to(workspace)).replace("\\", "/") for path in workspace.rglob("*")
                   if path.is_file()) == sorted(FILES["shop"])
+    # A shop has customers' emails to answer, so asking it to reply to one isn't a dead end (U15).
+    assert len(list((workspace / "inbox").glob("*.md"))) == 3
 
     started = sandboxes.start(sandbox.sandbox_id)
     assert started.status == "starting" and started.port
