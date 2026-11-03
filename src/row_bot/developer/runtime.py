@@ -807,6 +807,34 @@ _GIT_IDENTITY_KEYS = ("user.name", "user.email", "author.name", "author.email", 
 _GIT_IDENTITY_VARIABLES = ("git_author_name", "git_author_email", "git_committer_name", "git_committer_email")
 
 
+# Package managers and installers that put software on the computer for everyone, outside a project and
+# outside Row-Bot: (program, the words that install with it; empty for a program that only installs).
+_SYSTEM_INSTALLERS = {
+    "winget": {"install", "upgrade", "import"}, "choco": {"install", "upgrade"}, "scoop": {"install", "update"},
+    "brew": {"install", "upgrade", "reinstall"}, "port": {"install", "upgrade"},
+    "apt": {"install", "upgrade", "full-upgrade"}, "apt-get": {"install", "upgrade", "dist-upgrade"},
+    "dnf": {"install", "upgrade"}, "yum": {"install", "update"}, "zypper": {"install", "in", "update"},
+    "pacman": {"-s", "-syu", "-sy", "-u"}, "snap": {"install"}, "flatpak": {"install"},
+    "install-package": set(), "install-module": set(), "add-appxpackage": set(), "msiexec": set(),
+}
+
+
+def installs_system_software(command: str) -> bool:
+    """Whether a command installs software on the computer for everyone (winget, Homebrew, apt, an MSI…): only
+    the person may decide that. A project's own packages (pip, npm into the project) are not that."""
+    for part in _command_parts(str(command or "")) or [str(command or "")]:
+        try:
+            tokens = [token.lower() for token in shlex.split(_unquoted_text(part), posix=True)]
+        except ValueError:
+            tokens = _unquoted_text(part).lower().split()
+        tokens = [token.removesuffix(".exe") for token in tokens if token not in {"sudo", "doas"}]
+        for index, token in enumerate(tokens):
+            verbs = _SYSTEM_INSTALLERS.get(token)
+            if verbs is not None and (not verbs or verbs & set(tokens[index + 1:])):
+                return True
+    return False
+
+
 def sets_git_identity(command: str) -> bool:
     """Whether a command sets or changes the name and email Git records on commits.
 
