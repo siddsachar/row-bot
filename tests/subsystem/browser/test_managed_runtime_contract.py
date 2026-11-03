@@ -176,3 +176,64 @@ def test_render_launch_options_require_the_reviewed_matching_runtime(monkeypatch
     monkeypatch.setattr(runtime, "check_managed_browser_runtime", lambda: missing)
     with pytest.raises(RuntimeError, match="Browser Automation"):
         runtime.playwright_chromium_launch_options()
+
+
+def _shell_path(browsers: Path) -> Path:
+    relative = {
+        "windows": "chrome-headless-shell-win64/chrome-headless-shell.exe",
+        "darwin": "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+        "linux": "chrome-headless-shell-linux64/chrome-headless-shell",
+    }[runtime._platform_id()]
+    return browsers / "chromium_headless_shell-1234" / relative
+
+
+def test_what_runs_without_a_window_starts_the_headless_shell_never_the_mac_app(tmp_path, monkeypatch) -> None:
+    """U30: on a Mac, starting Row-Bot's browser started the "Google Chrome for Testing" app, and macOS asked
+    the person to allow that app's notifications. ``playwright install chromium`` installs a headless shell
+    beside it, a plain program that never asks: Row-Bot's browser, the install's check and headless exports
+    start that; Chromium stays for what needs a window."""
+    import types
+
+    def install(command, *, env, cwd):
+        browsers = Path(env["PLAYWRIGHT_BROWSERS_PATH"])
+        for executable in (_browser_path(browsers), _shell_path(browsers)):
+            executable.parent.mkdir(parents=True)
+            executable.write_text("fake", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "installed", "")
+
+    started: list[str] = []
+
+    class Playwright:
+        def __enter__(self):
+            launch = lambda executable_path, headless: started.append(executable_path) or browser  # noqa: E731
+            return types.SimpleNamespace(chromium=types.SimpleNamespace(launch=launch))
+
+        def __exit__(self, *exc):
+            return False
+
+    page = types.SimpleNamespace(goto=lambda *args, **kwargs: None, title=lambda: "Row-Bot runtime check")
+    browser = types.SimpleNamespace(new_page=lambda: page, close=lambda: None)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", types.SimpleNamespace(sync_playwright=Playwright))
+
+    assert runtime.install_managed_browser_runtime(tmp_path, contract=CONTRACT, runner=install).ok
+    readiness = runtime.check_managed_browser_runtime(tmp_path, contract=CONTRACT)
+    shell = str(_shell_path(Path(readiness.browsers_dir)))
+    assert started == [shell], "the install's check starts the shell"
+    assert runtime.headless_executable(readiness) == shell
+    assert readiness.executable_path != shell  # Chromium itself stays recorded, for a window
+
+    monkeypatch.setattr(runtime, "check_packaged_browser_runtime", lambda: readiness)
+    assert runtime.playwright_chromium_launch_options(headless=True)["executable_path"] == shell
+    assert runtime.playwright_chromium_launch_options(headless=False)["executable_path"] == readiness.executable_path
+
+    from row_bot.browser import service
+
+    monkeypatch.setattr(service, "_installed_channel", lambda: "")
+    monkeypatch.setattr(service, "check_packaged_browser_runtime", lambda: readiness)
+    assert service.BrowserEngine._attempts(object()) == [{"executable_path": shell}]
+
+
+def test_a_runtime_without_the_shell_keeps_starting_chromium(tmp_path) -> None:
+    runtime.install_managed_browser_runtime(tmp_path, contract=CONTRACT, runner=_successful_runner([]),
+                                            smoke_validator=lambda executable, browsers: None)
+    assert runtime.headless_executable(runtime.check_managed_browser_runtime(tmp_path, contract=CONTRACT)) == ""
