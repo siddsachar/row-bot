@@ -5,7 +5,6 @@ The voice and Whisper are fakes; the music is the real generator, short.
 from __future__ import annotations
 
 import io
-import subprocess
 import wave
 from types import SimpleNamespace
 
@@ -170,44 +169,68 @@ def test_music_builds_at_the_videos_beats():
 
 
 def test_a_clip_is_transcribed_with_timings_and_subtitles_are_saved(chat, monkeypatch):
+    """Whisper's own decoder reads the sound: no ffmpeg needed (U18)."""
     from row_bot import ffmpeg_runtime, sound, voice as voice_module
     from row_bot.application.attachments import register_attachment
     from row_bot.tools.sound_tool import _transcribe
 
-    register_attachment(chat, "interview.m4a", b"synthetic audio " * 100)
-    decoded: list[list[str]] = []
-
-    def run(argv, **_options):
-        decoded.append(list(argv))
-        return subprocess.CompletedProcess(argv, 0, stdout=b"\0\0" * 16000 * 3, stderr=b"")
-
-    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: ffmpeg_runtime.Ffmpeg(
-        executable="ffmpeg", source="row_bot", version="7.1", licence="GPL version 3 or later"))
-    monkeypatch.setattr(sound.subprocess, "run", run)
+    register_attachment(chat, "interview.wav", _wav(3.0, rate=44_100))
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
     heard = [sound.Segment(0.0, 1.4, "Welcome to the show.", ((0.0, 0.5, "Welcome"), (0.5, 0.7, "to"))),
              sound.Segment(61.2, 63.0, "Thanks for having me.", ((61.2, 61.8, "Thanks"),))]
+    given: list[bytes] = []
     monkeypatch.setattr(voice_module, "get_voice_service", lambda: SimpleNamespace(
-        whisper_model_available=lambda: True, transcribe_words=lambda pcm: (heard, "en")))
+        whisper_model_available=lambda: True, transcribe_words=lambda pcm: (given.append(pcm), (heard, "en"))[1]))
 
-    result = _transcribe("interview.m4a")
+    result = _transcribe("interview.wav")
 
-    assert result.startswith("Transcript of interview.m4a (1:03, 3 words, language en). "
+    assert result.startswith("Transcript of interview.wav (1:03, 3 words, language en). "
                              "Subtitles: interview-subtitles.srt.")
     assert "[0:00] Welcome to the show.\n[1:01] Thanks for having me." in result
-    assert "-ar" in decoded[0] and "16000" in decoded[0], "16 kHz mono for Whisper"
+    assert abs(len(given[0]) - 3 * 16_000 * 2) < 2_000, "3 seconds as 16 kHz mono 16-bit for Whisper"
     from row_bot.application.attachments import read_attachment
     subtitles = read_attachment(_files(chat)["interview-subtitles.srt"]["attachment_ref"])[1].decode()
     assert subtitles.startswith("1\n00:00:00,000 --> 00:00:01,400\nWelcome to the show.\n")
 
 
-def test_transcribing_says_what_is_missing(chat, monkeypatch):
-    from row_bot import ffmpeg_runtime
+def test_without_the_speech_model_transcribing_asks_once_to_download_it(chat, monkeypatch):
+    """A voice memo on a fresh profile: one card for the speech model, then the transcript (U32)."""
+    from row_bot import sound, voice as voice_module
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import approval_gate
+    from row_bot.tools.sound_tool import _transcribe
+
+    register_attachment(chat, "memo.wav", _wav(1.0))
+    installed = {"value": False}
+    heard = [sound.Segment(0.0, 0.8, "Buy milk.", ((0.0, 0.8, "Buy"),))]
+    monkeypatch.setattr(voice_module, "get_voice_service", lambda: SimpleNamespace(
+        whisper_size="small", whisper_model_available=lambda: installed["value"],
+        install_whisper_model=lambda: installed.update(value=True), transcribe_words=lambda pcm: (heard, "en")))
+    cards: list[dict] = []
+    answer = {"value": ("The person didn't allow downloading the speech model; nothing was downloaded.", "")}
+    monkeypatch.setattr(approval_gate, "approval_check", lambda payload, **_: cards.append(payload) or answer["value"])
+
+    assert _transcribe("memo.wav").startswith("The person didn't allow downloading the speech model")
+    assert not installed["value"]
+    assert cards[0]["question"] == ("Transcribing needs the speech model (Whisper small, about 244 MB) from "
+                                    "Hugging Face. Download it now?")
+
+    answer["value"] = (None, "Approval: asked; approved by you")
+    assert _transcribe("memo.wav").startswith("Approval: asked; approved by you\nTranscript of memo.wav")
+    assert installed["value"]
+    assert _transcribe("memo.wav").startswith("Transcript of memo.wav"), "once: it's there now, so nothing asks"
+    assert len(cards) == 2
+
+
+def test_transcribing_says_what_it_cannot_read(chat, monkeypatch):
+    from row_bot import voice as voice_module
     from row_bot.application.attachments import register_attachment
     from row_bot.tools.sound_tool import _transcribe
 
     register_attachment(chat, "talk.mp3", b"ID3 synthetic")
-    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
-    assert _transcribe("talk.mp3").startswith("Not transcribed: Transcribing needs ffmpeg.")
+    monkeypatch.setattr(voice_module, "get_voice_service", lambda: SimpleNamespace(
+        whisper_model_available=lambda: True, transcribe_words=lambda pcm: ([], "")))
+    assert _transcribe("talk.mp3") == "Not transcribed: That file has no sound Row-Bot can read."
     assert _transcribe("nothing.mp3").startswith("Not transcribed: Couldn't find nothing.mp3")
 
 
