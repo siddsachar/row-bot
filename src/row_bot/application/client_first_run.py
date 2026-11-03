@@ -80,14 +80,15 @@ def local_models() -> list[str]:
     return list_local_models()
 
 
-def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[str]) -> None:
+def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[str]) -> list[dict[str, Any]]:
     """Mark Row-Bot's suggested first picks (F10).
 
     A pick is a chat model that can use Row-Bot's tools (the same judgement as
     "Chat only"), not an embedding model, not an "abliterated" or "uncensored"
     variant, and not already a favourite or hidden. The saved default comes
     first, then the larger models (the most capable one installed), then the
-    runtime's order (N16).
+    runtime's order (N16). The models come back with the picks first, in that order, so a list shows the
+    strongest first (U3); the rest keep the runtime's order.
     """
     from row_bot.providers.ollama import is_ollama_chat_candidate
 
@@ -95,8 +96,10 @@ def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[s
              and is_ollama_chat_candidate(row["name"])
              and not any(marker in row["name"].lower() for marker in _UNSUGGESTED_MARKERS)]
     picks.sort(key=lambda row: (row["model_ref"] != default, -_parameters_in_billions(row["name"])))
-    for row in picks[:RECOMMENDED_PICKS]:
+    chosen = picks[:RECOMMENDED_PICKS]
+    for row in chosen:
         row["recommended"] = True
+    return [*chosen, *(row for row in models if row not in chosen)]
 
 
 def detect_local_runtime() -> dict[str, Any]:
@@ -122,7 +125,7 @@ def detect_local_runtime() -> dict[str, Any]:
         models.append({"model_ref": f"model:ollama:{name}", "name": name, "agent_ready": agent_ready})
     if models:
         shown = read_model_visibility()
-        _recommend(models, default=saved_default_model(), skip={*shown.favourites, *shown.hidden})
+        models = _recommend(models, default=saved_default_model(), skip={*shown.favourites, *shown.hidden})
         models = annotate(models, key="model_ref", visibility=shown)
     return {
         "schema_version": 1,
