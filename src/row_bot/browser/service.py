@@ -52,6 +52,7 @@ from row_bot.browser.runtime import (
     check_managed_browser_runtime,
     check_packaged_browser_runtime,
     ensure_profile_engine,
+    headless_executable,
 )
 from row_bot.browser.snapshot import RefMap, compact
 from row_bot.cancellation import current_cancellation_scope
@@ -518,7 +519,7 @@ class BrowserEngine:
         if not readiness.ready:
             readiness = check_managed_browser_runtime()
         if readiness.ready:
-            attempts.append({"executable_path": readiness.executable_path})
+            attempts.append({"executable_path": headless_executable(readiness) or readiness.executable_path})
         if not attempts:
             raise RuntimeError("No browser is installed: install Chrome or Edge, or Row-Bot's browser in Settings.")
         return attempts
