@@ -38,8 +38,8 @@ class Driver:
     def capabilities(self) -> list[str]:
         return ["select_file", "select_folder", "clipboard_read", "clipboard_write", "open_external", "managed_window", "save"]
 
-    def select(self, kind: str) -> str | None:
-        self.calls.append("select:" + kind)
+    def select(self, kind: str, start: str | None = None) -> str | None:
+        self.calls.append("select:" + kind + (" in " + start if start else ""))
         self.on_select()
         return self.selected
 
@@ -954,3 +954,14 @@ def test_a_refused_grant_asks_for_a_fresh_attestation_only_before_any_effect() -
     assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"}) == {
         "status": "unavailable", "reason": "native_proof_required"}
     assert "grant-attest-3" not in state["granted"]
+
+
+def test_a_backup_to_restore_is_looked_for_in_the_backups_folder(native, tmp_path, monkeypatch) -> None:
+    """U13: the picker opens where Row-Bot saves backups, not wherever the system's last dialog was."""
+    bridge, proof, driver, _, registered = native
+    (tmp_path / "Backups").mkdir()
+    monkeypatch.setattr("row_bot.application.conversation_creation.configured_workspace_root", lambda: tmp_path)
+    restore = _picker_payload(intent="restore_backup", conversationId=None, destination="data-restore")
+    assert bridge.native_client_dispatch(proof, "select_file", restore)["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "select_file", _picker_payload())["status"] == "ok"
+    assert driver.calls == [f"select:file in {tmp_path / 'Backups'}", "select:file"]

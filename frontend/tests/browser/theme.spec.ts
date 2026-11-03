@@ -96,8 +96,11 @@ test('all alternative accents retain readable integrated controls in both appear
   for (const appearance of ['light', 'dark']) {
     for (const accent of ['teal', 'violet', 'amber']) {
       await page
-        .getByRole('combobox', { name: 'Appearance', exact: true })
-        .selectOption(appearance);
+        .getByRole('button', {
+          name: appearance === 'light' ? 'Light' : 'Dark',
+          exact: true,
+        })
+        .click();
       await page
         .getByRole('combobox', { name: 'Colour theme', exact: true })
         .selectOption(accent);
@@ -144,9 +147,7 @@ test('unavailable or corrupt local storage leaves a usable shell', async ({
   );
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.goto('/app-v2/settings/appearance?fixture=normal');
-  await page
-    .getByRole('combobox', { name: 'Appearance', exact: true })
-    .selectOption('dark');
+  await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.goto('/app-v2/conversations/conversation-a?fixture=normal');
   await expect(page.getByTestId('conversation-workspace')).toBeVisible();
@@ -237,15 +238,13 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
   await page.evaluate(() => {
     document.documentElement.style.zoom = '2';
   });
-  const appearance = page.getByRole('combobox', {
-    name: 'Appearance',
-    exact: true,
-  });
+  // The look is chosen from its card (U37).
+  const appearance = page.getByRole('button', { name: 'Dark', exact: true });
   await expect(appearance).toBeVisible();
-  await appearance.scrollIntoViewIfNeeded();
-  await appearance.selectOption('light');
+  await page.getByRole('button', { name: 'Light', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await appearance.selectOption('dark');
+  await appearance.scrollIntoViewIfNeeded();
+  await appearance.click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const settingsControls = [];
   for (const [name, control] of [['Appearance', appearance]] as const) {

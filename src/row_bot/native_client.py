@@ -126,7 +126,7 @@ def _picker_request(payload: Mapping[str, Any], selection_kind: str) -> NativePi
 class NativeDriver(Protocol):
     """Host operations supplied by the trusted shell, never by browser payloads."""
 
-    def select(self, kind: str) -> str | None: ...
+    def select(self, kind: str, start: str | None = None) -> str | None: ...
     def clipboard_read(self) -> str | None: ...
     def clipboard_write(self, text: str) -> bool: ...
     def open_external(self, url: str) -> bool: ...
@@ -156,6 +156,19 @@ def _dialog_path(selected: object) -> str | None:
     if not isinstance(selected, str) or not Path(selected).is_absolute():
         raise ValueError("invalid_dialog_answer")
     return selected
+
+
+def _picker_start(request: NativePickerRequest) -> str | None:
+    """Where a picker opens: a backup to restore is looked for where Row-Bot saves them (U13), not wherever the
+    system's last dialog was. Only the starting folder: the server still checks what is chosen."""
+    if request.intent != "restore_backup":
+        return None
+    try:
+        from row_bot.application.conversation_creation import configured_workspace_root
+        backups = configured_workspace_root() / "Backups"
+        return str(backups) if backups.is_dir() else None
+    except Exception:
+        return None
 
 
 def _save_folder() -> str:
@@ -221,10 +234,11 @@ class PyWebViewDriver:
         # Buddy gets no pickers, clipboard, saves or external navigation).
         return [name for name in result if self._allowed is None or name in self._allowed]
 
-    def select(self, kind: str) -> str | None:
+    def select(self, kind: str, start: str | None = None) -> str | None:
         import webview
         return _dialog_path(self._window.create_file_dialog(
-            webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG, allow_multiple=False))
+            webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG, allow_multiple=False,
+            **({"directory": start} if start else {})))
 
     def clipboard_read(self) -> str | None:
         return self._read_clipboard() if self._read_clipboard is not None else None
@@ -508,7 +522,8 @@ class NativeClientBridge:
             kind = "folder" if operation == "select_folder" else "file"
             request = _picker_request(payload, kind) if operation in {"select_file", "select_folder"} else None
             if operation in {"select_file", "select_folder"} and request is not None:
-                path = self._driver.select(kind)
+                start = _picker_start(request)
+                path = self._driver.select(kind, start) if start else self._driver.select(kind)
                 with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")

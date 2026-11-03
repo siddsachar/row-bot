@@ -612,10 +612,8 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
 
   await page.goto(settingsPath('appearance'));
   await waitForSettings(page, 'Appearance');
-  const appearance = page.getByRole('combobox', {
-    name: 'Appearance',
-    exact: true,
-  });
+  // The last look card, then the colour theme (U37: no Appearance dropdown).
+  const appearance = page.getByRole('button', { name: 'Dark', exact: true });
   await appearance.focus();
   await expect(appearance).toBeFocused();
   await page.keyboard.press('Tab');

@@ -142,7 +142,8 @@ export function DataBackup({
           setNotice(
             `Saved “${job.name ?? next.last_backup_name}” in ${next.folder}.` +
               (job.skipped?.length
-                ? ` Left out ${job.skipped.length === 1 ? 'a file' : `${job.skipped.length} files`} that couldn't be read: ${job.skipped.join(', ')}.`
+                ? // The file's name, never its path inside Row-Bot's folder (U11).
+                  ` Left out ${job.skipped.length === 1 ? `${job.skipped[0].split('/').pop()}, which` : `${job.skipped.length} files that`} couldn't be read.`
                 : ''),
           );
       }

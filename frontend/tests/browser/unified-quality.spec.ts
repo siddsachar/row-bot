@@ -57,8 +57,11 @@ test('real tools and media keep one composer through every colour theme and syst
       for (const accent of ['blue', 'teal', 'violet', 'amber']) {
         await page.goto('/app-v2/settings/appearance');
         await page
-          .getByRole('combobox', { name: 'Appearance', exact: true })
-          .selectOption(appearance);
+          .getByRole('button', {
+            name: appearance === 'light' ? 'Light' : 'Dark',
+            exact: true,
+          })
+          .click();
         await page
           .getByRole('combobox', { name: 'Colour theme', exact: true })
           .selectOption(accent);
@@ -99,8 +102,8 @@ test('real tools and media keep one composer through every colour theme and syst
     }
     await page.goto('/app-v2/settings/appearance');
     await page
-      .getByRole('combobox', { name: 'Appearance', exact: true })
-      .selectOption('system');
+      .getByRole('button', { name: /^System, follows your device/ })
+      .click();
     await page.goto(`/app-v2/conversations/${conversation}`);
     for (const scheme of ['dark', 'light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme });

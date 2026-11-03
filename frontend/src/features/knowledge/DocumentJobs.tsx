@@ -506,6 +506,8 @@ export function DocumentJobs({
     );
     return () => clearInterval(timer);
   }, [active, session]);
+  // An empty queue says nothing: the documents list below already does (U39).
+  if (state.batches && !items.length && !state.error) return null;
   return (
     <section aria-label="Document ingestion queue" className="document-queue">
       <div className="settings-divided document-queue-head">
