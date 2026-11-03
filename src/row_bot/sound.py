@@ -103,6 +103,29 @@ def decoded_speech(path: Path) -> bytes:
     return bytes(decoded[:limit])
 
 
+# A peak below this is silence: nothing a viewer would hear.
+SILENT_PEAK = 0.001  # -60 dBFS
+
+
+def has_sound(path: Path) -> bool | None:
+    """Whether a video or sound file has something to hear: a sound track that isn't silence. A screen recording
+    has none, so a video cut only from recordings plays silent, there and on X. None when it can't be read."""
+    import av
+
+    try:
+        with av.open(str(path), metadata_errors="ignore") as container:
+            if not container.streams.audio:
+                return False
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            for frame in container.decode(audio=0):
+                for piece in resampler.resample(frame):
+                    if abs(piece.to_ndarray().astype("int32")).max(initial=0) > SILENT_PEAK * 32768:
+                        return True
+    except (av.error.FFmpegError, OSError, ValueError):
+        return None
+    return False
+
+
 def transcribe(path: Path) -> tuple[list[Segment], str]:
     """Each stretch of speech in an audio or video file, with each word's time, and the language heard."""
     from row_bot.voice import get_voice_service

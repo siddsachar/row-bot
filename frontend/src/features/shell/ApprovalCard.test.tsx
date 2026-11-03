@@ -558,6 +558,9 @@ it('asks to post on X as the named account with the full text, the reply link an
           sha256: 'ba9876543210',
           kind: 'video',
           thumbnail: '',
+          silent: true,
+          ref: 'conversation-a:00000000-0000-4000-8000-000000000001',
+          mime: 'video/mp4',
         },
       ],
     },
@@ -586,6 +589,20 @@ it('asks to post on X as the named account with the full text, the reply link an
   expect(within(files).getByText('launch.png')).toBeVisible();
   expect(within(files).getByText('0123456789ab')).toBeVisible();
   expect(within(files).getByText('ba9876543210')).toBeVisible();
+  // A video with nothing to hear says so before it's approved; it plays silent on X too.
+  expect(within(files).getAllByText('No sound')).toHaveLength(1);
+  // A file from Library › Media opens full size to check before it goes; one
+  // on this computer (no reference) shows only its facts.
+  expect(
+    within(files).queryByRole('button', { name: 'Open launch.png' }),
+  ).toBeNull();
+  fireEvent.click(within(files).getByRole('button', { name: 'Open demo.mp4' }));
+  expect(open).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      title: 'demo.mp4',
+      className: 'media-lightbox',
+    }),
+  );
   expect(
     within(card).getByText(/The reviewer asked you: Only you can approve/),
   ).toBeVisible();

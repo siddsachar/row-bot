@@ -71,6 +71,7 @@ class Media:
     kind: str  # image, gif or video
     thumbnail: str = ""  # A small JPEG as a data URL, for the card; "" for a video.
     source: str = ""  # What finds it again at its time slot: its path, or its Library › Media reference.
+    silent: bool = False  # A video with nothing to hear: the card says so before the person approves it.
 
     @property
     def short(self) -> str:
@@ -143,6 +144,21 @@ def _find(value: str, conversation_id: str) -> tuple[Path, str, str, str]:
                      "item (media_find gives its reference), so nothing was posted.")
 
 
+def _library_ref(source: str) -> str:
+    """A file's Library › Media reference, which the card opens to check it before it goes; "" for a file on this
+    computer (its path never reaches the card)."""
+    from row_bot import media_library
+
+    return source if media_library.REF.fullmatch(source) else ""
+
+
+def _silent(path: Path) -> bool:
+    """A video with nothing to hear (no sound track, or only silence): X plays it silent too."""
+    from row_bot.sound import has_sound
+
+    return has_sound(path) is False
+
+
 def media_facts(paths: list[str] | None, conversation_id: str = "") -> list[Media]:
     """Each file to attach: its name, size, SHA-256 and kind (with a thumbnail for a picture)."""
     found: list[Media] = []
@@ -153,7 +169,8 @@ def media_facts(paths: list[str] | None, conversation_id: str = "") -> list[Medi
                              "one, so nothing was posted.")
         kind = "video" if mime.startswith("video/") else "gif" if mime == "image/gif" else "image"
         found.append(Media(path, name[:256], path.stat().st_size, _sha256(path), mime, kind,
-                           _thumbnail(path) if kind != "video" else "", source))
+                           _thumbnail(path) if kind != "video" else "", source,
+                           silent=kind == "video" and _silent(path)))
     singles = [item for item in found if item.kind != "image"]
     if len(found) > _MAX_IMAGES or (singles and len(found) > 1):
         raise XPostError("A post takes up to four pictures, or one video or GIF, so nothing was posted.")
@@ -219,7 +236,9 @@ def card(account: XAccount, action: str, text: str, target: str, media: list[Med
         "target_url": account.post_url(target) if action == "delete" and target else target_url(target),
         "target_text": target_text[:_MAX_TEXT],
         "media": [{"name": item.name, "size": item.size, "sha256": item.short, "kind": item.kind,
-                   "thumbnail": item.thumbnail} for item in media],
+                   "thumbnail": item.thumbnail, "silent": item.silent, "ref": _library_ref(item.source),
+                   "mime": item.mime}
+                  for item in media],
         "limit": _LIMITS.get(account.id, 0),  # How long a post the account may send, when X said (0: unknown).
         "post_at": post_at.isoformat(timespec="minutes") if post_at else "",
     }
@@ -234,7 +253,8 @@ def _words(account: XAccount, action: str, text: str, target: str, media: list[M
     quoted = text if action != "delete" else target_text
     sentence = f"{lead}: “{quoted[:600]}{'…' if len(quoted) > 600 else ''}”" if quoted else lead
     if media:
-        sentence += " with " + ", ".join(f"{item.name} ({_size(item.size)}, SHA-256 {item.short})" for item in media)
+        sentence += " with " + ", ".join(f"{item.name} ({_size(item.size)}, SHA-256 {item.short}"
+                                         f"{', no sound' if item.silent else ''})" for item in media)
     return sentence + "."
 
 
@@ -367,14 +387,18 @@ def scheduled_posts() -> list[dict[str, Any]]:
         account = accounts.get(str(item.get("account_id")))
         files = []
         for entry in item.get("media") or []:
+            path = None
             try:
                 path, name, mime, _ = _find(str(entry.get("path") or ""), "")
                 size = path.stat().st_size
             except (XPostError, OSError):
                 name = str(entry.get("name") or Path(str(entry.get("path") or "")).name)
                 size, mime = 0, mimetypes.guess_type(name)[0] or ""
+            kind = "video" if mime.startswith("video/") else "gif" if mime == "image/gif" else "image"
             files.append({"name": name[:256], "size": size, "sha256": str(entry.get("sha256") or "")[:12],
-                          "kind": "video" if mime.startswith("video/") else "gif" if mime == "image/gif" else "image"})
+                          "kind": kind, "silent": kind == "video" and path is not None and _silent(path),
+                          "ref": _library_ref(str(entry.get("path") or "")) if path is not None else "",
+                          "mime": mime})
         shown.append({"id": item["id"], "account_id": str(item.get("account_id") or ""),
                       "username": account.username if account else "", "name": account.name[:80] if account else "",
                       # The editor's count: the limit X already said for the account, never a call to X here.

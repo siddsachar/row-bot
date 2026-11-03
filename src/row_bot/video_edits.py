@@ -73,6 +73,8 @@ class VideoEdit:
     ffmpeg: str = ""
     checks: list[str] = field(default_factory=list)
     checks_passed: bool | None = None
+    # A finished video with nothing to hear (cut only from screen recordings, which have no sound).
+    silent: bool = False
     # A video project's scene starts on the video, then its end (5.3.1 B3).
     marks: list[float] = field(default_factory=list)
     # A video project's review sheet: frames of each scene, labelled, in the chat's files (its name).
@@ -141,7 +143,7 @@ def _iso(value: float | None) -> str | None:
 _SAVED_FIELDS = ("edit_id", "conversation_id", "kind", "summary", "output_name", "started_at", "status",
                  "expected_seconds", "process_id", "ended_at", "stopped_by", "problem", "detail", "media_ref",
                  "mime_type", "size_bytes", "frame_refs", "frame_times", "ffmpeg", "checks", "checks_passed", "marks",
-                 "sheet")
+                 "sheet", "silent")
 
 
 def _save(edit: VideoEdit) -> None:
@@ -177,6 +179,7 @@ def _load(path: Path) -> VideoEdit | None:
         edit.checks = [str(item)[:300] for item in data.get("checks") or []][:12]
         edit.checks_passed = None if data.get("checks_passed") is None else bool(data["checks_passed"])
         edit.marks = [float(item) for item in data.get("marks") or []][:61]
+        edit.silent = bool(data.get("silent"))
         return edit
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -389,10 +392,13 @@ def _failure_words(output: str) -> str:
 
 
 def _measure(edit: VideoEdit, ffmpeg: Any, folder: Path) -> None:
-    """How long the edited video really is (the plan's length is what it expected)."""
+    """How long the edited video really is (the plan's length is what it expected), and whether it has anything
+    to hear."""
     from row_bot.media_sources import SourceError
+    from row_bot.sound import has_sound
     from row_bot.video_editing import EditError
 
+    _set(edit, silent=has_sound(folder / "output.mp4") is False)
     try:
         info = probe_video(ffmpeg, "output.mp4", folder)
     except (EditError, SourceError, OSError):
@@ -433,8 +439,9 @@ def _save_video(edit: VideoEdit, output: Path) -> None:
     if size > MAX_ATTACHMENT_BYTES:
         mb = size / (1024 * 1024)
         edit.problem = "too_large"
-        raise EditError(f"The edited video came out at {mb:.0f} MB, more than a chat can hold (25 MB). Make it "
-                        "shorter or smaller (trim or crop it) and try again.")
+        raise EditError(f"The edited video came out at {mb:.0f} MB, more than a chat can hold "
+                        f"({MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB). Make it shorter or smaller (trim or crop it) "
+                        "and try again.")
     try:
         saved = register_attachment(edit.conversation_id, edit.output_name, output.read_bytes())
     except AttachmentError:
@@ -800,8 +807,12 @@ def summary(edit: VideoEdit) -> str:
     if edit.status == "saved":
         from row_bot.recordings import size_words
 
+        # A silent video went out to X as a demo twice before anyone noticed: say it where it's made.
+        silent = (" It has no sound: whoever watches it hears nothing. A video for people to watch needs a voice "
+                  "(make it with the video tool) or music; if it's meant to be silent, say so when you share it."
+                  if edit.silent else "")
         return (head + f"saved {clock(edit.expected_seconds)} of video ({size_words(edit.size_bytes)}) to this "
-                f"chat's files as {edit.output_name}; the person sees it in the chat. {edit.summary}.")
+                f"chat's files as {edit.output_name}; the person sees it in the chat. {edit.summary}.{silent}")
     if edit.status == "failed":
         return head + f"failed. {edit.detail or 'The edit did not work.'}"
     if edit.status == "stopped":

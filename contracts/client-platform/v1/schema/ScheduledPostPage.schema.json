@@ -108,16 +108,35 @@
           "title": "Kind",
           "type": "string"
         },
+        "mime": {
+          "default": "",
+          "maxLength": 100,
+          "pattern": "^([a-z]+/[a-z0-9.+-]+)?$",
+          "title": "Mime",
+          "type": "string"
+        },
         "name": {
           "maxLength": 256,
           "minLength": 1,
           "title": "Name",
           "type": "string"
         },
+        "ref": {
+          "default": "",
+          "maxLength": 256,
+          "pattern": "^([A-Za-z0-9_-]+:[0-9a-f-]{36})?$",
+          "title": "Ref",
+          "type": "string"
+        },
         "sha256": {
           "pattern": "^[0-9a-f]{12}$",
           "title": "Sha256",
           "type": "string"
+        },
+        "silent": {
+          "default": false,
+          "title": "Silent",
+          "type": "boolean"
         },
         "size": {
           "minimum": 0,

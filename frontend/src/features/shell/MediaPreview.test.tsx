@@ -399,3 +399,29 @@ it('saves a preview through the desktop window’s Save dialog, which ignores a 
     ),
   );
 });
+
+it('in the media viewer shows the picture itself with its download, never another full-size button', async () => {
+  mock.download.mockResolvedValue(
+    new Blob(['fake pixels'], { type: 'image/png' }),
+  );
+  render(
+    <MediaPreview
+      reference="opaque-reference"
+      mime="image/png"
+      label="chart.png"
+      downloadName="chart.png"
+      fill
+    />,
+  );
+  expect(await screen.findByAltText('chart.png')).toBeVisible();
+  expect(screen.getByRole('group', { name: 'chart.png' })).toHaveAttribute(
+    'data-fill',
+    'true',
+  );
+  expect(
+    screen.queryByRole('button', { name: /full size/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download chart.png' }),
+  ).toHaveAttribute('download', 'chart.png');
+});

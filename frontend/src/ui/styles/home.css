@@ -509,6 +509,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A scheduled post's pictures and videos: small tiles that open full size. */
+.overview-scheduled-media {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+}
+.overview-scheduled-media img,
+.overview-scheduled-media .x-post-media-icon {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  object-fit: cover;
+}
+.overview-scheduled-media .x-post-media-icon {
+  display: grid;
+  place-items: center;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+/* A scheduled post whose video has no sound: a warning, not a muted fact. */
+.overview-row-meta.x-post-media-silent {
+  color: var(--status-warning-text);
+}
 .overview-row-time {
   color: var(--text-muted);
   font-size: var(--text-12);

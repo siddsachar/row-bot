@@ -270,3 +270,16 @@ def test_voices_made_together_share_one_model_and_never_overlap(monkeypatch, tmp
 
     assert all(speech.seconds > 0 for speech in made)
     assert loads == ["kokoro"], "one model for every voice file"
+
+
+@pytest.mark.parametrize(("sound", "heard"), [(True, True), ("silence", False), (False, False)])
+def test_a_video_has_sound_only_when_there_is_something_to_hear(tmp_path, sound, heard):
+    """A demo cut only from screen recordings had no sound track and went out to X silent, twice (3 Nov). A
+    video's sound is read from the file: a voice or tone is heard; a track of silence or none at all is not."""
+    pytest.importorskip("av")
+    from row_bot.sound import has_sound
+    from tests.helpers.media_files import video
+
+    assert has_sound(video(tmp_path / "clip.mp4", sound=sound, codec="mpeg4")) is heard
+    (tmp_path / "broken.mp4").write_bytes(b"not a video")
+    assert has_sound(tmp_path / "broken.mp4") is None, "unreadable is never called silent"
