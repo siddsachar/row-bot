@@ -3,11 +3,13 @@
 The host's shape (PikaPods'): one container from the unmodified image, as the
 image's own user, with one volume at /data, one HTTP port and the host's values
 in the environment: a generated ROW_BOT_SETUP_CODE and ROW_BOT_SECRET_STORE_KEY
-(64 hex), ROW_BOT_HOSTED_BY and the pod's own address as ROW_BOT_PUBLIC_URL.
-Through the HTTP API a browser uses, it checks that:
+(64 hex), ROW_BOT_HOSTED_BY and the pod's own address as ROW_BOT_PUBLIC_URL,
+with an exact ROW_BOT_ALLOWED_HOSTS that leaves out 127.0.0.1 (a VPS's shape).
+Through the HTTP API a browser at the pod's address uses, it checks that:
 
 - the container becomes healthy, its launcher reports Row-Bot running, and its
   log shows the setup code;
+- the host list is exact: from outside, a request naming 127.0.0.1 is refused;
 - the code signs this browser in;
 - an API key saved for a custom endpoint, and a chat turn through it, work;
 - after ``docker restart`` the container is healthy again, the session cookie
@@ -52,6 +54,9 @@ PROVIDER_ID = "custom_openai_smoke"
 MODEL_REF = f"model:{PROVIDER_ID}:row-bot-dummy-chat"
 # What the launcher logs once it has reached its own server (row-bot serve).
 RUNNING_LINE = "Row-Bot is running at"
+# The pod's own name, as a host gives each pod one (PikaPods: <pod>.pikapod.net). The runner reaches the
+# published port by 127.0.0.1 and names the pod in Host, as a browser at the pod's address does.
+POD_HOST = "pod.row-bot.test"
 CONFIGURATION = "/api/v1/settings/providers/configuration"
 PROVIDER_COMMANDS = "/api/v1/settings/providers/commands"
 # Row-Bot's own setup-code alphabet (Crockford's base32) and length.
@@ -98,9 +103,12 @@ def partner_run_args(
         env_file,
         "--env",
         "ROW_BOT_HOSTED_BY=pikapods",
-        # The pod's own address, as a host sets it (PikaPods: https://<pod>.pikapod.net); here the runner's.
+        # The pod's own address, as a host sets it (PikaPods: https://<pod>.pikapod.net), and an exact host
+        # list without 127.0.0.1, as a VPS sets it: the image's health check and the launcher still pass.
         "--env",
-        f"ROW_BOT_PUBLIC_URL=http://127.0.0.1:{port}",
+        f"ROW_BOT_PUBLIC_URL=http://{POD_HOST}:{port}",
+        "--env",
+        f"ROW_BOT_ALLOWED_HOSTS={POD_HOST}",
         # A smoke never sends install stats to the real service.
         "--env",
         "ROW_BOT_INSTALL_COUNT=0",
@@ -146,6 +154,21 @@ def memory_report(architecture: str, peaks: Sequence[int | None]) -> tuple[str, 
     return "\n".join(lines) + "\n", within
 
 
+class _PodAddress:
+    """The runner's HTTP, naming the pod in Host as a browser at the pod's address does."""
+
+    def __init__(self, http, authority: str) -> None:  # noqa: ANN001
+        self._http, self._authority = http, authority
+
+    def send(self, method: str, url: str, *, headers: Mapping[str, str] | None = None,
+             json_body: Mapping[str, object] | None = None, timeout: float | None = None):  # noqa: ANN201
+        return self._http.send(method, url, headers={"Host": self._authority, **(headers or {})},
+                               json_body=json_body, timeout=timeout)
+
+    def cookie_values(self) -> tuple[str, ...]:
+        return self._http.cookie_values()
+
+
 def _free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
@@ -157,7 +180,10 @@ class HostingPartnerSmoke(DockerServerSmoke):
         super().__init__(image=image, **kwargs)  # type: ignore[arg-type]
         self.port = port or _free_loopback_port()
         self.origin = f"http://127.0.0.1:{self.port}"
-        self.code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+        self.public_origin = f"http://{POD_HOST}:{self.port}"
+        self._direct = self.http
+        self.http = _PodAddress(self.http, f"{POD_HOST}:{self.port}")
+        self.code ="".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
         self.key = secrets.token_hex(32)
         self.model_key = "fake-smoke-model-" + secrets.token_urlsafe(24)
         # Redacted from every diagnostic; the code's line is the only place the code may appear.
@@ -241,7 +267,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
         expect: int = 200,
         command_id: str = "",
     ) -> dict:
-        headers = {"Origin": self.origin, "Accept": "application/json", **self._client}
+        headers = {"Origin": self.public_origin, "Accept": "application/json", **self._client}
         if command_id:
             headers["Idempotency-Key"] = command_id
         stage = f"{method} {path.split('?')[0]}"
@@ -269,7 +295,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
     def _claim(self) -> str:
         response = self._send_http(
             "POST", self.origin, "/api/access/setup", stage="setup-code sign-in",
-            headers={"Origin": self.origin, "Accept": "application/json"}, json_body={"code": self.code},
+            headers={"Origin": self.public_origin, "Accept": "application/json"}, json_body={"code": self.code},
         )
         payload = response.json()
         if response.status != 200 or not isinstance(payload, dict) or payload.get("authenticated") is not True:
@@ -279,6 +305,17 @@ class HostingPartnerSmoke(DockerServerSmoke):
             raise SmokeError("The setup-code sign-in did not issue exactly one session cookie")
         self._secrets.append(cookies[0])
         return self._session_id()
+
+    def _check_exact_hosts(self) -> None:
+        """Only the pod's name is allowed: from outside, a request naming 127.0.0.1 is refused."""
+        stage = "a request naming 127.0.0.1"
+        try:
+            response = self._direct.send("GET", self.origin + "/healthz", timeout=self.request_timeout)
+        except SmokeError as exc:
+            raise SmokeError(f"{stage} failed: {exc}") from exc
+        payload = response.json() if response.body else {}
+        if response.status != 400 or not isinstance(payload, dict) or payload.get("error") != "unexpected_host":
+            raise SmokeError(f"{stage} from outside returned HTTP {response.status}, not unexpected_host")
 
     def _session_id(self) -> str:
         payload = self._api("GET", "/api/access/session")
@@ -370,6 +407,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
                 self._create_volume()
                 self._create_container()
                 self._wait_started(starts=1)
+                self._check_exact_hosts()
                 if f"Row-Bot setup code: {format_setup_code(self.code)}" not in self._log():
                     raise SmokeError("The container log does not show the setup code")
                 session_id = self._claim()

@@ -177,11 +177,19 @@ class ClaudeSignIns:
                 sign_in.output_bytes = 0
 
     def close_running(self) -> None:
-        """Close the sign-in, whichever device opened it (an install or update of Claude Code goes first)."""
+        """Close the sign-in, whichever device opened it (an install or update of Claude Code goes first).
+
+        Kept, ended and empty, as ``close`` keeps it: the panel's read already on its way sees it closed.
+        """
         with self._lock:
-            if self._current is not None and self._current.ended is None:
-                self._end(self._current, "closed")
-            self._current = None
+            sign_in = self._current
+            if sign_in is None:
+                return
+            if sign_in.ended is None:
+                self._end(sign_in, "closed")
+            else:
+                sign_in.frames.clear()
+                sign_in.output_bytes = 0
 
     def close_all(self) -> None:
         """Close whatever runs and stop housekeeping (Row-Bot is stopping)."""
