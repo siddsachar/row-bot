@@ -106,3 +106,40 @@ def test_stop_withdraws_the_approval_the_turn_waits_on(platform):
         _resolve(platform, first.approval_id, "approve", "late-approve")
     assert len(fake.calls) == 1
     assert platform.get_approval(first.approval_id)["status"] == "cancelled"
+
+
+def test_after_a_no_the_reply_says_what_the_turn_already_found(platform, monkeypatch):
+    """U19: denying an install ended the turn with "You said no, so Row-Bot stopped there." and the revenue
+    by region, worked out two steps earlier, was never shown. The reply now comes from the chat's model with
+    no tools (it can't try the declined action again) and holds what was found."""
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from tests.helpers.client_platform_fakes import CheckpointCommit, fixture_id
+
+    read = {"name": "shell", "args": {"command": "Import-Csv sales.csv"}, "id": "call-read"}
+    install = {"name": "shell", "args": {"command": "winget install ffmpeg"}, "id": "call-install"}
+    prompts: list = []
+
+    class Model:
+        def invoke(self, prompt):
+            prompts.append(prompt)
+            return AIMessage(content="Revenue by region: North 120, South 80. FFmpeg wasn't installed: you said no.")
+
+    monkeypatch.setattr("row_bot.models.get_llm_for", lambda *_args, **_kwargs: Model())
+    fake = ScriptedAgentStream(
+        (CheckpointCommit((AIMessage(content="", id=fixture_id("read-step"), tool_calls=[read]),
+                           ToolMessage(content="North 120, South 80", name="shell", tool_call_id="call-read",
+                                       id=fixture_id("read-result")),
+                           AIMessage(content="", id=fixture_id("install-step"), tool_calls=[install]))),
+         ("interrupt", APPROVAL)),
+        (("tool_done", {"name": "shell", "tool_call_id": "call-install", "content": "Action cancelled by user."}),
+         ("tool_call", {"name": "shell", "tool_call_id": "call-again"}),
+         ("done", "Trying another way")))
+    first = _waiting(platform, fake, "found-then-denied")
+
+    resumed = platform.registry.get(_resolve(platform, first.approval_id, "deny", "deny-install")["execution_id"])
+    assert resumed.producer_done.wait(10)
+    assert [event[0] for event in fake.events][-1] == "tool_done"  # the agent was never asked to go on
+    assert "North 120, South 80" in prompts[0][1].content and "winget install ffmpeg" in prompts[0][1].content
+    last = platform.transcript("conversation-a")["rows"][-1]
+    assert "Revenue by region: North 120, South 80." in json.dumps(last)
