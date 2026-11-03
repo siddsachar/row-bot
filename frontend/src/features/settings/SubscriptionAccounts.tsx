@@ -324,7 +324,9 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           ? result.flow?.state === 'connected'
             ? `Signed in to ${labels[provider]}.`
             : ''
-          : `${labels[provider]} ${operation === 'start' ? 'sign-in started' : operation === 'disconnect' ? 'disconnected' : operation === 'submit' ? 'signed in' : 'updated'}.`,
+          : operation === 'start' && result.flow
+            ? '' // the sign-in's own status line says where it is (U7)
+            : `${labels[provider]} ${operation === 'start' ? 'sign-in started' : operation === 'disconnect' ? 'disconnected' : operation === 'submit' ? 'signed in' : 'updated'}.`,
       );
       if (generation === epoch.current) props.onSaved(result.accounts);
     } catch (cause) {
@@ -496,6 +498,9 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     }
   }
   const login = safeLogin(flow?.authorization_url ?? null);
+  // The sign-in's own line, while it runs or when it ended without connecting.
+  const flowShown =
+    !!flow && (active || ['expired', 'uncertain'].includes(flow.state));
   const needsAttention =
     !!flow || !!code || !!reviewed || !!pending || !!error || !!notice;
   if (
@@ -549,7 +554,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         {busy === 'load' && <Skeleton label="Loading account" />}
         {error && <p role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}
-        {account && (
+        {account && !flowShown && (
           <p>
             {account.saved_state === 'saved' && props.signInExpired
               ? 'Sign-in expired'
@@ -567,7 +572,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           </p>
         )}
         {/* A finished sign-in is said once, by the notice above. */}
-        {flow && (active || ['expired', 'uncertain'].includes(flow.state)) && (
+        {flowShown && flow && (
           <div className="stack subscription-flow">
             <p className="subscription-flow-state" role="status">
               {signInStateLabel(flow.state)}
@@ -605,15 +610,18 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
             )}
             {active && (
               <div className="actions">
+                {/* While Row-Bot checks by itself there is nothing to press;
+                    a failed check stops that and brings Check now back (U4). */}
+                {!polling && (
+                  <Button disabled={locked} onClick={() => void checkNow()}>
+                    Check now
+                  </Button>
+                )}
                 <Button
-                  disabled={locked}
-                  onClick={() =>
-                    void (POLLED.has(provider) ? checkNow() : inspect())
-                  }
+                  variant="ghost"
+                  disabled={cancelling}
+                  onClick={() => void cancel()}
                 >
-                  Check now
-                </Button>
-                <Button disabled={cancelling} onClick={() => void cancel()}>
                   Cancel sign-in
                 </Button>
               </div>
