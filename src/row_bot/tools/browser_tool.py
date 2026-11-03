@@ -1101,7 +1101,13 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
         text = (f"Reusing it: it has this pack and keeps its sign-in (reset brings its made-up data back; new=true "
                 f"makes another only if the person asks).\n{text}")
     if item.status == "running" and action in {"create", "start"}:
-        text += " Open it with action open: this chat's browser signs in to it."
+        # Made or started to be used: it opens in this chat's browser, signed in, rather than a question about
+        # opening it (U15). A sign-in it hasn't written yet leaves it to action open.
+        try:
+            opened = browser_navigate(sandboxes.sign_in_url(item.sandbox_id))
+            text += f" Opened it in this chat's browser, signed in.\n{opened}"
+        except sandboxes.SandboxError:
+            text += " Open it with action open in a moment: this chat's browser signs in to it."
         if not sandboxes.has_model(item.sandbox_id):
             # Its own sign-in (decision 4): only the person signs in, so ask them; a demo needs real answers.
             text += (" It has no model yet: ask the person to open it from Settings › Data › Sandboxes and sign in to a "

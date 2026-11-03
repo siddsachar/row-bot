@@ -377,3 +377,15 @@ def test_a_workflow_reads_in_full_with_its_messages_notes_time_zone_and_conversa
     assert detail["conversation"].startswith("not yet"), "it hasn't run, so it has no conversation yet"
     listed = json.loads(_task_list())
     assert [entry["timezone"] for entry in listed if entry["id"] == task["id"]] == ["Europe/London"]
+
+
+def test_a_one_off_run_is_not_asked_to_keep_notes_for_a_next_run(workflows, platform):  # noqa: F811
+    """U21: a workflow that runs once has no next run, so its message comes without notes or the ask to keep them."""
+    fake = Recording(reply("The workspace holds 3 files."))
+    task = create(workflows, "List the files in the workspace.")
+    workflows.update_task(task["id"], at="2027-01-01T10:00", schedule=None)
+
+    done = run(workflows, platform, fake, workflows.get_task(task["id"]))
+
+    assert fake.prompts[0] == "List the files in the workspace."
+    assert done["status"] == "completed"
