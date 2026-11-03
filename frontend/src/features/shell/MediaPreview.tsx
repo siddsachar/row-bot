@@ -222,6 +222,10 @@ export function MediaPreview({
   const [failedUrl, setFailedUrl] = useState('');
   const [attempt, setAttempt] = useState(0);
   const player = useRef<HTMLMediaElement | null>(null);
+  // A file with no inline preview and a known size shows its card at once and
+  // is fetched only when it is downloaded: a 150 MB CSV is never pulled in
+  // just to draw its card.
+  const onDemand = previewKind(mime, '') === 'download' && size !== undefined;
   const setPlayer = useCallback((node: HTMLMediaElement | null) => {
     const previous = player.current;
     if (previous && previous !== node) {
@@ -233,6 +237,7 @@ export function MediaPreview({
   }, []);
 
   useEffect(() => {
+    if (onDemand) return;
     const abort = new AbortController();
     let owned = '';
     setResult(null);
@@ -286,8 +291,18 @@ export function MediaPreview({
       abort.abort();
       if (owned) URL.revokeObjectURL(owned);
     };
-  }, [controller, reference, mime, attempt]);
+  }, [controller, reference, mime, attempt, onDemand]);
 
+  if (onDemand)
+    return (
+      <FileOnDemand
+        reference={reference}
+        mime={mime}
+        label={label || 'Generated file'}
+        name={downloadName}
+        size={size}
+      />
+    );
   const current =
     result?.reference === reference && result.mime === mime ? result : null;
   const failure =
@@ -449,6 +464,79 @@ export function MediaPreview({
       {(current.kind !== 'image' || decodeFailed) && (
         <div className="media-preview-actions">{download}</div>
       )}
+    </div>
+  );
+}
+
+function FileOnDemand({
+  reference,
+  mime,
+  label,
+  name,
+  size,
+}: {
+  reference: string;
+  mime: string;
+  label: string;
+  name: string;
+  size: number;
+}) {
+  const { platform } = useRuntime();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  // The desktop window saves through its own Save dialog; a browser downloads.
+  async function save() {
+    setBusy(true);
+    setNotice('');
+    setError('');
+    const result = await platform.save(reference, name);
+    setBusy(false);
+    if (result.status === 'ok' && result.value.kind === 'exports')
+      setNotice(`Saved to ${result.value.folder} as ${result.value.fileName}.`);
+    else if (result.status === 'unavailable')
+      setError('Row-Bot couldn’t save that file. Try again.');
+  }
+  return (
+    <div
+      className="media-preview"
+      role="group"
+      aria-label={label}
+      data-media-ref={reference}
+      data-kind="download"
+    >
+      <div className="media-file-card">
+        <span className="media-file-icon" aria-hidden>
+          <FileIcon />
+        </span>
+        <span className="media-file-text">
+          <strong>{label}</strong>
+          <small>
+            {formatBytes(size)} · {fileKind(mime, name)}
+          </small>
+        </span>
+      </div>
+      {notice && <p role="status">{notice}</p>}
+      {error && (
+        <div role="alert" className="media-preview-error">
+          {error}
+        </div>
+      )}
+      <div className="media-preview-actions">
+        <button
+          type="button"
+          className="media-preview-download"
+          onClick={() => void save()}
+          disabled={busy}
+          aria-label={`Download ${label}`}
+          title={`Download ${label}`}
+        >
+          <Download aria-hidden />
+          <span className="media-preview-download-text">
+            {busy ? 'Downloading…' : 'Download'}
+          </span>
+        </button>
+      </div>
     </div>
   );
 }

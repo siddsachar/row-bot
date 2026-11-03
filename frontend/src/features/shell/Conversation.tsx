@@ -2145,6 +2145,7 @@ export default function Conversation({
         ...previous,
         attachments: [...previous.attachments, uploaded],
       });
+      setError('');
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
