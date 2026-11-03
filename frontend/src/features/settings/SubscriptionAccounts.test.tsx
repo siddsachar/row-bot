@@ -525,34 +525,44 @@ it('reports successful publication when cancellation arrives after connection', 
 });
 
 it('starts at once for a hosted first run, says its one line, and offers a new code when it expires (U3)', async () => {
-  const beforeStart = vi.fn();
-  const onStarted = vi.fn();
-  const p = props({
-    compact: true,
-    autoStart: true,
-    remote: true,
-    initialProvider: 'codex',
-    initialAction: 'connect',
-    guide: 'Paste the code and approve.',
-    beforeStart,
-    onStarted,
-  });
-  const { rerender } = render(<SubscriptionAccounts {...p} />);
-  expect(await screen.findByText('Paste the code and approve.')).toBeVisible();
-  expect(p.apply).toHaveBeenCalledOnce();
-  expect(onStarted).toHaveBeenCalledWith(flow);
-  expect(screen.queryByText('Enter this code when it asks.')).toBeNull();
-  rerender(<SubscriptionAccounts {...p} />);
-  expect(p.apply).toHaveBeenCalledOnce();
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const beforeStart = vi.fn();
+    const onStarted = vi.fn();
+    const p = props({
+      compact: true,
+      autoStart: true,
+      remote: true,
+      initialProvider: 'codex',
+      initialAction: 'connect',
+      guide: 'Paste the code and approve.',
+      beforeStart,
+      onStarted,
+    });
+    const { rerender } = render(<SubscriptionAccounts {...p} />);
+    expect(
+      await screen.findByText('Paste the code and approve.'),
+    ).toBeVisible();
+    expect(p.apply).toHaveBeenCalledOnce();
+    expect(onStarted).toHaveBeenCalledWith(flow);
+    expect(screen.queryByText('Enter this code when it asks.')).toBeNull();
+    rerender(<SubscriptionAccounts {...p} />);
+    expect(p.apply).toHaveBeenCalledOnce();
 
-  // The code ran out: one button gets a new one, copied from its own click.
-  vi.mocked(p.readFlow).mockResolvedValue({ ...flow, state: 'expired' });
-  fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Get a new code' }),
-  );
-  expect(beforeStart).toHaveBeenCalledOnce();
-  await waitFor(() => expect(p.apply).toHaveBeenCalledTimes(2));
+    // The code ran out: Row-Bot's own check finds it, and one button gets a
+    // new one, copied from its own click.
+    vi.mocked(p.readFlow).mockResolvedValue({ ...flow, state: 'expired' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100);
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Get a new code' }),
+    );
+    expect(beforeStart).toHaveBeenCalledOnce();
+    await waitFor(() => expect(p.apply).toHaveBeenCalledTimes(2));
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('tells a browser on another device what to paste for Grok (H5)', async () => {
