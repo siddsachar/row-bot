@@ -781,6 +781,17 @@
   .settings-danger-zone > .disclosure {
     border-color: CanvasText;
   }
+  /* A theme's preview is a picture of its colours, like a swatch: it keeps
+     them whole (forced, its text kept its colour on a black ground), and its
+     frame and the chosen one's ring use the system's. */
+  .appearance-mini {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+  }
+  .appearance-choice[aria-pressed='true'] .appearance-mini {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 /* Inline rows: text on the left, one action on the right. -------------- */
@@ -1113,6 +1124,7 @@
   font-size: var(--type-size-metadata);
 }
 .appearance-preview-pair {
+  container: appearance-choices / inline-size;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -1305,6 +1317,19 @@
   height: 10px;
   border-radius: 50%;
   background: var(--accent-on-solid);
+}
+/* Three cards in a narrow pane (Settings beside a chat, or zoomed in): each
+   preview is its chat alone, and System's second line goes (its name keeps
+   it), so the words stay readable and the cards one row high. */
+@container appearance-choices (max-width: 600px) {
+  .appearance-mini {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .appearance-mini-sidebar,
+  .appearance-mini-context,
+  .appearance-choice-label small {
+    display: none;
+  }
 }
 @media (max-width: 700px) {
   .appearance-preview-pair {
