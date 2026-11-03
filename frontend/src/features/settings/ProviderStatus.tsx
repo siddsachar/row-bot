@@ -113,8 +113,10 @@ function cardState(card: ProviderLiveCard) {
   if (card.configured && card.source === 'external_cli')
     return { label: 'Linked', tone: 'saved' };
   if (card.configured) return { label: 'Connected', tone: 'enabled' };
+  // Signed in on this computer but not in Row-Bot: its hint says so, and its
+  // dialog says Not connected too (U4).
   if (card.source === 'external_cli_detected')
-    return { label: 'Detected', tone: 'saved' };
+    return { label: 'Not connected', tone: 'unknown' };
   if (card.source === 'not_running')
     return { label: 'Not running', tone: 'warning' };
   return { label: 'Not connected', tone: 'unknown' };
