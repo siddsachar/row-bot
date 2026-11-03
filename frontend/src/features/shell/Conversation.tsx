@@ -1515,6 +1515,11 @@ export default function Conversation({
           value: capturedDraft,
         };
         setPending({ conversation: target, id: claim.steeringId!, text });
+        // Sending is reading the latest: the chat follows the message and its
+        // reply, never leaving them behind a "new" pill (U34).
+        followingLatest.current = true;
+        setShowLatest(false);
+        scrollToLatest();
       }
       setUnknown({ key: scope, claim });
       const sent = claim;

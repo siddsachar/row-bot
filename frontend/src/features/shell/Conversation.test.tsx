@@ -3827,3 +3827,38 @@ it('says an incognito chat is incognito in its header and its composer, and nowh
   );
   expect(screen.queryByRole('img', { name: /Incognito/ })).toBeNull();
 });
+
+it('follows the latest again when the reader sends a message (U34)', async () => {
+  idleConversation();
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'assistant:earlier',
+        message_id: 'earlier',
+        role: 'assistant',
+        blocks: [{ type: 'text', text: 'An earlier answer.' }],
+      },
+    ],
+    generation: null,
+  } as unknown as Snapshot;
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  transcriptGeometry();
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  log.scrollTop = 250;
+  fireEvent.scroll(log);
+  expect(screen.getByRole('button', { name: 'Latest messages' })).toBeVisible();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  expect(mock.intent).toHaveBeenCalled();
+  expect(log.scrollTop).toBe(800);
+  expect(screen.queryByRole('button', { name: 'Latest messages' })).toBeNull();
+});
