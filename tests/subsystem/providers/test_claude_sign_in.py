@@ -302,11 +302,15 @@ def test_installing_claude_code_closes_a_sign_in_left_open_and_waits_for_none(pa
     client, _, _ = client_app(remote=True)
     with client:
         _, headers = bootstrap(client)
-        _open(client, headers)
+        left_open = _open(client, headers).json()["sign_in_id"]
         started = client.post("/api/v1/settings/providers/claude-plan/install", json={"update": True},
                               headers=headers)
         assert started.status_code == 200 and started.json()["state"] == "running"
         assert panel.started[0].closed and not panel.manager.running() and installer.starts == 1
+        # The panel's read already on its way is told it closed, with nothing of its output, not "not found".
+        after = _read(client, headers, left_open)
+        assert after.status_code == 200
+        assert (after.json()["status"], after.json()["ended"], after.json()["frames"]) == ("ended", "closed", [])
         # While it installs, no sign-in starts.
         busy = _open(client, headers)
         assert busy.status_code == 409 and busy.json()["code"] == "claude_code_installing"
