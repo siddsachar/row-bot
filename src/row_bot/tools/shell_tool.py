@@ -94,7 +94,7 @@ _SAFE_COMMANDS: dict[str, tuple[str, ...]] = {
     "get-location": (), "set-location": (), "get-childitem": (),
     # Reading
     "cat": (), "head": (), "tail": (), "less": ("-o", "--log-file"), "more": (), "type": (),
-    "get-content": (), "select-string": (),
+    "get-content": (), "select-string": (), "import-csv": (),
     "wc": (), "file": ("-c", "--compile"), "stat": (), "du": (), "df": (),
     # Info
     "echo": (), "whoami": (), "uname": (), "which": (), "where": (), "get-command": (),
@@ -104,6 +104,8 @@ _SAFE_COMMANDS: dict[str, tuple[str, ...]] = {
     "grep": (), "rg": ("--pre", "--hostname-bin"), "fd": ("-x", "--exec", "--exec-batch"), "ag": ("--pager",),
     # System info
     "systeminfo": (), "ver": (), "lsb_release": (), "ps": (), "tasklist": (),
+    # -ComputerName (or any abbreviation of it) signs in to another computer.
+    "get-process": ("-c",),
     "ping": (), "nslookup": (), "dig": (), "traceroute": (), "tracert": (),
 }
 # Exact read-only command lines.
@@ -130,7 +132,7 @@ _HOSTNAME_READ_OPTIONS = frozenset({"-s", "-f", "-d", "-i", "-I", "-A", "--short
 # and "HKLM:" reads the registry, not files.
 _POWERSHELL_PATH_COMMANDS = frozenset({
     "ls", "dir", "cat", "type", "more", "cd", "pushd",
-    "get-childitem", "get-content", "set-location", "select-string",
+    "get-childitem", "get-content", "set-location", "select-string", "import-csv",
 })
 _PROVIDER_PATH = re.compile(r"^(env|variable|function|alias|cert|hklm|hkcu|wsman):|\w::", re.IGNORECASE)
 # \\server\share (or //server/share): reading it connects to that server and, on Windows, signs in to it.

