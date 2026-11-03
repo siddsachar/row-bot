@@ -61,6 +61,14 @@
     min-height: 44px;
   }
 }
+/* On a narrow screen the tabs scroll: the right edge fades so the hidden ones
+   read as more to come, not as cut off. */
+@media (max-width: 640px) {
+  .home-view .home-tabs > .tabs {
+    padding-right: 40px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  }
+}
 .home-view .home-tabs > .tab-content {
   flex: 1;
   min-height: 0;
