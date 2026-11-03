@@ -16,6 +16,7 @@ from pydantic import (
     model_validator,
 )
 
+from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
 from row_bot.application.live_updates import Topic as LiveTopic
 
 OpaqueId = Annotated[
@@ -6734,7 +6735,7 @@ class ArtifactAssetUploadPayload(WireModel):
     upload_id: UUID
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
 
 
 class ArtifactDocumentImportPayload(WireModel):
@@ -6742,7 +6743,7 @@ class ArtifactDocumentImportPayload(WireModel):
     upload_id: UUID
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     replace: bool
 
 
@@ -6751,7 +6752,7 @@ class ArtifactDocumentImportPreviewRequest(WireModel):
     upload_id: UUID
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
 
 
 class ArtifactDocumentImportPage(WireModel):
@@ -8360,7 +8361,7 @@ class AttachmentView(WireModel):
         "application/pdf",
         "application/octet-stream",
     ]
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     revision: Revision
 
 
@@ -8437,7 +8438,7 @@ class AttachmentBlock(WireModel):
     attachment_ref: Reference
     name: Annotated[str, StringConstraints(min_length=1, max_length=240)]
     mime_type: str = Field(min_length=1, max_length=128)
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     revision: Revision
 
 
@@ -9009,6 +9010,10 @@ class XPostMedia(WireModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{12}$")
     kind: Literal["image", "gif", "video"]
     thumbnail: str = Field(default="", max_length=32768, pattern=r"^(data:image/jpeg;base64,[A-Za-z0-9+/=]+)?$")
+    silent: bool = False  # A video with nothing to hear.
+    # Its Library › Media reference, to open it before it goes; "" for a file on this computer.
+    ref: str = Field(default="", max_length=256, pattern=r"^([A-Za-z0-9_-]+:[0-9a-f-]{36})?$")
+    mime: str = Field(default="", max_length=100, pattern=r"^([a-z]+/[a-z0-9.+-]+)?$")
 
 
 class XPostApproval(WireModel):
@@ -9607,15 +9612,15 @@ class Unsubscribed(WireModel):
 class UploadRequest(WireModel):
     conversation_id: OpaqueId
     name: str = Field(min_length=1, max_length=240)
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     batch_id: UUID
 
 
 class UploadView(WireModel):
     upload_id: UUID
-    size_bytes: int = Field(ge=1, le=26214400)
-    received_bytes: int = Field(ge=0, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
+    received_bytes: int = Field(ge=0, le=MAX_ATTACHMENT_BYTES)
     chunk_bytes: Literal[1048576] = 1048576
     expires_in_seconds: int = Field(ge=0, le=1800)
 

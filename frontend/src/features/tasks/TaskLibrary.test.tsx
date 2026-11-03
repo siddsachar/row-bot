@@ -190,8 +190,9 @@ it('shows recorded task facts and opens its existing conversation', async () => 
   show(load);
   await screen.findByText('Saved task');
   const saved = row('Saved task');
+  // "No runs yet" is said once, by the run chart (U36).
   expect(saved.querySelector('.workflow-metadata')).toHaveTextContent(
-    'Reminder·Never run·Run manually',
+    'Reminder·Run manually',
   );
   expect(within(saved).getByText('Saved description')).toHaveAttribute(
     'title',
@@ -1278,7 +1279,8 @@ it('names the profile and approvals a run uses on the row, with Auto approvals s
   );
   await screen.findByText('Careful');
   const careful = within(row('Careful'));
-  expect(careful.getByText('Default')).toBeVisible();
+  // The default agent goes untagged (U36); what a run may do never does.
+  expect(careful.queryByText('Default')).toBeNull();
   expect(careful.getByText('Asks before actions')).not.toHaveAttribute(
     'data-attention',
   );

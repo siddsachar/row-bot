@@ -392,9 +392,16 @@ def acknowledge_consumed(handle: Any, message_ids: Sequence[str] | None = None) 
 
 
 def recover_queue(epoch: str) -> None:
-    """Expose retained inputs after process loss without dispatching any work."""
+    """Expose retained inputs after process loss without dispatching any work.
+
+    A message the turn already read (steered) is in the conversation: it never waits again. Earlier, recovery
+    marked one paused, and it stayed listed as "Continues when you resume" for good, with nothing to resume;
+    one left like that is put back as read.
+    """
     with admissions.transaction() as conn:
-        rows = [dict(row) for row in conn.execute("SELECT * FROM generation_passes WHERE queue_state!='' AND queue_epoch!=? AND queue_state NOT IN ('consumed','cancelled')", (epoch,))]
+        conn.execute("UPDATE generation_passes SET queue_state='steered',queue_revision=queue_revision+1 "
+                     "WHERE state='cancelled' AND queue_state='paused'")
+        rows = [dict(row) for row in conn.execute("SELECT * FROM generation_passes WHERE queue_state!='' AND queue_epoch!=? AND queue_state NOT IN ('consumed','cancelled','steered')", (epoch,))]
     for row in rows:
         if row["state"] == "started" and admissions._owner_alive(row):
             continue
@@ -410,7 +417,7 @@ def recover_queue(epoch: str) -> None:
                 state = "cancelled"
             revision = max(int(row["queue_revision"]), int(message.additional_kwargs["client_queue"]["revision"]) if message is not None else 0) + 1
             with admissions.transaction() as conn:
-                conn.execute("UPDATE generation_passes SET state=?,queue_state=?,queue_revision=?,queue_epoch=? WHERE pass_id=? AND queue_state NOT IN ('consumed','cancelled')", (state, queue_state, revision, epoch, row["pass_id"]))
+                conn.execute("UPDATE generation_passes SET state=?,queue_state=?,queue_revision=?,queue_epoch=? WHERE pass_id=? AND queue_state NOT IN ('consumed','cancelled','steered')", (state, queue_state, revision, epoch, row["pass_id"]))
                 if row["command_id"] and message is not None:
                     result = {"command_id": row["command_id"], "conversation_id": row["conversation_id"],
                               "submission_id": row["submission_id"], "generation_id": row["generation_id"],

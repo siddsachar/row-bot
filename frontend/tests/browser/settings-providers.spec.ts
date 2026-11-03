@@ -153,7 +153,7 @@ test('A keyed custom endpoint opens its credential dialog after Save', async ({
   ).toBeVisible();
 });
 
-test('ChatGPT sign-in runs from its row and Check now advances the flow', async ({
+test('ChatGPT sign-in runs from its row and connects by itself, with nothing to press', async ({
   page,
 }) => {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -173,17 +173,17 @@ test('ChatGPT sign-in runs from its row and Check now advances the flow', async 
     name: 'Manage subscription account',
   });
   await dialog.getByRole('button', { name: 'Connect' }).click();
-  // The code is shown large with a Copy button; the sign-in is also checked
-  // by itself, so "Check now" only saves waiting (Phase 10).
+  // The code is shown large with a Copy button; the sign-in is checked by
+  // itself, so there is no Check now and one status line at a time (U4, U7).
   await expect(dialog.getByText('SYNTHETIC', { exact: true })).toBeVisible();
   await expect(
     dialog.getByRole('button', { name: 'Copy device code' }),
   ).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Check now' })).toHaveCount(
-    1,
+    0,
   );
-  await dialog.getByRole('button', { name: 'Check now' }).click();
-  await expect(dialog.getByText('Connected')).toBeVisible();
+  await expect(dialog.getByText('Not connected')).toHaveCount(0);
+  await expect(dialog.getByText('Connected')).toBeVisible({ timeout: 15_000 });
 });
 
 test('xAI OAuth client options save and reset from the provider row', async ({

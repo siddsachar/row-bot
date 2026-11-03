@@ -241,7 +241,7 @@ def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_the
     assert plan.graph.index("trim=start=7:end=9") < plan.graph.index("trim=start=0:end=4")
     assert "setpts=PTS/2" in plan.graph and "atempo=2" in plan.graph
     assert "crop=" in plan.graph, "the second scene punches in"
-    assert len(plan.overlays) == 3, "the card, the first scene's caption and the 2× badge"
+    assert len(plan.overlays) == 2, "the card and the first scene's caption; a sped-up scene has no badge (U26)"
     assert plan.voices == [(2.0, "sound-1.wav")] and "file:narration.wav" in plan.args, "its line starts with it"
     assert (plan.duration, plan.marks) == (4.0, [0.0, 2.0, 4.0])
     assert plan.summary == "Joined 2 videos and cut 2 scenes"
@@ -300,7 +300,7 @@ def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_th
         SceneCut(input=0, end=2, zoom=(0.1, 0.4, 0.6, 0.2))])], "output.mp4")
     assert "crop=384:72:64:144" in wide.graph and "boxblur" in wide.graph and "crop=202:360" not in wide.graph
     assert _every_stream_is_used(wide)
-    assert len(plan.overlays) == 1, "the 2× badge, laid on the tall picture"
+    assert plan.overlays == [], "no speed badge on a sped-up scene (U26)"
     same = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="16:9", scenes=[SceneCut(input=0)])],
                       "output.mp4")
     assert "crop=" not in same.graph and (same.width, same.height) == (640, 360), "its own shape: as it is"
@@ -388,8 +388,11 @@ def test_a_caption_shows_the_line_a_phrase_at_a_time_while_it_is_said():
 
     line = ("Row-Bot opens the shop's orders, finds the three that haven't shipped, and drafts a note to each "
             "customer. You check them, and send.")
-    assert phrases(line) == ["Row-Bot opens the shop's orders,", "finds the three that haven't shipped,",
+    # A caption ends at the pause, not on its comma (U27); a full stop stays.
+    assert phrases(line) == ["Row-Bot opens the shop's orders", "finds the three that haven't shipped",
                              "and drafts a note to each customer.", "You check them, and send."]
+    assert phrases("Search for your mountain; then read its height: 8,848.86 m.") == [
+        "Search for your mountain", "then read its height", "8,848.86 m."]
     scenes = Step(op="scenes", style="caption", scenes=[
         SceneCut(input=0, end=6, line=line, voice="line-1.wav", voice_seconds=5.0)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4", sounds={"line-1.wav": "sound-1.wav"})
@@ -566,3 +569,17 @@ def test_a_long_narrated_captioned_project_is_one_short_command_with_each_pictur
     for png, (x, y, width, height) in zip(plan.overlays, boxes):
         assert f"crop={width}:{height}:{x}:{y}" in plan.graph
         assert sheet.crop((x, y, x + width, y + height)).tobytes() == _picture(png).convert("RGBA").tobytes()
+
+
+def test_a_long_caption_shows_phrase_by_phrase_over_its_own_time_never_cut_short():
+    """D16: a long SRT cue was cut short with "…" (a walking-directions demo dropped its captions for it). It now
+    shows phrase by phrase, each for its share of the cue's time, as a project's lines do; a short cue is one."""
+    long = ("Row-Bot opens the map, finds the walking route from the station to the museum, and reads out each "
+            "turn while you follow along on the screen.")
+    srt = f"1\n00:00:00,500 --> 00:00:05,500\n{long}\n\n2\n00:00:05,500 --> 00:00:06,000\nDone."
+    plan = _plan([{"op": "captions", "text": srt}])
+    shown = [(float(a), float(b)) for a, b in re.findall(r"between\(t,([\d.]+),([\d.]+)\)", plan.graph)]
+    assert len(shown) >= 4, "the long cue in phrases, then the short one"
+    assert shown[0][0] == 0.5 and shown[-2][1] == pytest.approx(5.5, abs=1e-3), "within the cue's own time"
+    assert all(a[1] == pytest.approx(b[0], abs=1e-3) for a, b in zip(shown, shown[1:])), "one after another"
+    assert shown[-1] == (5.5, 6.0)

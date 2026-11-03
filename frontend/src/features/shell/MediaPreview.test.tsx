@@ -9,7 +9,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileKind, forgetMediaPreviews, MediaPreview } from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn() }));
-vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
+const platform = vi.hoisted(() => ({ save: vi.fn(), discover: vi.fn() }));
+vi.mock('../../runtime', () => ({
+  useRuntime: () => ({ controller: mock, platform }),
+}));
 vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({
     open: vi.fn(),
@@ -343,4 +346,82 @@ it('waits for the same download when it mounts again before that download ends',
   expect(await screen.findByLabelText('Generated video result')).toBeVisible();
   expect(mock.download).toHaveBeenCalledTimes(1);
   expect(mock.download.mock.calls[0][1].aborted).toBe(false);
+});
+
+it('shows a large file it cannot preview at once and fetches it only when saved', async () => {
+  platform.save.mockResolvedValue({ status: 'ok', value: { kind: 'file' } });
+  render(
+    <MediaPreview
+      reference="opaque-reference"
+      mime="application/octet-stream"
+      label="sales-2026.csv"
+      downloadName="sales-2026.csv"
+      size={150 * 1024 * 1024}
+    />,
+  );
+  expect(screen.getByText('sales-2026.csv')).toBeInTheDocument();
+  expect(screen.getByText(/150(\.0)? MB/)).toBeInTheDocument();
+  expect(mock.download).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Download sales-2026.csv' }),
+  );
+  await vi.waitFor(() =>
+    expect(platform.save).toHaveBeenCalledExactlyOnceWith(
+      'opaque-reference',
+      'sales-2026.csv',
+    ),
+  );
+  expect(mock.download).not.toHaveBeenCalled();
+});
+
+it('saves a preview through the desktop window’s Save dialog, which ignores a download link (U46)', async () => {
+  mock.download.mockResolvedValue(new Blob(['clip'], { type: 'video/mp4' }));
+  platform.discover.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'pywebview', platform: 'windows', capabilities: ['save'] },
+  });
+  platform.save.mockResolvedValue({ status: 'ok', value: { kind: 'file' } });
+  render(
+    <MediaPreview
+      reference="clip-reference"
+      mime="video/mp4"
+      label="demo.mp4"
+      downloadName="demo.mp4"
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('link', { name: 'Download demo.mp4' }),
+  );
+  await vi.waitFor(() =>
+    expect(platform.save).toHaveBeenCalledExactlyOnceWith(
+      'clip-reference',
+      'demo.mp4',
+    ),
+  );
+});
+
+it('in the media viewer shows the picture itself with its download, never another full-size button', async () => {
+  mock.download.mockResolvedValue(
+    new Blob(['fake pixels'], { type: 'image/png' }),
+  );
+  render(
+    <MediaPreview
+      reference="opaque-reference"
+      mime="image/png"
+      label="chart.png"
+      downloadName="chart.png"
+      fill
+    />,
+  );
+  expect(await screen.findByAltText('chart.png')).toBeVisible();
+  expect(screen.getByRole('group', { name: 'chart.png' })).toHaveAttribute(
+    'data-fill',
+    'true',
+  );
+  expect(
+    screen.queryByRole('button', { name: /full size/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Download chart.png' }),
+  ).toHaveAttribute('download', 'chart.png');
 });

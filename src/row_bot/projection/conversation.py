@@ -55,6 +55,30 @@ def _row_text(row: dict) -> str | None:
     return "".join(str(block.get("text") or "") for block in blocks) or None
 
 
+def without_saved_steps(rows: list[dict]) -> list[dict]:
+    """A running turn's live row streams every step's text, and a read mid-turn also brings in the steps saved
+    so far: the live row keeps only the text after them, so a chat opened mid-run shows each step once (U12)."""
+    last_person = max((index for index, row in enumerate(rows) if row.get("role") == "user"), default=-1)
+    steps = [text.strip() for row in rows[last_person + 1:]
+             if row.get("role") == "assistant" and not str(row["id"]).startswith("assistant:live:")
+             and (text := _row_text(row))]
+    if not steps:
+        return rows
+    shown = []
+    for row in rows:
+        text = _row_text(row) if str(row["id"]).startswith("assistant:live:") else None
+        rest = text or ""
+        for step in steps:
+            if not rest.lstrip().startswith(step):
+                break
+            rest = rest.lstrip()[len(step):]
+        if text is None or rest == text:
+            shown.append(row)
+        elif rest.strip():
+            shown.append({**row, "blocks": [{"type": "text", "text": rest.lstrip()}]})
+    return shown
+
+
 @dataclass
 class _Conversation:
     revision: int = 0

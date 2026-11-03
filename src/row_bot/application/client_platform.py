@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 from row_bot.runtime import admissions
 from row_bot.runtime.executions import generation_registry
-from row_bot.projection.conversation import conversation_projection
+from row_bot.projection.conversation import conversation_projection, without_saved_steps
 from row_bot.application.live_updates import publish as _publish_live, publishes as _publishes_live
 
 
@@ -199,15 +199,68 @@ def _x_post_edit(interrupt: Any, payload: dict) -> tuple[str, dict]:
     return str(items[0]["__interrupt_id"]), {"x_post_edit": {"text": str(edit.get("text") or ""), "media": kept}}
 
 
+_DENIED_INSTRUCTION = (
+    "The person said no to the last action, so it wasn't done, and no tools are available now. Answer their "
+    "request with what the earlier steps below already found, then say in one sentence what wasn't done because "
+    "they said no. Don't suggest another way to do what they declined.")
+
+
+def _denied_reply(conversation_id: str, model_ref: str) -> str:
+    """After a no, what the turn had already found (U19): one call to the chat's own model with no tools, so it
+    can't try the declined action again or another way round it. Empty when nothing was found before the no, or
+    the call fails (the plain reply stands)."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from row_bot import threads
+    from row_bot.tools.approval_gate import APPROVAL_DENIED
+    from row_bot.turn_context import is_turn_context_message
+
+    def words(message: Any) -> str:
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+        return str(content or "").strip()
+
+    messages = [message for message in threads.get_latest_checkpoint_messages(conversation_id)
+                if not is_turn_context_message(message)]
+    start = max((index for index, message in enumerate(messages) if getattr(message, "type", "") == "human"),
+                default=-1)
+    turn = messages[start + 1:]
+    if start < 0 or not any(message.type == "tool" and words(message) != APPROVAL_DENIED for message in turn):
+        return ""
+    steps = []
+    for message in turn:
+        if message.type == "ai":
+            steps += [words(message)] if words(message) else []
+            steps += [f"Ran {call.get('name')} {json.dumps(call.get('args') or {}, ensure_ascii=False)[:500]}"
+                      for call in getattr(message, "tool_calls", ()) or ()]
+        elif message.type == "tool":
+            steps.append(f"Result of {getattr(message, 'name', '') or 'the step'}:\n{words(message)[:4000]}")
+    try:
+        from row_bot.models import get_llm_for
+        from row_bot.providers.resolution import resolve_provider_config
+        from row_bot.providers.usage_ledger import with_usage_purpose
+
+        model = with_usage_purpose(get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
+                                   "main", thread_id=conversation_id)
+        answer = model.invoke([SystemMessage(content=_DENIED_INSTRUCTION), HumanMessage(content=(
+            f"Their request:\n{words(messages[start])[:4000]}\n\nThe steps so far:\n" + "\n\n".join(steps)))])
+        return str(answer.text).strip()
+    except Exception as exc:  # A provider failure keeps the plain reply; nothing is lost but the summary.
+        _LOG.warning("The reply after a no for %s failed (%s)", conversation_id, type(exc).__name__)
+        return ""
+
+
 def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: str,
-                    expected_results: int, computer: bool, memory: bool = False) -> Iterator[tuple]:
+                    expected_results: int, computer: bool, memory: bool = False,
+                    model_ref: str = "") -> Iterator[tuple]:
     """A denied approval ends the turn once the denied calls have their results.
 
-    The model is not asked again, so it cannot retry the action or reach for
+    The model is not asked to go on, so it cannot retry the action or reach for
     another way to do it: the stream is closed there, and the reply says so.
     Closing it before LangGraph saves the tool step leaves the results unsaved,
     so they are recorded before the reply (B234). The reply never claims nothing
-    happened: earlier steps of the turn may have acted (U13).
+    happened: earlier steps of the turn may have acted (U13), and what they found
+    is reported (U19).
     """
     message = ("You said no, so Row-Bot didn't use the computer for that." if computer
                else "You chose not to save that, so Row-Bot didn't." if memory
@@ -235,6 +288,10 @@ def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: 
     from langchain_core.messages import AIMessage
     from row_bot import threads
     from row_bot.tools.approval_gate import APPROVAL_DENIED
+    if model_ref and not computer and not memory:
+        # The denied calls get their results first, so the reply is written from the turn as it ended.
+        threads.answer_open_tool_calls(conversation_id, APPROVAL_DENIED)
+        message = _denied_reply(conversation_id, model_ref) or message
     if threads.answer_open_tool_calls(conversation_id, APPROVAL_DENIED,
                                       then=[AIMessage(id=identity, content=message)]):
         yield ("output_binding", {"native_message_id": identity,
@@ -832,6 +889,29 @@ class ClientPlatformService:
                 "external_outcome": "not_applicable", "approval_id": approval_id,
                 "can_stop": False}
 
+    @staticmethod
+    def _interrupted_generation(conversation_id: str) -> dict | None:
+        """The conversation's last turn, when it ended interrupted (it failed, or Row-Bot closed while it ran).
+
+        Its live state is in memory only, so after a restart the chat showed neither that it stopped nor Resume
+        (D6); the turn's own record restores both. Resume reads the saved conversation, not that state.
+        """
+        try:
+            with admissions.transaction() as conn:
+                row = conn.execute(
+                    "SELECT pass_id, generation_id, state FROM generation_passes WHERE conversation_id=? AND "
+                    "state IN ('terminal','interrupted') ORDER BY admission_sequence DESC LIMIT 1",
+                    (conversation_id,)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None or row["state"] != "interrupted":
+            return None
+        return {"execution_id": f"pass:{row['pass_id']}", "conversation_id": conversation_id,
+                "generation_id": str(row["generation_id"]), "pass_id": str(row["pass_id"]), "segment_id": None,
+                "status": "interrupted", "revision": "0", "cancel_requested": False, "quiesced": True,
+                "cleanup_complete": True, "external_outcome": "not_applicable", "approval_id": None,
+                "can_stop": False}
+
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
         with _COMMAND_LOCK:
@@ -839,7 +919,8 @@ class ClientPlatformService:
             self._refresh_checkpoint(conversation_id)
             snapshot = self.projection.snapshot(conversation_id)
             if snapshot.get("generation") is None and not self.registry.active(conversation_id):
-                snapshot["generation"] = self._paused_approval_generation(conversation_id)
+                snapshot["generation"] = (self._paused_approval_generation(conversation_id)
+                                          or self._interrupted_generation(conversation_id))
             present = {row["id"] for row in snapshot["rows"]}
             # Only live rows the projection dropped to stay within its bound come back from their live text. A
             # live row retired as the twin of its saved answer never does: it came back as an empty "Paged
@@ -854,6 +935,7 @@ class ClientPlatformService:
                     snapshot["rows"].append(row)
                     while len(json.dumps(snapshot["rows"], ensure_ascii=False).encode()) > self.projection.MAX_CONTENT_BYTES:
                         snapshot["rows"].pop(0)
+            snapshot["rows"] = without_saved_steps(snapshot["rows"])
             return snapshot
 
     def transcript(self, conversation_id: str, limit: int = 100, cursor: str | None = None) -> dict:
@@ -1673,7 +1755,7 @@ class ClientPlatformService:
                             identity=str(uuid.uuid5(uuid.NAMESPACE_URL, f"row-bot:denied:{handle.pass_id}")),
                             expected_results=len(approval_context.get("interrupt_ids") or ()),
                             computer=bool(approval_context.get("computer")),
-                            memory=bool(approval_context.get("memory")))
+                            memory=bool(approval_context.get("memory")), model_ref=handle.model_ref)
                     for event in events:
                         self.registry.check_dispatch(handle)
                         if self.stream_factory is not None and event[0] in {"token", "tool_start", "tool_done", "output_binding"}:

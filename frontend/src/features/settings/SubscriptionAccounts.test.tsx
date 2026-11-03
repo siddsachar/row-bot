@@ -174,30 +174,44 @@ it('a saved sign-in that expired says so and offers Reconnect (B342)', async () 
   expect(screen.getByText(/Sign-in expired/)).toBeVisible();
   expect(screen.queryByText(/Expires/)).toBeNull();
 });
-it('Check now on a ChatGPT sign-in reads it, so one the server finished shows as signed in (B357)', async () => {
-  const p = props({
-    compact: true,
-    initialProvider: 'codex',
-    initialAction: 'connect',
-  });
-  render(<SubscriptionAccounts {...p} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
-  await screen.findByText('Waiting for you to sign in');
-  const flow = vi.mocked(p.apply).mock.calls[0];
-  expect(flow).toBeDefined();
-  vi.mocked(p.readFlow).mockResolvedValue({
-    ...(await vi.mocked(p.apply).mock.results[0].value).flow,
-    state: 'connected',
-    quiescent: true,
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
-  expect(
-    await screen.findByText('Signed in to ChatGPT / Codex.'),
-  ).toBeVisible();
-  // A read, never a Check command whose revision the server's finish moved.
-  expect(p.review).toHaveBeenCalledTimes(1);
-  expect(p.apply).toHaveBeenCalledTimes(1);
-  expect(screen.queryByRole('alert')).toBeNull();
+it('Check now appears on a ChatGPT sign-in only once its own checking stops, and reads it (U4, B357)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const p = props({
+      compact: true,
+      initialProvider: 'codex',
+      initialAction: 'connect',
+    });
+    render(<SubscriptionAccounts {...p} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+    await screen.findByText('Waiting for you to sign in');
+    // Row-Bot checks by itself: one status line, nothing to press but Cancel.
+    expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull();
+    expect(screen.queryByText(/sign-in started/)).toBeNull();
+    expect(screen.queryByText('Not connected')).toBeNull();
+    const flow = (await vi.mocked(p.apply).mock.results[0].value).flow;
+    vi.mocked(p.readFlow).mockRejectedValueOnce({
+      code: 'dependency_unavailable',
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100);
+    });
+    vi.mocked(p.readFlow).mockResolvedValue({
+      ...flow,
+      state: 'connected',
+      quiescent: true,
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Check now' }));
+    expect(
+      await screen.findByText('Signed in to ChatGPT / Codex.'),
+    ).toBeVisible();
+    // A read, never a Check command whose revision the server's finish moved.
+    expect(p.review).toHaveBeenCalledTimes(1);
+    expect(p.apply).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it('keeps an active sign-in attached to its provider when another row is opened', async () => {
   const session = new SubscriptionAccountsSession();

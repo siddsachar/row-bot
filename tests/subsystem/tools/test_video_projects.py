@@ -481,3 +481,62 @@ def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_i
     words = video_projects.summary(video_projects.get(project.project_id))
     assert "Review sheet: Launch demo v1 review.jpg" in words and "analyze_image before saying the video is done" in words
     assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"
+
+
+def test_a_narrated_video_needing_ffmpeg_and_the_voice_asks_once_for_both(studio, monkeypatch):
+    """U25: one card before making it, naming both downloads, not two in a row."""
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.tools import approval_gate, video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
+    wheel = ffmpeg_runtime.WHEELS["windows-x86_64"]
+    monkeypatch.setattr(ffmpeg_runtime, "current_wheel", lambda: wheel)
+    monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: False)
+    asked: list[str] = []
+    monkeypatch.setattr(approval_gate, "approval_check", lambda payload, **_: asked.append(payload["question"]) or (
+        "The person didn't allow the downloads; nothing was downloaded or made.", ""))
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+
+    said = video_project_tool._video(action="make", project=project.project_id)
+
+    assert said.startswith("The person didn't allow the downloads")
+    assert asked == [f"Making this video needs ffmpeg (about {ffmpeg_runtime.size_words(wheel.size)}) and Row-Bot's "
+                     "voice (Kokoro, about 206 MB). Download both now?"]
+    assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
+
+
+def test_a_wait_in_a_recorded_scene_needs_attention_once_its_line_is_said(studio):
+    """Run 10: a "Thinking… 26s" shot survived into a finished demo; a spinner or a ticking timer moves, so the
+    still check missed it. What the recording logged (clicks, typing, scrolls) shows where nothing was done: a
+    wait of 8 s or more on the video after the scene's line needs attention; one sped up below that doesn't."""
+    import time
+
+    from row_bot import recordings, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.video_editing import InputVideo, SceneCut, Step, VideoInfo, build_plan
+
+    saved = register_attachment("conversation-a", "generated-recording.mp4", MP4)
+    record = recordings.Recording(recording_id="rec-1a2b3c4d", conversation_id="conversation-a", kind="browser",
+                                  started_at=time.time() - 60, max_seconds=300, status="saved",
+                                  media_ref=saved["attachment_ref"], mime_type="video/mp4",
+                                  actions=[[1.0, 2.0, "click"], [3.0, 6.0, "type"], [40.0, 41.0, "scroll"]])
+    record.duration_seconds = 50.0
+    recordings._ensure_loaded()
+    recordings._RECORDS[record.recording_id] = record
+
+    waits = video_projects.scene_waits("rec-1a2b3c4d", 0.0, 50.0)
+    assert waits == ((0.0, 1.0), (2.0, 3.0), (6.0, 40.0), (41.0, 50.0))
+
+    recording = [InputVideo("input-1.mp4", VideoInfo(50.0, 640, 360, 30.0, False))]
+
+    def review(speed: float) -> list[str]:
+        scene = SceneCut(input=0, start=0.0, end=50.0, speed=speed, line="Row-Bot reads the brief.",
+                         voice="line-1.wav", voice_seconds=5.0, waits=waits)
+        return build_plan(recording, [Step(op="scenes", scenes=[scene])], "output.mp4",
+                          sounds={"line-1.wav": "sound-1.wav"}).review
+
+    assert [line for line in review(1.0) if line.startswith("Waiting")] == [
+        "Waiting: 0:06–0:40 shows nothing being done. Speed that part up or cut it.",
+        "Waiting: 0:41–0:50 shows nothing being done. Speed that part up or cut it."]
+    assert not [line for line in review(8.0) if line.startswith("Waiting")], "sped up, the waits pass quickly"

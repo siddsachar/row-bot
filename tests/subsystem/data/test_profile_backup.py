@@ -315,7 +315,7 @@ def test_an_older_backup_with_files_now_left_out_still_restores_without_them(tmp
 
 
 @pytest.mark.platform
-def test_a_backup_leaves_out_an_open_upload_staging_file_but_keeps_attachments(tmp_path):
+def test_a_backup_leaves_out_upload_staging_and_live_reply_files_but_keeps_attachments(tmp_path):
     """B289: on Windows an attachment upload's open staging file can't be read; it is never user data."""
     import tempfile
 
@@ -323,9 +323,13 @@ def test_a_backup_leaves_out_an_open_upload_staging_file_but_keeps_attachments(t
     media = data / "media" / "conversation-1"
     media.mkdir(parents=True)
     (media / "upload_notes.pdf").write_bytes(b"%PDF-1.4 kept")
-    with tempfile.TemporaryFile(mode="w+b", dir=media, prefix="upload_") as staging:
+    with tempfile.TemporaryFile(mode="w+b", dir=media, prefix="upload_") as staging, \
+            tempfile.TemporaryFile(mode="w+b", dir=media, prefix="live_") as live:
+        # A running reply's streaming text (U11): rewritten every moment, and saved with the chat once done.
         staging.write(b"chunk")
         staging.flush()
+        live.write(b'{"text": "Half an answer"}')
+        live.flush()
         result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 7, 9, 0))
 
     with zipfile.ZipFile(result["path"]) as archive:

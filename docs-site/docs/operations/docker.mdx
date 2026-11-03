@@ -291,6 +291,8 @@ curl -fsS http://127.0.0.1:8080/readyz
 
 The override sets `ROW_BOT_TRUSTED_PROXY_CIDRS=127.0.0.1/32` exactly. Replace the example hostname in `Caddyfile.row-bot`, integrate that site block into the host's Caddy configuration, then validate and reload Caddy using the host package's service procedure. Do not broaden proxy trust to a private range or accept caller-supplied forwarding metadata.
 
+The proxy must send `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` (or `Forwarded`) with every request; the Caddy example does. Row-Bot treats a request that reaches it from loopback with no forwarding headers as coming from the server itself, so a proxy that leaves them out makes every visitor look local.
+
 Create the invitation for the exact HTTPS origin:
 
 ```bash

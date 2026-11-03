@@ -802,6 +802,7 @@ function ReviewedSettingsAction({
   confirm,
   presentation = 'block',
   text,
+  busyText = 'Working…',
   icon,
 }: {
   mutation: SettingsMutationIO;
@@ -819,6 +820,8 @@ function ReviewedSettingsAction({
   presentation?: 'block' | 'button' | 'icon' | 'link';
   /** A shorter visible text than `label` ("Install"). */
   text?: string;
+  /** What it says while it runs ("Downloading…"), when that's more than Working (U33). */
+  busyText?: string;
   icon?: ReactNode;
 }) {
   const tunnelRecovery =
@@ -1025,7 +1028,7 @@ function ReviewedSettingsAction({
             disabled={busy}
             onClick={start}
           >
-            {busy ? 'Working…' : shown}
+            {busy ? busyText : shown}
           </Button>
         ) : (
           <Button
@@ -1035,7 +1038,7 @@ function ReviewedSettingsAction({
             onClick={start}
           >
             {glyph}
-            {busy ? 'Working…' : shown}
+            {busy ? busyText : shown}
           </Button>
         ))}
       {pendingCommand && (
@@ -1982,6 +1985,7 @@ export function VoiceSnapshotPanel({
                 field="whisper.install"
                 label={`Install Whisper ${size}`}
                 text="Install"
+                busyText={`Downloading Whisper ${size}…`}
                 description={`Downloads the speech recognition model from Hugging Face (Systran) once and keeps it ${place.onAgain}; Dictate then ${here ? 'works offline' : 'needs no speech service'}. This action uses network access.`}
                 presentation="button"
               />
@@ -5760,7 +5764,15 @@ export function PreferencesSnapshotPanel({
               </div>
             </div>
           )}
-          {showUpdateControls && <ConnectedMigrationControls />}
+          {/* Most people never import: the form opens on request (U14). */}
+          {showUpdateControls && (
+            <Disclosure
+              summary="Import…"
+              meta={snapshot.migration.sources.join(' and ')}
+            >
+              <ConnectedMigrationControls />
+            </Disclosure>
+          )}
         </Section>
       </div>
     );

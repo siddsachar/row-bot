@@ -109,9 +109,7 @@ it('backs up in the background, then says where it went and offers the folder', 
     ),
   ).toBeVisible();
   expect(
-    screen.getByText(
-      /Left out a file that couldn't be read: media\/c\/locked\.png\./,
-    ),
+    screen.getByText(/Left out locked\.png, which couldn't be read\./),
   ).toBeVisible();
   expect(screen.getByText(/Last backup:/)).not.toHaveTextContent('never');
   fake.send.mockResolvedValueOnce(receipt(done));

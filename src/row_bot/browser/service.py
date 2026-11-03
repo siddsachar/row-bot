@@ -52,6 +52,7 @@ from row_bot.browser.runtime import (
     check_managed_browser_runtime,
     check_packaged_browser_runtime,
     ensure_profile_engine,
+    headless_executable,
 )
 from row_bot.browser.snapshot import RefMap, compact
 from row_bot.cancellation import current_cancellation_scope
@@ -520,7 +521,7 @@ class BrowserEngine:
         if not readiness.ready:
             readiness = check_managed_browser_runtime()
         if readiness.ready:
-            attempts.append({"executable_path": readiness.executable_path})
+            attempts.append({"executable_path": headless_executable(readiness) or readiness.executable_path})
         if not attempts:
             raise RuntimeError("No browser is installed: install Chrome or Edge, or Row-Bot's browser in Settings.")
         return attempts
@@ -1300,6 +1301,11 @@ class BrowserEngine:
             except Exception:
                 # An unknown key name, or the page moved on: the next event still plays.
                 logger.debug("A pane input event was skipped", exc_info=True)
+            finally:
+                if not (kind == "mouse" and event.get("action") == "move"):
+                    # The wait counts from the person's last key or click as it lands, not from the batch's first:
+                    # a long typed password can take longer to play than the wait itself.
+                    chat.person_at = time.monotonic()
         chat.last_used = time.monotonic()
         return {"status": "ok", "copied": copied}
 

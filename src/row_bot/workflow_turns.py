@@ -96,8 +96,10 @@ def save_notes(task_id: str, text: str) -> str:
 def with_notes(task: Mapping[str, Any], prompt: str) -> str:
     """A run's first message: the workflow's notes from earlier runs, how to keep them, then its message."""
     task_id = str(task["id"])
-    kept = notes(task_id)
-    lead = (f"Notes this workflow kept from its earlier runs:\n{kept}" if kept
+    # A one-off runs once: no notes for a next run, and nothing to say about them (U21).
+    once = bool(task.get("at")) and not task.get("schedule")
+    kept = "" if once else notes(task_id)
+    lead = ("" if once else f"Notes this workflow kept from its earlier runs:\n{kept}" if kept
             else "This workflow has no notes from earlier runs yet.")
     conversation = str(task.get("persistent_thread_id") or "")
     if conversation:
@@ -106,8 +108,11 @@ def with_notes(task: Mapping[str, Any], prompt: str) -> str:
         held = take_held(conversation)
         if held:
             # Sent with when="next_run" by other conversations: information for this run, never the person's request.
-            lead += ("\n\nMessages other conversations left for this run (their information, not the person's "
-                     "request):\n" + "\n".join(f"- From “{sender}”: {text}" for sender, text in held))
+            lead += ("\n\n" if lead else "") + (
+                "Messages other conversations left for this run (their information, not the person's "
+                "request):\n" + "\n".join(f"- From “{sender}”: {text}" for sender, text in held))
+    if once:
+        return f"{lead}\n\n---\n\n{prompt}" if lead else prompt
     return (f"{lead}\n\nBefore this run ends, keep them current for the next run with "
             f"task_update(task_id=\"{task_id}\", notes=...): what you checked and when, ids you'll need again, "
             f"and what's left. Replace them whole; under {NOTES_LIMIT:,} characters.\n\n---\n\n{prompt}")

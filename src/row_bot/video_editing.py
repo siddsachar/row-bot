@@ -170,6 +170,8 @@ class SceneCut:
     focus: tuple[float, float] | None = None
     # How long its voice line lasts: the scene is made at least that long (``fit_to_lines``).
     voice_seconds: float = 0.0
+    # Stretches of its recording (seconds on the input) where nothing was clicked, typed or scrolled.
+    waits: tuple[tuple[float, float], ...] = ()
     # Its camera, from what was done while it was recorded (``video_studio.camera``): keys of (seconds from the
     # scene's start, middle x, middle y, zoom).
     camera: tuple[tuple[float, float, float, float], ...] = ()
@@ -183,6 +185,9 @@ TITLE_DELAY, TITLE_SECONDS, SLIDE_IN, SLIDE_OUT = 0.3, 3.5, 0.45, 0.35
 PHRASE_CHARACTERS = 64
 # What makes a video a slide show: cards past this share of a video that has footage, or one card held this long.
 CARD_SHARE, LONG_CARD_SECONDS = 0.25, 6.0
+# A recorded stretch where nothing is done, this long on the video after the scene's line is said, is a wait a
+# viewer sits through ("Thinking… 26s").
+WAIT_SECONDS = 8.0
 # A scene runs on this long after its voice line ends: a breath between lines, and never one over the next.
 LINE_PAD = 0.6
 
@@ -618,7 +623,8 @@ def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
                 shown[-1] = f"{shown[-1]} {current}"
             else:
                 shown.append(current)
-    return shown
+    # A caption ends at a pause, not on its comma or semicolon ("Search for your mountain;", U27).
+    return [phrase.rstrip(",;:") or phrase for phrase in shown]
 
 
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
@@ -683,6 +689,24 @@ def _slide_show(scenes: list[SceneCut], marks: list[float]) -> list[str]:
                      "over it (a scene's card).")
     found += [f"Card at {clock(at)} stays {length:.0f} s: a still card that long loses people. Say less over it, "
               "or put its line over a recorded scene." for at, length in cards if length > LONG_CARD_SECONDS]
+    return found[:4]
+
+
+def _waiting(scenes: list[SceneCut], marks: list[float]) -> list[str]:
+    """Where a recorded scene shows a wait: nothing done for ``WAIT_SECONDS`` on the video after its line is said
+    (a spinner, "Thinking…", a page loading). The still check misses these: a timer or spinner moves."""
+    found: list[str] = []
+    for index, scene in enumerate(scenes[:len(marks) - 1]):
+        speed = scene.speed or 1.0
+        said = scene.start + scene.voice_seconds * speed
+        for begin, end in scene.waits:
+            begin = max(begin, said, scene.start)
+            if scene.end is not None:
+                end = min(end, scene.end)
+            if (end - begin) / speed >= WAIT_SECONDS:
+                at = marks[index] + (begin - scene.start) / speed
+                found.append(f"Waiting: {clock(at)}–{clock(at + (end - begin) / speed)} shows nothing being done. "
+                             "Speed that part up or cut it.")
     return found[:4]
 
 
@@ -945,10 +969,18 @@ class _Builder:
         cues = [cue for cue in parse_srt(step.text) if cue.start < self.duration]
         if not cues:
             raise EditError("None of the captions start before the video ends.")
+        limit = phrase_limit("box", self.width, self.height)
         for cue in cues:
-            caption = Step(op="text", text=cue.text, position=step.position or "bottom", style="caption")
-            self.video = self.lay(self.video, text_overlay(caption, self.width, self.height),
-                                  start=cue.start, end=cue.end)
+            # A cue too long for its line shows phrase by phrase, each for its share of the cue's time, as a
+            # project's lines do; it was cut short with "…" (D16).
+            parts = phrases(cue.text, limit) if len(cue.text) > limit else [cue.text]
+            end, at = min(cue.end, self.duration), cue.start
+            for part in parts:
+                until = end if part is parts[-1] else at + (end - cue.start) * len(part) / sum(map(len, parts))
+                caption = Step(op="text", text=part, position=step.position or "bottom", style="caption")
+                self.video = self.lay(self.video, text_overlay(caption, self.width, self.height), start=at,
+                                      end=until)
+                at = until
 
     def _region(self, step: Step, *, keep_shape: bool) -> tuple[int, int, int, int]:
         """The region in pixels; a zoom keeps the picture's shape (so nothing is stretched)."""
@@ -1051,15 +1083,12 @@ class _Builder:
                                width=width, height=height))
         if step.aspect:
             self._reframe(step.aspect, step.scenes)
-        fill = (*look.colour, 230) if step.look else None
         if look.intro or look.outro:
             self._bookends(look)
+        # A sped-up scene carries no "2.5×" badge: in a finished demo it reads as a leftover label (U26). A speed
+        # step still shows one when asked.
         for index, scene in enumerate(step.scenes):
             begin, end = self.marks[index], self.marks[index + 1]
-            if abs(speeds[index] - 1) > 1e-3:
-                badge = Step(op="text", text=speed_words(scene.speed), position="top-right", style="badge",
-                             fill=fill)
-                self.video = self.lay(self.video, text_overlay(badge, self.width, self.height), start=begin, end=end)
             if scene.input is None and scene.card:  # The whole scene, on its own backdrop (no box).
                 png, width, height = render_text(scene.card, "title", self.width, self.height, plain=True,
                                                  shadow=True)
@@ -1085,7 +1114,7 @@ class _Builder:
                     at = until
             if scene.voice:
                 self.voice_cues.append((begin, scene.voice))
-        self.review += _slide_show(step.scenes, self.marks)
+        self.review += _slide_show(step.scenes, self.marks) + _waiting(step.scenes, self.marks)
         for text, start in ((look.intro, 0.0), (look.outro, self.duration - BOOKEND_SECONDS)):
             if text:
                 title = Step(op="text", text=text, style="title", position="center", plain=True)

@@ -345,6 +345,8 @@ def _history(thread_id: str, action: str, **values: Any) -> None:
 
 OWN_BROWSER_HOST = "cdn.playwright.dev"
 OWN_BROWSER_SIZE = "about 300 MB"
+# Unpacked it takes about this much (554 MB on an Apple-silicon Mac, Chromium 151).
+OWN_BROWSER_DISK = "about 550 MB"
 
 
 def _own_browser_consent() -> tuple[str, str]:
@@ -357,12 +359,13 @@ def _own_browser_consent() -> tuple[str, str]:
         {"tool": "browser", "label": "Download Row-Bot's browser",
          "question": f"Using websites needs a browser, and this computer has no Chrome or Edge. Download "
                      f"Row-Bot's own ({OWN_BROWSER_SIZE}) now?",
-         "description": (f"Row-Bot will download Chromium, the open-source browser Chrome is built on, "
-                         f"({OWN_BROWSER_SIZE}) from {OWN_BROWSER_HOST}, check that it starts, and keep it in "
+         "description": (f"Row-Bot will download Chromium, the open-source browser Chrome is built on: "
+                         f"{OWN_BROWSER_SIZE} from {OWN_BROWSER_HOST}, {OWN_BROWSER_DISK} once unpacked in "
                          "Row-Bot's data folder. This happens once."),
          "risk_class": "medium",
          "args": {"download": f"Chromium ({OWN_BROWSER_SIZE})", "from": OWN_BROWSER_HOST}},
-        risks=(f"downloads a browser ({OWN_BROWSER_SIZE}) and keeps it in Row-Bot's data folder",),
+        risks=(f"downloads a browser ({OWN_BROWSER_SIZE}) and keeps it in Row-Bot's data folder "
+               f"({OWN_BROWSER_DISK})",),
         blocked_message=("BLOCKED: using websites needs a browser, and downloading Row-Bot's own needs approval, "
                          "but this chat is on Block. Install Chrome or Edge, or Row-Bot's browser in Settings › "
                          "System › Browser and computer use."),
@@ -1098,7 +1101,13 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
         text = (f"Reusing it: it has this pack and keeps its sign-in (reset brings its made-up data back; new=true "
                 f"makes another only if the person asks).\n{text}")
     if item.status == "running" and action in {"create", "start"}:
-        text += " Open it with action open: this chat's browser signs in to it."
+        # Made or started to be used: it opens in this chat's browser, signed in, rather than a question about
+        # opening it (U15). A sign-in it hasn't written yet leaves it to action open.
+        try:
+            opened = browser_navigate(sandboxes.sign_in_url(item.sandbox_id))
+            text += f" Opened it in this chat's browser, signed in.\n{opened}"
+        except sandboxes.SandboxError:
+            text += " Open it with action open in a moment: this chat's browser signs in to it."
         if not sandboxes.has_model(item.sandbox_id):
             # Its own sign-in (decision 4): only the person signs in, so ask them; a demo needs real answers.
             text += (" It has no model yet: ask the person to open it from Settings › Data › Sandboxes and sign in to a "

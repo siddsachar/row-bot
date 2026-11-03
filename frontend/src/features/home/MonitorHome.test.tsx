@@ -291,10 +291,18 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const healthTile = (name: string) =>
-  within(screen.getByRole('list', { name: 'Health' })).getByRole('button', {
-    name: new RegExp(`^${name}`),
-  });
+// All good, the dashboard waits behind Show details (U38): open it to look.
+const openDetails = () => {
+  const show = screen.queryByRole('button', { name: 'Show details' });
+  if (show) fireEvent.click(show);
+};
+const healthTile = (name: string) => {
+  openDetails();
+  return within(screen.getByRole('list', { name: 'Health' })).getByRole(
+    'button',
+    { name: new RegExp(`^${name}`) },
+  );
+};
 
 const maintenanceCaption = () =>
   screen.getByRole('heading', { name: 'Maintenance' }).nextElementSibling;
@@ -400,6 +408,23 @@ it('says "Checking…" until the first checks are kept, then shows them', async 
   });
   expect(healthTile('System')).toHaveTextContent('1 check OK');
   expect(healthTile('System')).toHaveTextContent('checked just now');
+});
+
+it('says everything is working in one line, with the dashboard behind Show details (U38)', async () => {
+  renderMonitor({
+    loadHealth: vi.fn(async () =>
+      diagnosis(check('Disk', 'ok', 'Ready', 'System')),
+    ),
+  });
+  expect(await screen.findByText('Everything’s working')).toBeVisible();
+  expect(screen.queryByRole('list', { name: 'Health' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Maintenance' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+  expect(screen.getByRole('list', { name: 'Health' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Hide details' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
 });
 
 it('names what is not in use beside what is OK, never "1 of 3 OK" (U18)', async () => {
@@ -614,6 +639,7 @@ it('saves "Check connections every hour" and says what those checks contact', as
     hourly_network_checks: enabled,
   }));
   renderMonitor({ loadHealth, onSetHourlyChecks: save });
+  fireEvent.click(await screen.findByRole('button', { name: 'Show details' }));
 
   const hourly = await screen.findByRole('switch', {
     name: 'Check connections every hour',

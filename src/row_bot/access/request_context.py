@@ -11,6 +11,7 @@ from typing import Iterable, Mapping
 from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 
 from row_bot.access.config import (
+    DEFAULT_ALLOWED_HOSTS,
     AccessConfig,
     AccessConfigError,
     DeploymentMode,
@@ -446,7 +447,17 @@ class RequestContextResolver:
             scheme = forwarded.scheme or scheme
             host = forwarded.host or direct_host
 
-        if not self.config.host_allowed(host):
+        # Straight from this computer, a loopback name is always this computer, whatever a server's exact
+        # ROW_BOT_ALLOWED_HOSTS lists: its health check and its own launcher ask by 127.0.0.1. A server grants
+        # loopback nothing more than its launcher's secret routes; on the desktop loopback is the owner, so there
+        # an exact list stays exact (a proxy that forwards no headers must not make everyone the owner).
+        this_computer = (
+            self.config.deployment_mode is not DeploymentMode.DESKTOP
+            and transport.is_loopback
+            and not forwarding_headers
+            and host_without_port(host) in DEFAULT_ALLOWED_HOSTS
+        )
+        if not (this_computer or self.config.host_allowed(host)):
             raise RequestContextError("unexpected_host", status_code=400)
         try:
             origin = canonical_origin(f"{scheme}://{host}")

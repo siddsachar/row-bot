@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react';
 import { Download, File as FileIcon, Maximize2 } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -193,6 +199,7 @@ export function MediaPreview({
   downloadName = 'result',
   caption,
   size,
+  fill = false,
 }: {
   reference: string;
   mime: string;
@@ -201,10 +208,12 @@ export function MediaPreview({
   /** For generated images: the prompt, shown on hover and in the viewer. */
   caption?: string;
   size?: number;
+  /** Shown in the media viewer: as large as it fits, with its download below. */
+  fill?: boolean;
 }) {
   const accessibleLabel = label || 'Generated result';
   const displayLabel = label || 'generated result';
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
   const overlay = useOverlay();
   const [result, setResult] = useState<{
     reference: string;
@@ -222,6 +231,10 @@ export function MediaPreview({
   const [failedUrl, setFailedUrl] = useState('');
   const [attempt, setAttempt] = useState(0);
   const player = useRef<HTMLMediaElement | null>(null);
+  // A file with no inline preview and a known size shows its card at once and
+  // is fetched only when it is downloaded: a 150 MB CSV is never pulled in
+  // just to draw its card.
+  const onDemand = previewKind(mime, '') === 'download' && size !== undefined;
   const setPlayer = useCallback((node: HTMLMediaElement | null) => {
     const previous = player.current;
     if (previous && previous !== node) {
@@ -233,6 +246,7 @@ export function MediaPreview({
   }, []);
 
   useEffect(() => {
+    if (onDemand) return;
     const abort = new AbortController();
     let owned = '';
     setResult(null);
@@ -286,8 +300,18 @@ export function MediaPreview({
       abort.abort();
       if (owned) URL.revokeObjectURL(owned);
     };
-  }, [controller, reference, mime, attempt]);
+  }, [controller, reference, mime, attempt, onDemand]);
 
+  if (onDemand)
+    return (
+      <FileOnDemand
+        reference={reference}
+        mime={mime}
+        label={label || 'Generated file'}
+        name={downloadName}
+        size={size}
+      />
+    );
   const current =
     result?.reference === reference && result.mime === mime ? result : null;
   const failure =
@@ -319,11 +343,27 @@ export function MediaPreview({
 
   const decodeFailed = failedUrl === current.url;
   const onError = () => setFailedUrl(current.url);
+  // The desktop window ignores a link's download: it saves through its own
+  // Save dialog instead; a browser keeps the link (U46).
+  const save = (event: MouseEvent<HTMLAnchorElement>) => {
+    const link = event.currentTarget;
+    if (link.dataset.browser) return;
+    event.preventDefault();
+    void platform.discover().then((found) => {
+      if (found.status === 'ok' && found.value.kind === 'pywebview')
+        void platform.save(reference, downloadName);
+      else {
+        link.dataset.browser = 'true';
+        link.click();
+      }
+    });
+  };
   const download = (
     <a
       className="media-preview-download"
       href={current.url}
       download={downloadName}
+      onClick={save}
       aria-label={`Download ${displayLabel}`}
       title={`Download ${displayLabel}`}
     >
@@ -343,6 +383,7 @@ export function MediaPreview({
             className="button secondary"
             href={current.url}
             download={downloadName}
+            onClick={save}
           >
             <Download size={16} aria-hidden /> Download
           </a>
@@ -357,8 +398,12 @@ export function MediaPreview({
       data-media-ref={reference}
       data-kind={current.kind}
       data-failed={decodeFailed ? 'true' : undefined}
+      data-fill={fill ? 'true' : undefined}
     >
-      {!decodeFailed && current.kind === 'image' && (
+      {!decodeFailed && current.kind === 'image' && fill && (
+        <img src={current.url} alt={accessibleLabel} onError={onError} />
+      )}
+      {!decodeFailed && current.kind === 'image' && !fill && (
         <div className="media-image-frame">
           <img
             className="message-media"
@@ -446,9 +491,106 @@ export function MediaPreview({
           {retry}
         </div>
       )}
-      {(current.kind !== 'image' || decodeFailed) && (
+      {(current.kind !== 'image' || fill || decodeFailed) && (
         <div className="media-preview-actions">{download}</div>
       )}
     </div>
   );
+}
+
+function FileOnDemand({
+  reference,
+  mime,
+  label,
+  name,
+  size,
+}: {
+  reference: string;
+  mime: string;
+  label: string;
+  name: string;
+  size: number;
+}) {
+  const { platform } = useRuntime();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  // The desktop window saves through its own Save dialog; a browser downloads.
+  async function save() {
+    setBusy(true);
+    setNotice('');
+    setError('');
+    const result = await platform.save(reference, name);
+    setBusy(false);
+    if (result.status === 'ok' && result.value.kind === 'exports')
+      setNotice(`Saved to ${result.value.folder} as ${result.value.fileName}.`);
+    else if (result.status === 'unavailable')
+      setError('Row-Bot couldn’t save that file. Try again.');
+  }
+  return (
+    <div
+      className="media-preview"
+      role="group"
+      aria-label={label}
+      data-media-ref={reference}
+      data-kind="download"
+    >
+      <div className="media-file-card">
+        <span className="media-file-icon" aria-hidden>
+          <FileIcon />
+        </span>
+        <span className="media-file-text">
+          <strong>{label}</strong>
+          <small>
+            {formatBytes(size)} · {fileKind(mime, name)}
+          </small>
+        </span>
+      </div>
+      {notice && <p role="status">{notice}</p>}
+      {error && (
+        <div role="alert" className="media-preview-error">
+          {error}
+        </div>
+      )}
+      <div className="media-preview-actions">
+        <button
+          type="button"
+          className="media-preview-download"
+          onClick={() => void save()}
+          disabled={busy}
+          aria-label={`Download ${label}`}
+          title={`Download ${label}`}
+        >
+          <Download aria-hidden />
+          <span className="media-preview-download-text">
+            {busy ? 'Downloading…' : 'Download'}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A picture or video by its reference, opened in the media viewer: as large
+ * as the window allows, with its player and download (a post's files are
+ * checked there before they go out). */
+export function openMediaViewer(
+  overlay: ReturnType<typeof useOverlay>,
+  media: { reference: string; mime: string; name: string; size?: number },
+) {
+  overlay.open({
+    title: media.name,
+    description: '',
+    className: 'media-lightbox',
+    content: (
+      <MediaPreview
+        reference={media.reference}
+        mime={media.mime}
+        label={media.name}
+        downloadName={media.name}
+        size={media.size}
+        fill
+      />
+    ),
+  });
 }

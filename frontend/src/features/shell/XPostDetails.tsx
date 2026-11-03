@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Clock, Film, ImageIcon, X } from 'lucide-react';
+import { Clock, Film, ImageIcon, VolumeX, X } from 'lucide-react';
 import type { XPostApproval, XPostEdit } from '../../api/types';
 import { Button, IconButton } from '../../ui/primitives';
-import { formatBytes } from './MediaPreview';
+import { useOverlay } from '../../ui/overlays';
+import { formatBytes, openMediaViewer } from './MediaPreview';
 
 type XPost = XPostApproval;
 
@@ -73,6 +74,41 @@ export function Slot({ at }: { at: string }) {
 
 type Media = NonNullable<XPost['media']>[number];
 
+/** A post's file as a small picture (or a film or picture icon), a button
+ * that opens it full size when it can be opened. */
+export function MediaTile({
+  item,
+  onOpen,
+}: {
+  item: Pick<Media, 'name' | 'kind' | 'thumbnail'>;
+  onOpen?: () => void;
+}) {
+  const tile = item.thumbnail ? (
+    <img
+      src={item.thumbnail}
+      alt={onOpen ? '' : `Preview of ${item.name}`}
+      width={56}
+      height={56}
+    />
+  ) : (
+    <span className="x-post-media-icon" aria-hidden>
+      {item.kind === 'video' ? <Film size={18} /> : <ImageIcon size={18} />}
+    </span>
+  );
+  if (!onOpen) return tile;
+  return (
+    <button
+      type="button"
+      className="x-post-media-open"
+      aria-label={`Open ${item.name}`}
+      title={`Open ${item.name}`}
+      onClick={onOpen}
+    >
+      {tile}
+    </button>
+  );
+}
+
 function MediaList({
   media,
   onRemove,
@@ -80,6 +116,7 @@ function MediaList({
   media: Media[];
   onRemove?: (item: Media) => void;
 }) {
+  const overlay = useOverlay();
   if (!media.length) return null;
   return (
     <ul
@@ -90,22 +127,22 @@ function MediaList({
     >
       {media.map((item) => (
         <li key={`${item.name}-${item.sha256}`}>
-          {item.thumbnail ? (
-            <img
-              src={item.thumbnail}
-              alt={`Preview of ${item.name}`}
-              width={56}
-              height={56}
-            />
-          ) : (
-            <span className="x-post-media-icon" aria-hidden>
-              {item.kind === 'video' ? (
-                <Film size={18} />
-              ) : (
-                <ImageIcon size={18} />
-              )}
-            </span>
-          )}
+          <MediaTile
+            item={item}
+            // A file from Library › Media opens full size, to check before it
+            // goes; a file on this computer shows only its facts.
+            onOpen={
+              item.ref && item.mime
+                ? () =>
+                    openMediaViewer(overlay, {
+                      reference: item.ref ?? '',
+                      mime: item.mime ?? '',
+                      name: item.name,
+                      size: item.size,
+                    })
+                : undefined
+            }
+          />
           <span className="x-post-media-facts">
             <span className="x-post-media-name">{item.name}</span>
             <span>
@@ -115,6 +152,13 @@ function MediaList({
               </abbr>{' '}
               <code>{item.sha256}</code>
             </span>
+            {item.silent && (
+              // A silent video plays silent on X too: said before it's approved.
+              <span className="x-post-media-silent">
+                <VolumeX size={14} aria-hidden />
+                No sound
+              </span>
+            )}
           </span>
           {onRemove && (
             <IconButton

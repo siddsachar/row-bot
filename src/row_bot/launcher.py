@@ -2131,6 +2131,40 @@ def _on_loaded(window):
     except Exception:
         pass
 
+def _add_mac_edit_and_window_menus():
+    # pywebview's menu bar has only the app and View menus. Its own key handling makes Cmd-C/V/X/A/Z
+    # work, but a Mac person looks for them under Edit, and for Minimize under Window (U35). Added on the
+    # main thread once pywebview has built its menu; each item goes to whatever has focus.
+    from AppKit import NSApp, NSEventModifierFlagCommand, NSEventModifierFlagShift, NSMenu, NSMenuItem
+    from PyObjCTools import AppHelper
+
+    def menu(bar, title, entries, index):
+        submenu = NSMenu.alloc().initWithTitle_(title)
+        for entry in entries:
+            if entry is None:
+                submenu.addItem_(NSMenuItem.separatorItem())
+                continue
+            name, action, key, shifted = entry
+            item = submenu.addItemWithTitle_action_keyEquivalent_(name, action, key)
+            if shifted:
+                item.setKeyEquivalentModifierMask_(NSEventModifierFlagCommand | NSEventModifierFlagShift)
+        holder = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+        holder.setSubmenu_(submenu)
+        bar.insertItem_atIndex_(holder, min(index, bar.numberOfItems()))
+        return submenu
+
+    def build():
+        bar = NSApp.mainMenu()
+        if bar is None or bar.itemWithTitle_("Edit") is not None:
+            return
+        menu(bar, "Edit", [("Undo", "undo:", "z", False), ("Redo", "redo:", "z", True), None,
+                           ("Cut", "cut:", "x", False), ("Copy", "copy:", "c", False),
+                           ("Paste", "paste:", "v", False), ("Select All", "selectAll:", "a", False)], 1)
+        NSApp.setWindowsMenu_(menu(bar, "Window", [("Minimize", "performMiniaturize:", "m", False),
+                                                   ("Zoom", "performZoom:", "", False)], bar.numberOfItems()))
+
+    AppHelper.callAfter(build)
+
 def _on_main_window_closing():
     return _BUDDY.main_closing()
 
@@ -2368,6 +2402,8 @@ def _attach_client_v2(window, instance_id, role="main"):
             _NATIVE_AUTHORITIES.pop(str(context.window_id) + ":context", None)
 
     def save_reference(reference, target):
+        from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
+
         authority = _NATIVE_AUTHORITIES.get(str(window.uid))
         if authority is None:
             return False
@@ -2394,9 +2430,9 @@ def _attach_client_v2(window, instance_id, role="main"):
         )
         temporary = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read(26214401)
-            if not data or len(data) > 26214400:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                data = response.read(MAX_ATTACHMENT_BYTES + 1)
+            if not data or len(data) > MAX_ATTACHMENT_BYTES:
                 return False
             target = os.path.abspath(str(target))
             directory = os.path.dirname(target)
@@ -2529,8 +2565,16 @@ try:
     os.makedirs(_WEBVIEW_STORAGE_PATH, exist_ok=True)
 except Exception:
     pass
+def _on_started():
+    if sys.platform == "darwin":
+        try:
+            _add_mac_edit_and_window_menus()
+        except Exception as exc:
+            _buddy_window_log(f"Edit and Window menus unavailable: {exc}")
+    _on_loaded(main_window)
+
 webview.start(
-    func=lambda: _on_loaded(main_window),
+    func=_on_started,
     private_mode=False,
     storage_path=_WEBVIEW_STORAGE_PATH,
     icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None,

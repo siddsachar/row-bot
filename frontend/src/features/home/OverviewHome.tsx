@@ -20,13 +20,14 @@ import {
   Hourglass,
   ImageOff,
   MemoryStick,
-  Pencil,
   MessageSquare,
   Palette,
   Paperclip,
+  Pencil,
   RotateCw,
   Send,
   ShieldAlert,
+  VolumeX,
   Workflow,
   X,
 } from 'lucide-react';
@@ -48,7 +49,9 @@ import type {
 import { clientError } from '../../api/errors';
 import { Hint, IconButton } from '../../ui/primitives';
 import ApprovalCard from '../shell/ApprovalCard';
-import { XPostEditor } from '../shell/XPostDetails';
+import { openMediaViewer } from '../shell/MediaPreview';
+import { MediaTile, XPostEditor } from '../shell/XPostDetails';
+import { useOverlay } from '../../ui/overlays';
 import { fallbackDue } from '../../api/live-updates';
 import { useLive, useLiveUpdate } from '../../live';
 import { parseTimestamp, relativeTime } from '../../ui/format';
@@ -356,6 +359,45 @@ function savedThisWeek(monitor: MonitorSnapshot | null, from: Date, to: Date) {
       sum + entry.threads.reduce((total, thread) => total + thread.saved, 0)
     );
   }, 0);
+}
+
+/** A scheduled post's pictures and videos, each opening full size to check
+ * before it goes; a video with nothing to hear says so (it plays silent on X
+ * too). */
+function ScheduledMedia({
+  media,
+}: {
+  media: NonNullable<ScheduledPost['media']>;
+}) {
+  const overlay = useOverlay();
+  if (!media.length) return null;
+  return (
+    <span className="overview-scheduled-media">
+      {media.map((file) => (
+        <MediaTile
+          key={`${file.name}-${file.sha256}`}
+          item={file}
+          onOpen={
+            file.ref && file.mime
+              ? () =>
+                  openMediaViewer(overlay, {
+                    reference: file.ref ?? '',
+                    mime: file.mime ?? '',
+                    name: file.name,
+                    size: file.size,
+                  })
+              : undefined
+          }
+        />
+      ))}
+      {media.some((file) => file.silent) && (
+        <span className="overview-row-meta x-post-media-silent">
+          <VolumeX size={14} aria-hidden />
+          Its video has no sound
+        </span>
+      )}
+    </span>
+  );
 }
 
 export default function OverviewHome({
@@ -956,7 +998,7 @@ export default function OverviewHome({
         )}
       </header>
 
-      {!needsModel && (needRows.length > 0 || showSetup) && (
+      {!needsModel && needRows.length > 0 && (
         <Section
           id="overview-needs"
           className="overview-card overview-needs"
@@ -1007,38 +1049,6 @@ export default function OverviewHome({
                 <ChevronRight size={13} aria-hidden />
               )}
             </button>
-          )}
-          {showSetup && (
-            <div
-              className="overview-setup"
-              role="region"
-              aria-label="Continue setup"
-            >
-              <span className="overview-row-text">
-                <strong className="overview-row-title">Finish setup</strong>
-                <span className="overview-row-meta">
-                  {setupDone} of {setup.steps.length} done
-                  {setupSkipped ? ` · ${setupSkipped} skipped` : ''}
-                </span>
-              </span>
-              <Link className="button small" to="/setup">
-                Continue setup
-              </Link>
-              {onHideSetup && (
-                <IconButton
-                  size="sm"
-                  label="Hide setup reminder"
-                  onClick={onHideSetup}
-                >
-                  <X size={15} aria-hidden />
-                </IconButton>
-              )}
-              {setupError && (
-                <p role="status" className="overview-setup-error">
-                  {setupError}
-                </p>
-              )}
-            </div>
           )}
         </Section>
       )}
@@ -1109,6 +1119,7 @@ export default function OverviewHome({
                         <span className="overview-row-meta overview-review-text">
                           {post.text}
                         </span>
+                        <ScheduledMedia media={post.media ?? []} />
                         <span className="overview-row-meta overview-not-sent-reason">
                           {post.reason}
                         </span>
@@ -1178,6 +1189,7 @@ export default function OverviewHome({
                           <span className="overview-row-meta overview-review-text">
                             {post.text}
                           </span>
+                          <ScheduledMedia media={post.media ?? []} />
                         </span>
                       </div>
                       <div className="overview-row-actions">
@@ -1242,6 +1254,46 @@ export default function OverviewHome({
               <Row key={item.key} item={item} />
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Once a model works Row-Bot is set up; the rest is optional, never
+          a "needs you" item or a count of what's left (U1, U2). */}
+      {showSetup && (
+        <Section id="overview-explore" title="Explore" order={4}>
+          {showSetup && (
+            <div
+              className="overview-setup"
+              role="region"
+              aria-label="More you can set up"
+            >
+              <span className="overview-row-text">
+                <strong className="overview-row-title">
+                  More you can set up
+                </strong>
+                <span className="overview-row-meta">
+                  Optional: voice, your phone, apps and more, whenever you like.
+                </span>
+              </span>
+              <Link className="button small" to="/setup">
+                Explore
+              </Link>
+              {onHideSetup && (
+                <IconButton
+                  size="sm"
+                  label="Hide setup reminder"
+                  onClick={onHideSetup}
+                >
+                  <X size={15} aria-hidden />
+                </IconButton>
+              )}
+              {setupError && (
+                <p role="status" className="overview-setup-error">
+                  {setupError}
+                </p>
+              )}
+            </div>
+          )}
         </Section>
       )}
 

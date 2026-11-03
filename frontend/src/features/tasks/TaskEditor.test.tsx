@@ -704,14 +704,15 @@ it('shows a numbered-weekday cron as written, counting Monday as 1 (standard cro
   expect(screen.getByText(/^Every Monday at/)).toBeInTheDocument();
 });
 
-it('previews the next run only once the workflow is enabled', () => {
+it('previews the next run only while the workflow is enabled', () => {
   render(<TaskEditor {...props()} />);
   fireEvent.click(screen.getByRole('radio', { name: 'Repeats' }));
-  const preview = screen.getByText(/^Every day at/).closest('p');
-  expect(preview).toHaveTextContent('once enabled');
-  fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+  // Choosing a schedule switched it on (U20).
   expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
+  const preview = screen.getByText(/^Every day at/).closest('p');
   expect(preview).not.toHaveTextContent('once enabled');
+  fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+  expect(preview).toHaveTextContent('once enabled');
 });
 
 it('adds, fills and removes messages', async () => {
@@ -941,4 +942,39 @@ it('asks to save before leaving for the model settings with unsaved changes (B12
     expect.objectContaining({ name: 'Renamed workflow' }),
   );
   expect(onTaskSettings).toHaveBeenCalledTimes(2);
+});
+
+it('turns a workflow on when it is given a time to run (U20)', async () => {
+  const callbacks = props();
+  render(<TaskEditor {...callbacks} />);
+  fillNew();
+  expect(screen.getByLabelText('Enabled')).not.toBeChecked();
+  fireEvent.click(screen.getByRole('radio', { name: 'Once' }));
+  fireEvent.change(screen.getByLabelText('Date and time'), {
+    target: { value: '2027-01-01T10:00' },
+  });
+  expect(screen.getByLabelText('Enabled')).toBeChecked();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
+  );
+  expect(callbacks.create).toHaveBeenCalledWith(
+    expect.objectContaining({ at: '2027-01-01T10:00', enabled: true }),
+  );
+});
+
+it('leaves a scheduled workflow someone switched off off when its time changes', async () => {
+  const callbacks = props({
+    taskId: 'task-a',
+    load: vi
+      .fn()
+      .mockResolvedValue(
+        snapshot({ fields: { ...fields, schedule: 'daily:09:00' } }),
+      ),
+  });
+  render(<TaskEditor {...callbacks} />);
+  await screen.findByDisplayValue('Saved workflow');
+  fireEvent.change(screen.getByLabelText('Time'), {
+    target: { value: '10:00' },
+  });
+  expect(screen.getByLabelText('Enabled')).not.toBeChecked();
 });

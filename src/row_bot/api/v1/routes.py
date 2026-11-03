@@ -1268,7 +1268,12 @@ def _wire(model: Any, value: Any, *, status_code: int = 200) -> JSONResponse:
     # internal fields fail closed rather than leaking through JSONResponse.
     try:
         record = model.model_validate_json(json.dumps(value))
-    except (ValueError, ValidationError, TypeError):
+    except (ValueError, ValidationError, TypeError) as exc:
+        # Only the record's name and the failing fields: never their values.
+        fields = sorted({".".join(map(str, error["loc"])) for error in exc.errors()}) if isinstance(
+            exc, ValidationError) else []
+        logger.warning("Outgoing %s failed its schema (%s)", getattr(model, "__name__", "record"),
+                       ", ".join(fields[:5]) or type(exc).__name__)
         raise ProtocolError("dependency_unavailable", 503) from None
     return JSONResponse(
         record.model_dump(mode="json", exclude_unset=True),

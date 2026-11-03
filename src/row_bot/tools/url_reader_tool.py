@@ -172,6 +172,14 @@ def _pdf_text(data: bytes) -> str:
     return "\n\n".join(pages)
 
 
+def _retry_after(value: str | None) -> float:
+    """How long to wait before reading a rate-limited page again: what the site asks (in seconds), at most 10."""
+    try:
+        return min(10.0, max(0.0, float(value or 3)))
+    except ValueError:
+        return 3.0
+
+
 def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
     """Fetch a webpage or PDF and return a page of its text content."""
     from bs4 import BeautifulSoup
@@ -182,22 +190,35 @@ def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
     if refusal:
         return refusal
     try:
-        with _public_get(url) as (source, response):
-            chunks, size = [], 0
-            for chunk in response.iter_bytes(64 * 1024):
-                size += len(chunk)
-                if size > _PDF_MAX_BYTES:
+        for attempt in range(2):
+            with _public_get(url) as (source, response):
+                status = response.status_code
+                # A site's block or rate limit: its error page is not the article (U10). A rate limit is read
+                # again once, after the wait the site asks for.
+                if status == 429 and attempt == 0:
+                    wait = _retry_after(response.headers.get("Retry-After"))
+                elif status in (403, 429):
+                    return (f"The site refused to be read just now ({status}"
+                            f"{': too many requests' if status == 429 else ''}). Wait a minute and try again, "
+                            "or open the page in the browser.")
+                else:
+                    chunks, size = [], 0
+                    for chunk in response.iter_bytes(64 * 1024):
+                        size += len(chunk)
+                        if size > _PDF_MAX_BYTES:
+                            break
+                        chunks.append(chunk)
+                    data = b"".join(chunks)
+                    if _is_pdf(response, source, data[:5]):
+                        if size > _PDF_MAX_BYTES:
+                            return f"The PDF is larger than {_PDF_MAX_BYTES // (1024 * 1024)} MB, too large to read."
+                        text = _pdf_text(data)
+                    else:
+                        # BeautifulSoup reads the page's own charset when the server names none.
+                        charset = response.headers.get("Content-Type", "").partition("charset=")[2].strip(" \"';") or None
+                        text = BeautifulSoup(data, "html.parser", from_encoding=charset).get_text()
                     break
-                chunks.append(chunk)
-            data = b"".join(chunks)
-            if _is_pdf(response, source, data[:5]):
-                if size > _PDF_MAX_BYTES:
-                    return f"The PDF is larger than {_PDF_MAX_BYTES // (1024 * 1024)} MB, too large to read."
-                text = _pdf_text(data)
-            else:
-                # BeautifulSoup reads the page's own charset when the server names none.
-                charset = response.headers.get("Content-Type", "").partition("charset=")[2].strip(" \"';") or None
-                text = BeautifulSoup(data, "html.parser", from_encoding=charset).get_text()
+            time.sleep(wait)
     except _NotPublic:
         return NOT_PUBLIC_MESSAGE
     except Exception as exc:

@@ -579,10 +579,10 @@ it('shows the same number on Home and in the sidebar for the same items, without
   expect(screen.getByRole('heading', { name: /^Needs you/ })).toHaveTextContent(
     'Needs you4',
   );
-  // The setup reminder shows as a row but is not one of the four.
+  // The optional setup shows under Explore, never as one of the four (U1).
   expect(
-    screen.getByRole('region', { name: 'Continue setup' }),
-  ).toHaveTextContent('Finish setup');
+    screen.getByRole('region', { name: 'More you can set up' }),
+  ).toBeVisible();
   // One read of each, shared by both.
   expect(loadAttention).toHaveBeenCalledOnce();
   expect(loadApprovals).toHaveBeenCalledOnce();
@@ -868,14 +868,16 @@ it('runs a failed workflow again in place with the reviewed run (Phase 18)', asy
 
 it('reminds about optional setup as a row until hidden and reports a hide failure', () => {
   const { rerender } = show({ setup: setupSnapshot() });
-  const region = screen.getByRole('region', { name: 'Continue setup' });
-  expect(region).toHaveTextContent('Finish setup');
-  expect(region).toHaveTextContent('1 of 2 done');
-  expect(
-    within(region).getByRole('link', { name: 'Continue setup' }),
-  ).toHaveAttribute('href', '/setup');
-  // A reminder, not a need: no count.
-  expect(screen.getByRole('heading', { name: 'Needs you' })).toBeVisible();
+  const region = screen.getByRole('region', { name: 'More you can set up' });
+  // Optional, not a need: under Explore, with no count of what's left (U1, U2).
+  expect(region).toHaveTextContent('More you can set up');
+  expect(region).not.toHaveTextContent(/of \d+ done/);
+  expect(within(region).getByRole('link', { name: 'Explore' })).toHaveAttribute(
+    'href',
+    '/setup',
+  );
+  expect(screen.getByRole('heading', { name: 'Explore' })).toBeVisible();
+  expect(screen.queryByRole('heading', { name: /^Needs you/ })).toBeNull();
   fireEvent.click(
     within(region).getByRole('button', { name: 'Hide setup reminder' }),
   );
@@ -894,15 +896,15 @@ it('reminds about optional setup as a row until hidden and reports a hide failur
     </MemoryRouter>,
   );
   expect(
-    within(screen.getByRole('region', { name: 'Continue setup' })).getByRole(
-      'status',
-    ),
+    within(
+      screen.getByRole('region', { name: 'More you can set up' }),
+    ).getByRole('status'),
   ).toHaveTextContent(
     'Could not hide the setup reminder. Refresh this page and try again.',
   );
 });
 
-it('counts skipped areas apart from done ones', () => {
+it('never counts what is left of the optional setup', () => {
   show({
     setup: setupSnapshot({
       steps: [
@@ -915,8 +917,8 @@ it('counts skipped areas apart from done ones', () => {
     }),
   });
   expect(
-    screen.getByRole('region', { name: 'Continue setup' }),
-  ).toHaveTextContent('1 of 3 done · 1 skipped');
+    screen.getByRole('region', { name: 'More you can set up' }),
+  ).not.toHaveTextContent(/done|skipped/);
 });
 
 it.each([
@@ -924,7 +926,9 @@ it.each([
   ['finished', { completed_steps: ['models'], skipped_steps: ['voice'] }],
 ])('does not remind about optional setup once %s', (_label, extra) => {
   show({ setup: setupSnapshot(extra) });
-  expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'More you can set up' }),
+  ).toBeNull();
   expect(screen.queryByRole('region', { name: /^Needs you/ })).toBeNull();
 });
 
@@ -1439,7 +1443,17 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
           action: 'post',
           text: 'Morning post about local AI.',
           post_at: '2026-09-26T18:00',
-          media: [],
+          media: [
+            {
+              name: 'demo.mp4',
+              size: 2048,
+              sha256: '0123456789ab',
+              kind: 'video' as const,
+              silent: true,
+              ref: 'conversation-a:00000000-0000-4000-8000-000000000001',
+              mime: 'video/mp4',
+            },
+          ],
         },
       ],
     }),
@@ -1473,6 +1487,12 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
 
   const scheduled = list('Scheduled posts');
   expect(within(scheduled).getByText(/^Today, .* · @rowbot_ai$/)).toBeVisible();
+  // Its video plays silent on X too: said before it goes (3 Nov).
+  expect(within(scheduled).getByText('Its video has no sound')).toBeVisible();
+  // Its video opens full size from here, to check before it goes.
+  expect(
+    within(scheduled).getByRole('button', { name: 'Open demo.mp4' }),
+  ).toBeVisible();
   await act(async () => {
     fireEvent.click(
       within(scheduled).getByRole('button', { name: 'Cancel this post' }),

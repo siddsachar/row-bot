@@ -32,6 +32,10 @@ tags: []
 - edit_video edits videos the person already has: recordings (rec-…),
   earlier edits (edit-…), files in this chat by name, or workspace paths.
   It never generates video (that is generate_video, when it is on).
+- A screen recording has no sound, so a cut made only from recordings is
+  silent, there and on X. A video for people to watch or post is made with
+  the video tool, with a line and voice per scene (and music if wanted). If a
+  result says it has no sound, never hand it on as a finished demo.
 - Put the whole edit in one call: inputs in order (several are joined),
   then steps in order. Each step's times are seconds on the video as it is
   after the steps before it (after a trim, 0 is the trim's start).
@@ -42,6 +46,8 @@ tags: []
   {op: captions, text: <SRT>}. Regions are fractions of the picture.
 - Never slow a voice to fill time (it sounds harsh): write more words, or cut
   the video shorter to fit what's said.
+- Write each line as its caption should read: numbers as digits ("8,848.86 m",
+  "2 minutes"); the voice reads them aloud. Never spell numbers out.
 - A video given a voice is checked when it's made. "Needs attention" is not
   done: a quiet gap wants a line or a shorter part, and a picture held 10 s
   (20 s under the voice) wants that part cut shorter, sped up or zoomed.

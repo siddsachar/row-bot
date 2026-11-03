@@ -42,6 +42,9 @@ MAX_BYTES = 256 * 1024 ** 3
 # named upload_ plus 8 random characters, no extension). It is never user data, and on Windows it can't be
 # read while open.
 _UPLOAD_STAGING = re.compile(r"upload_[a-z0-9_]{8}")
+# A running reply's text as it streams (live_content): rewritten every moment, and the finished message is
+# saved with the chat, so a backup never holds it (U11).
+_LIVE_PIECE = re.compile(r"live_[a-z0-9_]{8}")
 SKIPPED_SHOWN = 20
 logger = logging.getLogger(__name__)
 LEFT_OUT = (
@@ -95,7 +98,8 @@ def _files(data_dir: Path, outside: dict) -> list[Path]:
                 continue  # the workspace and this backup's own folder, when they sit in the data folder
             if any(part.endswith(("-wal", "-shm")) for part in relative.parts):
                 continue
-            if relative.parts[0] == "media" and _UPLOAD_STAGING.fullmatch(path.name):
+            if relative.parts[0] == "media" and (_UPLOAD_STAGING.fullmatch(path.name)
+                                                 or _LIVE_PIECE.fullmatch(path.name)):
                 continue
             chosen.append(path)
     return chosen
