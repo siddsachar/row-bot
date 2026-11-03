@@ -2,6 +2,137 @@
 
 ---
 
+## v5.3.2 - Videos That Look And Sound Right, A Calmer App
+
+Row-Bot 5.3.2 makes its videos look like a studio made them and never lets a
+silent one slip out, asks you less for the things you clearly asked for, and
+makes Home and Settings calmer. It comes from a week of using Row-Bot like you
+would, on Windows and a Mac, with ChatGPT and a model on this computer. From
+5.3.1 it arrives through background updates.
+
+### Videos
+
+- **Made like a studio** - a camera that follows what's done, the page framed
+  on your brand's backdrop, titles as lit slides and lower thirds, captions a
+  phrase at a time, and a review sheet Row-Bot checks before it says it's done.
+- **Recordings are 1920x1080** and fill the frame: the page keeps one 16:9 size
+  while it records, whatever the Browser pane does.
+- **Every shape, full size** - phone (9:16) and square cuts show wide footage
+  whole instead of cutting words.
+- **Voice and timing** - each scene lasts until its line is said; a voice is
+  never slowed to fill time; several lines voiced at once no longer fail.
+- **A video with no sound says so** - in Row-Bot's own result, on the X card
+  you approve and in Home's scheduled posts. A cut made only from a screen
+  recording has no sound; a video for people to watch is made with a voice.
+- **Checks catch waits** - a recorded stretch where nothing happens after the
+  line is said ("Thinking...", a page loading) needs attention before it's done.
+- **Long captions** show phrase by phrase instead of being cut short.
+- **One ask** for Row-Bot's two downloads a narrated video needs (ffmpeg and
+  its voice), no leftover speed badge, numbers that read as numbers, and file
+  names that keep their apostrophes.
+- **Check before it posts** - a post's pictures and videos open full size from
+  its card and from Home's scheduled posts, in a viewer that fills the window.
+
+### Browser And Sandboxes
+
+- **Paste in the Browser pane** reaches the page as its own paste (sign-in code
+  boxes fill), and the pane's menu has Paste into the page.
+- **Page sizes** - a desktop page is a desktop window, whatever the pane's width.
+- **Row-Bot's own browser** - offered when you have no Chrome or Edge, with its
+  real size; on a Mac it never asks to send you notifications.
+- **Sandboxes** - Row-Bot reuses a signed-in sandbox instead of making another,
+  Reset keeps its sign-in, one made from a chat on a local model uses that model,
+  it starts at your chat's approval level, and a new one opens signed in. The
+  shop has a customer inbox to answer.
+
+### Approvals That Fit The Request
+
+- **Auto judges the step** - a step that only reads or checks something the
+  request needs runs; the reviewer reads the message you just sent.
+- **Read-only commands** - Get-Process, Import-Csv and property filters run
+  without asking, and on Block.
+- **Installing software asks you** - winget, Homebrew, apt and the like always
+  come to you, even on Auto.
+- **After a no** - the reply says what Row-Bot had already found and what it
+  didn't do.
+- **New chats and workflows start on Auto**, or the level you last chose.
+
+### A Calmer App
+
+- **Home** - setup is optional ("Explore"), Monitor says "Everything's working"
+  in one line, Needs you shows only when something does, and workflow rows say
+  each thing once.
+- **Settings** - one theme control, quiet empty states, Import on request,
+  backups that skip a running chat's pieces, and Restore opens your Backups.
+- **ChatGPT sign-in** - one status line, nothing to press while Row-Bot checks,
+  and an expired code frees sign-in for a new one.
+- **Setup** lists the strongest model that fits your computer first.
+- **Library and Home fit a phone**, and Home's tabs show they scroll.
+- **Skills** - a plain note suggests no skill, and a skill that's on says so.
+- **Mac** - the menu bar has Edit and Window menus.
+
+### Fixes
+
+- **Big files** - attachments up to 200 MB attach, open and save, recordings
+  included, and Download saves in the desktop app.
+- **Voice memos** transcribe without ffmpeg; the speech model is asked for once.
+- **Long tasks on local models** finish instead of stopping halfway.
+- **A chat opened mid-run** shows each step once.
+- **After a restart** - a turn that stopped offers Resume, and a message the
+  turn already read no longer waits for good.
+- **One-off workflows** run at their time, keep no notes, and "in 2 minutes"
+  counts down.
+- **Pages that limit readers** - Row-Bot waits and tries once more, or says the
+  site refused.
+- **Windows sign-ins** save again when Credential Manager is full.
+- **127.0.0.1** from this computer always reaches Row-Bot.
+- **From your phone** - Setup says to install Ollama on Row-Bot's computer
+  instead of offering a download for the phone.
+- **Your own model server** - a new guide, Use Your Own Model Server, for
+  connecting your own Ollama or vLLM server.
+- **One chat, one job** - Row-Bot starts another conversation only when you ask.
+
+### For Hosts
+
+- **Setup code** - a Row-Bot server nobody owns yet prints "Row-Bot setup code:
+  …" in its log at every start; open its address and enter it. Set
+  `ROW_BOT_SETUP_CODE` (12 to 64 letters or digits) to choose your own.
+  Changing it and restarting lets one browser back in and signs out the others.
+  On a server, `/connect` without an invitation opens this setup page;
+  `row-bot access invite` still works.
+- **Secret-store key** - `ROW_BOT_SECRET_STORE_KEY` (64 hex characters) hands
+  Row-Bot its key, taken out of its environment at start. Compose's key file
+  still works. A container with neither makes its own key on the data volume,
+  left out of Row-Bot's backups.
+- **A wrong or missing key stops the start** - if the key doesn't open the
+  saved secrets, or saved secrets have no key, Row-Bot stops and says what to
+  do. Nothing is deleted.
+- **An exact `ROW_BOT_ALLOWED_HOSTS`** - Row-Bot's own start-up check and the
+  image's health check now pass when the list holds only the public host, as
+  the VPS Compose file asks; `127.0.0.1` no longer needs to be in it.
+- **Kept private** - on Linux, other programs of the same user can't read
+  Row-Bot's environment, and the image's health check runs with an empty one,
+  so neither shows the key or the setup code.
+- **Sizes** - Hosting Row-Bot now lists them: 4 GB memory, 2 cores and 10 GB
+  disk recommended; 2 GB is the minimum without local speech-to-text.
+- **New pages** - Operations › Hosting Row-Bot and Privacy And Safety › What
+  Your Host Can See.
+- No breaking change for Compose setups.
+
+### Upgrade Notes
+
+- **From 5.3.1, in the background** - Row-Bot downloads 5.3.2 and says Restart
+  to update.
+- **Installing software asks** - a workflow on Auto that installs software
+  with winget, Homebrew or apt now waits for you to approve it.
+- **Scheduled posts** - check Home › Review: a scheduled video with no sound now
+  says so.
+- **Servers** - a Row-Bot server nobody has claimed asks for its setup code in
+  the browser, and a missing or wrong secret-store key stops the start (see For
+  Hosts).
+
+---
+
 ## v5.3.1 - Real Work, Video, Linked Conversations & Waits
 
 Row-Bot 5.3.1 is about getting real work done. It follows the approval level you

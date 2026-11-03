@@ -16,6 +16,8 @@ Public documentation index for Row-Bot.
   Route: /docs/getting-started/first-tasks. Five things to try in your first ten minutes with Row-Bot, each in plain words.
 - [Models And Providers](/docs/configuration/models-and-providers)
   Route: /docs/configuration/models-and-providers. Configure providers, discover models, choose defaults, and pin quick model choices.
+- [Use Your Own Model Server](/docs/guides/own-model-server)
+  Route: /docs/guides/own-model-server. Connect Ollama, llama.cpp, vLLM or LM Studio as a custom endpoint, and reach a model server at home safely from a Row-Bot on another network.
 - [Row-Bot Interface](/docs/app-shell/navigation)
   Route: /docs/app-shell/navigation. Find your way around Row-Bot: the sidebar, Home, a conversation and its details card, panels, the terminal, the command palette and Settings.
 - [Home: Overview](/docs/home/overview)
@@ -122,8 +124,12 @@ Public documentation index for Row-Bot.
   Route: /docs/operations/remote-access. Use Row-Bot as one owner from trusted devices through Tailscale, LAN, SSH, Docker, or an HTTPS reverse proxy.
 - [Docker And VPS Operations](/docs/operations/docker)
   Route: /docs/operations/docker. Run one persistent Row-Bot server with Docker Compose, private host access, or an operator-managed HTTPS edge.
+- [Hosting Row-Bot](/docs/operations/hosting)
+  Route: /docs/operations/hosting. Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes and updates.
 - [Privacy And Safety](/docs/privacy-safety/)
   Route: /docs/privacy-safety/. Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing.
+- [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see)
+  Route: /docs/privacy-safety/what-your-host-can-see. When a hosting service runs your Row-Bot: what the host can reach, what Row-Bot keeps encrypted and where the key lives, and how to protect yourself.
 - [Troubleshooting](/docs/troubleshooting/)
   Route: /docs/troubleshooting/. Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, app, skill, channel, account, catalog, voice, and Buddy issues.
 - [Frequently Asked Questions](/docs/faq/)
