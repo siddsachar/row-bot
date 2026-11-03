@@ -119,6 +119,9 @@ test('Monitor counts a background run and the sidebar says its approval waits (B
   page,
 }, info) => {
   await openLive(page, '/app-v2/?tab=monitor');
+  // With every check passing, the activity chart waits behind Show details (U38).
+  const details = page.getByRole('button', { name: 'Show details' });
+  if (await details.isVisible()) await details.click();
   const lane = page.getByRole('img', {
     name: 'Workflow runs: 1 in the last 24 hours',
   });

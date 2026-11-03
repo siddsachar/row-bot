@@ -942,6 +942,7 @@ export default function MonitorHome({
   const [drawer, setDrawer] = useState<TileKey | null>(null);
   const [range, setRange] = useState<'24h' | '7d'>('24h');
   const [history, setHistory] = useState<'dream' | 'extraction'>('dream');
+  const [details, setDetails] = useState(false);
   const [tasks, setTasks] = useState<TaskSummaryPage | null>(null);
   // A workflow run started, finished or waits (B407): its lane shows it at once.
   const [tasksReload, setTasksReload] = useState(0);
@@ -1195,6 +1196,16 @@ export default function MonitorHome({
   const newest = health?.checks.length
     ? Math.max(...health.checks.map((check) => check.checked_at))
     : null;
+  // When every check passes and nothing needs you, one line says so and the
+  // dashboard waits behind Show details; any problem opens it (U38).
+  const allGood =
+    Boolean(health?.checks.length) &&
+    !diagnosisBusy &&
+    !error &&
+    !attention?.length &&
+    !startupWarnings?.length &&
+    tiles.every((tile) => tile.tone === 'success' || tile.tone === 'neutral');
+  const showDetails = details || !allGood;
   return (
     <section
       className="monitor-home home-page"
@@ -1295,48 +1306,63 @@ export default function MonitorHome({
           </ul>
         </section>
       )}
-      <ul className="health-strip" aria-label="Health">
-        {tiles.map((tile) => {
-          const Icon = tile.icon;
-          return (
-            <li key={tile.key} className="health-tile-cell">
-              <button
-                type="button"
-                className="health-tile"
-                data-tone={tile.tone}
-                aria-busy={diagnosisBusy || undefined}
-                onClick={() => setDrawer(tile.key)}
-              >
-                <span className="health-tile-head">
-                  <Icon size={15} aria-hidden />
-                  <span className="health-tile-name">{tile.label}</span>
-                </span>
-                <StatusDot
-                  tone={tile.tone}
-                  label={tile.status}
-                  showLabel
-                  pulse={diagnosisBusy || !tile.checks.length}
-                />
-                <span className="health-tile-detail">{tile.detail}</span>
-                {tile.checked && (
-                  <span className="health-tile-time">{tile.checked}</span>
-                )}
-              </button>
-              {tile.fix && (
-                // One fix per tile, beside its button (Phase 18).
-                <div className="health-tile-fix">
-                  <FixAction
-                    fix={tile.fix}
-                    onCheckAgain={() => void runDiagnosis()}
-                    onFixed={fixed}
+      {allGood && (
+        <div className="monitor-all-good" role="status">
+          <StatusDot tone="success" label="Everything’s working" showLabel />
+          <Button
+            variant="ghost"
+            className="small"
+            aria-expanded={details}
+            onClick={() => setDetails((value) => !value)}
+          >
+            {details ? 'Hide details' : 'Show details'}
+          </Button>
+        </div>
+      )}
+      {showDetails && (
+        <ul className="health-strip" aria-label="Health">
+          {tiles.map((tile) => {
+            const Icon = tile.icon;
+            return (
+              <li key={tile.key} className="health-tile-cell">
+                <button
+                  type="button"
+                  className="health-tile"
+                  data-tone={tile.tone}
+                  aria-busy={diagnosisBusy || undefined}
+                  onClick={() => setDrawer(tile.key)}
+                >
+                  <span className="health-tile-head">
+                    <Icon size={15} aria-hidden />
+                    <span className="health-tile-name">{tile.label}</span>
+                  </span>
+                  <StatusDot
+                    tone={tile.tone}
+                    label={tile.status}
+                    showLabel
+                    pulse={diagnosisBusy || !tile.checks.length}
                   />
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {health && (
+                  <span className="health-tile-detail">{tile.detail}</span>
+                  {tile.checked && (
+                    <span className="health-tile-time">{tile.checked}</span>
+                  )}
+                </button>
+                {tile.fix && (
+                  // One fix per tile, beside its button (Phase 18).
+                  <div className="health-tile-fix">
+                    <FixAction
+                      fix={tile.fix}
+                      onCheckAgain={() => void runDiagnosis()}
+                      onFixed={fixed}
+                    />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {health && showDetails && (
         <SettingRow
           className="monitor-connection-checks"
           label="Check connections every hour"
@@ -1377,7 +1403,7 @@ export default function MonitorHome({
           Loading System Monitor…
         </p>
       )}
-      {snapshot && (
+      {snapshot && showDetails && (
         <>
           <section
             className="monitor-section"
