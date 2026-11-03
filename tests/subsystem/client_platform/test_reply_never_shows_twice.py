@@ -138,3 +138,31 @@ def test_a_retired_twin_never_comes_back_as_an_empty_paged_row(platform):
     for rows in (during, after):
         assert [row["id"] for row in rows if row.get("content_status") == "lazy"] == []
         assert [row["id"] for row in rows if row["role"] == "assistant"] == ["assistant:checkpoint:" + native_id]
+
+
+def test_a_chat_opened_mid_run_shows_each_step_once(platform):
+    """U12: the live row streams every step's text, and opening the chat mid-run also read in the steps saved
+    so far: each step showed with its tool, then again in one block with the rest below them."""
+    from langchain_core.messages import ToolMessage
+
+    from tests.helpers.client_platform_fakes import StreamBarrier
+
+    step_id, done_id = fixture_id("mid-run-step"), fixture_id("mid-run-step-result")
+    call = {"name": "workspace_list", "args": {}, "id": "call-mid-run"}
+    barrier = StreamBarrier()
+    fake = ScriptedAgentStream((("token", "Let me look at the workspace."),
+                               CheckpointCommit((AIMessage(content="Let me look at the workspace.", id=step_id,
+                                                           tool_calls=[call]),
+                                                 ToolMessage(content="3 files", tool_call_id="call-mid-run",
+                                                             id=done_id))),
+                               ("token", " It holds three files."), barrier, ("done", "It holds three files.")))
+    handle = platform.registry.get(submit(platform, fake, "mid-run")["execution_id"])
+    try:
+        assert barrier.entered.wait(10)
+        rows = platform.snapshot("conversation-a")["rows"]  # The chat is opened again now.
+        shown = ["".join(block.get("text", "") for block in row.get("blocks", []))
+                 for row in rows if row["role"] == "assistant"]
+        assert shown == ["Let me look at the workspace.", "It holds three files."]
+    finally:
+        barrier.release.set()
+        assert handle.producer_done.wait(10)
