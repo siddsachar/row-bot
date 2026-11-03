@@ -1911,6 +1911,8 @@
   position: relative;
   display: flex;
   align-items: center;
+  /* A long title truncates instead of widening the row past a phone's edge. */
+  min-width: 0;
   border-radius: var(--radius-control);
 }
 .library-row:is(:hover, :focus-within) {
