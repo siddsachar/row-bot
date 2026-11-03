@@ -88,22 +88,68 @@ def _wait_for(project_id: str, conversation: str, number: int, seconds: float) -
         time.sleep(0.2)
 
 
+def _both_downloads_consent() -> tuple[str, str] | None:
+    """(refusal, approval line) for a narrated video that needs ffmpeg and Row-Bot's voice: one card for both,
+    asked once before making it, not two in a row (U25). None when they aren't both missing."""
+    from row_bot import ffmpeg_runtime, tts
+    from row_bot.tools.approval_gate import approval_check
+
+    if ffmpeg_runtime.find() is not None or tts.TTSService().is_installed():
+        return None
+    wheel = ffmpeg_runtime.current_wheel()
+    if wheel is None:
+        return None
+    voice = f"about {round(tts.VOICE_DOWNLOAD_BYTES / 1_000_000)} MB"
+    request = ffmpeg_runtime.consent_request(
+        "edit", "video", wheel=wheel,
+        also=(f"It also downloads Row-Bot's voice (Kokoro and its voices, {voice}) from {tts.VOICE_DOWNLOAD_HOST}, "
+              "checked against the fingerprints saved in Row-Bot, to read the lines aloud on this computer."))
+    request["label"] = "Download ffmpeg and Row-Bot's voice"
+    request["question"] = (f"Making this video needs ffmpeg (about {ffmpeg_runtime.size_words(wheel.size)}) and "
+                           f"Row-Bot's voice (Kokoro, {voice}). Download both now?")
+    request["args"] = {**request["args"], "voice": f"Kokoro voice ({voice}) from {tts.VOICE_DOWNLOAD_HOST}"}
+    refusal, line = approval_check(
+        request,
+        risks=(*ffmpeg_runtime.consent_risks(wheel),
+               f"downloads a voice model ({voice}) from GitHub and keeps it in Row-Bot's data folder"),
+        blocked_message=("BLOCKED: making this video needs ffmpeg and Row-Bot's voice, and downloading them needs "
+                         "approval, but this chat is on Block. Install the voice in Settings › Voice, or change "
+                         "the approval level."),
+        cancelled_message="The person didn't allow the downloads; nothing was downloaded or made.",
+    )
+    if refusal:
+        return refusal, ""
+    try:
+        tts.TTSService().download_model()
+    except Exception as error:  # A network or fingerprint problem: said in words, nothing kept.
+        return f"Row-Bot's voice couldn't be downloaded: {error}", ""
+    return "", line
+
+
 def _make(project, number: int | None) -> str:
     from row_bot import video_projects
     from row_bot.tools.approval_gate import with_approval
     from row_bot.tools.video_editing_tool import ffmpeg_consent
 
-    refusal, line, download = ffmpeg_consent("edit", "video")
-    if refusal:
-        return refusal
     target = project.version(number) if number else project.latest
-    if target is not None and video_projects.needs_voice(target):
-        from row_bot.tools.sound_tool import voice_consent
-
-        refusal, voiced = voice_consent("video", "Narrating this video")
+    narrated = target is not None and video_projects.needs_voice(target)
+    both = _both_downloads_consent() if narrated else None
+    if both is not None:
+        refusal, line = both
         if refusal:
             return refusal
-        line = "\n".join(part for part in (line, voiced) if part)
+        download = True
+    else:
+        refusal, line, download = ffmpeg_consent("edit", "video")
+        if refusal:
+            return refusal
+        if narrated:
+            from row_bot.tools.sound_tool import voice_consent
+
+            refusal, voiced = voice_consent("video", "Narrating this video")
+            if refusal:
+                return refusal
+            line = "\n".join(part for part in (line, voiced) if part)
     version = video_projects.make(project, number, download=download)
     _wait_for(project.project_id, project.conversation_id, version.number, INLINE_SECONDS)
     fresh = video_projects.get(project.project_id, project.conversation_id) or project

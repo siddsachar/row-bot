@@ -42,6 +42,8 @@ tags: []
   {op: captions, text: <SRT>}. Regions are fractions of the picture.
 - Never slow a voice to fill time (it sounds harsh): write more words, or cut
   the video shorter to fit what's said.
+- Write each line as its caption should read: numbers as digits ("8,848.86 m",
+  "2 minutes"); the voice reads them aloud. Never spell numbers out.
 - A video given a voice is checked when it's made. "Needs attention" is not
   done: a quiet gap wants a line or a shorter part, and a picture held 10 s
   (20 s under the voice) wants that part cut shorter, sped up or zoomed.

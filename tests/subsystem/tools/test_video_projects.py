@@ -481,3 +481,26 @@ def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_i
     words = video_projects.summary(video_projects.get(project.project_id))
     assert "Review sheet: Launch demo v1 review.jpg" in words and "analyze_image before saying the video is done" in words
     assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"
+
+
+def test_a_narrated_video_needing_ffmpeg_and_the_voice_asks_once_for_both(studio, monkeypatch):
+    """U25: one card before making it, naming both downloads, not two in a row."""
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.tools import approval_gate, video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
+    wheel = ffmpeg_runtime.WHEELS["windows-x86_64"]
+    monkeypatch.setattr(ffmpeg_runtime, "current_wheel", lambda: wheel)
+    monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: False)
+    asked: list[str] = []
+    monkeypatch.setattr(approval_gate, "approval_check", lambda payload, **_: asked.append(payload["question"]) or (
+        "The person didn't allow the downloads; nothing was downloaded or made.", ""))
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+
+    said = video_project_tool._video(action="make", project=project.project_id)
+
+    assert said.startswith("The person didn't allow the downloads")
+    assert asked == [f"Making this video needs ffmpeg (about {ffmpeg_runtime.size_words(wheel.size)}) and Row-Bot's "
+                     "voice (Kokoro, about 206 MB). Download both now?"]
+    assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
