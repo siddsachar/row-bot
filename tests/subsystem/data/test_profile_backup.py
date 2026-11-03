@@ -476,7 +476,7 @@ def test_a_backup_never_reads_claude_codes_sign_in_or_install(tmp_path, monkeypa
 
     with watch_opens(claude, home / ".claude.json", home / ".local") as opened:
         result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 30, 23, 0))
-        backup.stage_restore(Path(result["path"]), data, source_name="backup.zip", app_version="5.3.1")
+        backup.stage_restore(Path(result["path"]), data, source_name="backup.zip")  # by this Row-Bot
         applied = profile_restore.apply_pending(data, now=datetime(2026, 10, 30, 23, 5))
 
     assert opened == []
