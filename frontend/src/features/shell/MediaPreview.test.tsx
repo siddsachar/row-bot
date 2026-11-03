@@ -9,7 +9,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileKind, forgetMediaPreviews, MediaPreview } from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn() }));
-vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
+const platform = vi.hoisted(() => ({ save: vi.fn() }));
+vi.mock('../../runtime', () => ({
+  useRuntime: () => ({ controller: mock, platform }),
+}));
 vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({
     open: vi.fn(),
@@ -343,4 +346,30 @@ it('waits for the same download when it mounts again before that download ends',
   expect(await screen.findByLabelText('Generated video result')).toBeVisible();
   expect(mock.download).toHaveBeenCalledTimes(1);
   expect(mock.download.mock.calls[0][1].aborted).toBe(false);
+});
+
+it('shows a large file it cannot preview at once and fetches it only when saved', async () => {
+  platform.save.mockResolvedValue({ status: 'ok', value: { kind: 'file' } });
+  render(
+    <MediaPreview
+      reference="opaque-reference"
+      mime="application/octet-stream"
+      label="sales-2026.csv"
+      downloadName="sales-2026.csv"
+      size={150 * 1024 * 1024}
+    />,
+  );
+  expect(screen.getByText('sales-2026.csv')).toBeInTheDocument();
+  expect(screen.getByText(/150(\.0)? MB/)).toBeInTheDocument();
+  expect(mock.download).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Download sales-2026.csv' }),
+  );
+  await vi.waitFor(() =>
+    expect(platform.save).toHaveBeenCalledExactlyOnceWith(
+      'opaque-reference',
+      'sales-2026.csv',
+    ),
+  );
+  expect(mock.download).not.toHaveBeenCalled();
 });

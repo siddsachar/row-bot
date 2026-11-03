@@ -2368,6 +2368,8 @@ def _attach_client_v2(window, instance_id, role="main"):
             _NATIVE_AUTHORITIES.pop(str(context.window_id) + ":context", None)
 
     def save_reference(reference, target):
+        from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
+
         authority = _NATIVE_AUTHORITIES.get(str(window.uid))
         if authority is None:
             return False
@@ -2394,9 +2396,9 @@ def _attach_client_v2(window, instance_id, role="main"):
         )
         temporary = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read(26214401)
-            if not data or len(data) > 26214400:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                data = response.read(MAX_ATTACHMENT_BYTES + 1)
+            if not data or len(data) > MAX_ATTACHMENT_BYTES:
                 return False
             target = os.path.abspath(str(target))
             directory = os.path.dirname(target)
