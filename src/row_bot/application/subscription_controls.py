@@ -477,9 +477,13 @@ class SubscriptionFlows:
                     flow.client = self._client_factory(lambda: self._guard(flow, validate))
                     self._finish(flow, "check", None, proof, validate)
                 except SubscriptionError:
-                    if flow.state == "checking":
+                    # A code nobody approved in time ends this sign-in and frees the provider for a new
+                    # one (U6); cancelled or changed meanwhile, the page says so.
+                    if self._clock() >= flow.deadline:
+                        flow.state = "expired"
+                    elif flow.state == "checking":
                         flow.state = "waiting"
-                    return  # Expired, cancelled or changed meanwhile: the page says so.
+                    return
                 except Exception:
                     if flow.state != "checking":  # The exchange or save may have happened: never repeat it.
                         flow.state = "uncertain"
