@@ -618,7 +618,8 @@ def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
                 shown[-1] = f"{shown[-1]} {current}"
             else:
                 shown.append(current)
-    return shown
+    # A caption ends at a pause, not on its comma or semicolon ("Search for your mountain;", U27).
+    return [phrase.rstrip(",;:") or phrase for phrase in shown]
 
 
 def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
@@ -1051,15 +1052,12 @@ class _Builder:
                                width=width, height=height))
         if step.aspect:
             self._reframe(step.aspect, step.scenes)
-        fill = (*look.colour, 230) if step.look else None
         if look.intro or look.outro:
             self._bookends(look)
+        # A sped-up scene carries no "2.5×" badge: in a finished demo it reads as a leftover label (U26). A speed
+        # step still shows one when asked.
         for index, scene in enumerate(step.scenes):
             begin, end = self.marks[index], self.marks[index + 1]
-            if abs(speeds[index] - 1) > 1e-3:
-                badge = Step(op="text", text=speed_words(scene.speed), position="top-right", style="badge",
-                             fill=fill)
-                self.video = self.lay(self.video, text_overlay(badge, self.width, self.height), start=begin, end=end)
             if scene.input is None and scene.card:  # The whole scene, on its own backdrop (no box).
                 png, width, height = render_text(scene.card, "title", self.width, self.height, plain=True,
                                                  shadow=True)

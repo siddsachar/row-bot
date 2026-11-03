@@ -395,3 +395,13 @@ def test_the_tool_waits_for_and_stops_an_edit_by_its_id(studio, monkeypatch):
 
     assert "carries on in the background" in studio.edit(action="status", edit_id=edit_id)
     assert studio.edit(action="stop", edit_id=edit_id).endswith("stopped by you; nothing was saved.")
+
+
+def test_a_result_name_keeps_its_apostrophe_and_drops_what_files_cant_hold():
+    """U28: "Mountain's" stays "Mountain's", never "Mountain-s"; a curly apostrophe becomes a plain one."""
+    from row_bot.tools.video_editing_tool import output_name
+
+    assert output_name("Find a Mountain's Height on Wikipedia v3", default="video") == (
+        "Find a Mountain's Height on Wikipedia v3.mp4")
+    assert output_name("Ana’s demo: take 2?", default="video") == "Ana's demo- take 2.mp4"
+    assert output_name("'quoted'", default="video") == "quoted.mp4"
