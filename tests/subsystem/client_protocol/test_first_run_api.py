@@ -242,9 +242,9 @@ def test_local_models_carry_favourites_hidden_and_suggested_picks(tmp_path, monk
     fake_ollama.update(running=True, models=[
         "gemma3:4b", "gpt-oss:20b", "llama3.1:8b", "mistral:7b", "nomic-embed-text:latest", "qwen3:32b", "qwen3:8b",
     ])
-    # Nothing chosen: the three largest tool-using chat models are suggested (N16).
+    # Nothing chosen: the three largest tool-using chat models are suggested (N16), the strongest first (U3).
     rows = {row["name"]: row for row in client_first_run.detect_local_runtime()["models"]}
-    assert [name for name, row in rows.items() if row.get("recommended")] == ["gpt-oss:20b", "llama3.1:8b", "qwen3:32b"]
+    assert [name for name, row in rows.items() if row.get("recommended")] == ["qwen3:32b", "gpt-oss:20b", "llama3.1:8b"]
     assert not any("favourite_rank" in row or "hidden" in row for row in rows.values())
 
     (tmp_path / "model_settings.json").write_text(json.dumps({"model": "model:ollama:qwen3:8b"}), encoding="utf-8")
