@@ -199,6 +199,7 @@ export function MediaPreview({
   downloadName = 'result',
   caption,
   size,
+  fill = false,
 }: {
   reference: string;
   mime: string;
@@ -207,6 +208,8 @@ export function MediaPreview({
   /** For generated images: the prompt, shown on hover and in the viewer. */
   caption?: string;
   size?: number;
+  /** Shown in the media viewer: as large as it fits, with its download below. */
+  fill?: boolean;
 }) {
   const accessibleLabel = label || 'Generated result';
   const displayLabel = label || 'generated result';
@@ -395,8 +398,12 @@ export function MediaPreview({
       data-media-ref={reference}
       data-kind={current.kind}
       data-failed={decodeFailed ? 'true' : undefined}
+      data-fill={fill ? 'true' : undefined}
     >
-      {!decodeFailed && current.kind === 'image' && (
+      {!decodeFailed && current.kind === 'image' && fill && (
+        <img src={current.url} alt={accessibleLabel} onError={onError} />
+      )}
+      {!decodeFailed && current.kind === 'image' && !fill && (
         <div className="media-image-frame">
           <img
             className="message-media"
@@ -484,7 +491,7 @@ export function MediaPreview({
           {retry}
         </div>
       )}
-      {(current.kind !== 'image' || decodeFailed) && (
+      {(current.kind !== 'image' || fill || decodeFailed) && (
         <div className="media-preview-actions">{download}</div>
       )}
     </div>
@@ -562,4 +569,28 @@ function FileOnDemand({
       </div>
     </div>
   );
+}
+
+/** A picture or video by its reference, opened in the media viewer: as large
+ * as the window allows, with its player and download (a post's files are
+ * checked there before they go out). */
+export function openMediaViewer(
+  overlay: ReturnType<typeof useOverlay>,
+  media: { reference: string; mime: string; name: string; size?: number },
+) {
+  overlay.open({
+    title: media.name,
+    description: '',
+    className: 'media-lightbox',
+    content: (
+      <MediaPreview
+        reference={media.reference}
+        mime={media.mime}
+        label={media.name}
+        downloadName={media.name}
+        size={media.size}
+        fill
+      />
+    ),
+  });
 }

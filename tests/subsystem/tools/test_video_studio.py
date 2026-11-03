@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from pathlib import Path
 
 from PIL import Image
 
 from row_bot import video_studio
+from tests.helpers.media_files import video
 from row_bot.video_studio import Frame, camera, compose, crop_box, view
 
 pytestmark = pytest.mark.subsystem
@@ -64,39 +64,6 @@ def test_framed_footage_sits_on_the_brand_backdrop_with_rounded_corners_and_full
     assert full.size == (640, 360) and full.getpixel((2, 2)) == (250, 250, 250), "edge to edge"
 
 
-def _video(path, *, sound: bool) -> Path:
-    """Three seconds at 10 frames a second; the right half turns red from the second second; with ``sound``, a
-    tone throughout."""
-    import av
-    import numpy
-
-    with av.open(str(path), "w") as writer:
-        stream = writer.add_stream("libx264", rate=10)
-        stream.width, stream.height, stream.pix_fmt = 320, 180, "yuv420p"
-        audio = writer.add_stream("aac", rate=48000, layout="stereo") if sound else None
-        for index in range(30):
-            picture = Image.new("RGB", (320, 180), (240, 240, 240))
-            if index >= 10:
-                picture.paste((220, 20, 20), (160, 0, 320, 180))
-            frame = av.VideoFrame.from_image(picture)
-            frame.pts = index
-            for packet in stream.encode(frame):
-                writer.mux(packet)
-        for packet in stream.encode(None):
-            writer.mux(packet)
-        if audio is not None:
-            tone = (0.3 * numpy.sin(numpy.arange(48000 * 3) * 2 * numpy.pi * 440 / 48000)).astype("float32")
-            for at in range(0, tone.size, 1024):
-                piece = av.AudioFrame.from_ndarray(numpy.stack([tone[at:at + 1024]] * 2), format="fltp",
-                                                   layout="stereo")
-                piece.sample_rate, piece.pts = 48000, at
-                for packet in audio.encode(piece):
-                    writer.mux(packet)
-            for packet in audio.encode(None):
-                writer.mux(packet)
-    return path
-
-
 @pytest.fixture
 def clip(tmp_path):
     av = pytest.importorskip("av")
@@ -104,7 +71,7 @@ def clip(tmp_path):
         av.codec.Codec("libx264", "w")
     except Exception:
         pytest.skip("No H.264 encoder in this copy")
-    return _video(tmp_path / "rec.mp4", sound=False)
+    return video(tmp_path / "rec.mp4", sound=False)
 
 
 def test_scenes_are_drawn_one_after_another_into_one_clip_through_their_cameras(clip, tmp_path):
@@ -133,7 +100,7 @@ def test_a_scenes_sound_stays_with_its_pictures_and_a_silent_scene_is_silence(cl
     import av
     import numpy
 
-    noisy = _video(tmp_path / "talk.mp4", sound=True)
+    noisy = video(tmp_path / "talk.mp4", sound=True)
     studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10, sound=True)
     studio.add(noisy, 0.5, 1.5, (), Frame((320, 180), "full"))
     studio.add(clip, 0.0, 1.0, (), Frame((320, 180), "full"))

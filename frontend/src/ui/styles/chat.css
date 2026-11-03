@@ -1248,6 +1248,26 @@
 .x-post-media abbr {
   text-decoration: none;
 }
+.x-post-media-open {
+  display: grid;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: zoom-in;
+}
+.x-post-media-open:hover > *,
+.x-post-media-open:focus-visible > * {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.x-post-media-silent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--status-warning-text);
+  font-weight: 600;
+}
 .x-post-slot {
   display: flex;
   align-items: center;
@@ -2679,20 +2699,73 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
-.media-lightbox {
-  max-width: min(94vw, 1280px);
+/* The media viewer: the picture or video as large as the window allows, its
+   name in a slim header and its download below it. */
+.dialog.media-lightbox {
+  width: min(calc(100vw - 32px), 1600px);
+  height: min(calc(100dvh - 32px), 1200px);
+  max-height: none;
 }
-.media-lightbox-figure {
-  display: grid;
-  justify-items: center;
+.media-lightbox > .dialog-header {
+  align-items: center;
+  padding: 10px 10px 8px 20px;
+}
+.media-lightbox .dialog-title {
+  overflow: hidden;
+  font-size: var(--text-15);
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-lightbox .dialog-description {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: var(--text-13);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.media-lightbox .dialog-description:empty {
+  display: none;
+}
+.media-lightbox > .dialog-body {
+  display: flex;
+  flex: 1;
+  padding: 0 16px 16px;
+  overflow: hidden;
+}
+.media-lightbox-figure,
+.media-lightbox .media-preview[data-fill] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 12px;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
 }
-.media-lightbox-figure img {
+/* The picture or video takes what's left above its download. */
+.media-lightbox-figure img,
+.media-lightbox .media-preview[data-fill] > img,
+.media-lightbox .media-preview[data-fill] > video {
+  width: auto;
   max-width: 100%;
-  max-height: 72vh;
+  height: auto;
+  min-height: 0;
+  max-height: calc(100% - 52px);
   border-radius: 8px;
+  background: var(--surface-sunken);
   object-fit: contain;
+}
+.media-lightbox .media-preview[data-fill] > video {
+  width: 100%;
+  background: #000;
+}
+/* The header's close is the only one: no second Close in a footer. */
+.media-lightbox > .dialog-footer {
+  display: none;
 }
 
 /* Code. */

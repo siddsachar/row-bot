@@ -19,13 +19,14 @@ import {
   HeartPulse,
   Hourglass,
   ImageOff,
-  Pencil,
   MessageSquare,
   Palette,
   Paperclip,
+  Pencil,
   RotateCw,
   Send,
   ShieldAlert,
+  VolumeX,
   Workflow,
   X,
 } from 'lucide-react';
@@ -47,7 +48,9 @@ import type {
 import { clientError } from '../../api/errors';
 import { Hint, IconButton } from '../../ui/primitives';
 import ApprovalCard from '../shell/ApprovalCard';
-import { XPostEditor } from '../shell/XPostDetails';
+import { openMediaViewer } from '../shell/MediaPreview';
+import { MediaTile, XPostEditor } from '../shell/XPostDetails';
+import { useOverlay } from '../../ui/overlays';
 import { fallbackDue } from '../../api/live-updates';
 import { useLive, useLiveUpdate } from '../../live';
 import { parseTimestamp, relativeTime } from '../../ui/format';
@@ -354,6 +357,45 @@ function savedThisWeek(monitor: MonitorSnapshot | null, from: Date, to: Date) {
       sum + entry.threads.reduce((total, thread) => total + thread.saved, 0)
     );
   }, 0);
+}
+
+/** A scheduled post's pictures and videos, each opening full size to check
+ * before it goes; a video with nothing to hear says so (it plays silent on X
+ * too). */
+function ScheduledMedia({
+  media,
+}: {
+  media: NonNullable<ScheduledPost['media']>;
+}) {
+  const overlay = useOverlay();
+  if (!media.length) return null;
+  return (
+    <span className="overview-scheduled-media">
+      {media.map((file) => (
+        <MediaTile
+          key={`${file.name}-${file.sha256}`}
+          item={file}
+          onOpen={
+            file.ref && file.mime
+              ? () =>
+                  openMediaViewer(overlay, {
+                    reference: file.ref ?? '',
+                    mime: file.mime ?? '',
+                    name: file.name,
+                    size: file.size,
+                  })
+              : undefined
+          }
+        />
+      ))}
+      {media.some((file) => file.silent) && (
+        <span className="overview-row-meta x-post-media-silent">
+          <VolumeX size={14} aria-hidden />
+          Its video has no sound
+        </span>
+      )}
+    </span>
+  );
 }
 
 export default function OverviewHome({
@@ -1057,6 +1099,7 @@ export default function OverviewHome({
                         <span className="overview-row-meta overview-review-text">
                           {post.text}
                         </span>
+                        <ScheduledMedia media={post.media ?? []} />
                         <span className="overview-row-meta overview-not-sent-reason">
                           {post.reason}
                         </span>
@@ -1126,6 +1169,7 @@ export default function OverviewHome({
                           <span className="overview-row-meta overview-review-text">
                             {post.text}
                           </span>
+                          <ScheduledMedia media={post.media ?? []} />
                         </span>
                       </div>
                       <div className="overview-row-actions">

@@ -1442,7 +1442,17 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
           action: 'post',
           text: 'Morning post about local AI.',
           post_at: '2026-09-26T18:00',
-          media: [],
+          media: [
+            {
+              name: 'demo.mp4',
+              size: 2048,
+              sha256: '0123456789ab',
+              kind: 'video' as const,
+              silent: true,
+              ref: 'conversation-a:00000000-0000-4000-8000-000000000001',
+              mime: 'video/mp4',
+            },
+          ],
         },
       ],
     }),
@@ -1476,6 +1486,12 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
 
   const scheduled = list('Scheduled posts');
   expect(within(scheduled).getByText(/^Today, .* · @rowbot_ai$/)).toBeVisible();
+  // Its video plays silent on X too: said before it goes (3 Nov).
+  expect(within(scheduled).getByText('Its video has no sound')).toBeVisible();
+  // Its video opens full size from here, to check before it goes.
+  expect(
+    within(scheduled).getByRole('button', { name: 'Open demo.mp4' }),
+  ).toBeVisible();
   await act(async () => {
     fireEvent.click(
       within(scheduled).getByRole('button', { name: 'Cancel this post' }),

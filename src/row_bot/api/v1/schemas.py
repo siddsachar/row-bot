@@ -8908,6 +8908,10 @@ class XPostMedia(WireModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{12}$")
     kind: Literal["image", "gif", "video"]
     thumbnail: str = Field(default="", max_length=32768, pattern=r"^(data:image/jpeg;base64,[A-Za-z0-9+/=]+)?$")
+    silent: bool = False  # A video with nothing to hear.
+    # Its Library › Media reference, to open it before it goes; "" for a file on this computer.
+    ref: str = Field(default="", max_length=256, pattern=r"^([A-Za-z0-9_-]+:[0-9a-f-]{36})?$")
+    mime: str = Field(default="", max_length=100, pattern=r"^([a-z]+/[a-z0-9.+-]+)?$")
 
 
 class XPostApproval(WireModel):

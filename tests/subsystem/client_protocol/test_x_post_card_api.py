@@ -320,3 +320,53 @@ def test_a_post_that_didnt_go_out_is_listed_with_why_and_try_again_sends_it(serv
     assert retried.json() == {"retried": True} and sent, "Try again sends it at once"
     assert (again.status_code, again.json()["code"]) == (404, "scheduled_post_unavailable")
     assert (waiting["status"], waiting["reason"]) == ("scheduled", "")
+
+
+@pytest.mark.parametrize("sound", [False, "silence"])
+def test_a_video_with_nothing_to_hear_says_no_sound_on_its_card_and_in_review(service, tmp_path, monkeypatch,  # noqa: F811
+                                                                             sound):
+    """Twice a demo with no sound went out to X (3 Nov): nothing on its card said so. A video with nothing to
+    hear (no sound track, or only silence) now says "no sound" on the card the person approves and in Review's
+    scheduled posts; a narrated one says nothing."""
+    pytest.importorskip("av")
+    from datetime import datetime, timedelta
+
+    from row_bot import x_accounts
+    from row_bot.api.v1.routes import create_client_platform_app
+    from row_bot.api.v1.schemas import XPostApproval
+    from row_bot.tools import x_posting
+    from tests.helpers.media_files import video
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    install(monkeypatch, FakeXApi(), ROWBOT)
+    account = x_accounts.resolve("@rowbot_ai", required=True)
+    silent = x_posting.media_facts([str(video(tmp_path / "demo.mp4", sound=sound, codec="mpeg4"))])
+    narrated = x_posting.media_facts([str(video(tmp_path / "narrated.mp4", sound=True, codec="mpeg4"))])
+
+    payload = x_posting.approval_payload(account, "post", "Watch the demo", "", silent)
+    assert XPostApproval(**payload["x_post"]).media[0].silent
+    assert "demo.mp4 (" in payload["description"] and ", no sound)" in payload["description"]
+    plain = x_posting.approval_payload(account, "post", "Watch the demo", "", narrated)
+    assert not plain["x_post"]["media"][0]["silent"] and "no sound" not in plain["description"]
+
+    assert payload["x_post"]["media"][0]["ref"] == "", "a file on this computer: its path never reaches the card"
+    # A file from Library › Media carries its reference and type, so the card and Review open it to check.
+    from row_bot import threads
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Demo video", seed_default_skills=False)
+    saved = register_attachment(chat, "demo.mp4", (tmp_path / "demo.mp4").read_bytes())
+    library = x_posting.media_facts([saved["attachment_ref"]])
+    shown = x_posting.approval_payload(account, "post", "Watch the demo", "", library)["x_post"]["media"][0]
+    assert (shown["ref"], shown["mime"], shown["silent"]) == (saved["attachment_ref"], "video/mp4", True)
+
+    when = (datetime.now() + timedelta(hours=2)).replace(second=0, microsecond=0)
+    x_posting.schedule(account, "post", "Watch the demo", "", library, when)
+    app = create_client_platform_app(service, choices=lambda: {"models": [], "capabilities": []},
+                                     session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        _, headers = bootstrap(client)
+        listed = client.get("/api/v1/monitor/scheduled-posts", headers=headers).json()
+    [post] = listed["items"]
+    assert [(item["name"], item["silent"], item["ref"], item["mime"]) for item in post["media"]] == [
+        ("demo.mp4", True, saved["attachment_ref"], "video/mp4")]
