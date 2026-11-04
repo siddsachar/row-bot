@@ -86,6 +86,9 @@ would, on Windows and a Mac, with ChatGPT and a model on this computer. From
   site refused.
 - **Windows sign-ins** save again when Credential Manager is full.
 - **127.0.0.1** from this computer always reaches Row-Bot.
+- **Phones stay connected** - a phone opening Row-Bot from its home screen or
+  another app no longer asks you to connect again after a day; its connection
+  lasts its full 30 days.
 - **From your phone** - Setup says to install Ollama on Row-Bot's computer
   instead of offering a download for the phone.
 - **Your own model server** - a new guide, Use Your Own Model Server, for
