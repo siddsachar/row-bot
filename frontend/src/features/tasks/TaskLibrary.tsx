@@ -49,6 +49,7 @@ import { approvalLevel, approvalTag } from '../shell/approval-levels';
 import { favouritesFirst } from '../shell/model-choices';
 import { webhookReach } from './webhook-reach';
 import { writeClipboardText } from '../../platform/clipboard';
+import { useSaveFile } from '../shell/save-file';
 import { RunSparkline } from './RunSparkline';
 import {
   Button,
@@ -1077,6 +1078,19 @@ function EditorFrame({
 
 export default function TaskLibrary() {
   const { controller, taskEditSessions, platform } = useRuntime();
+  const saveFile = useSaveFile();
+  // The webhook's private file, saved the one way every download saves (5.3.3).
+  const saveWebhook = async (task: string, revision: string) => {
+    if (!saveFile) throw clientError({ code: 'capability_unavailable' });
+    const result = await saveFile({
+      kind: 'workflow_webhook',
+      task_id: task,
+      revision,
+    });
+    if (result.status === 'unavailable')
+      throw clientError({ code: result.reason || 'action_denied' });
+    return result.status === 'ok';
+  };
   const reach = useMemo(() => webhookReach(controller), [controller]);
   const state = useClientState();
   const navigate = useNavigate();
@@ -1334,7 +1348,7 @@ export default function TaskLibrary() {
           review={controller.reviewTaskSettings}
           save={selected.settings.save}
           rotate={selected.settings.rotate}
-          download={selected.settings.download}
+          download={saveWebhook}
           onSaved={saved}
           onCancel={close}
           profileOptions={profileOptions}

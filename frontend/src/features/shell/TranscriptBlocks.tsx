@@ -23,6 +23,7 @@ import { useResolvedTheme } from '../../ui/theme';
 import SafeMarkdown from './chat-parity-markdown';
 import { chartLayout, chartTraces, figureTable } from './chart-embed';
 import { CodeBlock } from './CodeBlock';
+import { saveProblem, useSaveFile } from './save-file';
 import {
   fileKind,
   formatBytes,
@@ -46,10 +47,10 @@ declare global {
         config: Record<string, unknown>,
       ): Promise<unknown>;
       purge(root: HTMLElement): void;
-      downloadImage?(
+      toImage?(
         root: HTMLElement,
         options: Record<string, unknown>,
-      ): Promise<unknown>;
+      ): Promise<string>;
       Plots?: { resize(root: HTMLElement): void };
     };
   }
@@ -303,6 +304,7 @@ function Plot({
 
 function Chart({ figure, label }: { figure: string; label: string }) {
   const overlay = useOverlay();
+  const saveFile = useSaveFile();
   const [plot, setPlot] = useState<{
     data: unknown[];
     root: HTMLElement;
@@ -322,6 +324,28 @@ function Chart({ figure, label }: { figure: string; label: string }) {
       return '';
     }
   })();
+  // The chart as a PNG, saved the one way every download saves (5.3.3).
+  async function savePicture() {
+    if (!plot || !saveFile || !window.Plotly?.toImage) return;
+    let picture: string;
+    try {
+      picture = await window.Plotly.toImage(plot.root, {
+        format: 'png',
+        scale: 2,
+      });
+    } catch {
+      overlay.notify('Couldn’t make a picture of the chart.', 'warning');
+      return;
+    }
+    const name = `${(title || 'chart').replace(/[^A-Za-z0-9 ._-]+/g, '-').slice(0, 60)}.png`;
+    const result = await saveFile({
+      kind: 'content',
+      name,
+      content_base64: picture.slice(picture.indexOf(',') + 1),
+    });
+    const problem = saveProblem(result, 'the chart');
+    if (problem) overlay.notify(problem, 'warning');
+  }
   return (
     <figure className="rich-block rich-chart">
       <div className="rich-block-header">
@@ -336,21 +360,16 @@ function Chart({ figure, label }: { figure: string; label: string }) {
           >
             <Table size={15} aria-hidden />
           </IconButton>
-          <IconButton
-            size="sm"
-            label="Download PNG"
-            disabled={!plot || !window.Plotly?.downloadImage}
-            onClick={() =>
-              plot &&
-              void window.Plotly?.downloadImage?.(plot.root, {
-                format: 'png',
-                filename: (title || 'chart').slice(0, 60),
-                scale: 2,
-              })
-            }
-          >
-            <Download size={15} aria-hidden />
-          </IconButton>
+          {saveFile && (
+            <IconButton
+              size="sm"
+              label="Download PNG"
+              disabled={!plot || !window.Plotly?.toImage}
+              onClick={() => void savePicture()}
+            >
+              <Download size={15} aria-hidden />
+            </IconButton>
+          )}
           <IconButton
             size="sm"
             label="Expand chart"

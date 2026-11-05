@@ -35,7 +35,9 @@ import {
   StatusDot,
   Toggle,
 } from '../../ui/primitives';
+import { useNotify } from '../../ui/overlays';
 import { shortTime } from '../shell/conversation-groups';
+import { announceSaved } from '../shell/save-file';
 import { editLive } from '../shell/video-edits';
 import { LivePreview } from './LivePreview';
 import { acquire, release } from './media-urls';
@@ -136,6 +138,7 @@ export default function VideoPanel({
   visible: boolean;
 }) {
   const { controller, platform } = useRuntime();
+  const notify = useNotify();
   const [view, setView] = useState<VideoProjectView | null>(null);
   const [shown, setShown] = useState<number | undefined>();
   const [draft, setStoredDraft] = useState<Draft | null>(null);
@@ -340,10 +343,7 @@ export default function VideoPanel({
       return;
     }
     setError('');
-    const saved = result.value;
-    if (saved.kind === 'exports')
-      setNotice(`Saved ${saved.fileName} to ${saved.folder}.`);
-    else if (saved.kind === 'file') setNotice(`Saved ${name}.`);
+    announceSaved(notify, result.value, name);
   }
 
   function step(by: number) {

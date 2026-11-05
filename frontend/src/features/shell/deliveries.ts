@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { DeliveryView, ExportSaved } from '../../api/types';
+import type { DeliveryView } from '../../api/types';
 import type { Tone } from '../../ui/primitives';
 
 /**
@@ -10,16 +10,6 @@ import type { Tone } from '../../ui/primitives';
  */
 export type DeliveryIo = {
   load: (deliveryId: string, signal: AbortSignal) => Promise<DeliveryView>;
-  /** One sent file's bytes, with this device's session. */
-  download: (
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ) => Promise<Blob>;
-  /** Desktop window (it can't download): saved into Exports on this computer. */
-  saveToExports: (deliveryId: string, index: number) => Promise<ExportSaved>;
-  /** Show a file saved into Exports in the file manager; false if it couldn't. */
-  reveal: (fileName: string) => Promise<boolean>;
   /** "Send to your devices instead": the person's own click, no approval. */
   sendToDevices: (deliveryId: string) => Promise<DeliveryView>;
 };

@@ -54,7 +54,8 @@ export interface TaskSettingsEditorProps {
     confirmFullAutonomy?: boolean,
   ) => Promise<TaskSettingsSnapshot>;
   rotate: (taskId: string, revision: string) => Promise<TaskSettingsSnapshot>;
-  download: (taskId: string, revision: string) => Promise<void>;
+  /** Save the webhook's private file; true once it is saved (false: cancelled). */
+  download: (taskId: string, revision: string) => Promise<boolean>;
   onSaved: (snapshot: TaskSettingsSnapshot) => void;
   onCancel: () => void;
   profileOptions?: ReadonlyArray<{ id: string; label: string }>;
@@ -454,11 +455,12 @@ export default function TaskSettingsEditor({
     const generation = epoch.current;
     try {
       if (kind === 'download') {
-        await session.run(() => download(taskId, snapshot.revision), true);
-        if (generation === epoch.current)
-          setNotice(
-            'The private webhook configuration was downloaded. Keep it private.',
-          );
+        const saved = await session.run(
+          () => download(taskId, snapshot.revision),
+          true,
+        );
+        if (saved && generation === epoch.current)
+          setNotice('Keep the webhook file private: it holds its secret.');
       } else {
         setPendingKind(kind);
         const result = meta.uncertain

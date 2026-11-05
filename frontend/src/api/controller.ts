@@ -42,6 +42,7 @@ import type {
   GitHubAccessCommand,
   AccountAuthCommand,
   XPostEdit,
+  SaveOfferRequest,
 } from './types';
 
 const INITIAL: ClientState = {
@@ -2703,24 +2704,6 @@ export class ClientController {
   /** Files sent to the person's devices or a chat app (F7). */
   delivery = (deliveryId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.delivery?.(deliveryId, signal));
-  /** One file sent to the devices, with this session (refused once expired). */
-  downloadDelivery = (
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ) =>
-    this.authenticatedResult((current) => {
-      if (!this.transport.downloadDelivery)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.downloadDelivery(deliveryId, index, current);
-    }, signal);
-  /** Desktop window: save a sent file into Exports on this computer. */
-  saveDelivery = (deliveryId: string, index: number) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.saveDelivery)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.saveDelivery(deliveryId, index, signal);
-    });
   /** "Send to your devices instead" for files that didn't go to a chat app. */
   sendDeliveryToDevices = (deliveryId: string) =>
     this.authenticatedResult((signal) => {
@@ -2758,20 +2741,6 @@ export class ClientController {
       if (!this.transport.savePageDecision)
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.savePageDecision(pageId, decision, signal);
-    });
-  /** Download as HTML: one file that works on its own. */
-  downloadPage = (pageId: string, theme: PageTheme) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.downloadPage)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.downloadPage(pageId, theme, signal);
-    });
-  /** Desktop window: save a page into Exports on this computer. */
-  savePageToExports = (pageId: string, theme: PageTheme) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.savePageToExports)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.savePageToExports(pageId, theme, signal);
     });
   /** The local addresses a conversation's browser may open now (F4). */
   browserLocalAddresses = (conversation: string, signal?: AbortSignal) =>
@@ -4961,50 +4930,6 @@ export class ClientController {
         signal,
       ),
     );
-  saveArtifactExport = (
-    conversation: string,
-    binding: string,
-    exportId: string,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.saveArtifactExport?.(
-        conversation,
-        binding,
-        exportId,
-        signal,
-      ),
-    );
-  revealArtifactExport = (
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: import('./types').ArtifactExportReveal,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.revealArtifactExport?.(
-        conversation,
-        binding,
-        exportId,
-        body,
-        signal,
-      ),
-    );
-  artifactDownload = (
-    conversation: string,
-    binding: string,
-    descriptor: import('./types').ArtifactExport,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.artifactDownload?.(
-        conversation,
-        binding,
-        descriptor,
-        signal,
-      ),
-    );
   cachedModels = (
     providerId?: string,
     query = '',
@@ -5824,6 +5749,13 @@ export class ClientController {
       signal,
     );
   }
+  /** One file to save, offered by the server for the one save path (5.3.3). */
+  saveOffer = (source: SaveOfferRequest['source'], signal?: AbortSignal) =>
+    this.query(() => {
+      if (!this.transport.createSaveOffer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createSaveOffer({ source }, signal);
+    });
   /** Desktop app: a conversation export saved into Exports by the server (B238). */
   saveToExports = (reference: string, signal?: AbortSignal) =>
     this.query(() => this.transport.saveAttachmentExport?.(reference, signal));
