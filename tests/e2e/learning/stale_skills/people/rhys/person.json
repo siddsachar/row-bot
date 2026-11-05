@@ -1,0 +1,235 @@
+{
+ "id": "rhys",
+ "name": "Rhys Morgan",
+ "fictional": true,
+ "about": "General manager at the Old Mill Playhouse, a 180-seat community theatre (made up for Row-Bot's tests). Rhys runs the volunteers, the bar and box office, books the shows' kit and keeps the licence paperwork straight.",
+ "uses": "His workspace holds the house rules (last season's and this one's), the venue sheet and the season plan. Apps: the theatre calendar and his mailbox.",
+ "asks": "Chatty but clear, often late in the evening. He names the show, the supplier or the person.",
+ "corrects": "Good-humoured and exact: says what went wrong and what he meant ('no, that's last season's sheet').",
+ "tools": [
+  "filesystem",
+  "memory",
+  "task",
+  "calculator",
+  "chart",
+  "duckduckgo"
+ ],
+ "approval_mode": "approve",
+ "policy": {
+  "requests_per_day": [
+   1,
+   3
+  ],
+  "teach_share": 0.3,
+  "patience_tool_calls": 16,
+  "patience_seconds": 300,
+  "past_conversations_per_day": [
+   3,
+   5
+  ],
+  "past_mistake_share": 0.1
+ },
+ "work": {
+  "fact_lookup": 4,
+  "calendar_add": 2,
+  "mail_send": 2,
+  "mail_archive": 1,
+  "arithmetic": 1
+ },
+ "facts": [
+  {
+   "id": "seats",
+   "answer": 180,
+   "match": "number",
+   "decoy": "150 seats",
+   "files": [
+    "venue/venue-sheet.md"
+   ],
+   "phrasings": [
+    "How many seats in the main house?",
+    "What's our main-house capacity on the venue sheet?"
+   ],
+   "intent": "The current venue sheet's capacity (180), not last season's."
+  },
+  {
+   "id": "get_in",
+   "answer": "09:00",
+   "match": "contains",
+   "decoy": "10:00",
+   "files": [
+    "venue/venue-sheet.md"
+   ],
+   "phrasings": [
+    "What time can companies get in on a show day?"
+   ],
+   "intent": "The get-in time from the venue sheet."
+  },
+  {
+   "id": "curfew",
+   "answer": "23:00",
+   "match": "contains",
+   "decoy": "22:30",
+   "files": [
+    "venue/venue-sheet.md"
+   ],
+   "phrasings": [
+    "What's our licence curfew?",
+    "When does the building have to be empty by?"
+   ],
+   "intent": "The licence curfew."
+  },
+  {
+   "id": "season_shows",
+   "answer": 6,
+   "match": "number",
+   "decoy": "5 shows",
+   "files": [
+    "season/plan.md"
+   ],
+   "phrasings": [
+    "How many shows are in this season?"
+   ],
+   "intent": "The number of shows in this season's plan."
+  },
+  {
+   "id": "panto_open",
+   "answer": "4 December",
+   "match": "contains",
+   "decoy": "3 December",
+   "files": [
+    "season/plan.md"
+   ],
+   "phrasings": [
+    "When does the panto open?"
+   ],
+   "intent": "The panto's opening night."
+  },
+  {
+   "id": "wheelchair",
+   "answer": 4,
+   "match": "number",
+   "decoy": "2 spaces",
+   "files": [
+    "venue/venue-sheet.md"
+   ],
+   "phrasings": [
+    "How many wheelchair spaces do we have?"
+   ],
+   "intent": "The number of wheelchair spaces."
+  }
+ ],
+ "calendar": {
+  "whos": [
+   "Alys",
+   "Bryn",
+   "Carys",
+   "Dylan",
+   "Efa",
+   "Gethin",
+   "Hari",
+   "Iolo"
+  ],
+  "whats": [
+   {
+    "name": "bar shift",
+    "title": "{who} - bar shift",
+    "start": "18:30",
+    "end": "22:30",
+    "weekend": false
+   },
+   {
+    "name": "matinee usher shift",
+    "title": "{who} - matinee usher",
+    "start": "13:30",
+    "end": "17:00",
+    "weekend": true
+   }
+  ],
+  "phrasings": [
+   "Put {who} on the {what} on {date} in the theatre calendar.",
+   "Add a calendar entry for {who}'s {what} on {date}, please."
+  ]
+ },
+ "mail": {
+  "contacts": [
+   {
+    "name": "Tixline",
+    "email": "support@tixline.example",
+    "purpose": "ask them to release {quantity} held seats for Saturday",
+    "must": "{quantity}"
+   },
+   {
+    "name": "Millbrook Brewery",
+    "email": "orders@millbrook-brewery.example",
+    "purpose": "add {quantity} casks to the next delivery",
+    "must": "{quantity}"
+   },
+   {
+    "name": "the volunteers",
+    "email": "volunteers@oldmillplayhouse.example",
+    "purpose": "remind everyone to arrive 45 minutes before doors",
+    "must": "45 minutes"
+   }
+  ],
+  "phrasings": [
+   "Email {name} ({email}) to {purpose}.",
+   "Send a quick email to {email} - {purpose}."
+  ],
+  "newsletters": [
+   {
+    "from": "news@stage-and-screen.example",
+    "subject": "Stage & Screen weekly"
+   },
+   {
+    "from": "offers@theatre-supplies.example",
+    "subject": "Theatre supplies offers"
+   }
+  ],
+  "archive_phrasings": [
+   "Archive all the emails from {sender} in my inbox.",
+   "Clear out the {sender} emails from my inbox - archive them."
+  ]
+ },
+ "arithmetic": [
+  {
+   "phrasing": "We sold {a} tickets at GBP {b}. What's that over {c} nights?",
+   "a": [
+    60,
+    180,
+    5
+   ],
+   "b": [
+    12,
+    18,
+    1
+   ],
+   "c": [
+    2,
+    8,
+    1
+   ],
+   "answer": "a*b*c",
+   "decimals": 0
+  },
+  {
+   "phrasing": "Each bar shift needs {a} volunteers for {b} hours. How many volunteer hours for {c} shows?",
+   "a": [
+    2,
+    5,
+    1
+   ],
+   "b": [
+    3,
+    5,
+    1
+   ],
+   "c": [
+    3,
+    12,
+    1
+   ],
+   "answer": "a*b*c",
+   "decimals": 0
+  }
+ ]
+}

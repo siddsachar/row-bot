@@ -1,0 +1,689 @@
+{
+ "format": "row_bot.learning.stale_skills_catalogue",
+ "version": 1,
+ "person": "tobi",
+ "first_name": "Tobi",
+ "policy_by": "The partners",
+ "seed": 20261022,
+ "runbook": {
+  "path": "admin/practice-contacts.md",
+  "title": "Practice contacts",
+  "intro": "Harbour Lane Dental: who we deal with and the numbers we use."
+ },
+ "whos": [
+  "Amara",
+  "Ben",
+  "Chloe",
+  "Dami",
+  "Erin",
+  "Felix",
+  "Gita",
+  "Hugo",
+  "Isla",
+  "Jude"
+ ],
+ "procedures": [
+  {
+   "id": "lab_case",
+   "kind": "address",
+   "title": "the lab case",
+   "fact": "Northpoint Dental Lab's cases address",
+   "party": "Northpoint Dental Lab",
+   "aliases": [
+    "Northpoint",
+    "the lab"
+   ],
+   "pool": [
+    {
+     "name": "Northpoint Dental Lab",
+     "email": "cases@northpoint-lab.example"
+    },
+    {
+     "name": "Northpoint Dental Lab",
+     "email": "orders@northpoint-lab.example"
+    },
+    {
+     "name": "Northpoint Dental Lab",
+     "email": "lab@northpoint-lab.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send Northpoint Dental Lab the crown case for patient ref {n}. Their cases address is {value}.",
+   "short": [
+    "Send {alias} the crown case for patient ref {n}.",
+    "Crown case for ref {n} to {alias} please."
+   ],
+   "variable": "n",
+   "low": 2100,
+   "high": 2999,
+   "unit": "ref",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "waste_booking",
+   "kind": "address",
+   "title": "the clinical-waste collection",
+   "fact": "the clinical-waste firm's bookings address",
+   "party": "Southcoast Clinical Waste",
+   "aliases": [
+    "the waste firm",
+    "Southcoast"
+   ],
+   "pool": [
+    {
+     "name": "Southcoast Clinical Waste",
+     "email": "bookings@southcoast-waste.example"
+    },
+    {
+     "name": "Southcoast Clinical Waste",
+     "email": "collections@southcoast-waste.example"
+    },
+    {
+     "name": "Southcoast Clinical Waste",
+     "email": "book@southcoast-waste.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book {n} clinical-waste bags for collection this week with Southcoast. Email them at {value}.",
+   "short": [
+    "Book {n} clinical-waste bags for collection with {alias}.",
+    "We need {n} waste bags collected this week - book it with {alias}."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 8,
+   "unit": "bags",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "recall_letters",
+   "kind": "address",
+   "title": "the recall letters",
+   "fact": "the print-and-post service's jobs address",
+   "party": "PostRight",
+   "aliases": [
+    "the mailing service",
+    "PostRight"
+   ],
+   "pool": [
+    {
+     "name": "PostRight",
+     "email": "print@postright.example"
+    },
+    {
+     "name": "PostRight",
+     "email": "jobs@postright.example"
+    },
+    {
+     "name": "PostRight",
+     "email": "send@postright.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send PostRight this month's recall letters: {n} patients. Their jobs address is {value}.",
+   "short": [
+    "Send {alias} this month's recall letters: {n} patients.",
+    "Recall letters to {alias} - {n} patients."
+   ],
+   "variable": "n",
+   "low": 40,
+   "high": 190,
+   "unit": "patients",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "gloves_order",
+   "kind": "supplier",
+   "title": "the gloves order",
+   "fact": "our clinical supplies supplier",
+   "party": "the supplies supplier",
+   "aliases": [
+    "the supplies people",
+    "the supplier"
+   ],
+   "pool": [
+    {
+     "name": "Medisure Supplies",
+     "email": "orders@medisure.example"
+    },
+    {
+     "name": "Dentaline Direct",
+     "email": "sales@dentaline.example"
+    },
+    {
+     "name": "ClinicPro",
+     "email": "trade@clinicpro.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Order {n} boxes of nitrile gloves, please. Clinical supplies come from {name} ({value}).",
+   "short": [
+    "Order {n} boxes of nitrile gloves.",
+    "We're low on gloves - order {n} boxes please."
+   ],
+   "variable": "n",
+   "low": 10,
+   "high": 40,
+   "unit": "boxes of gloves",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "cleaning_order",
+   "kind": "supplier",
+   "title": "the surface-wipes order",
+   "fact": "our cleaning-supplies supplier",
+   "party": "the cleaning supplier",
+   "aliases": [
+    "the cleaning supplier"
+   ],
+   "pool": [
+    {
+     "name": "Sparkle Clinical",
+     "email": "orders@sparkleclinical.example"
+    },
+    {
+     "name": "CleanCare Pro",
+     "email": "hello@cleancarepro.example"
+    },
+    {
+     "name": "Hygienix",
+     "email": "sales@hygienix.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Order {n} tubs of surface wipes. Cleaning supplies come from {name} - orders to {value}.",
+   "short": [
+    "Order {n} tubs of surface wipes.",
+    "Surface wipes again - {n} tubs please."
+   ],
+   "variable": "n",
+   "low": 4,
+   "high": 16,
+   "unit": "tubs",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "it_ticket",
+   "kind": "supplier",
+   "title": "the IT support ticket",
+   "fact": "our IT support firm",
+   "party": "the IT support firm",
+   "aliases": [
+    "IT support",
+    "the IT people"
+   ],
+   "pool": [
+    {
+     "name": "ByteMedic",
+     "email": "help@bytemedic.example"
+    },
+    {
+     "name": "Practice IT",
+     "email": "support@practiceit.example"
+    },
+    {
+     "name": "NetNurse",
+     "email": "tickets@netnurse.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Log an IT ticket: {n} workstations need the imaging update. Our IT support is {name} ({value}).",
+   "short": [
+    "Log an IT ticket: {n} workstations need the imaging update.",
+    "{n} workstations need the update - raise it with IT support."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 6,
+   "unit": "workstations",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "hygiene_clinic",
+   "kind": "hours",
+   "title": "the hygiene clinic",
+   "fact": "the hygiene clinic's hours",
+   "party": "the hygiene clinic",
+   "aliases": [
+    "the hygiene session"
+   ],
+   "pool": [
+    {
+     "start": "13:00",
+     "end": "17:00"
+    },
+    {
+     "start": "14:00",
+     "end": "18:00"
+    },
+    {
+     "start": "09:00",
+     "end": "13:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Put the hygiene clinic on {date} in the practice calendar - it runs {value}.",
+   "short": [
+    "Put the hygiene clinic on {date} in the practice calendar.",
+    "Add {date}'s hygiene clinic to the calendar please."
+   ],
+   "variable": "date",
+   "event": "Hygiene clinic",
+   "keyword": "hygiene clinic",
+   "letter_from": "asha@harbourlanedental.example"
+  },
+  {
+   "id": "fire_drill",
+   "kind": "hours",
+   "title": "the fire drill",
+   "fact": "the fire drill's hours",
+   "party": "the fire drill",
+   "aliases": [
+    "the drill"
+   ],
+   "pool": [
+    {
+     "start": "08:00",
+     "end": "08:30"
+    },
+    {
+     "start": "08:30",
+     "end": "09:00"
+    },
+    {
+     "start": "07:45",
+     "end": "08:15"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book the fire drill for {date} in the calendar. Drills run {value}.",
+   "short": [
+    "Book the fire drill for {date} in the calendar.",
+    "Fire drill on {date} - put it in the calendar."
+   ],
+   "variable": "date",
+   "event": "Fire drill",
+   "keyword": "fire drill",
+   "letter_from": "asha@harbourlanedental.example"
+  },
+  {
+   "id": "cpd_session",
+   "kind": "hours",
+   "title": "a CPD session",
+   "fact": "the CPD sessions' hours",
+   "party": "CPD sessions",
+   "aliases": [
+    "the training session"
+   ],
+   "pool": [
+    {
+     "start": "16:00",
+     "end": "17:30"
+    },
+    {
+     "start": "17:00",
+     "end": "18:30"
+    },
+    {
+     "start": "12:30",
+     "end": "14:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "{who} needs a CPD session - add it on {date} to the calendar. CPD sessions run {value}.",
+   "short": [
+    "{who} needs a CPD session - add it on {date} to the calendar.",
+    "Can you put {who}'s CPD session in the calendar for {date}?"
+   ],
+   "variable": "who_date",
+   "event": "{who} - CPD session",
+   "keyword": "cpd",
+   "letter_from": "asha@harbourlanedental.example"
+  },
+  {
+   "id": "petty_cash",
+   "kind": "amount",
+   "title": "the petty-cash request",
+   "fact": "the practice's weekly petty-cash float",
+   "party": "the petty-cash float",
+   "aliases": [
+    "the float"
+   ],
+   "pool": [
+    {
+     "amount": 100
+    },
+    {
+     "amount": 150
+    },
+    {
+     "amount": 125
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the accounts team ({to}) the petty-cash request for the week of {date}. The float is {value}.",
+   "short": [
+    "Send accounts the petty-cash request for the week of {date}.",
+    "Can you ask accounts for this week's float? Week of {date}."
+   ],
+   "variable": "date",
+   "to": "accounts@harbourlanedental.example",
+   "letter_from": "accounts@harbourlanedental.example"
+  },
+  {
+   "id": "uniform_allowance",
+   "kind": "amount",
+   "title": "the uniform allowance claim",
+   "fact": "the weekly uniform-laundry allowance",
+   "party": "the laundry allowance",
+   "aliases": [
+    "the laundry money"
+   ],
+   "pool": [
+    {
+     "amount": 40
+    },
+    {
+     "amount": 55
+    },
+    {
+     "amount": 50
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Claim the uniform-laundry allowance from HR ({to}) for the week of {date} - it's {value}.",
+   "short": [
+    "Claim the uniform-laundry allowance from HR for the week of {date}.",
+    "Laundry allowance claim please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "hr@harbourlanedental.example",
+   "letter_from": "hr@harbourlanedental.example"
+  },
+  {
+   "id": "compliance_report",
+   "kind": "role",
+   "title": "the compliance report",
+   "fact": "who the compliance lead is",
+   "party": "the compliance lead",
+   "aliases": [
+    "the compliance lead"
+   ],
+   "pool": [
+    {
+     "name": "Asha Patel",
+     "email": "asha@harbourlanedental.example"
+    },
+    {
+     "name": "Rob Carver",
+     "email": "rob@harbourlanedental.example"
+    },
+    {
+     "name": "Mei Lin",
+     "email": "mei@harbourlanedental.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the compliance lead this week's compliance report: {n} checks done. That's {name} ({value}).",
+   "short": [
+    "Send the compliance lead this week's compliance report: {n} checks done.",
+    "Compliance report to the compliance lead - {n} checks done."
+   ],
+   "variable": "n",
+   "low": 8,
+   "high": 30,
+   "unit": "checks",
+   "letter_from": "practice@harbourlanedental.example"
+  },
+  {
+   "id": "rota_summary",
+   "kind": "role",
+   "title": "the nurses' rota summary",
+   "fact": "who the head nurse is",
+   "party": "the head nurse",
+   "aliases": [
+    "the head nurse"
+   ],
+   "pool": [
+    {
+     "name": "Grace Obi",
+     "email": "grace@harbourlanedental.example"
+    },
+    {
+     "name": "Lucy Hart",
+     "email": "lucy@harbourlanedental.example"
+    },
+    {
+     "name": "Nadia Price",
+     "email": "nadia@harbourlanedental.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the head nurse next week's rota summary: {n} shifts. That's {name} ({value}).",
+   "short": [
+    "Send the head nurse next week's rota summary: {n} shifts.",
+    "Rota summary to the head nurse please - {n} shifts."
+   ],
+   "variable": "n",
+   "low": 14,
+   "high": 32,
+   "unit": "shifts",
+   "letter_from": "practice@harbourlanedental.example"
+  },
+  {
+   "id": "cancellation_reminder",
+   "kind": "policy",
+   "title": "the cancellation-rule reminder",
+   "fact": "how much notice a patient must give to cancel",
+   "party": "the cancellation rule",
+   "aliases": [
+    "the cancellation rule"
+   ],
+   "pool": [
+    {
+     "number": 24,
+     "unit": "hours"
+    },
+    {
+     "number": 48,
+     "unit": "hours"
+    },
+    {
+     "number": 12,
+     "unit": "hours"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the team ({to}) this week's reminder: patients must cancel with {value}' notice.",
+   "short": [
+    "Email the team this week's cancellation-rule reminder.",
+    "Send the team the reminder about cancellation notice."
+   ],
+   "variable": "none",
+   "to": "team@harbourlanedental.example",
+   "doc": "policies/practice-rules.md",
+   "doc_rule": "Patients must cancel at least {n} hours before their appointment",
+   "letter_from": "practice@harbourlanedental.example"
+  },
+  {
+   "id": "steriliser_reminder",
+   "kind": "policy",
+   "title": "the steriliser reminder",
+   "fact": "the steriliser cycle temperature",
+   "party": "the steriliser rule",
+   "aliases": [
+    "the steriliser rule"
+   ],
+   "pool": [
+    {
+     "number": 134,
+     "unit": "°C"
+    },
+    {
+     "number": 121,
+     "unit": "°C"
+    },
+    {
+     "number": 132,
+     "unit": "°C"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the nurses ({to}) the weekly steriliser reminder: cycles run at {value}.",
+   "short": [
+    "Send the nurses the weekly steriliser reminder with the cycle temperature.",
+    "Steriliser reminder to the nurses please, with the temperature."
+   ],
+   "variable": "none",
+   "to": "nurses@harbourlanedental.example",
+   "doc": "policies/practice-rules.md",
+   "doc_rule": "Steriliser cycles run at {n} °C",
+   "letter_from": "practice@harbourlanedental.example"
+  },
+  {
+   "id": "new_patient_reminder",
+   "kind": "policy",
+   "title": "the new-patient limit reminder",
+   "fact": "the most new patients each dentist takes a week",
+   "party": "the new-patient limit",
+   "aliases": [
+    "the patient limit"
+   ],
+   "pool": [
+    {
+     "number": 8,
+     "unit": "patients"
+    },
+    {
+     "number": 10,
+     "unit": "patients"
+    },
+    {
+     "number": 6,
+     "unit": "patients"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the dentists ({to}) the weekly reminder that each dentist takes at most {value} a week.",
+   "short": [
+    "Email the dentists the weekly reminder about the new-patient limit.",
+    "Send the dentists the new-patient limit reminder."
+   ],
+   "variable": "none",
+   "to": "dentists@harbourlanedental.example",
+   "doc": "policies/practice-rules.md",
+   "doc_rule": "Each dentist takes at most {n} new patients a week",
+   "letter_from": "practice@harbourlanedental.example"
+  }
+ ],
+ "preferences": [
+  {
+   "id": "pref_rota",
+   "fact": "how Tobi wants the rota laid out",
+   "values": [
+    "a grid",
+    "a list by day"
+   ],
+   "markers": [
+    "grid",
+    "list"
+   ],
+   "say_first": "I like the rota as {value}.",
+   "say_change": "Actually, I'd rather have the rota as {value} from now on."
+  },
+  {
+   "id": "pref_lunch",
+   "fact": "Tobi's lunch order at practice meetings",
+   "values": [
+    "a falafel wrap",
+    "a soup"
+   ],
+   "markers": [
+    "falafel",
+    "soup"
+   ],
+   "say_first": "For the record, I have {value} at practice meetings.",
+   "say_change": "I've gone off falafel - it's {value} for me at practice meetings now."
+  }
+ ],
+ "misstated": [
+  {
+   "id": "inspection_date",
+   "fact": "the date of the practice inspection",
+   "pairs": [
+    [
+     "14 January",
+     "15 January"
+    ],
+    [
+     "21 January",
+     "22 January"
+    ],
+    [
+     "4 February",
+     "5 February"
+    ]
+   ],
+   "say": "The practice inspection is on {wrong}.",
+   "fix": "Sorry, I misread the letter - the inspection is {right}, not {wrong}."
+  },
+  {
+   "id": "xray_service",
+   "fact": "the date of the X-ray machine service",
+   "pairs": [
+    [
+     "9 February",
+     "10 February"
+    ],
+    [
+     "16 February",
+     "17 February"
+    ],
+    [
+     "2 March",
+     "3 March"
+    ]
+   ],
+   "say": "The X-ray service is booked for {wrong}.",
+   "fix": "Correction: the X-ray service is on {right}."
+  }
+ ],
+ "homonyms": [
+  {
+   "id": "ben_carter",
+   "name": "Ben Carter",
+   "email": "ben@harbourlanedental.example",
+   "role": "our new dentist",
+   "say": "Ben Carter has joined us as a dentist. Their email is ben@harbourlanedental.example."
+  },
+  {
+   "id": "ben_osei",
+   "name": "Ben Osei",
+   "email": "ben.osei@northpoint-lab.example",
+   "role": "the technician at Northpoint Dental Lab",
+   "say": "Our technician at Northpoint Dental Lab is Ben Osei now - ben.osei@northpoint-lab.example."
+  }
+ ],
+ "unknown": [
+  {
+   "id": "carter_phone",
+   "question": "What's Ben Carter's phone number?"
+  },
+  {
+   "id": "lab_account",
+   "question": "What's our account number with Northpoint Dental Lab?"
+  },
+  {
+   "id": "asha_mobile",
+   "question": "What's the compliance lead's mobile number?"
+  },
+  {
+   "id": "waste_ref",
+   "question": "What's our clinical-waste contract reference?"
+  },
+  {
+   "id": "osei_phone",
+   "question": "What's Ben Osei's direct phone line?"
+  }
+ ]
+}

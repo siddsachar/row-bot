@@ -1,0 +1,246 @@
+{
+ "id": "ana",
+ "name": "Ana Ribeiro",
+ "fictional": true,
+ "about": "School business manager at Kestrel Hill Primary, a one-form-entry primary school (made up for Row-Bot's tests). Ana handles the school's suppliers, trips, the budget and the site, and keeps parents informed.",
+ "uses": "Her workspace holds the school's policies (the trips policy has a 2025 and a 2026 version), the supplier list and the term dates. Apps: the school calendar and her mailbox.",
+ "asks": "Friendly and quick, often from the office between lessons. She names the class, the supplier or the person.",
+ "corrects": "Plainly: she says what was wrong and points at the right policy ('that's the old trips policy - use the 2026 one').",
+ "tools": [
+  "filesystem",
+  "memory",
+  "task",
+  "calculator",
+  "chart",
+  "duckduckgo"
+ ],
+ "approval_mode": "approve",
+ "policy": {
+  "requests_per_day": [
+   1,
+   3
+  ],
+  "teach_share": 0.3,
+  "patience_tool_calls": 16,
+  "patience_seconds": 300,
+  "past_conversations_per_day": [
+   3,
+   5
+  ],
+  "past_mistake_share": 0.1
+ },
+ "work": {
+  "fact_lookup": 4,
+  "calendar_add": 2,
+  "mail_send": 2,
+  "mail_archive": 1,
+  "arithmetic": 1
+ },
+ "facts": [
+  {
+   "id": "trip_ratio",
+   "answer": 6,
+   "match": "number",
+   "decoy": "8 children",
+   "files": [
+    "policies/trips-2026.md"
+   ],
+   "phrasings": [
+    "How many children per adult on a school trip under the current policy?",
+    "What's the adult-to-child ratio for trips now?"
+   ],
+   "intent": "The 2026 trips policy's ratio (1 adult per 6), not 2025's."
+  },
+  {
+   "id": "trip_notice",
+   "answer": 14,
+   "match": "number",
+   "decoy": "7 days",
+   "files": [
+    "policies/trips-2026.md"
+   ],
+   "phrasings": [
+    "How many days' notice do parents get before a trip?"
+   ],
+   "intent": "The current notice period for trips in days."
+  },
+  {
+   "id": "term_end",
+   "answer": "18 December",
+   "match": "contains",
+   "decoy": "19 December",
+   "files": [
+    "admin/term-dates.md"
+   ],
+   "phrasings": [
+    "When does the autumn term end?",
+    "What's the last day of this term?"
+   ],
+   "intent": "The autumn term's last day."
+  },
+  {
+   "id": "inset_day",
+   "answer": "5 January",
+   "match": "contains",
+   "decoy": "4 January",
+   "files": [
+    "admin/term-dates.md"
+   ],
+   "phrasings": [
+    "When's the next INSET day?"
+   ],
+   "intent": "The next INSET day from the term dates."
+  },
+  {
+   "id": "classes",
+   "answer": 7,
+   "match": "number",
+   "decoy": "6 classes",
+   "files": [
+    "admin/term-dates.md"
+   ],
+   "phrasings": [
+    "How many classes do we have this year?"
+   ],
+   "intent": "The number of classes this school year."
+  },
+  {
+   "id": "coach_seats",
+   "answer": 53,
+   "match": "number",
+   "decoy": "49 seats",
+   "files": [
+    "suppliers/list.md"
+   ],
+   "phrasings": [
+    "How many seats on the big coach from Coastline?"
+   ],
+   "intent": "Coastline's big coach seats."
+  },
+  {
+   "id": "fruit_days",
+   "answer": "Monday",
+   "match": "contains",
+   "decoy": "Friday",
+   "files": [
+    "suppliers/list.md"
+   ],
+   "phrasings": [
+    "Which day does the fruit delivery come?"
+   ],
+   "intent": "The fruit delivery day from the supplier list."
+  }
+ ],
+ "calendar": {
+  "whos": [
+   "Maple class",
+   "Oak class",
+   "Rowan class",
+   "Willow class",
+   "Birch class",
+   "Hazel class"
+  ],
+  "whats": [
+   {
+    "name": "class assembly",
+    "title": "{who} assembly",
+    "start": "09:00",
+    "end": "09:30",
+    "weekend": false
+   },
+   {
+    "name": "library visit",
+    "title": "{who} library visit",
+    "start": "13:15",
+    "end": "14:00",
+    "weekend": false
+   }
+  ],
+  "phrasings": [
+   "Put the {what} for {who} on {date} in the school calendar.",
+   "Add {who}'s {what} on {date} to the calendar, please."
+  ]
+ },
+ "mail": {
+  "contacts": [
+   {
+    "name": "Brightplate Catering",
+    "email": "orders@brightplate.example",
+    "purpose": "confirm {quantity} packed lunches for Thursday's trip",
+    "must": "{quantity}"
+   },
+   {
+    "name": "EduSupply",
+    "email": "orders@edusupply.example",
+    "purpose": "ask them to add {quantity} packs of glue sticks to the next delivery",
+    "must": "{quantity}"
+   },
+   {
+    "name": "the staff list",
+    "email": "staff@kestrelhill.example",
+    "purpose": "remind everyone that term-time absence requests need 10 days' notice",
+    "must": "10 days"
+   }
+  ],
+  "phrasings": [
+   "Email {name} ({email}) to {purpose}.",
+   "Send a quick email to {email} - {purpose}."
+  ],
+  "newsletters": [
+   {
+    "from": "news@schools-bulletin.example",
+    "subject": "Schools Bulletin"
+   },
+   {
+    "from": "offers@classroom-deals.example",
+    "subject": "Classroom deals this week"
+   }
+  ],
+  "archive_phrasings": [
+   "Archive all the emails from {sender} in my inbox.",
+   "Clear out the {sender} emails from my inbox - archive them."
+  ]
+ },
+ "arithmetic": [
+  {
+   "phrasing": "Lunch costs GBP {a} a day and {b} children are on free meals. What's that for {c} days?",
+   "a": [
+    2.2,
+    2.8,
+    0.1
+   ],
+   "b": [
+    20,
+    60,
+    1
+   ],
+   "c": [
+    5,
+    15,
+    1
+   ],
+   "answer": "a*b*c",
+   "decimals": 2
+  },
+  {
+   "phrasing": "The coach costs GBP {a} and {b} children are going. What's the cost per child for {c} trips?",
+   "a": [
+    300,
+    600,
+    25
+   ],
+   "b": [
+    25,
+    60,
+    1
+   ],
+   "c": [
+    1,
+    3,
+    1
+   ],
+   "answer": "a*c/b",
+   "decimals": 2
+  }
+ ]
+}

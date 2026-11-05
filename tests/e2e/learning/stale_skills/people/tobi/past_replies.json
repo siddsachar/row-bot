@@ -1,0 +1,737 @@
+{
+ "format": "row_bot.learning.seeded_past_replies",
+ "model": "main",
+ "note": "The past's replies in the main model's own words (tests/e2e/learning/seeded/phrasing.py). Made-up people; nothing here comes from a real person.",
+ "replies": {
+  "tobi-p01-0-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p01-1-0": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p01-1-1": {
+   "reply": "We run **4 dental chairs**, confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p01-2-0": {
+   "reply": "Archived 6 emails from offers@clinicsupply-deals.example from your inbox.",
+   "template": "Archived 6 emails from offers@clinicsupply-deals.example."
+  },
+  "tobi-p01-3-0": {
+   "reply": "At least **20 seconds**, before and after every patient, per the infection-control checklist.",
+   "template": "It's 20."
+  },
+  "tobi-p02-0-0": {
+   "reply": "The handbook says to keep **3 same-day emergency appointments each day**.",
+   "template": "It's 3."
+  },
+  "tobi-p02-1-0": {
+   "reply": "We run **4 dental chairs**, confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p02-2-0": {
+   "reply": "Added **Erin - morning surgery** to the practice calendar on **2026-11-12**.",
+   "template": "Added Erin - morning surgery on 2026-11-12."
+  },
+  "tobi-p02-3-0": {
+   "reply": "Thursday is our late-opening day, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p02-4-0": {
+   "reply": "We run **4 dental chairs**, as confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p03-0-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 36 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p03-1-0": {
+   "reply": "At least **20 seconds**, before and after every patient, per the infection-control checklist.",
+   "template": "It's 20."
+  },
+  "tobi-p03-1-1": {
+   "reply": "Archived 3 emails from news@dental-practice-weekly.example. They’re out of your inbox, not deleted.",
+   "template": "Archived 3 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p03-2-0": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p03-2-1": {
+   "reply": "Thursday is our late-opening day, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p03-3-0": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p03-3-1": {
+   "reply": "At least **20 seconds**, before and after every patient, per the infection-control checklist.",
+   "template": "It's 20."
+  },
+  "tobi-p03-3-2": {
+   "reply": "At least **20 seconds**, before and after every patient, according to your infection-control checklist.",
+   "template": "It's 20."
+  },
+  "tobi-p04-0-0": {
+   "reply": "That comes to **770 patient visits**.",
+   "template": "That comes to 770."
+  },
+  "tobi-p04-0-1": {
+   "reply": "Added **Erin - afternoon surgery** to the calendar for **2026-11-02**.",
+   "template": "Added Erin - afternoon surgery on 2026-11-02."
+  },
+  "tobi-p04-1-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p04-2-0": {
+   "reply": "We’re open late on **Thursday**, until **19:30**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p04-3-0": {
+   "reply": "Added **Chloe - afternoon surgery** to the practice calendar on **2026-11-05**.",
+   "template": "Added Chloe - afternoon surgery on 2026-11-05."
+  },
+  "tobi-p05-0-0": {
+   "reply": "Added **Dami - afternoon surgery** to the calendar on **2026-11-05**.",
+   "template": "Added Dami - afternoon surgery on 2026-11-05."
+  },
+  "tobi-p05-1-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 18 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p05-1-1": {
+   "reply": "Added **Felix - afternoon surgery** to the practice calendar on **2026-11-09**.",
+   "template": "Added Felix - afternoon surgery on 2026-11-09."
+  },
+  "tobi-p05-2-0": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p05-2-1": {
+   "reply": "Added **Hugo - afternoon surgery** to the calendar on **2026-11-09**.",
+   "template": "Added Hugo - afternoon surgery on 2026-11-09."
+  },
+  "tobi-p06-0-0": {
+   "reply": "Sent an email to orders@medisure.example asking them to add 23 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p06-0-1": {
+   "reply": "Sent to orders@medisure.example, asking them to add 12 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p06-0-2": {
+   "reply": "Sent to team@harbourlanedental.example — a quick reminder that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p06-1-0": {
+   "reply": "Fill in the instrument log **daily**, according to the infection-control checklist in `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p06-2-0": {
+   "reply": "Added **Amara - morning surgery** to the practice calendar on **2026-11-04**.",
+   "template": "Added Amara - morning surgery on 2026-11-04."
+  },
+  "tobi-p06-3-0": {
+   "reply": "Northpoint Dental Lab takes **7 working days** for a crown, according to `suppliers/notes.md`.",
+   "template": "It's 7."
+  },
+  "tobi-p06-3-1": {
+   "reply": "Fill in the instrument log **daily**, according to the infection-control checklist in `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p07-0-0": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p07-0-1": {
+   "reply": "Sent to cases@northpoint-lab.example, asking them to confirm the 4 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p07-1-0": {
+   "reply": "Added **Dami - afternoon surgery** to the practice calendar on **2026-10-27**.",
+   "template": "Added Dami - afternoon surgery on 2026-10-27."
+  },
+  "tobi-p07-2-0": {
+   "reply": "Northpoint Lab’s turnaround for a crown is **7 working days**, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p07-3-0": {
+   "reply": "Sent to team@harbourlanedental.example — a quick reminder that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p07-3-1": {
+   "reply": "Added **Ben - afternoon surgery** to the calendar on **2026-11-09**.",
+   "template": "Added Ben - afternoon surgery on 2026-11-09."
+  },
+  "tobi-p07-4-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 27 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p08-0-0": {
+   "reply": "Added **Erin - afternoon surgery** to the practice calendar on **2026-10-26**.",
+   "template": "Added Erin - afternoon surgery on 2026-10-26."
+  },
+  "tobi-p08-0-1": {
+   "reply": "The practice has **4 surgery chairs**, according to the practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p08-1-0": {
+   "reply": "Added **Felix - morning surgery** to the practice calendar on **2026-11-02**.",
+   "template": "Added Felix - morning surgery on 2026-11-02."
+  },
+  "tobi-p08-2-0": {
+   "reply": "Added **Felix - afternoon surgery** to the calendar on **2026-11-02**, from 13:30 to 17:30.",
+   "template": "Added Felix - afternoon surgery on 2026-11-02."
+  },
+  "tobi-p08-3-0": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the 21 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p08-4-0": {
+   "reply": "Added **Chloe - afternoon surgery** to the practice calendar on **2026-11-04**.",
+   "template": "Added Chloe - afternoon surgery on 2026-11-04."
+  },
+  "tobi-p09-0-0": {
+   "reply": "Northpoint Lab’s turnaround for a crown is **7 working days**, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p09-0-1": {
+   "reply": "Northpoint Lab’s turnaround for a crown is **7 working days**, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p09-1-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 29 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p09-2-0": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p09-2-1": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p09-2-2": {
+   "reply": "The gloves will last **8.3 days** at your current usage.",
+   "template": "That comes to 8.3."
+  },
+  "tobi-p09-3-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 13 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p10-0-0": {
+   "reply": "Fill in the instrument log **daily**, according to the infection-control checklist in `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p10-1-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 32 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p10-2-0": {
+   "reply": "We keep **3 emergency slots each day**, according to the practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p10-3-0": {
+   "reply": "At least **20 seconds**, before and after every patient, per `infection-control/checklist.md`.",
+   "template": "It's 20."
+  },
+  "tobi-p10-3-1": {
+   "reply": "That comes to **1235 patient visits** across all chairs.",
+   "template": "That comes to 1235."
+  },
+  "tobi-p10-3-2": {
+   "reply": "Our late-opening day is **Thursday**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p11-0-0": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p11-1-0": {
+   "reply": "Added **Gita - morning surgery** to the practice calendar on **2026-10-27**.",
+   "template": "Added Gita - morning surgery on 2026-10-27."
+  },
+  "tobi-p11-2-0": {
+   "reply": "Archived 2 emails from offers@clinicsupply-deals.example.",
+   "template": "Archived 2 emails from offers@clinicsupply-deals.example."
+  },
+  "tobi-p11-2-1": {
+   "reply": "That comes to **770 patient visits**.",
+   "template": "That comes to 770."
+  },
+  "tobi-p11-2-2": {
+   "reply": "The handbook says to keep **3 same-day emergency appointments** available each day.",
+   "template": "It's 3."
+  },
+  "tobi-p11-3-0": {
+   "reply": "The handbook says to keep **3 same-day emergency appointments each day**.",
+   "template": "It's 3."
+  },
+  "tobi-p11-4-0": {
+   "reply": "The gloves will last **14.3 days** at your current usage.",
+   "template": "That comes to 14.3."
+  },
+  "tobi-p12-0-0": {
+   "reply": "We run **4 dental chairs**, confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p12-0-1": {
+   "reply": "We keep **3 emergency slots each day**, according to the practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p12-1-0": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the 31 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p12-1-1": {
+   "reply": "Northpoint Lab’s turnaround for a crown is **7 working days**, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p12-2-0": {
+   "reply": "The boxes will last **22.2 days** at your current usage.",
+   "template": "That comes to 22.2."
+  },
+  "tobi-p12-2-1": {
+   "reply": "We keep **3 emergency slots each day**, according to the practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p12-3-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p13-0-0": {
+   "reply": "Northpoint Dental Lab takes **7 working days** for a crown, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p13-1-0": {
+   "reply": "Added **Amara - morning surgery** to the practice calendar on **2026-10-23**.",
+   "template": "Added Amara - morning surgery on 2026-10-23."
+  },
+  "tobi-p13-2-0": {
+   "reply": "The gloves will last **12.5 days** at your current usage.",
+   "template": "That comes to 12.5."
+  },
+  "tobi-p13-2-1": {
+   "reply": "Added **Felix - morning surgery** to the calendar on **2026-10-21**.",
+   "template": "Added Felix - morning surgery on 2026-10-21."
+  },
+  "tobi-p14-0-0": {
+   "reply": "We’re open late on **Thursday**, until **19:30**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p14-1-0": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p14-1-1": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p14-2-0": {
+   "reply": "We’re open late on **Thursday**, until **19:30**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p15-0-0": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p15-1-0": {
+   "reply": "We’re open late on **Thursday**, until **19:30**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p15-1-1": {
+   "reply": "That comes to **715 patient visits**.",
+   "template": "That comes to 715."
+  },
+  "tobi-p15-2-0": {
+   "reply": "The gloves will last **30.0 days** at your current usage.",
+   "template": "That comes to 30.0."
+  },
+  "tobi-p15-2-1": {
+   "reply": "The gloves will last **6.2 days**.",
+   "template": "That comes to 6.2."
+  },
+  "tobi-p16-0-0": {
+   "reply": "Added **Felix - afternoon surgery** to the practice calendar on **2026-10-20**.",
+   "template": "Added Felix - afternoon surgery on 2026-10-20."
+  },
+  "tobi-p16-1-0": {
+   "reply": "The practice has **4 surgery chairs**, according to the practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p16-2-0": {
+   "reply": "We run **4 dental chairs**, confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p17-0-0": {
+   "reply": "We keep **3 emergency slots each day**, according to the practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p17-1-1": {
+   "reply": "We’re open late on **Thursday**, until **19:30**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p17-2-0": {
+   "reply": "Added **Erin - afternoon surgery** to the calendar on **2026-10-22**.",
+   "template": "Added Erin - afternoon surgery on 2026-10-22."
+  },
+  "tobi-p18-0-0": {
+   "reply": "We run **4 dental chairs**, confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p18-1-0": {
+   "reply": "At least **20 seconds**, before and after every patient, per `infection-control/checklist.md`.",
+   "template": "It's 20."
+  },
+  "tobi-p18-2-0": {
+   "reply": "We’re open late on **Thursday**, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p18-2-1": {
+   "reply": "We keep **3 emergency slots each day**, according to the current practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p19-0-0": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p19-0-1": {
+   "reply": "Northpoint Dental Lab takes **7 working days** for a crown, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p19-0-2": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the 33 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p19-1-0": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example. They’re out of your inbox; everything else was left untouched.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p19-2-0": {
+   "reply": "Fill in the instrument log **daily**, according to the infection-control checklist in `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p19-2-1": {
+   "reply": "We’re open late on **Thursday**, until 19:30, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p19-2-2": {
+   "reply": "Sent to team@harbourlanedental.example, reminding everyone that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p20-0-0": {
+   "reply": "Northpoint Lab’s turnaround for a crown is **7 working days**, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p20-0-1": {
+   "reply": "They’ll last **11.1 days** at your current usage.",
+   "template": "That comes to 11.1."
+  },
+  "tobi-p20-1-0": {
+   "reply": "The practice has **4 surgery chairs**, according to the practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p20-1-1": {
+   "reply": "Added **Amara - afternoon surgery** to the practice calendar on **2026-10-20**.",
+   "template": "Added Amara - afternoon surgery on 2026-10-20."
+  },
+  "tobi-p20-2-0": {
+   "reply": "Archived 3 emails from offers@clinicsupply-deals.example from your inbox.",
+   "template": "Archived 3 emails from offers@clinicsupply-deals.example."
+  },
+  "tobi-p20-2-1": {
+   "reply": "Archived 2 emails from news@dental-practice-weekly.example.",
+   "template": "Archived 2 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p20-3-0": {
+   "reply": "Sent to team@harbourlanedental.example, reminding everyone that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p20-3-1": {
+   "reply": "Sent an email to cases@northpoint-lab.example to confirm the 38 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p20-4-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p20-4-1": {
+   "reply": "Northpoint Dental Lab takes **7 working days** for a crown, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p21-0-0": {
+   "reply": "Added **Erin - morning surgery** to the practice calendar on **2026-10-21**.",
+   "template": "Added Erin - morning surgery on 2026-10-21."
+  },
+  "tobi-p21-0-1": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the 33 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p21-1-0": {
+   "reply": "Sent an email to cases@northpoint-lab.example asking them to confirm the crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p21-2-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 39 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p21-2-1": {
+   "reply": "That comes to **500 patient visits**.",
+   "template": "That comes to 500."
+  },
+  "tobi-p21-2-2": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p21-3-0": {
+   "reply": "Added **Ben - afternoon surgery** to the calendar for **2026-10-15**.",
+   "template": "Added Ben - afternoon surgery on 2026-10-15."
+  },
+  "tobi-p21-3-1": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the 4 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p22-0-0": {
+   "reply": "Northpoint Lab’s turnaround for a crown is **7 working days**, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p22-1-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p22-2-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 12 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p22-3-0": {
+   "reply": "We keep **3 emergency slots each day**, according to the practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p22-4-0": {
+   "reply": "The lab takes **7 working days** for a crown, according to `suppliers/notes.md`.",
+   "template": "It's 7."
+  },
+  "tobi-p22-4-1": {
+   "reply": "Added **Chloe - afternoon surgery** to the practice calendar on **2026-10-23**.",
+   "template": "Added Chloe - afternoon surgery on 2026-10-23."
+  },
+  "tobi-p22-4-2": {
+   "reply": "Sent an email to orders@medisure.example asking them to add 9 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p23-0-0": {
+   "reply": "Added **Hugo - afternoon surgery** to the practice calendar on **2026-10-22**.",
+   "template": "Added Hugo - afternoon surgery on 2026-10-22."
+  },
+  "tobi-p23-0-1": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p23-1-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to the supplier notes.",
+   "template": "It's 10."
+  },
+  "tobi-p23-2-0": {
+   "reply": "Northpoint Dental Lab takes **7 working days** for a crown, according to the supplier notes.",
+   "template": "It's 7."
+  },
+  "tobi-p23-2-1": {
+   "reply": "The practice has **4 surgery chairs**, according to the practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p23-2-2": {
+   "reply": "Added **Gita - afternoon surgery** to the calendar on **2026-10-13**.",
+   "template": "Added Gita - afternoon surgery on 2026-10-13."
+  },
+  "tobi-p23-3-0": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the 22 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p24-0-0": {
+   "reply": "The practice has **4 surgery chairs**, according to the practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p24-0-1": {
+   "reply": "Sent to team@harbourlanedental.example — a quick reminder that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p24-1-0": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p24-2-0": {
+   "reply": "Thursday is our late-opening day, according to the practice handbook.",
+   "template": "It's Thursday."
+  },
+  "tobi-p25-0-0": {
+   "reply": "The checklist specifies a hand wash of **at least 20 seconds**, before and after every patient.",
+   "template": "It's 20."
+  },
+  "tobi-p25-0-1": {
+   "reply": "We keep **3 emergency slots each day**, per the practice handbook.",
+   "template": "It's 3."
+  },
+  "tobi-p25-0-2": {
+   "reply": "Archived 3 emails from news@dental-practice-weekly.example from your inbox.",
+   "template": "Archived 3 emails from news@dental-practice-weekly.example."
+  },
+  "tobi-p25-1-0": {
+   "reply": "Added **Felix - morning surgery** to the calendar on **2026-10-19**.",
+   "template": "Added Felix - morning surgery on 2026-10-19."
+  },
+  "tobi-p25-1-1": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p25-1-2": {
+   "reply": "Added **Felix - morning surgery** to the practice calendar on **2026-10-13**.",
+   "template": "Added Felix - morning surgery on 2026-10-13."
+  },
+  "tobi-p25-2-0": {
+   "reply": "Added **Erin - morning surgery** to the practice calendar on **2026-10-21**.",
+   "template": "Added Erin - morning surgery on 2026-10-21."
+  },
+  "tobi-p25-3-0": {
+   "reply": "Sent an email to **cases@northpoint-lab.example** to confirm the 31 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p25-4-0": {
+   "reply": "Added **Gita - afternoon surgery** to the calendar on **2026-10-14**.",
+   "template": "Added Gita - afternoon surgery on 2026-10-14."
+  },
+  "tobi-p25-4-1": {
+   "reply": "Sent to orders@medisure.example, asking them to add 4 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p26-0-0": {
+   "reply": "We currently run **4 dental chairs**, confirmed in the current practice handbook.",
+   "template": "It's 4."
+  },
+  "tobi-p26-1-0": {
+   "reply": "The handbook says to keep **3 same-day emergency appointment slots each day**.",
+   "template": "It's 3."
+  },
+  "tobi-p26-2-0": {
+   "reply": "Added **Erin - morning surgery** to the practice calendar on **2026-10-12**.",
+   "template": "Added Erin - morning surgery on 2026-10-12."
+  },
+  "tobi-p26-3-0": {
+   "reply": "Added **Hugo - afternoon surgery** to the practice calendar on **2026-10-15**.",
+   "template": "Added Hugo - afternoon surgery on 2026-10-15."
+  },
+  "tobi-p26-3-1": {
+   "reply": "Sent to team@harbourlanedental.example — a quick reminder that cancellations need 24 hours’ notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p26-3-2": {
+   "reply": "That comes to **1170 patient visits**.",
+   "template": "That comes to 1170."
+  },
+  "tobi-p26-4-0": {
+   "reply": "Added **Hugo - morning surgery** to your calendar on **2026-10-19**.",
+   "template": "Added Hugo - morning surgery on 2026-10-19."
+  },
+  "tobi-p27-0-0": {
+   "reply": "Sent to orders@medisure.example, asking them to add 36 boxes of masks to the next delivery.",
+   "template": "Sent to orders@medisure.example."
+  },
+  "tobi-p27-0-1": {
+   "reply": "That comes to **650 patient visits**.",
+   "template": "That comes to 650."
+  },
+  "tobi-p27-1-0": {
+   "reply": "Archived 2 emails from offers@clinicsupply-deals.example.",
+   "template": "Archived 2 emails from offers@clinicsupply-deals.example."
+  },
+  "tobi-p27-1-1": {
+   "reply": "That comes to **210 patient visits**.",
+   "template": "That comes to 210."
+  },
+  "tobi-p27-2-0": {
+   "reply": "Added **Gita - morning surgery** to the calendar on **2026-10-13**, from 08:30 to 12:30.",
+   "template": "Added Gita - morning surgery on 2026-10-13."
+  },
+  "tobi-p28-0-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p28-1-0": {
+   "reply": "The checklist says to wash hands for **at least 20 seconds**, before and after every patient.",
+   "template": "It's 20."
+  },
+  "tobi-p28-1-1": {
+   "reply": "Sent an email to cases@northpoint-lab.example to confirm the 2 crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  },
+  "tobi-p28-2-0": {
+   "reply": "That comes to **280 patient visits**.",
+   "template": "That comes to 280."
+  },
+  "tobi-p28-2-1": {
+   "reply": "Added **Felix - afternoon surgery** to the practice calendar on **2026-10-09**.",
+   "template": "Added Felix - afternoon surgery on 2026-10-09."
+  },
+  "tobi-p28-3-0": {
+   "reply": "Fill in the instrument log **daily**, according to the infection-control checklist in `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p28-4-0": {
+   "reply": "Added **Ben - afternoon surgery** to the practice calendar on **2026-10-08**.",
+   "template": "Added Ben - afternoon surgery on 2026-10-08."
+  },
+  "tobi-p29-0-0": {
+   "reply": "Fill in the instrument log **daily**, according to `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p29-1-0": {
+   "reply": "At least **20 seconds**, before and after every patient, according to your infection-control checklist.",
+   "template": "It's 20."
+  },
+  "tobi-p29-1-1": {
+   "reply": "Added **Chloe - afternoon surgery** to the calendar on **2026-10-08**.",
+   "template": "Added Chloe - afternoon surgery on 2026-10-08."
+  },
+  "tobi-p29-2-0": {
+   "reply": "Medisure’s minimum glove order is **10 boxes**, according to `suppliers/notes.md`.",
+   "template": "It's 10."
+  },
+  "tobi-p29-2-1": {
+   "reply": "Sent to team@harbourlanedental.example — a quick reminder that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p29-3-0": {
+   "reply": "Added **Dami - morning surgery** to the practice calendar on **2026-10-15**.",
+   "template": "Added Dami - morning surgery on 2026-10-15."
+  },
+  "tobi-p29-3-1": {
+   "reply": "At least **20 seconds**, before and after every patient, according to your infection-control checklist.",
+   "template": "It's 20."
+  },
+  "tobi-p30-0-0": {
+   "reply": "Added **Erin - morning surgery** to the practice calendar on **2026-10-12**.",
+   "template": "Added Erin - morning surgery on 2026-10-12."
+  },
+  "tobi-p30-0-1": {
+   "reply": "Sent to team@harbourlanedental.example, reminding everyone that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p30-1-0": {
+   "reply": "Fill in the instrument log **daily**, according to the infection-control checklist in `infection-control/checklist.md`.",
+   "template": "It's daily."
+  },
+  "tobi-p30-1-2": {
+   "reply": "Sent to team@harbourlanedental.example — a quick reminder that cancellations need 24 hours' notice.",
+   "template": "Sent to team@harbourlanedental.example."
+  },
+  "tobi-p30-2-0": {
+   "reply": "Sent to cases@northpoint-lab.example to confirm the crown cases due back this week.",
+   "template": "Sent to cases@northpoint-lab.example."
+  }
+ },
+ "seed": 20261022,
+ "version": 1
+}

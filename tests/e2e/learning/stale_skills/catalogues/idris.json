@@ -1,0 +1,689 @@
+{
+ "format": "row_bot.learning.stale_skills_catalogue",
+ "version": 1,
+ "person": "idris",
+ "first_name": "Idris",
+ "policy_by": "I've",
+ "seed": 20261022,
+ "runbook": {
+  "path": "admin/client-contacts.md",
+  "title": "Client contacts",
+  "intro": "Fenwick Bookkeeping: who I deal with and the numbers I use."
+ },
+ "whos": [
+  "Ash & Fern",
+  "Harbour Yoga",
+  "Kiln Street Pottery",
+  "Northgate Vets",
+  "Pebble Lane Deli",
+  "Quill Books",
+  "Rookery Bikes",
+  "Saltmarsh Surf",
+  "Tidewell Dental",
+  "Willow Weavers"
+ ],
+ "procedures": [
+  {
+   "id": "receipts_summary",
+   "kind": "address",
+   "title": "the Brindle & Moss receipts summary",
+   "fact": "Brindle & Moss's receipts inbox",
+   "party": "Brindle & Moss",
+   "aliases": [
+    "the florists",
+    "Brindle"
+   ],
+   "pool": [
+    {
+     "name": "Brindle & Moss",
+     "email": "accounts@brindlemoss.example"
+    },
+    {
+     "name": "Brindle & Moss",
+     "email": "receipts@brindlemoss.example"
+    },
+    {
+     "name": "Brindle & Moss",
+     "email": "finance@brindlemoss.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send Brindle & Moss this week's receipts summary: {n} receipts logged. Their receipts inbox is {value}.",
+   "short": [
+    "Send {alias} this week's receipts summary: {n} receipts logged.",
+    "Receipts summary to {alias} please - {n} receipts this week."
+   ],
+   "variable": "n",
+   "low": 12,
+   "high": 60,
+   "unit": "receipts",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "payroll_figures",
+   "kind": "address",
+   "title": "the Copper Kettle payroll figures",
+   "fact": "the payroll bureau's upload address",
+   "party": "Ledgerline Payroll Bureau",
+   "aliases": [
+    "the payroll bureau",
+    "Ledgerline"
+   ],
+   "pool": [
+    {
+     "name": "Ledgerline Payroll Bureau",
+     "email": "uploads@ledgerline-payroll.example"
+    },
+    {
+     "name": "Ledgerline Payroll Bureau",
+     "email": "payroll@ledgerline-payroll.example"
+    },
+    {
+     "name": "Ledgerline Payroll Bureau",
+     "email": "files@ledgerline-payroll.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the payroll bureau the Copper Kettle payroll figures: {n} staff this period. Their upload address is {value}.",
+   "short": [
+    "Send {alias} the Copper Kettle payroll figures: {n} staff this period.",
+    "Copper Kettle payroll to {alias} please, {n} staff."
+   ],
+   "variable": "n",
+   "low": 6,
+   "high": 14,
+   "unit": "staff",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "invoice_reminder",
+   "kind": "address",
+   "title": "the Quayside invoice reminder",
+   "fact": "Quayside Cycles' invoices address",
+   "party": "Quayside Cycles",
+   "aliases": [
+    "Quayside",
+    "the bike shop"
+   ],
+   "pool": [
+    {
+     "name": "Quayside Cycles",
+     "email": "invoices@quaysidecycles.example"
+    },
+    {
+     "name": "Quayside Cycles",
+     "email": "ap@quaysidecycles.example"
+    },
+    {
+     "name": "Quayside Cycles",
+     "email": "payables@quaysidecycles.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send Quayside Cycles a reminder about invoice {n}. Their invoices address is {value}.",
+   "short": [
+    "Remind {alias} about invoice {n}.",
+    "Chase {alias} on invoice {n} please."
+   ],
+   "variable": "n",
+   "low": 1040,
+   "high": 1399,
+   "unit": "invoice",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "software_renewal",
+   "kind": "supplier",
+   "title": "the software licence renewal",
+   "fact": "our bookkeeping software supplier",
+   "party": "the bookkeeping software supplier",
+   "aliases": [
+    "the software people",
+    "the software supplier"
+   ],
+   "pool": [
+    {
+     "name": "Ledgerly",
+     "email": "renewals@ledgerly.example"
+    },
+    {
+     "name": "Tallybook",
+     "email": "accounts@tallybook.example"
+    },
+    {
+     "name": "Sumwise",
+     "email": "billing@sumwise.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the software licence renewal for {n} seats. We use {name} - renewals go to {value}.",
+   "short": [
+    "Renew the software licence: {n} seats.",
+    "Software renewal time - {n} seats please."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 6,
+   "unit": "seats",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "stationery_order",
+   "kind": "supplier",
+   "title": "the stationery order",
+   "fact": "our stationery supplier",
+   "party": "the stationery supplier",
+   "aliases": [
+    "the stationers"
+   ],
+   "pool": [
+    {
+     "name": "Inkwell Office Supplies",
+     "email": "orders@inkwell-office.example"
+    },
+    {
+     "name": "Paperhouse Direct",
+     "email": "sales@paperhouse.example"
+    },
+    {
+     "name": "Desk & Co",
+     "email": "orders@deskandco.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Order {n} boxes of envelopes, please. Stationery comes from {name} ({value}).",
+   "short": [
+    "Order {n} boxes of envelopes.",
+    "We're low on envelopes - order {n} boxes please."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 12,
+   "unit": "boxes of envelopes",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "print_job",
+   "kind": "supplier",
+   "title": "the year-end pack printing",
+   "fact": "our printers",
+   "party": "the printers",
+   "aliases": [
+    "the print shop",
+    "the printers"
+   ],
+   "pool": [
+    {
+     "name": "Harbour Print",
+     "email": "jobs@harbourprint.example"
+    },
+    {
+     "name": "Copyrite",
+     "email": "orders@copyrite.example"
+    },
+    {
+     "name": "Stack Print Co",
+     "email": "print@stackprint.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the year-end pack to the printers: {n} copies. We use {name} - jobs go to {value}.",
+   "short": [
+    "Send the year-end pack to {alias}: {n} copies.",
+    "Print run for the year-end pack please - {n} copies."
+   ],
+   "variable": "n",
+   "low": 3,
+   "high": 20,
+   "unit": "copies",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "kettle_call",
+   "kind": "hours",
+   "title": "the Copper Kettle catch-up call",
+   "fact": "the Copper Kettle catch-up's hours",
+   "party": "the Copper Kettle catch-up",
+   "aliases": [
+    "the cafe call"
+   ],
+   "pool": [
+    {
+     "start": "14:00",
+     "end": "14:30"
+    },
+    {
+     "start": "15:00",
+     "end": "15:30"
+    },
+    {
+     "start": "11:00",
+     "end": "11:30"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Put the Copper Kettle catch-up call on {date} in my calendar - it runs {value}.",
+   "short": [
+    "Put the Copper Kettle catch-up call on {date} in my calendar.",
+    "Add {date}'s Copper Kettle catch-up to the calendar please."
+   ],
+   "variable": "date",
+   "event": "Copper Kettle catch-up",
+   "keyword": "copper kettle",
+   "letter_from": "ines@copperkettle.example"
+  },
+  {
+   "id": "bank_reconciliation",
+   "kind": "hours",
+   "title": "the Brindle & Moss bank reconciliation",
+   "fact": "the bank reconciliation slot's hours",
+   "party": "the bank reconciliation slot",
+   "aliases": [
+    "the rec slot"
+   ],
+   "pool": [
+    {
+     "start": "09:00",
+     "end": "10:00"
+    },
+    {
+     "start": "08:30",
+     "end": "09:30"
+    },
+    {
+     "start": "10:00",
+     "end": "11:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book the Brindle & Moss bank reconciliation for {date} in my calendar. The slot is {value}.",
+   "short": [
+    "Book the Brindle & Moss bank reconciliation for {date} in my calendar.",
+    "Brindle & Moss bank rec on {date} - put it in the calendar."
+   ],
+   "variable": "date",
+   "event": "Brindle & Moss bank reconciliation",
+   "keyword": "reconciliation",
+   "letter_from": "accounts@brindlemoss.example"
+  },
+  {
+   "id": "intro_call",
+   "kind": "hours",
+   "title": "a new-client intro call",
+   "fact": "the new-client intro call's hours",
+   "party": "new-client intro calls",
+   "aliases": [
+    "the intro call"
+   ],
+   "pool": [
+    {
+     "start": "16:00",
+     "end": "16:30"
+    },
+    {
+     "start": "17:00",
+     "end": "17:30"
+    },
+    {
+     "start": "13:00",
+     "end": "13:30"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "{who} might become a client - add an intro call on {date} to my calendar. Intro calls run {value}.",
+   "short": [
+    "{who} might become a client - add an intro call on {date} to my calendar.",
+    "Can you put an intro call with {who} in my calendar for {date}?"
+   ],
+   "variable": "who_date",
+   "event": "{who} - intro call",
+   "keyword": "intro call",
+   "letter_from": "hello@fenwickbooks.example"
+  },
+  {
+   "id": "till_float",
+   "kind": "amount",
+   "title": "the Copper Kettle till float request",
+   "fact": "the Copper Kettle's weekly till float",
+   "party": "the till float",
+   "aliases": [
+    "the float"
+   ],
+   "pool": [
+    {
+     "amount": 120
+    },
+    {
+     "amount": 150
+    },
+    {
+     "amount": 135
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the Copper Kettle ({to}) the till float request for the week of {date}. The float is {value}.",
+   "short": [
+    "Send the Copper Kettle the till float request for the week of {date}.",
+    "Can you do the Copper Kettle till float for the week of {date}?"
+   ],
+   "variable": "date",
+   "to": "accounts@copperkettle.example",
+   "letter_from": "accounts@copperkettle.example"
+  },
+  {
+   "id": "admin_fee",
+   "kind": "amount",
+   "title": "the Quayside payroll admin fee",
+   "fact": "Quayside's weekly payroll admin fee",
+   "party": "the payroll admin fee",
+   "aliases": [
+    "the admin fee"
+   ],
+   "pool": [
+    {
+     "amount": 35
+    },
+    {
+     "amount": 45
+    },
+    {
+     "amount": 40
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Invoice Quayside ({to}) the payroll admin fee for the week of {date} - it's {value}.",
+   "short": [
+    "Invoice Quayside the payroll admin fee for the week of {date}.",
+    "Payroll admin fee to Quayside please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "sol@quaysidecycles.example",
+   "letter_from": "sol@quaysidecycles.example"
+  },
+  {
+   "id": "vat_summary",
+   "kind": "role",
+   "title": "the Brindle & Moss VAT summary",
+   "fact": "who runs Brindle & Moss's books",
+   "party": "the Brindle & Moss books contact",
+   "aliases": [
+    "the books contact"
+   ],
+   "pool": [
+    {
+     "name": "Juniper Hale",
+     "email": "juniper@brindlemoss.example"
+    },
+    {
+     "name": "Marcus Bell",
+     "email": "marcus@brindlemoss.example"
+    },
+    {
+     "name": "Tessa Moss",
+     "email": "tessa@brindlemoss.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send this quarter's VAT summary to Brindle & Moss's books contact: GBP {n} due. That's {name} ({value}).",
+   "short": [
+    "Send the Brindle & Moss books contact this quarter's VAT summary: GBP {n} due.",
+    "VAT summary to the Brindle & Moss books contact please - GBP {n}."
+   ],
+   "variable": "n",
+   "low": 410,
+   "high": 2900,
+   "unit": "pounds",
+   "letter_from": "accounts@brindlemoss.example"
+  },
+  {
+   "id": "wage_summary",
+   "kind": "role",
+   "title": "the Copper Kettle wage summary",
+   "fact": "who the Copper Kettle's manager is",
+   "party": "the Copper Kettle's manager",
+   "aliases": [
+    "the cafe manager"
+   ],
+   "pool": [
+    {
+     "name": "Ines Varga",
+     "email": "ines@copperkettle.example"
+    },
+    {
+     "name": "Dom Okoro",
+     "email": "dom@copperkettle.example"
+    },
+    {
+     "name": "Lena Park",
+     "email": "lena@copperkettle.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send the Copper Kettle's manager the weekly wage summary: GBP {n}. That's {name} ({value}).",
+   "short": [
+    "Send the Copper Kettle's manager the weekly wage summary: GBP {n}.",
+    "Wage summary to the cafe manager - GBP {n} this week."
+   ],
+   "variable": "n",
+   "low": 900,
+   "high": 2400,
+   "unit": "pounds",
+   "letter_from": "accounts@copperkettle.example"
+  },
+  {
+   "id": "terms_reminder",
+   "kind": "policy",
+   "title": "the payment-terms reminder",
+   "fact": "my standard payment terms",
+   "party": "the payment terms",
+   "aliases": [
+    "the terms"
+   ],
+   "pool": [
+    {
+     "number": 30,
+     "unit": "days"
+    },
+    {
+     "number": 14,
+     "unit": "days"
+    },
+    {
+     "number": 21,
+     "unit": "days"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email my clients ({to}) the monthly reminder of my payment terms: invoices are due within {value}.",
+   "short": [
+    "Email my clients the monthly reminder of my payment terms.",
+    "Send the clients the payment-terms reminder for this month."
+   ],
+   "variable": "none",
+   "to": "clients@fenwickbooks.example",
+   "doc": "policies/terms-of-business.md",
+   "doc_rule": "Invoices are due {n} days after the invoice date",
+   "letter_from": "hello@fenwickbooks.example"
+  },
+  {
+   "id": "late_fee_reminder",
+   "kind": "policy",
+   "title": "the late-fee reminder",
+   "fact": "my late-payment fee",
+   "party": "the late fee",
+   "aliases": [
+    "the late fee"
+   ],
+   "pool": [
+    {
+     "number": 2,
+     "unit": "%"
+    },
+    {
+     "number": 3,
+     "unit": "%"
+    },
+    {
+     "number": 4,
+     "unit": "%"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send my clients ({to}) the reminder about the late-payment fee: {value} a month on overdue invoices.",
+   "short": [
+    "Send my clients the reminder about the late-payment fee.",
+    "Late-fee reminder to the clients please."
+   ],
+   "variable": "none",
+   "to": "clients@fenwickbooks.example",
+   "doc": "policies/terms-of-business.md",
+   "doc_rule": "A late fee of {n}% a month applies to overdue invoices",
+   "letter_from": "hello@fenwickbooks.example"
+  },
+  {
+   "id": "records_reminder",
+   "kind": "policy",
+   "title": "the records-keeping reminder",
+   "fact": "how long clients must keep their records",
+   "party": "the records rule",
+   "aliases": [
+    "the records rule"
+   ],
+   "pool": [
+    {
+     "number": 6,
+     "unit": "years"
+    },
+    {
+     "number": 7,
+     "unit": "years"
+    },
+    {
+     "number": 5,
+     "unit": "years"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email my clients ({to}) the yearly reminder: keep receipts and bank records for {value}.",
+   "short": [
+    "Email my clients the reminder about how long to keep their records.",
+    "Send the clients the records-keeping reminder."
+   ],
+   "variable": "none",
+   "to": "clients@fenwickbooks.example",
+   "doc": "policies/terms-of-business.md",
+   "doc_rule": "Keep receipts and bank records for {n} years",
+   "letter_from": "hello@fenwickbooks.example"
+  }
+ ],
+ "preferences": [
+  {
+   "id": "pref_reports",
+   "fact": "how Idris wants client reports laid out",
+   "values": [
+    "a table",
+    "short bullet points"
+   ],
+   "markers": [
+    "table",
+    "bullet"
+   ],
+   "say_first": "I like client reports as {value}.",
+   "say_change": "Actually, I'd rather have client reports as {value} from now on."
+  },
+  {
+   "id": "pref_coffee",
+   "fact": "what Idris drinks at client meetings",
+   "values": [
+    "flat white",
+    "green tea"
+   ],
+   "markers": [
+    "flat white",
+    "green tea"
+   ],
+   "say_first": "For the record, I have a {value} at client meetings.",
+   "say_change": "I've given up coffee - it's {value} for me at client meetings now."
+  }
+ ],
+ "misstated": [
+  {
+   "id": "filing_date",
+   "fact": "the date of the Quayside filing deadline",
+   "pairs": [
+    [
+     "14 January",
+     "15 January"
+    ],
+    [
+     "21 January",
+     "22 January"
+    ],
+    [
+     "4 February",
+     "5 February"
+    ]
+   ],
+   "say": "The Quayside filing deadline is {wrong}.",
+   "fix": "Sorry, I misread the letter - the Quayside filing is due {right}, not {wrong}."
+  },
+  {
+   "id": "audit_visit",
+   "fact": "the date of the Copper Kettle stock count",
+   "pairs": [
+    [
+     "9 February",
+     "10 February"
+    ],
+    [
+     "16 February",
+     "17 February"
+    ],
+    [
+     "2 March",
+     "3 March"
+    ]
+   ],
+   "say": "The Copper Kettle stock count is on {wrong}.",
+   "fix": "Correction: the stock count is on {right}. I had the wrong day."
+  }
+ ],
+ "homonyms": [
+  {
+   "id": "sol_marchetti",
+   "name": "Sol Marchetti",
+   "email": "sol@quaysidecycles.example",
+   "role": "the owner of Quayside Cycles",
+   "say": "Sol Marchetti owns Quayside Cycles - sol@quaysidecycles.example."
+  },
+  {
+   "id": "sol_reyes",
+   "name": "Sol Reyes",
+   "email": "sol.reyes@ledgerline-payroll.example",
+   "role": "the account manager at the payroll bureau",
+   "say": "Our account manager at the payroll bureau is Sol Reyes now - sol.reyes@ledgerline-payroll.example."
+  }
+ ],
+ "unknown": [
+  {
+   "id": "sol_phone",
+   "question": "What's Sol Marchetti's phone number?"
+  },
+  {
+   "id": "kettle_vat_no",
+   "question": "What's the Copper Kettle's VAT number?"
+  },
+  {
+   "id": "juniper_mobile",
+   "question": "What's Juniper Hale's mobile number?"
+  },
+  {
+   "id": "print_account",
+   "question": "What's my account number with the printers?"
+  },
+  {
+   "id": "reyes_phone",
+   "question": "What's Sol Reyes's direct phone line?"
+  }
+ ]
+}

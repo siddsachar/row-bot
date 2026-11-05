@@ -1,0 +1,684 @@
+{
+ "format": "row_bot.learning.stale_skills_catalogue",
+ "version": 1,
+ "person": "ana",
+ "first_name": "Ana",
+ "policy_by": "The governors",
+ "seed": 20261022,
+ "runbook": {
+  "path": "admin/school-contacts.md",
+  "title": "School contacts",
+  "intro": "Kestrel Hill Primary: who we deal with and the numbers we use."
+ },
+ "whos": [
+  "Mr Adeyemi",
+  "Ms Brook",
+  "Mrs Clarke",
+  "Mr Desai",
+  "Ms Evans",
+  "Mr Fox",
+  "Mrs Gill",
+  "Ms Hall"
+ ],
+ "procedures": [
+  {
+   "id": "lunch_numbers",
+   "kind": "address",
+   "title": "the lunch numbers",
+   "fact": "the caterer's orders address",
+   "party": "Brightplate Catering",
+   "aliases": [
+    "Brightplate",
+    "the caterers"
+   ],
+   "pool": [
+    {
+     "name": "Brightplate Catering",
+     "email": "orders@brightplate.example"
+    },
+    {
+     "name": "Brightplate Catering",
+     "email": "meals@brightplate.example"
+    },
+    {
+     "name": "Brightplate Catering",
+     "email": "kitchen@brightplate.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send Brightplate Catering tomorrow's lunch numbers: {n} hot dinners. Their orders address is {value}.",
+   "short": [
+    "Send {alias} tomorrow's lunch numbers: {n} hot dinners.",
+    "Lunch numbers to {alias} for tomorrow - {n} hot dinners."
+   ],
+   "variable": "n",
+   "low": 80,
+   "high": 190,
+   "unit": "hot dinners",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "uniform_order",
+   "kind": "address",
+   "title": "the uniform order",
+   "fact": "the uniform shop's orders address",
+   "party": "SchoolTogs",
+   "aliases": [
+    "the uniform shop",
+    "SchoolTogs"
+   ],
+   "pool": [
+    {
+     "name": "SchoolTogs",
+     "email": "shop@schooltogs.example"
+    },
+    {
+     "name": "SchoolTogs",
+     "email": "orders@schooltogs.example"
+    },
+    {
+     "name": "SchoolTogs",
+     "email": "sales@schooltogs.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Order {n} spare jumpers from the uniform shop. Their orders address is {value}.",
+   "short": [
+    "Order {n} spare jumpers from {alias}.",
+    "Can you get {n} spare jumpers from {alias}?"
+   ],
+   "variable": "n",
+   "low": 4,
+   "high": 20,
+   "unit": "jumpers",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "admissions_return",
+   "kind": "address",
+   "title": "the admissions return",
+   "fact": "the council admissions team's address",
+   "party": "the council admissions team",
+   "aliases": [
+    "admissions",
+    "the council"
+   ],
+   "pool": [
+    {
+     "name": "Harbourside admissions",
+     "email": "admissions@harbourside-ed.example"
+    },
+    {
+     "name": "Harbourside admissions",
+     "email": "places@harbourside-ed.example"
+    },
+    {
+     "name": "Harbourside admissions",
+     "email": "schools@harbourside-ed.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the council admissions team this month's return: {n} pupils on roll. Email them at {value}.",
+   "short": [
+    "Send {alias} this month's return: {n} pupils on roll.",
+    "Monthly return to {alias} please - {n} pupils on roll."
+   ],
+   "variable": "n",
+   "low": 180,
+   "high": 215,
+   "unit": "pupils",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "stationery_order",
+   "kind": "supplier",
+   "title": "the classroom supplies order",
+   "fact": "our classroom supplies supplier",
+   "party": "the classroom supplier",
+   "aliases": [
+    "the stationery people"
+   ],
+   "pool": [
+    {
+     "name": "EduSupply",
+     "email": "orders@edusupply.example"
+    },
+    {
+     "name": "ClassKit",
+     "email": "sales@classkit.example"
+    },
+    {
+     "name": "Pencil Box Ltd",
+     "email": "orders@pencilbox.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Order {n} packs of exercise books, please. Classroom supplies come from {name} ({value}).",
+   "short": [
+    "Order {n} packs of exercise books.",
+    "We're low on exercise books - order {n} packs please."
+   ],
+   "variable": "n",
+   "low": 5,
+   "high": 30,
+   "unit": "packs",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "coach_booking",
+   "kind": "supplier",
+   "title": "the coach booking",
+   "fact": "our coach company",
+   "party": "the coach company",
+   "aliases": [
+    "the coach firm"
+   ],
+   "pool": [
+    {
+     "name": "Coastline Coaches",
+     "email": "bookings@coastline-coaches.example"
+    },
+    {
+     "name": "Rover Travel",
+     "email": "hire@rovertravel.example"
+    },
+    {
+     "name": "Bluebird Buses",
+     "email": "trips@bluebird-buses.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Book a coach for {n} children for next week's trip. We use {name} - bookings to {value}.",
+   "short": [
+    "Book a coach for {n} children for next week's trip.",
+    "Coach for the trip please - {n} children."
+   ],
+   "variable": "n",
+   "low": 25,
+   "high": 58,
+   "unit": "children",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "fruit_order",
+   "kind": "supplier",
+   "title": "the fruit order",
+   "fact": "our fruit supplier",
+   "party": "the fruit supplier",
+   "aliases": [
+    "the fruit people"
+   ],
+   "pool": [
+    {
+     "name": "Orchard Lane Produce",
+     "email": "orders@orchardlane.example"
+    },
+    {
+     "name": "FreshStart Fruit",
+     "email": "hello@freshstart-fruit.example"
+    },
+    {
+     "name": "Greenbox Wholesale",
+     "email": "orders@greenbox.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send the weekly fruit order: {n} kg of apples. Fruit comes from {name} - orders to {value}.",
+   "short": [
+    "Do the weekly fruit order: {n} kg of apples.",
+    "Fruit order time - {n} kg of apples please."
+   ],
+   "variable": "n",
+   "low": 8,
+   "high": 30,
+   "unit": "kg of apples",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "parents_evening",
+   "kind": "hours",
+   "title": "the parents' evening",
+   "fact": "the parents' evenings' hours",
+   "party": "parents' evenings",
+   "aliases": [
+    "parents' evening"
+   ],
+   "pool": [
+    {
+     "start": "16:00",
+     "end": "19:00"
+    },
+    {
+     "start": "15:30",
+     "end": "18:30"
+    },
+    {
+     "start": "17:00",
+     "end": "20:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Put a parents' evening on {date} in the school calendar - it runs {value}.",
+   "short": [
+    "Put a parents' evening on {date} in the school calendar.",
+    "Add a parents' evening on {date} to the calendar please."
+   ],
+   "variable": "date",
+   "event": "Parents' evening",
+   "keyword": "parents",
+   "letter_from": "helen@kestrelhill.example"
+  },
+  {
+   "id": "breakfast_club",
+   "kind": "hours",
+   "title": "the breakfast club",
+   "fact": "the breakfast club's hours",
+   "party": "the breakfast club",
+   "aliases": [
+    "breakfast club"
+   ],
+   "pool": [
+    {
+     "start": "07:45",
+     "end": "08:45"
+    },
+    {
+     "start": "07:30",
+     "end": "08:30"
+    },
+    {
+     "start": "08:00",
+     "end": "08:50"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book the breakfast club for {date} in the calendar. It runs {value}.",
+   "short": [
+    "Book the breakfast club for {date} in the calendar.",
+    "Breakfast club on {date} - put it in the calendar."
+   ],
+   "variable": "date",
+   "event": "Breakfast club",
+   "keyword": "breakfast club",
+   "letter_from": "helen@kestrelhill.example"
+  },
+  {
+   "id": "governor_visit",
+   "kind": "hours",
+   "title": "a governor's visit",
+   "fact": "governor visits' hours",
+   "party": "governor visits",
+   "aliases": [
+    "the governor visit"
+   ],
+   "pool": [
+    {
+     "start": "10:00",
+     "end": "11:00"
+    },
+    {
+     "start": "13:30",
+     "end": "14:30"
+    },
+    {
+     "start": "09:00",
+     "end": "10:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "{who} is visiting as a governor - add the visit on {date} to the calendar. Visits run {value}.",
+   "short": [
+    "{who} is visiting as a governor - add the visit on {date} to the calendar.",
+    "Can you put {who}'s governor visit in the calendar for {date}?"
+   ],
+   "variable": "who_date",
+   "event": "{who} - governor visit",
+   "keyword": "governor visit",
+   "letter_from": "helen@kestrelhill.example"
+  },
+  {
+   "id": "trip_deposit",
+   "kind": "amount",
+   "title": "the trip deposit letter",
+   "fact": "the trip deposit per child",
+   "party": "the trip deposit",
+   "aliases": [
+    "the deposit"
+   ],
+   "pool": [
+    {
+     "amount": 15
+    },
+    {
+     "amount": 20
+    },
+    {
+     "amount": 25
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the parents ({to}) the trip deposit reminder for the week of {date}. The deposit is {value}.",
+   "short": [
+    "Send the parents the trip deposit reminder for the week of {date}.",
+    "Can you remind the parents about the trip deposit? Week of {date}."
+   ],
+   "variable": "date",
+   "to": "parents@kestrelhill.example",
+   "letter_from": "office@kestrelhill.example"
+  },
+  {
+   "id": "club_fee",
+   "kind": "amount",
+   "title": "the after-school club reminder",
+   "fact": "the weekly after-school club fee",
+   "party": "the club fee",
+   "aliases": [
+    "the club fee"
+   ],
+   "pool": [
+    {
+     "amount": 36
+    },
+    {
+     "amount": 42
+    },
+    {
+     "amount": 40
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the parents ({to}) the after-school club reminder for the week of {date} - the club is {value} a week.",
+   "short": [
+    "Send the parents the after-school club reminder for the week of {date}.",
+    "After-school club reminder to parents please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "parents@kestrelhill.example",
+   "letter_from": "office@kestrelhill.example"
+  },
+  {
+   "id": "safeguarding_log",
+   "kind": "role",
+   "title": "the safeguarding log summary",
+   "fact": "who the safeguarding lead is",
+   "party": "the safeguarding lead",
+   "aliases": [
+    "the safeguarding lead"
+   ],
+   "pool": [
+    {
+     "name": "Helen Ward",
+     "email": "helen@kestrelhill.example"
+    },
+    {
+     "name": "Kofi Mensah",
+     "email": "kofi@kestrelhill.example"
+    },
+    {
+     "name": "Priti Shah",
+     "email": "priti@kestrelhill.example"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Send the safeguarding lead this week's log summary: {n} entries. That's {name} ({value}).",
+   "short": [
+    "Send the safeguarding lead this week's log summary: {n} entries.",
+    "Log summary to the safeguarding lead - {n} entries."
+   ],
+   "variable": "n",
+   "high": 9,
+   "unit": "entries",
+   "letter_from": "head@kestrelhill.example"
+  },
+  {
+   "id": "site_report",
+   "kind": "role",
+   "title": "the site report",
+   "fact": "who the site manager is",
+   "party": "the site manager",
+   "aliases": [
+    "the site manager"
+   ],
+   "pool": [
+    {
+     "name": "Colin Reed",
+     "email": "colin@kestrelhill.example"
+    },
+    {
+     "name": "Fatima Noor",
+     "email": "fatima@kestrelhill.example"
+    },
+    {
+     "name": "Pete Dunn",
+     "email": "pete@kestrelhill.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the site manager the weekly site report: {n} jobs open. That's {name} ({value}).",
+   "short": [
+    "Send the site manager the weekly site report: {n} jobs open.",
+    "Site report to the site manager please - {n} jobs open."
+   ],
+   "variable": "n",
+   "low": 1,
+   "high": 12,
+   "unit": "jobs",
+   "letter_from": "head@kestrelhill.example"
+  },
+  {
+   "id": "absence_reminder",
+   "kind": "policy",
+   "title": "the absence-request reminder",
+   "fact": "how many days' notice a term-time absence request needs",
+   "party": "the absence rule",
+   "aliases": [
+    "the absence rule"
+   ],
+   "pool": [
+    {
+     "number": 10,
+     "unit": "days"
+    },
+    {
+     "number": 14,
+     "unit": "days"
+    },
+    {
+     "number": 5,
+     "unit": "days"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the staff ({to}) the reminder: term-time absence requests need {value}' notice.",
+   "short": [
+    "Email the staff the reminder about absence-request notice.",
+    "Send the staff the absence-rule reminder please."
+   ],
+   "variable": "none",
+   "to": "staff@kestrelhill.example",
+   "doc": "policies/school-rules.md",
+   "doc_rule": "Term-time absence requests need {n} days' notice",
+   "letter_from": "head@kestrelhill.example"
+  },
+  {
+   "id": "sickness_reminder",
+   "kind": "policy",
+   "title": "the sickness-rule reminder",
+   "fact": "how long a child stays off after sickness",
+   "party": "the sickness rule",
+   "aliases": [
+    "the sickness rule"
+   ],
+   "pool": [
+    {
+     "number": 48,
+     "unit": "hours"
+    },
+    {
+     "number": 24,
+     "unit": "hours"
+    },
+    {
+     "number": 72,
+     "unit": "hours"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the parents ({to}) the reminder: after sickness, children stay off for {value}.",
+   "short": [
+    "Send the parents the reminder about staying off after sickness.",
+    "Sickness-rule reminder to the parents please."
+   ],
+   "variable": "none",
+   "to": "parents@kestrelhill.example",
+   "doc": "policies/school-rules.md",
+   "doc_rule": "After sickness a child stays at home for {n} hours",
+   "letter_from": "head@kestrelhill.example"
+  },
+  {
+   "id": "ratio_reminder",
+   "kind": "policy",
+   "title": "the trip-ratio reminder",
+   "fact": "the most children per adult on a trip",
+   "party": "the trip ratio",
+   "aliases": [
+    "the ratio"
+   ],
+   "pool": [
+    {
+     "number": 6,
+     "unit": "children"
+    },
+    {
+     "number": 8,
+     "unit": "children"
+    },
+    {
+     "number": 5,
+     "unit": "children"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the staff ({to}) the trips reminder: one adult for at most {value} on a trip.",
+   "short": [
+    "Email the staff the trips reminder with the ratio.",
+    "Send the staff the trip-ratio reminder."
+   ],
+   "variable": "none",
+   "to": "staff@kestrelhill.example",
+   "doc": "policies/trips-2026.md",
+   "doc_rule": "At least 1 adult for every {n} children",
+   "letter_from": "head@kestrelhill.example"
+  }
+ ],
+ "preferences": [
+  {
+   "id": "pref_letters",
+   "fact": "how Ana wants parent letters laid out",
+   "values": [
+    "short paragraphs",
+    "bullet points"
+   ],
+   "markers": [
+    "paragraph",
+    "bullet"
+   ],
+   "say_first": "I like parent letters as {value}.",
+   "say_change": "Actually, I'd rather have parent letters as {value} from now on."
+  },
+  {
+   "id": "pref_tea",
+   "fact": "Ana's drink at governors' meetings",
+   "values": [
+    "builder's tea",
+    "hot chocolate"
+   ],
+   "markers": [
+    "builder",
+    "hot chocolate"
+   ],
+   "say_first": "For the record, I have {value} at governors' meetings.",
+   "say_change": "I've switched - it's {value} for me at governors' meetings now."
+  }
+ ],
+ "misstated": [
+  {
+   "id": "ofsted_window",
+   "fact": "the date of the next safeguarding audit",
+   "pairs": [
+    [
+     "14 January",
+     "15 January"
+    ],
+    [
+     "21 January",
+     "22 January"
+    ],
+    [
+     "4 February",
+     "5 February"
+    ]
+   ],
+   "say": "The safeguarding audit is on {wrong}.",
+   "fix": "Sorry, I misread the letter - the audit is {right}, not {wrong}."
+  },
+  {
+   "id": "boiler_service",
+   "fact": "the date of the boiler service",
+   "pairs": [
+    [
+     "9 February",
+     "10 February"
+    ],
+    [
+     "16 February",
+     "17 February"
+    ],
+    [
+     "2 March",
+     "3 March"
+    ]
+   ],
+   "say": "The boiler service is booked for {wrong}.",
+   "fix": "Correction: the boiler service is on {right}."
+  }
+ ],
+ "homonyms": [
+  {
+   "id": "joe_adams",
+   "name": "Joe Adams",
+   "email": "joe@kestrelhill.example",
+   "role": "our new Year 2 teacher",
+   "say": "Joe Adams has joined as our Year 2 teacher. His email is joe@kestrelhill.example."
+  },
+  {
+   "id": "joe_lin",
+   "name": "Joe Lin",
+   "email": "joe.lin@coastline-coaches.example",
+   "role": "the bookings manager at Coastline Coaches",
+   "say": "Our bookings manager at Coastline Coaches is Joe Lin now - joe.lin@coastline-coaches.example."
+  }
+ ],
+ "unknown": [
+  {
+   "id": "adams_phone",
+   "question": "What's Joe Adams's phone number?"
+  },
+  {
+   "id": "caterer_account",
+   "question": "What's our account number with Brightplate?"
+  },
+  {
+   "id": "helen_mobile",
+   "question": "What's the safeguarding lead's mobile number?"
+  },
+  {
+   "id": "urn",
+   "question": "What's the school's council contract reference for the coach?"
+  },
+  {
+   "id": "lin_phone",
+   "question": "What's Joe Lin's direct phone line?"
+  }
+ ]
+}

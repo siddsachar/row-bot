@@ -1,0 +1,70 @@
+{
+ "calendar": {
+  "events": [
+   {
+    "id": "evt_1",
+    "title": "Board meeting",
+    "date": "2026-10-28",
+    "start": "19:00",
+    "end": "20:30",
+    "attendees": [
+     "Rhys",
+     "Cerys"
+    ],
+    "location": "Green room"
+   },
+   {
+    "id": "evt_2",
+    "title": "Get-in: Blithe Spirit",
+    "date": "2026-10-23",
+    "start": "09:00",
+    "end": "17:00",
+    "attendees": [],
+    "location": "Main house"
+   }
+  ]
+ },
+ "mail": {
+  "messages": [
+   {
+    "id": "msg_1",
+    "folder": "inbox",
+    "from": "support@tixline.example",
+    "to": "me@example.test",
+    "subject": "Saturday holds",
+    "body": "Hi Rhys, you have seats on hold for Saturday.",
+    "date": "2026-10-21"
+   },
+   {
+    "id": "msg_2",
+    "folder": "inbox",
+    "from": "news@stage-and-screen.example",
+    "to": "me@example.test",
+    "subject": "Stage & Screen weekly",
+    "body": "This week: touring news.",
+    "date": "2026-10-20"
+   },
+   {
+    "id": "msg_3",
+    "folder": "inbox",
+    "from": "offers@theatre-supplies.example",
+    "to": "me@example.test",
+    "subject": "Theatre supplies offers",
+    "body": "Gaffer tape deals.",
+    "date": "2026-10-19"
+   },
+   {
+    "id": "msg_4",
+    "folder": "inbox",
+    "from": "cerys@oldmillplayhouse.example",
+    "to": "me@example.test",
+    "subject": "Tech rehearsal",
+    "body": "Can we start the tech earlier?",
+    "date": "2026-10-21"
+   }
+  ]
+ },
+ "issues": {
+  "issues": []
+ }
+}

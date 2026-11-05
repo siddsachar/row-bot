@@ -23,6 +23,7 @@ from row_bot.tools import registry
 import row_bot.memory as memory_db
 import row_bot.knowledge_graph as kg
 import row_bot.memory_evolution as memory_evo
+from row_bot import stale_skills
 
 
 # ── Pydantic schemas for structured input ────────────────────────────────────
@@ -45,6 +46,13 @@ class _SearchMemoryInput(BaseModel):
     category: MemoryCategory | None = Field(  # type: ignore[valid-type]
         default=None,
         description="Only this category. Omit to search all.",
+    )
+
+
+class _SearchMemoryAsOfInput(_SearchMemoryInput):
+    as_of: str | None = Field(
+        default=None,
+        description="Only what memory said on this date (YYYY-MM-DD). Omit for now.",
     )
 
 
@@ -300,9 +308,20 @@ def _save_memory(category: str, subject: str, content: str, tags: str = "") -> s
         return f"Error: {exc}"
 
 
-def _search_memory(query: str, category: str = "") -> str:
+def _as_of(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+    # A date alone means the end of that day.
+    return moment.replace(hour=23, minute=59, second=59) if len(str(value).strip()) <= 10 else moment
+
+
+def _search_memory(query: str, category: str = "", as_of: str | None = None) -> str:
     """Search memories using hybrid retrieval (FAISS + graph expansion + SQL LIKE)."""
-    results = kg.retrieve_memory_candidates(query, top_k=10, threshold=0.3)
+    results = kg.retrieve_memory_candidates(query, top_k=10, threshold=0.3, as_of=_as_of(as_of))
     if category:
         cat = category.lower().strip()
         results = [m for m in results
@@ -581,7 +600,8 @@ class MemoryTool(BaseTool):
                     "Search memories (semantic, keyword and graph) for a deeper or more focused look than "
                     "the memories recalled each turn."
                 ),
-                args_schema=_SearchMemoryInput,
+                # "as of" is offered only while the stale-skills study's setting is on (off by default).
+                args_schema=_SearchMemoryAsOfInput if stale_skills.enabled() else _SearchMemoryInput,
             ),
             StructuredTool.from_function(
                 func=_list_memories,

@@ -1,0 +1,857 @@
+{
+ "format": "row_bot.learning.seeded_past_replies",
+ "model": "main",
+ "note": "The past's replies in the main model's own words (tests/e2e/learning/seeded/phrasing.py). Made-up people; nothing here comes from a real person.",
+ "replies": {
+  "rhys-p01-0-0": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example. They’re out of your inbox.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p01-1-0": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p01-2-0": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p01-3-0": {
+   "reply": "Added **Efa - matinee usher** to the theatre calendar on **2026-11-14**.",
+   "template": "Added Efa - matinee usher on 2026-11-14."
+  },
+  "rhys-p02-0-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 9 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p02-1-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the show finished.\n\nConfirmed in the current season’s venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p02-2-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p02-2-1": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p02-3-0": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew on the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p03-0-0": {
+   "reply": "That comes to **GBP 12240** over the four nights, assuming the same ticket sales each night.",
+   "template": "That comes to 12240."
+  },
+  "rhys-p03-1-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p03-1-1": {
+   "reply": "Added **Carys - bar shift** to the theatre calendar on **2026-11-12**.",
+   "template": "Added Carys - bar shift on 2026-11-12."
+  },
+  "rhys-p03-1-2": {
+   "reply": "Added **Efa - matinee usher** to the calendar on **2026-10-31**.",
+   "template": "Added Efa - matinee usher on 2026-10-31."
+  },
+  "rhys-p03-2-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example — reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p03-2-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p03-3-0": {
+   "reply": "The main house has **180 seats**.",
+   "template": "It's 180."
+  },
+  "rhys-p03-4-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p04-0-0": {
+   "reply": "Archived 2 emails from news@stage-and-screen.example. Your other inbox messages are unchanged.",
+   "template": "Archived 2 emails from news@stage-and-screen.example."
+  },
+  "rhys-p04-1-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example — a quick reminder for everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p04-1-1": {
+   "reply": "Added **Gethin - matinee usher** to the theatre calendar on **2026-11-08**.",
+   "template": "Added Gethin - matinee usher on 2026-11-08."
+  },
+  "rhys-p04-2-0": {
+   "reply": "That comes to **GBP 9000** over the run, assuming those ticket sales are for each night.",
+   "template": "That comes to 9000."
+  },
+  "rhys-p04-2-1": {
+   "reply": "Archived 2 emails from news@stage-and-screen.example.",
+   "template": "Archived 2 emails from news@stage-and-screen.example."
+  },
+  "rhys-p04-3-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p05-0-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 36 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p05-0-1": {
+   "reply": "Added **Hari - matinee usher** to the calendar for **2026-11-01**.",
+   "template": "Added Hari - matinee usher on 2026-11-01."
+  },
+  "rhys-p05-1-0": {
+   "reply": "Archived 5 emails from news@stage-and-screen.example. They’re out of your inbox; all other messages were left untouched.",
+   "template": "Archived 5 emails from news@stage-and-screen.example."
+  },
+  "rhys-p05-1-1": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 11 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p05-1-2": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p05-2-0": {
+   "reply": "Added **Carys - matinee usher** to the calendar on **2026-11-08**.",
+   "template": "Added Carys - matinee usher on 2026-11-08."
+  },
+  "rhys-p06-0-0": {
+   "reply": "That’s **GBP 1920** over both nights, assuming you sold the same number of tickets each night.",
+   "template": "That comes to 1920."
+  },
+  "rhys-p06-0-1": {
+   "reply": "That comes to **GBP 8820** over the run, assuming you sell the same number of tickets each night.",
+   "template": "That comes to 8820."
+  },
+  "rhys-p06-1-0": {
+   "reply": "That comes to **60 volunteer hours** across the shows.",
+   "template": "That comes to 60."
+  },
+  "rhys-p06-1-1": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example. They’re out of your inbox.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p06-2-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished. Confirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p06-2-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p06-2-2": {
+   "reply": "Added **Hari - matinee usher** to the theatre calendar on **2026-11-01**.",
+   "template": "Added Hari - matinee usher on 2026-11-01."
+  },
+  "rhys-p06-3-0": {
+   "reply": "That comes to **GBP 8160** over the run, assuming you sold that many tickets each night.",
+   "template": "That comes to 8160."
+  },
+  "rhys-p06-3-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p07-0-0": {
+   "reply": "Sent to support@tixline.example asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p07-1-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example, reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p07-2-0": {
+   "reply": "The main-house capacity is **180 seats**, according to the venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p07-3-0": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew on the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p07-3-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p08-0-0": {
+   "reply": "Added **Carys - matinee usher** to the calendar for **2026-11-01**.",
+   "template": "Added Carys - matinee usher on 2026-11-01."
+  },
+  "rhys-p08-1-0": {
+   "reply": "Added **Hari - matinee usher** to the calendar for **2026-10-31**.",
+   "template": "Added Hari - matinee usher on 2026-10-31."
+  },
+  "rhys-p08-2-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 16 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p08-3-0": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew on the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p08-3-1": {
+   "reply": "That’s **£10920** in total, assuming you sold that many tickets each night.",
+   "template": "That comes to 10920."
+  },
+  "rhys-p08-3-2": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p08-4-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 38 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p09-0-0": {
+   "reply": "Added **Bryn - bar shift** to the theatre calendar on **2026-10-29**.",
+   "template": "Added Bryn - bar shift on 2026-10-29."
+  },
+  "rhys-p09-0-1": {
+   "reply": "That comes to **88 volunteer hours** across all the shows.",
+   "template": "That comes to 88."
+  },
+  "rhys-p09-0-2": {
+   "reply": "Added **Iolo - matinee usher** to the theatre calendar on **2026-10-31**.",
+   "template": "Added Iolo - matinee usher on 2026-10-31."
+  },
+  "rhys-p09-1-0": {
+   "reply": "Sent an email to support@tixline.example asking them to release the 14 held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p09-2-0": {
+   "reply": "Added **Carys - bar shift** to your calendar for **2026-11-04**.",
+   "template": "Added Carys - bar shift on 2026-11-04."
+  },
+  "rhys-p09-2-1": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p09-2-2": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, according to the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p10-0-0": {
+   "reply": "Added **Efa - matinee usher** to the theatre calendar on **2026-10-24**.",
+   "template": "Added Efa - matinee usher on 2026-10-24."
+  },
+  "rhys-p10-0-1": {
+   "reply": "Sent to support@tixline.example asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p10-0-2": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p10-1-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished. Confirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p10-2-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p10-2-1": {
+   "reply": "Companies can get in from **09:00** on a show day, per the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p10-3-0": {
+   "reply": "The main-house capacity is **180 seats**, according to the venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p11-0-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p11-1-0": {
+   "reply": "Added **Bryn - bar shift** to the calendar on **2026-11-05**.",
+   "template": "Added Bryn - bar shift on 2026-11-05."
+  },
+  "rhys-p11-1-1": {
+   "reply": "The main house has **180 seats**, according to the current venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p11-2-0": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p11-3-0": {
+   "reply": "That comes to **30 volunteer hours** across the shows.",
+   "template": "That comes to 30."
+  },
+  "rhys-p12-0-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p12-1-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p12-1-1": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished. Confirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p12-2-0": {
+   "reply": "Added **Bryn - bar shift** to the theatre calendar on **2026-10-22**.",
+   "template": "Added Bryn - bar shift on 2026-10-22."
+  },
+  "rhys-p13-0-0": {
+   "reply": "That comes to **GBP 8820** over the run, assuming you sold the same number of tickets each night.",
+   "template": "That comes to 8820."
+  },
+  "rhys-p13-0-1": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p13-0-2": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p13-1-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example, reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p13-2-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example, reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p13-3-0": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p13-3-1": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished.\n\nConfirmed in the current season’s venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p13-3-2": {
+   "reply": "Our main-house capacity is **180 seats**, per the current venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p13-4-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p13-4-1": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p14-0-0": {
+   "reply": "Added **Alys - bar shift** to the calendar on **2026-10-22**.",
+   "template": "Added Alys - bar shift on 2026-10-22."
+  },
+  "rhys-p14-0-1": {
+   "reply": "There are **6 shows** this season, according to the season plan.",
+   "template": "It's 6."
+  },
+  "rhys-p14-1-0": {
+   "reply": "Added **Carys - bar shift** to the theatre calendar on **2026-10-30**.",
+   "template": "Added Carys - bar shift on 2026-10-30."
+  },
+  "rhys-p14-1-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p14-2-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 3 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p14-3-0": {
+   "reply": "Sent to support@tixline.example, asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p14-4-0": {
+   "reply": "The main house has **180 seats**, per `venue/venue-sheet.md`.",
+   "template": "It's 180."
+  },
+  "rhys-p14-4-1": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example. They’re now out of your inbox.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p15-0-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p15-1-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the show finished.\n\nConfirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p15-1-1": {
+   "reply": "Archived 2 emails from news@stage-and-screen.example.",
+   "template": "Archived 2 emails from news@stage-and-screen.example."
+  },
+  "rhys-p15-1-2": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew listed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p15-2-0": {
+   "reply": "The main house has **180 seats**.",
+   "template": "It's 180."
+  },
+  "rhys-p16-0-0": {
+   "reply": "Added **Gethin - bar shift** to the theatre calendar on **2026-10-23**.",
+   "template": "Added Gethin - bar shift on 2026-10-23."
+  },
+  "rhys-p16-1-0": {
+   "reply": "There are **6 shows** in this season.",
+   "template": "It's 6."
+  },
+  "rhys-p16-2-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p16-3-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p16-3-1": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p16-3-2": {
+   "reply": "That comes to **GBP 8840** across all four nights.",
+   "template": "That comes to 8840."
+  },
+  "rhys-p16-4-0": {
+   "reply": "That comes to **GBP 19635** over the run, assuming 165 tickets sold each night.",
+   "template": "That comes to 19635."
+  },
+  "rhys-p17-0-0": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew on the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p17-0-1": {
+   "reply": "There are **6 shows** in this season.",
+   "template": "It's 6."
+  },
+  "rhys-p17-0-2": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 5 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p17-1-0": {
+   "reply": "Sent to support@tixline.example, asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p17-2-0": {
+   "reply": "That’s **GBP 3600** over the three nights, assuming the same ticket sales each night.",
+   "template": "That comes to 3600."
+  },
+  "rhys-p17-2-1": {
+   "reply": "Added **Carys - bar shift** to the theatre calendar on **2026-10-23**.",
+   "template": "Added Carys - bar shift on 2026-10-23."
+  },
+  "rhys-p17-3-0": {
+   "reply": "Archived 2 emails from news@stage-and-screen.example.",
+   "template": "Archived 2 emails from news@stage-and-screen.example."
+  },
+  "rhys-p17-3-1": {
+   "reply": "Added **Gethin - matinee usher** to the theatre calendar on **2026-10-18**.",
+   "template": "Added Gethin - matinee usher on 2026-10-18."
+  },
+  "rhys-p17-3-2": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example, reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p17-4-0": {
+   "reply": "That comes to **GBP 8075** in ticket sales, assuming you sold that many tickets each night.",
+   "template": "That comes to 8075."
+  },
+  "rhys-p18-0-0": {
+   "reply": "Archived 3 emails from news@stage-and-screen.example from your inbox.",
+   "template": "Archived 3 emails from news@stage-and-screen.example."
+  },
+  "rhys-p18-0-1": {
+   "reply": "Added **Hari - matinee usher** to the calendar on **2026-10-24**.",
+   "template": "Added Hari - matinee usher on 2026-10-24."
+  },
+  "rhys-p18-1-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p18-1-1": {
+   "reply": "That comes to **£6720** over the full run.",
+   "template": "That comes to 6720."
+  },
+  "rhys-p18-1-2": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example — reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p18-2-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 5 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p18-2-1": {
+   "reply": "Emailed support@tixline.example to ask them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p18-2-2": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished. Confirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p18-3-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p18-3-1": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example — a quick reminder for everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p18-3-2": {
+   "reply": "Archived 3 emails from offers@theatre-supplies.example. They’re out of your inbox.",
+   "template": "Archived 3 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p19-0-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished.\n\nConfirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p19-0-1": {
+   "reply": "Sent to support@tixline.example, asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p19-1-0": {
+   "reply": "There are **6 shows** this season, according to the season plan.",
+   "template": "It's 6."
+  },
+  "rhys-p19-1-1": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example, reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p19-2-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example — a quick reminder for everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p19-3-0": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example — reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p19-3-1": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p19-4-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p20-0-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p20-1-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p20-2-0": {
+   "reply": "Added **Gethin - bar shift** to the calendar on **2026-10-15**.",
+   "template": "Added Gethin - bar shift on 2026-10-15."
+  },
+  "rhys-p20-2-1": {
+   "reply": "Sent to support@tixline.example, asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p20-2-2": {
+   "reply": "Sent to support@tixline.example, asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p21-0-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, per the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p21-1-0": {
+   "reply": "Added **Carys - bar shift** to the calendar for **2026-10-20**.",
+   "template": "Added Carys - bar shift on 2026-10-20."
+  },
+  "rhys-p21-2-0": {
+   "reply": "Added **Hari - matinee usher** to the calendar on **2026-10-25**.",
+   "template": "Added Hari - matinee usher on 2026-10-25."
+  },
+  "rhys-p21-2-1": {
+   "reply": "The panto opens **4 December**, according to `season/plan.md`.",
+   "template": "It's 4 December."
+  },
+  "rhys-p22-0-0": {
+   "reply": "The main-house capacity is **180 seats**, according to the venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p22-1-0": {
+   "reply": "Added **Bryn - bar shift** to the calendar on **2026-10-16**, from 18:30 to 22:30.",
+   "template": "Added Bryn - bar shift on 2026-10-16."
+  },
+  "rhys-p22-2-0": {
+   "reply": "That comes to **GBP 10400** over the five nights, assuming the same ticket sales each night.",
+   "template": "That comes to 10400."
+  },
+  "rhys-p22-2-1": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 30 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p22-2-2": {
+   "reply": "Added **Iolo - matinee usher** to the theatre calendar on **2026-10-18**.",
+   "template": "Added Iolo - matinee usher on 2026-10-18."
+  },
+  "rhys-p23-0-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished. Confirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p23-1-0": {
+   "reply": "Added **Gethin - bar shift** to the calendar on **2026-10-14**, from 18:30 to 22:30.",
+   "template": "Added Gethin - bar shift on 2026-10-14."
+  },
+  "rhys-p23-1-1": {
+   "reply": "Added **Bryn - bar shift** to your calendar on **2026-10-22**.",
+   "template": "Added Bryn - bar shift on 2026-10-22."
+  },
+  "rhys-p23-2-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p23-2-1": {
+   "reply": "Added **Gethin - bar shift** to the calendar on **2026-10-15**.",
+   "template": "Added Gethin - bar shift on 2026-10-15."
+  },
+  "rhys-p24-0-0": {
+   "reply": "There are **6 shows** in this season.",
+   "template": "It's 6."
+  },
+  "rhys-p24-1-0": {
+   "reply": "The main house has **180 seats**.",
+   "template": "It's 180."
+  },
+  "rhys-p24-1-1": {
+   "reply": "The licence curfew is **23:00** — the building must be empty by then, not just the performance finished.\n\nConfirmed in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p24-2-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p24-3-0": {
+   "reply": "That comes to **180 volunteer hours** for the shows.",
+   "template": "That comes to 180."
+  },
+  "rhys-p25-0-0": {
+   "reply": "Archived 2 emails from news@stage-and-screen.example.",
+   "template": "Archived 2 emails from news@stage-and-screen.example."
+  },
+  "rhys-p25-0-1": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p25-1-0": {
+   "reply": "Added **Hari - bar shift** to the theatre calendar on **2026-10-21**.",
+   "template": "Added Hari - bar shift on 2026-10-21."
+  },
+  "rhys-p25-2-0": {
+   "reply": "That comes to **GBP 8400** in ticket sales, assuming the same number sold each night.",
+   "template": "That comes to 8400."
+  },
+  "rhys-p25-2-1": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example. They’re out of your inbox.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p25-2-2": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 34 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p25-3-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p25-3-1": {
+   "reply": "Sent to volunteers@oldmillplayhouse.example, reminding everyone to arrive 45 minutes before doors.",
+   "template": "Sent to volunteers@oldmillplayhouse.example."
+  },
+  "rhys-p25-3-2": {
+   "reply": "There are **6 shows** in this season.",
+   "template": "It's 6."
+  },
+  "rhys-p26-0-0": {
+   "reply": "The main-house capacity is **180 seats**, according to the venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p26-0-1": {
+   "reply": "Archived 2 emails from news@stage-and-screen.example.",
+   "template": "Archived 2 emails from news@stage-and-screen.example."
+  },
+  "rhys-p26-0-2": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 21 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p26-1-0": {
+   "reply": "There are **6 shows** in this season.",
+   "template": "It's 6."
+  },
+  "rhys-p26-1-1": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p26-1-2": {
+   "reply": "That comes to **GBP 9180** in total, assuming you sold that many tickets each night.",
+   "template": "That comes to 9180."
+  },
+  "rhys-p26-2-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p27-0-0": {
+   "reply": "The main-house capacity is **180 seats**, according to the venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p27-0-1": {
+   "reply": "Sent to support@tixline.example, asking them to release 5 held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p27-0-2": {
+   "reply": "There are **6 shows** this season, according to the season plan.",
+   "template": "It's 6."
+  },
+  "rhys-p27-1-0": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example. They’re out of your inbox.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p27-1-1": {
+   "reply": "That comes to **GBP 8160** over the run, assuming you sold that many tickets each night.",
+   "template": "That comes to 8160."
+  },
+  "rhys-p27-2-0": {
+   "reply": "Sent to support@tixline.example asking them to release 6 held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p27-3-0": {
+   "reply": "That comes to **100 volunteer hours** across the shows.",
+   "template": "That comes to 100."
+  },
+  "rhys-p27-3-1": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 15 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p27-3-2": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking to add 3 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p27-4-0": {
+   "reply": "Our licence curfew is **23:00** — the building must be empty by then, not just the performance finished.\n\nConfirmed in the current season’s venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p27-4-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p28-0-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p28-1-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p28-1-1": {
+   "reply": "That comes to **GBP 6300** over the three nights.",
+   "template": "That comes to 6300."
+  },
+  "rhys-p28-1-2": {
+   "reply": "Added **Bryn - matinee usher** to the theatre calendar on **2026-10-17**.",
+   "template": "Added Bryn - matinee usher on 2026-10-17."
+  },
+  "rhys-p28-2-0": {
+   "reply": "That comes to **GBP 10350** in ticket revenue, assuming you sold that many tickets each night.",
+   "template": "That comes to 10350."
+  },
+  "rhys-p28-2-1": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p28-3-0": {
+   "reply": "Companies can get in from **09:00** on a show day, according to the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p28-3-1": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew in the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p28-4-0": {
+   "reply": "That comes to **150 volunteer hours** for the shows.",
+   "template": "That comes to 150."
+  },
+  "rhys-p28-4-1": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p28-4-2": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p29-0-0": {
+   "reply": "That comes to **45 volunteer hours** for the shows.",
+   "template": "That comes to 45."
+  },
+  "rhys-p29-0-1": {
+   "reply": "Archived 2 emails from offers@theatre-supplies.example. They’re no longer in your inbox.",
+   "template": "Archived 2 emails from offers@theatre-supplies.example."
+  },
+  "rhys-p29-1-0": {
+   "reply": "Sent to orders@millbrook-brewery.example, asking them to add 20 casks to the next delivery.",
+   "template": "Sent to orders@millbrook-brewery.example."
+  },
+  "rhys-p29-1-1": {
+   "reply": "There are **6 shows** in this season.",
+   "template": "It's 6."
+  },
+  "rhys-p29-1-2": {
+   "reply": "Added **Hari - matinee usher** to the theatre calendar on **2026-10-18**.",
+   "template": "Added Hari - matinee usher on 2026-10-18."
+  },
+  "rhys-p29-2-0": {
+   "reply": "Sent to support@tixline.example, asking them to release the held seats for Saturday.",
+   "template": "Sent to support@tixline.example."
+  },
+  "rhys-p29-3-0": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p30-0-0": {
+   "reply": "There are **6 shows** this season, according to the season plan.",
+   "template": "It's 6."
+  },
+  "rhys-p30-0-1": {
+   "reply": "Companies can get in from **09:00** on a show day, per the current venue sheet.",
+   "template": "It's 09:00."
+  },
+  "rhys-p30-1-0": {
+   "reply": "Added **Bryn - matinee usher** to the calendar on **2026-10-04**.",
+   "template": "Added Bryn - matinee usher on 2026-10-04."
+  },
+  "rhys-p30-1-1": {
+   "reply": "The main house has **180 seats**, per the current venue sheet.",
+   "template": "It's 180."
+  },
+  "rhys-p30-1-2": {
+   "reply": "Added **Iolo - matinee usher** to your calendar for **2026-10-17**.",
+   "template": "Added Iolo - matinee usher on 2026-10-17."
+  },
+  "rhys-p30-2-0": {
+   "reply": "That comes to **GBP 18360** over the run, assuming you sold that many tickets each night.",
+   "template": "That comes to 18360."
+  },
+  "rhys-p30-2-1": {
+   "reply": "That comes to **30 volunteer hours** across the shows.",
+   "template": "That comes to 30."
+  },
+  "rhys-p30-3-0": {
+   "reply": "The panto opens **4 December**, according to the season plan.",
+   "template": "It's 4 December."
+  },
+  "rhys-p30-3-1": {
+   "reply": "The building must be empty by **23:00** — that’s the licence curfew on the current venue sheet.",
+   "template": "It's 23:00."
+  },
+  "rhys-p30-3-2": {
+   "reply": "We have **4 wheelchair spaces** in the main house, according to the current venue sheet.",
+   "template": "It's 4."
+  },
+  "rhys-p30-4-0": {
+   "reply": "Added **Bryn - matinee usher** to the theatre calendar on **2026-10-10**.",
+   "template": "Added Bryn - matinee usher on 2026-10-10."
+  }
+ },
+ "seed": 20261022,
+ "version": 1
+}

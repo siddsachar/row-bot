@@ -1,0 +1,689 @@
+{
+ "format": "row_bot.learning.stale_skills_catalogue",
+ "version": 1,
+ "person": "wren",
+ "first_name": "Wren",
+ "policy_by": "The leads",
+ "seed": 20261022,
+ "runbook": {
+  "path": "docs/studio-contacts.md",
+  "title": "Studio contacts",
+  "intro": "Puddlejump Games: who the studio deals with and the numbers we use."
+ },
+ "whos": [
+  "Arlo",
+  "Bea",
+  "Cass",
+  "Dara",
+  "Emeka",
+  "Fay",
+  "Gus",
+  "Hana",
+  "Iqbal",
+  "Juno"
+ ],
+ "procedures": [
+  {
+   "id": "build_notice",
+   "kind": "address",
+   "title": "the build upload notice",
+   "fact": "the publisher's build-submission address",
+   "party": "Paperkite Publishing",
+   "aliases": [
+    "the publisher",
+    "Paperkite"
+   ],
+   "pool": [
+    {
+     "name": "Paperkite Publishing",
+     "email": "builds@paperkite.example"
+    },
+    {
+     "name": "Paperkite Publishing",
+     "email": "submissions@paperkite.example"
+    },
+    {
+     "name": "Paperkite Publishing",
+     "email": "qa@paperkite.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the publisher that build {n} is uploaded. Their build-submission address is {value}.",
+   "short": [
+    "Tell {alias} that build {n} is uploaded.",
+    "Build {n} is up - let {alias} know please."
+   ],
+   "variable": "n",
+   "low": 410,
+   "high": 980,
+   "unit": "build",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "audio_request",
+   "kind": "address",
+   "title": "the sound-effects request",
+   "fact": "Fen Audio's requests address",
+   "party": "Fen Audio",
+   "aliases": [
+    "the audio people",
+    "Fen"
+   ],
+   "pool": [
+    {
+     "name": "Fen Audio",
+     "email": "requests@fenaudio.example"
+    },
+    {
+     "name": "Fen Audio",
+     "email": "hello@fenaudio.example"
+    },
+    {
+     "name": "Fen Audio",
+     "email": "studio@fenaudio.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send Fen Audio our request for {n} new sound effects. Their requests address is {value}.",
+   "short": [
+    "Send {alias} our request for {n} new sound effects.",
+    "Ask {alias} for {n} new sound effects."
+   ],
+   "variable": "n",
+   "low": 3,
+   "high": 18,
+   "unit": "sound effects",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "rating_update",
+   "kind": "address",
+   "title": "the age-rating update",
+   "fact": "the ratings board's submissions address",
+   "party": "the ratings board",
+   "aliases": [
+    "the board",
+    "PlayRate"
+   ],
+   "pool": [
+    {
+     "name": "PlayRate ratings board",
+     "email": "submit@playrate.example"
+    },
+    {
+     "name": "PlayRate ratings board",
+     "email": "ratings@playrate.example"
+    },
+    {
+     "name": "PlayRate ratings board",
+     "email": "filings@playrate.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the ratings board the content update for patch {n}. Their submissions address is {value}.",
+   "short": [
+    "Send {alias} the content update for patch {n}.",
+    "Content update for patch {n} to {alias} please."
+   ],
+   "variable": "n",
+   "low": 11,
+   "high": 60,
+   "unit": "patch",
+   "letter_from": "{old_email}"
+  },
+  {
+   "id": "build_credits",
+   "kind": "supplier",
+   "title": "the build-server credit top-up",
+   "fact": "our cloud build supplier",
+   "party": "the build-server supplier",
+   "aliases": [
+    "the build-server people",
+    "the cloud supplier"
+   ],
+   "pool": [
+    {
+     "name": "Stackforge",
+     "email": "billing@stackforge.example"
+    },
+    {
+     "name": "Rivetcloud",
+     "email": "accounts@rivetcloud.example"
+    },
+    {
+     "name": "Kilnworks",
+     "email": "sales@kilnworks.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Ask the build-server supplier to top up {n} build hours. We use {name} - orders go to {value}.",
+   "short": [
+    "Top up {n} build hours with the build-server supplier.",
+    "We need {n} more build hours - order them please."
+   ],
+   "variable": "n",
+   "low": 20,
+   "high": 120,
+   "unit": "build hours",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "device_rental",
+   "kind": "supplier",
+   "title": "the test-device rental",
+   "fact": "our test-device rental firm",
+   "party": "the device rental firm",
+   "aliases": [
+    "the device people"
+   ],
+   "pool": [
+    {
+     "name": "DeviceLoop",
+     "email": "rentals@deviceloop.example"
+    },
+    {
+     "name": "Handset Hire",
+     "email": "orders@handsethire.example"
+    },
+    {
+     "name": "TestBench Rentals",
+     "email": "hire@testbench.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Rent {n} test phones for next week's playtest. We rent from {name} ({value}).",
+   "short": [
+    "Rent {n} test phones for next week's playtest.",
+    "Book {n} test phones for the playtest please."
+   ],
+   "variable": "n",
+   "low": 2,
+   "high": 9,
+   "unit": "test phones",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "translation_order",
+   "kind": "supplier",
+   "title": "the translation order",
+   "fact": "our translators",
+   "party": "the translators",
+   "aliases": [
+    "the localisation people",
+    "the translators"
+   ],
+   "pool": [
+    {
+     "name": "LinguaPlay",
+     "email": "orders@linguaplay.example"
+    },
+    {
+     "name": "WordForge Localisation",
+     "email": "projects@wordforge.example"
+    },
+    {
+     "name": "Tidewater Translations",
+     "email": "jobs@tidewater-tr.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the translators {n} new strings to translate. We use {name} - jobs go to {value}.",
+   "short": [
+    "Send the translators {n} new strings.",
+    "{n} new strings for the translators please."
+   ],
+   "variable": "n",
+   "low": 40,
+   "high": 400,
+   "unit": "strings",
+   "letter_from": "{new_email}"
+  },
+  {
+   "id": "tools_demo",
+   "kind": "hours",
+   "title": "the weekly tools demo",
+   "fact": "the tools demo's hours",
+   "party": "the tools demo",
+   "aliases": [
+    "the demo"
+   ],
+   "pool": [
+    {
+     "start": "10:00",
+     "end": "10:30"
+    },
+    {
+     "start": "11:30",
+     "end": "12:00"
+    },
+    {
+     "start": "09:30",
+     "end": "10:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Put the tools demo on {date} in the studio calendar - it runs {value}.",
+   "short": [
+    "Put the tools demo on {date} in the studio calendar.",
+    "Add {date}'s tools demo to the calendar please."
+   ],
+   "variable": "date",
+   "event": "Tools demo",
+   "keyword": "tools demo",
+   "letter_from": "dani@puddlejump.example"
+  },
+  {
+   "id": "build_freeze",
+   "kind": "hours",
+   "title": "the build freeze window",
+   "fact": "the build freeze window's hours",
+   "party": "the build freeze window",
+   "aliases": [
+    "the freeze window"
+   ],
+   "pool": [
+    {
+     "start": "18:00",
+     "end": "20:00"
+    },
+    {
+     "start": "17:00",
+     "end": "19:00"
+    },
+    {
+     "start": "19:00",
+     "end": "21:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Book the build freeze window for {date} in the calendar. The freeze runs {value}.",
+   "short": [
+    "Book the build freeze window for {date} in the calendar.",
+    "Build freeze on {date} - put it in the calendar."
+   ],
+   "variable": "date",
+   "event": "Build freeze",
+   "keyword": "build freeze",
+   "letter_from": "dani@puddlejump.example"
+  },
+  {
+   "id": "walkthrough",
+   "kind": "hours",
+   "title": "a new starter's tools walkthrough",
+   "fact": "the tools walkthrough's hours",
+   "party": "tools walkthroughs",
+   "aliases": [
+    "the walkthrough"
+   ],
+   "pool": [
+    {
+     "start": "14:00",
+     "end": "15:00"
+    },
+    {
+     "start": "15:30",
+     "end": "16:30"
+    },
+    {
+     "start": "13:00",
+     "end": "14:00"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "{who} is starting - add their tools walkthrough on {date} to the calendar. Walkthroughs run {value}.",
+   "short": [
+    "{who} is starting - add their tools walkthrough on {date} to the calendar.",
+    "Can you put {who}'s tools walkthrough in the calendar for {date}?"
+   ],
+   "variable": "who_date",
+   "event": "{who} - tools walkthrough",
+   "keyword": "walkthrough",
+   "letter_from": "dani@puddlejump.example"
+  },
+  {
+   "id": "asset_budget",
+   "kind": "amount",
+   "title": "the asset-store budget request",
+   "fact": "the weekly asset-store budget",
+   "party": "the asset-store budget",
+   "aliases": [
+    "the asset budget"
+   ],
+   "pool": [
+    {
+     "amount": 300
+    },
+    {
+     "amount": 450
+    },
+    {
+     "amount": 400
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email finance ({to}) the asset-store budget request for the week of {date}. The budget is {value}.",
+   "short": [
+    "Send finance the asset-store budget request for the week of {date}.",
+    "Can you ask finance for this week's asset budget? Week of {date}."
+   ],
+   "variable": "date",
+   "to": "finance@puddlejump.example",
+   "letter_from": "finance@puddlejump.example"
+  },
+  {
+   "id": "snacks_allowance",
+   "kind": "amount",
+   "title": "the playtest snacks request",
+   "fact": "the playtest snacks allowance",
+   "party": "the snacks allowance",
+   "aliases": [
+    "the snack money"
+   ],
+   "pool": [
+    {
+     "amount": 60
+    },
+    {
+     "amount": 80
+    },
+    {
+     "amount": 75
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Ask the office ({to}) for the playtest snacks allowance for the week of {date} - it's {value}.",
+   "short": [
+    "Ask the office for the playtest snacks allowance for the week of {date}.",
+    "Snacks allowance for the playtest please, week of {date}."
+   ],
+   "variable": "date",
+   "to": "office@puddlejump.example",
+   "letter_from": "office@puddlejump.example"
+  },
+  {
+   "id": "build_health",
+   "kind": "role",
+   "title": "the build-health report",
+   "fact": "who owns the build pipeline",
+   "party": "the build pipeline owner",
+   "aliases": [
+    "the pipeline owner"
+   ],
+   "pool": [
+    {
+     "name": "Priya Shah",
+     "email": "priya@puddlejump.example"
+    },
+    {
+     "name": "Tomas Lind",
+     "email": "tomas@puddlejump.example"
+    },
+    {
+     "name": "Niko Brandt",
+     "email": "niko@puddlejump.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the build pipeline owner this week's build-health report: {n} failed builds. That's {name} ({value}).",
+   "short": [
+    "Send the build pipeline owner this week's build-health report: {n} failed builds.",
+    "Build-health report to the pipeline owner - {n} failed builds."
+   ],
+   "variable": "n",
+   "low": 1,
+   "high": 14,
+   "unit": "failed builds",
+   "letter_from": "dani@puddlejump.example"
+  },
+  {
+   "id": "sprint_summary",
+   "kind": "role",
+   "title": "the sprint summary",
+   "fact": "who our producer is",
+   "party": "the producer",
+   "aliases": [
+    "the producer"
+   ],
+   "pool": [
+    {
+     "name": "Dani Cole",
+     "email": "dani@puddlejump.example"
+    },
+    {
+     "name": "Ike Mensah",
+     "email": "ike@puddlejump.example"
+    },
+    {
+     "name": "Rosa Vane",
+     "email": "rosa@puddlejump.example"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Send the producer the sprint summary: {n} tickets closed. Our producer is {name} ({value}).",
+   "short": [
+    "Send the producer the sprint summary: {n} tickets closed.",
+    "Sprint summary to the producer please - {n} tickets closed."
+   ],
+   "variable": "n",
+   "low": 8,
+   "high": 40,
+   "unit": "tickets",
+   "letter_from": "studio@puddlejump.example"
+  },
+  {
+   "id": "review_reminder",
+   "kind": "policy",
+   "title": "the code-review reminder",
+   "fact": "how many reviewers a merge needs",
+   "party": "the review rule",
+   "aliases": [
+    "the review rule"
+   ],
+   "pool": [
+    {
+     "number": 2,
+     "unit": "reviewers"
+    },
+    {
+     "number": 1,
+     "unit": "reviewers"
+    },
+    {
+     "number": 3,
+     "unit": "reviewers"
+    }
+   ],
+   "fixed_old": false,
+   "intro": "Email the team ({to}) this week's code-review reminder: every merge needs {value}.",
+   "short": [
+    "Email the team this week's code-review reminder.",
+    "Send the team the review-rule reminder please."
+   ],
+   "variable": "none",
+   "to": "team@puddlejump.example",
+   "doc": "docs/team-rules.md",
+   "doc_rule": "Every merge needs {n} reviewers",
+   "letter_from": "dani@puddlejump.example"
+  },
+  {
+   "id": "freeze_reminder",
+   "kind": "policy",
+   "title": "the level-freeze reminder",
+   "fact": "how many working days before release the level list freezes",
+   "party": "the level-freeze rule",
+   "aliases": [
+    "the freeze rule"
+   ],
+   "pool": [
+    {
+     "number": 5,
+     "unit": "days"
+    },
+    {
+     "number": 7,
+     "unit": "days"
+    },
+    {
+     "number": 3,
+     "unit": "days"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the team ({to}) the release reminder: the level list freezes {value} before release.",
+   "short": [
+    "Email the team the release reminder about the level freeze.",
+    "Send the team the level-freeze reminder for this release."
+   ],
+   "variable": "none",
+   "to": "team@puddlejump.example",
+   "doc": "docs/release-checklist.md",
+   "doc_rule": "Freeze the level list {n} working days before release",
+   "letter_from": "dani@puddlejump.example"
+  },
+  {
+   "id": "playtest_reminder",
+   "kind": "policy",
+   "title": "the playtest reminder",
+   "fact": "the minimum playtest length per tester",
+   "party": "the playtest rule",
+   "aliases": [
+    "the playtest rule"
+   ],
+   "pool": [
+    {
+     "number": 90,
+     "unit": "minutes"
+    },
+    {
+     "number": 120,
+     "unit": "minutes"
+    },
+    {
+     "number": 60,
+     "unit": "minutes"
+    }
+   ],
+   "fixed_old": true,
+   "intro": "Email the testers ({to}) the playtest reminder: each tester plays at least {value}.",
+   "short": [
+    "Email the testers the playtest reminder with the minimum length.",
+    "Send the testers the playtest reminder please."
+   ],
+   "variable": "none",
+   "to": "testers@puddlejump.example",
+   "doc": "docs/release-checklist.md",
+   "doc_rule": "at least {n} minutes each",
+   "letter_from": "dani@puddlejump.example"
+  }
+ ],
+ "preferences": [
+  {
+   "id": "pref_notes",
+   "fact": "how Wren wants meeting notes",
+   "values": [
+    "one paragraph",
+    "a checklist"
+   ],
+   "markers": [
+    "paragraph",
+    "checklist"
+   ],
+   "say_first": "I like meeting notes as {value}.",
+   "say_change": "Actually, I'd rather have meeting notes as {value} from now on."
+  },
+  {
+   "id": "pref_snack",
+   "fact": "Wren's playtest snack",
+   "values": [
+    "oat bars",
+    "fruit"
+   ],
+   "markers": [
+    "oat bar",
+    "fruit"
+   ],
+   "say_first": "For the record, my playtest snack is {value}.",
+   "say_change": "I've gone off oat bars - it's {value} for me at playtests now."
+  }
+ ],
+ "misstated": [
+  {
+   "id": "launch_date",
+   "fact": "the date of the store launch",
+   "pairs": [
+    [
+     "14 January",
+     "15 January"
+    ],
+    [
+     "21 January",
+     "22 January"
+    ],
+    [
+     "4 February",
+     "5 February"
+    ]
+   ],
+   "say": "The store launch is on {wrong}.",
+   "fix": "Sorry, I misread the email - the launch is {right}, not {wrong}."
+  },
+  {
+   "id": "expo_date",
+   "fact": "the date of the games expo",
+   "pairs": [
+    [
+     "9 February",
+     "10 February"
+    ],
+    [
+     "16 February",
+     "17 February"
+    ],
+    [
+     "2 March",
+     "3 March"
+    ]
+   ],
+   "say": "The games expo is on {wrong}.",
+   "fix": "Correction: the expo is on {right}. I had the wrong day."
+  }
+ ],
+ "homonyms": [
+  {
+   "id": "ola_berg",
+   "name": "Ola Berg",
+   "email": "ola@puddlejump.example",
+   "role": "our technical artist",
+   "say": "Ola Berg has joined as our technical artist. Their email is ola@puddlejump.example."
+  },
+  {
+   "id": "ola_nwosu",
+   "name": "Ola Nwosu",
+   "email": "ola.nwosu@paperkite.example",
+   "role": "the producer at Paperkite Publishing",
+   "say": "Our producer contact at Paperkite is Ola Nwosu now - ola.nwosu@paperkite.example."
+  }
+ ],
+ "unknown": [
+  {
+   "id": "ola_phone",
+   "question": "What's Ola Berg's phone number?"
+  },
+  {
+   "id": "paperkite_account",
+   "question": "What's our account number with Paperkite?"
+  },
+  {
+   "id": "dani_mobile",
+   "question": "What's the producer's mobile number?"
+  },
+  {
+   "id": "rating_ref",
+   "question": "What's our reference number with the ratings board?"
+  },
+  {
+   "id": "nwosu_phone",
+   "question": "What's Ola Nwosu's direct phone line?"
+  }
+ ]
+}

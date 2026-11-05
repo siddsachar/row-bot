@@ -1,0 +1,71 @@
+{
+ "calendar": {
+  "events": [
+   {
+    "id": "evt_1",
+    "title": "Practice meeting",
+    "date": "2026-10-28",
+    "start": "13:00",
+    "end": "13:45",
+    "attendees": [
+     "Tobi",
+     "Asha",
+     "Grace"
+    ],
+    "location": "Staff room"
+   },
+   {
+    "id": "evt_2",
+    "title": "Lab collection",
+    "date": "2026-10-23",
+    "start": "16:00",
+    "end": "16:15",
+    "attendees": [],
+    "location": "Reception"
+   }
+  ]
+ },
+ "mail": {
+  "messages": [
+   {
+    "id": "msg_1",
+    "folder": "inbox",
+    "from": "cases@northpoint-lab.example",
+    "to": "me@example.test",
+    "subject": "Crown cases",
+    "body": "Hi Tobi, three crown cases are due back Friday.",
+    "date": "2026-10-21"
+   },
+   {
+    "id": "msg_2",
+    "folder": "inbox",
+    "from": "news@dental-practice-weekly.example",
+    "to": "me@example.test",
+    "subject": "Dental Practice Weekly",
+    "body": "This week: new guidance on record keeping.",
+    "date": "2026-10-20"
+   },
+   {
+    "id": "msg_3",
+    "folder": "inbox",
+    "from": "offers@clinicsupply-deals.example",
+    "to": "me@example.test",
+    "subject": "This week's clinic supply deals",
+    "body": "15% off bibs.",
+    "date": "2026-10-19"
+   },
+   {
+    "id": "msg_4",
+    "folder": "inbox",
+    "from": "grace@harbourlanedental.example",
+    "to": "me@example.test",
+    "subject": "Rota",
+    "body": "Can I swap Tuesday afternoon for Thursday?",
+    "date": "2026-10-21"
+   }
+  ]
+ },
+ "issues": {
+  "issues": []
+ }
+}
