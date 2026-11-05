@@ -17,6 +17,8 @@ export type TranscriptItem = {
   media: GeneratedMedia[];
   /** Designs and code folders the turn created, connections it needs. */
   cards: TranscriptCard[];
+  /** Earlier versions of the reply's newest video, folded under it. */
+  earlier?: TranscriptCard[];
   /** Agents the turn started, one stub each (B241). */
   agents: TracedAgent[];
 };
@@ -294,7 +296,89 @@ export function buildTranscript(
       continue;
     items.push(item);
   }
-  return items;
+  return foldEarlierVideos(items);
+}
+
+/** A video a reply made: a recording, an edit (not stills) or a video project. */
+export function isVideoVersion(card: TranscriptCard) {
+  return (
+    card.kind === 'recording' ||
+    card.kind === 'video_project' ||
+    (card.kind === 'video_edit' && !card.frames)
+  );
+}
+
+/**
+ * Per reply, only the newest video shows in full: the earlier versions (the raw
+ * recording, a trim, a zoom) fold under it, in the reply's last item that has
+ * a video. The same reply reads the same live and after a reload.
+ */
+export function foldEarlierVideos(items: TranscriptItem[]): TranscriptItem[] {
+  const folded = [...items];
+  let start = 0;
+  for (let index = 0; index <= items.length; index++) {
+    if (index < items.length && items[index].row.role !== 'user') continue;
+    const videos = folded
+      .slice(start, index)
+      .flatMap((item) => item.cards.filter(isVideoVersion));
+    if (videos.length > 1) {
+      const newest = videos.at(-1)!;
+      const earlier = videos.slice(0, -1);
+      for (let at = start; at < index; at++) {
+        const item = folded[at];
+        const holdsNewest = item.cards.includes(newest);
+        if (!holdsNewest && !item.cards.some((card) => earlier.includes(card)))
+          continue;
+        folded[at] = {
+          ...item,
+          cards: item.cards.filter((card) => !earlier.includes(card)),
+          ...(holdsNewest ? { earlier } : {}),
+        };
+      }
+    }
+    start = index + 1;
+  }
+  return folded;
+}
+
+/**
+ * The turn in flight: when its live cards bring a newer video, the videos its
+ * saved items already show fold under that one.
+ */
+export function foldLiveVideos(
+  items: TranscriptItem[],
+  pending: TranscriptCard[],
+): {
+  items: TranscriptItem[];
+  pending: TranscriptCard[];
+  earlier: TranscriptCard[];
+} {
+  const live = pending.filter(isVideoVersion);
+  if (!live.length) return { items, pending, earlier: [] };
+  const newest = live.at(-1)!;
+  const turn = items.map((item) => item.row.role).lastIndexOf('user') + 1;
+  const saved = items
+    .slice(turn)
+    .flatMap((item) => [
+      ...(item.earlier ?? []),
+      ...item.cards.filter(isVideoVersion),
+    ]);
+  return {
+    items: saved.length
+      ? items.map((item, index) =>
+          index < turn ||
+          (!item.earlier?.length && !item.cards.some(isVideoVersion))
+            ? item
+            : {
+                ...item,
+                cards: item.cards.filter((card) => !isVideoVersion(card)),
+                earlier: undefined,
+              },
+        )
+      : items,
+    pending: pending.filter((card) => !isVideoVersion(card) || card === newest),
+    earlier: [...saved, ...live.slice(0, -1)],
+  };
 }
 
 /** Media announced live that no settled row renders yet. */

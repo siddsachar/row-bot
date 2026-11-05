@@ -146,6 +146,7 @@ import {
   answerStreaming,
   browserOffers,
   buildTranscript,
+  foldLiveVideos,
   finishedLiveSteps,
   liveMedia,
   settleFinishedSteps,
@@ -2565,10 +2566,24 @@ export default function Conversation({
   );
   const pendingMedia = liveMedia(state.activity, settledMedia);
   const settledCards = useMemo(
-    () => new Set(items.flatMap((item) => item.cards.map(cardKey))),
+    () =>
+      new Set(
+        items.flatMap((item) =>
+          [...item.cards, ...(item.earlier ?? [])].map(cardKey),
+        ),
+      ),
     [items],
   );
-  const pendingCards = liveCards(state.activity, settledCards);
+  const liveCardList = liveCards(state.activity, settledCards);
+  const liveCardKey = liveCardList.map(cardKey).join();
+  // A newer video from the turn in flight folds the ones it already shows.
+  const shown = useMemo(
+    () => foldLiveVideos(items, liveCardList),
+    // liveCardKey stands for liveCardList: they change together.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, liveCardKey],
+  );
+  const pendingCards = shown.pending;
   const cardActions: CardActions = {
     resource: (bindingId) =>
       resources.find((item) => item.binding.binding_id === bindingId),
@@ -3382,7 +3397,7 @@ export default function Conversation({
                   {earlierIds.size > 0 && (
                     // Loaded history is not announced as new conversation.
                     <div className="transcript-earlier" aria-live="off">
-                      {items.map((item, index) =>
+                      {shown.items.map((item, index) =>
                         earlierIds.has(item.row.id) ? (
                           <TranscriptMessage
                             key={`${id}:${item.row.id}`}
@@ -3392,6 +3407,7 @@ export default function Conversation({
                             embeds={item.embeds}
                             media={item.media}
                             cards={item.cards}
+                            earlierCards={item.earlier}
                             agents={item.agents}
                             turnStart={turns.starts[index]}
                             offerBrowser={turns.browser[index]}
@@ -3406,7 +3422,7 @@ export default function Conversation({
                       )}
                     </div>
                   )}
-                  {items.map((item, index) =>
+                  {shown.items.map((item, index) =>
                     earlierIds.has(item.row.id) ? null : (
                       <TranscriptMessage
                         key={`${id}:${item.row.id}`}
@@ -3416,6 +3432,7 @@ export default function Conversation({
                         embeds={item.embeds}
                         media={item.media}
                         cards={item.cards}
+                        earlierCards={item.earlier}
                         agents={item.agents}
                         turnStart={turns.starts[index]}
                         latest={index === lastAssistant && !turnInFlight}
@@ -3579,6 +3596,7 @@ export default function Conversation({
                           conversation) open beside this chat, so they need it. */}
                       <TranscriptCards
                         cards={pendingCards}
+                        earlier={shown.earlier}
                         conversation={id}
                         live
                       />
