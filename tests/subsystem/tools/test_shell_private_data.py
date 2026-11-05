@@ -245,3 +245,64 @@ def test_a_self_hosted_installs_secrets_folder_is_private_too(shell, monkeypatch
     output = tools["workspace_read_file"].invoke({"file_path": "run-secrets/OPENAI_API_KEY"})
     assert output.startswith("Error: this path is inside Row-Bot's private data folder")
     assert "sk-synthetic" not in output
+
+
+@pytest.fixture
+def container(tmp_path, monkeypatch, reload_for_data_dir):
+    """The container image: the home folder is the data folder (HOME=/data, ROW_BOT_DATA_DIR=/data), so the
+    default workspace, Documents/Row-Bot, lies inside it."""
+    data = tmp_path / "data"
+    workspace = data / "Documents" / "Row-Bot"
+    workspace.mkdir(parents=True)
+    (data / "threads.db").write_text("", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: data))
+    _approval_gate, shell_tool, registry, filesystem_tool = reload_for_data_dir(
+        data, "row_bot.tools.approval_gate", "row_bot.tools.shell_tool", "row_bot.tools.registry",
+        "row_bot.tools.filesystem_tool")
+    registry.set_tool_config("filesystem", "workspace_root", str(workspace))
+    tools = {tool.name: tool for tool in filesystem_tool.FileSystemTool().as_langchain_tools()}
+    return shell_tool, tools, data, workspace
+
+
+def test_in_the_container_the_default_workspace_is_the_agents(container):
+    """A hosted Row-Bot's file tools write its own workspace, and the shell may name it."""
+    from row_bot.data_paths import is_private_data_path
+
+    shell_tool, tools, _data, workspace = container
+
+    written = tools["workspace_write_file"].invoke({"file_path": "primes.py", "text": "print(2)\n"})
+
+    assert "private data folder" not in written
+    assert (workspace / "primes.py").read_text(encoding="utf-8") == "print(2)\n"
+    assert not is_private_data_path(workspace / "primes.py")
+    assert shell_tool.classify_command(f"python {workspace / 'primes.py'}") != "private_data"
+    assert shell_tool.classify_command("cat ~/Documents/Row-Bot/primes.py") != "private_data"
+
+
+def test_in_the_container_the_rest_of_the_data_folder_stays_private(container):
+    from row_bot.data_paths import is_private_data_path
+
+    shell_tool, tools, data, workspace = container
+
+    assert is_private_data_path(data / "threads.db")
+    assert is_private_data_path(data / "Documents" / "other.txt"), "the workspace, not the rest of Documents"
+    assert is_private_data_path(data / "Documents" / "Row-Bot2" / "x.txt"), "a folder named like it is not it"
+    assert tools["workspace_read_file"].invoke({"file_path": str(data / "threads.db")}).startswith(
+        "Error: this path is inside Row-Bot's private data folder")
+    assert tools["workspace_read_file"].invoke({"file_path": "../../threads.db"}).startswith("Error: ")
+    assert shell_tool.classify_command(f"cat {data / 'threads.db'}") == "private_data"
+    assert shell_tool.classify_command("cat ~/Documents/Row-Bot/../../threads.db") == "private_data"
+    assert shell_tool.classify_command(f"cat {workspace}2/notes.md") == "private_data"
+
+
+def test_a_sandbox_in_the_container_never_gets_the_real_workspace(container, monkeypatch):
+    """5.3.1 B4: a sandbox's own workspace is its to use; the real Row-Bot's stays private to it."""
+    from row_bot.data_paths import is_private_data_path
+
+    _shell_tool, _tools, data, workspace = container
+    box = data / "sandboxes" / "box-1" / "workspace"
+    monkeypatch.setenv("ROW_BOT_SANDBOX_OF", str(data))
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(box))
+
+    assert is_private_data_path(workspace / "primes.py")
+    assert not is_private_data_path(box / "notes.md")

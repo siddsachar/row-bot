@@ -53,7 +53,7 @@ hand from the table below.
 | `ROW_BOT_SETUP_CODE` | `${{secret(12, "0123456789ABCDEFGHJKMNPQRSTVWXYZ")}}` | A new code for each deploy, from Row-Bot's own alphabet (Crockford's base32: no I, L, O or U). Row-Bot accepts 12 to 64 letters or digits (`access/setup_code.py`); 12 carry 60 bits. Railway's `secret()` takes a length and an alphabet; its default alphabet isn't documented, so it's given. |
 | `RAILWAY_RUN_UID` | `0` | Railway mounts volumes as root and tells images with their own user to set this ([Volumes › Permissions](https://docs.railway.com/volumes)). The container then starts as root; Row-Bot's first step gives `/data` to uid 10001 and drops to 10001 for good, before it reads a secret, writes `/data` or starts a program. |
 | `PORT` | `8080` | Railway's docs expect a web service to listen on `PORT`; setting it to 8080 keeps Railway's defaults and the domain's target port in agreement. Row-Bot listens on `ROW_BOT_PORT` and ignores `PORT`. |
-| `ROW_BOT_TRUSTED_PROXY_CIDRS` | **not set yet: decided from the founder's check** | See [Proxy addresses](#proxy-addresses). |
+| `ROW_BOT_TRUSTED_PROXY_CIDRS` | `100.64.0.0/10` | Railway's proxy, measured on a deploy. See [Proxy addresses](#proxy-addresses). |
 
 **Never set `ROW_BOT_SECRET_STORE_KEY` in Railway.** On 21 Oct 2026 Railway
 disclosed that an attacker may have decrypted some customers' environment
@@ -118,16 +118,20 @@ Row-Bot's default host list, so the service's own name must be in it too).
 
 ## Proxy addresses
 
-Railway's edge proxy ends HTTPS and forwards plain HTTP to port 8080 with
-`X-Real-IP`, `X-Forwarded-Proto: https` and `X-Forwarded-Host`
-([Specs and limits](https://docs.railway.com/networking/public-networking/specs-and-limits));
-whether it also sends `X-Forwarded-For` isn't documented (Railway staff say it
-does, on Central Station).
+Railway's edge proxy ends HTTPS and forwards plain HTTP to port 8080
+([Specs and limits](https://docs.railway.com/networking/public-networking/specs-and-limits)).
+Railway documents no address range for it, so it was measured on a real deploy
+(the check below), on 5 November 2026:
 
-**Railway documents no address range for its edge proxy.** A moderator on
-Central Station says 100.0.0.0/8; that is neither confirmed nor narrow enough,
-and Row-Bot must never trust a broad range. So `ROW_BOT_TRUSTED_PROXY_CIDRS`
-stays out of the template until the founder's check below.
+- **Peers:** the proxy connects from a fresh address in **100.64.0.0/10** for
+  each connection (19 different ones in 70 requests, 100.64.0.1 upwards). The
+  container's own address was 10.191.x.x, outside that range, so nothing inside
+  it can pose as the proxy. Hence `ROW_BOT_TRUSTED_PROXY_CIDRS=100.64.0.0/10`.
+- **Headers:** `X-Forwarded-For: <visitor>, <Railway's edge>`,
+  `X-Forwarded-Proto: https`, `X-Forwarded-Host`, `X-Real-Ip: <visitor>`, and
+  Railway's own `X-Railway-Edge` and `X-Railway-Request-Id`.
+- **Spoofing:** a visitor's own `X-Real-IP` and `X-Forwarded-For`, in any
+  spelling, never reach the service: Railway replaces both.
 
 Without a trusted proxy Row-Bot refuses every request that carries forwarding
 headers (`untrusted_forwarding_headers`), and with
@@ -135,11 +139,13 @@ headers (`untrusted_forwarding_headers`), and with
 sign in (its origin is https, Row-Bot sees http).
 
 From a trusted proxy, Row-Bot accepts `X-Real-IP` beside a validated
-`X-Forwarded-For`, as it accepts Cloudflare's `CF-Connecting-IP`: it never reads
-the visitor's address from it, and `X-Real-IP` without `X-Forwarded-For` is
-still refused. **So signing in needs Railway's edge to send `X-Forwarded-For`
-and `X-Forwarded-Proto`.** Railway staff say it does; its docs list only
-`X-Forwarded-Proto`. The founder's check below confirms both.
+`X-Forwarded-For`, as it accepts Cloudflare's `CF-Connecting-IP`, and refuses it
+without one. Walking `X-Forwarded-For` from the proxy stops at Railway's edge
+address, which isn't trusted, so every visitor would look like the edge (in
+Devices, and for the pause after wrong setup codes). Railway's host entry
+(`ROW_BOT_HOSTED_BY=railway`) therefore names `X-Real-IP` as the header that
+holds the visitor: only from a trusted proxy, and a malformed or loopback value
+is refused. No setting can name such a header; only a reviewed host entry can.
 
 ### The founder's check, on a real deploy
 
