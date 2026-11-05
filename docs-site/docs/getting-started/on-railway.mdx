@@ -1,0 +1,116 @@
+---
+title: "Row-Bot On Railway"
+description: "Run your own Row-Bot in your own Railway account and use it from any browser: deploy the template, enter the setup code, sign in to your plans and accounts, keep it updated, and what it costs."
+---
+
+# Row-Bot On Railway
+
+Railway, a cloud platform, can run your own private Row-Bot in your own Railway account. You deploy Row-Bot's template once, then open Row-Bot from any browser, on a computer or a phone. It keeps working while your devices are off, so schedules and channels keep running.
+
+It's the same Row-Bot as the desktop app and as [Row-Bot on PikaPods](/docs/getting-started/in-your-browser), and it's yours alone: one owner, signed in from as many devices as you like. You bring the model: a ChatGPT or Claude plan, a Grok sign-in, an API key, or your own model server.
+
+The difference from PikaPods: on Railway, you look after the service yourself. You choose when to update it, you keep your own backups, and Railway bills you for what it uses. Railway runs the server and its billing. [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) says plainly what that means for your data.
+
+## Before You Start
+
+- **A Railway account on the Hobby plan.** Hobby costs $5 a month, with $5 of usage included, and asks for a card. Railway's free trial is too small for Row-Bot: 1 GB of memory and a 0.5 GB volume.
+- **About ten minutes.** The first deploy downloads Row-Bot's image, which takes a few minutes.
+
+## Deploy
+
+1. Open Row-Bot's template in Railway's template marketplace (search for **Row-Bot**) and choose **Deploy Now**.
+2. Sign in to Railway, or create an account.
+3. Deploy. Railway creates a project with one service, **row-bot**, its volume for your data, and its own address ending in `up.railway.app`. Leave the variables as they are: the template fills them in, your setup code included.
+4. Open the service's **Settings › Deploy** and check its replica limits: **4 GB** of memory and **2 vCPU**. If they're empty, set them. They keep your bill predictable, and Row-Bot uses the memory limit to warn you before it runs short.
+
+The deploy log ends with `Row-Bot is running at`. If it shows `Row-Bot didn't start:` instead, the rest of that line says why.
+
+## Enter The Setup Code
+
+The setup code makes your browser the owner, so nobody else can use your Row-Bot.
+
+1. In Railway, open your Row-Bot service's **Variables** and copy the value of `ROW_BOT_SETUP_CODE`. (It's also in the deploy log, on the line that starts `Row-Bot setup code:`.)
+2. Open your Row-Bot at its address: the link on the service, or **Settings › Networking**. It says **Welcome to your Row-Bot**.
+3. Paste the code into **Setup code** and choose **Continue**. Dashes, spaces and capitals don't matter.
+
+Row-Bot says "This browser is signed in." and asks how it should think. The code works once: from then on, anyone else who opens your address sees **This Row-Bot already has an owner**, and you add your other devices from Row-Bot itself ([Add Your Phone](/docs/getting-started/in-your-browser#add-your-phone)).
+
+**Lost access?** Set a new `ROW_BOT_SETUP_CODE` of at least 12 letters or digits in the service's **Variables** and deploy the change. Then open your Row-Bot, choose **Lost access?** and enter the new code. It works once, and signs out every other browser. [Lost The Setup Code](/docs/troubleshooting/hosted#lost-the-setup-code) has more.
+
+## First Run
+
+Row-Bot asks **How should Row-Bot think?**, exactly as on any hosted Row-Bot: **Sign in with ChatGPT**, **Use my Claude plan**, and **Other ways** for an API key, your own model server or **Sign in with Grok**. [Choose A Model](/docs/getting-started/in-your-browser#choose-a-model) explains each one.
+
+After you sign in, Row-Bot checks that the model answers and opens a chat with one suggestion to tap.
+
+## Your Subscriptions And Accounts
+
+Everything you sign in to on Railway works as in the desktop app, through your browser:
+
+- **ChatGPT:** Row-Bot copies a code and opens OpenAI's page; paste the code there and approve.
+- **Your Claude plan:** Row-Bot installs Claude Code, Anthropic's program, on your server, then opens Claude's own sign-in; paste the code Claude gives you. Row-Bot never sees, stores or relays your Claude sign-in.
+- **Grok:** xAI's sign-in ends on a page that doesn't load; paste that page's address back into Row-Bot ([A Sign-In That Won't Finish](/docs/troubleshooting/hosted#grok)).
+- **Outlook:** Microsoft signs you in with a code you enter at Microsoft's own page; nothing to set up.
+- **X and Google** use an app or client of your own, which sends you back to your Row-Bot's own address, so it must list it:
+  - X: `https://<your address>/api/v1/accounts/x/auth/callback`
+  - Google, in a **Web application** client: `https://<your address>/api/v1/accounts/google/auth/callback`
+
+  where `<your address>` is the service's address, such as `row-bot-production-1a2b.up.railway.app`. Each account's setup guide, in **Settings › Apps**, shows the exact address to copy. [Accounts And Authorisation](/docs/integrations/accounts#sign-in-from-another-device) explains the rest.
+
+If you give the service a domain of your own, set `ROW_BOT_PUBLIC_URL` to it (`https://` and the domain, nothing else), deploy the change, and list the new callback addresses too.
+
+## Updates
+
+Railway doesn't update Row-Bot by itself. **Settings › Updates** says **You update it in Railway**, with your version and a **What's new** link.
+
+- **When a new version is out,** Railway offers it in your service's settings. Updating restarts Row-Bot on the new version, with your data and sign-ins.
+- **To get each version by itself,** turn on auto updates in the service's **Settings › Source** and choose when they may happen, such as at night.
+- **Read what's new first.** Each version's notes in [GitHub Releases](https://github.com/siddsachar/row-bot/releases) end with a **For Hosts** section: on Railway you're the host, so it's for you.
+
+The template uses Row-Bot's `latest` image, which moves only to stable releases. Deploying any change, such as a new setup code, also starts the newest stable version.
+
+## Costs
+
+Railway bills by what your service uses, at the prices it publishes ([Railway's pricing](https://railway.com/pricing)):
+
+| What | Price |
+|---|---|
+| Hobby plan | $5 a month, which includes $5 of usage |
+| Memory | $10 per GB a month |
+| CPU | $20 per vCPU a month |
+| Volume | $0.15 per GB a month |
+| Data out | $0.05 per GB |
+
+Row-Bot uses about 0.4 GB of memory just started, more while it works, and very little CPU when idle. For light use, expect the $5 minimum to about $10 a month; heavy use, such as local speech-to-text or long browser sessions, costs more. Railway's **Usage** page shows the real figure, and **Usage Limits** there lets you cap what you spend.
+
+The model is billed by whoever provides it: a ChatGPT or Claude plan is the subscription you already pay for, and an API key is billed by its provider. Row-Bot itself is free and open source.
+
+## Memory And Space
+
+- **Memory:** with a 4 GB limit, everything fits, local speech-to-text included. If Row-Bot ever restarts for lack of memory, Home and Monitor say so and suggest raising the service's memory limit in Railway. [Row-Bot Restarted: Out Of Memory](/docs/troubleshooting/hosted#row-bot-restarted-out-of-memory) explains.
+- **Space:** a Hobby volume holds up to 5 GB. Row-Bot's search model (641 MB) and local speech-to-text (464 MB) come to about 1.7 GB in the first hour with the rest of Row-Bot's data, which leaves about 3 GB for your conversations, documents and workspaces. Railway's volume view shows how full it is.
+
+## Backups And Moving
+
+Railway's own volume backups are part of its Pro plan, not Hobby. Keep your own: in **Settings › Data**, choose **Back up now**, then **Download**. A backup holds your conversations, memories, workflows, designs and settings, without passwords or sign-ins.
+
+The same backup moves your Row-Bot to the desktop app, to PikaPods, or to a new Railway service, and back: see [Moving To Your Computer And Back](/docs/getting-started/in-your-browser#moving-to-your-computer-and-back). To restore on Railway, choose **Restore from backup…** in **Settings › Data**, choose **Restore on restart**, then redeploy the service from its **Deployments** tab. Once everything has arrived, you can delete the old service.
+
+## Railway's October Incident
+
+On 21 October 2026 Railway [disclosed](https://blog.railway.com/p/security-disclosure-wednesday-october-21st) that an attacker may have reached the systems that keep customers' environment variables, and decrypted some of them. Its [preliminary report](https://blog.railway.com/p/preliminary-report-october-security-incident) covers what happened and asks customers who signed up before 21 October to replace keys kept in Railway.
+
+What Row-Bot does about it:
+
+- **No key in Railway's variables.** The key that encrypts your saved sign-ins isn't one of the template's variables. Row-Bot makes it on your volume at its first start, readable only by Row-Bot, and its backups leave it out.
+- **A setup code that works once.** The code in your variables is useless once you've signed in. A new code you set to get back in works once too, so use it soon after setting it.
+- **Your sign-ins stay on the volume,** encrypted, never in Railway's variables.
+
+What it doesn't change: like any host, Railway runs the computer and can reach your volume, the key on it included. [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) says what that means and how to protect yourself, such as spending limits on API keys.
+
+## Getting Help
+
+- **Railway** helps with your account, billing, the service and whether it's up. In Row-Bot, **Settings › System** shows **Hosted by Railway** with links to manage your service, to Railway's support ([Central Station](https://station.railway.com/)) and to its [status page](https://status.railway.com/).
+- **Row-Bot** helps with everything inside Row-Bot. Start with [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted), ask in [Discussions](https://github.com/siddsachar/row-bot/discussions), or [report a bug](https://github.com/siddsachar/row-bot/issues/new/choose): under "Where does Row-Bot run?" choose a hosting service, and name Railway and your memory limit.
+
+[Hosting Row-Bot](/docs/operations/hosting#railway) has the technical details of how the template runs the image.

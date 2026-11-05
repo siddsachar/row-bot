@@ -9,13 +9,13 @@ This page is for hosting services, and for anyone who runs the published image t
 
 Each container is one person's Row-Bot: one owner, signed in from as many devices as they like. It is not a service for several people, and not a boundary between people who don't trust each other.
 
-If a hosting service runs Row-Bot for you, read [Row-Bot In Your Browser](/docs/getting-started/in-your-browser), [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted) and [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) instead.
+If a hosting service runs Row-Bot for you, read [Row-Bot In Your Browser](/docs/getting-started/in-your-browser) (or [Row-Bot On Railway](/docs/getting-started/on-railway)), [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted) and [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) instead.
 
 ## At A Glance
 
 - **Image:** `ghcr.io/siddsachar/row-bot`, for `linux/amd64` and `linux/arm64`.
 - **Command:** the image's own, `row-bot serve`. Start it as the container's first process.
-- **User:** uid 10001, gid 10001, never root.
+- **User:** uid 10001, gid 10001. A host that starts the container as root gets the same: Row-Bot's first step makes `/data` 10001's and drops to 10001 for good ([Started As Root](#started-as-root)).
 - **Volume:** one, at `/data`.
 - **Port:** 8080, plain HTTP. HTTPS ends at your proxy.
 - **Health:** `/healthz` answers while the process runs; `/readyz` answers 200 once Row-Bot is ready, and 503 while it starts. A check from the container itself (a loopback address, with no `Forwarded` or `X-Forwarded-*` header) works whatever host names Row-Bot allows; a check through a proxy or from another computer needs a host name Row-Bot knows ([Address And Proxy](#address-and-proxy)).
@@ -132,7 +132,10 @@ Trust only the proxy's own ranges, never a whole private network. Don't buffer R
 
 ### The Host's Name
 
-`ROW_BOT_HOSTED_BY` names the hosting service. The only value Row-Bot knows is `pikapods`: its setup page then names PikaPods, tells the owner where to find the setup code and how to change it in PikaPods' own words, with a **Manage pod** link to PikaPods.
+`ROW_BOT_HOSTED_BY` names the hosting service. Row-Bot knows two values, and its pages then use that host's own words:
+
+- **`pikapods`:** the setup page names PikaPods and sends the owner to the pod's **More › Show Logs** for the code, with a **Manage pod** link. **Settings › Updates** says PikaPods installs each new version.
+- **`railway`:** the setup page sends the owner to the service's **Variables** for the code, with a **Manage service** link. **Settings › Updates** says the owner updates Row-Bot in Railway ([Railway](#railway)).
 
 Row-Bot ignores any other value, with a warning in its log, and its pages use general words ("in its log", "in its server settings"). Each known host is an entry in Row-Bot's code, links included, so no setting can send the owner anywhere else.
 
@@ -144,7 +147,7 @@ Like every Row-Bot, a hosted one sends [install stats](/docs/privacy-safety#inst
 
 Everything Row-Bot keeps lives in `/data`: conversations, settings, the encrypted sign-ins, signed-in devices, the workspace, downloaded models and runtimes, and caches. Its home folder is `/data` too.
 
-- `/data` must be writable by uid 10001. A Docker named volume takes that owner from the image; a folder on the host needs `chown 10001:10001`.
+- `/data` must be writable by uid 10001. A Docker named volume takes that owner from the image; a folder on the host needs `chown 10001:10001`. A volume the host mounts as root works when the container starts as root too ([Started As Root](#started-as-root)).
 - Keep the same volume, and the same key, across restarts and updates.
 - A copy of the volume is a full copy of the owner's Row-Bot. Treat backups of it as private data.
 
@@ -171,7 +174,7 @@ Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps, in `
 
 If Row-Bot restarts because the server ran out of memory, Home and System Monitor say so, with the server's size, until the owner dismisses it. To fix it, do one of these:
 
-- **Give the server 4 GB.** Resize it where your host manages it; on PikaPods, that's your pod in **My Pods**. Row-Bot keeps its data and sign-ins, and the notice goes once the server is bigger.
+- **Give the server 4 GB.** Resize it where your host manages it: on PikaPods, that's your pod in **My Pods**; on Railway, the service's memory limit in **Settings › Deploy**. Row-Bot keeps its data and sign-ins, and the notice goes once the server is bigger.
 - **Use cloud speech-to-text.** In **Settings › Voice**, choose **OpenAI Realtime** under **Listen with**. Local speech-to-text is what doesn't fit beside the rest in 2 GB.
 
 ## Updates
@@ -179,7 +182,29 @@ If Row-Bot restarts because the server ran out of memory, Home and System Monito
 - **Row-Bot never updates itself in the image.** The image sets `ROW_BOT_UPDATES=external`: Row-Bot runs no update checks or downloads, its agent has no update tool, and **Settings › Updates** says the host installs updates. A program that updates Row-Bot can show its progress there through a shared folder ([Updates](/docs/operations/updates#docker-and-hosts-that-update-row-bot)).
 - **To update,** start the new version's image with the same `/data` volume and the same settings. Conversations, settings, sign-ins and signed-in browsers stay. Read the version's **For Hosts** section first.
 - **Going back** is a restore, not a downgrade: a newer version can change data so that an older image can't open it. Go back only with a backup made before the update ([Docker And VPS Operations](/docs/operations/docker#explicit-upgrade-and-rollback)).
-- **For the people on your servers,** the host decides when an update arrives. A host that tests each release first may take some days.
+- **For the people on your servers,** the host decides when an update arrives. A host that tests each release first may take some days. On Railway the owner is the host: Railway offers each new image in the service's settings, and installs it only when the owner says so or has turned on auto updates.
+
+## Started As Root
+
+The image runs as uid 10001. Some hosts start every container as root, for example to mount a volume that root owns (Railway's `RAILWAY_RUN_UID=0`). Started as root inside its own image (`ROW_BOT_CONTAINERIZED=1`, server mode), `row-bot` first:
+
+1. makes `/data` and everything in it 10001's, but only while the top of `/data` isn't 10001's already, so once. It changes links themselves, never what they point to, and leaves alone anything on another file system mounted inside. `/data` becomes readable by its owner only;
+2. drops root for good: no other groups, then gid and uid 10001, and checks that root can't come back;
+3. makes the image's folders under `/data` again (`tmp` and the caches), which the host's volume hides.
+
+Only then does it read the setup code and the secret-store key, write `/data` or start a program, so everything above (the secrets out of the environment, non-dumpable processes, the health check's empty environment) holds as before. The log says `Started as root in its container: Row-Bot gave /data to uid 10001 and runs as uid 10001` the first time, and `… Row-Bot runs as uid 10001` after that. If any step fails, Row-Bot doesn't start, and the line starting `Row-Bot didn't start:` says why.
+
+A file root adds to `/data` later stays root's, since the top of `/data` is 10001's by then: don't write in `/data` as root, or `chown` what you wrote to `10001:10001`. Root outside a container (`ROW_BOT_CONTAINERIZED` unset) is left as it is.
+
+## Railway
+
+Row-Bot's "Deploy on Railway" template runs the published image in the owner's own Railway account: one service with one volume at `/data`, public over HTTPS at a generated `up.railway.app` address, and a 4 GB, 2 vCPU limit. Its definition, with the reasons for each value, is `deploy/railway/README.md` in Row-Bot's repository. In short:
+
+- **As root:** `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root ([Started As Root](#started-as-root)).
+- **Variables:** `ROW_BOT_HOSTED_BY=railway`, `ROW_BOT_PUBLIC_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`, a setup code from `${{secret(12, "0123456789ABCDEFGHJKMNPQRSTVWXYZ")}}`, and the proxy's addresses.
+- **No secret-store key in Railway's variables.** Railway disclosed on 21 October 2026 that customers' environment variables may have been decrypted, so Row-Bot makes its key on the volume instead ([The Secret-Store Key](#the-secret-store-key), the third way).
+- **No Railway health check.** Railway's deploy check calls the service as `healthcheck.railway.app`, a host name Row-Bot doesn't allow. It's only used while a deploy goes live, and a service with a volume pauses on every redeploy anyway; if Row-Bot can't start, it exits and Railway shows the deployment as crashed. To add one, set the path to `/readyz` and `ROW_BOT_ALLOWED_HOSTS` to the service's own host name and `healthcheck.railway.app`.
+- **Updates:** the template uses `latest`. Railway doesn't update an image service by itself; the owner updates it in the service's settings, or turns on Railway's auto updates there.
 
 ## Related
 

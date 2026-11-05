@@ -32,7 +32,7 @@ The setup code, invitations and browser sessions are never stored at all: Row-Bo
 Where the key that opens your saved sign-ins lives depends on your host:
 
 - **Your host gives Row-Bot the key** (`ROW_BOT_SECRET_STORE_KEY`, in its settings for your server). The key is never written to the data folder, so a copy of the data folder, or a backup of it, holds only encrypted sign-ins. The host still has the key in its settings.
-- **Your host gives none.** Row-Bot makes a key at its first start and keeps it in the data folder (`secret-store-key`), readable only by Row-Bot. Anyone with a full copy of the data folder, including the host's backups, can then open your saved sign-ins.
+- **Your host gives none.** Row-Bot makes a key at its first start and keeps it in the data folder (`secret-store-key`), readable only by Row-Bot. Anyone with a full copy of the data folder, including the host's backups, can then open your saved sign-ins. Row-Bot's Railway template works this way on purpose: Railway disclosed on 21 October 2026 that customers' environment variables may have been decrypted, so the key is kept out of them ([Railway's October Incident](/docs/getting-started/on-railway#railways-october-incident)).
 
 Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave out both the key and your saved sign-ins.
 
@@ -48,7 +48,7 @@ This keeps both secrets away from the programs Row-Bot runs. It doesn't keep the
 
 ## Nothing New Goes To Row-Bot's Maker
 
-- A hosted Row-Bot makes the same connections as any Row-Bot, and no others: see [Every Connection At A Glance](/docs/privacy-safety/#every-connection-at-a-glance). It doesn't check for updates itself; your host installs them.
+- A hosted Row-Bot makes the same connections as any Row-Bot, and no others: see [Every Connection At A Glance](/docs/privacy-safety/#every-connection-at-a-glance). It doesn't check for updates itself; your host installs them (on Railway, when you update the service there).
 - [Install stats](/docs/privacy-safety/#install-stats) count a hosted Row-Bot as `docker`, like any Row-Bot in a container. They don't say who hosts it. Turn them off in **Settings › System › Privacy**.
 - The name of your host is used only on your Row-Bot's own pages, and isn't sent anywhere.
 
