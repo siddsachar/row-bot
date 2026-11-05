@@ -16,7 +16,7 @@ WORKDIR /build/frontend
 ENV VITE_ENABLE_FIXTURES=0
 
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
-RUN --mount=type=cache,target=/root/.npm \
+RUN \
     npm ci --ignore-scripts --no-audit --no-fund
 
 COPY frontend ./
@@ -41,12 +41,12 @@ WORKDIR /build
 # sources so ordinary source changes do not invalidate the dependency layer.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY scripts/client_build.py ./scripts/client_build.py
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN \
     uv sync --frozen --no-dev --no-editable --extra all --no-install-project
 
 COPY src ./src
 COPY --from=client-build /client-payload ./src/row_bot/static/client-v2
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN \
     uv sync --frozen --no-dev --no-editable --extra all
 
 # Verify the installed wheel's payload, not just the source staging directory.
@@ -55,7 +55,7 @@ RUN /opt/row-bot/.venv/bin/python -c "from pathlib import Path; import row_bot; 
 # The Playwright package in uv.lock selects the exact compatible Chromium and
 # ffmpeg revisions. Browser payloads are immutable image dependencies; models
 # and user-selected managed runtimes are deliberately not installed here.
-RUN --mount=type=cache,target=/root/.cache/ms-playwright \
+RUN \
     /opt/row-bot/.venv/bin/python -m playwright install chromium
 
 ARG ROW_BOT_SOURCE_REVISION=unknown
@@ -169,7 +169,6 @@ WORKDIR /data
 # user: `row-bot` first makes /data 10001's, then drops to 10001 for good.
 USER 10001:10001
 
-VOLUME ["/data"]
 EXPOSE 8080
 
 # Docker starts the check with the container's environment, a host's secret-store key and setup
