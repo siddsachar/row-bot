@@ -267,6 +267,70 @@ def test_cloudflare_metadata_without_standard_forwarding_model_fails_closed(
         )
 
 
+def _railway_edge() -> RequestContextResolver:
+    """A server behind Railway's edge proxy, which it trusts (R1)."""
+    return RequestContextResolver(
+        _config(
+            mode="server",
+            trusted=("100.64.0.0/10",),
+            hosts=("row-bot.up.railway.app",),
+            origins=("https://row-bot.up.railway.app",),
+        )
+    )
+
+
+def test_trusted_railway_edge_x_real_ip_is_accepted_but_the_client_comes_from_x_forwarded_for() -> None:
+    # Railway's edge sends X-Real-IP beside X-Forwarded-For and X-Forwarded-Proto. The client is the
+    # first untrusted address from the right of X-Forwarded-For; X-Real-IP is never read, whatever it says.
+    provenance = _railway_edge().resolve_provenance(
+        _scope(
+            client="100.64.0.3",
+            host="row-bot.up.railway.app",
+            headers=[
+                (b"x-forwarded-for", b"198.51.100.99, 203.0.113.7"),
+                (b"x-forwarded-proto", b"https"),
+                (b"x-real-ip", b"192.0.2.55"),
+            ],
+        )
+    )
+
+    assert provenance.effective_client == "203.0.113.7"
+    assert provenance.proxy_chain == ("100.64.0.3", "203.0.113.7")
+    assert provenance.scheme == "https"
+    assert provenance.origin == "https://row-bot.up.railway.app"
+    assert provenance.trusted_proxy is True
+    assert "x-real-ip" in provenance.forwarding_headers
+
+
+@pytest.mark.parametrize(
+    ("headers", "code"),
+    [
+        ([(b"x-real-ip", b"203.0.113.7")], "unsupported_forwarding_headers"),
+        (
+            [(b"x-real-ip", b"203.0.113.7"), (b"x-forwarded-proto", b"https")],
+            "missing_x_forwarded_for",
+        ),
+    ],
+)
+def test_x_real_ip_without_x_forwarded_for_from_a_trusted_proxy_is_still_refused(
+    headers: list[tuple[bytes, bytes]], code: str
+) -> None:
+    with pytest.raises(RequestContextError, match=code):
+        _railway_edge().resolve(_scope(client="100.64.0.3", host="row-bot.up.railway.app", headers=headers))
+
+
+def test_x_real_ip_from_an_untrusted_peer_is_still_refused() -> None:
+    headers = [
+        (b"x-forwarded-for", b"203.0.113.7"),
+        (b"x-forwarded-proto", b"https"),
+        (b"x-real-ip", b"203.0.113.7"),
+    ]
+
+    for alone in (headers[2:], headers):
+        with pytest.raises(RequestContextError, match="untrusted_forwarding_headers"):
+            _railway_edge().resolve(_scope(client="198.51.100.20", host="row-bot.up.railway.app", headers=alone))
+
+
 def test_cloudflare_header_alone_from_untrusted_loopback_never_grants_owner() -> None:
     # A Cloudflare Tunnel on this computer whose address is not trusted.
     scope = _scope(headers=[(b"cf-connecting-ip", b"203.0.113.7")])

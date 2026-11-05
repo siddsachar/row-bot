@@ -9,6 +9,14 @@ running the unchanged Row-Bot image, used from a browser.
 Facts about Railway below were read in Railway's own docs on 5 Nov 2026; links
 are given so they can be checked again.
 
+**Only for a release with this work in it.** The template runs the published
+image, `latest`. Until a release includes Row-Bot's root start, its `railway`
+host and its handling of Railway's `X-Real-IP` (all on `feat/hosting` now),
+`latest` (5.3.2) would run as root throughout under `RAILWAY_RUN_UID=0` and
+refuse every request through Railway's edge. Don't publish the template before
+that release; test the branch's code by
+[building it on Railway](#testing-a-branch-on-railway) instead.
+
 ## Is there config as code for templates?
 
 No. Railway documents no file format for templates: a template is composed in
@@ -126,18 +134,19 @@ headers (`untrusted_forwarding_headers`), and with
 `ROW_BOT_UNTRUSTED_FORWARDED_ACTION=ignore` a browser on the https address can't
 sign in (its origin is https, Row-Bot sees http).
 
-**Open: Row-Bot doesn't accept Railway's headers yet.** With a trusted proxy, Row-Bot
-refuses a request carrying `X-Real-IP` (`unsupported_forwarding_headers`;
-`access/request_context.py` treats it as a forwarding header it doesn't
-support, and `tests/subsystem/access/test_request_context.py` asserts so).
-Railway sends it on every request. The template can't work until Row-Bot
-accepts `X-Real-IP` beside a validated `X-Forwarded-For` from a trusted proxy,
-the way it accepts `CF-Connecting-IP` (recognised, never a client source).
-That file is outside this stream; the change is for the access owner.
+From a trusted proxy, Row-Bot accepts `X-Real-IP` beside a validated
+`X-Forwarded-For`, as it accepts Cloudflare's `CF-Connecting-IP`: it never reads
+the visitor's address from it, and `X-Real-IP` without `X-Forwarded-For` is
+still refused. **So signing in needs Railway's edge to send `X-Forwarded-For`
+and `X-Forwarded-Proto`.** Railway staff say it does; its docs list only
+`X-Forwarded-Proto`. The founder's check below confirms both.
 
 ### The founder's check, on a real deploy
 
-1. Deploy the template once (it works up to Row-Bot's own pages).
+1. Deploy Row-Bot once: the test service built from the branch
+   ([Testing a branch on Railway](#testing-a-branch-on-railway)), or, after the
+   release, the template. Without a trusted proxy it answers
+   `untrusted_forwarding_headers` at `https://<the domain>/healthz`.
 2. In a terminal with the Railway CLI linked to the project, open a shell in
    the service: `railway ssh`. Don't create files in `/data` there.
 3. Start a header echo on another port:
@@ -163,7 +172,57 @@ That file is outside this stream; the change is for the access owner.
 
 Then `ROW_BOT_TRUSTED_PROXY_CIDRS` is the narrowest range that covers the peer
 addresses seen: one address as `/32` if it never changes. If they spread across
-a wide private range, stop and report rather than trusting it.
+a wide private range, stop and report rather than trusting it. If the echo shows
+no `X-Forwarded-For` or no `X-Forwarded-Proto`, stop and report: Row-Bot can't
+sign anyone in through Railway's edge without both.
+
+## Testing a branch on Railway
+
+The template is for released images. To try code that isn't released yet, build
+the branch on Railway from Row-Bot's GitHub repository. Railway builds a
+Dockerfile outside the repository's root when the service variable
+`RAILWAY_DOCKERFILE_PATH` names it
+([Dockerfiles](https://docs.railway.com/builds/dockerfiles)), with the
+repository as the build context, as `container.yml` uses it.
+
+**Build arguments: none needed.** Every `ARG` in `deploy/docker/Dockerfile` has a
+default (`PYTHON_IMAGE`, `UV_IMAGE`, `NODE_IMAGE`, `CLIENT_NODE_IMAGE`,
+`ROW_BOT_UID`, `ROW_BOT_GID`, `ROW_BOT_VERSION` (a label only),
+`ROW_BOT_SOURCE_REVISION`), and Railway passes a variable to the build only
+where the Dockerfile declares it.
+
+**But Railway's builder refuses the Dockerfile as it is,** for two reasons:
+
+- `VOLUME ["/data"]`: Railway fails the build with "The VOLUME keyword is banned
+  in Dockerfiles. Use Railway volumes instead."
+  ([Central Station](https://station.railway.com/questions/build-from-dockerfile-error-the-volume-8a90b885)).
+  Railway attaches its own volume at `/data`, so the line isn't needed there.
+- `RUN --mount=type=cache,…`: Railway accepts a cache mount only with a
+  hard-coded `id=s/<service id>-<path>`
+  ([Dockerfiles](https://docs.railway.com/builds/dockerfiles)), and fails others
+  with "Cache mount ID is not prefixed with cache key"
+  ([Central Station](https://station.railway.com/questions/error-cache-mount-id-is-not-prefixed-wi-12a50b55)).
+  The three mounts only speed up repeated local builds.
+
+So a test branch drops both, in that branch only (the published image keeps
+them):
+
+```sh
+git fetch origin
+git switch -c test/railway origin/feat/hosting
+sed -i -e '/^VOLUME /d' -e 's/--mount=type=cache,target=[^ ]* //' deploy/docker/Dockerfile
+git commit -am "Test only: a Dockerfile Railway's builder accepts"
+git push -u origin test/railway
+```
+
+Then in Railway: **New Project › Deploy from GitHub repo**, Row-Bot's
+repository, and in the service's **Settings › Source** the branch
+`test/railway`. Give it the template's variables (above) plus
+`RAILWAY_DOCKERFILE_PATH=deploy/docker/Dockerfile`, the volume at `/data`, the
+domain with target port 8080 and the replica limits. Railway starts building
+as soon as the service exists: if that first build ran before
+`RAILWAY_DOCKERFILE_PATH` was set, redeploy once it is. Each push to the branch
+builds and deploys again. Delete the branch and the service afterwards.
 
 ## Memory limit
 
@@ -213,7 +272,7 @@ own Row-Bot from the template; not a basis for running Row-Bot for others.
 
 ## Publishing
 
-After the founder's check, and once Row-Bot accepts Railway's headers:
+After the founder's check, and once a release includes this work:
 
 1. Compose the template from the tables above and deploy it once from the
    template itself. Check, and note for the record:
