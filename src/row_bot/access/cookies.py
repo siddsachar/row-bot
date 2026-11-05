@@ -164,7 +164,11 @@ class AccessCookieManager:
             path="/",
             secure=secure,
             httponly=True,
-            samesite="strict",
+            # Lax, not Strict: a phone opening Row-Bot from its home screen or another app
+            # arrives as a cross-site visit, and Strict left the cookie out, so the phone was
+            # sent back to Connect though its session was valid. Every request that changes
+            # anything, and every WebSocket, must still come from this exact origin.
+            samesite="lax",
         )
 
     def clear(self, response: Response) -> None:
@@ -181,7 +185,7 @@ class AccessCookieManager:
                 path="/",
                 secure=secure,
                 httponly=True,
-                samesite="strict",
+                samesite="lax",
             )
 
 
