@@ -115,8 +115,6 @@ export type ArtifactPreviewProps = {
   drafting?: DesignDrafting | null;
   createExport?: ArtifactExportsProps['create'];
   downloadExport?: ArtifactExportsProps['download'];
-  saveExport?: ArtifactExportsProps['save'];
-  revealExport?: ArtifactExportsProps['reveal'];
   sharing?: Pick<
     ArtifactSharingPanelProps,
     'prepare' | 'execute' | 'loadChannels'
@@ -234,8 +232,6 @@ export default function ArtifactPreview({
   edit,
   createExport,
   downloadExport,
-  saveExport,
-  revealExport,
   sharing,
   presentation,
   lifecycle,
@@ -2143,8 +2139,6 @@ export default function ArtifactPreview({
                       pageCount={current?.page_count ?? 0}
                       create={createExport}
                       download={downloadExport}
-                      save={saveExport}
-                      reveal={revealExport}
                     />
                   )}
                   {sideView === 'share' && sharing && (

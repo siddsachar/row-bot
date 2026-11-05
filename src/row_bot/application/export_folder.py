@@ -78,7 +78,7 @@ def save_export(name: str, data: bytes, *, validate: Callable[[], None]) -> dict
     raise ValueError("export_capacity_reached")
 
 
-def _show_in_folder(path: Path) -> None:
+def show_in_folder(path: Path) -> None:
     """Show a file in the file manager; argv only, never a shell."""
     if sys.platform == "win32":
         subprocess.Popen(["explorer", f"/select,{path}"], close_fds=True)
@@ -97,7 +97,7 @@ def reveal_export(file_name: str) -> dict[str, str]:
     if path.is_symlink() or not path.is_file() or path.resolve(strict=True).parent != folder.resolve(strict=True):
         return {"status": "not_found"}
     try:
-        _show_in_folder(path)
+        show_in_folder(path)
     except OSError:
         return {"status": "unavailable"}
     return {"status": "opened"}

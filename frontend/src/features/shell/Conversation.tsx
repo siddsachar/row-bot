@@ -2871,12 +2871,6 @@ export default function Conversation({
   const deliveries = useMemo<DeliveryIo>(
     () => ({
       load: (delivery, signal) => controller.delivery(delivery, signal),
-      download: (delivery, index, signal) =>
-        controller.downloadDelivery(delivery, index, signal),
-      saveToExports: (delivery, index) =>
-        controller.saveDelivery(delivery, index),
-      reveal: async (fileName) =>
-        (await controller.revealExport(fileName)).status === 'opened',
       sendToDevices: (delivery) => controller.sendDeliveryToDevices(delivery),
     }),
     [controller],

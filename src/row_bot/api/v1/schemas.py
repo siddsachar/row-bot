@@ -5708,12 +5708,6 @@ class PageDecisionWrite(WireModel):
     label: str = Field(default="", max_length=200)
 
 
-class PageDownload(WireModel):
-    """The page as one HTML file that works on its own (it saves nothing)."""
-    file_name: str = Field(min_length=1, max_length=96)
-    html: str = Field(min_length=1, max_length=8 * 1024 * 1024)
-
-
 class LocalAddressGrantView(WireModel):
     """An address on this computer one conversation's browser may open (F4): one origin, for an hour."""
     grant_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
@@ -6778,17 +6772,6 @@ class ArtifactBrandSuggestion(WireModel):
     body_font: str | None = Field(default=None, max_length=128)
 
 
-class ArtifactSavedExport(WireModel):
-    """A ready export copied into the workspace's Exports folder (local owner)."""
-    export_id: UUID
-    filename: str = Field(min_length=1, max_length=256)
-    folder: str = Field(min_length=1, max_length=512)
-
-
-class ArtifactExportReveal(WireModel):
-    action: Literal["open", "show"]
-
-
 class ArtifactExportRevealResult(WireModel):
     status: Literal["opened", "not_found", "unavailable"]
 
@@ -6797,6 +6780,53 @@ class ExportSaved(WireModel):
     """A conversation export written into the workspace's Exports folder (local owner)."""
     file_name: str = Field(min_length=1, max_length=256)
     folder: str = Field(min_length=1, max_length=512)
+
+
+class SavePageSource(WireModel):
+    kind: Literal["page"]
+    page_id: str = Field(pattern=r"^page-[0-9a-f]{8}$")
+    theme: PageTheme
+
+
+class SaveDeliverySource(WireModel):
+    kind: Literal["delivery"]
+    delivery_id: str = Field(pattern=r"^send-[0-9a-f]{8}$")
+    index: int = Field(ge=0, le=99)
+
+
+class SaveDesignExportSource(WireModel):
+    kind: Literal["design_export"]
+    conversation_id: str = Field(min_length=1, max_length=128)
+    binding_id: str = Field(min_length=1, max_length=128)
+    export_id: str = Field(min_length=36, max_length=36)
+
+
+class SaveWorkflowWebhookSource(WireModel):
+    kind: Literal["workflow_webhook"]
+    task_id: str = Field(min_length=1, max_length=128)
+    revision: str = Field(min_length=1, max_length=128)
+
+
+class SaveContentSource(WireModel):
+    """Something the chat shows that only the page holds: a code block's text or a chart's picture."""
+    kind: Literal["content"]
+    name: str = Field(min_length=1, max_length=120)
+    content_base64: str = Field(min_length=1, max_length=12 * 1024 * 1024)
+
+
+class SaveOfferRequest(WireModel):
+    """Ask for one file to save, the one way every Download and Export button saves (5.3.3)."""
+    source: Annotated[
+        Union[SavePageSource, SaveDeliverySource, SaveDesignExportSource, SaveWorkflowWebhookSource,
+              SaveContentSource],
+        Field(discriminator="kind"),
+    ]
+
+
+class SaveOffer(WireModel):
+    """A short-lived reference to save once: the Save dialog, a download, or Exports while reconnecting."""
+    reference: str = Field(pattern=r"^save:[0-9a-f]{32}$")
+    file_name: str = Field(min_length=1, max_length=120)
 
 
 class ExportRevealRequest(WireModel):

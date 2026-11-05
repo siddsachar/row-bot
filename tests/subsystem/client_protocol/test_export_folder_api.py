@@ -39,7 +39,7 @@ def test_the_local_owner_saves_an_export_into_exports_and_shows_it(service, work
     from row_bot.application.attachments import register_attachment
 
     shown = []
-    monkeypatch.setattr(export_folder, "_show_in_folder", shown.append)
+    monkeypatch.setattr(export_folder, "show_in_folder", shown.append)
     with _client(service) as client:
         _, headers = bootstrap(client)
         created = _command(client, headers, "conversation.create", {"title": "Export owner"})
@@ -75,7 +75,7 @@ def test_another_device_saves_into_exports_but_the_file_manager_stays_on_that_co
     from row_bot.application.attachments import register_attachment
 
     shown = []
-    monkeypatch.setattr(export_folder, "_show_in_folder", shown.append)
+    monkeypatch.setattr(export_folder, "show_in_folder", shown.append)
     remote, active = _remote_client(service)
     with remote as client:
         _, headers = bootstrap(client)
