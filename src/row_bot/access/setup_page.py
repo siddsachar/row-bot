@@ -237,7 +237,7 @@ _SCRIPT = r"""
     return code.length <= 80 && /^[0-9A-Za-z]{12,64}$/.test(bare) ? code : '';
   }
   const linked = takeLink();
-  const wait =(ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const unavailable = (status) => status >= 502 && status <= 504;
   const duration = (seconds) => {
     if (seconds >= 60) {
