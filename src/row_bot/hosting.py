@@ -50,6 +50,9 @@ class Host:
     # Whether the host installs each new version by itself, and what Settings › Updates says about it.
     applies_updates: bool
     updates_help: str
+    # The header the host's proxy sets to the visitor's own address, replacing any a visitor sent, checked on a
+    # real deploy. Read only from a trusted proxy (ROW_BOT_TRUSTED_PROXY_CIDRS); None: X-Forwarded-For decides.
+    client_address_header: str | None = None
 
     def to_public_dict(self) -> dict[str, str | bool | None]:
         return {
@@ -109,6 +112,10 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
                 "When a new version is out, Railway offers it in your service's settings. "
                 "Turn on auto updates there to get each one by itself."
             ),
+            # Checked on a deploy, 5 Nov 2026: Railway's edge replaces a visitor's X-Real-IP and X-Forwarded-For.
+            # Its X-Forwarded-For ends with the edge's own public address, which the walk from the trusted proxy
+            # (100.64.0.0/10) can't pass, so every visitor would look like the edge.
+            client_address_header="x-real-ip",
         ),
     }
 )
