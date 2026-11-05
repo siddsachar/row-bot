@@ -241,6 +241,17 @@
           "title": "Kind",
           "type": "string"
         },
+        "label": {
+          "default": "community",
+          "enum": [
+            "official",
+            "reviewed",
+            "built_in",
+            "community"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
         "lifecycle": {
           "enum": [
             "available",
@@ -250,6 +261,23 @@
           ],
           "title": "Lifecycle",
           "type": "string"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "name",
+                "description"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match"
         },
         "method": {
           "default": "",
@@ -373,6 +401,37 @@
       "title": "IntegrationEntry",
       "type": "object"
     },
+    "IntegrationLabelCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "built_in": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Built In",
+          "type": "integer"
+        },
+        "community": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Community",
+          "type": "integer"
+        },
+        "official": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Official",
+          "type": "integer"
+        },
+        "reviewed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Reviewed",
+          "type": "integer"
+        }
+      },
+      "title": "IntegrationLabelCounts",
+      "type": "object"
+    },
     "IntegrationNextAction": {
       "additionalProperties": false,
       "properties": {
@@ -428,6 +487,19 @@
           ],
           "default": null,
           "title": "Downloads"
+        },
+        "last_activity_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Activity At"
         },
         "official": {
           "default": false,
@@ -569,6 +641,19 @@
   },
   "additionalProperties": false,
   "properties": {
+    "best_match_id": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Best Match Id"
+    },
     "hidden": {
       "default": 0,
       "minimum": 0,
@@ -582,6 +667,9 @@
       "maxItems": 96,
       "title": "Items",
       "type": "array"
+    },
+    "label_counts": {
+      "$ref": "#/$defs/IntegrationLabelCounts"
     },
     "next_cursor": {
       "anyOf": [

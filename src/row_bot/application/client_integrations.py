@@ -30,6 +30,7 @@ def entry(row: dict) -> dict:
     return {"id": row["id"], "kind": row["kind"], "parent_id": row["parent_id"], "name": row["name"],
             "description": row["description"], "app": copy.deepcopy(row["app"]), "icon": row["icon"], "verified": row["verified"],
             "signals": copy.deepcopy(row["signals"]), "source": row["source"], "method": catalog.method(row),
+            "label": row.get("label") or catalog.label(row), "match": row.get("match"),
             "publisher": row["publisher"], "version": row["version"], "installed": row["installed"], "enabled": row["enabled"],
             "required": row.get("required", True), "account_label": row["account_label"], "compatibility": row["compatibility"],
             "evidence": row["evidence_stage"], "tested_with_row_bot": row["tested_with_row_bot"], "lifecycle": row["lifecycle"],
@@ -80,41 +81,49 @@ def _error_status(exc: Exception) -> str:
 
 
 def _search_source(source: str, *, owner_id: str, query: str, refresh: bool, everything: bool,
-                   cancelled: Callable[[], bool], validate: Callable[[], None]) -> tuple[list, list, dict, int]:
+                   cancelled: Callable[[], bool], validate: Callable[[], None], filters: dict) -> tuple[list, list, dict, int]:
     """One source adapter's results; a failing source never hides the others."""
     adapter = catalog.SOURCES[source]
     try:
-        found = adapter.search(catalog.Search(owner_id, query, refresh, cancelled, validate, everything))
+        found = adapter.search(catalog.Search(owner_id, query, refresh, cancelled, validate, everything, **filters))
     except Exception as exc:
         return [], [adapter.status(status=_error_status(exc), message="This source is unavailable. Other results remain available.")], {}, 0
     return found.rows, found.statuses, found.references, found.hidden
 
 
 def _remember(owner_id: str, key: str, items: list[dict], statuses: list[dict], references: dict, hidden: int = 0) -> dict:
-    """Keep one owner's result list, so its entries can be opened and set up from it."""
+    """Keep one owner's result list, so its entries can be opened and set up from it, with its best match
+    and how many results each label has."""
     revision = _digest([key, [entry(row) for row in items], list(references)])
     references = {item["id"]: references[item["id"]] for item in items if item["id"] in references}
+    counts = dict.fromkeys(catalog.LABELS, 0)
+    for row in items:
+        counts[row.get("label") or catalog.label(row)] += 1
     page = {"schema_version": 1, "revision": revision, "items": items, "total": len(items), "sources": statuses,
-            "hidden": hidden}
+            "hidden": hidden, "best_match_id": catalog.best_match(items), "label_counts": counts}
     _SEARCHES.put((owner_id, revision), (key, page, references))
     return page
 
 
 def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool,
             include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
-            validate: Callable[[], None]) -> tuple[dict, int]:
+            validate: Callable[[], None], labels: list[str] | None = None, runs: str = "anywhere",
+            no_sign_in: bool = False) -> tuple[dict, int]:
     """One bounded fan-out; immutable owner-bound pagination and late-result suppression.
-    ``include_incompatible`` ("Show all results") also keeps unsupported, placeholder and duplicate records."""
+    ``include_incompatible`` ("Show all results") also keeps unsupported, placeholder and duplicate records.
+    The filters (``labels``, where it ``runs``, ``no_sign_in``) apply before ranking, so counts stay true."""
     registry = catalog.SOURCES
     validate()
-    if kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 96:
+    if (kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 96 or runs not in {"anywhere", "hosted", "local"}
+            or (labels is not None and set(labels) - set(catalog.LABELS))):
         raise ClientPlatformError("invalid_integration_query")
+    allowed = frozenset(labels) if labels is not None else None
     selected = sorted(set(sources if sources is not None else [s for s, a in registry.items()
         if a.eligibility == "eligible" and a.kind in _KINDS[kind]]))
     if len(selected) > len(registry) or set(selected) - registry.keys():
         raise ClientPlatformError("invalid_integration_query")
     selected = [s for s in selected if registry[s].kind in _KINDS[kind]]
-    key = _digest([query, selected, kind, include_incompatible])
+    key = _digest([query, selected, kind, include_incompatible, sorted(allowed or catalog.LABELS), runs, no_sign_in])
     if cursor:
         try:
             revision, raw_offset = cursor.split(":")
@@ -143,7 +152,8 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
             try:
                 if not check_cancelled() and time.monotonic() < deadline:
                     future.set_result(_search_source(source, owner_id=owner_id, query=query, refresh=refresh,
-                        everything=include_incompatible, cancelled=lambda: check_cancelled() or time.monotonic() >= deadline, validate=validate))
+                        everything=include_incompatible, cancelled=lambda: check_cancelled() or time.monotonic() >= deadline,
+                        validate=validate, filters={"labels": allowed, "runs": runs, "no_sign_in": no_sign_in}))
             except BaseException as exc:
                 future.set_exception(exc)
             finally:
@@ -182,7 +192,8 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
         # Unsupported entries appear only when searched for, with their reason.
         shown = [r for r in items if include_incompatible or query.strip() or r["compatibility"] != "unsupported"]
         statuses.sort(key=lambda status: status["source"])
-        return _remember(owner_id, key, catalog.rank(shown, query), statuses, references, hidden), 0
+        ranked = catalog.rank(shown, query, catalog.wanted(allowed, runs, no_sign_in))
+        return _remember(owner_id, key, ranked, statuses, references, hidden), 0
     finally:
         stopped.set()
 
@@ -263,15 +274,16 @@ def read_icons(icon_ids: list[str]) -> dict:
 
 
 def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str = "installed", cursor: str | None = None,
-               limit: int = 50, everything: bool = False, validate: Callable[[], None] = lambda: None) -> dict:
-    """Installed items, or the local catalogs (``everything``: placeholder and duplicate records too). Neither
-    contacts a source."""
+               limit: int = 50, everything: bool = False, labels: list[str] | None = None, runs: str = "anywhere",
+               no_sign_in: bool = False, validate: Callable[[], None] = lambda: None) -> dict:
+    """Installed items, or the local catalogs (``everything``: placeholder and duplicate records too; the
+    search filters as in ``search_items``). Neither contacts a source."""
     if scope == "installed":
         return _installed(owner_id=owner_id, query=query, kind=kind, cursor=cursor, limit=limit, validate=validate)
     if scope != "catalog":
         raise ClientPlatformError("invalid_integration_query")
     page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, include_incompatible=everything,
-        cursor=cursor, limit=limit, cancelled=lambda: False, validate=validate)
+        cursor=cursor, limit=limit, cancelled=lambda: False, validate=validate, labels=labels, runs=runs, no_sign_in=no_sign_in)
     return _page(page, offset, limit)
 
 
@@ -446,7 +458,7 @@ def _ways(row: dict) -> list[dict]:
             continue
         seen.update((identity, opens))
         found.append({"id": opens, "name": way["name"], "method": way["method"], "verified": way["verified"],
-                      "publisher": way["publisher"], "supported": way["compatibility"] != "unsupported"})
+                      "label": way["label"], "publisher": way["publisher"], "supported": way["compatibility"] != "unsupported"})
     for index_, way in enumerate(found[:24]):
         way["recommended"] = index_ == 0 and way["supported"]
     return found[:24]

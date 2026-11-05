@@ -100,7 +100,9 @@ def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
         "auth_requirement": "unknown", "canonical_identity": "", "app": None, "lifecycle": "installed", "blockers": [],
         # Catalog ranking and dedup: vendor verification, setup tier (0 best), freshness, source signals.
         "verified": False, "featured_rank": None, "setup_tier": 0, "updated_at": 0, "popularity": 0, "signals": None, "identities": [],
-        "icon": apps.letter(name)}
+        # Search: other names it is known by, whether it needs an account or key, and the quality facts.
+        "keywords": [], "sign_in": "unknown", "has_icon": False, "pushed_at": 0, "archived": False, "fork": False,
+        "first_published": 0, "icon": apps.letter(name)}
     row.update(fields)
     return row
 
@@ -111,6 +113,7 @@ def finish(row: dict) -> dict:
     if row["app"]:
         row["verified"] = row["verified"] or row["app"]["verified"]
         row["icon"] = row["app"]["icon"] if row["icon"].startswith("letter:") else row["icon"]
+        row["has_icon"] = row["has_icon"] or not row["app"]["icon"].startswith("letter:")
     return row
 
 

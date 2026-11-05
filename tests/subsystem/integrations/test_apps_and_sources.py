@@ -64,7 +64,7 @@ def test_all_curated_recipes_are_visible_and_findable_by_job(local):
     page = search_catalog(sources=["recommended"], limit=96)
     # One card per app; an app's other recipes (GitHub's token, OAuth app and local server) are on its page.
     cards = {getattr(apps.match(["curated:" + entry.id.lower()]), "id", entry.id) for entry in marketplace.CURATED_STARTER_CATALOG}
-    assert page["total"] == len(cards) == 49 and len(marketplace.CURATED_STARTER_CATALOG) == 51
+    assert page["total"] == len(cards) == 50 and len(marketplace.CURATED_STARTER_CATALOG) == 52
     for job, app in (("payments", "Stripe MCP"), ("issues tickets", "Linear MCP"), ("web search", "Tavily MCP"),
                      ("local files", "Filesystem"), ("website traffic", "Google Analytics MCP Server")):
         found = search_catalog(sources=["recommended"], query=job)
