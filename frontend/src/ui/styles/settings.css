@@ -3108,6 +3108,11 @@
   font-size: var(--type-size-metadata);
   line-height: var(--type-line-metadata);
 }
+/* The host's own backups of the server (F3): one quiet line, apart from
+   Last backup. */
+.data-backup-host {
+  margin-top: 6px;
+}
 
 /* Settings › System on a hosted Row-Bot (U5): who runs it, the memory in
    use of the server's limit, and the host's own pages. */
