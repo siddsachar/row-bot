@@ -126,11 +126,11 @@ async function openSettingsRouteFromHome(
     exact: true,
   });
   await activateRoute(page, settings, {
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
+    path: '/app-v2/settings/models',
+    headingName: 'Models',
   });
 
-  if (route.path === '/app-v2/settings/providers') return;
+  if (route.path === '/app-v2/settings/models') return;
 
   if ((page.viewportSize()?.width ?? 0) < 900) {
     await page
@@ -224,7 +224,6 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'preferences',
     'appearance',
     'buddy',
-    'providers',
     'models',
     'voice',
     'knowledge',
@@ -246,7 +245,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/app-v2/settings');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   const settingsNavigation = page.getByRole('navigation', {
     name: 'Settings sections',
   });
@@ -293,7 +292,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   await expect(settingsHeading).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/settings/providers');
+  await page.goto('/app-v2/settings/models');
   await expect(settingsNavigation).toBeHidden();
   const picker = page.getByRole('combobox', { name: 'Settings section' });
   await expect(picker).toBeVisible();
@@ -333,7 +332,7 @@ test('Owner-review narrow Settings keeps representative owners behind one access
   });
   // The accessible picker replaces the side navigation below 1024px.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/settings/providers');
+  await page.goto('/app-v2/settings/models');
   const settings = page.getByRole('region', {
     name: 'Settings',
     exact: true,
@@ -345,7 +344,7 @@ test('Owner-review narrow Settings keeps representative owners behind one access
   ).toBeHidden();
   await expect(picker).toBeVisible();
   expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  for (const id of ['providers', 'documents', 'apps', 'preferences'] as const) {
+  for (const id of ['models', 'documents', 'apps', 'preferences'] as const) {
     if ((await picker.inputValue()) !== id) await picker.selectOption(id);
     const label = id[0].toUpperCase() + id.slice(1);
     await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
@@ -1560,7 +1559,7 @@ test.beforeEach(async ({ context, page }) => {
   });
 });
 
-test('Models catalog applies a default and retains it across Providers navigation', async ({
+test('Models catalog applies a default and retains it across navigation', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
@@ -1575,7 +1574,10 @@ test('Models catalog applies a default and retains it across Providers navigatio
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   // The default is a searchable picker (U12): its button names the model.
-  const defaultPicker = models.getByRole('button', { name: 'Brain model' });
+  const defaultPicker = models.getByRole('button', {
+    name: 'Main model',
+    exact: true,
+  });
   await expect(defaultPicker).toBeVisible();
   const index = /Saved example 104\b/.test(
     (await defaultPicker.textContent()) ?? '',
@@ -1589,7 +1591,7 @@ test('Models catalog applies a default and retains it across Providers navigatio
     .click();
   await models.getByRole('button', { name: 'Show more models' }).click();
   const row = models
-    .locator('.settings-model-row-list > li')
+    .locator('.settings-model-catalog .settings-model-row-list > li')
     .filter({ hasText: label });
   await expect(row).toBeVisible();
   await row
@@ -1604,13 +1606,7 @@ test('Models catalog applies a default and retains it across Providers navigatio
     .getByRole('button', { name: 'Set ' + label + ' as chat default' })
     .click();
   await expect(defaultPicker).toContainText(label);
-  // Provider connections sit in the page's ⋯ (B229).
-  await chooseFromMenu(
-    page.locator('.settings-pane-header'),
-    'More model actions',
-    'Provider connections',
-  );
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await page.goto('/app-v2/settings/tracker');
   await page.goBack();
   await expect(defaultPicker).toContainText(label);
   await assertNoOverflow(page);
@@ -1622,9 +1618,12 @@ test('Models catalog recovers an expired page cursor only when requested', async
   page,
 }, info) => {
   await seed(page, 'populated');
+  // A link to one provider opens its sheet, which lists its models.
   await page.goto('/app-v2/settings/models?provider=openai');
-  const models = page.locator('[aria-label="Models settings"]');
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
+  const models = page.getByRole('dialog');
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(80);
   await seed(page, 'changed');
   if (info.project.use.browserName !== 'firefox')
     info.annotations.push({
@@ -1645,19 +1644,22 @@ test('Models catalog recovers an expired page cursor only when requested', async
     models.getByRole('button', { name: 'Show more models' }),
   ).toBeDisabled();
   await models.getByRole('button', { name: 'Reload catalog results' }).click();
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(80);
   await models.getByRole('button', { name: 'Show more models' }).click();
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(
-    105,
-  );
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(105);
   await seed(page, 'empty');
-  await models.getByRole('combobox', { name: 'Provider' }).selectOption('');
-  await models
-    .getByRole('combobox', { name: 'Provider' })
-    .selectOption('openai');
+  // Another job and back reads the provider's list again.
+  await models.getByRole('button', { name: 'Vision', exact: true }).click();
+  await models.getByRole('button', { name: 'Chat', exact: true }).click();
   // Emptied, the catalog keeps only models a job uses or you starred (B226).
   await expect(models.getByText(/^Showing \d of \d models$/)).toBeVisible();
-  const kept = await models.locator('.settings-model-row-list > li').all();
+  const kept = await models
+    .locator('.settings-model-catalog .settings-model-row-list > li')
+    .all();
   for (const row of kept)
     await expect(
       row

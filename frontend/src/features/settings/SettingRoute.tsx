@@ -230,6 +230,8 @@ export default function SettingRoute() {
     { providerId: string; token: number; session: string } | undefined
   >();
   const [providerReload, setProviderReload] = useState(0);
+  // Add a provider › Your server opens the custom endpoint dialog.
+  const [addServer, setAddServer] = useState(0);
   const [loadedSettingsSnapshot, setLoadedSettingsSnapshot] = useState<{
     session: string;
     snapshot: SettingsSnapshot;
@@ -315,7 +317,7 @@ export default function SettingRoute() {
   if (CONNECTION_PAGES.has(setting.toLowerCase()))
     // Accounts and channels are apps now: their old links open the app.
     return <Navigate to={connectionHref(setting, location.hash)} replace />;
-  if (!leaf) return <Navigate to="/settings/providers" replace />;
+  if (!leaf) return <Navigate to="/settings/models" replace />;
   if (leaf.id === 'learning' && !learningPreview)
     // Learning (preview) exists only in a build with its flag (O34).
     return <Navigate to="/settings/preferences" replace />;
@@ -538,20 +540,87 @@ export default function SettingRoute() {
               />
             )}
           </>
-        ) : leaf.id === 'providers' ? (
+        ) : leaf.id === 'models' && defaultModelOwner?.get() ? (
           <>
-            <ProviderStatus
-              key={`${session}:${providerReload}`}
-              load={controller.liveProviderStatus}
-              refresh={controller.refreshLiveProvider}
-              refreshState={controller.liveProviderRefresh}
-              testRuntime={controller.testLiveProviderRuntime}
-              owner={providerSettingsSessions}
-              onSubscription={(provider, action, expired) =>
-                setSelectedSubscription({ provider, action, expired })
-              }
-              onSubscriptionOption={setSelectedSubscriptionOption}
-              hideCustom={Boolean(providerConfigurationOwner?.get())}
+            {/* Providers merged into Models (5.3.3): its old page redirects here. */}
+            <ModelsPanel
+              controller={controller}
+              session={defaultModelOwner.get()!}
+              openExternal={(url) => void platform.openExternal(url)}
+              connections={(models) => (
+                <>
+                  <ProviderStatus
+                    key={`${session}:${providerReload}`}
+                    load={controller.liveProviderStatus}
+                    refresh={controller.refreshLiveProvider}
+                    refreshState={controller.liveProviderRefresh}
+                    testRuntime={controller.testLiveProviderRuntime}
+                    owner={providerSettingsSessions}
+                    onSubscription={(provider, action, expired) =>
+                      setSelectedSubscription({ provider, action, expired })
+                    }
+                    onSubscriptionOption={setSelectedSubscriptionOption}
+                    hideCustom={Boolean(providerConfigurationOwner?.get())}
+                    models={models}
+                    openProvider={search.get('provider') ?? ''}
+                    onAddServer={
+                      providerConfigurationOwner?.get()
+                        ? () => setAddServer((value) => value + 1)
+                        : undefined
+                    }
+                  />
+                  {providerConfigurationOwner?.get() && (
+                    <ProviderConfiguration
+                      compact
+                      autoAdd={
+                        addServer > 0 || search.get('add') === 'custom-endpoint'
+                      }
+                      credentialRefreshRequest={
+                        endpointCredentialRefresh?.session === session
+                          ? endpointCredentialRefresh
+                          : undefined
+                      }
+                      key={`configuration:${session}:${addServer}`}
+                      session={providerConfigurationOwner.get()}
+                      load={controller.providerConfiguration}
+                      review={(
+                        operation,
+                        configuration_revision,
+                        fields,
+                        signal,
+                      ) =>
+                        controller.reviewProviderConfiguration(
+                          { operation, configuration_revision, fields },
+                          signal,
+                        )
+                      }
+                      apply={(operation, revision, fields, command, review) => {
+                        if (!review.nonce)
+                          return Promise.reject({ code: 'approval_expired' });
+                        return controller.executeProviderConfiguration(
+                          operation,
+                          revision,
+                          fields,
+                          command,
+                          review.nonce,
+                        );
+                      }}
+                      receipt={async (command, signal) =>
+                        (
+                          await controller.providerConfigurationReceipt(
+                            command,
+                            signal,
+                          )
+                        ).status
+                      }
+                      onSaved={() => setProviderReload((value) => value + 1)}
+                      onCredentials={(providerId) => {
+                        if (providerId) setSelectedCustomCredential(providerId);
+                      }}
+                    />
+                  )}
+                </>
+              )}
             />
             {selectedSubscription && subscriptionAccountsOwner?.get() && (
               <ModalTask
@@ -612,49 +681,6 @@ export default function SettingRoute() {
                 </div>
               </ModalTask>
             )}
-            {providerConfigurationOwner?.get() && (
-              <ProviderConfiguration
-                compact
-                autoAdd={search.get('add') === 'custom-endpoint'}
-                credentialRefreshRequest={
-                  endpointCredentialRefresh?.session === session
-                    ? endpointCredentialRefresh
-                    : undefined
-                }
-                key={`configuration:${session}`}
-                session={providerConfigurationOwner.get()}
-                load={controller.providerConfiguration}
-                review={(operation, configuration_revision, fields, signal) =>
-                  controller.reviewProviderConfiguration(
-                    { operation, configuration_revision, fields },
-                    signal,
-                  )
-                }
-                apply={(operation, revision, fields, command, review) => {
-                  if (!review.nonce)
-                    return Promise.reject({ code: 'approval_expired' });
-                  return controller.executeProviderConfiguration(
-                    operation,
-                    revision,
-                    fields,
-                    command,
-                    review.nonce,
-                  );
-                }}
-                receipt={async (command, signal) =>
-                  (
-                    await controller.providerConfigurationReceipt(
-                      command,
-                      signal,
-                    )
-                  ).status
-                }
-                onSaved={() => setProviderReload((value) => value + 1)}
-                onCredentials={(providerId) => {
-                  if (providerId) setSelectedCustomCredential(providerId);
-                }}
-              />
-            )}
             {selectedCustomCredential && providerSettingsSessions && (
               <ModalTask
                 open
@@ -687,13 +713,6 @@ export default function SettingRoute() {
               </ModalTask>
             )}
           </>
-        ) : leaf.id === 'models' && defaultModelOwner?.get() ? (
-          <ModelsPanel
-            controller={controller}
-            session={defaultModelOwner.get()!}
-            initialProvider={search.get('provider') ?? ''}
-            openExternal={(url) => void platform.openExternal(url)}
-          />
         ) : leaf.id === 'apps' || leaf.id === 'skills' ? (
           <AppsArea
             kind={leaf.id === 'apps' ? 'app' : 'skill'}

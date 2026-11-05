@@ -28,8 +28,8 @@ export const PALETTE_INTENTS: readonly PaletteIntent[] = [
   {
     id: 'connect-model',
     label: 'Connect a model provider',
-    detail: 'Providers settings',
-    href: '/settings/providers',
+    detail: 'Models settings',
+    href: '/settings/models#connections',
     phrases: [
       'connect a model',
       'model provider',
