@@ -63,7 +63,10 @@ HostAction = Literal["check", "update_now", "skip", "pause", "resume"]
 
 
 def external_mode(environ: Mapping[str, str] | None = None) -> bool:
-    """Whether the host applies updates: ``ROW_BOT_UPDATES=external`` or a known host (H3)."""
+    """Whether the host applies updates: ``ROW_BOT_UPDATES=external`` or a known host (H3).
+
+    A known host installs each new version itself (PikaPods) or when its owner says so there (Railway);
+    either way, Row-Bot never checks for, downloads or installs one."""
     env = os.environ if environ is None else environ
     return str(env.get(UPDATES_MODE_ENV) or "").strip().lower() == "external" or hosted_by(env) is not None
 

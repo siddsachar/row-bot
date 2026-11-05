@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import hashlib
 import json
 from pathlib import Path
@@ -488,13 +490,35 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "support_url": "https://docs.pikapods.com/",
         "status_url": "https://docs.pikapods.com/faq/account#business-use-and-service-level",
         "manage_url": "https://www.pikapods.com/pods",
+        "unit": "pod",
+        "runs": "the server, billing and backups",
+        "applies_updates": True,
+        "updates_help": "They test each release first, so new versions usually arrive within a week.",
     }
     assert pod.memory is not None
     assert (pod.memory.limit_bytes, pod.memory.used_bytes) == (2 * gib, 600 * mib)
 
+    # Railway (R1): its own pages and words. It runs no backups, and the owner installs new versions there.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    railway = system().hosted_by
+    assert railway is not None and railway.model_dump() == {
+        "id": "railway",
+        "name": "Railway",
+        "home_url": "https://railway.com/",
+        "support_url": "https://station.railway.com/",
+        "status_url": "https://status.railway.com/",
+        "manage_url": "https://railway.com/dashboard",
+        "unit": "service",
+        "runs": "the server and billing",
+        "applies_updates": False,
+        "updates_help": "When a new version is out, Railway offers it in your service's settings. "
+        "Turn on auto updates there to get each one by itself.",
+    }
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+
     # A host whose pages nobody confirmed: only its name and home, no link to guess.
-    unconfirmed = hosting.Host(id="pikapods", name="PikaPods", home_url="https://www.pikapods.com/",
-                               support_url=None, status_url=None, manage_url=None)
+    unconfirmed = dataclasses.replace(hosting.KNOWN_HOSTS["pikapods"], support_url=None, status_url=None,
+                                      manage_url=None)
     with monkeypatch.context() as patch:
         patch.setattr(hosting, "KNOWN_HOSTS", {"pikapods": unconfirmed})
         bare = system().hosted_by

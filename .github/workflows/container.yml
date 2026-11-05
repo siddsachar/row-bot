@@ -85,6 +85,12 @@ jobs:
           python scripts/smoke_hosting_partner.py
           --image row-bot:verify-${{ matrix.architecture }}
 
+      # R1: as Railway runs its template: as root on a root-owned volume, no secret-store key.
+      - name: Smoke native verification image the way Railway runs it
+        run: >-
+          python scripts/smoke_hosting_partner.py --shape railway
+          --image row-bot:verify-${{ matrix.architecture }}
+
   release-image:
     if: ${{ github.event_name == 'release' }}
     permissions:
@@ -168,6 +174,11 @@ jobs:
       - name: Smoke native release image as a hosting service runs it
         run: >-
           python scripts/smoke_hosting_partner.py
+          --image ${{ env.IMAGE_NAME }}:${{ steps.release.outputs.version }}-${{ matrix.architecture }}
+
+      - name: Smoke native release image the way Railway runs it
+        run: >-
+          python scripts/smoke_hosting_partner.py --shape railway
           --image ${{ env.IMAGE_NAME }}:${{ steps.release.outputs.version }}-${{ matrix.architecture }}
 
       - name: Log in to GHCR after smoke

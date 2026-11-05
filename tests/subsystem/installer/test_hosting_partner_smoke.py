@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
+import socket
+import subprocess
+import sys
 import threading
 from http.server import ThreadingHTTPServer
 from urllib import error, request
@@ -44,6 +49,85 @@ def test_the_host_runs_one_container_with_one_volume_one_port_and_no_secret_on_t
     assert "ROW_BOT_ALLOWED_HOSTS=pod.row-bot.test" in args
 
 
+def test_railway_runs_the_image_as_root_on_its_own_root_owned_volume_with_no_secret_store_key() -> None:
+    names = dict(image="row-bot:verify-arm64", volume_name="row-bot-smoke-data-a1b2c3d4", ownership="a1b2c3d4")
+    args = smoke.railway_run_args(container_name="row-bot-smoke-a1b2c3d4", port=8155, env_file="/tmp/host.env", **names)
+
+    assert args[:3] == ("docker", "run", "--detach") and args[-1] == "row-bot:verify-arm64"
+    assert args[args.index("--user") + 1] == "0"  # RAILWAY_RUN_UID=0
+    assert [args[index + 1] for index, arg in enumerate(args) if arg == "--mount"] == [
+        "type=volume,src=row-bot-smoke-data-a1b2c3d4,dst=/data"
+    ]
+    assert not {"--entrypoint", "--health-cmd", "--init"} & set(args)
+    assert {"ROW_BOT_HOSTED_BY=railway", "RAILWAY_RUN_UID=0", "ROW_BOT_PUBLIC_URL=http://pod.row-bot.test:8155"} <= set(
+        args
+    )
+    # The template's variables: no key (Railway's variables were exposed on 21 Oct 2026), no exact host list.
+    assert not any("ROW_BOT_SECRET_STORE_KEY" in arg or "ROW_BOT_ALLOWED_HOSTS" in arg for arg in args)
+
+    # Before it starts, the volume is as Railway mounts it: root's, with a root-owned lost+found, and
+    # without the image's own /data copied in.
+    volume = smoke.root_volume_args(**names)
+    assert volume[:3] == ("docker", "run", "--rm") and volume[volume.index("--user") + 1] == "0"
+    assert volume[volume.index("--mount") + 1].endswith(",volume-nocopy=true")
+    assert "chown 0:0 /data" in volume[-1] and "lost+found" in volume[-1]
+
+
+ROW_BOT_IDS = {"uid": [10001] * 4, "gid": [10001] * 4, "groups": []}
+
+
+def _report(**changes):
+    report = {
+        "processes": {"1": ROW_BOT_IDS, "57": ROW_BOT_IDS},
+        "server": "57",
+        "top": [10001, 10001, 0o700],
+        "owners": {"/data/lost+found": [10001, 10001], "/data/secret-store-key/ROW_BOT_SECRET_STORE_KEY": [10001, 10001]},
+    }
+    return {**report, **changes}
+
+
+def test_started_as_root_row_bot_must_run_as_its_own_user_and_own_all_of_data() -> None:
+    smoke.check_row_bot_user(_report())
+
+    root = {"uid": [0] * 4, "gid": [0] * 4, "groups": [0]}
+    failures = {
+        "server runs as uid [0, 0, 0, 0]": _report(processes={"1": ROW_BOT_IDS, "57": root}),
+        "process 1 runs": _report(processes={"1": {**ROW_BOT_IDS, "groups": [0]}, "57": ROW_BOT_IDS}),
+        "listening on 8080 is not Row-Bot's": _report(server=None),
+        "No Row-Bot process": _report(processes={}),
+        "not Row-Bot's own 0700 folder": _report(top=[10001, 10001, 0o755]),
+        "1 entries in /data are not Row-Bot's, such as /data/lost+found": _report(
+            owners={"/data/lost+found": [0, 0]}
+        ),
+    }
+    for reason, report in failures.items():
+        with pytest.raises(smoke.SmokeError, match=re.escape(reason)):
+            smoke.check_row_bot_user(report)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the probe reads Linux's /proc")
+def test_the_user_probe_finds_the_server_its_tree_and_every_owner_on_a_real_kernel(tmp_path) -> None:
+    (tmp_path / "data" / "lost+found").mkdir(parents=True)
+    (tmp_path / "data" / "lost+found" / "12").write_bytes(b"")
+    os.chmod(tmp_path / "data", 0o700)
+    with socket.create_server(("127.0.0.1", 0)) as listener:
+        port = listener.getsockname()[1]
+        probe = subprocess.run(
+            [sys.executable, "-c", smoke.ROW_BOT_USER_PROBE, str(tmp_path / "data"), str(port), str(os.getpid())],
+            capture_output=True, text=True, check=True, timeout=60,
+        )
+    report = json.loads(probe.stdout)
+    me = {"uid": [os.getuid()] * 4, "gid": [os.getgid()] * 4}
+
+    assert report["server"] == str(os.getpid())  # this process holds the listening socket
+    assert {key: report["processes"][str(os.getpid())][key] for key in me} == me
+    assert set(report["owners"]) == {str(tmp_path / "data" / "lost+found"), str(tmp_path / "data" / "lost+found" / "12")}
+    assert report["top"] == [os.getuid(), os.getgid(), 0o700]
+    if os.getuid() != 10001:
+        with pytest.raises(smoke.SmokeError, match="runs as uid"):
+            smoke.check_row_bot_user(report)
+
+
 def test_the_log_may_show_the_code_once_at_the_first_start_and_never_a_secret() -> None:
     first_start = "Row-Bot server mode listening\n" + "=" * 72 + "\nRow-Bot setup code: ABCD-EFGH-JKMN (open your Row-Bot and enter it)\n"
     restarted = first_start + "Row-Bot server mode listening\n"
@@ -70,6 +154,9 @@ def test_the_summary_flags_a_memory_high_water_mark_over_the_release_budget() ->
 
     report, within = smoke.memory_report("x86_64", [None, None])
     assert within and "not measured" in report
+
+    report, within = smoke.memory_report("aarch64", [1_150_000_000, None], "railway")
+    assert within and report.startswith("## Hosting smoke, Railway's shape (aarch64)") and "uid 10001" in report
 
 
 @pytest.fixture

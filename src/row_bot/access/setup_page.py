@@ -30,7 +30,6 @@ WRONG = "That code doesn't match. Check it and try again."
 RECOVERY = "Using this code signs out every other browser."
 WHERE = "Where's my code?"
 LOST = "Lost access?"
-MANAGE = "Manage pod"
 FAILED = "Row-Bot couldn't check the code. Try again."
 NO_SCRIPT = "Turn on JavaScript in this browser to sign in."
 # {time} is "14 minutes", "1 minute" or "40 seconds"; the page counts it down.
@@ -50,7 +49,7 @@ def where_help(host: Host | None) -> str:
             "Row-Bot shows the setup code in its log when it starts. "
             'Look for \u201cRow-Bot setup code\u201d.'
         )
-    return f"In {host.name}, open your pod's More\u00a0›\u00a0Show Logs and copy the setup code."
+    return f"In {host.name}, {host.setup_code_where}."
 
 
 def lost_help(host: Host | None) -> str:
@@ -59,10 +58,7 @@ def lost_help(host: Host | None) -> str:
             "Give this Row-Bot a new setup code in its server settings and restart it, "
             "then enter the new code here."
         )
-    return (
-        "Change the setup code in your pod's settings and restart it, "
-        "then enter the new code here."
-    )
+    return f"{host.setup_code_change}, then enter the new code here."
 
 
 def used_message(host: Host | None) -> str:
@@ -71,10 +67,16 @@ def used_message(host: Host | None) -> str:
             "This code has already been used or has expired. To make a new one, give "
             "this Row-Bot a new setup code in its server settings and restart it."
         )
+    change = host.setup_code_change
     return (
-        "This code has already been used or has expired. To make a new one, change "
-        "the setup code in your pod's settings and restart it."
+        "This code has already been used or has expired. To make a new one, "
+        f"{change[:1].lower()}{change[1:]}."
     )
+
+
+def manage_label(host: Host) -> str:
+    """The host's own page for what runs Row-Bot: "Manage pod", "Manage service"."""
+    return f"Manage {host.unit}"
 
 
 def tries_left_message(tries_left: int) -> str:
@@ -377,7 +379,7 @@ def _manage_link(host: Host | None, element_id: str, *, hidden: bool) -> str:
     return (
         f'<a class="secondary" id="{element_id}" href="{escape(host.manage_url, quote=True)}" '
         f'target="_blank" rel="noopener noreferrer" title="{escape(tooltip, quote=True)}"'
-        f'{" hidden" if hidden else ""}>{escape(MANAGE)}{_EXTERNAL_ICON}</a>'
+        f'{" hidden" if hidden else ""}>{escape(manage_label(host))}{_EXTERNAL_ICON}</a>'
     )
 
 

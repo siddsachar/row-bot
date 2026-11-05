@@ -12,6 +12,7 @@ const sidebars: SidebarsConfig = {
         'getting-started/whats-new',
         'getting-started/installation',
         'getting-started/in-your-browser',
+        'getting-started/on-railway',
         'getting-started/first-launch',
         'getting-started/first-tasks',
         'configuration/models-and-providers',

@@ -855,6 +855,12 @@ class SettingsHostSnapshot(WireModel):
     support_url: str | None = Field(max_length=512)
     status_url: str | None = Field(max_length=512)
     manage_url: str | None = Field(max_length=512)
+    # The host's own words (R1): what runs Row-Bot there ("pod", "service") and what the host runs.
+    unit: str = Field(min_length=1, max_length=32)
+    runs: str = Field(min_length=1, max_length=128)
+    # Whether the host installs each new version by itself, and the Updates page's line about it.
+    applies_updates: bool
+    updates_help: str = Field(min_length=1, max_length=512)
 
 
 class SettingsServerMemorySnapshot(WireModel):

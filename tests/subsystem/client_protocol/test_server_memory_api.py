@@ -84,6 +84,16 @@ def test_after_an_out_of_memory_restart_the_person_reads_why_and_how_to_resize(c
         "links": [GUIDE, {"label": "Manage your pod in PikaPods", "url": "https://www.pikapods.com/pods"}],
     }
 
+    # Railway (R1): its service's memory limit, and its dashboard.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    with client:
+        _, headers = bootstrap(client)
+        [problem] = problems(client, headers)
+    assert problem["detail"].endswith(
+        "needs about 3.2 GB. Raise the service's memory limit to 4 GB in Railway, or use cloud speech-to-text."
+    )
+    assert problem["links"] == [GUIDE, {"label": "Manage your service in Railway", "url": "https://railway.com/dashboard"}]
+
     # No known host: the server, and only the guide.
     monkeypatch.delenv("ROW_BOT_HOSTED_BY")
     with client:

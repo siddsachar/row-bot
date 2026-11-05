@@ -27,7 +27,8 @@ Place = Literal["this_computer", "hosted", "server"]
 
 @dataclass(frozen=True, slots=True)
 class Host:
-    """A reviewed hosting company. A link nobody could confirm stays ``None``."""
+    """A reviewed hosting company: its links (a link nobody could confirm stays ``None``), and its own
+    words for what the owner does there. Only Row-Bot's pages show the words; the model never reads them."""
 
     id: str
     name: str
@@ -35,8 +36,22 @@ class Host:
     support_url: str | None
     status_url: str | None
     manage_url: str | None
+    # What the host calls the thing that runs Row-Bot: "Manage pod", "Manage your pod in PikaPods".
+    unit: str
+    # Where the owner finds the setup code, after "In PikaPods, ".
+    setup_code_where: str
+    # How the owner sets a new setup code, as an instruction ("…, then enter the new code here").
+    setup_code_change: str
+    # How the owner gives Row-Bot 4 GB of memory, and more than it has.
+    resize_to_4gb: str
+    resize_bigger: str
+    # What the host runs for the owner: "PikaPods runs the server, billing and backups."
+    runs: str
+    # Whether the host installs each new version by itself, and what Settings › Updates says about it.
+    applies_updates: bool
+    updates_help: str
 
-    def to_public_dict(self) -> dict[str, str | None]:
+    def to_public_dict(self) -> dict[str, str | bool | None]:
         return {
             "id": self.id,
             "name": self.name,
@@ -44,6 +59,10 @@ class Host:
             "support_url": self.support_url,
             "status_url": self.status_url,
             "manage_url": self.manage_url,
+            "unit": self.unit,
+            "runs": self.runs,
+            "applies_updates": self.applies_updates,
+            "updates_help": self.updates_help,
         }
 
 
@@ -58,6 +77,38 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
             support_url="https://docs.pikapods.com/",
             status_url="https://docs.pikapods.com/faq/account#business-use-and-service-level",
             manage_url="https://www.pikapods.com/pods",
+            unit="pod",
+            setup_code_where="open your pod's More\u00a0›\u00a0Show Logs and copy the setup code",
+            setup_code_change="Change the setup code in your pod's settings and restart it",
+            resize_to_4gb="Make the pod 4 GB in PikaPods",
+            resize_bigger="Make the pod bigger in PikaPods",
+            runs="the server, billing and backups",
+            # PikaPods tests each release, then rolls it out to every pod.
+            applies_updates=True,
+            updates_help="They test each release first, so new versions usually arrive within a week.",
+        ),
+        # Read in Railway's docs, 5 Nov 2026 (deploy/railway/README.md): Central Station is its support
+        # forum, the dashboard lists the owner's projects, and the template's variables hold the setup code.
+        # An image service doesn't update by itself: Railway offers a new image in the service's settings,
+        # and its auto updates are the owner's choice.
+        "railway": Host(
+            id="railway",
+            name="Railway",
+            home_url="https://railway.com/",
+            support_url="https://station.railway.com/",
+            status_url="https://status.railway.com/",
+            manage_url="https://railway.com/dashboard",
+            unit="service",
+            setup_code_where="open your Row-Bot service's Variables and copy ROW_BOT_SETUP_CODE",
+            setup_code_change="Set a new ROW_BOT_SETUP_CODE in your service's Variables and deploy the change",
+            resize_to_4gb="Raise the service's memory limit to 4 GB in Railway",
+            resize_bigger="Raise the service's memory limit in Railway",
+            runs="the server and billing",
+            applies_updates=False,
+            updates_help=(
+                "When a new version is out, Railway offers it in your service's settings. "
+                "Turn on auto updates there to get each one by itself."
+            ),
         ),
     }
 )

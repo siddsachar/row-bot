@@ -5628,7 +5628,7 @@ export function PreferencesSnapshotPanel({
   showUpdateControls = false,
   part = 'preferences',
   skillsMoved = false,
-  hostName = null,
+  host = null,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
@@ -5637,8 +5637,8 @@ export function PreferencesSnapshotPanel({
   part?: 'preferences' | 'updates' | 'data';
   /** "Learn new skills" lives in Settings › Learning (D29, a Learning preview build). */
   skillsMoved?: boolean;
-  /** The hosting company that runs this Row-Bot and applies its updates (H3). */
-  hostName?: string | null;
+  /** The hosting company that runs this Row-Bot and installs its updates (H3). */
+  host?: SettingsSnapshot['system']['hosted_by'];
 }) {
   // The controls' own check time, newer than this page's snapshot after Check now (B373).
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
@@ -5646,14 +5646,14 @@ export function PreferencesSnapshotPanel({
   const lastCheck = checkedAt ?? snapshot.updates.last_check;
   // The host picks the release and installs it: no channel, check time or
   // download details, only the version and who updates it.
-  if (part === 'updates' && hostName && showUpdateControls)
+  if (part === 'updates' && host && showUpdateControls)
     return (
       <div className="stack settings-snapshot-page settings-updates-page">
         <SettingsStatus tone="neutral">
           Row-Bot {snapshot.updates.current_version}
         </SettingsStatus>
         <SettingsGroup label="Updates" anchor="updates">
-          <ConnectedUpdateControls hostName={hostName} />
+          <ConnectedUpdateControls host={host} />
         </SettingsGroup>
       </div>
     );

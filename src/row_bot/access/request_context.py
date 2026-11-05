@@ -37,10 +37,11 @@ SUPPORTED_FORWARDED_HEADERS = frozenset(
 )
 # Trusted proxies may attach these beside a validated Forwarded or
 # X-Forwarded-* model (Cloudflare sends CF-Connecting-IP beside the
-# X-Forwarded-For it appends to). They are not a client, scheme, host, or
-# origin source, and they do not form a forwarding model on their own. They
+# X-Forwarded-For it appends to; Railway's edge sends X-Real-IP beside its
+# X-Forwarded-For and X-Forwarded-Proto). They are not a client, scheme, host,
+# or origin source, and they do not form a forwarding model on their own. They
 # stay recognized, so they still mark a request as forwarded.
-ANCILLARY_FORWARDING_HEADERS = frozenset({"cf-connecting-ip"})
+ANCILLARY_FORWARDING_HEADERS = frozenset({"cf-connecting-ip", "x-real-ip"})
 RECOGNIZED_FORWARDING_HEADERS = frozenset(
     set(SUPPORTED_FORWARDED_HEADERS)
     | ANCILLARY_FORWARDING_HEADERS

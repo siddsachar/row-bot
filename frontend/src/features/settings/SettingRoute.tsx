@@ -531,7 +531,7 @@ export default function SettingRoute() {
               showUpdateControls
               part={leaf.id}
               skillsMoved={learningPreview}
-              hostName={settingsSnapshot?.system.hosted_by?.name}
+              host={settingsSnapshot?.system.hosted_by}
             />
             {leaf.id === 'data' && <SandboxSettings />}
             {leaf.id === 'data' && settingsSnapshot && (

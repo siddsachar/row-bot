@@ -6,7 +6,8 @@ import { assertNoOverflow, expect, screenshot, test } from './evidence';
 // says what that backup leaves out (U9); Devices offers the pod's own address,
 // with no way to choose how it is reached. The fixture switches make the
 // handshake say "hosted", give the server a 2 GB memory limit, and save a
-// pod's https address (the fixture's own is loopback).
+// pod's https address (the fixture's own is loopback). On Railway (R1) the same
+// pages use Railway's words: a service, which its owner updates there.
 
 async function fixture(page: Page, path: string) {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -97,6 +98,42 @@ test('a hosted Row-Bot names its host, moves with a backup and connects devices 
   await page
     .getByRole('button', { name: 'Close connect a phone or computer' })
     .click();
+});
+
+test('on Railway, System and Updates speak Railway’s words: a service its owner updates (R1)', async ({
+  page,
+}, testInfo) => {
+  await fixture(page, '/__r1_fixture/host/railway');
+  await fixture(page, '/__a7_fixture/place/hosted');
+  await fixture(page, '/__a8_fixture/memory/4');
+
+  await page.goto('/app-v2/settings/system');
+  const card = page.getByRole('region', { name: 'Hosted by Railway' });
+  await expect(
+    card.getByText(/^Row-Bot .+ · you update it in Railway$/),
+  ).toBeVisible();
+  for (const [name, url] of [
+    ['Manage your service in Railway', 'https://railway.com/dashboard'],
+    ['Railway support', 'https://station.railway.com/'],
+    ['Railway status', 'https://status.railway.com/'],
+  ])
+    await expect(card.getByRole('link', { name })).toHaveAttribute('href', url);
+  await expect(card).toContainText('Railway runs the server and billing.');
+  await assertNoOverflow(page);
+  await screenshot(page, testInfo, 'railway-system');
+
+  await page.goto('/app-v2/settings/updates');
+  await expect(page.getByText('You update it in Railway')).toBeVisible();
+  await expect(
+    page.getByText(
+      "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /Check|Update/ })).toHaveCount(
+    0,
+  );
+  await assertNoOverflow(page);
+  await screenshot(page, testInfo, 'railway-updates');
 });
 
 test('the desktop shows no host card or Move row, and its restore takes a hosted backup', async ({

@@ -1098,6 +1098,10 @@
       "additionalProperties": false,
       "description": "The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null.",
       "properties": {
+        "applies_updates": {
+          "title": "Applies Updates",
+          "type": "boolean"
+        },
         "home_url": {
           "maxLength": 512,
           "title": "Home Url",
@@ -1127,6 +1131,12 @@
           "title": "Name",
           "type": "string"
         },
+        "runs": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Runs",
+          "type": "string"
+        },
         "status_url": {
           "anyOf": [
             {
@@ -1150,6 +1160,18 @@
             }
           ],
           "title": "Support Url"
+        },
+        "unit": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "updates_help": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Updates Help",
+          "type": "string"
         }
       },
       "required": [
@@ -1158,7 +1180,11 @@
         "home_url",
         "support_url",
         "status_url",
-        "manage_url"
+        "manage_url",
+        "unit",
+        "runs",
+        "applies_updates",
+        "updates_help"
       ],
       "title": "SettingsHostSnapshot",
       "type": "object"

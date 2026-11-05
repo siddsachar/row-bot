@@ -576,6 +576,20 @@ it('explains a container that no host updater reports for', async () => {
   expect(screen.queryByRole('button', { name: 'Update now' })).toBeNull();
 });
 
+const pikapods = {
+  id: 'pikapods',
+  name: 'PikaPods',
+  home_url: 'https://www.pikapods.com/',
+  support_url: null,
+  status_url: null,
+  manage_url: null,
+  unit: 'pod',
+  runs: 'the server, billing and backups',
+  applies_updates: true,
+  updates_help:
+    'They test each release first, so new versions usually arrive within a week.',
+};
+
 it('names a known host that applies updates and offers nothing to press (H3, U6)', async () => {
   const notes = 'https://github.com/example/row-bot/releases/tag/v1.0.0';
   const load = vi.fn(async () => ({
@@ -583,7 +597,7 @@ it('names a known host that applies updates and offers nothing to press (H3, U6)
     host: { ...container.host!, notes_url: notes },
   }));
   const send = vi.fn();
-  render(<UpdateControls owner={{ load, send }} hostName="PikaPods" />);
+  render(<UpdateControls owner={{ load, send }} hostedBy={pikapods} />);
   expect(await screen.findByText('Updated by PikaPods')).toBeVisible();
   expect(
     screen.getByText(
@@ -596,6 +610,34 @@ it('names a known host that applies updates and offers nothing to press (H3, U6)
   // No check, install, skip or pause: the host does all of it.
   expect(screen.queryAllByRole('button')).toEqual([]);
   expect(screen.queryByText(/Docker/)).toBeNull();
+  expect(send).not.toHaveBeenCalled();
+});
+
+it('on a host where the owner installs new versions, says where, in the host’s words (R1)', async () => {
+  const notes = 'https://github.com/example/row-bot/releases/tag/v1.0.0';
+  const load = vi.fn(async () => ({
+    ...container,
+    host: { ...container.host!, notes_url: notes },
+  }));
+  const send = vi.fn();
+  const railway = {
+    ...pikapods,
+    id: 'railway',
+    name: 'Railway',
+    unit: 'service',
+    applies_updates: false,
+    updates_help:
+      "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+  };
+  render(<UpdateControls owner={{ load, send }} hostedBy={railway} />);
+  expect(await screen.findByText('You update it in Railway')).toBeVisible();
+  expect(screen.getByText(railway.updates_help)).toBeVisible();
+  expect(screen.queryByText(/Updated by|They test/)).toBeNull();
+  expect(
+    screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
+  ).toHaveAttribute('href', notes);
+  // Nothing to press here either: the owner updates it in Railway.
+  expect(screen.queryAllByRole('button')).toEqual([]);
   expect(send).not.toHaveBeenCalled();
 });
 
