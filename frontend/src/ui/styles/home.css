@@ -1067,9 +1067,25 @@
     opacity: 1;
   }
 }
+/* Selecting workflows: a checkbox leads each row, and a chosen row is tinted. */
+.workflow-select-control {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-inline-start: -6px;
+  cursor: pointer;
+}
 .workflow-select-control input {
   width: 16px;
   height: 16px;
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.workflow-row[data-selected='true'] {
+  background: var(--accent-subtle);
 }
 .workflow-more-rows {
   justify-self: center;
