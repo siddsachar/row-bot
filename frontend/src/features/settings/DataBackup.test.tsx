@@ -737,3 +737,44 @@ it('the desktop names no host and says where its backup went, as before (F3)', a
   );
   expect(saved).not.toHaveTextContent(/somewhere else/);
 });
+
+it('names the service’s own Backups page in Railway when the host knows it (A2)', async () => {
+  setPlace({ kind: 'hosted', host_name: 'Railway' });
+  const view = render(
+    <DataBackup
+      owner={owner({ ...idle, reveal_available: false })}
+      canPick={false}
+      host={{
+        ...railway,
+        backups_url:
+          'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/backups?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+      }}
+    />,
+  );
+  const line = await screen.findByText(
+    /Railway can also keep its own backups of your server\./,
+  );
+  expect(line).toHaveTextContent(
+    'Railway can also keep its own backups of your server. Backups in Railway',
+  );
+  const link = within(line).getByRole('link', { name: 'Backups in Railway' });
+  expect(link).toHaveAttribute(
+    'href',
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/backups?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  );
+  expect(link).toHaveAttribute('target', '_blank');
+  view.unmount();
+
+  // Without the service's IDs, the line alone.
+  render(
+    <DataBackup
+      owner={owner({ ...idle, reveal_available: false })}
+      canPick={false}
+      host={railway}
+    />,
+  );
+  const bare = await screen.findByText(
+    'Railway can also keep its own backups of your server.',
+  );
+  expect(within(bare).queryByRole('link')).toBeNull();
+});

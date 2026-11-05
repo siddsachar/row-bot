@@ -846,6 +846,13 @@ class SettingsLoggingSnapshot(WireModel):
     directory_available: bool
 
 
+class HostTrial(WireModel):
+    """A host's trial server, by its memory (A4): what works there, and the host's page to upgrade."""
+
+    note: str = Field(min_length=1, max_length=512)
+    upgrade_url: str = Field(min_length=1, max_length=512)
+
+
 class SettingsHostSnapshot(WireModel):
     """The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null."""
 
@@ -861,6 +868,13 @@ class SettingsHostSnapshot(WireModel):
     # Whether the host installs each new version by itself, and the Updates page's line about it.
     applies_updates: bool
     updates_help: str = Field(min_length=1, max_length=512)
+    # The service's own pages at the host (A2), when the host told it its IDs: its settings (memory,
+    # updates), its backups and the workspace's usage. Null otherwise.
+    settings_url: str | None = Field(default=None, max_length=512)
+    backups_url: str | None = Field(default=None, max_length=512)
+    usage_url: str | None = Field(default=None, max_length=512)
+    # Only while the server has a trial's memory (A4).
+    trial: HostTrial | None = None
 
 
 class SettingsServerMemorySnapshot(WireModel):
@@ -2480,6 +2494,8 @@ class OnboardingSnapshot(WireModel):
     # The company hosting this Row-Bot (H13), when one is known: the hosted first run (U3)
     # and Setup Center (U4) name it and add "Add your phone" and "Back up".
     host_name: str | None = Field(default=None, max_length=64)
+    # While the host's server has a trial's memory, the hosted first run says what works (A4).
+    host_trial: HostTrial | None = None
     steps: list[OnboardingStep] = Field(max_length=13)
     intents: list[OnboardingIntent] = Field(max_length=7)
 

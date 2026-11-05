@@ -130,3 +130,67 @@ it('says memory in the unit the host set: Railway’s 8 GB limit is 8 GB, not 7.
   const card = screen.getByRole('region', { name: 'Hosted by Railway' });
   expect(within(card).getByText('Memory 1.1 GB of 8 GB')).toBeVisible();
 });
+
+const railwayService = {
+  ...railway,
+  manage_url:
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  settings_url:
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  backups_url:
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/backups?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  usage_url: 'https://railway.com/workspace/usage',
+};
+
+it('on Railway links the service itself, its usage and its backups, as icon buttons (A2)', () => {
+  render(
+    <HostedByCard
+      host={railwayService}
+      memory={{ limit_bytes: 8_000_000_000, used_bytes: 1_100_000_000 }}
+      version="5.3.3"
+    />,
+  );
+  const card = screen.getByRole('region', { name: 'Hosted by Railway' });
+  const links = within(card)
+    .getAllByRole('link')
+    .filter((link) => link.textContent === '');
+  expect(
+    links.map((link) => [
+      link.getAttribute('aria-label'),
+      link.getAttribute('href'),
+    ]),
+  ).toEqual([
+    ['Manage your service in Railway', railwayService.manage_url],
+    ['Usage in Railway', 'https://railway.com/workspace/usage'],
+    ['Backups in Railway', railwayService.backups_url],
+    ['Railway support', 'https://station.railway.com/'],
+    ['Railway status', 'https://status.railway.com/'],
+  ]);
+  for (const link of links) expect(link).toHaveAttribute('target', '_blank');
+  expect(within(card).queryByText(/trial/)).toBeNull();
+});
+
+it('on Railway’s trial says what 1 GB runs, with the way to upgrade (A4)', () => {
+  render(
+    <HostedByCard
+      host={{
+        ...railwayService,
+        trial: {
+          note: "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. Browser tasks and local speech-to-text need Railway's Hobby plan.",
+          upgrade_url: 'https://railway.com/workspace/plans',
+        },
+      }}
+      memory={{ limit_bytes: 999_997_440, used_bytes: 300_000_000 }}
+      version="5.3.3"
+    />,
+  );
+  const card = screen.getByRole('region', { name: 'Hosted by Railway' });
+  expect(within(card).getByText('Memory 0.3 GB of 1 GB')).toBeVisible();
+  const line = within(card).getByText(/Railway’s trial|Railway's trial/);
+  expect(line.closest('p')).toHaveTextContent(
+    "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. Browser tasks and local speech-to-text need Railway's Hobby plan. Upgrade in Railway",
+  );
+  expect(
+    within(card).getByRole('link', { name: 'Upgrade in Railway' }),
+  ).toHaveAttribute('href', 'https://railway.com/workspace/plans');
+});

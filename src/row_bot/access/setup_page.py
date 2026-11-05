@@ -56,6 +56,16 @@ def where_help(host: Host | None) -> str:
     return f"In {host.name}, {host.setup_code_where}."
 
 
+def variables_label(host: Host) -> str:
+    """The button to the service's own Variables, where the host keeps the code (R4)."""
+    return f"Open your Variables in {host.name}"
+
+
+def link_in_logs(host: Host) -> str:
+    """Beside it, when the start-up output shows the sign-in link (A1): where that output is."""
+    return f"or click the sign-in link in {host.sign_in_link_where}"
+
+
 def lost_help(host: Host | None) -> str:
     if host is None:
         return (
@@ -200,6 +210,7 @@ summary svg { width: 14px; height: 14px; transition: transform 120ms cubic-bezie
 details[open] summary svg { transform: rotate(90deg); }
 details > p { margin: 8px 0 0; color: var(--text-2); }
 details > .secondary { margin-top: 12px; }
+.where-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; color: var(--text-2); }
 details .code-form { margin-top: 16px; }
 .spinner {
   flex: none; width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent;
@@ -423,13 +434,37 @@ def _manage_link(host: Host | None, element_id: str, *, hidden: bool) -> str:
     )
 
 
+def _where_actions(host: Host | None, *, link_logged: bool) -> str:
+    """Under "Where's my code?" (R4): the service's Variables, and the sign-in link in the host's logs."""
+    if host is None:
+        return ""
+    button = ""
+    if host.variables_url:
+        tooltip = f"Opens {host.name} in a new tab"
+        button = (
+            f'<a class="secondary" id="where-variables" href="{escape(host.variables_url, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer" title="{escape(tooltip, quote=True)}">'
+            f"{escape(variables_label(host))}{_EXTERNAL_ICON}</a>"
+        )
+    logs = (
+        f'<span id="where-logs">{escape(link_in_logs(host))}</span>'
+        if link_logged and host.sign_in_link_where
+        else ""
+    )
+    return f'<div class="where-actions">{button}{logs}</div>' if button or logs else ""
+
+
 def render_setup_page(
     *,
     owned: bool,
     host: Host | None,
     paused_seconds: int,
+    link_logged: bool = False,
 ) -> str:
-    """The whole page. Both views are present; the script shows each state."""
+    """The whole page. Both views are present; the script shows each state.
+
+    ``link_logged``: the start-up output shows the sign-in link beside the code (A1).
+    """
     words = {
         "continue": CONTINUE,
         "checking": CHECKING,
@@ -456,6 +491,7 @@ def render_setup_page(
   <details id="where">
     <summary>{escape(WHERE)}{_CHEVRON_ICON}</summary>
     <p>{escape(where_help(host))}</p>
+    {"" if owned else _where_actions(host, link_logged=link_logged)}
   </details>
 </section>"""
     owner = f"""

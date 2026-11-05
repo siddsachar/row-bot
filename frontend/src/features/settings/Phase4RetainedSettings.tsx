@@ -40,6 +40,7 @@ export default function Phase4RetainedSettings({
         snapshot={snapshot.voice}
         conversationId={selectedConversationId}
         mutation={mutation}
+        host={snapshot.system.hosted_by}
       />
     );
   if (setting === 'tracker')

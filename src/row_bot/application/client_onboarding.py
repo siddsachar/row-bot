@@ -71,6 +71,15 @@ def _host() -> Any:
     return hosted_by()
 
 
+def _trial(host: Any) -> dict[str, str] | None:
+    if host is None:
+        return None
+    from row_bot import server_memory
+    from row_bot.hosting import trial
+
+    return trial(host, server_memory.limit_bytes())
+
+
 def _steps() -> dict[str, dict[str, str]]:
     """The Setup Center's areas. A hosted Row-Bot adds "Add your phone" after Models and
     "Back up" before Final Check (U4); elsewhere they don't exist."""
@@ -203,6 +212,8 @@ def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
         "phone_card_conversation": _phone_card_conversation(config),
         # The company hosting this Row-Bot (H13): its first run and Setup Center differ (U3, U4).
         "host_name": host.name if host is not None else None,
+        # On a trial's small server, the hosted first run says what works there (A4).
+        "host_trial": _trial(host),
         "steps": [
             {"id": key, "title": meta["title"], "description": meta["description"]}
             for key, meta in steps.items()

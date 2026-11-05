@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArchiveRestore,
   Download,
+  ExternalLink,
   FolderOpen,
   HardDriveDownload,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
 import { When } from '../../ui/When';
+import { webPage } from '../shell/hosted-links';
 
 type Action = DataBackupCommand['action'];
 type Extra = { file_grant?: string; review_id?: string; upload_id?: string };
@@ -98,11 +100,23 @@ function size(bytes: number) {
 const RESTORE_IN_DESKTOP_APP =
   'Restoring picks the backup file in the Row-Bot desktop app on the computer Row-Bot runs on.';
 
-/** The host keeps backups of the server, too (F3): one quiet line under the server's own copy. */
+/**
+ * The host keeps backups of the server, too (F3): one quiet line under the
+ * server's own copy, with the service's own Backups page when known (A2).
+ */
 function HostBackups({ host }: { host: NonNullable<Host> }) {
   return (
     <p className="muted data-backup-host">
       {host.name} can also keep its own backups of your server.
+      {webPage(host.backups_url) && (
+        <>
+          {' '}
+          <a href={host.backups_url} target="_blank" rel="noopener noreferrer">
+            Backups in {host.name}
+            <ExternalLink size={12} aria-hidden />
+          </a>
+        </>
+      )}
     </p>
   );
 }

@@ -56,6 +56,7 @@ import { BillingTag } from './ModelList';
 import { useWorkspaceActions } from './workspace-actions';
 import { markFirstChat } from './first-chat';
 import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
+import HostTrialNote from './HostTrialNote';
 
 /** "Set up later" for this window: Home stops opening Setup until next time. */
 export const SETUP_LATER_KEY = 'row-bot:setup-later:v1';
@@ -726,6 +727,7 @@ function HostedChoices({
   keyPanel,
   endpointModels,
   setUpLater,
+  trialNote,
 }: {
   cards: ProviderLiveCard[];
   connected: Set<string>;
@@ -737,6 +739,8 @@ function HostedChoices({
   keyPanel: ReactNode;
   endpointModels: ReactNode;
   setUpLater: ReactNode;
+  /** A host's trial server: what works there (A4). */
+  trialNote?: ReactNode;
 }) {
   const { controller, subscriptionAccountsOwner } = useRuntime();
   const writer = useContext(RuntimeContext)?.platform.writeClipboard;
@@ -980,6 +984,7 @@ function HostedChoices({
           </a>
         </span>
       </p>
+      {trialNote}
       <footer className="first-run-footer">{setUpLater}</footer>
     </section>
   );
@@ -1241,6 +1246,11 @@ export default function FirstRun({
         keyPanel={keyPanel}
         endpointModels={endpointModels}
         setUpLater={setUpLater}
+        trialNote={
+          snapshot.host_trial && (
+            <HostTrialNote trial={snapshot.host_trial} hostName={host} />
+          )
+        }
       />
     );
 

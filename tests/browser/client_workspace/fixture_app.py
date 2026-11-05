@@ -4681,21 +4681,45 @@ def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
     return {"notice": _server_memory.notice() is not None}
 
 
-# ── R2 (A1): the setup page's sign-in link ─────────────────────────────────
+# ── R2 (A1, A2): the setup page's sign-in link, and Railway's own pages ─────
 # The fixture is a desktop, which has no setup page. This hands a spec the real page as /setup serves it
-# on Railway, with its own headers, for a Row-Bot nobody owns ("unclaimed") or one somebody does
-# ("owned"); the spec serves it at /setup and answers the page's own requests.
+# on a Railway template's service (its IDs and public address known), with its own headers, for a
+# Row-Bot nobody owns ("unclaimed") or one somebody does ("owned"); the spec serves it at /setup and
+# answers the page's own requests.
+_R2_RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+
+
 @app.post("/__r2_fixture/setup-page/{state}")
 def r2_setup_page(state: str, x_fixture_token: str = Header(default="")) -> dict:
     from row_bot.access.routes import SETUP_PAGE_HEADERS
     from row_bot.access.setup_page import render_setup_page
-    from row_bot.hosting import KNOWN_HOSTS
+    from row_bot.hosting import hosted_by
 
     predecessor._authorize(x_fixture_token)
     if state not in {"unclaimed", "owned"}:
         raise HTTPException(status_code=422, detail="Unknown setup page state")
-    html = render_setup_page(owned=state == "owned", host=KNOWN_HOSTS["railway"], paused_seconds=0)
+    host = hosted_by({"ROW_BOT_HOSTED_BY": "railway", **_R2_RAILWAY_IDS})
+    html = render_setup_page(owned=state == "owned", host=host, paused_seconds=0, link_logged=True)
     return {"html": html, "headers": dict(SETUP_PAGE_HEADERS)}
+
+
+# "on" gives the service Railway's IDs, as Railway does every service: its host entry then links the
+# service's own pages (A2). "off" takes them away again.
+@app.post("/__r2_fixture/railway-ids/{state}")
+def r2_railway_ids(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if state not in {"on", "off"}:
+        raise HTTPException(status_code=422, detail="Unknown state")
+    for name, value in _R2_RAILWAY_IDS.items():
+        if state == "on":
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+    return {"railway_ids": state}
 
 
 # ── A9 (Devices on a hosted Row-Bot) ────────────────────────────────────────

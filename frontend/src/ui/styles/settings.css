@@ -3113,6 +3113,21 @@
 .data-backup-host {
   margin-top: 6px;
 }
+.data-backup-host a {
+  white-space: nowrap;
+}
+.data-backup-host a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
+/* Voice's sheet on a small server: where it gets more memory (A2, A4). */
+.voice-sheet-grow {
+  margin: 0 0 12px;
+}
+.voice-sheet-grow a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
 
 /* Settings › System on a hosted Row-Bot (U5): who runs it, the memory in
    use of the server's limit, and the host's own pages. */

@@ -6,6 +6,7 @@ import {
   BarChart3,
   BookOpen,
   AppWindow,
+  ExternalLink,
   Calculator,
   CalendarClock,
   CheckCircle2,
@@ -58,6 +59,7 @@ import {
 import { clientError } from '../../api/errors';
 import { usePlace, type PlaceWords } from '../../api/place';
 import { useSmallServer } from '../../api/server-memory';
+import { webPage } from '../shell/hosted-links';
 import { RuntimeContext } from '../../runtime';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
@@ -1789,10 +1791,13 @@ export function VoiceSnapshotPanel({
   snapshot,
   conversationId,
   mutation,
+  host = null,
 }: {
   snapshot: SettingsSnapshot['voice'];
   conversationId: string | null;
   mutation: SettingsMutationIO;
+  /** The company that runs this Row-Bot: where its memory grows (A2, A4). */
+  host?: SettingsSnapshot['system']['hosted_by'];
 }) {
   const place = usePlace();
   const [talkProvider, setTalkProvider] = useState(() =>
@@ -1827,6 +1832,13 @@ export function VoiceSnapshotPanel({
   const needsBigger = small
     ? { status: <span className="status-chip">Needs a 4 GB server</span> }
     : undefined;
+  // Where the server gets more memory: the host's paid plan on a trial, else
+  // the service's own settings (A2, A4).
+  const grow = host?.trial
+    ? { url: host.trial.upgrade_url, label: `Upgrade in ${host.name}` }
+    : host?.settings_url
+      ? { url: host.settings_url, label: 'Raise the memory limit' }
+      : null;
   // Choosing Whisper there asks first; this makes the choice the person makes in the sheet.
   const [localChoice, setLocalChoice] = useState<
     ((value: string) => void) | null
@@ -2216,6 +2228,14 @@ export function VoiceSnapshotPanel({
         title="Use local speech-to-text?"
         description={`This server has ${small}. Local speech-to-text may make Row-Bot restart.`}
       >
+        {grow && webPage(grow.url) && (
+          <p className="voice-sheet-grow">
+            <a href={grow.url} target="_blank" rel="noopener noreferrer">
+              {grow.label}
+              <ExternalLink size={12} aria-hidden />
+            </a>
+          </p>
+        )}
         <div className="button-row">
           <Button onClick={() => chooseFromSheet('local')}>
             Use local anyway

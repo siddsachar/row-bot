@@ -20,6 +20,7 @@ async function fixture(page: Page, path: string) {
 }
 
 test.afterEach(async ({ page }) => {
+  await fixture(page, '/__r2_fixture/railway-ids/off');
   await fixture(page, '/__a9_fixture/pod-address/off');
   await fixture(page, '/__a8_fixture/memory/off');
   await fixture(page, '/__a7_fixture/place/this_computer');
@@ -140,6 +141,23 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   );
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'railway-updates');
+
+  // With the IDs Railway gives every service, links land on its own pages (A2).
+  await fixture(page, '/__r2_fixture/railway-ids/on');
+  await page.goto('/app-v2/settings/system');
+  const service =
+    /^https:\/\/railway\.com\/project\/[0-9a-f-]{36}\/service\/[0-9a-f-]{36}/;
+  for (const [name, url] of [
+    ['Manage your service in Railway', service],
+    ['Usage in Railway', /^https:\/\/railway\.com\/workspace\/usage$/],
+    ['Backups in Railway', /\/backups\?environmentId=[0-9a-f-]{36}$/],
+  ] as const)
+    await expect(card.getByRole('link', { name })).toHaveAttribute('href', url);
+  await page.goto('/app-v2/settings/data');
+  await expect(
+    page.getByRole('link', { name: 'Backups in Railway' }),
+  ).toHaveAttribute('href', /\/backups\?environmentId=/);
+  await assertNoOverflow(page);
 });
 
 test('the desktop shows no host card or Download a backup row, and its restore takes a hosted backup', async ({

@@ -95,11 +95,20 @@ def sign_in_link(code: str, environ: Mapping[str, str]) -> str | None:
     ``https://${{RAILWAY_PUBLIC_DOMAIN}}``). The code rides in the fragment, which a browser never sends:
     the setup page reads it, clears it from the address bar and history, and posts it as if typed.
     """
+    origin = _public_origin(environ)
+    return f"{origin}/setup#code={format_setup_code(code)}" if origin else None
+
+
+def prints_sign_in_link(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether the start-up output shows the sign-in link beside the code: the public address is known."""
+    return _public_origin(os.environ if environ is None else environ) is not None
+
+
+def _public_origin(environ: Mapping[str, str]) -> str | None:
     try:
-        origin = canonical_origin(environ.get(PUBLIC_URL_ENV))
+        return canonical_origin(environ.get(PUBLIC_URL_ENV))
     except ValueError:
         return None
-    return f"{origin}/setup#code={format_setup_code(code)}"
 
 
 def _console() -> logging.Logger:
@@ -307,5 +316,6 @@ __all__ = [
     "generate_setup_code",
     "normalize_setup_code",
     "prepare_setup_code_at_start",
+    "prints_sign_in_link",
     "sign_in_link",
 ]

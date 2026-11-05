@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from row_bot.hosting import HOSTED_BY_ENV, KNOWN_HOSTS, hosted_by
+from row_bot.hosting import HOSTED_BY_ENV, KNOWN_HOSTS, hosted_by, trial
 
 pytestmark = pytest.mark.contract
 
@@ -20,7 +20,11 @@ def _site(url: str) -> str:
 @pytest.mark.parametrize("host_id", sorted(KNOWN_HOSTS))
 def test_every_known_host_links_only_to_its_own_site_over_https(host_id: str) -> None:
     host = KNOWN_HOSTS[host_id]
-    links = [host.home_url, host.support_url, host.status_url, host.manage_url]
+    # With the IDs a host gives its service, too (A2).
+    paged = hosted_by({HOSTED_BY_ENV: host_id, **RAILWAY_IDS})
+    links = [host.home_url, host.support_url, host.status_url, host.manage_url, host.plans_url] + [
+        paged.manage_url, paged.variables_url, paged.settings_url, paged.backups_url, paged.usage_url,
+    ]
 
     assert host.id == host_id and host.name
     for link in filter(None, links):
@@ -43,6 +47,9 @@ def test_pikapods_is_named_and_linked_from_its_reviewed_entry() -> None:
         "runs": "the server, billing and backups",
         "applies_updates": True,
         "updates_help": "They test each release first, so new versions usually arrive within a week.",
+        "settings_url": None,
+        "backups_url": None,
+        "usage_url": None,
     }
 
 
@@ -79,3 +86,83 @@ def test_an_unknown_host_shows_nothing_host_specific_and_warns_once(caplog) -> N
     assert first is second is None
     assert [record.levelno for record in caplog.records] == [logging.WARNING]
     assert unknown in caplog.records[0].getMessage()
+
+
+# What Railway gives every service (A2): its project, service and environment IDs.
+PROJECT = "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30"
+SERVICE = "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901"
+ENVIRONMENT = "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10"
+RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": PROJECT,
+    "RAILWAY_SERVICE_ID": SERVICE,
+    "RAILWAY_ENVIRONMENT_ID": ENVIRONMENT,
+}
+
+
+def test_railways_ids_link_the_services_own_pages_on_railway_com() -> None:
+    host = hosted_by({HOSTED_BY_ENV: "railway", **RAILWAY_IDS})
+    service = f"https://railway.com/project/{PROJECT}/service/{SERVICE}"
+
+    assert host is not None
+    assert (host.manage_url, host.variables_url, host.settings_url, host.backups_url, host.usage_url) == (
+        f"{service}?environmentId={ENVIRONMENT}",
+        f"{service}/variables?environmentId={ENVIRONMENT}",
+        f"{service}/settings?environmentId={ENVIRONMENT}",
+        f"{service}/backups?environmentId={ENVIRONMENT}",
+        "https://railway.com/workspace/usage",
+    )
+    # IDs as Railway may spell them, upper case or padded, are the same IDs.
+    shouted = hosted_by({HOSTED_BY_ENV: "railway", **{k: f" {v.upper()} " for k, v in RAILWAY_IDS.items()}})
+    assert shouted == host
+    for link in (host.manage_url, host.variables_url, host.settings_url, host.backups_url, host.usage_url):
+        parts = urlsplit(link)
+        assert (parts.scheme, parts.hostname, parts.username, parts.port) == ("https", "railway.com", None, None)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "not-an-id",
+        PROJECT[:-1],
+        PROJECT + "0",
+        PROJECT.replace("-", ""),
+        "{" + PROJECT + "}",
+        f"urn:uuid:{PROJECT}",
+        "../../evil.example/x",
+        f"{PROJECT}?environmentId=x",
+        f"{PROJECT}@evil.example",
+        f"{PROJECT}/../../x",
+    ],
+)
+@pytest.mark.parametrize("name", sorted(RAILWAY_IDS))
+def test_anything_but_three_uuids_gives_no_service_links_and_the_entrys_own_words(name: str, value: str) -> None:
+    host = hosted_by({HOSTED_BY_ENV: "railway", **RAILWAY_IDS, name: value})
+
+    assert host == KNOWN_HOSTS["railway"]
+    assert host.manage_url == "https://railway.com/dashboard"
+    assert (host.variables_url, host.settings_url, host.backups_url, host.usage_url) == (None, None, None, None)
+
+
+def test_only_railway_reads_railways_ids() -> None:
+    assert hosted_by({HOSTED_BY_ENV: "pikapods", **RAILWAY_IDS}) == KNOWN_HOSTS["pikapods"]
+
+
+@pytest.mark.parametrize(
+    ("limit", "on_trial"),
+    [(999_997_440, True), (1_000_000_000, True), (2**30, True), (2**30 + 1, False), (2_000_000_000, False),
+     (8_000_000_000, False), (None, False)],
+)
+def test_railways_trial_is_a_server_of_1_gb_or_less(limit, on_trial: bool) -> None:
+    words = trial(hosted_by({HOSTED_BY_ENV: "railway"}), limit)
+
+    assert (words is not None) is on_trial
+    if on_trial:
+        assert words == {
+            "note": "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. "
+            "Browser tasks and local speech-to-text need Railway's Hobby plan.",
+            "upgrade_url": "https://railway.com/workspace/plans",
+        }
+    # A host with no trial, or none at all, never says so.
+    assert trial(KNOWN_HOSTS["pikapods"], limit) is None
+    assert trial(None, limit) is None

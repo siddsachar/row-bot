@@ -1,5 +1,29 @@
 {
   "$defs": {
+    "HostTrial": {
+      "additionalProperties": false,
+      "description": "A host's trial server, by its memory (A4): what works there, and the host's page to upgrade.",
+      "properties": {
+        "note": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "upgrade_url": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Upgrade Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "note",
+        "upgrade_url"
+      ],
+      "title": "HostTrial",
+      "type": "object"
+    },
     "OnboardingImportSource": {
       "additionalProperties": false,
       "properties": {
@@ -91,6 +115,17 @@
           ],
           "default": null,
           "title": "Host Name"
+        },
+        "host_trial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostTrial"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "import_sources": {
           "items": {
