@@ -34,6 +34,17 @@
     publishing; it reads the other files from the run's artifacts. release.yml
     runs it on Windows for every dry run.
 
+    -Resign re-signs the Windows installer of a published release, when the
+    certificate that signed it was revoked: the same run's stage is signed with
+    the new certificate and packed again, and after you type the confirmation
+    only the installer and its line in the SHA-256 block are replaced. Every
+    other file must still be the one the block lists. The update description
+    names the installer without a hash, and the update parts hold no programs.
+
+    Before the first signature the certificate is checked with a fresh OCSP
+    answer (certutil -verify -urlfetch): Windows keeps a CRL for a week, so its
+    own checks can call a revoked certificate valid.
+
     Prerequisites: Inno Setup 6 (ISCC.exe, the version CI used), the Windows
     SDK's signtool.exe, SimplySign Desktop logged in with the Certum code signing
     certificate, the GitHub CLI (gh auth login) with write access, and Python
@@ -47,6 +58,9 @@
 
 .EXAMPLE
     .\scripts\release_windows.ps1 -Version 5.2.0-beta.1 -RunId 38200000000 -DryRun
+
+.EXAMPLE
+    .\scripts\release_windows.ps1 -Version 5.3.2 -Resign
 #>
 [CmdletBinding()]
 param(
@@ -64,7 +78,9 @@ param(
     # Pack with a different Inno Setup than CI smoke-tested (not recommended).
     [switch]$AllowInnoMismatch,
     # Stop before the confirmation so the signed installer on the draft can be installed and tried first.
-    [switch]$PauseBeforePublish
+    [switch]$PauseBeforePublish,
+    # Re-sign the Windows installer of a published release (its certificate was revoked).
+    [switch]$Resign
 )
 
 $ErrorActionPreference = "Stop"
@@ -198,12 +214,24 @@ function Test-OurSignature([string]$Path) {
             $signature.SignerCertificate.Thumbprint -eq $CertificateSha1.ToUpperInvariant())
 }
 
+function Assert-NotRevoked($Certificate) {
+    # certutil fetches a fresh OCSP answer; its exit code is 0 even for a revoked certificate.
+    $cer = Join-Path $scratch "signing.cer"
+    $answer = Join-Path $scratch "certutil.txt"
+    [IO.File]::WriteAllBytes($cer, $Certificate.RawData)
+    Save-Text $answer ((& certutil.exe -verify -urlfetch $cer) -join "`n")
+    if (-not (Test-Python @($Publish, "check-revocation", "--certutil-output", $answer))) {
+        Stop-Release "the certificate $CertificateSha1 cannot sign"
+    }
+    Write-Note "Certificate $CertificateSha1 is not revoked (OCSP); it expires $($Certificate.NotAfter.ToString('yyyy-MM-dd'))"
+}
+
 function Assert-SigningReady {
     # SimplySign Desktop exposes the Certum certificate while you are logged in:
     # log in once, before the first signature, and both files are signed in that session.
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         $certificate = Get-ChildItem -Path "Cert:\CurrentUser\My\$CertificateSha1" -ErrorAction SilentlyContinue
-        if ($certificate -and $certificate.HasPrivateKey) { return }
+        if ($certificate -and $certificate.HasPrivateKey) { Assert-NotRevoked $certificate; return }
         Write-Host "The Certum certificate $CertificateSha1 is not available." -ForegroundColor Yellow
         Read-Host "Log in to SimplySign Desktop (the code from your phone), then press Enter" | Out-Null
     }
@@ -226,6 +254,7 @@ function Assert-Signed([string]$Path) {
 # ── Preflight ───────────────────────────────────────────────────────────────
 
 if ($Version -notmatch '^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$') { throw "Version must look like 5.2.0 or 5.2.0-beta.1" }
+if ($Resign -and $DryRun) { throw "-Resign signs and replaces a published file; it has no dry run" }
 $Gh = Find-Tool $null @() "gh"
 if (-not $Gh) { throw "The GitHub CLI (gh) is required: https://cli.github.com, then gh auth login" }
 if (-not $Repository) { $Repository = if ($env:GH_REPO) { $env:GH_REPO } else { "siddsachar/row-bot" } }
@@ -338,6 +367,55 @@ if (-not $DryRun) {
     Assert-Signed $Launcher
     Assert-Signed $Server
     Assert-Signed $Installer
+}
+
+# ── -Resign: replace the installer of the published release ─────────────────
+
+if ($Resign) {
+    Write-Step "4. Check the published $Tag"
+    $AssetsFile = Join-Path $WorkDir "assets.json"
+    $ResignListing = Join-Path $WorkDir "resign-listing.json"
+    $resignCheck = @($Publish, "resign-listing", "--release", $ReleaseFile, "--installer-file", $Installer)
+    $release = Get-Draft
+    Save-DraftAssets $AssetsFile
+    if (-not (Test-Python ($resignCheck + @("--assets", $AssetsFile, "--out", $ResignListing)))) {
+        Stop-Release "$Tag changed since it was published"
+    }
+    $installerHash = Get-Sha256 $Installer
+    Write-Note "Every other file is still the one its SHA-256 block lists."
+
+    Write-Step "5. Replace $InstallerName on $Tag"
+    Write-Note "Re-signed installer: sha256 $installerHash"
+    Write-Host "   This replaces the installer of a published release and its line in the SHA-256 block." -ForegroundColor Yellow
+    $answer = Read-Host "   Type 'resign $Version' to replace it now (anything else changes nothing)"
+    if ($answer -ne "resign $Version") { Write-Note "Nothing changed."; exit 0 }
+    # The prompt may have waited a long time: check again right before the upload.
+    Get-Draft | Out-Null
+    Save-DraftAssets $AssetsFile
+    if (-not (Test-Python ($resignCheck + @("--assets", $AssetsFile, "--out", $ResignListing)))) {
+        Stop-Release "$Tag changed while waiting"
+    }
+    Invoke-Native -File $Gh -Arguments @("release", "upload", $Tag, $Installer, "-R", $Repository, "--clobber")
+    $release = Get-Release
+    $uploaded = @($release.assets | Where-Object { $_.name -eq $InstallerName })
+    if ($uploaded.Count -ne 1 -or ($uploaded[0].PSObject.Properties["digest"] -and $uploaded[0].digest -and $uploaded[0].digest -ne "sha256:$installerHash")) {
+        throw "The installer on $Tag is not the one signed here; run this script again"
+    }
+    $BodyFile = Join-Path $WorkDir "body-current.md"
+    $NewBody = Join-Path $WorkDir "body-with-manifest.md"
+    Save-Text $BodyFile ([string]$release.body)
+    Invoke-Python @((Join-Path $ScriptRoot "append_sha_manifest.py"), "--listing", $ResignListing, "--body-file", $BodyFile, "--write-body", $NewBody) | Out-Null
+    Invoke-Native -File $Gh -Arguments @("api", "-X", "PATCH", "repos/$Repository/releases/$script:ReleaseId",
+        "-f", "tag_name=$Tag", "-F", "body=@$NewBody")
+    Get-Release | Out-Null
+    $afterFile = Join-Path $WorkDir "assets-resigned.json"
+    Save-DraftAssets $afterFile
+    if (-not (Test-Python ($resignCheck + @("--assets", $afterFile, "--done")))) {
+        throw "Replaced the installer of $Tag, but the release does not hold and list it as signed here; run this script again"
+    }
+    Write-Step "Re-signed $Tag"
+    Write-Note "$InstallerName, sha256 $installerHash, signed with $CertificateSha1"
+    exit 0
 }
 
 # ── 4. The release's other files and the checks ─────────────────────────────
