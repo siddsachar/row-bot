@@ -57,17 +57,34 @@ def sandbox_workspace() -> Path | None:
     return Path(configured).expanduser().resolve()
 
 
+def own_workspaces() -> list[Path]:
+    """Workspaces that lie inside a private folder on purpose and stay the agent's to use: a sandbox's own
+    (5.3.1 B4); otherwise the default one, Documents/Row-Bot in the home folder. On a computer the home and the
+    data folder are apart, but in the container image the home is the data folder (HOME=/data), so the default
+    workspace lies inside it. A sandbox never gets the real Row-Bot's workspace."""
+    from row_bot.brand import DEFAULT_WORKSPACE_DIR_NAME
+
+    sandbox = sandbox_workspace()
+    if sandbox is not None:
+        return [sandbox]
+    return [(Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME).expanduser().resolve()]
+
+
 def is_private_data_path(path: str | os.PathLike[str]) -> bool:
-    """True when *path* is Row-Bot's data folder or the server secrets folder, or inside one of them; a
-    sandbox's own workspace, inside the folder it was started from, is not."""
+    """True when *path* is Row-Bot's data folder or the server secrets folder, or inside one of them; an own
+    workspace (``own_workspaces``) inside one of them is not."""
     try:
         resolved = Path(path).expanduser().resolve()
         folders = [folder.expanduser().resolve() for folder in private_data_dirs()]
-        workspace = sandbox_workspace()
+        workspaces = own_workspaces()
     except (OSError, ValueError):
         return False
-    own = workspace is not None and (resolved == workspace or workspace in resolved.parents)
-    return any((resolved == folder or folder in resolved.parents) and not (own and folder in workspace.parents)
+
+    def inside(child: Path, parent: Path) -> bool:
+        return child == parent or parent in child.parents
+
+    return any(inside(resolved, folder)
+               and not any(inside(resolved, workspace) and folder in workspace.parents for workspace in workspaces)
                for folder in folders)
 
 

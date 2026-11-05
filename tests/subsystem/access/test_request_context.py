@@ -319,6 +319,67 @@ def test_x_real_ip_without_x_forwarded_for_from_a_trusted_proxy_is_still_refused
         _railway_edge().resolve(_scope(client="100.64.0.3", host="row-bot.up.railway.app", headers=headers))
 
 
+def _railway_as_known_host() -> RequestContextResolver:
+    """The same server with ROW_BOT_HOSTED_BY=railway: Railway's edge names the visitor in X-Real-IP."""
+    return RequestContextResolver(
+        AccessConfig.from_env(
+            {
+                "ROW_BOT_DEPLOYMENT_MODE": "server",
+                "ROW_BOT_HOSTED_BY": "railway",
+                "ROW_BOT_TRUSTED_PROXY_CIDRS": "100.64.0.0/10",
+                "ROW_BOT_PUBLIC_URL": "https://row-bot.up.railway.app",
+            }
+        )
+    )
+
+
+def _through_railways_edge(real_ip: bytes | None) -> dict:
+    # As measured on a deploy: X-Forwarded-For is "<visitor>, <Railway's edge>", from 100.64.0.x.
+    headers = [(b"x-forwarded-for", b"203.0.113.7, 152.233.29.4"), (b"x-forwarded-proto", b"https")]
+    if real_ip is not None:
+        headers.append((b"x-real-ip", real_ip))
+    return _scope(client="100.64.0.9", host="row-bot.up.railway.app", headers=headers)
+
+
+def test_on_railway_the_visitor_is_the_edges_x_real_ip_not_the_edge_itself() -> None:
+    assert _railway_edge().resolve_provenance(_through_railways_edge(b"203.0.113.7")).effective_client == (
+        "152.233.29.4"
+    ), "without the known host, the walk stops at the edge"
+
+    provenance = _railway_as_known_host().resolve_provenance(_through_railways_edge(b"203.0.113.7"))
+
+    assert provenance.effective_client == "203.0.113.7"
+    assert provenance.scheme == "https" and provenance.trusted_proxy is True
+
+
+def test_on_railway_without_x_real_ip_the_walk_still_decides() -> None:
+    provenance = _railway_as_known_host().resolve_provenance(_through_railways_edge(None))
+
+    assert provenance.effective_client == "152.233.29.4"
+
+
+@pytest.mark.parametrize("value", [b"not-an-address", b"127.0.0.1", b"localhost", b"203.0.113.7, 198.51.100.1"])
+def test_on_railway_a_malformed_x_real_ip_is_refused(value: bytes) -> None:
+    with pytest.raises(RequestContextError, match="malformed_client_address"):
+        _railway_as_known_host().resolve(_through_railways_edge(value))
+
+
+def test_on_railway_x_real_ip_from_an_untrusted_peer_is_still_refused() -> None:
+    scope = _through_railways_edge(b"203.0.113.7")
+    scope["client"] = ("198.51.100.20", 51000)
+
+    with pytest.raises(RequestContextError, match="untrusted_forwarding_headers"):
+        _railway_as_known_host().resolve(scope)
+
+
+@pytest.mark.parametrize(("hosted_by", "header"), [("railway", "x-real-ip"), ("pikapods", None), ("", None),
+                                                    ("someone-else", None)])
+def test_only_a_known_hosts_reviewed_header_names_the_visitor(hosted_by: str, header: str | None) -> None:
+    config = AccessConfig.from_env({"ROW_BOT_HOSTED_BY": hosted_by})
+
+    assert config.client_address_header == header
+
+
 def test_x_real_ip_from_an_untrusted_peer_is_still_refused() -> None:
     headers = [
         (b"x-forwarded-for", b"203.0.113.7"),

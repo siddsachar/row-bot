@@ -5501,12 +5501,19 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         _l1a_saved["used"] = spending.used_this_month
         _l1a_saved["gpu_memory"] = hardware.gpu_memory
         _l1a_saved["memory_free"] = hardware.memory_free_for_training
+        from row_bot.application import client_learning
+        _l1a_saved["hardware_read"] = client_learning.read_learning_hardware
     if action == "preview":
         learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
         learning.invalidate()
         # The personal model's download (L2b): a stand-in whose states the specs set; never a real one.
         from row_bot.learning.training import downloads as _downloads
         _downloads._downloads = _FixtureDownloads()
+        # The hardware read's free space too, as the stand-in's: the runner's real disk would decide whether
+        # the download and starting-model asks may go ahead (CI runners can have less than they need).
+        from row_bot.application import client_learning
+        hardware_read = _l1a_saved["hardware_read"]
+        client_learning.read_learning_hardware = lambda **kwargs: {**hardware_read(**kwargs), "free_bytes": 512 * _GB}
     elif action in {"gpu", "small-gpu", "no-gpu"}:
         # A 16 GB laptop card (the 9B's smallest tier, O124) on a computer with memory to spare: the fake
         # card's memory and this computer's, never the real ones (a busy card or a computer short of
@@ -5577,6 +5584,8 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
             leftover.unlink(missing_ok=True)
         from row_bot.learning.training import downloads as _downloads
         _downloads._downloads = None
+        from row_bot.application import client_learning
+        client_learning.read_learning_hardware = _l1a_saved["hardware_read"]
         learning._PREVIEW = False
         learning.invalidate()
     else:

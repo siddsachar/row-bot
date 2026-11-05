@@ -447,6 +447,15 @@ class RequestContextResolver:
             )
             scheme = forwarded.scheme or scheme
             host = forwarded.host or direct_host
+            # A known host's proxy names the visitor in its own header, replacing any a visitor sent; its
+            # X-Forwarded-For can end at the host's edge, which the walk above stops at (Railway, R1).
+            client_header = self.config.client_address_header
+            raw_client = _single_header(headers, client_header) if client_header else ""
+            if raw_client:
+                named = normalize_ip(raw_client, allow_localhost=False)
+                if named is None or named.is_loopback:  # an edge never names this computer
+                    raise RequestContextError("malformed_client_address")
+                effective = named
 
         # Straight from this computer, a loopback name is always this computer, whatever a server's exact
         # ROW_BOT_ALLOWED_HOSTS lists: its health check and its own launcher ask by 127.0.0.1. A server grants
