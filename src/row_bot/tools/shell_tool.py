@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import platform
+import posixpath
 import re
 import threading
 import time
@@ -381,13 +382,21 @@ def _slashes(text: str) -> str:
     return re.sub(r"/+", "/", text.lower().replace("\\", "/"))
 
 
-def names_private_data(command: str) -> bool:
+def names_private_data(command: str, cwd: str | os.PathLike[str] | None = None) -> bool:
     """True when a command names a private part of Row-Bot's data folder or the server secrets folder: a
-    path in any common spelling, or its variable.
+    path in any common spelling, or its variable; with *cwd*, the folder the command runs in, a relative path
+    there too (F5).
 
     The data folder's shared parts (the managed ffmpeg, recordings, exports, logs) are not private: a
     command naming only them is classified like any other (5.3.1 A1).
     """
+    if _names_private_data(command):
+        return True
+    return cwd is not None and _reaches_private_data(command, cwd)
+
+
+def _names_private_data(command: str) -> bool:
+    """The data folder named in full, by its variable, or as a ".row-bot" word of its own."""
     text = _slashes(command)
     if APP_DATA_DIR_ENV.lower() in text or SERVER_SECRETS_DIR_ENV.lower() in text:
         return True
@@ -413,12 +422,109 @@ def names_private_data(command: str) -> bool:
     return _DATA_DIR_SEGMENT.search(text) is not None
 
 
+# What a command reaches by a relative path depends on the folder it runs in (F5): the shell session's own,
+# and wherever a "cd" earlier on the line moved it. In the container image the default workspace and the home
+# folder lie inside the data folder (HOME=/data), and on a computer "../.." from Documents/Row-Bot is the home
+# folder with ".row-bot" in it, so "cat ../../.row-bot/threads.db" names no private folder in so many words.
+_FOLDER_CHANGES = frozenset({"cd", "chdir", "pushd", "set-location", "sl", "push-location"})
+# Where one command ends and the next begins: sh's and PowerShell's separators, cmd's "&", a pipe, a new line.
+_COMMAND_BREAKS = re.compile(r"&&|\|\||[;&|\n]")
+_COMMAND_WORDS = re.compile(r"\"([^\"]*)\"|'([^']*)'|([^\s\"']+)")
+_GLOB = re.compile(r"[*?\[]")
+_DRIVE_ROOT = re.compile(r"^[a-z]:/")
+# Folders a line may be in, at most: each "cd" adds where it leads from each folder so far.
+_MAX_FOLDERS = 16
+
+
+def _absolute_path(word: str, folder: str, home: str) -> str:
+    """*word* (with / separators, lower case) as an absolute path from *folder*, "~" and its spellings
+    being the home folder."""
+    word = _HOME_REFERENCES.sub(lambda _match: home, word)
+    if not (word.startswith("/") or _DRIVE_ROOT.match(word)):
+        word = f"{folder.rstrip('/')}/{word}"
+    return posixpath.normpath(word)
+
+
+def _private_place(path: str, folders: list[str], data_dir: str, owns: list[str]) -> bool:
+    """True when the absolute *path* is a private folder or inside one, by the rules for a path named in full:
+    an own workspace inside it is the agent's, and so are the data folder's shared parts."""
+    for folder in folders:
+        if path != folder and not path.startswith(folder + "/"):
+            continue
+        if any(path == own or path.startswith(own + "/") for own in owns if own.startswith(folder + "/")):
+            continue
+        inside = path[len(folder):].strip("/")
+        if folder == data_dir and inside and shared_data_folder(inside):
+            continue
+        return True
+    return False
+
+
+def _reaches_private_data(command: str, cwd: str | os.PathLike[str]) -> bool:
+    """True when a word of *command*, taken as a path from the folder it runs in, lands in a private folder.
+
+    A word with a separator, ".", "..", "~" or a wildcard is a path; any other word counts when a file or
+    folder of that name is there (``cat threads.db`` run inside the data folder). A "cd", "pushd" or
+    "Set-Location" moves what follows it on the line, and where it leads counts too.
+    """
+    home_real = str(Path.home())
+    home = _slashes(home_real)
+    data_dir = _slashes(str(get_row_bot_data_dir(create=False).expanduser().resolve()))
+    owns = [_slashes(str(workspace)) for workspace in own_workspaces()]
+    folders = [_slashes(str(folder.expanduser().resolve())) for folder in private_data_dirs()]
+    start = os.path.abspath(os.path.expanduser(str(cwd)))
+    places = [(_slashes(start), start)]
+
+    def private(word: str, folder: str) -> bool:
+        return _private_place(_absolute_path(_slashes(word), folder, home), folders, data_dir, owns)
+
+    for segment in _COMMAND_BREAKS.split(command):
+        words = [next(group for group in match.groups() if group is not None).strip("(){},")
+                 for match in _COMMAND_WORDS.finditer(segment)]
+        words = [word for word in words if word]
+        if not words:
+            continue
+        if words[0].lower().removesuffix(".exe") in _FOLDER_CHANGES:
+            # "cd" alone (or "cd ~") goes home; cmd's "/d" and options are not the folder.
+            targets = [word for word in words[1:] if not word.startswith("-") and word.lower() != "/d"]
+            target = targets[0] if targets else "~"
+            moved = []
+            for folder, real in places:
+                if targets and private(target, folder):
+                    return True
+                expanded = home_real + target[1:] if target.startswith("~") else target
+                moved_real = os.path.normpath(os.path.join(real, expanded))
+                moved.append((_absolute_path(_slashes(target), folder, home), moved_real))
+            places = (places + moved)[:_MAX_FOLDERS]
+            continue
+        for index, word in enumerate(words):
+            for part in (word, word.rsplit("=", 1)[1]) if "=" in word else (word,):
+                if not part or part.startswith("-"):
+                    continue
+                slashed = part.replace("\\", "/")
+                pathlike = ("/" in slashed or part in (".", "..") or part.startswith("~")
+                            or _GLOB.search(part) is not None)
+                if index == 0 and "/" not in slashed:
+                    continue  # The program's name, found on PATH.
+                for folder, real in places:
+                    if not pathlike and not os.path.lexists(os.path.join(real, part)):
+                        continue
+                    if private(part, folder):
+                        return True
+    return False
+
+
 def _append_process_note(output: str, note: str) -> str:
     text = str(output or "").rstrip()
     return f"{text}\n{note}" if text else note
 
 
-def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None) -> str:
+def classify_command(
+    command: str,
+    extra_blocked: list[re.Pattern] | None = None,
+    *,
+    cwd: str | os.PathLike[str] | None = None,
+) -> str:
     """Classify a command as ``'safe'``, ``'needs_approval'``, ``'private_data'`` or ``'blocked'``.
 
     Parameters
@@ -427,6 +533,9 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
         The shell command to classify.
     extra_blocked : list[re.Pattern] | None
         Additional user-configured blocked patterns.
+    cwd : str | os.PathLike | None
+        The folder it runs in, the shell session's own: a relative path into the data folder from
+        there is private data too (F5).
 
     Returns
     -------
@@ -445,7 +554,7 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            line_class = classify_command(line, extra_blocked)
+            line_class = classify_command(line, extra_blocked, cwd=cwd)
             # A trailing backslash joins the next line onto this one in sh, so "find . -name \" and
             # "ls -delete" are each safe but together delete.
             if line_class == "safe" and line.endswith("\\") and index < len(lines) - 1:
@@ -454,6 +563,9 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
                 worst = line_class
             if worst == "blocked":
                 return "blocked"
+        # A "cd" on one line moves the lines after it, which run in the same shell.
+        if cwd is not None and severities[worst] < severities["private_data"] and names_private_data(cmd, cwd):
+            return "private_data"
         return worst
 
     # Check built-in blocked patterns
@@ -467,7 +579,7 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
             if pattern.search(cmd):
                 return "blocked"
 
-    if names_private_data(cmd):
+    if names_private_data(cmd, cwd):
         return "private_data"
 
     # Safe when the line runs one read-only program, or pipes one into read-only filters: no chaining,
@@ -992,6 +1104,10 @@ class ShellTool(BaseTool):
                 f"🚫 BLOCKED: This command matches a blocked pattern and "
                 f"cannot be executed: {command}"
             )
+        # From the folder this conversation's shell is in now: a relative path counts from there (F5).
+        thread_id, session_key, session = self._session_for(runtime_config)
+        if classification != "private_data" and names_private_data(command, session.cwd):
+            classification = "private_data"
 
         risks: tuple[str, ...] = ("runs a command that can change things on this computer",)
         if background:
@@ -1001,7 +1117,6 @@ class ShellTool(BaseTool):
         if _installs_system_software(command):
             # The Auto reviewer passed `winget install` as "a necessary step" of a video (D3): never its call.
             risks += (approval_gate.SYSTEM_INSTALL_RISK,)
-        thread_id, session_key, session = self._session_for(runtime_config)
         refusal, approval = self._gate(
             command=command,
             classification=classification,
@@ -1104,7 +1219,8 @@ class ShellTool(BaseTool):
             return f"Error: the folder {where} doesn't exist. Pass an existing folder, or leave it out to use {session.cwd}."
 
         # Classified exactly like run_command; the variables' values count as part of the command.
-        classification = classify_command("\n".join([command, *variables.values()]), self._get_extra_blocked())
+        classification = classify_command(
+            "\n".join([command, *variables.values()]), self._get_extra_blocked(), cwd=where)
         if classification == "blocked":
             return (
                 f"🚫 BLOCKED: This command matches a blocked pattern and "

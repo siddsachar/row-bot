@@ -65,10 +65,12 @@ def _when(at: str, in_minutes: float) -> datetime | None:
 
 def _check_approval(command: str, every_minutes: float, label: str) -> str | None:
     """A check's command is classified as run_command classifies it, once, when the wait is set; the refusal or None."""
+    from row_bot.data_paths import default_workspace_root
     from row_bot.tools import approval_gate
     from row_bot.tools.shell_tool import classify_command
 
-    kind = classify_command(command)
+    # A check runs in the default workspace (waits.py): a relative path counts from there (F5).
+    kind = classify_command(command, cwd=default_workspace_root())
     if kind == "blocked":
         return f"BLOCKED: that command can't run: {command}"
     if kind == "private_data":
