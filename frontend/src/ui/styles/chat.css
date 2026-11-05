@@ -1771,6 +1771,18 @@
   gap: 8px;
   margin-top: 12px;
 }
+/* Earlier versions of a reply's newest video: one quiet row, opened on demand. */
+.transcript-earlier-videos > .disclosure-summary {
+  width: fit-content;
+  min-height: 28px;
+  padding-inline-end: 6px;
+}
+.transcript-earlier-videos > .disclosure-body {
+  padding: 0 0 4px;
+}
+.transcript-earlier-videos .transcript-cards {
+  margin-top: 4px;
+}
 .transcript-card {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;

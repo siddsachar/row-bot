@@ -139,6 +139,40 @@ def test_reloaded_trace_reads_only_reviewed_tool_arguments(platform):
     assert "do-not-project" not in json.dumps(trace)
 
 
+def test_reloaded_steps_run_through_tool_invoke_keep_their_tool_and_video_cards(platform):
+    """A discovered tool runs through tool_invoke: after a reload its step still names that tool and its
+    video edit and video project cards still show, as they did live (not only the recording's)."""
+    from row_bot import threads
+
+    def invoked(call: str, tool: str) -> dict:
+        return {"id": call, "name": "tool_invoke", "args": {"name": tool, "arguments": {"inputs": ["rec-1a2b3c4d"]}}}
+
+    assert threads.append_checkpoint_messages("conversation-a", [
+        AIMessage(content="", id="video-owner", tool_calls=[
+            {"id": "call-record", "name": "computer_record", "args": {"action": "stop"}},
+            invoked("call-trim", "edit_video"),
+            invoked("call-zoom", "edit_video"),
+            invoked("call-project", "video"),
+        ]),
+        ToolMessage(content="Recording rec-1a2b3c4d: saved 0:42 of the screen.", id="r-record",
+                    tool_call_id="call-record"),
+        ToolMessage(content="Video edit edit-0a1b2c3d: saved 0:30 of video to this chat's files as trimmed.mp4.",
+                    id="r-trim", tool_call_id="call-trim", name="tool_invoke"),
+        ToolMessage(content="Approval: asked; approved by you\nVideo edit edit-0a1b2c3e: saved 0:30 of video.",
+                    id="r-zoom", tool_call_id="call-zoom", name="tool_invoke"),
+        ToolMessage(content='Video project vid-0a1b2c3f: "Demo", version 1 of 1, 2 scenes, made.',
+                    id="r-project", tool_call_id="call-project", name="tool_invoke"),
+    ])
+
+    items = [item for group in platform.transcript("conversation-a")["rows"][0]["traces"] for item in group["items"]]
+    cards = [(item["specialization"] or {}).get("kind") for item in items]
+    assert cards == ["recording", "video_edit", "video_edit", "video_project"]
+    assert [item["specialization"].get(key) for item, key in zip(items[1:], ("edit_id", "edit_id", "project_id"))] == [
+        "edit-0a1b2c3d", "edit-0a1b2c3e", "vid-0a1b2c3f"]
+    assert "tool_invoke" not in json.dumps(items)
+    assert "rec-1a2b3c4d" not in json.dumps([item["safe_input"] for item in items])
+
+
 def test_reloaded_trace_restores_only_opaque_generated_media_metadata(platform):
     from row_bot import threads
     from row_bot.api.v1.schemas import TranscriptPage

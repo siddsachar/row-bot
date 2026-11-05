@@ -91,6 +91,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   embeds = NO_BLOCKS,
   media = NO_MEDIA,
   cards = NO_CARDS,
+  earlierCards = NO_CARDS,
   agents = NO_AGENTS,
   turnStart = false,
   latest = false,
@@ -114,6 +115,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   media?: GeneratedMedia[];
   /** A design or code folder the turn created, a connection it needs. */
   cards?: TranscriptCard[];
+  /** Earlier versions of the reply's newest video, folded under it. */
+  earlierCards?: TranscriptCard[];
   /** Agents the turn started, shown as live stubs (B241). */
   agents?: TracedAgent[];
   /** This row begins a speaker's turn: it carries their marker (B271). */
@@ -385,7 +388,11 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />
           </div>
         )}
-        <TranscriptCards cards={cards} conversation={conversationId} />
+        <TranscriptCards
+          cards={cards}
+          earlier={earlierCards}
+          conversation={conversationId}
+        />
         {!!media.length && (
           <div className="message-media-grid" data-count={media.length}>
             {media.map((item) => (

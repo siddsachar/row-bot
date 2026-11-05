@@ -102,6 +102,11 @@ def test_an_edit_video_step_shows_its_edit_s_card():
                     "Approval: asked; approved by you\nVideo edit edit-0a1b2c3d: getting ffmpeg, 3 MB of 30 MB."):
         specialization = specialize_tool_result({"name": "edit_video", "content": content})
         public = _public_specialization(specialization)
-        assert (public["kind"], public["edit_id"]) == ("video_edit", "edit-0a1b2c3d")
+        assert (public["kind"], public["edit_id"], public["media_kind"]) == ("video_edit", "edit-0a1b2c3d", "")
+    # Stills are marked, so the chat never folds a video under them.
+    for content in ("Video edit edit-0a1b2c3d: saved 4 frames (at 0:01, 0:02) to this chat's files; …",
+                    "Video edit edit-0a1b2c3d: taking the frames. It carries on in the background …"):
+        public = _public_specialization(specialize_tool_result({"name": "edit_video", "content": content}))
+        assert (public["kind"], public["media_kind"]) == ("video_edit", "frames")
     assert specialize_tool_result({"name": "run_command", "content": "Video edit edit-0a1b2c3d: x"}) is None
     assert specialize_tool_result({"name": "edit_video", "content": "Couldn't find demo.mp4."}) is None
