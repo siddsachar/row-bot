@@ -118,3 +118,15 @@ it('speaks in the host’s own words: Railway’s service, which its owner updat
   );
   expect(card.textContent).not.toMatch(/pod|backups/);
 });
+
+it('says memory in the unit the host set: Railway’s 8 GB limit is 8 GB, not 7.5 (F1)', () => {
+  render(
+    <HostedByCard
+      host={railway}
+      memory={{ limit_bytes: 8_000_000_000, used_bytes: 1_100_000_000 }}
+      version="5.3.3"
+    />,
+  );
+  const card = screen.getByRole('region', { name: 'Hosted by Railway' });
+  expect(within(card).getByText('Memory 1.1 GB of 8 GB')).toBeVisible();
+});

@@ -105,13 +105,15 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
 }, testInfo) => {
   await fixture(page, '/__r1_fixture/host/railway');
   await fixture(page, '/__a7_fixture/place/hosted');
-  await fixture(page, '/__a8_fixture/memory/4');
+  // Railway sets limits in decimal GB: 8,000,000,000 bytes reads 8 GB, not 7.5 (F1).
+  await fixture(page, '/__a8_fixture/memory/8?unit=gb');
 
   await page.goto('/app-v2/settings/system');
   const card = page.getByRole('region', { name: 'Hosted by Railway' });
   await expect(
     card.getByText(/^Row-Bot .+ · you update it in Railway$/),
   ).toBeVisible();
+  await expect(card.getByText('Memory 2.0 GB of 8 GB')).toBeVisible();
   for (const [name, url] of [
     ['Manage your service in Railway', 'https://railway.com/dashboard'],
     ['Railway support', 'https://station.railway.com/'],

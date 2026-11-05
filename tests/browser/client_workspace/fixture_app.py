@@ -4645,7 +4645,8 @@ _a8_cgroup: Path | None = None
 
 
 @app.post("/__a8_fixture/memory/{gb}")
-def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
+def a8_memory(gb: str, unit: str = "gib", x_fixture_token: str = Header(default="")) -> dict:
+    """``unit=gb``: a limit in decimal GB, as Railway sets one (F1); else in GiB, as Docker's ``--memory``."""
     global _a8_cgroup
     predecessor._authorize(x_fixture_token)
     if gb == "off":
@@ -4654,7 +4655,7 @@ def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
         _server_memory.CGROUP_ROOT = None
         return {"limit_bytes": None}
     try:
-        size = int(float(gb) * 2**30)
+        size = int(float(gb) * (10**9 if unit == "gb" else 2**30))
     except ValueError:
         raise HTTPException(status_code=422, detail="Unknown memory size") from None
     import tempfile

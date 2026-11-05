@@ -16,11 +16,6 @@ function webPage(url: string | null | undefined): url is string {
   }
 }
 
-/** Memory in use as people read it: "1.4 GB". */
-function inUse(bytes: number) {
-  return `${Math.max(0.1, bytes / 2 ** 30).toFixed(1)} GB`;
-}
-
 /**
  * U5: the top of Settings › System on a Row-Bot that a known host runs (H13).
  * Who runs it, its version and who updates it (the host, or its owner there),
@@ -66,7 +61,7 @@ export default function HostedByCard({
           memory && (
             <span className="hosted-by-memory">
               <span>
-                Memory {inUse(memory.used_bytes)} of{' '}
+                Memory {sizeWords(memory.used_bytes, memory.limit_bytes)} of{' '}
                 {sizeWords(memory.limit_bytes)}
               </span>
               <progress

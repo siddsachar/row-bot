@@ -114,6 +114,18 @@ def test_a_big_server_that_ran_out_is_told_to_grow_not_to_become_4_gb(cgroup, mo
     assert problem["detail"].endswith("Make the pod bigger in PikaPods, or use cloud speech-to-text.")
 
 
+@pytest.mark.parametrize(("size", "words"), [(8_000_000_000, "8 GB"), (999_997_440, "1 GB")])
+def test_railways_limits_are_said_as_railway_sets_them(cgroup, monkeypatch, size, words):
+    # Railway sets limits in decimal GB: 8 GB, and its trial's 1 GB (as the kernel keeps it, in whole pages).
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    ran_out_of_memory(cgroup, size)
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        [problem] = problems(client, headers)
+    assert problem["detail"].startswith(f"Your server has {words}. Local speech-to-text")
+
+
 def test_dismissing_the_notice_keeps_it_away_until_another_such_restart(cgroup):
     ran_out_of_memory(cgroup)
     client, _, _ = client_app(remote=True)

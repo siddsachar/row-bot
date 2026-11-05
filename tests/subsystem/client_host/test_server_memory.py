@@ -173,7 +173,20 @@ def test_a_server_resized_since_puts_the_notice_away(cgroup):
 
 
 @pytest.mark.parametrize(("size", "words"), [
-    (2 * GB, "2 GB"), (2_000_000_000, "2 GB"), (3 * GB // 2, "1.5 GB"), (4 * GB, "4 GB"), (GB // 4, "0.5 GB"),
+    # Railway's 8 GB, and its trial's 1 GB and a 2 GB limit as the kernel keeps them (in whole pages).
+    (8_000_000_000, "8 GB"), (999_997_440, "1 GB"), (1_999_998_976, "2 GB"),
+    # Docker's --memory 4g and 2g.
+    (4 * GB, "4 GB"), (2 * GB, "2 GB"),
+    # Anything else: decimal GB to one place.
+    (2_500_000_000, "2.5 GB"), (3 * GB // 2, "1.6 GB"), (GB // 4, "0.3 GB"),
 ])
-def test_sizes_are_said_as_people_say_them(size, words):
+def test_a_limit_is_said_in_the_unit_the_host_set_it_in(size, words):
     assert server_memory.size_words(size) == words
+
+
+@pytest.mark.parametrize(("used", "limit", "words"), [
+    (1_100_000_000, 8_000_000_000, "1.1 GB"), (2_000_000_000, 8_000_000_000, "2.0 GB"),
+    (int(1.4 * GB), 4 * GB, "1.4 GB"), (10_000_000, 8_000_000_000, "0.1 GB"),
+])
+def test_memory_in_use_is_said_to_one_place_in_the_limits_unit(used, limit, words):
+    assert server_memory.size_words(used, limit) == words
