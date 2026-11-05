@@ -181,6 +181,19 @@ def sign_in(install: dict | None, auth_mode: str = "", requires_auth: bool = Fal
     return "none" if auth_mode == "none" or (not install.get("url") and launchable(install)) else "unknown"
 
 
+def shipped_signals(url: str, registry_name: str, updated: int) -> dict:
+    """What the signals shipped with this release say about a listing's repository and Registry record.
+    Read from the installed file only; Row-Bot never asks GitHub or the Registry for them."""
+    from row_bot.mcp_client import registry_signals
+    found = registry_signals.repository(facts.repository(url))
+    first = registry_signals.record(registry_name)[0] if registry_name else 0
+    pushed = found.pushed if found else 0
+    public = {"stars": found.stars if found else None, "last_activity_at": pushed or updated or None}
+    return {"pushed_at": pushed, "archived": bool(found and found.archived), "fork_parent": found.parent if found else "",
+            "fork": bool(found and found.fork), "first_published": first, "licence": found.licence if found else "",
+            "signals": {key: value for key, value in public.items() if value is not None} or None}
+
+
 class _McpCatalog(Source):
     kind = "mcp"
 
@@ -203,17 +216,19 @@ class _McpCatalog(Source):
         known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not (entry.install or {}).get("url") or bool(
             app and app.auth in {"oauth", "api_key", "none"})
         updated = index.epoch(metadata.get("updated_at", ""))
+        shipped = shipped_signals(entry.url, canonical, updated)
         row = _available("mcp", entry.source + ":" + entry.id, name, app=app, source=entry.source,
             verified=apps.verified(app, refs), setup_tier=0 if supported and known else 1 if supported else 2,
             updated_at=updated, icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
             # A Registry record is also known by its server part ("reddit-mcp-buddy"), as the index matches it.
             keywords=[canonical.rpartition("/")[2]] if canonical else [], has_icon=bool(metadata.get("icon")),
             sign_in=sign_in(entry.install, metadata.get("auth_mode", ""), entry.requires_auth),
-            signals={"last_activity_at": updated} if updated else None,
+            signals=shipped["signals"], pushed_at=shipped["pushed_at"], archived=shipped["archived"],
+            fork_parent=shipped["fork_parent"], fork=shipped["fork"], first_published=shipped["first_published"],
             identities=facts.merge_keys(entry.install, entry.url, name),
             unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
             description=entry.description[:2048], source_url=public_url(entry.url), publisher=publisher[:160],
-            compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
+            compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license") or shipped["licence"],
             pin=metadata.get("version_policy", ""), version=str(metadata.get("version", ""))[:128],
             auth_requirement="required" if entry.requires_auth else "unknown", auth_mode=metadata.get("auth_mode", ""),
             canonical_identity=mcp_identity(entry.install, metadata.get("version", ""), metadata.get("canonical_name", ""),

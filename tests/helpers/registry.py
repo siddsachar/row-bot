@@ -8,13 +8,21 @@ import pytest
 
 
 def use_registry(monkeypatch: pytest.MonkeyPatch, folder: Path, entries: list, *,
-                 watermark: str = "2026-10-01T00:00:00Z", captured_at: float = 1790800000.0) -> Path:
-    """Ship ``entries`` as the release snapshot and build the local index from it, as start-up does."""
+                 watermark: str = "2026-10-01T00:00:00Z", captured_at: float = 1790800000.0,
+                 repositories: dict | None = None, records: dict | None = None) -> Path:
+    """Ship ``entries`` as the release snapshot (with quality signals for ``repositories``, ``host/owner/repo``
+    to ``registry_signals.Repository``, and ``records``, Registry name to (first published, versions)) and
+    build the local index from it, as start-up does."""
     from row_bot.integrations import index
-    from row_bot.mcp_client import registry_snapshot
+    from row_bot.mcp_client import registry_signals, registry_snapshot
     path = folder / "registry_snapshot.jsonl.xz"
     path.write_bytes(registry_snapshot.build_snapshot(entries, captured_at=captured_at, watermark=watermark))
     monkeypatch.setattr(registry_snapshot, "SHIPPED", path)
+    if repositories or records:
+        signals = folder / "registry_signals.json.xz"
+        signals.write_bytes(registry_signals.encode(captured_at=captured_at, snapshot_digest=registry_snapshot.read_header(path)["digest"],
+                                                    repositories=repositories or {}, records=records or {}))
+        monkeypatch.setattr(registry_signals, "SHIPPED", signals)
     index.ensure()
     return path
 

@@ -3,6 +3,7 @@ apps and built-in ways. A change to the ranking weights in ``integrations/source
 is a reviewed change, never a silent one."""
 from datetime import date, timedelta
 import socket
+import time
 
 import pytest
 
@@ -10,6 +11,7 @@ from row_bot.application import client_integrations as api
 from row_bot.integrations import sources
 from row_bot.integrations.safe import TtlCache
 from row_bot.mcp_client import marketplace
+from row_bot.mcp_client.registry_signals import Repository
 from tests.helpers.registry import search_catalog, use_registry
 
 
@@ -36,10 +38,11 @@ REGISTRY = [
     listing("io.github.karanb192/reddit-mcp-buddy", npm="reddit-mcp-buddy", version="1.1.14",
             description="Reddit browser for AI assistants. Browse without API keys; add credentials for search and analysis."),
     listing("io.github.jordanburke/reddit-mcp-server", npm="reddit-mcp-server", version="1.6.3",
+            repo="https://github.com/jordanburke/reddit-mcp-server",
             description="Reddit MCP server with full read/write - posts, comments, search, and content creation."),
     listing("com.example/reddit", "Reddit", url="https://reddit.example.test/mcp", days=400,
             description="Reddit data for agents. Pay per call."),
-    listing("io.github.someone/reddit-ads", "Reddit Ads", npm="reddit-ads-mcp", days=200,
+    listing("io.github.someone/reddit-ads", "Reddit Ads", npm="reddit-ads-mcp", days=200, repo="https://github.com/someone/reddit-ads",
             description="Manage Reddit advertising: campaigns, ad groups and reports from your ads account."),
     listing("io.github.digest/subreddit-digest", "Subreddit digest", npm="subreddit-digest",
             description="A daily digest of the subreddits you follow, summarised for busy readers who skim."),
@@ -52,6 +55,7 @@ REGISTRY = [
     listing("io.github.someone/slack-bot", "Slack bot", npm="slack-bot-mcp",
             description="Post to Slack channels from an assistant using your own Slack bot token."),
     listing("io.github.crystaldba/postgres-mcp", "Postgres MCP Pro", npm="postgres-mcp", icon="https://crystaldba.example.test/i.png",
+            repo="https://github.com/crystaldba/postgres-mcp",
             description="Postgres tuning and query analysis: index advice, health checks and safe SQL for your database."),
     listing("io.github.someone/postgres", "Postgres", npm="pg-mcp", days=500, description="Postgres."),
     listing("io.github.someone/calendar-sync", "Calendar sync", npm="calendar-sync",
@@ -59,6 +63,14 @@ REGISTRY = [
     listing("io.github.someone/filesystem", "Filesystem", npm="fs-mcp", days=300,
             description="Read and write files in folders you choose."),
 ]
+
+
+# Shipped signals for some of them: a popular community server, a stale one and a well-kept database tool.
+SIGNALS = {
+    "github.com/jordanburke/reddit-mcp-server": Repository(310, int(time.time()) - 5 * 86400, False, "", "MIT"),
+    "github.com/someone/reddit-ads": Repository(4, int(time.time()) - 300 * 86400, False, "", ""),
+    "github.com/crystaldba/postgres-mcp": Repository(2100, int(time.time()) - 20 * 86400, False, "", "MIT"),
+}
 
 
 def summary(page):
@@ -84,7 +96,7 @@ def summary(page):
     ("filesystem", "filesystem", [("filesystem", "reviewed", "exact"), ("Filesystem", "community", "exact")]),
 ])
 def test_golden_queries(local, monkeypatch, query, best, first):
-    use_registry(monkeypatch, local, REGISTRY)
+    use_registry(monkeypatch, local, REGISTRY, repositories=SIGNALS)
     page = search_catalog(kind="app", query=query)
     assert summary(page) == (best, first)
     assert sum(page["label_counts"].values()) == page["total"]
