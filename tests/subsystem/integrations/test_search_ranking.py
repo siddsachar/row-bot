@@ -82,15 +82,15 @@ def summary(page):
 
 @pytest.mark.parametrize(("query", "best", "first"), [
     # Reddit publishes no server: the reviewed community one leads; the Registry's copy of it is the same card,
-    # and "subreddit" alone never matches.
-    ("reddit", "reddit", [("reddit", "reviewed", "exact"), ("Reddit", "community", "exact"),
-                          ("reddit-mcp-server", "community", "name"), ("Reddit Ads", "community", "name")]),
+    # "subreddit" alone never matches, and a well-kept community server comes before a bare one named "Reddit".
+    ("reddit", "reddit", [("reddit", "reviewed", "exact"), ("reddit-mcp-server", "community", "name"),
+                          ("Reddit Ads", "community", "name"), ("Reddit", "community", "exact")]),
     ("notion", "notion", [("notion", "official", "exact"), ("Notion helper", "community", "name")]),
     ("github", "github", [("github", "official", "exact"), ("GitHub helper", "community", "name")]),
     ("slack", "slack", [("slack", "official", "exact"), ("Slack bot", "community", "name")]),
     # No vendor makes Postgres itself: hosts that run it first, then a reviewed connector, then the community.
     ("postgres", "supabase", [("supabase", "official", "name"), ("render", "official", "name"), ("dbhub", "reviewed", "name"),
-                              ("Postgres", "community", "exact"), ("Postgres MCP Pro", "community", "name")]),
+                              ("Postgres MCP Pro", "community", "name"), ("Postgres", "community", "exact")]),
     ("calendar", "google", [("google", "built_in", "name"), ("outlook", "built_in", "name"),
                             ("Calendar sync", "community", "name")]),
     ("filesystem", "filesystem", [("filesystem", "reviewed", "exact"), ("Filesystem", "community", "exact")]),
@@ -206,7 +206,7 @@ def test_a_fork_folds_into_its_parent_unless_it_has_more_stars():
                            row("Tracker fork", "fan/tracker", parent="github.com/maker/tracker", stars=2),
                            row("Tracker copy", "other/tracker", parent="github.com/maker/tracker", stars=0),
                            row("Tracker plus", "star/tracker", parent="github.com/maker/tracker", stars=900)], "tracker")
-    assert [(r["name"], r["forks"]) for r in ranked] == [("Tracker", 2), ("Tracker plus", 0)]
+    assert [(r["name"], r["forks"]) for r in ranked] == [("Tracker plus", 0), ("Tracker", 2)]
 
 
 def test_a_shared_endpoint_serving_different_tools_is_not_one_deployment():

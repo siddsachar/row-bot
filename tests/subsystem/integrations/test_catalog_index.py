@@ -111,7 +111,8 @@ def test_ranking_key_gates_on_relevance_then_who_stands_behind_it_then_quality()
                      key(name="described official", label="official", match=sources.DESCRIPTION)])
     # A community record never outranks a vendor's or a reviewed one on its name alone; nothing found only in a
     # description outranks a name.
-    assert [k[-2] for k in ranked] == ["reviewed exact", "featured", "official", "exact", "good", "setup1",
+    # Among community results quality orders before an exact name: a bare copy of a name never leads.
+    assert [k[-2] for k in ranked] == ["reviewed exact", "featured", "official", "good", "exact", "setup1",
                                        "described official", "described"]
 
 

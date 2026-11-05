@@ -338,8 +338,8 @@ def _order(strong: str) -> str:
     quality = (f"e.merit + CASE WHEN e.archived THEN {ARCHIVED} WHEN e.pushed = 0 THEN 0 WHEN :now - e.pushed <= {90 * 86400} "
                f"THEN {ACTIVE} WHEN :now - e.pushed <= {365 * 86400} THEN {ALIVE} ELSE 0 END - CASE WHEN e.first > 0 AND "
                f":now - e.first < {NEW_DAYS * 86400} AND e.stars = 0 THEN {NEW} ELSE 0 END")
-    return (f"ORDER BY ({match}) = 2, NOT e.verified, {match}, COALESCE(e.featured, 1000000), -({quality}), e.setup, "
-            "lower(e.title), e.name LIMIT :limit")
+    return (f"ORDER BY ({match}) = 2, NOT e.verified, CASE WHEN e.verified THEN {match} ELSE 0 END, "
+            f"COALESCE(e.featured, 1000000), -({quality}), {match}, e.setup, lower(e.title), e.name LIMIT :limit")
 
 
 _NAMESPACE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+(/[a-z0-9._-]*)?")

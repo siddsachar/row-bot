@@ -721,7 +721,7 @@ ARCHIVED = -2                  # Its repository is archived.
 COMPLETE_WORDS = 12            # A description of at least this many words; a licence; an icon; a known sign-in: 1 each.
 FORK = 3                       # A fork whose parent is listed too.
 NEW, NEW_DAYS = 2, 30          # A first version under 30 days old that nobody has starred yet.
-BEST_QUALITY = 6               # A community result good enough to lead the results as their best match.
+BEST_STANDING = 6              # Stars and activity (about 50 stars, kept up) that let a community result lead.
 
 
 def label(row: dict) -> str:
@@ -751,11 +751,14 @@ def merit(*, stars: int, words: int, licence: bool, icon: bool, sign_in_known: b
             - FORK * int(fork))
 
 
+def activity(pushed: float, archived: bool, now: float) -> int:
+    return (ARCHIVED if archived else 0 if not pushed else ACTIVE if now - pushed <= 90 * _DAY
+            else ALIVE if now - pushed <= 365 * _DAY else 0)
+
+
 def quality(merit_: float, *, stars: int, pushed: float, archived: bool, first: float, now: float) -> float:
     """Merit plus activity, less a new listing nobody has starred: the index computes the same in SQL."""
-    activity = (ARCHIVED if archived else 0 if not pushed else ACTIVE if now - pushed <= 90 * _DAY
-                else ALIVE if now - pushed <= 365 * _DAY else 0)
-    return merit_ + activity - (NEW if first and now - first < NEW_DAYS * _DAY and not stars else 0)
+    return merit_ + activity(pushed, archived, now) - (NEW if first and now - first < NEW_DAYS * _DAY and not stars else 0)
 
 
 def row_quality(row: dict, now: float) -> float:
@@ -766,14 +769,24 @@ def row_quality(row: dict, now: float) -> float:
                    first=row["first_published"], now=now)
 
 
+def standing(row: dict, now: float) -> float:
+    """Popularity and upkeep alone (stars and activity): what lets a community result lead as the best match,
+    where a complete listing nobody uses should not."""
+    stars = (row["signals"] or {}).get("stars") or 0
+    return STARS * math.log10(1 + stars) + activity(row["pushed_at"] or row["updated_at"], row["archived"], now)
+
+
 def order(*, match: int, label: str, featured_rank: int | None, quality: float, setup: int, popularity: int = 0,
           precedence: int = 0, name: str, ident: str) -> tuple:
     """The one ranking key, inside the Registry index and across sources. Relevance gates: a name match
     (exact or every word) before one found only in a description, and a community record never wins on its
-    name alone. Then an exact name ("git" is Git before GitHub), who stands behind it (official and built in,
-    reviewed), Row-Bot's featured order, quality, setup (hosted, a key, runs here, no recipe) and stable ties."""
-    return (match == DESCRIPTION, label == "community", match, _LABEL_ORDER[label], featured_rank or 1_000_000, -quality,
-            setup, -popularity, precedence, name.casefold(), ident)
+    name alone. Among results Row-Bot or a vendor stands behind, an exact name comes first ("git" is Git before
+    GitHub), then official and built in before reviewed, and Row-Bot's featured order. Then quality orders (a
+    well-kept community server before a bare one that only shares the name), then an exact name, setup (hosted,
+    a key, runs here, no recipe) and stable ties."""
+    backed = label != "community"
+    return (match == DESCRIPTION, not backed, match if backed else 0, _LABEL_ORDER[label], featured_rank or 1_000_000,
+            -quality, match, setup, -popularity, precedence, name.casefold(), ident)
 
 
 def connects(hosted: bool, auth: str) -> str:
@@ -832,11 +845,11 @@ def way_order(row: dict, app: apps.App | None) -> tuple:
 
 def best_match(rows: list[dict]) -> str | None:
     """The first result leads as the best match only when its name matched and Row-Bot or the vendor stands
-    behind it, or the community made it well (quality)."""
+    behind it, or many people use it and it is kept up (standing)."""
     first = rows[0] if rows else None
     if first is None or first.get("match") not in {"exact", "name"}:
         return None
-    return first["id"] if first["label"] != "community" or first["quality"] >= BEST_QUALITY else None
+    return first["id"] if first["label"] != "community" or first["standing"] >= BEST_STANDING else None
 
 
 def rank(rows: list[dict], query: str, keep: Callable[[dict], bool] = lambda row: True, now: float | None = None) -> list[dict]:
@@ -904,7 +917,7 @@ def rank(rows: list[dict], query: str, keep: Callable[[dict], bool] = lambda row
         else:
             shown.append(row)
     for row in shown:
-        row.update(label=label(row), quality=row_quality(row, now),
+        row.update(label=label(row), quality=row_quality(row, now), standing=standing(row, now),
                    match=MATCHES[strength(row, query, known.get((row["app"] or {}).get("id", "")))] if searched else None)
     at: dict[str, int] = {}
     grouped = []
@@ -918,7 +931,7 @@ def rank(rows: list[dict], query: str, keep: Callable[[dict], bool] = lambda row
         elif way_order(row, known.get(app)) < way_order(grouped[at[app]], known.get(app)):
             # The card opens the app's recommended way, where the app ranks, under the best label of its ways.
             leading = grouped[at[app]]
-            row.update(match=leading["match"], quality=leading["quality"],
+            row.update(match=leading["match"], quality=leading["quality"], standing=leading["standing"],
                        label=min(leading["label"], row["label"], key=_LABEL_ORDER.__getitem__))
             grouped[at[app]] = row
         else:
