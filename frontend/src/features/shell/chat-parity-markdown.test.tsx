@@ -92,15 +92,8 @@ it('starts a pipe table immediately after prose and handles GFM forms safely', (
   expect(tables[0].parentElement).toHaveClass('markdown-table-scroll');
 });
 
-it('labels fenced code and provides truthful copy and local download actions', async () => {
+it('labels fenced code and provides truthful copy', async () => {
   const copyText = vi.fn().mockResolvedValue(true);
-  const click = vi
-    .spyOn(HTMLAnchorElement.prototype, 'click')
-    .mockImplementation(() => undefined);
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:code');
-  const revoke = vi
-    .spyOn(URL, 'revokeObjectURL')
-    .mockImplementation(() => undefined);
   render(
     <SafeMarkdown
       text={'```ts\nconst ready = true;\n```'}
@@ -114,12 +107,6 @@ it('labels fenced code and provides truthful copy and local download actions', a
   );
   expect(copyText).toHaveBeenCalledExactlyOnceWith('const ready = true;');
   expect(screen.getByRole('status')).toHaveTextContent('Code copied.');
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Download code' })),
-  );
-  expect(click).toHaveBeenCalledOnce();
-  expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:code');
-  expect(screen.getByRole('status')).toHaveTextContent('download prepared');
 });
 
 it('turns numbered links into source chips with the domain and autolinks bare URLs', () => {

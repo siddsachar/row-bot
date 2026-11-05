@@ -30,7 +30,10 @@ function props(
     pageCount: 3,
     visible: true,
     create: vi.fn(async () => output),
-    download: vi.fn(async () => {}),
+    download: vi.fn(async () => ({
+      status: 'unavailable' as const,
+      reason: 'user_gesture_required',
+    })),
     ...overrides,
   };
 }
@@ -39,49 +42,23 @@ const exportAs = (label: string) =>
     fireEvent.click(screen.getByRole('button', { name: `Export as ${label}` })),
   );
 
-it('opens passively; picking a format exports, then a download is offered', async () => {
-  const current = props();
+it('opens passively; picking a format exports, then asks where to save it', async () => {
+  const download = vi.fn(async () => ({
+    status: 'ok' as const,
+    value: { kind: 'file' as const },
+  }));
+  const current = props({ download });
   render(<ArtifactExports {...current} />);
   expect(current.create).not.toHaveBeenCalled();
-  expect(current.download).not.toHaveBeenCalled();
+  expect(download).not.toHaveBeenCalled();
   await exportAs('PDF');
   expect(current.create).toHaveBeenCalledWith(
     { format: 'pdf', pages: 'all' },
     'r1',
   );
-  expect(current.download).not.toHaveBeenCalled();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Download PDF' })),
-  );
-  expect(current.download).toHaveBeenCalledWith('export-a');
-});
-
-it('saves into the Exports folder in one click, then opens or shows it', async () => {
-  const save = vi.fn(async () => ({
-    export_id: 'export-a',
-    filename: 'Design.pdf',
-    folder: 'Row-Bot › Exports',
-  }));
-  const reveal = vi.fn(async () => true);
-  const current = props({ save, reveal });
-  render(<ArtifactExports {...current} />);
-  await exportAs('PDF');
-  expect(save).toHaveBeenCalledWith('export-a');
-  expect(screen.getByRole('status')).toHaveTextContent(
-    'Saved · Design.pdf in Row-Bot › Exports',
-  );
+  expect(download).toHaveBeenCalledWith('export-a');
+  expect(screen.getByRole('status')).toHaveTextContent('Saved · Design.pdf');
   expect(screen.queryByRole('button', { name: /Download/ })).toBeNull();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Open' })),
-  );
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Show in folder' })),
-  );
-  expect(reveal.mock.calls).toEqual([
-    ['export-a', 'open'],
-    ['export-a', 'show'],
-  ]);
-  expect(current.download).not.toHaveBeenCalled();
   // F17: once saved, the panel keeps only that line until asked again.
   expect(screen.queryByRole('group', { name: 'Export format' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Export again' }));
@@ -89,35 +66,27 @@ it('saves into the Exports folder in one click, then opens or shows it', async (
   expect(screen.queryByText(/Saved ·/)).toBeNull();
 });
 
-it('offers a download on a device other than the desktop app', async () => {
-  // Saving into Exports (then Open, Show in folder) is the desktop app's.
-  const current = props({ save: undefined, reveal: undefined });
+it('a browser that needs a fresh click offers Download, without an error', async () => {
+  const current = props();
   render(<ArtifactExports {...current} />);
   await exportAs('PDF');
   expect(screen.queryByText(/Saved/)).toBeNull();
-  expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
-  expect(screen.queryByText(/Export unavailable/)).toBeNull();
+  expect(screen.queryByText(/Export unavailable|again to save/)).toBeNull();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Download PDF' })),
+  );
+  expect(current.download).toHaveBeenLastCalledWith('export-a');
+  expect(screen.getByText('Press it again to save the export.')).toBeVisible();
 });
 
-it('says so when the saved copy was moved away', async () => {
+it('a cancelled Save dialog leaves Download to try again', async () => {
   const current = props({
-    save: vi.fn(async () => ({
-      export_id: 'export-a',
-      filename: 'Design.pdf',
-      folder: 'Row-Bot › Exports',
-    })),
-    reveal: vi.fn(async () => false),
+    download: vi.fn(async () => ({ status: 'cancelled' as const })),
   });
   render(<ArtifactExports {...current} />);
   await exportAs('PDF');
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Open' })),
-  );
-  expect(
-    screen.getByText(
-      "That file isn't in the Exports folder any more. Export it again.",
-    ),
-  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+  expect(screen.queryByText(/Saved|Couldn’t/)).toBeNull();
 });
 
 it.each([
@@ -241,13 +210,13 @@ it('holds admission through resource changes and ignores late old completion', a
 
 it('clears download on current authority revocation without automatic retry', async () => {
   const current = props({
-    download: vi.fn().mockRejectedValue({ code: 'capability_revoked' }),
+    download: vi.fn(async () => ({
+      status: 'unavailable' as const,
+      reason: 'capability_revoked',
+    })),
   });
   render(<ArtifactExports {...current} />);
   await exportAs('PDF');
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Download PDF' })),
-  );
   expect(
     screen.queryByRole('button', { name: 'Download PDF' }),
   ).not.toBeInTheDocument();

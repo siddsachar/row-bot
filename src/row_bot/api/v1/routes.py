@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -1911,10 +1913,15 @@ def create_router(
                 raise ProtocolError("action_denied", 403)
 
         authorize()
+        from row_bot.application import save_offers
         from row_bot.application.attachments import read_attachment
         from urllib.parse import quote
 
-        metadata, data = await call(read_attachment, reference)
+        # The Save dialog reads a conversation's file, or a file offered to this window's session.
+        if save_offers.is_offer(reference):
+            metadata, data = await call(save_offers.take, reference, body.session_id)
+        else:
+            metadata, data = await call(read_attachment, reference)
         authorize()
         return Response(
             data,
@@ -5763,61 +5770,6 @@ def create_router(
             raise ProtocolError("sent_file_unavailable", 404)
         return await respond(request, dto.DeliveryView, result)
 
-    @router.get("/deliveries/{delivery_id}/files/{index}")
-    async def delivery_file(request: Request, delivery_id: str, index: str) -> Response:
-        current = await session(request)
-        from urllib.parse import quote
-
-        from row_bot.file_deliveries import CHUNK_BYTES, DeliveryError, open_file
-
-        identifier, number = _delivery(delivery_id, index)
-        try:
-            name, size, handle = await call(open_file, identifier, number)
-        except DeliveryError as exc:
-            raise _delivery_failure(exc) from None
-
-        async def chunks() -> Any:
-            try:
-                while True:
-                    # The person's session is checked again for every part sent.
-                    security.session(await _context(request), current.id, current.csrf)
-                    data = await call(handle.read, CHUNK_BYTES)
-                    if not data:
-                        return
-                    yield data
-            except ProtocolError:
-                return
-            finally:
-                handle.close()
-
-        return StreamingResponse(
-            chunks(),
-            # Never shown in the page: always a download, whatever the file is.
-            media_type="application/octet-stream",
-            headers={
-                **HEADERS,
-                "Content-Length": str(size),
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name, safe=""),
-            },
-        )
-
-    @router.post("/deliveries/{delivery_id}/files/{index}/save")
-    async def delivery_file_save(request: Request, delivery_id: str, index: str) -> JSONResponse:
-        """The desktop window can't download (B275): the file is saved into Exports on this computer."""
-        current = await session(request, lane="mutation")
-        require_this_computer(await _context(request))
-        from row_bot.application.export_folder import save_export
-        from row_bot.file_deliveries import DeliveryError, read_file
-
-        identifier, number = _delivery(delivery_id, index)
-        try:
-            name, data = await call(read_file, identifier, number)
-        except DeliveryError as exc:
-            raise _delivery_failure(exc) from None
-        result = await call(save_export, name, data, validate=dispatch_validation(request, current))
-        return await respond(request, dto.ExportSaved, result)
-
     @router.post("/deliveries/{delivery_id}/to-devices")
     async def delivery_to_devices(request: Request, delivery_id: str) -> JSONResponse:
         """The person's own "Send to your devices instead": no approval (their own devices)."""
@@ -5926,26 +5878,6 @@ def create_router(
 
         found = require(page_id)
         return download_name(found), document(found, theme, standalone=True)
-
-    @router.post("/pages/{page_id}/download")
-    async def page_download(request: Request, page_id: str) -> JSONResponse:
-        """Download as HTML: one file that works on its own in any browser (it saves nothing)."""
-        await session(request, lane="mutation")
-        body = await _body(request, dto.PageFrameRequest, 16 * 1024)
-        name, html = await _page_call(_standalone, _page_id(page_id), body.theme.model_dump())
-        return await respond(request, dto.PageDownload, {"file_name": name, "html": html})
-
-    @router.post("/pages/{page_id}/save")
-    async def page_save(request: Request, page_id: str) -> JSONResponse:
-        """The desktop window can't download (B275): the page is saved into Exports on this computer."""
-        current = await session(request, lane="mutation")
-        require_this_computer(await _context(request))
-        body = await _body(request, dto.PageFrameRequest, 16 * 1024)
-        from row_bot.application.export_folder import save_export
-
-        name, html = await _page_call(_standalone, _page_id(page_id), body.theme.model_dump())
-        result = await call(save_export, name, html.encode("utf-8"), validate=dispatch_validation(request, current))
-        return await respond(request, dto.ExportSaved, result)
 
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
@@ -9341,8 +9273,6 @@ def create_router(
         binding_id: str,
         export_id: str,
         request: Request,
-        *,
-        download: bool = False,
     ) -> Response:
         current = await session(request, lane="view")
         try:
@@ -9358,40 +9288,10 @@ def create_router(
             if bound_resource(conversation_id, binding_id, "artifact") != identity:
                 raise ProtocolError("resource_binding_revoked", 403)
 
-        from row_bot.designer.client_exports import read_export, read_export_payload
+        from row_bot.designer.client_exports import read_export
 
-        if not download:
-            result = await call(
-                read_export,
-                identity,
-                export_id,
-                binding_id=binding_id,
-                validate=validate,
-            )
-            return await respond(request, dto.ArtifactExport, asdict(result))
-        descriptor, data = await call(
-            read_export_payload,
-            identity,
-            export_id,
-            binding_id=binding_id,
-            validate=validate,
-        )
-        # Validate closed metadata and current access before releasing immutable
-        # bytes. Never reopen a filesystem path after the ownership check.
-        dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
-        await call(validate)
-        from urllib.parse import quote
-
-        return Response(
-            data,
-            media_type=descriptor.media_type,
-            headers={
-                **HEADERS,
-                "Content-Security-Policy": "sandbox; default-src 'none'",
-                "Content-Disposition": "attachment; filename=export; filename*=UTF-8''"
-                + quote(descriptor.filename, safe=""),
-            },
-        )
+        result = await call(read_export, identity, export_id, binding_id=binding_id, validate=validate)
+        return await respond(request, dto.ArtifactExport, asdict(result))
 
     @router.get(
         "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}"
@@ -9400,16 +9300,6 @@ def create_router(
         conversation_id: str, binding_id: str, export_id: str, request: Request
     ) -> Response:
         return await bound_export(conversation_id, binding_id, export_id, request)
-
-    @router.get(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download"
-    )
-    async def artifact_export_download(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> Response:
-        return await bound_export(
-            conversation_id, binding_id, export_id, request, download=True
-        )
 
     @router.post(
         "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion"
@@ -9430,7 +9320,7 @@ def create_router(
     async def local_export(
         conversation_id: str, binding_id: str, export_id: str, request: Request
     ) -> tuple[str, Callable[[], None]]:
-        """Saving an export into the workspace's Exports folder, from any device."""
+        """A design's export, checked against its binding for a save offer (5.3.3)."""
         current = await session(request, lane="mutation")
         try:
             if str(UUID(export_id)) != export_id:
@@ -9446,43 +9336,6 @@ def create_router(
                 raise ProtocolError("resource_binding_revoked", 403)
 
         return identity, validate
-
-    @router.post(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save"
-    )
-    async def artifact_export_save(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> JSONResponse:
-        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
-        from row_bot.designer.client_exports import save_export_copy
-
-        result = await call(
-            save_export_copy, identity, export_id, binding_id=binding_id, validate=validate
-        )
-        return await respond(request, dto.ArtifactSavedExport, asdict(result))
-
-    @router.post(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal"
-    )
-    async def artifact_export_reveal(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> JSONResponse:
-        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
-        # Open and Show in folder open an app or the file manager on this
-        # computer's screen.
-        require_this_computer(await _context(request))
-        body = await _body(request, dto.ArtifactExportReveal)
-        from row_bot.designer.client_exports import reveal_export_copy
-
-        result = await call(
-            reveal_export_copy,
-            identity,
-            export_id,
-            binding_id=binding_id,
-            action=body.action,
-            validate=validate,
-        )
-        return await respond(request, dto.ArtifactExportRevealResult, result)
 
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/inspector")
     async def workspace_inspector(
@@ -11306,13 +11159,71 @@ def create_router(
             },
         )
 
+    @router.post("/saves")
+    async def save_offer(request: Request) -> JSONResponse:
+        """One file to save, the one way every Download and Export button saves (5.3.3): its reference
+        then goes to the desktop app's Save dialog, a browser download, or Exports while reconnecting."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SaveOfferRequest, 16 * 1024 * 1024)
+        source = body.source
+        validate = dispatch_validation(request, current)
+        if source.kind == "page":
+            name, html = await _page_call(_standalone, _page_id(source.page_id), source.theme.model_dump())
+            data = html.encode("utf-8")
+        elif source.kind == "delivery":
+            from row_bot.file_deliveries import DeliveryError, read_file
+
+            identifier, number = _delivery(source.delivery_id, str(source.index))
+            try:
+                name, data = await call(read_file, identifier, number)
+            except DeliveryError as exc:
+                raise _delivery_failure(exc) from None
+        elif source.kind == "design_export":
+            identity, check = await local_export(source.conversation_id, source.binding_id, source.export_id, request)
+            from row_bot.designer.client_exports import read_export_payload
+
+            descriptor, data = await call(
+                read_export_payload, identity, source.export_id, binding_id=source.binding_id, validate=check)
+            # Closed metadata and current access are checked again before the bytes are offered.
+            dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
+            await call(check)
+            name = descriptor.filename
+        elif source.kind == "workflow_webhook":
+            from row_bot.application.task_settings_controls import TaskSettingsError, export_webhook_configuration
+
+            try:
+                data = await call(export_webhook_configuration, source.task_id,
+                                  expected_revision=source.revision, validate=validate)
+            except TaskSettingsError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from exc
+            name = "workflow-webhook.json"
+        else:
+            try:
+                data = base64.b64decode(source.content_base64, validate=True)
+            except (ValueError, binascii.Error):
+                raise ProtocolError("invalid_command", 422) from None
+            name = source.name
+        from row_bot.application import save_offers
+
+        await call(validate)
+        result = await call(save_offers.offer, current.id, save_offers.plain_name(name), data)
+        return await respond(request, dto.SaveOffer, result)
+
+    def _saveable(reference: str, session_id: str) -> tuple[dict, bytes]:
+        """A conversation's file, or a file offered to this session to save (``save:…``)."""
+        from row_bot.application import save_offers
+        from row_bot.application.attachments import read_attachment
+
+        if save_offers.is_offer(reference):
+            return save_offers.take(reference, session_id)
+        return read_attachment(reference)
+
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:
         current = await session(request)
-        from row_bot.application.attachments import read_attachment
         from urllib.parse import quote
 
-        metadata, data = await call(read_attachment, reference)
+        metadata, data = await call(_saveable, reference, current.id)
         await _context(request)
 
         async def chunks() -> Any:
@@ -11335,13 +11246,12 @@ def create_router(
 
     @router.post("/attachments/{reference}/save")
     async def attachment_save(reference: str, request: Request) -> JSONResponse:
-        """Save a conversation export into Exports when the desktop window
-        cannot show its Save dialog (B238)."""
+        """Save a conversation's file, or one offered to save, into Exports when the desktop
+        window cannot show its Save dialog (B238)."""
         current = await session(request, lane="mutation")
-        from row_bot.application.attachments import read_attachment
         from row_bot.application.export_folder import save_export
 
-        metadata, data = await call(read_attachment, reference)
+        metadata, data = await call(_saveable, reference, current.id)
         result = await call(
             save_export,
             metadata["name"],

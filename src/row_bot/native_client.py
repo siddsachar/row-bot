@@ -29,7 +29,10 @@ _SHELL_PATH = re.compile(r"/app-v2(?:/(?:[A-Za-z0-9_-]|%[0-9A-Fa-f]{2})+)*/?")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
                          "terminal_open", "terminal_external", "buddy_placement", "buddy_follow",
-                         "main_window"})
+                         "main_window", "reveal_saved"})
+# A file a Save dialog wrote, shown in its folder later by a token (never its path); the newest few.
+_SAVED_TOKEN = re.compile(r"[0-9a-f]{32}")
+_SAVED_KEPT = 8
 # Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
 # itself and reports that its first view is drawn ("ready").
 _BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
@@ -134,7 +137,8 @@ class NativeDriver(Protocol):
     def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
     def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None: ...
     def main_window(self, conversation_id: str | None) -> bool: ...
-    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None: ...
+    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None: ...
+    def reveal(self, path: Path) -> bool: ...
     def capabilities(self) -> list[str]: ...
 
 
@@ -266,7 +270,8 @@ class PyWebViewDriver:
     def main_window(self, conversation_id: str | None) -> bool:
         return bool(self._show_main_window and self._show_main_window(conversation_id))
 
-    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None:
+    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None:
+        """The file written (so Show in folder can find it), None when cancelled, False when not saved."""
         if self._save_reference is None:
             return False
         import webview
@@ -279,7 +284,16 @@ class PyWebViewDriver:
             return None
         if not authorized():
             return False
-        return self._save_reference(reference, Path(selected))
+        target = Path(selected)
+        return target if self._save_reference(reference, target) else False
+
+    def reveal(self, path: Path) -> bool:
+        from row_bot.application.export_folder import show_in_folder
+        try:
+            show_in_folder(path)
+        except OSError:
+            return False
+        return True
 
 
 class NativeClientBridge:
@@ -352,6 +366,7 @@ class NativeClientBridge:
         self._expires = 0.0
         self._attestation = ""
         self._authority: NativeDocumentAuthority | None = None
+        self._saved: dict[str, Path] = {}
 
     def _at_shell(self) -> bool:
         try:
@@ -505,6 +520,8 @@ class NativeClientBridge:
                 available.append("terminal_open")
             if self._open_external_terminal is not None:
                 available.append("terminal_external")
+            if "save" in available:
+                available.append("reveal_saved")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
@@ -593,9 +610,27 @@ class NativeClientBridge:
                 result = self._driver.save(payload["reference"], payload["name"], authorized)
                 if not authorized():
                     return _unavailable("native_proof_required")
+                if result is None:
+                    return {"status": "cancelled"}
                 # A file the host could not write is never reported as saved.
-                return ({"status": "cancelled"} if result is None
-                        else {"status": "ok", "value": None} if result else _unavailable("save_failed"))
+                if not result:
+                    return _unavailable("save_failed")
+                if not isinstance(result, Path):
+                    return {"status": "ok", "value": None}
+                # The page gets a token for Show in folder, never the path the person chose.
+                token = secrets.token_hex(16)
+                with self._lock:
+                    self._saved[token] = result
+                    while len(self._saved) > _SAVED_KEPT:
+                        del self._saved[next(iter(self._saved))]
+                return {"status": "ok", "value": {"saved": token}}
+            if (operation == "reveal_saved" and set(payload) == {"saved"}
+                    and isinstance(payload["saved"], str) and _SAVED_TOKEN.fullmatch(payload["saved"])):
+                with self._lock:
+                    path = self._saved.get(payload["saved"])
+                if path is None or not path.is_file():
+                    return _unavailable("not_found")
+                return {"status": "ok", "value": None} if self._driver.reveal(path) else _unavailable()
             if operation == "buddy_follow":
                 publish = set(payload) == {"conversationId"}
                 if not (publish or not payload) or (
