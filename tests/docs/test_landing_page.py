@@ -12,8 +12,8 @@ CSS = (ROOT / "docs" / "site.css").read_text(encoding="utf-8")
 JS = (ROOT / "docs" / "site.js").read_text(encoding="utf-8")
 
 INDEX_WINDOWS_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.2/"
-    "Row-Bot-5.3.2-Windows-x64.exe"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.1/"
+    "Row-Bot-5.3.1-Windows-x64.exe"
 )
 INDEX_MAC_URL = (
     "https://github.com/siddsachar/row-bot/releases/download/v5.3.2/"
@@ -24,8 +24,8 @@ INDEX_LINUX_COMMAND = (
     "installer/install-linux.sh | bash -s -- 5.3.2"
 )
 SITE_WINDOWS_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.2/"
-    "Row-Bot-5.3.2-Windows-x64.exe"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.1/"
+    "Row-Bot-5.3.1-Windows-x64.exe"
 )
 SITE_MAC_URL = (
     "https://github.com/siddsachar/row-bot/releases/download/v5.3.2/"
