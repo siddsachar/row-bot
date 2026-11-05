@@ -130,6 +130,11 @@
       "title": "Dismissed Phone Card",
       "type": "boolean"
     },
+    "dismissed_spending_limit": {
+      "default": false,
+      "title": "Dismissed Spending Limit",
+      "type": "boolean"
+    },
     "host_name": {
       "anyOf": [
         {

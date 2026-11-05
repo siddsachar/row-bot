@@ -12,7 +12,8 @@
         "choose_model",
         "choose_suggested",
         "dismiss_phone_card",
-        "show_phone_card"
+        "show_phone_card",
+        "dismiss_spending_limit"
       ],
       "title": "Action",
       "type": "string"

@@ -293,3 +293,17 @@ def test_the_hosted_first_run_says_what_a_trial_server_runs(profile, monkeypatch
         monkeypatch.setenv("ROW_BOT_HOSTED_BY", host)
 
     assert client_onboarding.read_onboarding()["host_trial"] == words
+
+
+def test_the_spending_limit_step_once_hidden_stays_hidden(profile, monkeypatch):
+    """A3: Row-Bot can't see Railway's billing, so the person hides the card's step; it stays hidden."""
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    assert client_onboarding.read_onboarding()["dismissed_spending_limit"] is False
+
+    hidden = _send("dismiss_spending_limit")
+
+    assert hidden["dismissed_spending_limit"] is True
+    assert client_onboarding.read_onboarding()["dismissed_spending_limit"] is True
+    # Nothing else rides along with it.
+    with pytest.raises(Exception, match="invalid_onboarding_command"):
+        _send("dismiss_spending_limit", step="phone")

@@ -874,6 +874,8 @@ class SettingsHostSnapshot(WireModel):
     usage_url: str | None = Field(default=None, max_length=512)
     # Data's line about the host's own backups of the server (F3), in the host's words.
     backups_note: str | None = Field(default=None, max_length=256)
+    # The host card's one step after the first answer (A3), linking usage_url.
+    spending_limit_step: str | None = Field(default=None, max_length=128)
     # Only while the server has a trial's memory (A4).
     trial: HostTrial | None = None
 
@@ -2490,6 +2492,8 @@ class OnboardingSnapshot(WireModel):
     dismissed_home_card: bool
     # The "Add Row-Bot to your phone" card (U10), once dismissed, never comes back.
     dismissed_phone_card: bool = False
+    # The host card's spending-limit step (A3), once hidden, never comes back.
+    dismissed_spending_limit: bool = False
     # The one chat the phone card shows in: the first with an answer.
     phone_card_conversation: str | None = Field(default=None, max_length=128)
     # The company hosting this Row-Bot (H13), when one is known: the hosted first run (U3)
@@ -2507,6 +2511,7 @@ class OnboardingCommand(WireModel):
     action: Literal[
         "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters",
         "choose_model", "choose_suggested", "dismiss_phone_card", "show_phone_card",
+        "dismiss_spending_limit",
     ]
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         default_factory=list, max_length=7

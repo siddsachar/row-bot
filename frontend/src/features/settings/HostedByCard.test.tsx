@@ -1,5 +1,13 @@
-import { render, screen, within } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
+import type { OnboardingSnapshot } from '../../api/types';
+import { RuntimeContext } from '../../runtime';
 import HostedByCard from './HostedByCard';
 
 const GB = 2 ** 30;
@@ -190,4 +198,103 @@ it('on Railway’s trial says what 1 GB runs, with the way to upgrade (A4)', () 
   expect(
     within(card).getByRole('link', { name: 'Upgrade in Railway' }),
   ).toHaveAttribute('href', 'https://railway.com/workspace/plans');
+});
+
+const setup: OnboardingSnapshot = {
+  schema_version: 1,
+  revision: 'a'.repeat(64),
+  setup_complete: true,
+  needs_model: false,
+  default_model: 'model:codex:gpt-5.6-sol',
+  live_done: [],
+  import_sources: [],
+  starter_workflows_missing: 0,
+  profile: [],
+  completed_steps: [],
+  skipped_steps: [],
+  dismissed_home_card: false,
+  dismissed_phone_card: false,
+  // The first chat with an answer, as the phone card claimed it (U10).
+  phone_card_conversation: 'conversation-1',
+  host_name: 'Railway',
+  steps: [],
+  intents: [],
+};
+
+function withRuntime(onboarding: Partial<OnboardingSnapshot>) {
+  const controller = {
+    onboarding: vi.fn(async () => ({ ...setup, ...onboarding })),
+    onboardingCommand: vi.fn(async () => ({
+      schema_version: 1,
+      command_id: crypto.randomUUID(),
+      status: 'completed',
+      snapshot: { ...setup, ...onboarding, dismissed_spending_limit: true },
+    })),
+  };
+  render(
+    <RuntimeContext.Provider value={{ controller } as never}>
+      <HostedByCard
+        host={{
+          ...railwayService,
+          spending_limit_step: 'Set a spending limit in Railway',
+        }}
+        memory={{ limit_bytes: 8_000_000_000, used_bytes: 1_100_000_000 }}
+        version="5.3.3"
+      />
+    </RuntimeContext.Provider>,
+  );
+  return controller;
+}
+
+it('after the first answer, offers Railway’s one step, a spending limit, and hides it for good (A3)', async () => {
+  const controller = withRuntime({});
+  const card = screen.getByRole('region', { name: 'Hosted by Railway' });
+  const step = await within(card).findByRole('link', {
+    name: 'Set a spending limit in Railway',
+  });
+  expect(step).toHaveAttribute('href', 'https://railway.com/workspace/usage');
+  expect(step).toHaveAttribute('target', '_blank');
+
+  fireEvent.click(
+    within(card).getByRole('button', { name: 'Done. Don’t show this again' }),
+  );
+  expect(
+    within(card).queryByRole('link', {
+      name: 'Set a spending limit in Railway',
+    }),
+  ).toBeNull();
+  await waitFor(() =>
+    expect(controller.onboardingCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'dismiss_spending_limit',
+        expected_revision: setup.revision,
+      }),
+    ),
+  );
+});
+
+it.each([
+  ['before the first answer', { phone_card_conversation: null }],
+  ['once hidden', { dismissed_spending_limit: true }],
+])('says nothing of a spending limit %s (A3)', async (_when, onboarding) => {
+  const controller = withRuntime(onboarding);
+  await waitFor(() => expect(controller.onboarding).toHaveBeenCalled());
+  await Promise.resolve();
+  expect(screen.queryByRole('link', { name: /spending limit/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Don’t show/ })).toBeNull();
+});
+
+it('a host without the step, or without its usage page, never asks (A3)', () => {
+  render(
+    <HostedByCard
+      host={{
+        ...railwayService,
+        spending_limit_step: 'Set a spending limit in Railway',
+        usage_url: null,
+      }}
+      memory={null}
+      version="5.3.3"
+    />,
+  );
+  expect(screen.queryByRole('link', { name: /spending limit/ })).toBeNull();
 });

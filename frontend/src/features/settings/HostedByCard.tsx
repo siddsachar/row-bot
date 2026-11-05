@@ -10,6 +10,7 @@ import { sizeWords } from '../../api/server-memory';
 import { Hint } from '../../ui/primitives';
 import { ROW_BOT_HELP } from '../shell/hosted-links';
 import HostTrialNote from '../shell/HostTrialNote';
+import SpendingLimitStep from './SpendingLimitStep';
 import { SettingsGroup, SettingsItem } from './anatomy';
 
 type System = SettingsSnapshot['system'];
@@ -30,7 +31,8 @@ function webPage(url: string | null | undefined): url is string {
  * the host's own pages (each only when the host confirmed it) as icon buttons,
  * in the host's own words (a pod, a service): on Railway, the service itself
  * and the workspace's usage (A2). On a trial's small server, one line says what
- * works (A4). The host runs what it says it runs (the machine, billing, maybe
+ * works (A4). After the first answer, Railway's one step: a spending limit
+ * (A3). The host runs what it says it runs (the machine, billing, maybe
  * backups); Row-Bot's help covers the rest.
  */
 export default function HostedByCard({
@@ -106,6 +108,12 @@ export default function HostedByCard({
       >
         {host.trial && (
           <HostTrialNote trial={host.trial} hostName={host.name} />
+        )}
+        {host.spending_limit_step && webPage(host.usage_url) && (
+          <SpendingLimitStep
+            label={host.spending_limit_step}
+            url={host.usage_url}
+          />
         )}
         <p className="hosted-by-note">
           {host.name} runs {host.runs}. For anything inside Row-Bot, use{' '}

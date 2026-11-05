@@ -3154,6 +3154,23 @@
 .settings-row-extra > p.hosted-by-note {
   color: var(--text-muted);
 }
+/* U7 (A3): the host's one step after the first answer, with a ✓ that hides
+   it for good. */
+.settings-row-extra > p.hosted-by-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-13);
+}
+.hosted-by-step > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.hosted-by-step a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
 
 /* Settings › Devices & remote access (Phase 14). ------------------------ */
 /* Below desktop width the Settings header carries the navigation toggle

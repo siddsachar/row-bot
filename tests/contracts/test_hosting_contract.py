@@ -50,6 +50,7 @@ def test_pikapods_is_named_and_linked_from_its_reviewed_entry() -> None:
         "settings_url": None,
         "usage_url": None,
         "backups_note": "PikaPods can also keep its own backups of your server.",
+        "spending_limit_step": None,
     }
 
 
@@ -177,3 +178,9 @@ def test_each_host_says_in_its_own_words_what_it_does_about_backups() -> None:
         "Railway backs up your server only on its Pro plan. "
         "Download a backup from time to time to keep a copy somewhere else."
     )
+
+
+def test_only_railway_has_a_spending_limit_step_after_the_first_answer() -> None:
+    """A3: Railway bills by use, so its card offers a hard limit on the workspace's Usage page."""
+    assert KNOWN_HOSTS["railway"].spending_limit_step == "Set a spending limit in Railway"
+    assert KNOWN_HOSTS["pikapods"].spending_limit_step is None

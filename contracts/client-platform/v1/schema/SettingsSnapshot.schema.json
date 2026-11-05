@@ -1187,6 +1187,19 @@
           "default": null,
           "title": "Settings Url"
         },
+        "spending_limit_step": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spending Limit Step"
+        },
         "status_url": {
           "anyOf": [
             {

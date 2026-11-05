@@ -497,6 +497,7 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "settings_url": None,
         "usage_url": None,
         "backups_note": "PikaPods can also keep its own backups of your server.",
+        "spending_limit_step": None,
         "trial": None,
     }
     assert pod.memory is not None
@@ -520,6 +521,7 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "usage_url": None,
         "backups_note": "Railway backs up your server only on its Pro plan. "
         "Download a backup from time to time to keep a copy somewhere else.",
+        "spending_limit_step": "Set a spending limit in Railway",
         "trial": None,
     }
     monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")

@@ -21,6 +21,7 @@ _FIELDS = (
     "setup_complete", "onboarding_profile", "onboarding_completed_steps",
     "onboarding_skipped_steps", "onboarding_dismissed_home_card", "onboarding_version",
     "onboarding_dismissed_phone_card", "onboarding_phone_card_conversation",
+    "onboarding_dismissed_spending_limit",
 )
 _RECEIPTS = "react_onboarding_receipts"
 _STARTER_WORKFLOW_NAMES = (
@@ -208,6 +209,8 @@ def _snapshot(config: dict[str, Any]) -> dict[str, Any]:
         "dismissed_home_card": bool(config.get("onboarding_dismissed_home_card")),
         # The phone card after the first answer (U10) never comes back once dismissed.
         "dismissed_phone_card": bool(config.get("onboarding_dismissed_phone_card")),
+        # The host card's spending-limit step (A3) never comes back once hidden.
+        "dismissed_spending_limit": bool(config.get("onboarding_dismissed_spending_limit")),
         # The one chat it shows in: the first with an answer. It never follows into another.
         "phone_card_conversation": _phone_card_conversation(config),
         # The company hosting this Row-Bot (H13): its first run and Setup Center differ (U3, U4).
@@ -337,6 +340,10 @@ def execute_onboarding(
             if profile or step or model_ref or provider_id or conversation_id:
                 raise ClientPlatformError("invalid_onboarding_command")
             config["onboarding_dismissed_phone_card"] = True
+        elif action == "dismiss_spending_limit":
+            if profile or step or model_ref or provider_id or conversation_id:
+                raise ClientPlatformError("invalid_onboarding_command")
+            config["onboarding_dismissed_spending_limit"] = True
         elif action == "show_phone_card":
             # The phone card belongs to the first chat that got an answer (U10); a later
             # chat asking for it gets the snapshot that names the first.

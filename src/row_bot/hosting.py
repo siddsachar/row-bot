@@ -69,6 +69,9 @@ class Host:
     pages: Callable[[Mapping[str, str]], dict[str, str]] | None = None
     # Data's line about the host's own backups of the server (F3): what it does, in its own words.
     backups_note: str | None = None
+    # The host card's one step after the first answer (A3), linking ``usage_url``; Row-Bot can't see the
+    # host's billing, so the person hides it once it's done.
+    spending_limit_step: str | None = None
     # Where the start-up output with the sign-in link shows, after "or click the sign-in link in " (R4).
     sign_in_link_where: str | None = None
     # A trial's small server (A4): what works there, the step that unlocks the rest and the host's page for it.
@@ -91,6 +94,7 @@ class Host:
             "settings_url": self.settings_url,
             "usage_url": self.usage_url,
             "backups_note": self.backups_note,
+            "spending_limit_step": self.spending_limit_step,
         }
 
 
@@ -176,6 +180,8 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
             client_address_header="x-real-ip",
             # The service's Variables, Settings and Backups, from the IDs Railway gives it (A2).
             pages=railway_pages,
+            # Railway bills by use; a hard limit on the workspace's Usage page caps it (C0 part 2, A3).
+            spending_limit_step="Set a spending limit in Railway",
             sign_in_link_where="Railway's deploy logs",
             # Railway's trial gives a service 1 GB (RD2, A4); its Hobby plan lifts that.
             trial_note=(
