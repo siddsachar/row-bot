@@ -15,7 +15,7 @@ import math
 from pathlib import Path
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from row_bot.integrations import apps, facts, icons, index
 from row_bot.integrations.safe import public_url
@@ -152,9 +152,10 @@ def mcp_identity(install: dict | None, version: str = "", registry: str = "", *,
     install = install or {}
     parts = urlsplit(str(install.get("url") or ""))
     if parts.hostname:
-        # Fixed header values (a tenant, a workspace) make another deployment of the same endpoint,
-        # and so does signing in through the person's own OAuth app rather than with a key.
+        # Fixed header or query values (a tenant, a workspace, the tools a shared endpoint serves) make another
+        # deployment of the same endpoint, and so does signing in through the person's own OAuth app.
         fixed = sorted((name.lower(), value) for name, value in (install.get("headers") or {}).items() if "{" not in value)
+        fixed += sorted(["?" + name, value] for name, value in parse_qsl(parts.query) if "{" not in value)
         suffix = "#" + hashlib.sha256(json.dumps(fixed).encode()).hexdigest()[:12] if fixed else ""
         suffix += "#own-client" if own_client else ""
         return f"mcp:endpoint:{install.get('transport', '')}:{parts.hostname.lower()}{parts.path.rstrip('/') or '/'}{suffix}"
@@ -209,6 +210,7 @@ class _McpCatalog(Source):
             keywords=[canonical.rpartition("/")[2]] if canonical else [], has_icon=bool(metadata.get("icon")),
             sign_in=sign_in(entry.install, metadata.get("auth_mode", ""), entry.requires_auth),
             signals={"last_activity_at": updated} if updated else None,
+            identities=facts.merge_keys(entry.install, entry.url, name),
             unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
             description=entry.description[:2048], source_url=public_url(entry.url), publisher=publisher[:160],
             compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
@@ -325,7 +327,7 @@ class WindowsConnectors(_McpCatalog):
 
     def row(self, entry) -> tuple[dict, dict]:
         row, reference = super().row(entry)
-        row["canonical_identity"] = "mcp:windows:" + entry.id
+        row["canonical_identity"], row["identities"] = "mcp:windows:" + entry.id, []
         return row, reference
 
     def search(self, search: Search) -> Found:
@@ -359,6 +361,7 @@ class Composio(_McpCatalog):
 
     def row(self, entry) -> tuple[dict, dict]:
         row, reference = super().row(entry)
+        row["identities"] = []
         if entry.id.endswith("-key"):  # The same endpoint with a key: another way, not the same card.
             row["canonical_identity"] += "#consumer-key"
         return row, reference
@@ -839,6 +842,14 @@ def rank(rows: list[dict], query: str, keep: Callable[[dict], bool] = lambda row
                      featured_rank=row["featured_rank"] or app.get("featured_rank"), quality=row["quality"],
                      setup=setup_order(method(row), row["setup_tier"]), popularity=row["popularity"],
                      precedence=precedence(row), name=row["name"], ident=row["id"])
+    def absorb(primary: dict, row: dict) -> None:
+        primary["attributions"].extend(a for a in row["attributions"] if a not in primary["attributions"])
+        primary["forks"] += row["forks"]
+        if row["verified"] and primary["app"]:
+            primary["verified"] = primary["app"]["verified"] = True
+
+    def stars(row: dict) -> int:
+        return (row["signals"] or {}).get("stars") or 0
     merged: dict[str, dict] = {}
     shown: list[dict] = []
     # The most reviewed source supplies the merged record; then the vendor's, the official, the most used copy.
@@ -850,11 +861,33 @@ def rank(rows: list[dict], query: str, keep: Callable[[dict], bool] = lambda row
             primary = row
             shown.append(row)
         else:
-            primary["attributions"].extend(a for a in row["attributions"] if a not in primary["attributions"])
-            if row["verified"] and primary["app"]:
-                primary["verified"] = primary["app"]["verified"] = True
+            absorb(primary, row)
         for identity in keys:
             merged.setdefault(identity, primary)
+    # Near-identical listings by one owner are one: the most reviewed source leads, then the freshest.
+    kept: list[dict] = []
+    for row in shown:
+        at_ = next((i for i, other in enumerate(kept) if facts.near_identical(other, row)), None)
+        if at_ is None:
+            kept.append(row)
+            continue
+        other = kept[at_]
+        lead, folded = ((other, row) if (precedence(other), -other["updated_at"]) <= (precedence(row), -row["updated_at"])
+                        else (row, other))
+        absorb(lead, folded)
+        kept[at_] = lead
+    # A fork folds into its parent's card, unless more people starred the fork.
+    by_repository: dict[str, list[dict]] = {}
+    for row in kept:
+        by_repository.setdefault(facts.repository(row["source_url"]), []).append(row)
+    shown = []
+    for row in kept:
+        parents = by_repository.get(row["fork_parent"], []) if row["fork_parent"] else []
+        if len(parents) == 1 and parents[0] is not row and stars(row) <= stars(parents[0]):
+            absorb(parents[0], row)
+            parents[0]["forks"] += 1
+        else:
+            shown.append(row)
     for row in shown:
         row.update(label=label(row), quality=row_quality(row, now),
                    match=MATCHES[strength(row, query, known.get((row["app"] or {}).get("id", "")))] if searched else None)

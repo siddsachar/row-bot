@@ -9908,6 +9908,8 @@ class IntegrationEntry(WireModel):
     label: IntegrationLabel = "community"
     # Where a search matched it: its name exactly, every word in a name, or only elsewhere (None: not searched).
     match: Literal["exact", "name", "description"] | None = None
+    # Forks of it folded into this result (a fork with more stars than its parent stays apart).
+    forks: int = Field(default=0, ge=0)
     publisher: str = Field(max_length=160)
     version: str = Field(max_length=128)
     installed: bool

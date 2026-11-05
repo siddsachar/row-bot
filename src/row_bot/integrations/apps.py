@@ -187,6 +187,8 @@ def recipe_refs(install: dict | None) -> list[str]:
         return []
     name = args[0].lower()
     name = name.rsplit(":", 1)[0] if kind == "oci" else re.sub(r"(?<=.)@[^/]*$", "", name)
+    if kind == "pypi":  # "uvx --from markitdown-mcp==0.1.2" or "pkg[extra]" is still the package.
+        name = re.split(r"[=<>!~\[;]", name)[0]
     return [kind + ":" + name]
 
 
