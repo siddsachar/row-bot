@@ -1,6 +1,6 @@
 ---
 title: "Contribute To The App Catalog"
-description: "For developers: the apps.json record format, verified-vendor rules, bundled icons and their licences, the featured skills and broker lists, and how to check catalog coverage."
+description: "For developers: the apps.json record format, the Official and Reviewed rules, how search ranks results, bundled icons and their licences, the featured skills and broker lists, and how to check catalog coverage."
 ---
 
 # Contribute To The App Catalog
@@ -30,16 +30,34 @@ This page is for developers adding or correcting an app, a featured skill or a l
 
 Unmatched catalog entries stay browsable as **Community**. Never attach an entry by its name alone.
 
-## The Verified Badge
+## Labels: Official, Reviewed, Built In, Community
 
-**by _Vendor_** with a check is granted by rule, never by a name or a description:
+Every result carries one label, decided on the server by rule.
+
+**Official** (**by _Vendor_**) is granted by rule, never by a name or a description:
 
 - a Registry record is the vendor's when its namespace is a vendor domain reversed (`com.notion` for `notion.com`) or `io.github.<vendor org>`. The Registry checks namespace ownership, so Registry records are judged by namespace alone;
 - a reviewed recipe or your own connection is the vendor's when its endpoint is under a vendor domain, or is an `endpoint:` the vendor's documentation names exactly.
 
 Shared hosting domains, where anyone can have a subdomain (`github.io`, `vercel.app`, `netlify.app`, `pages.dev`, `amazonaws.com`, `supabase.co` and others in `apps.SHARED_HOSTING`), are never vendor domains: the catalog refuses to load with one.
 
-Reviewed setup recipes, the **Vendor recommendations** catalog, live in `src/row_bot/mcp_client/recommended_servers.json`. Set a recipe's `tested_with_row_bot` only after its live check passes.
+**Reviewed** is everything Row-Bot reviewed: the setup recipes in `src/row_bot/mcp_client/recommended_servers.json` (the **Vendor recommendations** catalog), the featured skills, Row-Bot's examples, and any way with `tested_with_row_bot`. Set a recipe's `tested_with_row_bot` only after its live check passes. To give a popular app whose vendor publishes nothing a reviewed way (as Reddit has), add a recipe that pins one version, an `apps.json` record whose `refs` name it (`curated:<id>`, and the Registry record and package), and notes that say plainly what it can and can't do.
+
+**Built in** is Row-Bot's own accounts, channels and key tools, and packages bundled with it. **Community** is everything else.
+
+## How Search Ranks
+
+Search is local and deterministic; the key lives in `integrations/sources.py` (`order`) and is mirrored in the Registry index's SQL (`integrations/index.py`), so the index keeps the right top 200:
+
+1. A name match (the query is a name, or every query word starts a word of the name, the app's name, synonyms or jobs) before a match found only in a description.
+2. A community result never outranks an official, reviewed or built-in one on its name alone.
+3. An exact name before a partial one, then the label (official and built in, then reviewed), then the app's `featured_rank`.
+4. Quality: `3·log10(1 + stars)`, plus activity (2 when pushed within 90 days, 1 within a year, −2 when archived), plus 1 each for a description of 12 or more words, a licence, an icon and a known sign-in, less 3 for a fork whose parent is listed and 2 for a first version under 30 days old that nobody has starred.
+5. Setup: hosted first, then a key, then runs on this computer, then no supported recipe; then stable ties.
+
+The first result is the **Best match** when it is a name match and official, reviewed or built in, or has a quality of 6 or more. Every weight is a named constant. A change that moves a result is a reviewed change: the golden queries in `tests/subsystem/integrations/test_search_ranking.py` (reddit, notion, github, slack, postgres, calendar, filesystem) say what each must show first.
+
+Stars, last push, archived flags, fork parents and licences come from `src/row_bot/mcp_client/registry_signals.json.xz`, written at release preparation (see [the release process](https://github.com/siddsachar/row-bot/blob/main/docs/RELEASING.md)). Search only reads that file; it never asks GitHub or the Registry.
 
 ## Icons (`icons.json`)
 
@@ -71,4 +89,4 @@ It writes `coverage.json` (each entry with "complete" or the exact blocker) and 
 
 ## Tests
 
-`tests/subsystem/integrations/test_app_catalog.py`, `test_icons.py`, `test_skill_catalog.py`, `test_brokers.py` and `test_apps_and_sources.py` check the featured ranks, categories, prompts, sources, icon licences, badge rules and attachment. Run them with `uv run python -m pytest tests/subsystem/integrations`.
+`tests/subsystem/integrations/test_app_catalog.py`, `test_icons.py`, `test_skill_catalog.py`, `test_brokers.py` and `test_apps_and_sources.py` check the featured ranks, categories, prompts, sources, icon licences, label rules and attachment; `test_search_ranking.py` and `test_catalog_signals.py` check ranking, merging and the shipped signals. Run them with `uv run python -m pytest tests/subsystem/integrations`.
