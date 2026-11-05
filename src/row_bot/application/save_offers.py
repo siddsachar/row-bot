@@ -26,7 +26,6 @@ REFERENCE = re.compile(r"save:[0-9a-f]{32}")
 class _Offer:
     session_id: str
     name: str
-    mime_type: str
     data: bytes
     expires_at: float
 
@@ -52,8 +51,9 @@ def plain_name(name: str) -> str:
     return f"{stem}.{extension}" if extension else stem
 
 
-def offer(session_id: str, name: str, data: bytes, mime_type: str = "application/octet-stream") -> dict[str, str]:
-    """Hold one file for this session to save; its reference and plain name."""
+def offer(session_id: str, name: str, data: bytes) -> dict[str, str]:
+    """Hold one file for this session to save; its reference and plain name. It is served as bytes to save,
+    never as a page (an HTML export or page included)."""
     if not session_id or not data or len(data) > MAX_ATTACHMENT_BYTES:
         raise AttachmentError("payload_too_large" if data else "invalid_command")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,119}", name or ""):
@@ -65,7 +65,7 @@ def offer(session_id: str, name: str, data: bytes, mime_type: str = "application
         mine = sorted((item.expires_at, key) for key, item in _OFFERS.items() if item.session_id == session_id)
         for _expires, key in mine[: max(0, len(mine) - MAX_PER_SESSION + 1)]:
             del _OFFERS[key]  # The oldest offers make room: one person saves one file at a time.
-        _OFFERS[reference] = _Offer(session_id, name, mime_type, data, now + TTL_SECONDS)
+        _OFFERS[reference] = _Offer(session_id, name, data, now + TTL_SECONDS)
     return {"reference": reference, "file_name": name}
 
 
@@ -81,5 +81,5 @@ def take(reference: str, session_id: str) -> tuple[dict, bytes]:
         if found is None or found.session_id != session_id:
             raise AttachmentError("not_found")
         del _OFFERS[reference]
-    return {"attachment_ref": reference, "name": found.name, "mime_type": found.mime_type,
+    return {"attachment_ref": reference, "name": found.name, "mime_type": "application/octet-stream",
             "size_bytes": len(found.data), "revision": "1"}, found.data

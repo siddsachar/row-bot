@@ -11159,7 +11159,6 @@ def create_router(
         body = await _body(request, dto.SaveOfferRequest, 16 * 1024 * 1024)
         source = body.source
         validate = dispatch_validation(request, current)
-        mime_type = "application/octet-stream"
         if source.kind == "page":
             name, html = await _page_call(_standalone, _page_id(source.page_id), source.theme.model_dump())
             data = html.encode("utf-8")
@@ -11180,7 +11179,7 @@ def create_router(
             # Closed metadata and current access are checked again before the bytes are offered.
             dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
             await call(check)
-            name, mime_type = descriptor.filename, descriptor.media_type
+            name = descriptor.filename
         elif source.kind == "workflow_webhook":
             from row_bot.application.task_settings_controls import TaskSettingsError, export_webhook_configuration
 
@@ -11199,7 +11198,7 @@ def create_router(
         from row_bot.application import save_offers
 
         await call(validate)
-        result = await call(save_offers.offer, current.id, save_offers.plain_name(name), data, mime_type)
+        result = await call(save_offers.offer, current.id, save_offers.plain_name(name), data)
         return await respond(request, dto.SaveOffer, result)
 
     def _saveable(reference: str, session_id: str) -> tuple[dict, bytes]:
