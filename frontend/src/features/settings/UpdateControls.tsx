@@ -27,6 +27,7 @@ import { Button, Disclosure, IconButton, Toggle } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import { absoluteTime, relativeTime } from '../../ui/format';
 import { SettingsItem, StatusLine } from './anatomy';
+import { webPage } from '../shell/hosted-links';
 
 /** A hosting company Row-Bot knows (H13), with its own words for updates. */
 type HostedBy = NonNullable<SettingsSnapshot['system']['hosted_by']>;
@@ -608,9 +609,10 @@ export function UpdateControls({
       </SettingsItem>
     ) : null;
   // A hosting company Row-Bot knows installs every update (H3), by itself
-  // (PikaPods) or when its owner says so there (Railway): its name, how new
-  // versions arrive, in its own words, and the release notes, with nothing
-  // to press here.
+  // (PikaPods) or once its owner turns that on there (Railway's nightly
+  // automatic updates, A5): its name, how new versions arrive, in its own
+  // words, where to check them there, and the release notes, with nothing to
+  // press here.
   const knownHost = external && hostedBy ? hostedBy : null;
   const notesUrl = githubUrl(host?.notes_url);
   const hostedRow = knownHost && (
@@ -618,13 +620,22 @@ export function UpdateControls({
       label={
         knownHost.applies_updates
           ? `Updated by ${knownHost.name}`
-          : `You update it in ${knownHost.name}`
+          : `Updates come from ${knownHost.name}`
       }
       icon={<Server size={16} aria-hidden />}
       tone="accent"
       bind={false}
       help={knownHost.updates_help}
     >
+      {!knownHost.applies_updates && webPage(knownHost.settings_url) && (
+        <a
+          href={knownHost.settings_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Check in {knownHost.name} <ExternalLink size={12} aria-hidden />
+        </a>
+      )}
       {notesUrl && (
         <a
           href={notesUrl}

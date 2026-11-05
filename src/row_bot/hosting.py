@@ -147,8 +147,8 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
         ),
         # Read in Railway's docs, 5 Nov 2026 (deploy/railway/README.md): Central Station is its support
         # forum, the dashboard lists the owner's projects, and the template's variables hold the setup code.
-        # An image service doesn't update by itself: Railway offers a new image in the service's settings,
-        # and its auto updates are the owner's choice.
+        # An image service doesn't update by itself: Railway's automatic updates install a new image in a
+        # nightly window once they're on, and Railway's own page turns them on for a new service (C0, A5).
         "railway": Host(
             id="railway",
             name="Railway",
@@ -168,10 +168,8 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
                 "Download a backup from time to time to keep a copy somewhere else."
             ),
             applies_updates=False,
-            updates_help=(
-                "When a new version is out, Railway offers it in your service's settings. "
-                "Turn on auto updates there to get each one by itself."
-            ),
+            # The Updates page links the service's settings, where they're switched on (A2's settings page).
+            updates_help="New versions install by themselves each night when automatic updates are on in Railway.",
             # Checked on a deploy, 5 Nov 2026: Railway's edge replaces a visitor's X-Real-IP and X-Forwarded-For.
             # Its X-Forwarded-For ends with the edge's own public address, which the walk from the trusted proxy
             # (100.64.0.0/10) can't pass, so every visitor would look like the edge.

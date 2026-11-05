@@ -66,7 +66,7 @@ export default function HostedByCard({
         help={
           host.applies_updates
             ? `Row-Bot ${version} · updated by ${host.name}`
-            : `Row-Bot ${version} · you update it in ${host.name}`
+            : `Row-Bot ${version} · updates come from ${host.name}`
         }
         status={
           memory && (

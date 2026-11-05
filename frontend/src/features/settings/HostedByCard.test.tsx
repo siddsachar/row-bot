@@ -28,7 +28,7 @@ const railway = {
   runs: 'the server and billing',
   applies_updates: false,
   updates_help:
-    "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+    'New versions install by themselves each night when automatic updates are on in Railway.',
 };
 
 it('says who runs Row-Bot, its version, the memory in use and the host’s own pages (U5)', () => {
@@ -105,7 +105,7 @@ it('speaks in the host’s own words: Railway’s service, which its owner updat
   );
   const card = screen.getByRole('region', { name: 'Hosted by Railway' });
   expect(
-    within(card).getByText('Row-Bot 5.3.2 · you update it in Railway'),
+    within(card).getByText('Row-Bot 5.3.2 · updates come from Railway'),
   ).toBeVisible();
   expect(
     within(card).getByRole('link', { name: 'Manage your service in Railway' }),

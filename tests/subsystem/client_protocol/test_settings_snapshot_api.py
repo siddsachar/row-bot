@@ -515,8 +515,7 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "unit": "service",
         "runs": "the server and billing",
         "applies_updates": False,
-        "updates_help": "When a new version is out, Railway offers it in your service's settings. "
-        "Turn on auto updates there to get each one by itself.",
+        "updates_help": "New versions install by themselves each night when automatic updates are on in Railway.",
         "settings_url": None,
         "usage_url": None,
         "backups_note": "Railway backs up your server only on its Pro plan. "

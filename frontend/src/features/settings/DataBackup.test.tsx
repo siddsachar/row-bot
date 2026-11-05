@@ -602,7 +602,7 @@ const railway = {
   runs: 'the server and billing',
   applies_updates: false,
   updates_help:
-    "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+    'New versions install by themselves each night when automatic updates are on in Railway.',
   backups_note:
     'Railway backs up your server only on its Pro plan. Download a backup from time to time to keep a copy somewhere else.',
 };

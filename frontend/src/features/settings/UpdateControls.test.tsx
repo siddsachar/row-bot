@@ -613,7 +613,7 @@ it('names a known host that applies updates and offers nothing to press (H3, U6)
   expect(send).not.toHaveBeenCalled();
 });
 
-it('on a host where the owner installs new versions, says where, in the host’s words (R1)', async () => {
+it('on Railway says new versions come each night once automatic updates are on, and where to check (A5)', async () => {
   const notes = 'https://github.com/example/row-bot/releases/tag/v1.0.0';
   const load = vi.fn(async () => ({
     ...container,
@@ -627,18 +627,41 @@ it('on a host where the owner installs new versions, says where, in the host’s
     unit: 'service',
     applies_updates: false,
     updates_help:
-      "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+      'New versions install by themselves each night when automatic updates are on in Railway.',
+    settings_url:
+      'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
   };
-  render(<UpdateControls owner={{ load, send }} hostedBy={railway} />);
-  expect(await screen.findByText('You update it in Railway')).toBeVisible();
-  expect(screen.getByText(railway.updates_help)).toBeVisible();
+  const view = render(
+    <UpdateControls owner={{ load, send }} hostedBy={railway} />,
+  );
+  expect(await screen.findByText('Updates come from Railway')).toBeVisible();
+  expect(
+    screen.getByText(
+      'New versions install by themselves each night when automatic updates are on in Railway.',
+    ),
+  ).toBeVisible();
+  // Where they're switched on: the service's own settings in Railway.
+  const check = screen.getByRole('link', { name: 'Check in Railway' });
+  expect(check).toHaveAttribute('href', railway.settings_url);
+  expect(check).toHaveAttribute('target', '_blank');
   expect(screen.queryByText(/Updated by|They test/)).toBeNull();
   expect(
     screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
   ).toHaveAttribute('href', notes);
-  // Nothing to press here either: the owner updates it in Railway.
+  // Nothing to press here either: the owner turns updates on in Railway.
   expect(screen.queryAllByRole('button')).toEqual([]);
   expect(send).not.toHaveBeenCalled();
+  view.unmount();
+
+  // Without the service's IDs, no page to send the owner to.
+  render(
+    <UpdateControls
+      owner={{ load, send }}
+      hostedBy={{ ...railway, settings_url: null }}
+    />,
+  );
+  expect(await screen.findByText('Updates come from Railway')).toBeVisible();
+  expect(screen.queryByRole('link', { name: /Check in/ })).toBeNull();
 });
 
 it('reports an update that did not start once and downloads it again only when asked', async () => {

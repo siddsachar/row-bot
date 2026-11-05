@@ -116,7 +116,7 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   await page.goto('/app-v2/settings/system');
   const card = page.getByRole('region', { name: 'Hosted by Railway' });
   await expect(
-    card.getByText(/^Row-Bot .+ · you update it in Railway$/),
+    card.getByText(/^Row-Bot .+ · updates come from Railway$/),
   ).toBeVisible();
   await expect(card.getByText('Memory 2.0 GB of 8 GB')).toBeVisible();
   for (const [name, url] of [
@@ -130,10 +130,10 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   await screenshot(page, testInfo, 'railway-system');
 
   await page.goto('/app-v2/settings/updates');
-  await expect(page.getByText('You update it in Railway')).toBeVisible();
+  await expect(page.getByText('Updates come from Railway')).toBeVisible();
   await expect(
     page.getByText(
-      "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+      'New versions install by themselves each night when automatic updates are on in Railway.',
     ),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: /Check|Update/ })).toHaveCount(
@@ -162,6 +162,12 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
     ),
   ).toBeVisible();
   await expect(page.getByRole('link', { name: /Backups in/ })).toHaveCount(0);
+  await assertNoOverflow(page);
+  // Updates: where Railway's automatic updates are switched on (A5).
+  await page.goto('/app-v2/settings/updates');
+  await expect(
+    page.getByRole('link', { name: 'Check in Railway' }),
+  ).toHaveAttribute('href', /\/settings\?environmentId=[0-9a-f-]{36}$/);
   await assertNoOverflow(page);
 });
 
