@@ -12,7 +12,6 @@ import {
 import type { ClientController } from '../../api/controller';
 import type {
   AgentRuntimeSettingsState,
-  CachedModelPage,
   DefaultModelSnapshot,
   LocalRuntimeSnapshot,
   ModelPickerOption,
@@ -44,19 +43,14 @@ import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
 import LocalModelSettings from './LocalModelSettings';
 
-/** A star lists a model in every picker, first (U10); the Catalog below has the rest. */
-const LISTED_NOTE =
-  'Starred models come first. Star more in the Catalog below.';
+/** A star puts a model in your models, which every picker lists; the Catalog below has the rest. */
+const LISTED_NOTE = 'Your models come first. Star more in the Catalog below.';
 import DefaultModelPicker from './DefaultModelPicker';
 import { modelRefName, splitModelLabel } from '../shell/model-choices';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 type Media = 'vision' | 'image' | 'video';
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
-type PinPending = {
-  commandId: string;
-  operation: 'provider.model.pin' | 'provider.model.unpin';
-};
 /** Limits for long work, in plain words. A run has no step limit to set: it goes on while it makes progress. */
 const agentFields: {
   key: keyof Omit<AgentRuntimeSettingsState, 'schema_version'>;
@@ -169,12 +163,6 @@ export default function ModelsPanel({
   const [pending, setPending] = useProviderSettingsValue<{
     commandId: string;
   } | null>(session, 'pending', null);
-  const [pinPending, setPinPending] =
-    useProviderSettingsValue<PinPending | null>(
-      session,
-      'surfacePending',
-      null,
-    );
   const [agents, setAgents] = useState<AgentRuntimeSettingsState | null>(null);
   const [agentDraft, setAgentDraft] = useState<Record<string, string>>({});
   const [limiting, setLimiting] = useState(false);
@@ -191,7 +179,6 @@ export default function ModelsPanel({
   const [error, setError] = useState('');
   // An unconfirmed save stays by its row until its receipt settles.
   const [brainNote, setBrainNote] = useState('');
-  const [catalogNote, setCatalogNote] = useState('');
   const contextSelectedCap = state?.context.selected_cap;
 
   useEffect(() => {
@@ -267,7 +254,7 @@ export default function ModelsPanel({
     );
   }
   async function brainDefault(ref: string, undoing = false) {
-    if (!session.active || pending || pinPending || busy)
+    if (!session.active || pending || busy)
       throw { code: 'operation_uncertain' };
     setBusy('brain');
     setError('');
@@ -347,94 +334,6 @@ export default function ModelsPanel({
         setBrainNote('');
         if (receipt.status === 'completed') notify('Brain saved');
         else setError('The Brain save was rejected.');
-      }
-    } catch (cause) {
-      setError(clientError(cause).message);
-    } finally {
-      setBusy('');
-    }
-  }
-  async function pin(
-    surface: Surface,
-    model: CachedModelPage['items'][number],
-  ) {
-    if (pending || pinPending || busy) throw { code: 'operation_uncertain' };
-    const operation = model.pinned_surfaces.includes(surface)
-      ? 'provider.model.unpin'
-      : 'provider.model.pin';
-    setBusy('pin');
-    setError('');
-    try {
-      const configuration = await controller.providerConfiguration('');
-      const fields = {
-        provider_id: model.provider_id,
-        model_id: model.model_id,
-        surface,
-      };
-      const review = await controller.reviewProviderConfiguration({
-        operation,
-        configuration_revision: configuration.revision,
-        fields,
-      });
-      if (
-        review.operation !== operation ||
-        review.configuration_revision !== configuration.revision ||
-        !review.nonce
-      )
-        throw { code: 'revision_conflict' };
-      const original: PinPending = {
-        commandId: crypto.randomUUID(),
-        operation,
-      };
-      setPinPending(original);
-      try {
-        await session.perform([original, review], () =>
-          controller.executeProviderConfiguration(
-            operation,
-            configuration.revision,
-            fields,
-            original.commandId,
-            review.nonce,
-          ),
-        );
-        setPinPending(null);
-        session.resolved();
-      } catch (cause) {
-        try {
-          const receipt = await controller.providerConfigurationReceipt(
-            original.commandId,
-          );
-          if (receipt.status !== 'uncertain') {
-            setPinPending(null);
-            session.resolved();
-            if (receipt.status === 'completed') return;
-          }
-        } catch {
-          /* Resolve only from the original receipt. */
-        }
-        throw cause;
-      }
-    } finally {
-      setBusy('');
-    }
-  }
-  async function checkPinReceipt() {
-    if (!pinPending) return;
-    setBusy('receipt');
-    try {
-      const result = await controller.providerConfigurationReceipt(
-        pinPending.commandId,
-      );
-      if (result.status === 'uncertain')
-        setCatalogNote('The model list change is still unconfirmed.');
-      else {
-        setPinPending(null);
-        session.resolved();
-        await reload();
-        setCatalogRefresh((value) => value + 1);
-        setCatalogNote('');
-        if (result.status === 'completed') notify('Picker updated');
-        else setError('Picker change rejected.');
       }
     } catch (cause) {
       setError(clientError(cause).message);
@@ -654,7 +553,7 @@ export default function ModelsPanel({
   const models = new Set(choices.map((option) => option.selection_ref)).size;
   const brainReady = !!state.brain.current_ref && !!currentBrain?.available;
   const contextKind = state.context.policy_kind;
-  const locked = !!busy || !!pending || !!pinPending;
+  const locked = !!busy || !!pending;
   const catalogStatus =
     busy === 'refresh'
       ? 'Refreshing…'
@@ -906,7 +805,6 @@ export default function ModelsPanel({
       <LocalModelSettings
         controller={controller}
         runtime={localRuntime}
-        pickerOptions={state.brain.options}
         onChanged={() => void reload().catch(() => undefined)}
       />
       <SettingsAdvanced
@@ -968,7 +866,7 @@ export default function ModelsPanel({
       <SettingsGroup
         title="Catalog"
         anchor="model-catalog"
-        note="A starred model is listed first wherever you choose a model. Hidden models wait under More models and still work."
+        note="Star a model to add it to your models: every picker lists them first."
         meta={
           <>
             <span role="status">{catalogStatus}</span>
@@ -993,26 +891,12 @@ export default function ModelsPanel({
           refreshSignal={catalogRefresh}
           defaults={defaults}
           onDefault={async (surface, model) => {
-            if (!model.pinned_surfaces.includes(surface)) {
-              await pin(surface, model);
-              await reload();
-            }
             if (surface === 'chat') await brainDefault(model.selection_ref);
             else if (surface !== 'voice')
               await saveMedia(surface, 'default', model.selection_ref);
           }}
           onChanged={reload}
         />
-        {(pinPending || catalogNote) && (
-          <div className="settings-divided settings-catalog-note">
-            {catalogNote && <p role="status">{catalogNote}</p>}
-            {pinPending && (
-              <Button onClick={() => void checkPinReceipt()}>
-                Check picker
-              </Button>
-            )}
-          </div>
-        )}
       </SettingsGroup>
     </div>
   );

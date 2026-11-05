@@ -66,17 +66,16 @@ class CachedModelRow:
     reasoning: CachedReasoning | None
     context_window: int | None
     installed: bool | None
-    pinned_surfaces: tuple[str, ...]
     configured: bool
     runtime_ready: bool
     status_reason: str
     runtime_mode: str
     source: str
     runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
-    # The person's marks (F10, U10), on a catalog page only: a favourite is
-    # listed first in every picker for its jobs; a hidden one waits under More models.
+    # Learning's offered personal models are listed in chat without a star (L2c2).
+    offered: bool = False
+    # A star's place, on a catalog page only: starred models are what every picker lists.
     favourite_rank: int | None = None
-    hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -160,11 +159,12 @@ def _public_model(row: CatalogModelRow, *, provider_label: str, installed: bool 
         tuple(item for item in _MODALITIES if item in snapshot.get("input_modalities", ())),
         tuple(item for item in _MODALITIES if item in snapshot.get("output_modalities", ())),
         _boolean(snapshot.get("tool_calling")), _reasoning(snapshot.get("reasoning")),
-        _integer(row.context_window), installed, row.pinned_surfaces,
+        _integer(row.context_window), installed,
         row.configured, row.runtime_ready, _label(row.status_reason, ""),
         row.runtime_mode, row.source,
         "ready" if include_readiness and row.configured and row.runtime_ready and installed is True
         else "unavailable" if include_readiness else "unknown",
+        row.offered,
     )
 
 
@@ -179,7 +179,7 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
     from row_bot.providers.model_visibility import withheld
 
     # Learning's personal models are offered only once Learning offers a version (L2c2): every ready
-    # version, as "Personal model v1", pinned to chat; the starting model it compares with, never.
+    # version, as "Personal model v1", listed in chat; the starting model it compares with, never.
     from row_bot import learning
 
     offered = learning.offered_personal_models() if any(withheld(row.provider_id, row.model_id) for row in rows) else {}
@@ -191,7 +191,7 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
             label = offered.get(row.selection_ref)
             if label is None:
                 continue
-            row = replace(row, display_name=label, pinned_surfaces=tuple(sorted({*row.pinned_surfaces, "chat"})))
+            row = replace(row, display_name=label, offered=True)
         kept.append(row)
     rows = kept
     endpoints = {}
@@ -250,9 +250,9 @@ def read_provider_snapshot(*, now: float | None = None) -> ProviderStatusSnapsho
     return _read(now)[0]
 
 
-def picker_choices(surface: str) -> list[dict]:
+def picker_choices(surface: str, current: str = "") -> list[dict]:
     """A picker's options from saved metadata and local status; never reads a provider."""
-    return picker_options(_read(None, include_readiness=True)[1], surface)
+    return picker_options(_read(None, include_readiness=True)[1], surface, current)
 
 
 def list_cached_models(
@@ -288,9 +288,9 @@ def list_cached_models(
 
 
 def _marked(rows: tuple[CachedModelRow, ...]) -> tuple[CachedModelRow, ...]:
-    """A page's rows with the person's favourite and hidden marks (never part of the revision)."""
+    """A page's rows with the person's stars (never part of the revision)."""
     from row_bot.providers.model_visibility import read_model_visibility
 
     shown = read_model_visibility()
-    return tuple(replace(row, favourite_rank=shown.rank(row.selection_ref), hidden=shown.is_hidden(row.selection_ref))
+    return tuple(replace(row, favourite_rank=shown.rank(row.selection_ref))
                  for row in rows)

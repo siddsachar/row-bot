@@ -4954,8 +4954,8 @@ export class ClientController {
       return this.transport.updateModelContext(body, signal);
     });
   /**
-   * Favourite or hide a model (F10). The composer's list changes at once and
-   * settles on what the server saved; a failed save puts it back.
+   * Star or unstar a model. The composer's list changes at once and settles on
+   * what the server saved; a failed save puts it back.
    */
   updateModelVisibility = async (
     body: import('./types').ModelVisibilityMutation,
@@ -4979,11 +4979,10 @@ export class ClientController {
           throw clientError({ code: 'capability_unavailable' });
         return this.transport.updateModelVisibility(body, signal);
       });
+      // Only the stars change here: an open picker keeps its rows, so several
+      // models can be starred in a row. A provider's first star narrows its list
+      // to the starred models; the picker shows that the next time it reads it.
       mark((models) => markModels(models, saved));
-      // A provider's first star narrows its list to the starred models and
-      // removing its last one lists all its ready models again: re-read the
-      // list so an open picker shows what the server now offers.
-      await this.refreshChoices().catch(() => undefined);
       return saved;
     } catch (cause) {
       if (before) mark((models) => restoreVisibility(models, before));

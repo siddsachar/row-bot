@@ -1,8 +1,8 @@
 """Provider subsystem public facade.
 
 The first implementation phase keeps existing cloud/API-key behaviour working
-through ``models.py`` while provider config, auth metadata, catalog data, and
-Quick Choices become the new shared foundation.
+through ``models.py`` while provider config, auth metadata and catalog data
+become the new shared foundation.
 """
 
 from row_bot.providers.models import (
@@ -11,7 +11,6 @@ from row_bot.providers.models import (
     ProviderConnection,
     ProviderDefinition,
     ProviderHealth,
-    RoutingProfile,
     TransportMode,
 )
 
@@ -21,6 +20,5 @@ __all__ = [
     "ProviderConnection",
     "ProviderDefinition",
     "ProviderHealth",
-    "RoutingProfile",
     "TransportMode",
 ]

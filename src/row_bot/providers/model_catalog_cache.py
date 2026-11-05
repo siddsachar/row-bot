@@ -137,15 +137,7 @@ def refresh_model_catalog_cache(
     provider_status: dict[str, dict[str, Any]] = {}
     cloud_cache = dict(previous.cloud_cache)
     ollama_rows = list(previous.ollama_rows)
-    stale_custom_pins = 0
 
-    try:
-        from row_bot.providers.selection import prune_stale_custom_quick_choices
-
-        stale_custom_pins = prune_stale_custom_quick_choices()
-    except Exception as exc:
-        warnings.append(f"Stale custom model cleanup failed: {exc}")
-        logger.warning("Stale custom model cleanup failed during catalog refresh", exc_info=True)
     try:
         from row_bot.models import get_current_model
 
@@ -187,11 +179,10 @@ def refresh_model_catalog_cache(
         return previous
     write_model_catalog_cache(snapshot)
     logger.info(
-        "perf: model catalog cache refreshed in %.3fs rows=%d warnings=%d stale_custom_pins=%d reason=%s provider=%s",
+        "perf: model catalog cache refreshed in %.3fs rows=%d warnings=%d reason=%s provider=%s",
         time.perf_counter() - started,
         snapshot.total_rows,
         len(snapshot.warnings),
-        stale_custom_pins,
         reason,
         provider_id or "all",
     )

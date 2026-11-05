@@ -105,8 +105,8 @@ def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[s
 def detect_local_runtime() -> dict[str, Any]:
     """Loopback-only detection; lists models only when the runtime answers.
 
-    Each model says whether it is a favourite or hidden and whether Row-Bot
-    suggests it first (F10); Setup and Settings › Models list them that way.
+    Each model says whether it is starred and whether Row-Bot suggests it
+    first; Setup and Settings › Models list them that way.
     """
     from row_bot.models import is_tool_compatible
     from row_bot.providers.model_visibility import annotate, read_model_visibility, withheld
@@ -125,7 +125,7 @@ def detect_local_runtime() -> dict[str, Any]:
         models.append({"model_ref": f"model:ollama:{name}", "name": name, "agent_ready": agent_ready})
     if models:
         shown = read_model_visibility()
-        models = _recommend(models, default=saved_default_model(), skip={*shown.favourites, *shown.hidden})
+        models = _recommend(models, default=saved_default_model(), skip=set(shown.favourites))
         models = annotate(models, key="model_ref", visibility=shown)
     return {
         "schema_version": 1,
@@ -182,14 +182,15 @@ def _chat_row(model_ref: str):
 
 
 def choose_model(model_ref: str) -> str:
-    """Save the person's pick as the default and pin it for the composer.
+    """Save the person's pick as the default and star it, so every picker lists it.
 
     Only a model that is available right now can be chosen: an installed local
     model the runtime serves, or a connected provider's chat model.
     """
     from row_bot.application.client_platform import ClientPlatformError
     from row_bot.providers import saved_model_settings as settings
-    from row_bot.providers.selection import add_quick_choice_for_model, model_ref as build_ref, parse_model_ref
+    from row_bot.providers.model_visibility import star_model
+    from row_bot.providers.selection import model_ref as build_ref, parse_model_ref
 
     parsed = parse_model_ref(str(model_ref or ""))
     if not parsed:
@@ -215,9 +216,9 @@ def choose_model(model_ref: str) -> str:
 
     recheck_default_model()
     try:
-        add_quick_choice_for_model(model_id, provider_id=provider_id, surface="chat")
+        star_model(reference)
     except Exception:
-        logger.warning("The chosen model could not be pinned to the picker", exc_info=True)
+        logger.warning("The chosen model could not be starred", exc_info=True)
     return reference
 
 

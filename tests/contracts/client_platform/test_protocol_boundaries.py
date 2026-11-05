@@ -33,7 +33,7 @@ def test_discovery_reads_metadata_without_constructing_tool_adapters(monkeypatch
     plugin = SimpleNamespace(name="synthetic_plugin", destructive_tool_names=("synthetic_write",),
                              as_langchain_tools=forbidden_construction)
     monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=True))
-    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface, current="": [
         {"provider_id": "fixture", "selection_ref": "model:fixture:synthetic", "label": "Synthetic",
          "available": False, "unavailable_reason": "configuration_required", "billing": None}])
     monkeypatch.setattr(tool_registry, "get_all_tools", lambda: [native])

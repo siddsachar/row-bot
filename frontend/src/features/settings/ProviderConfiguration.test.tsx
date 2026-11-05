@@ -330,33 +330,6 @@ it('exposes explicit network effect scope before the one-click check', async () 
   );
 });
 
-it('keeps unknown readiness truthful and preserves provider-qualified model picker intent', async () => {
-  const props = options();
-  render(<ProviderConfiguration {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Model picker settings' }),
-  );
-  fireEvent.change(screen.getByLabelText('Provider ID'), {
-    target: { value: 'openai' },
-  });
-  fireEvent.change(screen.getByLabelText('Exact model ID'), {
-    target: { value: 'same-model' },
-  });
-  fireEvent.change(screen.getByLabelText('Picker'), {
-    target: { value: 'vision' },
-  });
-  await save('List model');
-  await waitFor(() =>
-    expect(props.apply).toHaveBeenCalledWith(
-      'provider.model.pin',
-      page.revision,
-      { provider_id: 'openai', model_id: 'same-model', surface: 'vision' },
-      expect.any(String),
-      expect.objectContaining({ action_digest: expect.any(String) }),
-    ),
-  );
-});
-
 it('retains an unsent draft and late uncertain command across remount without replay', async () => {
   const props = options(),
     session = new ProviderConfigurationSession(),

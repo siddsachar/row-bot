@@ -115,7 +115,7 @@ def test_choice_discovery_reads_metadata_without_plugin_construction_or_refresh(
     from row_bot.plugins import registry as plugin_registry, state
     from row_bot.mcp_client import runtime
     monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=True))
-    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [{"provider_id": "fixture",
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface, current="": [{"provider_id": "fixture",
         "selection_ref": "fixture::model", "label": "Fixture", "available": True, "unavailable_reason": None,
         "billing": None, "api_key": "PRIVATE_SENTINEL"}])
     tool = SimpleNamespace(name="fixture_tool", destructive_tool_names={"fixture_delete"},

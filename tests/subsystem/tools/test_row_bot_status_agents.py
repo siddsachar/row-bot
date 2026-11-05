@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.helpers.starred_models import starred_profile
+
 
 def _fresh_status_modules(tmp_path, reload_for_data_dir):
     data_dir = tmp_path / "data"
@@ -19,26 +21,6 @@ def _fresh_status_modules(tmp_path, reload_for_data_dir):
         "row_bot.tools.row_bot_status_tool",
     )
     return tuple(modules)
-
-
-def _isolated_model_choices(tmp_path, monkeypatch):
-    import row_bot.providers.config as provider_config
-    import row_bot.providers.selection as selection
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(selection, "load_provider_config", provider_config.load_provider_config)
-    monkeypatch.setattr(selection, "save_provider_config", provider_config.save_provider_config)
-    provider_config.save_provider_config({})
-    selection._provider_status_picker_cache.clear()
-    return selection
-
-
-def _chat_snapshot() -> dict:
-    return {
-        "tasks": ["chat"],
-        "input_modalities": ["text"],
-        "output_modalities": ["text"],
-    }
 
 
 @pytest.mark.slow
@@ -289,13 +271,7 @@ def test_row_bot_status_tools_reports_inherited_profile_scope(tmp_path, reload_f
 
 
 def test_row_bot_status_model_setting_uses_strict_canonical_refs(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "gpt-4o-mini",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"})
     *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
@@ -311,13 +287,7 @@ def test_row_bot_status_model_setting_uses_strict_canonical_refs(tmp_path, monke
 
 
 def test_row_bot_status_thread_model_setting_writes_thread_override(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "gpt-4o-mini",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"})
     threads, *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     thread_id = threads.create_thread("Thread model scope")
     captured = {}
@@ -338,13 +308,7 @@ def test_row_bot_status_thread_model_setting_writes_thread_override(tmp_path, mo
 
 
 def test_row_bot_status_thread_model_default_clears_override(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "gpt-4o-mini",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"})
     threads, *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     thread_id = threads.create_thread("Thread model clear")
     threads._set_thread_model_override(thread_id, "model:openai:gpt-4o-mini")
@@ -365,13 +329,7 @@ def test_row_bot_status_thread_model_default_clears_override(tmp_path, monkeypat
 
 
 def test_row_bot_status_default_model_setting_changes_global_default(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "gpt-4o-mini",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"})
     *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
@@ -387,13 +345,7 @@ def test_row_bot_status_default_model_setting_changes_global_default(tmp_path, m
 
 
 def test_row_bot_status_legacy_model_refuses_threaded_ambiguity(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "gpt-4o-mini",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"})
     threads, *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     thread_id = threads.create_thread("Ambiguous model scope")
 
@@ -410,13 +362,7 @@ def test_row_bot_status_legacy_model_refuses_threaded_ambiguity(tmp_path, monkey
 
 
 def test_row_bot_status_model_lists_pinned_brain_choices(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "gpt-4o-mini",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"})
     *_modules, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
 
     result = status_tool._row_bot_status("model")
@@ -430,14 +376,7 @@ def test_row_bot_status_model_lists_pinned_brain_choices(tmp_path, monkeypatch, 
 
 
 def test_row_bot_status_model_lists_all_pinned_brain_choices_but_overview_stays_compact(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    for index in range(10):
-        selection.add_quick_choice_for_model(
-            f"model-{index}",
-            provider_id="openai",
-            display_name=f"Model {index}",
-            capabilities_snapshot=_chat_snapshot(),
-        )
+    starred_profile(tmp_path / "models", monkeypatch, {f"model:openai:model-{index}": f"Model {index}" for index in range(10)})
     *_modules, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
 
     full = status_tool._row_bot_status("model")
@@ -466,7 +405,7 @@ def test_row_bot_status_model_setting_blocks_child_runtime_self_switch_before_ap
 
 
 def test_row_bot_status_model_setting_rejects_unpinned_canonical_ref(tmp_path, monkeypatch, reload_for_data_dir):
-    _isolated_model_choices(tmp_path, monkeypatch)
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "Fast OpenAI"}, stars=[])
     *_modules, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
@@ -480,19 +419,8 @@ def test_row_bot_status_model_setting_rejects_unpinned_canonical_ref(tmp_path, m
 
 
 def test_row_bot_status_model_setting_rejects_ambiguous_model(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "shared-model",
-        provider_id="openai",
-        display_name="Shared Model",
-        capabilities_snapshot=_chat_snapshot(),
-    )
-    selection.add_quick_choice_for_model(
-        "shared-model",
-        provider_id="anthropic",
-        display_name="Shared Model",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {
+        "model:openai:shared-model": "Shared Model", "model:anthropic:shared-model": "Shared Model"})
     *_modules, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 

@@ -1053,34 +1053,3 @@ def list_codex_model_infos_for_status() -> list[ModelInfo]:
     if cached_infos:
         return cached_infos
     return fallback_codex_model_infos()
-
-
-def seed_recommended_codex_quick_choices(*, max_choices: int = 1) -> list[dict[str, Any]]:
-    from row_bot.providers.runtime import provider_status
-    from row_bot.providers.selection import add_quick_choice_for_model
-    from row_bot.providers.config import load_provider_config
-
-    status = provider_status(CODEX_PROVIDER_ID)
-    if not status.get("configured") or not status.get("runtime_enabled"):
-        return load_provider_config().get("quick_choices", [])
-    recommended_ids = {
-        str(model["id"])
-        for model in FALLBACK_CODEX_MODELS
-        if model.get("recommended")
-    }
-    infos = list_codex_model_infos()
-    if not infos:
-        infos = list_codex_model_infos(force_refresh=True)
-    candidates = [
-        model_info for model_info in infos
-        if not recommended_ids or model_info.model_id in recommended_ids
-    ]
-    for model_info in candidates[:max(0, max_choices)]:
-        add_quick_choice_for_model(
-            model_info.model_id,
-            provider_id=CODEX_PROVIDER_ID,
-            display_name=model_info.display_name,
-            source="codex_recommended",
-            capabilities_snapshot=model_info.capability_snapshot(),
-        )
-    return load_provider_config().get("quick_choices", [])

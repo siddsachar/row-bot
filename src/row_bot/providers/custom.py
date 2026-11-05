@@ -45,11 +45,9 @@ class CustomEndpointModelRefreshResult(list):
         self,
         infos: list[ModelInfo],
         *,
-        stale_pin_count: int = 0,
         default_reset: bool = False,
     ) -> None:
         super().__init__(infos)
-        self.stale_pin_count = int(stale_pin_count or 0)
         self.default_reset = bool(default_reset)
 
 
@@ -491,7 +489,7 @@ def _probe_stream(url: str, *, headers: dict, json_body: dict, timeout: float,
 
 
 def delete_custom_endpoint_configuration(endpoint_id: str, *, expected_revision: str,
-                                         validate: Callable[[], None], record_commit: Callable[[dict], None]) -> int:
+                                         validate: Callable[[], None], record_commit: Callable[[dict], None]) -> None:
     """Reviewed config-only removal; retain credentials and global selections."""
     with provider_config_transaction():
         validate()
@@ -502,13 +500,9 @@ def delete_custom_endpoint_configuration(endpoint_id: str, *, expected_revision:
         if not any(isinstance(item, dict) and item.get("id") == endpoint_id for item in endpoints):
             raise ProviderConfigError("not_found")
         cfg["custom_endpoints"] = [item for item in endpoints if not isinstance(item, dict) or item.get("id") != endpoint_id]
-        provider_id = custom_provider_id(endpoint_id)
-        before = cfg["quick_choices"]
-        cfg["quick_choices"] = [item for item in before if not isinstance(item, dict) or item.get("provider_id") != provider_id]
         validate()
         record_commit(cfg)
         save_provider_config(cfg, expected_revision=expected_revision)
-        return len(before) - len(cfg["quick_choices"])
 
 
 def _extra_body_contains_credentials(value: Any) -> bool:
@@ -633,14 +627,7 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str, *, validate: Ca
         # A reviewed catalog refresh does not authorize changing saved selections.
         return CustomEndpointModelRefreshResult(infos)
     valid_model_ids = {info.model_id for info in infos}
-    stale_pin_count = 0
     default_reset = False
-    try:
-        from row_bot.providers.selection import remove_quick_choices_for_missing_models
-
-        stale_pin_count = remove_quick_choices_for_missing_models(str(endpoint["provider_id"]), valid_model_ids)
-    except Exception:
-        logger.debug("Failed to prune stale quick choices for %s", endpoint["provider_id"], exc_info=True)
     try:
         previous_model_ids = {
             str(item.get("model_id") or item.get("id") or "")
@@ -667,11 +654,7 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str, *, validate: Ca
             default_reset = reset_current_model_if_removed(str(endpoint["provider_id"]), removed_model_ids=removed_model_ids)
     except Exception:
         logger.debug("Failed to reset current model after refreshing %s", endpoint["provider_id"], exc_info=True)
-    return CustomEndpointModelRefreshResult(
-        infos,
-        stale_pin_count=stale_pin_count,
-        default_reset=default_reset,
-    )
+    return CustomEndpointModelRefreshResult(infos, default_reset=default_reset)
 
 
 def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = None, *,

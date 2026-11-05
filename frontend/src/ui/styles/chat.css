@@ -3989,15 +3989,8 @@ button.attachment-tile-face:hover {
 .model-picker-connect:hover {
   background: var(--accent-subtle);
 }
-/* F10: "More models (N)" opens the hidden models in place. */
-.model-picker-more {
-  color: var(--text-muted);
-}
-.model-picker-more > svg {
-  flex: none;
-}
-/* A row's favourite/hide menu, beside its option: shown on the hovered or
-   highlighted row, always on touch. */
+/* A row's star, beside its option: shown on the hovered or highlighted row,
+   always on touch, and always while the model is in your models. */
 .model-picker-row {
   position: relative;
 }
@@ -4011,30 +4004,37 @@ button.attachment-tile-face:hover {
   display: inline-flex;
   transform: translateY(-50%);
 }
-.model-picker-row-menu-button.button {
+.model-picker-row-menu-button {
+  display: inline-grid;
+  place-items: center;
   inline-size: 24px;
   block-size: 24px;
-  min-width: 24px;
-  min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: none;
-  box-shadow: none;
   color: var(--text-muted);
+  cursor: pointer;
   opacity: 0;
 }
 .model-picker-row:hover .model-picker-row-menu-button,
-.model-picker-row[data-menu] .model-picker-row-menu-button,
+.model-picker-row[data-starred] .model-picker-row-menu-button,
 .model-picker-option[aria-selected='true']
   + .model-picker-row-menu
   .model-picker-row-menu-button {
   opacity: 1;
 }
-.model-picker-row-menu-button.button:hover,
-.model-picker-row-menu-button.button[data-state='open'] {
+.model-picker-row[data-starred] .model-picker-row-menu-button {
+  color: var(--accent-solid);
+}
+.model-picker-row-menu-button:hover {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
+}
+.model-picker-row-menu-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  opacity: 1;
 }
 @media (hover: none), (pointer: coarse) {
   .model-picker-option {
@@ -4043,31 +4043,11 @@ button.attachment-tile-face:hover {
   .model-picker-row > .model-picker-option {
     padding-inline-end: 40px;
   }
-  .model-picker-row-menu-button.button {
+  .model-picker-row-menu-button {
     inline-size: 32px;
     block-size: 32px;
-    min-width: 32px;
-    min-height: 32px;
     opacity: 0.6;
   }
-}
-/* F10: "<model> is under More models. Undo", in place of a toast. */
-.model-picker-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-hairline);
-  color: var(--text-secondary);
-  font-size: var(--text-12);
-}
-.model-picker-note > span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .model-picker-empty {
   margin: 0;

@@ -126,16 +126,6 @@ def test_capabilities_unknowns_and_local_install_state(saved):
     assert rows["model:ollama:unknown"].installed is None
 
 
-def test_pins_are_saved_metadata_without_pruning_or_defaults(saved):
-    saved(cloud={"test": _model()}, settings={"quick_choices": [
-        {"id": "model:openai:test", "visibility": ["chat", "image"]},
-        {"id": "model:custom_openai_deleted:ghost", "visibility": ["chat"]},
-    ]})
-    before = config.CONFIG_PATH.read_bytes()
-    assert status.list_cached_models(now=1000).items[0].pinned_surfaces == ("chat", "image")
-    assert config.CONFIG_PATH.read_bytes() == before
-
-
 def test_search_before_paging_counts_and_revision_invalidation(saved):
     saved(cloud={f"model-{i:03}": _model(label=f"Name {i:03}") for i in range(205)})
     first = status.list_cached_models(limit=100, now=1000)
@@ -207,7 +197,6 @@ def test_public_fields_exclude_sensitive_records_and_keep_revision_public(saved)
 def test_passive_reads_call_no_runtime_secret_discovery_or_mutation_owner(saved, monkeypatch):
     import row_bot.providers.auth_store as auth
     import row_bot.providers.runtime as runtime
-    import row_bot.providers.selection as selection
     import row_bot.providers.custom as custom
 
     saved(cloud={"test": _model()}, settings={"custom_endpoints": [{"id": "private", "models": [{"id": "test"}]}]})
@@ -221,7 +210,7 @@ def test_passive_reads_call_no_runtime_secret_discovery_or_mutation_owner(saved,
         (model_catalog, ["_provider_status_by_id", "_probe_ollama_show_metadata", "_catalog_runtime_summary"]),
         (cache, ["_bootstrap_snapshot_from_runtime", "write_model_catalog_cache", "refresh_model_catalog_cache", "start_model_catalog_refresh_background"]),
         (config, ["save_provider_config"]), (auth, ["get_provider_secret", "provider_secret_status"]),
-        (runtime, ["provider_status"]), (selection, ["list_quick_choices", "prune_stale_custom_quick_choices"]),
+        (runtime, ["provider_status"]),
         (custom, ["list_custom_endpoints", "custom_probe_for_model", "refresh_custom_endpoint_models"]),
     ]:
         for name in names:

@@ -1260,7 +1260,6 @@ export default function TaskLibrary() {
   ).map((model) => ({
     id: model.model_ref,
     label: model.label,
-    ...(model.hidden ? { group: 'More models' } : {}),
   }));
   // The draft in the editor is not waiting to be continued. Its row stays
   // mounted (hidden) so closing the editor returns focus to it.

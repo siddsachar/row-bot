@@ -12,7 +12,7 @@ import stat
 import time
 from urllib.parse import urlsplit
 
-from row_bot.providers import custom, selection
+from row_bot.providers import custom
 from row_bot.providers.config import load_provider_config, save_provider_config, provider_config_revision, provider_config_transaction, ProviderConfigError
 from row_bot.runtime import admissions
 from row_bot.application.provider_settings_commands import invalidate_provider_runtime
@@ -191,11 +191,6 @@ def review_provider_configuration(operation: str, expected_revision: str, payloa
             raise ProviderConfigError("not_found")
         if operation != "provider.endpoint.delete":
             _snapshot(next(item for item in cfg["custom_endpoints"] if isinstance(item, dict) and item.get("id") == payload["endpoint_id"]))
-    elif operation in {"provider.model.pin", "provider.model.unpin"}:
-        if set(payload) != {"provider_id", "model_id", "surface"} or payload["surface"] not in selection.SURFACE_VISIBILITY:
-            raise ProviderConfigError("invalid_provider_configuration")
-        _text(payload["provider_id"], 128)
-        _text(payload["model_id"], 512)
     else:
         raise ProviderConfigError("invalid_command")
     digest = admissions.keyed_digest({"operation": operation, "revision": expected_revision, "payload": payload})
@@ -245,8 +240,6 @@ def execute_provider_configuration(*, owner_id: str, key: str, command: dict,
             custom.save_custom_endpoint({**old, **endpoint}, expected_revision=revision, validate=authority, record_commit=committed, manage_secret=False)
         elif operation == "provider.endpoint.delete":
             custom.delete_custom_endpoint_configuration(fields["endpoint_id"], expected_revision=revision, validate=authority, record_commit=committed)
-        elif operation in {"provider.model.pin", "provider.model.unpin"}:
-            selection.set_reviewed_model_pin(**fields, pinned=operation.endswith(".pin"), expected_revision=revision, validate=authority, record_commit=committed)
         else:
             # Network operations are deliberately outside the writer below.
             raise ProviderConfigError("provider_probe_requires_separate_admission")
@@ -323,7 +316,7 @@ def _execute_probe(owner_id: str, key: str, command: dict, validate: Callable[[]
     return result
 
 
-_TYPES = {"provider.endpoint." + operation for operation in ("create", "save", "delete", "probe", "refresh")} | {"provider.model.pin", "provider.model.unpin"}
+_TYPES = {"provider.endpoint." + operation for operation in ("create", "save", "delete", "probe", "refresh")}
 
 
 def read_provider_configuration_receipt(*, owner_id: str, command_id: str,
