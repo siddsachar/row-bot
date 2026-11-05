@@ -107,17 +107,21 @@ def test_both_architectures_smoke_the_image_as_a_hosting_service_runs_it_before_
     ):
         job = jobs[name]
         names = [step.get("name", step.get("uses", "")) for step in job["steps"]]
-        hosting = [
-            index
+        hosting = {
+            "railway" if "--shape railway" in step.get("run", "") else "partner": index
             for index, step in enumerate(job["steps"])
             if "scripts/smoke_hosting_partner.py" in step.get("run", "")
-        ]
+        }
         assert {item["architecture"] for item in job["strategy"]["matrix"]["include"]} == {
             "amd64",
             "arm64",
         }
-        assert len(hosting) == 1 and names.index(build) < hosting[0]
+        # PikaPods' shape, and Railway's: as root on a root-owned volume (R1).
+        assert set(hosting) == {"partner", "railway"}
+        assert names.index(build) < min(hosting.values())
     release_names = [step.get("name", "") for step in jobs["release-image"]["steps"]]
-    assert release_names.index(
-        "Smoke native release image as a hosting service runs it"
-    ) < release_names.index("Log in to GHCR after smoke")
+    for smoke in (
+        "Smoke native release image as a hosting service runs it",
+        "Smoke native release image the way Railway runs it",
+    ):
+        assert release_names.index(smoke) < release_names.index("Log in to GHCR after smoke")

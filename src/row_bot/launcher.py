@@ -4151,6 +4151,14 @@ def _request_update_apply(port: int, server: "_RowBotProcess") -> str:
 
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY, _EARLY_SPLASH_PROC
+    # A host that starts the container as root (Railway): the data folder becomes the image user's, and
+    # Row-Bot becomes that user for good, before it writes anything, reads a secret or starts a program.
+    from row_bot.container_user import ContainerUserError, run_as_container_user
+
+    try:
+        run_as_container_user()
+    except ContainerUserError as exc:
+        raise SystemExit(f"Row-Bot didn't start: {exc}") from None
     _ensure_launcher_file_logging()
     _launch_event(
         "process_start",
