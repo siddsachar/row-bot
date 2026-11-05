@@ -145,6 +145,23 @@ def test_the_log_may_show_the_code_once_at_the_first_start_and_never_a_secret() 
         assert CODE not in str(raised.value) and KEY not in str(raised.value)
 
 
+def test_info_lines_must_be_on_stdout_where_a_host_does_not_show_them_as_errors() -> None:
+    out = "INFO: Row-Bot is running at http://127.0.0.1:8080\nRow-Bot setup code: ABCD-EFGH-JKMN\n"
+    warning = "WARNING: Row-Bot made its own secret-store key on the volume\n"
+
+    smoke.check_log_streams(out, warning)
+    failures = {
+        ("", out): "stdout does not say that Row-Bot is running",
+        ("INFO: Row-Bot is running at http://127.0.0.1:8080\n", "Row-Bot setup code: ABCD-EFGH-JKMN\n"):
+            "stdout does not say the setup code",
+        (out, out): "stderr says that Row-Bot is running",
+    }
+    for (stdout, stderr), reason in failures.items():
+        with pytest.raises(smoke.SmokeError, match=reason) as raised:
+            smoke.check_log_streams(stdout, stderr)
+        assert "ABCD" not in str(raised.value)
+
+
 def test_the_summary_flags_a_memory_high_water_mark_over_the_release_budget() -> None:
     report, within = smoke.memory_report("x86_64", [1_150_000_000, 1_420_000_000])
     assert within and "**1.42 GB**" in report and "under 3.2 GB." in report

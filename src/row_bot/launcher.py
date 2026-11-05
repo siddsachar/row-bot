@@ -68,13 +68,15 @@ from row_bot.data_paths import (
     get_row_bot_data_dir,
 )
 from row_bot import install_layout
+from row_bot.console_logging import console_handlers
 from row_bot.runtime_paths import app_icon_path, app_root, static_dir
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
 
 # ── Setup logging ────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# The console is the container's log in Row-Bot's image: INFO there goes to stdout (F2).
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", handlers=console_handlers())
 logger = logging.getLogger(__name__)
 _LAUNCH_STARTED = time.perf_counter()
 _LAUNCH_FILE_LOGGING = False

@@ -26,7 +26,6 @@ import logging
 import math
 import os
 import secrets
-import sys
 import threading
 import time
 from typing import Any, Callable, Mapping, MutableMapping
@@ -38,6 +37,7 @@ from row_bot.access.store import (
     AccessStore,
 )
 from row_bot.access.tokens import hash_secret, verify_secret
+from row_bot.console_logging import console_handlers
 from row_bot.environment_secrets import take_secret
 
 logger = logging.getLogger(__name__)
@@ -86,19 +86,20 @@ def _verifies(code: str, verifier: Any) -> bool:
 
 
 def _console() -> logging.Logger:
-    """A logger whose only handler is this process's console stream, where hosts show logs.
+    """A logger whose only handlers are this process's console streams, where hosts show logs.
 
     The code must reach a host's log view (PikaPods: More › Show Logs) and nothing that
-    persists: it never propagates to Row-Bot's own log files.
+    persists: it never propagates to Row-Bot's own log files. In Row-Bot's image it is on
+    stdout, like the rest of the launcher's INFO lines (F2).
     """
     console = logging.getLogger(f"{__name__}.console")
     console.propagate = False
     console.setLevel(logging.INFO)
     for handler in console.handlers[:]:
         console.removeHandler(handler)
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    console.addHandler(handler)
+    for handler in console_handlers():
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        console.addHandler(handler)
     return console
 
 

@@ -8,7 +8,8 @@ with an exact ROW_BOT_ALLOWED_HOSTS that leaves out 127.0.0.1 (a VPS's shape).
 Through the HTTP API a browser at the pod's address uses, it checks that:
 
 - the container becomes healthy, its launcher reports Row-Bot running, and its
-  log shows the setup code;
+  log shows the setup code, both on stdout: only warnings go to stderr, which
+  hosts show as errors;
 - the host list is exact: from outside, a request naming 127.0.0.1 is refused;
 - the code signs this browser in;
 - an API key saved for a custom endpoint, and a chat turn through it, work;
@@ -305,6 +306,15 @@ def check_container_log(log: str, *, code: str, secret_values: Sequence[str]) ->
         raise SmokeError("A secret appears in the container log")
 
 
+def check_log_streams(out: str, err: str) -> None:
+    """In Row-Bot's image INFO lines are on stdout and only warnings on stderr, which hosts colour as errors (F2)."""
+    for line, what in ((RUNNING_LINE, "that Row-Bot is running"), ("Row-Bot setup code:", "the setup code")):
+        if line not in out:
+            raise SmokeError(f"The container's stdout does not say {what}")
+        if line in err:
+            raise SmokeError(f"The container's stderr says {what}, which a host shows as an error")
+
+
 def memory_report(architecture: str, peaks: Sequence[int | None], shape: str = "partner") -> tuple[str, bool]:
     """The job summary's lines, and whether the high-water mark is within the release checklist's budget."""
     measured = [peak for peak in peaks if peak is not None]
@@ -420,9 +430,13 @@ class HostingPartnerSmoke(DockerServerSmoke):
             self._sleep(1.0)
         self._wait_ready(self.origin)
 
-    def _log(self) -> str:
+    def _log_streams(self) -> tuple[str, str]:
+        """The container's stdout and stderr, apart (``docker logs`` replays each to its own)."""
         result = self.runner.run(("docker", "logs", self.container_name), check=False)
-        return "\n".join((result.stdout, result.stderr))
+        return result.stdout, result.stderr
+
+    def _log(self) -> str:
+        return "\n".join(self._log_streams())
 
     def _check_runs_as_row_bot(self) -> None:
         """Railway's shape: Row-Bot runs as 10001, /data is all 10001's, and H2's private environment holds."""
@@ -660,6 +674,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
 
                 log = self._log()
                 check_container_log(log, code=self.code, secret_values=(self.key, self.model_key))
+                check_log_streams(*self._log_streams())
                 if self.shape == "railway":
                     # The volume is handed over at the first start; the restart finds it Row-Bot's already.
                     if log.count(HANDED_OVER_LINE) != 1 or log.count(RUNS_AS_LINE) != 2:
