@@ -11,6 +11,7 @@ from collections.abc import Callable
 import copy
 import hashlib
 import os
+import re
 import threading
 from urllib.parse import urlsplit
 
@@ -102,9 +103,61 @@ def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
         "verified": False, "featured_rank": None, "setup_tier": 0, "updated_at": 0, "popularity": 0, "signals": None, "identities": [],
         # Search: other names it is known by, whether it needs an account or key, and the quality facts.
         "keywords": [], "sign_in": "unknown", "has_icon": False, "pushed_at": 0, "archived": False, "fork": False,
-        "first_published": 0, "icon": apps.letter(name)}
+        "first_published": 0, "fork_parent": "", "forks": 0, "icon": apps.letter(name)}
     row.update(fields)
     return row
+
+
+# Words that say nothing about which server a listing is ("Reddit MCP server" is "reddit").
+_FILLER = {"mcp", "server", "servers", "the", "for", "a", "an", "and", "of", "model", "context", "protocol"}
+_PLACEHOLDER = re.compile(r"\{[^{}]*\}")
+NEAR_IDENTICAL = 0.9  # Two listings by one owner whose words overlap this much are one listing.
+
+
+def words(text: str) -> set[str]:
+    return set(re.findall(r"[^\W_]+", text.casefold()))
+
+
+def repository(url: str) -> str:
+    """A source repository, normalised: ``host/owner/repo``, whatever URL a listing gives for it."""
+    try:
+        parts = urlsplit(str(url or ""))
+    except ValueError:
+        return ""
+    path = [part for part in parts.path.split("/") if part][:2]
+    if parts.scheme not in {"https", "http"} or not parts.hostname or len(path) < 2:
+        return ""
+    host = parts.hostname.lower().removeprefix("www.")
+    return f"{host}/{path[0].lower()}/{path[1].lower().removesuffix('.git')}"
+
+
+def merge_keys(install: dict | None, source_url: str, name: str) -> list[str]:
+    """Keys beyond a deployment's own identity that prove two listings are one server: the same package
+    run the same way (any version, from any registry), or the same repository under the same name and
+    run the same way (hosted or here). A repository alone is not enough: one often holds many servers."""
+    install, keys = install or {}, []
+    refs = apps.recipe_refs(install)
+    if refs and not install.get("url"):
+        package = refs[0].partition(":")[2]
+        rest = [arg for arg in map(str, install.get("args") or []) if not arg.startswith("-") and not _PLACEHOLDER.search(arg)
+                and re.sub(r"(?<=.)[@=].*$", "", arg).lower() != package]
+        keys.append("package:" + refs[0] + "".join(" " + arg for arg in rest))
+    named = sorted(words(name) - _FILLER)
+    if repository(source_url) and named:
+        keys.append("repo:" + repository(source_url) + "#" + " ".join(named) + ("@hosted" if install.get("url") else "@local"))
+    return keys
+
+
+def near_identical(one: dict, other: dict) -> bool:
+    """Two MCP listings by the same owner, under the same name, run the same way (hosted or here), whose
+    descriptions share nearly every word. (Package pins and skills have their own identities.)"""
+    if (one["kind"] != "mcp" or other["kind"] != "mcp" or not one["publisher"]
+            or one["publisher"].casefold() != other["publisher"].casefold()
+            or words(one["name"]) - _FILLER != words(other["name"]) - _FILLER
+            or one["canonical_identity"].startswith("mcp:endpoint:") != other["canonical_identity"].startswith("mcp:endpoint:")):
+        return False
+    a, b = words(one["description"]), words(other["description"])
+    return bool(a | b) and len(a & b) / len(a | b) >= NEAR_IDENTICAL
 
 
 def finish(row: dict) -> dict:

@@ -34,6 +34,7 @@ def test_every_curated_recipe_and_seed_package_has_an_app_identity():
     ({"command": "npx", "args": ["-y", "@playwright/mcp@1.2.3"]}, ["npm:@playwright/mcp"]),
     ({"command": "npx.cmd", "args": ["tavily-mcp@0.1.4"]}, ["npm:tavily-mcp"]),
     ({"command": "uvx", "args": ["mcp-server-fetch"]}, ["pypi:mcp-server-fetch"]),
+    ({"command": "uvx", "args": ["--from", "markitdown-mcp[all]==0.1.2", "markitdown-mcp"]}, ["pypi:markitdown-mcp"]),
     ({"command": "docker", "args": ["run", "-i", "--rm", "-e", "TOKEN", "ghcr.io/github/github-mcp-server:latest"]},
      ["oci:ghcr.io/github/github-mcp-server"]),
     ({"command": "docker", "args": ["run", "-v", "ghcr.io/github/github-mcp-server:/x", "--rm", "example/other"]},

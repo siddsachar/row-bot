@@ -21,12 +21,12 @@ def local(tmp_path, monkeypatch):
     return tmp_path
 
 
-def listing(name, title="", *, url="", npm="", version="1.0.0", days=10, icon="",
+def listing(name, title="", *, url="", npm="", version="1.0.0", days=10, icon="", repo="",
             description="A fixture server with enough words to describe what it does for people who search the catalog."):
     install = ({"transport": "streamable_http", "url": url} if url else
                {"transport": "stdio", "command": "npx", "args": ["-y", f"{npm}@{version}"]} if npm else None)
     updated = (date.today() - timedelta(days=days)).isoformat()
-    return marketplace.MarketplaceEntry(f"{name}@{version}", title or name, description, "official", install=install,
+    return marketplace.MarketplaceEntry(f"{name}@{version}", title or name, description, "official", install=install, url=repo,
         metadata={"canonical_name": name, "version": version, "status": "active", "updated_at": updated,
                   **({"icon": icon} if icon else {}), **({"setup_digest": "a" * 64} if install else {})})
 
@@ -138,3 +138,67 @@ def test_searching_reads_only_this_computer(local, monkeypatch):
     monkeypatch.setattr(socket, "create_connection", refused)
     page = search_catalog(kind="app", query="reddit")
     assert page["best_match_id"] and page["items"][0]["app"]["id"] == "reddit"
+
+
+def names(page):
+    return [row["name"] for row in page["items"]]
+
+
+def test_one_package_listed_by_several_publishers_is_one_result(local, monkeypatch):
+    use_registry(monkeypatch, local, [
+        listing("io.github.maker/weather-kit", "Weather kit", npm="weather-kit", version="2.0.0"),
+        listing("ai.smithery/maker-weather-kit", "Weather Kit (Smithery)", npm="weather-kit", version="1.9.0", days=40),
+        listing("com.mirror/weather", "Weather", npm="weather-kit", version="1.0.0", days=90),
+        listing("io.github.other/weather-kit-pro", "Weather kit pro", npm="weather-kit-pro"),
+    ])
+    page = search_catalog(sources=["official"], query="weather")
+    merged = next(row for row in page["items"] if len(row["attributions"]) > 1)
+    assert len(merged["attributions"]) == 3 and page["total"] == 2
+    assert "Weather kit pro" in names(page)  # Another package is another result.
+
+
+def test_a_repository_merges_only_with_a_second_sign(local, monkeypatch):
+    repo = "https://github.com/Maker/Walker.git"
+    use_registry(monkeypatch, local, [
+        listing("io.github.maker/walker-flow", "Walker Flow", npm="walker-flow", repo=repo),
+        listing("ai.smithery/walker-flow-mcp", "walker-flow MCP server", npm="walker-flow-cli", repo="https://github.com/maker/walker"),
+        listing("io.github.maker/walker-browser", "Walker Browser", npm="walker-browser", repo=repo),  # Same repo, another server.
+        listing("io.github.maker/walker-flow-cloud", "Walker Flow", url="https://flow.example.test/mcp", repo=repo),  # Hosted.
+    ])
+    page = search_catalog(sources=["official"], query="walker")
+    assert page["total"] == 3, names(page) and sorted(len(row["attributions"]) for row in page["items"]) == [1, 1, 2]
+    assert "Walker Browser" in names(page)
+
+
+def test_near_identical_listings_by_one_owner_are_one_with_the_freshest_leading(local, monkeypatch):
+    text = "Track parcels from every major carrier and get delivery updates in one place for your orders"
+    use_registry(monkeypatch, local, [
+        listing("io.github.ship/parcels", "Parcel tracker", npm="parcels-a", days=200, description=text),
+        listing("io.github.ship/parcels-v2", "Parcel tracker", npm="parcels-b", days=5, description=text + " today"),
+        listing("io.github.copycat/parcels", "Parcel tracker", npm="parcels-c", days=1, description=text + " now"),  # Another owner.
+    ])
+    page = search_catalog(sources=["official"], query="parcel")
+    assert page["total"] == 2
+    ship = next(row for row in page["items"] if row["publisher"] == "ship on GitHub")
+    assert ship["id"].endswith("parcels-v2@1.0.0") and len(ship["attributions"]) == 2
+
+
+def test_a_fork_folds_into_its_parent_unless_it_has_more_stars():
+    from row_bot.integrations import facts
+
+    def row(name, repo, *, parent="", stars=0):
+        return facts.finish(facts.entry("mcp", "official:" + name, name, installed=False, lifecycle="available",
+            source="official", source_url=f"https://github.com/{repo}", fork_parent=parent, signals={"stars": stars},
+            publisher=repo.split("/")[0], description=f"{name} for tests", canonical_identity="mcp:registry:" + name))
+    ranked = sources.rank([row("Tracker", "maker/tracker", stars=300),
+                           row("Tracker fork", "fan/tracker", parent="github.com/maker/tracker", stars=2),
+                           row("Tracker copy", "other/tracker", parent="github.com/maker/tracker", stars=0),
+                           row("Tracker plus", "star/tracker", parent="github.com/maker/tracker", stars=900)], "tracker")
+    assert [(r["name"], r["forks"]) for r in ranked] == [("Tracker", 2), ("Tracker plus", 0)]
+
+
+def test_a_shared_endpoint_serving_different_tools_is_not_one_deployment():
+    one = sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.apify.com/?tools=a/leaks"})
+    other = sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.apify.com/?tools=b/signals"})
+    template = sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.example.test/mcp?project={project}"})
+    assert one != other and template == sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.example.test/mcp"})

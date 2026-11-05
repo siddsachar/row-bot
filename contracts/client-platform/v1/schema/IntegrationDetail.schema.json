@@ -548,6 +548,12 @@
           "title": "Evidence",
           "type": "string"
         },
+        "forks": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Forks",
+          "type": "integer"
+        },
         "icon": {
           "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
           "title": "Icon",

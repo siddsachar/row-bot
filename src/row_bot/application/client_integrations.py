@@ -30,7 +30,7 @@ def entry(row: dict) -> dict:
     return {"id": row["id"], "kind": row["kind"], "parent_id": row["parent_id"], "name": row["name"],
             "description": row["description"], "app": copy.deepcopy(row["app"]), "icon": row["icon"], "verified": row["verified"],
             "signals": copy.deepcopy(row["signals"]), "source": row["source"], "method": catalog.method(row),
-            "label": row.get("label") or catalog.label(row), "match": row.get("match"),
+            "label": row.get("label") or catalog.label(row), "match": row.get("match"), "forks": row.get("forks", 0),
             "publisher": row["publisher"], "version": row["version"], "installed": row["installed"], "enabled": row["enabled"],
             "required": row.get("required", True), "account_label": row["account_label"], "compatibility": row["compatibility"],
             "evidence": row["evidence_stage"], "tested_with_row_bot": row["tested_with_row_bot"], "lifecycle": row["lifecycle"],
