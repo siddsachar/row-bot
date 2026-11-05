@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -970,3 +971,343 @@ def test_a_newest_version_trained_by_an_older_build_without_kept_rows_says_why_i
     assert code == 0
     found = _written(out)["exploratory_27b"]
     assert (found["state"], found["reason"]) == ("not_run", "rows_not_reproducible") and fake.hub.calls == []
+
+
+# ── A12: v2's window, the combined H1, the judge and the larger local reference ──
+
+
+def _eval_profile(tmp_path: Path, monkeypatch) -> tuple[Path, Any]:
+    """An eval profile whose ChatGPT sign-in is read through a fake bridge (the script's own swaps put back)."""
+
+    from row_bot import secret_store
+    from row_bot.providers import codex
+
+    monkeypatch.setattr(codex, "save_codex_oauth_tokens", codex.save_codex_oauth_tokens)
+    monkeypatch.setattr(secret_store, "_backend_override", secret_store._backend_override)
+    eval_dir = tmp_path / "eval-profile"
+    _write_json(eval_dir / "providers.json", {"providers": {"codex": {
+        "oauth_bundle_ref": {"values": {"access_token": "ref"}}, "auth_method": "oauth_device",
+        "source": "oauth_device"}}})
+    tokens = {"access_token": "EVAL-ACCESS-1", "refresh_token": "EVAL-REFRESH-1", "id_token": "", "account": "acct",
+              "expires_at": "", "plan_type": "plus", "revision": "rev-1"}
+
+    def bridge(where, command, payload=None):
+        return {"signed_in": True, **tokens} if command == "read" else {"written": True}
+
+    return eval_dir, bridge
+
+
+def _grading(messages, _tools, _model):
+    """A judge that passes exactly the reference (so it calibrates as reliable); every other call: "no idea"."""
+
+    if "You grade answers" in str(messages[0].content):
+        prompt = str(messages[-1].content)
+        reference = prompt.split("A correct answer:\n", 1)[1].split("\n\nAnswer to grade:\n", 1)[0]
+        candidate = prompt.split("\n\nAnswer to grade:\n", 1)[1].split("\n\nDoes the answer", 1)[0]
+        return AIMessage(content="pass" if candidate == reference else "fail")
+    return AIMessage(content="no idea")
+
+
+def _v1_report(path: Path) -> dict[str, Any]:
+    """A v1 freeze report as the script wrote it before A12 (H1 with a real interval), saved at ``path``."""
+
+    with pytest.MonkeyPatch.context() as patch:
+        found = _assembled(_freeze_result(patch, 8, personal_passes=5))
+    path.write_text(json.dumps(found), encoding="utf-8")
+    return found
+
+
+def test_a_v2_freeze_reports_its_window_the_combined_h1_and_the_judges_calibration(profile, folders, tmp_path,
+                                                                                   capsys, monkeypatch):
+    scratch, out = folders
+    v1 = _v1_report(tmp_path / "v1-freeze.json")
+    eval_dir, bridge = _eval_profile(tmp_path, monkeypatch)
+    before = _hashes(profile)
+    ids = _ids(profile)
+    hooks = report.Hooks(prepare=lambda copy, version: report.Prepared(
+        {"start": "model:fake:start", "personal": "model:fake:personal"}, 32768, "ollama"),
+        runner=lambda arms: Packs(), container=lambda: False, main_ref=lambda: "model:codex:gpt-5.6-sol",
+        client=ScriptedClient(_grading, local=True), bridge=bridge, ask=_never_asked, installed=lambda: False)
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--paper", "v2", "--main-reference", "--eval-profile",
+                        str(eval_dir), "--combine-with", str(tmp_path / "v1-freeze.json"), "--judge-long-answers",
+                        "--profile", str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"], hooks=hooks)
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    written = _written(out)
+    _assert_private(printed.out + printed.err + json.dumps(written), profile, scratch, ids)
+    report.validate(written, report.FREEZE)
+    assert "after 2026-11-02 (the v1 freeze)" in printed.out
+    assert written["design"]["since"] == "2026-11-02" and written["problems"]["before_since"] == 0
+    assert written["holm"]["family"] == ["H1", "H2", "H3"]
+    combined = written["hypotheses"]["H1"]["combined_v1_v2"]
+    assert combined["v1"] == {key: v1["hypotheses"]["H1"]["superiority"][key] for key in ("difference", "low", "high")}
+    assert combined["state"] == "not_run"  # here v2's arms tie on every problem: no interval to weigh
+    judged = written["judged_long_answers"]
+    assert judged["calibration"]["reliable"] is True and judged["calibration"]["cases"] >= 10
+    assert judged["state"] == "run" and set(judged["runs"]) == {"start", "personal", "main"}
+    assert set(written["gap_closed"]) == {"real_uncorrected"}
+    assert _hashes(profile) == before
+
+
+def test_the_v1_report_to_combine_with_must_be_the_v1_freeze_report(learning_on, tmp_path):
+    good = tmp_path / "v1.json"
+    v1 = _v1_report(good)
+    superiority = v1["hypotheses"]["H1"]["superiority"]
+
+    assert report.read_v1_report(good) == {key: superiority[key] for key in ("difference", "low", "high")}
+
+    def changed(**parts: Any) -> dict[str, Any]:
+        found = json.loads(json.dumps(v1))
+        found["design"].update(parts.pop("design", {}))
+        found["hypotheses"]["H1"].update(parts.pop("h1", {}))
+        return {**found, **parts}
+
+    for bad in ("not a report", changed(**{f"{CANARY}-note": 1}), changed(design={"paper": "v2"}),
+                changed(design={"as_of": "2026-11-03"}), changed(h1={"superiority": None}),
+                changed(h1={"superiority": {**superiority, "low": 0.5, "high": 0.5}})):
+        path = tmp_path / "bad.json"
+        path.write_text(bad if isinstance(bad, str) else json.dumps(bad), encoding="utf-8")
+        with pytest.raises(report.Refused) as refused:
+            report.read_v1_report(path)
+        assert CANARY not in refused.value.message and str(tmp_path) not in refused.value.message
+
+
+def test_a_bad_v1_report_stops_the_run_before_anything_is_copied(profile, folders, tmp_path, capsys, monkeypatch):
+    scratch, out = folders
+    eval_dir, _bridge = _eval_profile(tmp_path, monkeypatch)
+    (tmp_path / "v1.json").write_text("{}", encoding="utf-8")
+
+    code = report.main(["--freeze", "--as-of", "2026-11-12", "--paper", "v2", "--main-reference", "--eval-profile",
+                        str(eval_dir), "--combine-with", str(tmp_path / "v1.json"), "--profile", str(profile),
+                        "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=report.Hooks(ask=_never_asked, installed=lambda: False))
+
+    assert code == 2 and "--combine-with" in capsys.readouterr().out
+    assert not scratch.exists() and not out.exists()
+
+
+def test_h1_combined_over_v1_and_v2_is_a_fixed_effect_inverse_variance_estimate():
+    error = math.sqrt(1 / 200)  # two standard errors of 0.1 (95% intervals 0.392 wide)
+    equal = report.combine_h1({"difference": 0.1, "low": -0.096, "high": 0.296},
+                              {"difference": 0.3, "low": 0.104, "high": 0.496, "problems": 40})
+    assert equal["state"] == "run" and equal["reason"] is None
+    assert equal["estimate"] == pytest.approx(0.2, abs=1e-6) and equal["v1_weight"] == pytest.approx(0.5, abs=1e-6)
+    assert equal["se"] == pytest.approx(error, abs=1e-6)
+    assert (equal["low"], equal["high"]) == (pytest.approx(0.2 - 1.96 * error, abs=1e-6),
+                                             pytest.approx(0.2 + 1.96 * error, abs=1e-6))
+    assert equal["z"] == pytest.approx(0.2 / error, abs=1e-5)
+    assert equal["p_value"] == pytest.approx(math.erfc(2.0), abs=1e-6)  # |z| / sqrt(2) = 2 exactly
+    assert equal["v2"] == {"difference": 0.3, "low": 0.104, "high": 0.496}
+
+    # v1's interval half as wide: four times the weight.
+    weighted = report.combine_h1({"difference": 0.1, "low": 0.002, "high": 0.198},
+                                 {"difference": 0.3, "low": 0.104, "high": 0.496})
+    assert weighted["v1_weight"] == pytest.approx(0.8, abs=1e-6)
+    assert weighted["estimate"] == pytest.approx(0.14, abs=1e-6)
+
+    first = {"difference": 0.1, "low": -0.096, "high": 0.296}
+    assert report.combine_h1(first, None)["reason"] == "no_v2_estimate"
+    assert report.combine_h1(first, {"difference": None, "low": None, "high": None})["reason"] == "no_v2_estimate"
+    assert report.combine_h1(first, {"difference": 0.0, "low": 0.0, "high": 0.0})["reason"] == "no_interval"
+
+
+def test_v2_needs_the_main_reference_and_a_freeze_after_v1s(capsys):
+    folders = ["--profile", "p", "--scratch", "s", "--out", "o"]
+    for argv, message in ((["--as-of", "2026-11-12", "--paper", "v2"], "--main-reference"),
+                          (["--as-of", "2026-11-02", "--paper", "v2", "--main-reference", "--eval-profile", "e"],
+                           "after the v1 freeze"),
+                          (["--as-of", "2026-11-12", "--combine-with", "v1.json"], "--paper v2"),
+                          (["--as-of", "2026-11-12", "--judge-long-answers"], "--eval-profile")):
+        with pytest.raises(SystemExit):
+            report.parse(["--freeze", *argv, *folders])
+        assert message in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        report.parse(["--health", "--local-reference", "qwen3.8:27b", *folders])
+    assert "--local-reference goes with --freeze" in capsys.readouterr().err
+
+
+def _local_hooks(seen: dict[str, Any], local: Any) -> report.Hooks:
+    def runner(arms):
+        seen["arms"] = {arm.name: arm for arm in arms}
+        return Packs()
+
+    return report.Hooks(prepare=lambda copy, version: report.Prepared(
+        {"start": "model:fake:start", "personal": "model:fake:personal"}, 32768, "ollama",
+        cleanup=lambda: seen.setdefault("withdrawn", True)), runner=runner, container=lambda: False,
+        client=ScriptedClient(lambda *_: AIMessage(content="no idea"), local=True), ask=_never_asked,
+        installed=lambda: False, local_reference=local)
+
+
+def test_the_local_reference_arm_is_served_like_the_personal_arms_and_runs_model_by_model(profile, folders, capsys,
+                                                                                       monkeypatch):
+    scratch, out = folders
+    seen: dict[str, Any] = {}
+    orders: list[str] = []
+    measured = evaluation.freeze_check
+
+    def freeze_check(arms, **options):
+        orders.append(options["order"])
+        return measured(arms, **options)
+
+    monkeypatch.setattr(evaluation, "freeze_check", freeze_check)
+
+    def local(copy, model, context):
+        seen.update(copy=copy, model=model, context=context)
+        return report.Prepared({"local_large": f"model:ollama:{model}"}, context, "ollama",
+                               cleanup=lambda: seen.setdefault("unloaded", True))
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--local-reference", "qwen3.8:27b", "--profile",
+                        str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=_local_hooks(seen, local))
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    written = _written(out)
+    _assert_private(printed.out + printed.err + json.dumps(written), profile, scratch, _ids(profile))
+    report.validate(written, report.FREEZE)
+    arm = seen["arms"]["local_large"]
+    assert (arm.model_ref, arm.serve_context, arm.sees_images) == ("model:ollama:qwen3.8:27b", 32768, False)
+    assert seen["context"] == 32768 and Path(seen["copy"]).parent.parent == scratch
+    assert orders == ["model"] and seen["unloaded"] and seen["withdrawn"]  # nothing stays loaded or registered
+    assert (written["design"]["local_reference"], written["design"]["order"]) == ("qwen3.8:27b", "model")
+    assert {"local_large vs start", "personal vs local_large"} <= set(written["contrasts"])
+    assert written["arms"]["local_large"]["splits"]["packs"]["runs"] == {"failed": 72}
+    assert written["holm"]["family"] == ["H1", "H2"] and "local_large" not in json.dumps(written["hypotheses"])
+
+
+def test_a_local_reference_ollama_doesnt_have_stops_the_run_and_nothing_is_written(profile, folders, capsys):
+    scratch, out = folders
+    seen: dict[str, Any] = {}
+
+    def missing(copy, model, context):
+        raise report._ModeFailed("--local-reference names a model this computer's Ollama doesn't have")
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--local-reference", "qwen3.8:27b", "--profile",
+                        str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=_local_hooks(seen, missing))
+
+    printed = capsys.readouterr().out
+    assert code == 1 and "doesn't have" in printed and "Nothing was written." in printed
+    assert not out.exists() and seen["withdrawn"] and "arms" not in seen
+
+
+class _FakeOllama:
+    """This computer's Ollama, faked: which models it has and what was unloaded. It can't pull or create."""
+
+    base_url = "http://127.0.0.1:11434"
+
+    def __init__(self, models: set[str], *, running: bool = True) -> None:
+        self.models, self.running, self.unloaded = models, running, []
+
+    def version(self):
+        return "0.13.0" if self.running else None
+
+    def show(self, name):
+        if name not in self.models:
+            raise KeyError(name)
+        return {"capabilities": ["completion", "tools"]}
+
+    def unload(self, name):
+        self.unloaded.append(name)
+        return True
+
+
+def test_the_local_reference_is_a_model_already_in_ollama_served_at_the_personal_context_thinking_off(
+        monkeypatch, tmp_path):
+    from row_bot import models
+    from row_bot.learning.training import serving
+
+    saved: list[tuple[str, dict[str, Any]]] = []
+    cleared: list[str] = []
+    monkeypatch.setattr(serving, "refresh_ollama_catalog", lambda: 0)
+    monkeypatch.setattr(models, "local_model_settings", lambda name: {})
+    monkeypatch.setattr(models, "set_local_model_settings", lambda name, **settings: saved.append((name, settings)))
+    monkeypatch.setattr(models, "clear_local_model_settings", cleared.append)
+
+    for ollama, message in ((_FakeOllama(set(), running=False), "needs Ollama running"),
+                            (_FakeOllama({"qwen3.5:9b"}), "doesn't have")):
+        monkeypatch.setattr(serving, "OllamaRuntime", lambda found=ollama: found)
+        with pytest.raises(report._ModeFailed, match=message):
+            report.serve_local_reference(tmp_path, "qwen3.8:27b", 32768)
+    assert saved == []
+
+    ollama = _FakeOllama({"qwen3.8:27b"})
+    monkeypatch.setattr(serving, "OllamaRuntime", lambda: ollama)
+    prepared = report.serve_local_reference(tmp_path, "qwen3.8:27b", 32768)
+
+    assert prepared.refs == {"local_large": "model:ollama:qwen3.8:27b"} and prepared.serve_context == 32768
+    assert saved == [("qwen3.8:27b", {"context": 32768, "reasoning": "off"})]
+    prepared.cleanup()
+    assert ollama.unloaded == ["qwen3.8:27b"] and cleared == ["qwen3.8:27b"]
+
+
+class _Judge:
+    model_ref = "main"
+    tokens = 0
+
+    def judge(self, task, reference, candidate):
+        return candidate == reference
+
+
+def _a12_result(monkeypatch) -> dict[str, Any]:
+    """A freeze with every A12 part: the window, the main and local reference arms, a judge, a long answer."""
+
+    problems = _problems(8, personal_passes=0)
+    early = dict(problems[0], id="dec_early", created_at=1.0)
+    question = "Problem 99: tell me"
+    long_answer = ReplayCase("dec_long", "chat-long", "chat-long", 50.0, "Document lookups", "exact", False,
+                             ({"type": "human", "data": {"content": question}},), None, "model:x:y",
+                             Action(text="yes " + "and more " * 30), "captured", "exact_action", question)
+
+    class Vault:
+        def hidden_tasks(self, *, asked_by, packs=None):
+            return [task for task in visible_tasks() if task.pack == "document_lookups"][:4]
+
+        def replay_tasks(self, *, asked_by):
+            return [early, *problems, {"id": "dec_long", "kind_of_work": "Document lookups", "thread_id": "chat-long",
+                                       "conversation_id": "chat-long", "created_at": 50.0, **long_answer.to_content()}]
+
+    monkeypatch.setattr(evaluation, "_vault", lambda _store=None: Vault())
+
+    def respond(messages, _tools, model):
+        number = int(str(messages[-1].content).split()[1].rstrip(":"))
+        if number == 99:
+            return AIMessage(content="no " + "and more " * 30)
+        good = model in ("main", "local_large") or (model == "personal" and number % 2 == 0)
+        return AIMessage(content="yes" if good else "no")
+
+    arms = [Arm(name, model_ref=name) for name in ("start", "personal", "main", "local_large")]
+    contrasts = [("start", "personal"), ("start", "main"), ("start", "local_large"), ("local_large", "personal")]
+    return evaluation.freeze_check(arms, as_of=1e9, since=5.0, asked_by="test", contrasts=contrasts,
+                                   client=ScriptedClient(respond, local=True), runner=Packs(), meter=TokenMeter(10**9),
+                                   store=LearningStore(), judge=_Judge(),
+                                   calibration=evaluation.Calibration(10, 10, 0, 0), order="model")
+
+
+def test_the_schema_takes_a12s_parts_and_a_v1_report_is_unchanged(learning_on, monkeypatch):
+    v1 = _assembled(_freeze_result(monkeypatch, 8, personal_passes=5))
+    assert not {"gap_closed", "judged_long_answers"} & set(v1)
+    assert not {"since", "local_reference", "order"} & set(v1["design"]) and "before_since" not in v1["problems"]
+    assert "combined_v1_v2" not in v1["hypotheses"]["H1"]
+
+    built = _run_line(report.assemble_freeze(
+        _a12_result(monkeypatch), as_of=date(2026, 11, 12), versions=[], newest=None,
+        prepared=report.Prepared({"start": "s", "personal": "p"}, 32768, "ollama"), refreshed={}, container=False,
+        main_reference=True, lessons=0, behaviours=0, hours=0.1, paper="v2",
+        combine_with={"difference": 0.1, "low": -0.1, "high": 0.3}, local_reference="qwen3.8:27b"))
+
+    assert (built["design"]["since"], built["problems"]["before_since"]) == ("2026-11-02", 1)
+    assert built["problems"]["real_uncorrected"] == 9  # 8 short problems after the window opened, and the long one
+    gap = built["gap_closed"]["real_uncorrected"]
+    assert (gap["problems"], gap["estimate"]) == (8, 0.5)  # half the main model's lead; the long answer isn't counted
+    assert built["judged_long_answers"]["runs"]["main"]["undecided"] == 3
+    h1 = built["hypotheses"]["H1"]
+    assert {"teacher_agreement", "right_tool", "judged_long_answers"} <= set(h1["sensitivity"])
+    assert h1["combined_v1_v2"]["state"] == "run" and built["holm"]["family"] == ["H1", "H2", "H3"]
+    assert {"local_large vs start", "personal vs local_large"} <= set(built["contrasts"])
+    assert built["design"]["local_reference"] == "qwen3.8:27b"
+    with pytest.raises(report.SchemaError):
+        report.validate({**built, "design": {**built["design"], "local_reference": "qwen3.8:27b-canary"}},
+                        report.FREEZE)

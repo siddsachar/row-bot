@@ -11,6 +11,9 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
 
     uv run python scripts/learning_paper_report.py --health --profile $HOME\\.row-bot --scratch <folder> --out <folder>
     uv run python scripts/learning_paper_report.py --freeze --as-of 2026-11-02 --profile ... --scratch ... --out ...
+    uv run python scripts/learning_paper_report.py --freeze --as-of 2026-11-12 --paper v2 --main-reference --h2 `
+        --eval-profile <eval profile> --combine-with <v1 freeze report> --judge-long-answers `
+        --local-reference qwen3.8:27b --profile ... --scratch ... --out ...
     uv run python scripts/learning_paper_report.py --thinking --profile ... --scratch ... --out ...
 
 - ``--health`` (any time between freezes, §10): counts and errors only, never a pass rate or a comparison.
@@ -28,6 +31,16 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
   job's files, once the model is downloaded and checked. The version runs on this computer and is measured
   like the other arms (the same hidden problems, checker, budget and repeats), reported apart under
   ``exploratory_27b``, outside Holm. If it can't run, or the participant says no, it is reported as not run.
+- ``--freeze --paper v2`` (amendment A12): H1 and H2 on the real work captured after the v1 freeze (the end of
+  2 Nov 2026, local time) and up to ``--as-of``; the report states that window (``design.since``) and how many
+  problems fell before it (``problems.before_since``). It needs ``--main-reference``. Beside the confirmatory
+  results, never in Holm: the gap closed (``gap_closed``: G = mean(personal - start) / mean(main - start), with a
+  cluster-bootstrap interval, unbounded when more than 2.5% of the resamples' denominators are 0 or less); with
+  ``--combine-with <the v1 freeze report>``, H1 combined over v1 and v2 (``hypotheses.H1.combined_v1_v2``: fixed
+  effect, inverse variance, a z test); the scoring sensitivity analyses on real work, in every contrast and arm
+  (``teacher_agreement`` with the main reference, ``right_tool``, and with ``--judge-long-answers``
+  ``judged_long_answers``, its calibration in ``judged_long_answers``); with ``--local-reference <Ollama tag>``, one
+  more reference arm (``local_large``) served as the personal arms are, the arms then run model by model.
 
 Every mode:
 
@@ -79,6 +92,12 @@ EXPLORATORY_MODEL = "qwen3.8-27b"
 UPLOAD_WORD = "upload"
 #: A10's three local arms run model by model (``evaluation.freeze_check(order=...)``); the results are the same.
 EXPLORATORY_ORDER = "model"
+#: The v1 freeze (§10: Mon 2 Nov 2026, 23:59 local): v2's H1 and H2 use only real work captured after its end (A12).
+V1_FREEZE = date(2026, 11, 2)
+#: A12 5: the larger local reference arm (a reference, never a hypothesis arm), served as the personal arms are; the
+#: model the amendment names is reported by name, any other as "other".
+LOCAL_ARM = "local_large"
+LOCAL_REFERENCE_MODELS = ("qwen3.8:27b",)
 #: How often the run on Hugging Face is read while the confirmatory evaluation and then the wait go on.
 POLL_SECONDS = 60.0
 #: The product code whose SHA-256 is printed before every run (with this script).
@@ -457,8 +476,11 @@ CAUSES = enum("provider_error", "malformed_call", "harness", "budget", "no_tool"
               "file_write", "no_answer", "wrong_answer", "other")
 VERSION_STATES = enum("ready", "couldnt_start", "not_ready")
 SPLITS = enum("real_uncorrected", "real_corrected", "packs")
-ARMS = enum("start", "personal", "main", "learning")
-CONTRASTS = enum("personal vs start", "main vs start", "learning vs main")
+ARMS = enum("start", "personal", "main", "learning", "local_large")
+CONTRASTS = enum("personal vs start", "main vs start", "learning vs main", "local_large vs start",
+                 "personal vs local_large")
+# A12 4: the scoring sensitivity analyses (real work only).
+SCORINGS = enum("teacher_agreement", "right_tool", "judged_long_answers")
 # A10 (exploratory): the 27B trained on Hugging Face, its untouched 27B, and the local personal model.
 EXPLORATORY_ARMS = enum("start27", "personal27", "personal")
 EXPLORATORY_CONTRASTS = enum("personal27 vs start27", "personal27 vs personal")
@@ -519,9 +541,31 @@ SPLIT_ANALYSIS = Obj({
     "primary": ANALYSIS, "metric_v2": ANALYSIS, "majority_vote": ANALYSIS, "unclustered": ANALYSIS, "left_pair": COUNT,
     "by_kind": Map(KINDS, ANALYSIS), "exact_only": ANALYSIS, "per_main_model": Map(Text(pattern=MODEL_ORDINAL), ANALYSIS),
     "trusted_only": ANALYSIS, "without_pictures": ANALYSIS,
-}, optional=frozenset({"exact_only", "per_main_model", "trusted_only", "without_pictures"}))
+    # A12 4 (secondary): the same runs under each scoring sensitivity analysis, on real work.
+    **{name: ANALYSIS for name in SCORINGS.values},
+}, optional=frozenset({"exact_only", "per_main_model", "trusted_only", "without_pictures", *SCORINGS.values}))
 ARM_SPLIT = Obj({"problems": COUNT, "counted": COUNT, "mean": Maybe(SHARE), "mean_metric_v2": Maybe(SHARE),
-                 "guarded_runs": COUNT, "runs": Map(RUN_STATUS, COUNT), "causes": Map(CAUSES, COUNT)})
+                 "guarded_runs": COUNT, "runs": Map(RUN_STATUS, COUNT), "causes": Map(CAUSES, COUNT),
+                 # A12 4: the arm's mean on real work under each scoring sensitivity analysis.
+                 "scoring": Map(SCORINGS, Obj({"problems": COUNT, "counted": COUNT, "mean": Maybe(SHARE)}))},
+                optional=frozenset({"scoring"}))
+# A12 3 (secondary, never in Holm): H1's superiority at v1 and v2 combined, fixed effect and inverse variance.
+H1_ESTIMATE = Obj({"difference": SIGNED, "low": SIGNED, "high": SIGNED})
+COMBINED = Obj({"state": enum("run", "not_run"), "reason": Maybe(enum("no_v2_estimate", "no_interval")),
+                "estimate": Maybe(SIGNED), "low": Maybe(Num()), "high": Maybe(Num()), "se": Maybe(Num(low=0)),
+                "z": Maybe(Num()), "p_value": Maybe(SHARE), "v1_weight": Maybe(SHARE), "v1": H1_ESTIMATE,
+                "v2": Maybe(H1_ESTIMATE)})
+# A12 2 (secondary): the gap closed, G = mean(personal - start) / mean(main - start), with its bootstrap interval.
+GAP = Obj({"problems": COUNT, "clusters": COUNT, "resamples": COUNT, "seed": COUNT, "enough": BOOL,
+           "estimate": Maybe(Num()), "low": Maybe(Num()), "high": Maybe(Num()),
+           "denominator_nonpositive_share": Maybe(SHARE), "bounded": BOOL})
+# A12 4c: the judge's calibration (always reported when asked for) and what it decided, by arm (counts only).
+CALIBRATION = Obj({"cases": COUNT, "agreed": COUNT, "false_pass": COUNT, "false_fail": COUNT, "agreement": SHARE,
+                   "reliable": BOOL, "tokens": COUNT})
+JUDGED = Obj({"state": enum("run", "not_run"), "reason": Maybe(enum("not_reliable", "stopped", "no_main_model")),
+              "calibration": Maybe(CALIBRATION), "tokens": COUNT,
+              "runs": Map(ARMS, Obj({"undecided": COUNT, "passed": COUNT, "failed": COUNT,
+                                     "still_undecided": COUNT}))})
 TEST_PART = Obj({"split": SPLITS, "problems": COUNT, "clusters": COUNT, "difference": Maybe(SIGNED),
                  "low": Maybe(SIGNED), "high": Maybe(SIGNED), "p_value": Maybe(SHARE), "p_holm": Maybe(SHARE),
                  "margin": Maybe(SIGNED), "met": Maybe(BOOL)})
@@ -535,10 +579,14 @@ HYPOTHESIS = Obj({
     "sensitivity": Maybe(Obj({"exact_only": ANALYSIS, "majority_vote": ANALYSIS, "unclustered": ANALYSIS,
                               "per_main_model": Map(Text(pattern=MODEL_ORDINAL), ANALYSIS),
                               "corrected_problems": ANALYSIS, "checker_versions": COUNT, "metric_v2": ANALYSIS,
-                              "trusted_only": ANALYSIS, "without_pictures": ANALYSIS})),
+                              "trusted_only": ANALYSIS, "without_pictures": ANALYSIS,
+                              **{name: ANALYSIS for name in SCORINGS.values}},
+                             optional=frozenset(SCORINGS.values))),
     "by_kind": Maybe(Map(KINDS, ANALYSIS)),
     "counts": Maybe(Obj({"lessons_in_use": COUNT, "ways_of_working_in_use": COUNT, "corrected_problems": COUNT})),
-}, optional=frozenset({"non_inferiority_packs"}))
+    # A12 3: H1 at v1 and v2 combined (paper v2 only; secondary, never in Holm).
+    "combined_v1_v2": COMBINED,
+}, optional=frozenset({"non_inferiority_packs", "combined_v1_v2"}))
 # H3 (§5, §7): improvement yield per 1M tokens, the inherited method minus the frozen control, per generation.
 YIELD = Num(low=0)
 YIELD_DIFFERENCE = Num()
@@ -566,11 +614,17 @@ FREEZE = Obj({
                    "resamples": COUNT, "permutations": COUNT, "task_tokens": COUNT, "runtime": RUNTIMES,
                    "serve_context": Maybe(COUNT), "container": BOOL, "main_reference": BOOL, "stopped": BOOL,
                    "hours": HOURS, "cloud_tokens": COUNT, "local_tokens": COUNT,
-                   "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT})}),
+                   "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT}),
+                   # A12 1: v2's real work is captured after the end of this day (the v1 freeze) up to ``as_of``.
+                   "since": Text(pattern=DAY),
+                   # A12 5: the larger local reference arm's model, and the arms run model by model with it.
+                   "local_reference": enum(*LOCAL_REFERENCE_MODELS, "other"), "order": enum("interleaved", "model")},
+                  optional=frozenset({"since", "local_reference", "order"})),
     "versions": Obj({"total": COUNT, "pilots": COUNT, "candidates": COUNT, "evaluated": Maybe(COUNT),
                      "trained_on": Maybe(Text(pattern=DAY)), "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT)}),
     "problems": Obj({"real_uncorrected": COUNT, "real_corrected": COUNT, "packs": COUNT, "after_as_of": COUNT,
-                     "main_models": COUNT, "untrusted": COUNT, "with_picture": COUNT}),
+                     "main_models": COUNT, "untrusted": COUNT, "with_picture": COUNT, "before_since": COUNT},
+                    optional=frozenset({"before_since"})),
     "arms": Map(ARMS, Obj({"tokens": COUNT, "cloud_tokens": COUNT, "seconds": HOURS, "ran": COUNT, "cached": COUNT,
                            "identical": Obj({"problems": COUNT, "identical": COUNT}),
                            "splits": Map(SPLITS, ARM_SPLIT)})),
@@ -590,7 +644,10 @@ FREEZE = Obj({
                                            "splits": Map(SPLITS, ARM_SPLIT)})),
         "contrasts": Map(EXPLORATORY_CONTRASTS, Map(SPLITS, SPLIT_ANALYSIS)),
     }),
-}, optional=frozenset({"exploratory_27b"}))
+    # A12 2 and 4c (secondary): the gap closed on real work, and the judged long answers' calibration and counts.
+    "gap_closed": Map(enum("real_uncorrected", "real_corrected"), GAP),
+    "judged_long_answers": JUDGED,
+}, optional=frozenset({"exploratory_27b", "gap_closed", "judged_long_answers"}))
 
 THINKING_MODELS = enum("start", "B", "A", "A32")
 THINKING_PART = Obj({"overall": ANALYSIS, "by_kind": Map(FAMILY_KEYS, ANALYSIS)})
@@ -850,6 +907,43 @@ def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
     return Prepared({"start": start.model_ref, "personal": personal.model_ref}, int(context), runtime, cleanup)
 
 
+def serve_local_reference(copy: Path, model: str, serve_context: int | None) -> Prepared:
+    """A12 5: a model already in this computer's Ollama (never pulled or created here) as the larger local reference
+    arm, served as the personal arms are: at their context, thinking off (its settings saved in the copy, as serving
+    a personal model saves them), the same tool exposure (``Arm.serve_context``). Its ref is formed as serving forms a
+    personal model's (``model:ollama:<tag>``). The cleanup unloads it, so nothing stays loaded, and puts the copy's
+    settings for it back."""
+
+    from row_bot import models
+    from row_bot.learning.training import recipes, serving
+    from row_bot.providers.selection import model_ref as make_ref
+
+    ollama = serving.OllamaRuntime()
+    if not serving._loopback(ollama.base_url) or ollama.version() is None:  # noqa: SLF001 - the serving check
+        raise _ModeFailed("--local-reference needs Ollama running on this computer")
+    try:
+        ollama.show(model)
+    except Exception:  # noqa: BLE001 - any answer but the model's details: it isn't there
+        raise _ModeFailed("--local-reference names a model this computer's Ollama doesn't have (nothing is pulled "
+                          "here: pull it first)") from None
+    context = int(serve_context or recipes.default().serve_context)
+    with contextlib.suppress(Exception):
+        serving.refresh_ollama_catalog()  # what Ollama says the model can do, as serving a personal model does
+    before = models.local_model_settings(model)
+    models.set_local_model_settings(model, context=context, reasoning="off")
+
+    def cleanup() -> None:
+        with contextlib.suppress(Exception):
+            ollama.unload(model)
+        with contextlib.suppress(Exception):
+            if before:
+                models.set_local_model_settings(model, **before)
+            else:
+                models.clear_local_model_settings(model)
+
+    return Prepared({LOCAL_ARM: make_ref("ollama", model)}, context, "ollama", cleanup)
+
+
 @dataclass
 class Hooks:
     """What a test replaces: serving the arms, the pack runner and the replay client (fakes, no GPU)."""
@@ -872,6 +966,8 @@ class Hooks:
     lookup: Any = None
     # H3's final set: a trial arm's tester for a learning method (``changes.Tester``); a test passes a fake.
     tester: Callable[[Any], Any] | None = None
+    # A12 5: serving the larger local reference arm (copy, Ollama tag, serving context); a test passes a fake.
+    local_reference: Callable[[Path, str, int | None], Prepared] = serve_local_reference
 
 
 class EvalSignIn:
@@ -1132,9 +1228,10 @@ def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Ho
 
 def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: Hooks, client: Any,
                        budget: Any, meter: Any, packs: Sequence[str], verifiers: Any, repeats: int,
-                       container: bool) -> Exploratory:
+                       container: bool, since: float | None = None) -> Exploratory:
     """Wait for the run, make its version ready like the product does (download, check, Row-Bot's own server),
-    measure it on the same hidden problems, checker, budget and repeats, delete the uploads, report apart."""
+    measure it on the same hidden problems (in v2 the same window, ``since``), checker, budget and repeats, delete
+    the uploads, report apart."""
 
     from row_bot.learning import evaluation
     from row_bot.learning.remote import training as remote_training
@@ -1188,7 +1285,7 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
                     contrasts=[("start27", "personal27"), ("personal", "personal27")], client=client,
                     budget=budget, meter=meter, store=LearningStore(copy), runner=runner,
                     cache=evaluation.ArmCache(copy), packs=packs, verifiers=verifiers, repeats=repeats,
-                    on_progress=_Progress(time.monotonic()), order=EXPLORATORY_ORDER)
+                    on_progress=_Progress(time.monotonic()), order=EXPLORATORY_ORDER, since=since)
         finally:
             local.cleanup()
     finally:
@@ -1234,10 +1331,22 @@ def exploratory_section(found: Exploratory) -> dict[str, Any]:
     }
 
 
+def _end_of_day(day: date) -> float:
+    """The last moment of ``day`` on this computer's clock (local time): a freeze's cutoff."""
+
+    return datetime.combine(day + timedelta(days=1), datetime.min.time()).timestamp() - 1e-6
+
+
 def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool = False,
                   eval_profile: Path | None = None, cap_tokens: int = CLOUD_CAP, repeats: int = 3,
                   paper: str = "v1", h2: bool = False, h3_final: bool = False,
-                  hugging_face_27b: bool = False) -> dict[str, Any]:
+                  hugging_face_27b: bool = False, combine_with: Mapping[str, Any] | None = None,
+                  judge_long_answers: bool = False, local_reference: str | None = None) -> dict[str, Any]:
+    """The freeze evaluation on the copy. Paper v2 (A12) uses only real work captured after the v1 freeze; with
+    ``combine_with`` (the v1 report's H1 estimate, :func:`read_v1_report`) H1 is also combined over v1 and v2;
+    ``judge_long_answers`` has the main model judge the long answers no check decided (after calibrating it);
+    ``local_reference`` (an Ollama tag) adds the larger local reference arm, and the arms then run model by model."""
+
     from row_bot.learning import evaluation
     from row_bot.learning.contracts import LessonRecord, Release
     from row_bot.learning.packs import PACKS
@@ -1259,7 +1368,9 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
                   if isinstance(item, LessonRecord) and item.status == "in_use")
     behaviours = sum(1 for item in store.find("release", limit=1_000_000)
                      if isinstance(item, Release) and item.kind == "behaviour" and item.status in ("in_use", "trial"))
-    cutoff = datetime.combine(as_of + timedelta(days=1), datetime.min.time()).timestamp() - 1e-6
+    cutoff = _end_of_day(as_of)
+    # A12 1 (§10): v2's H1 and H2 use only real work captured after the v1 freeze.
+    since = _end_of_day(V1_FREEZE) if paper == "v2" else None
     container = bool((hooks.container or _container)())
     packs = [pack for pack in PACKS if container or pack != "small_coding"]
     verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
@@ -1268,7 +1379,10 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
     exploratory = (start_exploratory(copy, newest, hooks=hooks, rows=exploratory_rows) if hugging_face_27b
                    else Exploratory())
     prepared = hooks.prepare(copy, newest) if newest is not None else Prepared({}, None, "ollama", reason="no_version")
+    local: Prepared | None = None
     result: dict[str, Any] | None = None
+    judged_not_run: dict[str, Any] | None = None
+    order = "interleaved"
     try:
         arms = []
         if prepared.refs:
@@ -1277,37 +1391,69 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
                     evaluation.Arm("personal", model_ref=prepared.refs["personal"], subject_kind="release",
                                    serve_context=prepared.serve_context)]
             contrasts = [("start", "personal")]
-            if main_reference or h2:
+            meter = TokenMeter(cap_tokens)
+            judge = calibration = None
+            if local_reference:
+                # A12 5: checked first, so a missing model stops the run before anything is spent.
+                local = hooks.local_reference(copy, local_reference, prepared.serve_context)
+            if main_reference or h2 or judge_long_answers:
                 from row_bot.learning import routing
 
                 main = (hooks.main_ref or routing.main_model_ref)()
                 if main:
                     if eval_profile is None:
-                        raise _ModeFailed("--main-reference and --h2 need --eval-profile")
+                        raise _ModeFailed("--main-reference, --h2 and --judge-long-answers need --eval-profile")
                     _sign_in(eval_profile, hooks)
-                    # Asked as it was served: with the page's picture when it was sent one (A8).
-                    arms.append(evaluation.Arm("main", model_ref=main, cache=True, sees_images=True))
+                    if main_reference or h2:
+                        # Asked as it was served: with the page's picture when it was sent one (A8).
+                        arms.append(evaluation.Arm("main", model_ref=main, cache=True, sees_images=True))
                     if main_reference:
                         contrasts.append(("start", "main"))
                     if h2 and (lessons or behaviours):
                         arms.append(_learning_arm(main))
                         contrasts.append(("main", "learning"))
+                    if judge_long_answers:
+                        # A12 4c: the main model at the lowest effort with the module's grading prompt, calibrated on
+                        # the packs' answer tasks first; its tokens count against the same cap.
+                        say("Calibrating the judge on the packs' answer tasks ...")
+                        judge = evaluation.ModelJudge(client=hooks.client, model_ref=main, meter=meter)
+                        try:
+                            calibration = evaluation.calibrate(judge, evaluation.calibration_cases())
+                        except evaluation.LimitReached:
+                            judge = None  # the cap stopped its calibration: it decides nothing
+                            judged_not_run = {"state": "not_run", "reason": "stopped", "calibration": None,
+                                              "tokens": 0, "runs": {}}
+                elif judge_long_answers:
+                    judged_not_run = {"state": "not_run", "reason": "no_main_model", "calibration": None,
+                                      "tokens": 0, "runs": {}}
+            if local is not None:
+                # A12 5: one more reference arm served as the personal arms are; the local models can't all stay
+                # loaded together, so the arms run model by model (the same runs and pairing, C1).
+                arms.append(evaluation.Arm(LOCAL_ARM, model_ref=local.refs[LOCAL_ARM], subject_kind="baseline",
+                                           serve_context=local.serve_context))
+                contrasts += [("start", LOCAL_ARM), (LOCAL_ARM, "personal")]
+                order = EXPLORATORY_ORDER
             progress = _Progress(started)
             with (contextlib.nullcontext(hooks.runner(arms)) if hooks.runner is not None
                   else _worker_runner(arms, copy)) as runner:
                 result = evaluation.freeze_check(
                     arms, as_of=cutoff, asked_by="the paper's freeze evaluation", contrasts=contrasts,
-                    client=hooks.client, budget=evaluation.Budget(task_tokens=150_000), meter=TokenMeter(cap_tokens),
+                    client=hooks.client, budget=evaluation.Budget(task_tokens=150_000), meter=meter,
                     store=store, runner=runner, cache=evaluation.ArmCache(copy), packs=packs, verifiers=verifiers,
-                    repeats=repeats, on_progress=progress)
+                    repeats=repeats, on_progress=progress, order=order, since=since, judge=judge,
+                    calibration=calibration)
     finally:
-        prepared.cleanup()
+        try:
+            if local is not None:
+                local.cleanup()
+        finally:
+            prepared.cleanup()
     if exploratory.job_id is not None:
         # A10's uploads are deleted as soon as its version is made, before anything else may stop the run.
         exploratory.section["_newest"] = newest
         finish_exploratory(copy, exploratory, as_of=cutoff, hooks=hooks, client=hooks.client,
                            budget=evaluation.Budget(task_tokens=150_000), meter=TokenMeter(cap_tokens), packs=packs,
-                           verifiers=verifiers, repeats=repeats, container=container)
+                           verifiers=verifiers, repeats=repeats, container=container, since=since)
     final = None
     if h3_final:
         if eval_profile is None:
@@ -1318,7 +1464,10 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
     report = assemble_freeze(result, as_of=as_of, versions=versions, newest=newest, prepared=prepared,
                              refreshed=refreshed, container=container, main_reference=main_reference,
                              lessons=lessons, behaviours=behaviours, hours=(time.monotonic() - started) / 3600,
-                             paper=paper, h3=h3_report(store, final_state=final, ran_final=h3_final))
+                             paper=paper, h3=h3_report(store, final_state=final, ran_final=h3_final),
+                             combine_with=combine_with, local_reference=local_reference if local is not None else None)
+    if judged_not_run is not None and "judged_long_answers" not in report:
+        report["judged_long_answers"] = judged_not_run
     if hugging_face_27b:
         report["exploratory_27b"] = exploratory_section(exploratory)
     return report
@@ -1441,13 +1590,72 @@ def _summary(found: Mapping[str, Any] | None) -> dict[str, Any] | None:
     return None if found is None else {key: found[key] for key in ANALYSIS.fields}
 
 
+H1_PARTS = ("difference", "low", "high")
+#: A 95% interval spans 2 x 1.96 standard errors.
+Z95 = 1.96
+
+
+def read_v1_report(path: Path) -> dict[str, float]:
+    """A12 3: the v1 freeze report's H1 superiority estimate on hidden uncorrected real work (its difference and 95%
+    cluster-bootstrap interval), after checking the file passes this script's own freeze schema and is the v1 freeze
+    report (paper v1, as of the v1 freeze). Refuses, naming no path, otherwise."""
+
+    try:
+        found = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise Refused("The --combine-with file can't be read as a JSON report.") from None
+    try:
+        validate(found, FREEZE)
+    except SchemaError:
+        raise Refused("The --combine-with file isn't a freeze report this script wrote (it fails the schema).") from None
+    if found["design"]["paper"] != "v1" or found["design"]["as_of"] != V1_FREEZE.isoformat():
+        raise Refused(f"The --combine-with file must be the v1 freeze report (paper v1, as of {V1_FREEZE.isoformat()}).")
+    superiority = found["hypotheses"]["H1"].get("superiority") or {}
+    if (superiority.get("split") != "real_uncorrected" or any(superiority.get(key) is None for key in H1_PARTS)
+            or not superiority["high"] > superiority["low"]):
+        raise Refused("The --combine-with report has no H1 superiority estimate with a 95% interval.")
+    return {key: float(superiority[key]) for key in H1_PARTS}
+
+
+def combine_h1(v1: Mapping[str, float], v2: Mapping[str, Any] | None) -> dict[str, Any]:
+    """A12 3: H1's superiority estimates at v1 and v2 combined, fixed effect with inverse-variance weights. Each
+    standard error comes from its 95% cluster-bootstrap interval as (high - low) / 3.92; the report gives the combined
+    estimate, its 95% interval (1.96 standard errors either side), a two-sided z test and v1's share of the weight.
+    Aggregates only; secondary ("the newest version against its starting model, at each freeze"), never in Holm."""
+
+    first = {key: float(v1[key]) for key in H1_PARTS}
+    found: dict[str, Any] = {"state": "not_run", "reason": "no_v2_estimate", "estimate": None, "low": None,
+                             "high": None, "se": None, "z": None, "p_value": None, "v1_weight": None, "v1": first,
+                             "v2": None}
+    if v2 is None or any(v2.get(key) is None for key in H1_PARTS):
+        return found
+    second = {key: float(v2[key]) for key in H1_PARTS}
+    found["v2"] = second
+    errors = [(part["high"] - part["low"]) / (2 * Z95) for part in (first, second)]
+    if min(errors) <= 0:
+        return {**found, "reason": "no_interval"}
+    weights = [1 / error ** 2 for error in errors]
+    total = sum(weights)
+    estimate = (weights[0] * first["difference"] + weights[1] * second["difference"]) / total
+    error = math.sqrt(1 / total)
+    z = estimate / error
+    return {**found, "state": "run", "reason": None, "estimate": round(estimate, 6),
+            "low": round(estimate - Z95 * error, 6), "high": round(estimate + Z95 * error, 6), "se": round(error, 6),
+            "z": round(z, 6), "p_value": round(math.erfc(abs(z) / math.sqrt(2)), 6),
+            "v1_weight": round(weights[0] / total, 6)}
+
+
 def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: Sequence[Mapping[str, Any]],
                     newest: Mapping[str, Any] | None, prepared: Prepared, refreshed: Mapping[str, int],
                     container: bool, main_reference: bool, lessons: int, behaviours: int,
-                    hours: float, paper: str = "v1", h3: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                    hours: float, paper: str = "v1", h3: Mapping[str, Any] | None = None,
+                    combine_with: Mapping[str, float] | None = None,
+                    local_reference: str | None = None) -> dict[str, Any]:
     """The freeze's JSON from ``evaluation.freeze_check``'s aggregates: the design, the arms, every contrast,
     H1, H2 and H3 with the pre-registered rules (§5, §7), and Holm across the paper version's family ({H1, H2} in
-    v1, {H1, H2, H3} in v2; an untested member enters as 1, A6)."""
+    v1, {H1, H2, H3} in v2; an untested member enters as 1, A6). A12's secondary analyses beside them: v2's window,
+    the gap closed, H1 combined over v1 and v2 (``combine_with``, v1's estimate), the scoring sensitivity analyses
+    and the larger local reference arm (``local_reference``, its Ollama tag)."""
 
     from row_bot.learning import evaluation
 
@@ -1486,6 +1694,12 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
             },
             "by_kind": {key: _summary(value) for key, value in contrast["real_uncorrected"]["by_kind"].items()},
         })
+        # A12 4: the scoring sensitivity analyses of H1's contrast that ran.
+        h1["sensitivity"].update({name: _summary(contrast["real_uncorrected"][name]) for name in SCORINGS.values
+                                  if name in contrast["real_uncorrected"]})
+    if paper == "v2" and combine_with is not None:
+        # A12 3: secondary, beside H1 and never in Holm.
+        h1["combined_v1_v2"] = combine_h1(combine_with, h1["superiority"])
     h2, p_h2 = _h2(result, lessons=lessons, behaviours=behaviours, corrected=corrected)
     h3 = dict(h3 or h3_report_empty())
     p_h3 = h3.get("p_value") if h3.get("state") == "tested" else None
@@ -1515,7 +1729,7 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
                  for name, value in (result.get("contrasts") or {}).items()}
     problems = result.get("problems") or {}
     candidates = [row for row in versions if not row["pilot"] and row["_ready_once"]]
-    return {
+    built: dict[str, Any] = {
         "format": FORMAT, "schema_version": SCHEMA_VERSION, "mode": "freeze",
         "design": {
             "as_of": as_of.isoformat(), "paper": paper, "metric_version": evaluation.METRIC_VERSION,
@@ -1544,6 +1758,20 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
                  "adjusted": {name: (adjusted[name] if {"H1": p_h1, "H2": p_h2, "H3": p_h3}[name] is not None
                                      else None) for name in family}},
     }
+    # A12's secondary parts, present only when they apply (a v1 run without them is unchanged).
+    if paper == "v2":
+        built["design"]["since"] = V1_FREEZE.isoformat()
+        if "before_since" in problems:
+            built["problems"]["before_since"] = int(problems["before_since"])
+    if local_reference is not None:
+        built["design"]["local_reference"] = local_reference if local_reference in LOCAL_REFERENCE_MODELS else "other"
+        built["design"]["order"] = EXPLORATORY_ORDER
+    if result.get("gap_closed"):
+        built["gap_closed"] = {split: dict(value) for split, value in result["gap_closed"].items()}
+    if result.get("judged_long_answers"):
+        judged = dict(result["judged_long_answers"])
+        built["judged_long_answers"] = {**judged, "runs": {name: dict(row) for name, row in judged["runs"].items()}}
+    return built
 
 
 def h3_report_empty() -> dict[str, Any]:
@@ -1615,6 +1843,7 @@ def _split(part: Mapping[str, Any]) -> dict[str, Any]:
         out["per_main_model"] = {key: _summary(value) for key, value in part["per_main_model"].items()}
         out["trusted_only"] = _summary(part["trusted_only"])
         out["without_pictures"] = _summary(part["without_pictures"])
+    out.update({name: _summary(part[name]) for name in SCORINGS.values if name in part})  # A12 4
     return out
 
 
@@ -1751,7 +1980,18 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                         help="--main-reference, --h2, --h3-final: the eval profile whose ChatGPT sign-in the main "
                              "model uses (never the profile's own)")
     parser.add_argument("--paper", choices=("v1", "v2"), default="v1",
-                        help="--freeze: the paper version (its confirmatory family: v1 H1 and H2, v2 adds H3)")
+                        help="--freeze: the paper version (its confirmatory family: v1 H1 and H2, v2 adds H3); v2 "
+                             f"uses only real work captured after the v1 freeze ({V1_FREEZE.isoformat()}) and needs "
+                             "--main-reference (A12)")
+    parser.add_argument("--combine-with", metavar="V1_REPORT",
+                        help="--paper v2: the v1 freeze report's JSON; H1 is also combined over v1 and v2 (A12, "
+                             "secondary, never in Holm)")
+    parser.add_argument("--judge-long-answers", action="store_true",
+                        help="--freeze: the main model judges the long answers no check decided, after it is "
+                             "calibrated on the packs' answer tasks (A12, a sensitivity analysis; cloud tokens)")
+    parser.add_argument("--local-reference", metavar="OLLAMA_TAG",
+                        help="--freeze: one more reference arm, a model already in this computer's Ollama (e.g. "
+                             "qwen3.8:27b), served as the personal arms are; the arms then run model by model (A12)")
     parser.add_argument("--h2", action="store_true",
                         help="--freeze: run H2's arms (the main model with and without the lessons and ways of "
                              "working in use; cloud tokens)")
@@ -1762,12 +2002,12 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                         help="--freeze: most cloud tokens each cloud part may use (the main model's arms, H3's final "
                              "set)")
     args = parser.parse_args(argv)
-    cloud = args.main_reference or args.h2 or args.h3_final
+    cloud = args.main_reference or args.h2 or args.h3_final or args.judge_long_answers
     if cloud and not args.eval_profile:
-        parser.error("--main-reference, --h2 and --h3-final need --eval-profile (the eval profile's ChatGPT sign-in, "
-                     "never yours)")
+        parser.error("--main-reference, --h2, --h3-final and --judge-long-answers need --eval-profile (the eval "
+                     "profile's ChatGPT sign-in, never yours)")
     if args.eval_profile and not cloud:
-        parser.error("--eval-profile goes with --main-reference, --h2 or --h3-final")
+        parser.error("--eval-profile goes with --main-reference, --h2, --h3-final or --judge-long-answers")
     if args.freeze:
         try:
             args.as_of_date = date.fromisoformat(str(args.as_of or ""))
@@ -1775,8 +2015,17 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
             parser.error("--freeze needs --as-of YYYY-MM-DD")
     elif args.as_of:
         parser.error("--as-of goes with --freeze")
-    if args.hugging_face_27b and not args.freeze:
-        parser.error("--hugging-face-27b goes with --freeze")
+    for flag, given in (("--hugging-face-27b", args.hugging_face_27b), ("--judge-long-answers", args.judge_long_answers),
+                        ("--local-reference", args.local_reference)):
+        if given and not args.freeze:
+            parser.error(f"{flag} goes with --freeze")
+    if args.freeze and args.paper == "v2":
+        if args.as_of_date <= V1_FREEZE:
+            parser.error(f"--paper v2 needs --as-of after the v1 freeze ({V1_FREEZE.isoformat()})")
+        if not args.main_reference:
+            parser.error("--paper v2 needs --main-reference (A12: the gap closed is measured against it)")
+    if args.combine_with and not (args.freeze and args.paper == "v2"):
+        parser.error("--combine-with goes with --freeze --paper v2")
     return args
 
 
@@ -1799,6 +2048,8 @@ def main(argv: Sequence[str] | None = None, *, hooks: Hooks | None = None) -> in
                                   or Path(args.eval_profile).resolve() == everyday_profile()):
             raise Refused("The --eval-profile folder must be the eval profile, not your profile.")
         refuse_if_running(profile, installed=hooks.installed)
+        # A12 3: the v1 report is checked before anything is copied (only its H1 estimate is kept).
+        args.v1_h1 = read_v1_report(Path(args.combine_with)) if args.combine_with else None
         scratch.mkdir(parents=True, exist_ok=True)
         target = scratch / (COPY_PREFIX + datetime.now().strftime("%Y%m%d-%H%M%S"))
         if target.exists():
@@ -1902,11 +2153,15 @@ def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hoo
         return health_report(copy)
     if not learning.read_settings(copy).enabled:
         raise _ModeFailed("Learning is off in this profile")
-    say(f"Running the freeze evaluation on every hidden problem up to {args.as_of_date.isoformat()} ...")
+    window = (f"after {V1_FREEZE.isoformat()} (the v1 freeze) and up to {args.as_of_date.isoformat()}"
+              if args.paper == "v2" else f"up to {args.as_of_date.isoformat()}")
+    say(f"Running the freeze evaluation on every hidden problem {window} ...")
     return freeze_report(copy, args.as_of_date, hooks=hooks, main_reference=bool(args.main_reference),
                          eval_profile=Path(args.eval_profile).resolve() if args.eval_profile else None,
                          cap_tokens=int(args.cloud_cap), paper=str(args.paper), h2=bool(args.h2),
-                         h3_final=bool(args.h3_final), hugging_face_27b=bool(args.hugging_face_27b))
+                         h3_final=bool(args.h3_final), hugging_face_27b=bool(args.hugging_face_27b),
+                         combine_with=args.v1_h1, judge_long_answers=bool(args.judge_long_answers),
+                         local_reference=args.local_reference or None)
 
 
 if __name__ == "__main__":
