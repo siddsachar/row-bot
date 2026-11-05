@@ -1977,8 +1977,8 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                         help="--freeze: also the exploratory 27B on Hugging Face (A10; you sign in there and type "
                              "'upload' to agree to the upload first)")
     parser.add_argument("--eval-profile",
-                        help="--main-reference, --h2, --h3-final: the eval profile whose ChatGPT sign-in the main "
-                             "model uses (never the profile's own)")
+                        help="--main-reference, --h2, --h3-final, --judge-long-answers: the eval profile whose "
+                             "ChatGPT sign-in the main model uses (never the profile's own)")
     parser.add_argument("--paper", choices=("v1", "v2"), default="v1",
                         help="--freeze: the paper version (its confirmatory family: v1 H1 and H2, v2 adds H3); v2 "
                              f"uses only real work captured after the v1 freeze ({V1_FREEZE.isoformat()}) and needs "
