@@ -241,6 +241,17 @@
           "title": "Kind",
           "type": "string"
         },
+        "label": {
+          "default": "community",
+          "enum": [
+            "official",
+            "reviewed",
+            "built_in",
+            "community"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
         "lifecycle": {
           "enum": [
             "available",
@@ -250,6 +261,23 @@
           ],
           "title": "Lifecycle",
           "type": "string"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "name",
+                "description"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match"
         },
         "method": {
           "default": "",
@@ -428,6 +456,19 @@
           ],
           "default": null,
           "title": "Downloads"
+        },
+        "last_activity_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Activity At"
         },
         "official": {
           "default": false,

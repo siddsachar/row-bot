@@ -1868,6 +1868,9 @@ class IntegrationSourceStatus(WireModel):
     truncated: bool = False
 
 
+IntegrationLabel = Literal["official", "reviewed", "built_in", "community"]
+
+
 class IntegrationSearchRequest(WireModel):
     query: str = Field(default="", max_length=256)
     # Source ids come from GET /integrations/sources; the server validates them.
@@ -1878,6 +1881,11 @@ class IntegrationSearchRequest(WireModel):
     include_incompatible: bool = False
     cursor: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=96)
+    # Filters, applied on the server so counts stay true: who stands behind a result (None: any),
+    # where it runs, and only ways that need no account or key.
+    labels: list[IntegrationLabel] | None = Field(default=None, max_length=4)
+    runs: Literal["anywhere", "hosted", "local"] = "anywhere"
+    no_sign_in: bool = False
 
 
 class McpRequirementSummary(WireModel):
@@ -9860,6 +9868,15 @@ class IntegrationSignals(WireModel):
     downloads: int | None = Field(default=None, ge=0)
     stars: int | None = Field(default=None, ge=0)
     official: bool = False
+    # When its repository was last pushed to (or, without one, its listing updated), in seconds.
+    last_activity_at: int | None = Field(default=None, ge=0)
+
+
+class IntegrationLabelCounts(WireModel):
+    official: int = Field(default=0, ge=0)
+    reviewed: int = Field(default=0, ge=0)
+    built_in: int = Field(default=0, ge=0)
+    community: int = Field(default=0, ge=0)
 
 
 class IntegrationBlocker(WireModel):
@@ -9887,6 +9904,10 @@ class IntegrationEntry(WireModel):
     source: str = Field(max_length=80)
     # How it connects, for the card: signs in, takes a key, hosted, or runs on this computer ("" for skills).
     method: Literal["hosted_sign_in", "api_key", "hosted", "local", "built_in", ""] = ""
+    # Who stands behind it, by rule: its vendor, Row-Bot's review, Row-Bot itself, or anyone else.
+    label: IntegrationLabel = "community"
+    # Where a search matched it: its name exactly, every word in a name, or only elsewhere (None: not searched).
+    match: Literal["exact", "name", "description"] | None = None
     publisher: str = Field(max_length=160)
     version: str = Field(max_length=128)
     installed: bool
@@ -9913,6 +9934,9 @@ class IntegrationEntryPage(WireModel):
     sources: list[IntegrationSourceStatus] = Field(max_length=64)
     # Placeholder, test and duplicate records left out; "Show all results" brings them back.
     hidden: int = Field(default=0, ge=0)
+    # The first result, when it is good enough to lead as the best match; and results by label.
+    best_match_id: str | None = Field(default=None, max_length=512)
+    label_counts: IntegrationLabelCounts = Field(default_factory=IntegrationLabelCounts)
 
 
 class PlanInput(WireModel):
@@ -10068,6 +10092,7 @@ class IntegrationWay(WireModel):
     name: str = Field(max_length=256)
     method: Literal["hosted_sign_in", "api_key", "hosted", "local", "", "built_in"]
     verified: bool
+    label: IntegrationLabel = "community"
     publisher: str = Field(max_length=160)
     supported: bool
     recommended: bool = False

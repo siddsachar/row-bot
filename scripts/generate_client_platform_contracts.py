@@ -19,7 +19,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkflowTemplateApp", "WorkflowTemplate", "WorkflowTemplateList", "WorkflowTemplateCreated",
     "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView",
     "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
-    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
+    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationLabelCounts", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanDeviceCode", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
     "PlanReview", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
