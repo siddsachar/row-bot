@@ -4561,8 +4561,9 @@ def a6_hosted(state: str, x_fixture_token: str = Header(default="")) -> dict:
 # ── A7 (U7): where Row-Bot runs, from the browser's side ───────────────────
 # The browser here is always on the fixture's own computer, so its handshake says this_computer.
 # "hosted" and "server" make the handshake say what a phone or a hosted pod's browser is told
-# (hosted also names PikaPods, as A6's switch does); "this_computer" puts it back. A page reads
-# the place at its next handshake, so a spec reloads after switching.
+# (hosted names PikaPods, as A6's switch does, unless R1's switch chose another known host);
+# "this_computer" puts it back. A page reads the place at its next handshake, so a spec reloads
+# after switching.
 _a7_place: dict | None = None
 
 
@@ -4572,13 +4573,30 @@ def a7_place(place: str, x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)
     if place not in {"this_computer", "hosted", "server"}:
         raise HTTPException(status_code=422, detail="Unknown place")
+    from row_bot.hosting import KNOWN_HOSTS
+
     if place == "hosted":
-        os.environ["ROW_BOT_HOSTED_BY"] = "pikapods"
+        os.environ.setdefault("ROW_BOT_HOSTED_BY", "pikapods")
     else:
         os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    host = KNOWN_HOSTS[os.environ["ROW_BOT_HOSTED_BY"]] if place == "hosted" else None
     _a7_place = None if place == "this_computer" else {
-        "kind": place, "host_name": "PikaPods" if place == "hosted" else None}
+        "kind": place, "host_name": host.name if host else None}
     return {"place": place}
+
+
+# ── R1 (Railway): another known host ───────────────────────────────────────
+# Names the known host that A7's "hosted" switch then uses: "railway" for Railway's own words.
+# A7's "this_computer" forgets it again.
+@app.post("/__r1_fixture/host/{host_id}")
+def r1_host(host_id: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.hosting import KNOWN_HOSTS
+
+    predecessor._authorize(x_fixture_token)
+    if host_id not in KNOWN_HOSTS:
+        raise HTTPException(status_code=422, detail="Unknown host")
+    os.environ["ROW_BOT_HOSTED_BY"] = host_id
+    return {"host": host_id}
 
 
 class _A7Place:

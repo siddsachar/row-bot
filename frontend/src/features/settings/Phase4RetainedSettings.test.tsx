@@ -1969,6 +1969,11 @@ it('a known host’s Updates page shows the version and who updates it, and noth
         support_url: null,
         status_url: null,
         manage_url: null,
+        unit: 'pod',
+        runs: 'the server, billing and backups',
+        applies_updates: true,
+        updates_help:
+          'They test each release first, so new versions usually arrive within a week.',
       },
     },
   } satisfies SettingsSnapshot;
@@ -2089,6 +2094,11 @@ it('System starts with the Hosted by card only when a known host runs Row-Bot (U
         support_url: 'https://docs.pikapods.com/',
         status_url: null,
         manage_url: 'https://www.pikapods.com/pods',
+        unit: 'pod',
+        runs: 'the server, billing and backups',
+        applies_updates: true,
+        updates_help:
+          'They test each release first, so new versions usually arrive within a week.',
       },
       memory: { limit_bytes: 2 * 2 ** 30, used_bytes: 2 ** 29 },
     },

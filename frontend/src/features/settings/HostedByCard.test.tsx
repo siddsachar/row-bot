@@ -11,6 +11,24 @@ const pikapods = {
   status_url:
     'https://docs.pikapods.com/faq/account#business-use-and-service-level',
   manage_url: 'https://www.pikapods.com/pods',
+  unit: 'pod',
+  runs: 'the server, billing and backups',
+  applies_updates: true,
+  updates_help:
+    'They test each release first, so new versions usually arrive within a week.',
+};
+const railway = {
+  id: 'railway',
+  name: 'Railway',
+  home_url: 'https://railway.com/',
+  support_url: 'https://station.railway.com/',
+  status_url: 'https://status.railway.com/',
+  manage_url: 'https://railway.com/dashboard',
+  unit: 'service',
+  runs: 'the server and billing',
+  applies_updates: false,
+  updates_help:
+    "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
 };
 
 it('says who runs Row-Bot, its version, the memory in use and the host’s own pages (U5)', () => {
@@ -75,4 +93,28 @@ it('shows only the links the host confirmed, only web pages, and no memory row w
   expect(
     within(card).getByText('Row-Bot 5.3.2 · updated by PikaPods'),
   ).toBeVisible();
+});
+
+it('speaks in the host’s own words: Railway’s service, which its owner updates (R1)', () => {
+  render(
+    <HostedByCard
+      host={railway}
+      memory={{ limit_bytes: 4 * GB, used_bytes: 0.9 * GB }}
+      version="5.3.2"
+    />,
+  );
+  const card = screen.getByRole('region', { name: 'Hosted by Railway' });
+  expect(
+    within(card).getByText('Row-Bot 5.3.2 · you update it in Railway'),
+  ).toBeVisible();
+  expect(
+    within(card).getByRole('link', { name: 'Manage your service in Railway' }),
+  ).toHaveAttribute('href', 'https://railway.com/dashboard');
+  expect(
+    within(card).getByRole('link', { name: 'Railway support' }),
+  ).toHaveAttribute('href', 'https://station.railway.com/');
+  expect(card).toHaveTextContent(
+    'Railway runs the server and billing. For anything inside Row-Bot, use Row-Bot’s help.',
+  );
+  expect(card.textContent).not.toMatch(/pod|backups/);
 });

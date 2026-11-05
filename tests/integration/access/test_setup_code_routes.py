@@ -254,6 +254,32 @@ def test_without_a_known_host_the_page_points_to_row_bots_log(tmp_path, capsys, 
     assert "Give this Row-Bot a new setup code in its server settings and restart it" in owned.text
 
 
+def test_on_railway_the_pages_send_the_owner_to_the_services_variables(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    pod = Pod(tmp_path)
+    pod.start(capsys, "R0B0-T1S1-GN1N")
+
+    unclaimed = pod.browser().get("/setup")
+    assert enter(pod.browser(), "R0B0-T1S1-GN1N").status_code == 200
+    owned = pod.browser("203.0.113.9").get("/setup")
+    used = enter(pod.browser("203.0.113.9"), "R0B0-T1S1-GN1N")
+
+    assert "Enter the setup code from Railway to make this browser yours." in unclaimed.text
+    assert (
+        "In Railway, open your Row-Bot service&#x27;s Variables and copy ROW_BOT_SETUP_CODE." in unclaimed.text
+    )
+    assert (
+        "Set a new ROW_BOT_SETUP_CODE in your service&#x27;s Variables and deploy the change, "
+        "then enter the new code here." in owned.text
+    )
+    assert re.search(r'href="https://railway.com/dashboard"[^>]*>Manage service<', owned.text)
+    assert used.status_code == 410 and used.json()["detail"] == (
+        "This code has already been used or has expired. To make a new one, set a new ROW_BOT_SETUP_CODE "
+        "in your service's Variables and deploy the change."
+    )
+    assert "pod" not in (unclaimed.text + owned.text).lower()
+
+
 def test_invitation_links_keep_working_on_a_server(tmp_path) -> None:
     pod = Pod(tmp_path)
     created = pod.service.create_invitation(intended_origin=ORIGIN)

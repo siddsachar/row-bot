@@ -550,11 +550,13 @@ def _memory_problems() -> list[dict[str, Any]]:
     host = hosted_by()
     size = notice["limit_bytes"]
     target = "4 GB" if size < server_memory.SMALL_SERVER_BYTES else "bigger"
-    resize = f"Make the pod {target} in {host.name}" if host else (
-        "Give the server 4 GB" if target == "4 GB" else "Give the server more memory")
+    if host is not None:
+        resize = host.resize_to_4gb if target == "4 GB" else host.resize_bigger
+    else:
+        resize = "Give the server 4 GB" if target == "4 GB" else "Give the server more memory"
     links = [{"label": "How to resize", "url": server_memory.RESIZE_GUIDE}]
     if host is not None and host.manage_url:
-        links.append({"label": f"Manage your pod in {host.name}", "url": host.manage_url})
+        links.append({"label": f"Manage your {host.unit} in {host.name}", "url": host.manage_url})
     return [{
         **_problem("memory:restarted", "Row-Bot restarted because the server ran out of memory",
                    f"Your server has {server_memory.size_words(size)}. Local speech-to-text together with the "

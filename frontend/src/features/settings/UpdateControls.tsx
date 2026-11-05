@@ -16,6 +16,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import type {
+  SettingsSnapshot,
   UpdateCommand,
   UpdateReceipt,
   UpdateSnapshot,
@@ -26,6 +27,9 @@ import { Button, Disclosure, IconButton, Toggle } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import { absoluteTime, relativeTime } from '../../ui/format';
 import { SettingsItem, StatusLine } from './anatomy';
+
+/** A hosting company Row-Bot knows (H13), with its own words for updates. */
+type HostedBy = NonNullable<SettingsSnapshot['system']['hosted_by']>;
 
 type Owner = {
   load: (signal?: AbortSignal) => Promise<UpdateSnapshot>;
@@ -155,7 +159,7 @@ export function UpdateControls({
   owner,
   onThisComputer = true,
   onChecked,
-  hostName = null,
+  hostedBy = null,
 }: {
   owner: Owner;
   /** The desktop app on the computer Row-Bot runs on (#416). */
@@ -163,7 +167,7 @@ export function UpdateControls({
   /** Told the time of each check these controls see, for the page header. */
   onChecked?: (lastCheck: string | null) => void;
   /** The hosting company that runs this Row-Bot, when Row-Bot knows it (H13). */
-  hostName?: string | null;
+  hostedBy?: HostedBy | null;
 }) {
   const [snapshot, setSnapshot] = useState<UpdateSnapshot | null>(null);
   const [pending, setPending] = useState<UpdateCommand | null>(savedPending);
@@ -603,17 +607,23 @@ export function UpdateControls({
         )}
       </SettingsItem>
     ) : null;
-  // A hosting company Row-Bot knows applies every update itself (H3): its
-  // name, how releases reach it and the release notes, with nothing to press.
-  const hostedBy = external && hostName ? hostName : null;
+  // A hosting company Row-Bot knows installs every update (H3), by itself
+  // (PikaPods) or when its owner says so there (Railway): its name, how new
+  // versions arrive, in its own words, and the release notes, with nothing
+  // to press here.
+  const knownHost = external && hostedBy ? hostedBy : null;
   const notesUrl = githubUrl(host?.notes_url);
-  const hostedRow = hostedBy && (
+  const hostedRow = knownHost && (
     <SettingsItem
-      label={`Updated by ${hostedBy}`}
+      label={
+        knownHost.applies_updates
+          ? `Updated by ${knownHost.name}`
+          : `You update it in ${knownHost.name}`
+      }
       icon={<Server size={16} aria-hidden />}
       tone="accent"
       bind={false}
-      help="They test each release first, so new versions usually arrive within a week."
+      help={knownHost.updates_help}
     >
       {notesUrl && (
         <a
@@ -657,7 +667,7 @@ export function UpdateControls({
           }
         />
       )}
-      {snapshot && !hostedBy && (
+      {snapshot && !knownHost && (
         <SettingsItem
           label={`Row-Bot ${snapshot.current_version}`}
           icon={<PackageCheck size={16} aria-hidden />}
@@ -950,10 +960,10 @@ export function UpdateControls({
 
 export default function ConnectedUpdateControls({
   onChecked,
-  hostName = null,
+  host = null,
 }: {
   onChecked?: (lastCheck: string | null) => void;
-  hostName?: string | null;
+  host?: HostedBy | null;
 }) {
   const { controller } = useRuntime();
   const onThisComputer = useOnThisComputer();
@@ -966,7 +976,7 @@ export default function ConnectedUpdateControls({
       owner={owner.current}
       onThisComputer={onThisComputer}
       onChecked={onChecked}
-      hostName={hostName}
+      hostedBy={host}
     />
   );
 }

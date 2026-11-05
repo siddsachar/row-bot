@@ -39,7 +39,26 @@ def test_pikapods_is_named_and_linked_from_its_reviewed_entry() -> None:
         "support_url": "https://docs.pikapods.com/",
         "status_url": "https://docs.pikapods.com/faq/account#business-use-and-service-level",
         "manage_url": "https://www.pikapods.com/pods",
+        "unit": "pod",
+        "runs": "the server, billing and backups",
+        "applies_updates": True,
+        "updates_help": "They test each release first, so new versions usually arrive within a week.",
     }
+
+
+def test_railway_is_named_and_linked_from_its_reviewed_entry_and_leaves_updates_to_the_owner() -> None:
+    host = hosted_by({HOSTED_BY_ENV: "railway"})
+
+    assert host is not None
+    assert (host.name, host.home_url, host.support_url, host.status_url, host.manage_url) == (
+        "Railway",
+        "https://railway.com/",
+        "https://station.railway.com/",
+        "https://status.railway.com/",
+        "https://railway.com/dashboard",
+    )
+    # An image service on Railway gets a new version only when its owner updates it (or turns on auto updates).
+    assert host.unit == "service" and host.applies_updates is False
 
 
 def test_no_setting_means_no_host_and_no_warning(caplog) -> None:

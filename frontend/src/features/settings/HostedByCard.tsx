@@ -23,10 +23,11 @@ function inUse(bytes: number) {
 
 /**
  * U5: the top of Settings › System on a Row-Bot that a known host runs (H13).
- * Who runs it, its version and who updates it, the memory in use of the
- * server's limit (H12, when the limit is known), and the host's own pages
- * (each only when the host confirmed it) as icon buttons. The host runs the
- * machine, billing and backups; Row-Bot's help covers the rest.
+ * Who runs it, its version and who updates it (the host, or its owner there),
+ * the memory in use of the server's limit (H12, when the limit is known), and
+ * the host's own pages (each only when the host confirmed it) as icon buttons,
+ * in the host's own words (a pod, a service). The host runs what it says it
+ * runs (the machine, billing, maybe backups); Row-Bot's help covers the rest.
  */
 export default function HostedByCard({
   host,
@@ -40,7 +41,7 @@ export default function HostedByCard({
   const links = [
     {
       url: host.manage_url,
-      label: `Manage your pod in ${host.name}`,
+      label: `Manage your ${host.unit} in ${host.name}`,
       Icon: ExternalLink,
     },
     { url: host.support_url, label: `${host.name} support`, Icon: CircleHelp },
@@ -56,7 +57,11 @@ export default function HostedByCard({
         label={`Hosted by ${host.name}`}
         icon={<Server size={16} aria-hidden />}
         tone="neutral"
-        help={`Row-Bot ${version} · updated by ${host.name}`}
+        help={
+          host.applies_updates
+            ? `Row-Bot ${version} · updated by ${host.name}`
+            : `Row-Bot ${version} · you update it in ${host.name}`
+        }
         status={
           memory && (
             <span className="hosted-by-memory">
@@ -94,8 +99,7 @@ export default function HostedByCard({
         }
       >
         <p className="hosted-by-note">
-          {host.name} runs the server, billing and backups. For anything inside
-          Row-Bot, use{' '}
+          {host.name} runs {host.runs}. For anything inside Row-Bot, use{' '}
           <a href={ROW_BOT_HELP} target="_blank" rel="noopener noreferrer">
             Row-Bot’s help
           </a>
