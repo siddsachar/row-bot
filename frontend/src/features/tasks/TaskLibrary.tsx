@@ -675,6 +675,18 @@ export function SavedTasks({
               <Button
                 variant="ghost"
                 className="small"
+                disabled={
+                  selected.size === page.items.length || Boolean(action)
+                }
+                onClick={() =>
+                  setSelected(new Set(page.items.map((item) => item.id)))
+                }
+              >
+                Select all
+              </Button>
+              <Button
+                variant="ghost"
+                className="small"
                 disabled={selected.size === 0 || Boolean(action)}
                 onClick={() => setSelected(new Set())}
               >
@@ -831,6 +843,9 @@ export function SavedTasks({
                     data-enabled={task.enabled ? 'true' : 'false'}
                     data-running={running ? 'true' : undefined}
                     data-failed={failed ? 'true' : undefined}
+                    data-selected={
+                      selecting && selected.has(task.id) ? 'true' : undefined
+                    }
                     key={task.id}
                   >
                     {selecting && (
