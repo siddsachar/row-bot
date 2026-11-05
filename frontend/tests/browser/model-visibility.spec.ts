@@ -8,7 +8,7 @@ import {
 } from './evidence';
 import { clickNewChat } from './unified-helpers';
 
-// F10: favourite models first, hidden ones under "More models". The fixture
+// Your models: the starred ones, which every picker lists first. The fixture
 // puts twenty synthetic local models in the composer's picker and on the
 // synthetic local runtime (Setup and Settings › Models); nothing reaches
 // Ollama. Each test puts the profile back.
@@ -77,7 +77,7 @@ async function openPicker(page: Page): Promise<Locator> {
 const exactly = (name: string) =>
   new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
 
-/** The rows in order, by model name ("More models (3)" for the closed row). */
+/** The rows in order, by model name. */
 function rows(list: Locator) {
   return list
     .getByRole('option')
@@ -89,8 +89,8 @@ function rows(list: Locator) {
     );
 }
 
-/** A row's menu, by pointer: the ⋯ button beside its option. */
-async function rowMenu(page: Page, list: Locator, name: string) {
+/** A row's star, by pointer: the button beside its option. */
+async function rowStar(page: Page, list: Locator, name: string) {
   const option = list.getByRole('option', { name: exactly(name) }).first();
   await option.scrollIntoViewIfNeeded();
   await option.hover();
@@ -98,155 +98,91 @@ async function rowMenu(page: Page, list: Locator, name: string) {
     .locator('.model-picker-row')
     .filter({ has: page.getByRole('option', { name: exactly(name) }) })
     .first()
-    .getByRole('button', { name: `More for ${name}`, includeHidden: true })
+    .getByRole('button', { name: /your models$/, includeHidden: true })
     .click();
-  const menu = page.getByRole('menu', { name: `More for ${name}` });
-  await expect(menu).toBeVisible();
-  return menu;
 }
 
-test('favourites and hidden models from the picker keep their order', async ({
+test('stars from the picker make your models, in the order they were added', async ({
   page,
 }, info) => {
   await fixture(page, '/__s8_fixture/models/seed');
   await page.goto('/app-v2/');
   await clickNewChat(page);
   let list = await openPicker(page);
+  // Nothing starred yet: every ready local model is listed.
   await expect(list.getByRole('option')).toHaveCount(20);
   expect((await rows(list)).slice(0, 2)).toEqual([
     'deepseek-r1:14b',
     'gemma3:12b',
   ]);
+  await shoot(page, info, 'models-picker-unstarred');
 
-  // Two favourites, in the order they're added.
-  await (
-    await rowMenu(page, list, 'qwen3.8:27b')
-  )
-    .getByRole('menuitem', { name: 'Add to favourites' })
-    .click();
-  await (
-    await rowMenu(page, list, 'llama3.1:8b')
-  )
-    .getByRole('menuitem', { name: 'Add to favourites' })
-    .click();
-  await expect(
-    list.getByRole('group', { name: 'Favourites' }).getByRole('option'),
-  ).toHaveCount(2);
-
-  // Hide three: two by pointer, one from the keyboard.
-  for (const name of ['smollm2:1.7b', 'llava:13b']) {
-    await (
-      await rowMenu(page, list, name)
-    )
-      .getByRole('menuitem', { name: 'Hide' })
-      .click();
-    await expect(list.getByRole('option', { name: exactly(name) })).toHaveCount(
-      0,
-    );
-  }
-  const search = page.getByRole('combobox', { name: 'Search models' });
-  await search.fill('deepseek');
-  await search.press('Shift+F10');
-  await page.getByRole('menuitem', { name: 'Hide' }).click();
-  await expect(search).toBeFocused();
-  await search.fill('');
-
-  let order = await rows(list);
-  expect(order.slice(0, 2)).toEqual(['qwen3.8:27b', 'llama3.1:8b']);
-  expect(order.at(-1)).toBe('More models (3)');
-  expect(order).toHaveLength(2 + 15 + 1);
-  // The last one hidden is said once in the list, with Undo.
-  await expect(
-    page.getByText('deepseek-r1:14b is under More models.'),
-  ).toBeVisible();
+  // Two stars in a row, in the order they're added; the open list keeps its rows.
+  const yours = list.getByRole('group', { name: 'Your models' });
+  await rowStar(page, list, 'qwen3.8:27b');
+  await expect(yours.getByRole('option')).toHaveCount(1);
+  await rowStar(page, list, 'llama3.1:8b');
+  await expect(yours.getByRole('option')).toHaveText([
+    /^qwen3\.8:27b/,
+    /^llama3\.1:8b/,
+  ]);
+  await expect(list.getByRole('option')).toHaveCount(20);
   await list.evaluate((element) => element.scrollTo(0, 0));
   await shoot(page, info, 'models-picker');
 
-  await rowMenu(page, list, 'llama3.1:8b');
-  await expect(
-    page.getByRole('menuitem', { name: 'Remove from favourites' }),
-  ).toBeVisible();
-  await shoot(page, info, 'models-row-menu');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('menu')).toHaveCount(0);
-  await expect(list).toBeVisible();
-
-  // Saved: a reload lists them the same way.
+  // Saved: a reload lists your models, and Ollama's list is now just them
+  // (with the model this chat uses, which is always in view).
   await page.reload();
   list = await openPicker(page);
-  order = await rows(list);
-  expect(order.slice(0, 2)).toEqual(['qwen3.8:27b', 'llama3.1:8b']);
-  expect(order.at(-1)).toBe('More models (3)');
+  expect(await rows(list)).toEqual(['qwen3.8:27b', 'llama3.1:8b', 'qwen3:14b']);
 
-  // A hidden model is still usable, and stays in view while it's chosen.
-  await list.getByRole('option', { name: 'More models (3)' }).click();
+  // The keyboard's way: Shift+F10 unstars the highlighted model.
+  const search = page.getByRole('combobox', { name: 'Search models' });
+  await search.fill('llama3.1');
+  await search.press('Shift+F10');
+  await expect(search).toBeFocused();
+  await search.fill('');
   await expect(
-    list.getByRole('group', { name: 'More models' }).getByRole('option'),
-  ).toHaveCount(3);
-  await list.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-  await shoot(page, info, 'models-picker-more');
-  await list.getByRole('option', { name: exactly('llava:13b') }).click();
-  await expect(list).toHaveCount(0);
-  list = await openPicker(page);
-  // Listed in its provider's group (and under Recent, as any recent choice).
-  const chosen = list
-    .getByRole('option', { name: exactly('llava:13b') })
-    .last();
-  await expect(chosen).toContainText('Hidden');
-  await expect(chosen.getByRole('img', { name: 'Current' })).toBeVisible();
-  await expect(
-    list.getByRole('option', { name: 'More models (2)' }),
-  ).toBeVisible();
-  await shoot(page, info, 'models-hidden-selected');
+    list.getByRole('group', { name: 'Your models' }).getByRole('option'),
+  ).toHaveText([/^qwen3\.8:27b/]);
 });
 
-test('Settings › Models lists the local models with their state', async ({
+test('Settings › Models lists the local models with their stars', async ({
   page,
 }, info) => {
   await fixture(
     page,
-    '/__s8_fixture/models/seed?favourites=qwen3.8:27b,llama3.1:8b&hidden=smollm2:1.7b,llava:13b,deepseek-r1:14b',
+    '/__s8_fixture/models/seed?favourites=qwen3.8:27b,llama3.1:8b',
   );
   await page.goto('/app-v2/settings/models');
   const group = page.getByRole('region', { name: 'On this computer' });
-  await expect(group).toContainText('2 favourites · 3 hidden');
+  await expect(group).toContainText('2 starred');
   const listed = group.getByRole('list', { name: 'Models on this computer' });
-  await expect(listed.getByRole('listitem')).toHaveCount(18);
+  await expect(listed.getByRole('listitem')).toHaveCount(21);
   await expect(listed.getByRole('listitem').first()).toContainText(
-    'qwen3.8:27bListed first',
+    'qwen3.8:27bIn your models',
   );
   await group.evaluate((element) => element.scrollIntoView({ block: 'start' }));
   await shoot(page, info, 'models-settings');
-
-  await group.getByText('Hidden (3)').click();
-  const hidden = group.getByRole('list', { name: 'Hidden models' });
-  await expect(hidden.getByRole('listitem')).toHaveCount(3);
-  await expect(
-    hidden.getByRole('button', { name: 'Show llava:13b' }),
-  ).toBeVisible();
-  await hidden.evaluate((element) => element.scrollIntoView({ block: 'end' }));
-  await shoot(page, info, 'models-settings-hidden');
-  await group.getByRole('button', { name: 'Show all hidden' }).click();
-  await expect(group).not.toContainText('3 hidden');
-  await expect(
-    group.getByRole('button', { name: 'Show all hidden' }),
-  ).toHaveCount(0);
-  await expect(listed.getByRole('listitem')).toHaveCount(21);
+  await group
+    .getByRole('button', { name: 'Remove llama3.1:8b from your models' })
+    .click();
+  await expect(group).toContainText('1 starred');
 });
 
-test('Setup lists favourites, then Row-Bot’s picks, then every model', async ({
+test('Setup lists your models, then Row-Bot’s picks, then every model', async ({
   page,
 }, info) => {
   await fixture(
     page,
-    '/__s8_fixture/models/seed?favourites=qwen3.8:27b,qwen3:14b&hidden=smollm2:1.7b',
+    '/__s8_fixture/models/seed?favourites=qwen3.8:27b,qwen3:14b',
   );
   await fixture(page, '/__p10_fixture/first-run/fresh');
   await page.goto('/app-v2/');
   await expect(page).toHaveURL(/\/app-v2\/setup$/);
   await page.getByRole('button', { name: /On this computer/ }).click();
-  const favourites = page.getByRole('list', { name: 'Your favourites' });
-  await expect(favourites.getByRole('button')).toHaveText([
+  const starred = page.getByRole('list', { name: 'Your models' });
+  await expect(starred.getByRole('button')).toHaveText([
     /^qwen3\.8:27b/,
     /^qwen3:14b/,
   ]);
@@ -259,7 +195,4 @@ test('Setup lists favourites, then Row-Bot’s picks, then every model', async (
       .getByRole('heading', { name: 'Pick a model' })
       .evaluate((element) => element.scrollIntoView({ block: 'start' }));
   await shoot(page, info, 'models-first-run');
-  await page.getByText('Show all models (16)').click();
-  const all = page.getByRole('list', { name: 'All models on this computer' });
-  await expect(all.getByRole('button').last()).toContainText('Hidden');
 });

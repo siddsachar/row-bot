@@ -1048,14 +1048,13 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     from row_bot.providers.selection import (
         ModelSelectionError,
         canonicalize_model_selection,
-        list_quick_model_ids,
         list_model_choice_options,
     )
     from row_bot.threads import _set_thread_model_override
 
     args = (update.message.text or "").split(maxsplit=1)
     if len(args) < 2:
-        # Show current model + channel-visible Quick Choices
+        # Show current model + your models
         config = context.chat_data.get("thread_config") or {}
         current_ov = (config.get("configurable") or {}).get("model_override", "")
         _def = get_current_model()
@@ -1068,14 +1067,13 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             _tag = "☁️" if _prov else "🖥️"
             current_display = f"{_tag} {_def} (default)"
         lines = [f"<b>Current model:</b> {_escape_html(current_display)}\n"]
-        quick_model_ids = list_quick_model_ids("channels")
         choices = list_model_choice_options(
             "channels",
-            include_values=[get_current_model(), current_ov, *quick_model_ids],
+            include_values=[get_current_model(), current_ov],
             include_inactive=True,
         )
         if choices:
-            lines.append("<b>Channel Quick Choices:</b>")
+            lines.append("<b>Your models:</b>")
             visible_choices = choices[:12]
             for choice in visible_choices:
                 value = str(choice.get("value") or "")
@@ -1083,11 +1081,11 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 lines.append(f"• {_escape_html(label)} — <code>{_escape_html(value)}</code>")
             remaining = len(choices) - len(visible_choices)
             if remaining > 0:
-                lines.append(f"...and {remaining} more pinned choice(s) in Settings -> Models.")
+                lines.append(f"...and {remaining} more in Row-Bot › Settings › Models.")
             lines.append("\nUsage: <code>/model model:provider:model-id</code>")
             lines.append("Reset to default: <code>/model default</code>")
         else:
-            lines.append("No provider Quick Choices. Pin models in Row-Bot → Settings → Providers.")
+            lines.append("No starred models yet. Star models in Row-Bot › Settings › Models.")
         await _send_html(update.message, "\n".join(lines))
         return
 

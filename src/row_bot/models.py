@@ -1719,19 +1719,6 @@ def reset_current_model_if_removed(
     return False
 
 
-def list_starred_cloud_models() -> list[str]:
-    """Return cloud models the user has starred (for the thread picker)."""
-    from row_bot.providers.selection import list_quick_model_ids, migrate_legacy_starred_models
-    from row_bot.api_keys import get_cloud_config
-    _sync_custom_model_cache()
-    migrate_legacy_starred_models(cloud_models=_cloud_model_cache.keys())
-    quick_models = [m for m in list_quick_model_ids("chat") if m in _cloud_model_cache]
-    if quick_models:
-        return quick_models
-    starred = set(get_cloud_config().get("starred_models", []))
-    return [m for m in _cloud_model_cache if m in starred]
-
-
 def get_cloud_model_context(model_name: str) -> int:
     """Return the context window size for a cloud model.
 

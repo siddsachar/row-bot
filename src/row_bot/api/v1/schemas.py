@@ -1481,8 +1481,6 @@ ProviderConfigurationOperation = Literal[
     "provider.endpoint.delete",
     "provider.endpoint.probe",
     "provider.endpoint.refresh",
-    "provider.model.pin",
-    "provider.model.unpin",
 ]
 
 
@@ -1490,16 +1488,10 @@ class ProviderEndpointIdentity(WireModel):
     endpoint_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
-class ProviderModelPin(WireModel):
-    provider_id: OpaqueId
-    model_id: str = Field(min_length=1, max_length=512)
-    surface: str = Field(min_length=1, max_length=80)
-
-
 class ProviderConfigurationReviewRequest(WireModel):
     operation: ProviderConfigurationOperation
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    fields: ProviderEndpointFields | ProviderEndpointIdentity | ProviderModelPin
+    fields: ProviderEndpointFields | ProviderEndpointIdentity
 
 
 class ProviderConfigurationReview(WireModel):
@@ -1511,7 +1503,7 @@ class ProviderConfigurationReview(WireModel):
 
 class ProviderConfigurationPayload(WireModel):
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    fields: ProviderEndpointFields | ProviderEndpointIdentity | ProviderModelPin
+    fields: ProviderEndpointFields | ProviderEndpointIdentity
     nonce: str = Field(min_length=1, max_length=128)
 
 
@@ -2482,10 +2474,8 @@ class LocalRuntimeModel(WireModel):
     model_ref: str = Field(min_length=1, max_length=1024)
     name: str = Field(max_length=512)
     agent_ready: bool | None = None
-    # F10: a favourite's place in the list (from 1), a hidden model, and
-    # Row-Bot's suggested first picks. Absent when not set.
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    # A star's place in the list (from 1) and Row-Bot's suggested first picks. Absent when not set.
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
     recommended: bool = False
 
 
@@ -6060,17 +6050,14 @@ class CachedModelRow(WireModel):
     reasoning: CachedReasoning | None = None
     context_window: int | None = Field(default=None, ge=1)
     installed: bool | None = None
-    pinned_surfaces: list[Annotated[str, StringConstraints(max_length=80)]] = Field(
-        max_length=32
-    )
     configured: bool
     runtime_ready: bool
     status_reason: str = Field(max_length=256)
     runtime_mode: str = Field(max_length=32)
     source: str = Field(max_length=80)
     runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    offered: bool = False
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
 
 
 class CachedModelPage(WireModel):
@@ -6093,8 +6080,7 @@ class ModelPickerOption(WireModel):
     context_window: int | None = Field(default=None, ge=1)
     reason: str = Field(default="", max_length=256)
     billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
 
 
 class ModelPickerSurface(WireModel):
@@ -6139,24 +6125,17 @@ class ModelContextMutation(WireModel):
 
 
 class ModelVisibilityMutation(WireModel):
-    """Favourite or hide one model (by its provider-qualified reference), or show every hidden one."""
+    """Star or unstar one model (by its provider-qualified reference)."""
 
-    action: Literal["favourite", "unfavourite", "hide", "show", "show_all"]
-    model_ref: str | None = Field(default=None, min_length=1, max_length=647)
-
-    @model_validator(mode="after")
-    def one_model(self) -> ModelVisibilityMutation:
-        if (self.action == "show_all") != (self.model_ref is None):
-            raise ValueError("Every action but show_all names one model.")
-        return self
+    action: Literal["favourite", "unfavourite"]
+    model_ref: str = Field(min_length=1, max_length=647)
 
 
 class ModelVisibilityState(WireModel):
-    """Favourites in their order, and the hidden models (F10)."""
+    """Your models: the stars, in the order they were added."""
 
-    schema_version: Literal[1] = 1
-    favourites: list[str] = Field(max_length=64)
-    hidden: list[str] = Field(max_length=512)
+    schema_version: Literal[2] = 2
+    favourites: list[str] = Field(max_length=256)
 
 
 class AgentRuntimeSettingsState(WireModel):
@@ -7579,8 +7558,6 @@ class Command(WireModel):
         "provider.endpoint.delete",
         "provider.endpoint.probe",
         "provider.endpoint.refresh",
-        "provider.model.pin",
-        "provider.model.unpin",
         "artifact.design.control",
         "artifact.asset.upload",
         "artifact.document.import",
@@ -7762,8 +7739,6 @@ COMMAND_PAYLOADS = {
     "provider.endpoint.delete": ProviderConfigurationPayload,
     "provider.endpoint.probe": ProviderConfigurationPayload,
     "provider.endpoint.refresh": ProviderConfigurationPayload,
-    "provider.model.pin": ProviderConfigurationPayload,
-    "provider.model.unpin": ProviderConfigurationPayload,
     "artifact.design.control": ArtifactDesignControlPayload,
     "artifact.asset.upload": ArtifactAssetUploadPayload,
     "artifact.document.import": ArtifactDocumentImportPayload,
@@ -8739,9 +8714,8 @@ class ModelChoice(WireModel):
     available: bool
     unavailable_reason: Literal["configuration_required", "metadata_missing", "unavailable"] | None = None
     billing: ProviderBilling | None = None
-    # F10: listed first (a favourite's place, from 1) or under "More models".
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    # A star's place (from 1): starred models are your models.
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
     # Learning (preview, D11): one of the person's personal-model versions ("Personal model v1").
     personal: bool = False
 

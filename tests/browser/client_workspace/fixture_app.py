@@ -4449,9 +4449,9 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
 
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
-# (a pinned choice with its saved catalog row) and on the synthetic local
-# runtime that Setup and Settings › Models read. Favourites and hidden models
-# start empty. Nothing reaches a runtime, a provider or the network.
+# (a ready model with its saved catalog row, nothing starred yet) and on the
+# synthetic local runtime that Setup and Settings › Models read. Stars start
+# empty. Nothing reaches a runtime, a provider or the network.
 _S8_LOCAL_MODELS = (
     "deepseek-r1:14b", "gemma3:12b", "gemma3:4b", "gpt-oss:20b", "granite3.3:8b", "llama3.1:8b",
     "llama3.2:3b", "llava:13b", "mistral-nemo:12b", "mistral-small3.2:24b", "mistral:7b", "phi4-mini:3.8b",
@@ -4463,15 +4463,13 @@ _s8_backup: dict | None = None
 
 
 @app.post("/__s8_fixture/models/{action}")
-def s8_models(action: str, favourites: str = "", hidden: str = "",
-              x_fixture_token: str = Header(default="")) -> dict:
-    """seed: twenty local models everywhere models are chosen, with any favourites
-    and hidden models given (comma-separated names); restore: the profile back."""
+def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """seed: twenty local models everywhere models are chosen, with any stars given
+    (comma-separated names); restore: the profile back."""
     global _s8_backup
     predecessor._authorize(x_fixture_token)
     from row_bot.providers import config as provider_config, model_catalog_cache as cache, saved_model_settings
     from row_bot.providers.model_visibility import update_model_visibility
-    from row_bot.providers.selection import add_quick_choice_for_model
 
     files = {
         "providers": Path(provider_config.CONFIG_PATH),
@@ -4497,16 +4495,11 @@ def s8_models(action: str, favourites: str = "", hidden: str = "",
               "capabilities_snapshot": chat(name)} for name in _S8_LOCAL_MODELS],
             {"ollama": {"status": "ok", "count": len(_S8_LOCAL_MODELS)}}, (), "synthetic-browser",
         ))
-        for name in _S8_LOCAL_MODELS:
-            add_quick_choice_for_model(name, provider_id="ollama", display_name=name,
-                                       capabilities_snapshot=chat(name), surface="chat")
         saved_model_settings.update_saved_model_settings(
             lambda raw: {key: value for key, value in raw.items() if key != "model_visibility"},
             path=files["settings"])
         for name in filter(None, favourites.split(",")):
             update_model_visibility("favourite", f"model:ollama:{name}", path=files["settings"])
-        for name in filter(None, hidden.split(",")):
-            update_model_visibility("hide", f"model:ollama:{name}", path=files["settings"])
         # Setup and Settings › Models read the same models from the local runtime.
         _p10_state.update(runtime="running", models=[*_S8_LOCAL_MODELS, "nomic-embed-text:latest"])
     elif action == "restore":
@@ -6508,7 +6501,6 @@ def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(def
         _l2c2_chat()
     elif action == "picker":  # v1 in the composer's picker, beside the synthetic local models (s8's seed first)
         from row_bot.providers import model_catalog_cache as cache
-        from row_bot.providers.selection import add_quick_choice_for_model
 
         snapshot = cache.read_model_catalog_cache()
         tag = _L2C2_REF.split(":", 2)[2]
@@ -6518,8 +6510,6 @@ def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(def
         cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
             1, snapshot.generated_at + 1, snapshot.cloud_cache, rows,
             {"ollama": {"status": "ok", "count": len(rows)}}, (), "synthetic-browser"))
-        add_quick_choice_for_model(tag, provider_id="ollama", display_name=tag, capabilities_snapshot=_S8_CHAT,
-                                   surface="chat")
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}

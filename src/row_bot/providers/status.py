@@ -3,7 +3,6 @@ from __future__ import annotations
 from row_bot.providers.catalog import list_provider_definitions
 from row_bot.providers.models import ModelInfo
 from row_bot.providers.runtime import provider_status
-from row_bot.providers.selection import list_quick_choices
 
 
 def _provider_group(provider_id: str, risk_label: str) -> str:
@@ -224,6 +223,8 @@ def summarize_providers() -> str:
             except Exception:
                 extra = ""
         lines.append(f"- {card['display_name']}: {state}{source}{count}{extra}")
-    quick_count = len([c for c in list_quick_choices("status_tool") if c.get("kind") == "model"])
+    from row_bot.providers.model_visibility import read_model_visibility
+
+    quick_count = len(read_model_visibility().favourites)
     lines.append(f"- Quick Choices: {quick_count} model(s)")
     return "\n".join(lines)

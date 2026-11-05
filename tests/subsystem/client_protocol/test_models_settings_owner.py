@@ -12,24 +12,27 @@ from row_bot.application import client_models_settings as owner
 pytestmark = pytest.mark.subsystem
 
 
-def _row(ref: str, *, category: str, pinned: bool, ready: bool):
+def _row(ref: str, *, category: str, ready: bool):
     provider, model = ref.split(":", 2)[1:]
     return SimpleNamespace(
         selection_ref=ref, provider_id=provider, model_id=model,
         display_name=model, source="saved_catalog", context_window=32000,
         configured=ready, runtime_ready=ready, installed=True,
-        categories=(category,), pinned_surfaces=(category,) if pinned else (),
+        categories=(category,), offered=False,
         status_reason="Connect the provider" if not ready else "",
     )
 
 
-def test_picker_keeps_unavailable_current_and_only_pinned_available_choices():
+def test_picker_keeps_unavailable_current_and_only_starred_available_choices():
+    from row_bot.providers.model_visibility import ModelVisibility
+
     rows = (
-        _row("model:openai:current", category="image", pinned=False, ready=False),
-        _row("model:openai:ready", category="image", pinned=True, ready=True),
-        _row("model:openai:unselected", category="image", pinned=False, ready=True),
+        _row("model:openai:current", category="image", ready=False),
+        _row("model:openai:ready", category="image", ready=True),
+        _row("model:openai:unselected", category="image", ready=True),
     )
-    picker = owner._picker("image", "model:openai:current", rows, enabled=True)
+    picker = owner._picker("image", "model:openai:current", rows, enabled=True,
+                           visibility=ModelVisibility(("model:openai:ready",)))
     assert picker["current_ref"] == "model:openai:current"
     assert picker["enabled"] is True
     assert {option["selection_ref"] for option in picker["options"]} == {
@@ -46,7 +49,6 @@ def test_legacy_media_defaults_remain_provider_qualified():
 
 def test_surface_default_writes_real_owner_and_rejects_unavailable(monkeypatch):
     from row_bot import agent
-    from row_bot.providers import selection
     from row_bot.tools import registry
     from row_bot import vision_runtime
 
@@ -63,7 +65,6 @@ def test_surface_default_writes_real_owner_and_rejects_unavailable(monkeypatch):
     calls = []
     monkeypatch.setattr(registry, "get_tool", lambda name: tool)
     monkeypatch.setattr(vision_runtime, "get_vision_service", lambda: vision)
-    monkeypatch.setattr(selection, "seed_configured_media_quick_choices", lambda: calls.append("seed"))
     monkeypatch.setattr(agent, "clear_agent_cache", lambda: calls.append("clear"))
     monkeypatch.setattr(owner, "read_models_settings", lambda **kwargs: {
         "vision": {"options": [{"selection_ref": "model:openai:vision", "available": True}]},
@@ -71,9 +72,9 @@ def test_surface_default_writes_real_owner_and_rejects_unavailable(monkeypatch):
         "video": {"options": [{"selection_ref": "model:google:video", "available": False}]},
     })
     owner.update_model_surface("image", "default", selection_ref="model:openai:image", validate=lambda: None)
-    assert tool.value == "openai/image" and calls == ["seed"]
+    assert tool.value == "openai/image" and calls == []
     owner.update_model_surface("vision", "default", selection_ref="model:openai:vision", validate=lambda: None)
-    assert vision.model == "model:openai:vision" and calls == ["seed", "clear"]
+    assert vision.model == "model:openai:vision" and calls == ["clear"]
     with pytest.raises(ValueError, match="model_configuration_unavailable"):
         owner.update_model_surface("video", "default", selection_ref="model:google:video", validate=lambda: None)
     assert tool.value == "openai/image"
@@ -120,7 +121,7 @@ def test_models_view_prefers_actual_brain_runtime_and_never_probes_context(monke
     monkeypatch.setattr(video_gen_tool, "get_available_video_models", lambda: {})
     monkeypatch.setattr(client_status, "_read", lambda now, **kwargs: (
         SimpleNamespace(freshness="unavailable", generated_at=None, refresh_running=False),
-        (_row("model:ollama:active", category="chat", pinned=False, ready=True),)))
+        (_row("model:ollama:active", category="chat", ready=True),)))
     state = owner.read_models_settings()
     assert state["brain"]["current_ref"] == "model:ollama:active"
     assert state["brain"]["options"][0]["selection_ref"] == "model:ollama:active"

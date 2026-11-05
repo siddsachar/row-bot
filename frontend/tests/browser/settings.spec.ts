@@ -1593,11 +1593,11 @@ test('Models catalog applies a default and retains it across Providers navigatio
     .filter({ hasText: label });
   await expect(row).toBeVisible();
   await row
-    .getByRole('button', { name: 'Add ' + label + ' to favourites' })
+    .getByRole('button', { name: 'Add ' + label + ' to your models' })
     .click();
   await expect(
     row.getByRole('button', {
-      name: 'Remove ' + label + ' from favourites',
+      name: 'Remove ' + label + ' from your models',
     }),
   ).toBeVisible();
   await row
@@ -1655,14 +1655,14 @@ test('Models catalog recovers an expired page cursor only when requested', async
   await models
     .getByRole('combobox', { name: 'Provider' })
     .selectOption('openai');
-  // Emptied, the catalog keeps only models a job uses or you pinned (B226).
+  // Emptied, the catalog keeps only models a job uses or you starred (B226).
   await expect(models.getByText(/^Showing \d of \d models$/)).toBeVisible();
   const kept = await models.locator('.settings-model-row-list > li').all();
   for (const row of kept)
     await expect(
       row
         .getByText('Default', { exact: true })
-        .or(row.getByText(/^Listed( first)? · /))
+        .or(row.getByText(/^In your models · /))
         .first(),
     ).toBeVisible();
   if (!kept.length)

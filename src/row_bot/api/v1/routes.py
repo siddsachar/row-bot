@@ -1290,8 +1290,16 @@ def cached_choices() -> dict:
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
     snapshot = read_model_catalog_cache()
-    # The composer offers the Brain picker's list, judged by the same rule,
-    # with each person's favourites and hidden models marked (F10).
+    from row_bot.application.provider_default_model import read_default_model
+    from row_bot.providers.config import ProviderConfigError
+
+    # The composer offers the Brain picker's list, judged by the same rule, with
+    # each person's stars marked; the main model is always in it, starred or not.
+    try:
+        main_model = read_default_model().selection_ref or ""
+    except ProviderConfigError:
+        # model_settings.json can't be read: the list still opens, without it.
+        main_model = ""
     models = annotate(
         (
             {
@@ -1304,7 +1312,7 @@ def cached_choices() -> dict:
                 # Learning (preview, D11): a personal-model version, tagged Personal in the picker.
                 "personal": withheld(option["provider_id"], option["selection_ref"]),
             }
-            for option in picker_choices("chat")
+            for option in picker_choices("chat", main_model)
         ),
         key="model_ref",
     )

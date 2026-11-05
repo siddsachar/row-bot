@@ -6,7 +6,6 @@ import pytest
 import row_bot.api_keys as api_keys
 import row_bot.providers.config as provider_config
 from row_bot.providers.selection import (
-    add_quick_choice_for_model,
     canonicalize_model_selection,
     ModelSelectionError,
     model_selection_diagnostics,
@@ -23,9 +22,22 @@ def _isolated_provider_config(tmp_path, monkeypatch):
             "name": "LM Studio",
             "base_url": "http://127.0.0.1:1234/v1",
             "auth_required": False,
-            "models": [{"model_id": "qwen3.6-35b-a3b"}],
+            "models": [{"model_id": "qwen3.6-35b-a3b", "display_name": "Qwen Local"}],
         }],
     })
+
+
+def _star_lmstudio_qwen(tmp_path, monkeypatch):
+    import json
+
+    from row_bot.providers import model_visibility
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    settings = tmp_path / "model_settings.json"
+    settings.write_text(json.dumps({"model_visibility": {"favourites": [
+        "model:custom_openai_lmstudio:qwen3.6-35b-a3b"]}}), encoding="utf-8")
+    monkeypatch.setattr(model_visibility, "_settings_path", lambda: settings)
 
 
 def _isolated_tasks_module(tmp_path, monkeypatch, reload_for_data_dir):
@@ -137,18 +149,14 @@ def test_phase1_full_custom_ref_stays_full_ref(tmp_path, monkeypatch):
     assert canonical.model_id == "qwen3.6-35b-a3b"
 
 
-def test_phase1_quick_choice_display_canonicalizes_to_full_ref(tmp_path, monkeypatch):
+def test_phase1_starred_model_display_canonicalizes_to_full_ref(tmp_path, monkeypatch):
     _isolated_provider_config(tmp_path, monkeypatch)
-    add_quick_choice_for_model(
-        "qwen3.6-35b-a3b",
-        provider_id="custom_openai_lmstudio",
-        display_name="Qwen Local",
-    )
+    _star_lmstudio_qwen(tmp_path, monkeypatch)
 
     canonical = canonicalize_model_selection("Qwen Local", "workflow")
 
     assert canonical.ref == "model:custom_openai_lmstudio:qwen3.6-35b-a3b"
-    assert canonical.source == "quick_choice"
+    assert canonical.source == "star"
 
 
 def test_phase1_unique_custom_bare_model_canonicalizes_to_full_ref(tmp_path, monkeypatch):
@@ -295,11 +303,7 @@ def test_phase5_delivery_failure_is_separate_from_execution_success(tmp_path, mo
 
 def test_phase6_shared_model_command_is_provider_aware_and_read_only(tmp_path, monkeypatch):
     _isolated_provider_config(tmp_path, monkeypatch)
-    add_quick_choice_for_model(
-        "qwen3.6-35b-a3b",
-        provider_id="custom_openai_lmstudio",
-        display_name="Qwen Local",
-    )
+    _star_lmstudio_qwen(tmp_path, monkeypatch)
     import row_bot.channels.commands as commands
 
     response = commands.cmd_model("Slack", "Qwen Local")

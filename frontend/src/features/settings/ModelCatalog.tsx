@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   Clapperboard,
   Eye,
-  EyeOff,
   Image,
   MessageSquare,
   Search,
@@ -53,30 +52,23 @@ function reads(tokens: number) {
 
 type Row = CachedModelPage['items'][number];
 
-/** Where a model is listed, in the words On this computer uses (U10). */
-function listing(model: Row, surface: Surface) {
-  if (model.favourite_rank != null) return 'Listed first';
-  if (model.hidden) return 'Under More models';
-  return model.pinned_surfaces.includes(surface) ? 'Listed' : '';
+/** Whether a model is in your models, in the words On this computer uses. */
+function listing(model: Row) {
+  return model.favourite_rank != null ? 'In your models' : '';
 }
 
-/** A row with the marks a saved preference gives it. */
+/** A row with the star saved stars give it. */
 function marked(model: Row, state: ModelVisibilityState): Row {
   const rank = state.favourites.indexOf(model.selection_ref) + 1;
-  return {
-    ...model,
-    favourite_rank: rank || null,
-    hidden: !rank && state.hidden.includes(model.selection_ref),
-  };
+  return { ...model, favourite_rank: rank || null };
 }
 
 /**
  * Settings › Models › Catalog (B229): search, the job as filter chips, then
  * the providers; a provider (or a search) lists its models with the same
- * star and eye as On this computer (U10: a starred model is listed first in
- * every model list; a hidden one waits under More models) and "use for this
- * job". Rows load only once a provider is opened or a search runs, and then
- * page by page.
+ * star as On this computer (a starred model is in your models, so every
+ * picker lists it) and "use for this job". Rows load only once a provider is
+ * opened or a search runs, and then page by page.
  */
 export default function ModelCatalog({
   controller,
@@ -190,37 +182,19 @@ export default function ModelCatalog({
     }
   }
 
-  async function act(kind: 'default' | 'favourite' | 'hide', model: Row) {
+  async function act(kind: 'default' | 'favourite', model: Row) {
     if (busyRef) return;
     setBusyRef(model.selection_ref);
     setError('');
     try {
       // Keep the loaded rows (and the reader's place): refetching would reset
       // to the first page and drop a row reached through "Show more models".
-      let update: (item: Row) => Row;
+      let update: (item: Row) => Row = (item) => item;
       if (kind === 'default') {
         await onDefault(surface, model);
-        // Choosing a default also lists the model for that job.
-        update = (item) =>
-          item.selection_ref !== model.selection_ref
-            ? item
-            : {
-                ...item,
-                pinned_surfaces: [
-                  ...new Set([...item.pinned_surfaces, surface]),
-                ],
-              };
       } else {
-        const favourite = model.favourite_rank != null;
         const saved = await controller.updateModelVisibility({
-          action:
-            kind === 'favourite'
-              ? favourite
-                ? 'unfavourite'
-                : 'favourite'
-              : model.hidden
-                ? 'show'
-                : 'hide',
+          action: model.favourite_rank != null ? 'unfavourite' : 'favourite',
           model_ref: model.selection_ref,
         });
         update = (item) => marked(item, saved);
@@ -331,7 +305,7 @@ export default function ModelCatalog({
                   <small>
                     {item.total} {surfaceLabel.toLowerCase()} model
                     {item.total === 1 ? '' : 's'} · {item.ready} ready
-                    {item.pinned > 0 ? ` · ${item.pinned} listed` : ''}
+                    {item.pinned > 0 ? ` · ${item.pinned} starred` : ''}
                   </small>
                 </div>
                 <Button
@@ -394,7 +368,7 @@ export default function ModelCatalog({
               const favourite = model.favourite_rank != null;
               const isDefault = defaults[surface] === model.selection_ref;
               const meta = [
-                listing(model, surface),
+                listing(model),
                 model.provider_display_name || humanizeToken(model.provider_id),
                 model.context_window
                   ? `reads ${reads(model.context_window)}`
@@ -446,8 +420,8 @@ export default function ModelCatalog({
                       size="sm"
                       label={
                         favourite
-                          ? `Remove ${model.display_name} from favourites`
-                          : `Add ${model.display_name} to favourites`
+                          ? `Remove ${model.display_name} from your models`
+                          : `Add ${model.display_name} to your models`
                       }
                       pressed={favourite}
                       className="settings-model-favourite"
@@ -459,23 +433,6 @@ export default function ModelCatalog({
                         fill={favourite ? 'currentColor' : 'none'}
                         aria-hidden
                       />
-                    </IconButton>
-                    <IconButton
-                      size="sm"
-                      label={
-                        model.hidden
-                          ? `Show ${model.display_name}`
-                          : `Hide ${model.display_name}`
-                      }
-                      disabled={!!busyRef}
-                      onClick={() => void act('hide', model)}
-                    >
-                      {/* The eye shows the state (open: listed), as on this computer. */}
-                      {model.hidden ? (
-                        <EyeOff size={14} aria-hidden />
-                      ) : (
-                        <Eye size={14} aria-hidden />
-                      )}
                     </IconButton>
                     {surface !== 'voice' && (
                       <IconButton

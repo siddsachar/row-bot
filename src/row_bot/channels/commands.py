@@ -191,7 +191,7 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
         choices = list_model_choice_options("channels", include_values=[current], include_inactive=True)
         if choices:
             lines.append("")
-            lines.append("Channel Quick Choices:")
+            lines.append("Your models:")
             for choice in choices[:12]:
                 value = str(choice.get("value") or "")
                 label = str(choice.get("label") or value)

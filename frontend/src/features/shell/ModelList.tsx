@@ -7,19 +7,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
-import {
-  Check,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  HardDrive,
-  MoreHorizontal,
-  Search,
-  Star,
-  StarOff,
-} from 'lucide-react';
+import { Check, HardDrive, Search, Star } from 'lucide-react';
 import type { ModelChoice } from '../../api/types';
-import { Kbd, Menu, StatusDot, type MenuAction } from '../../ui/primitives';
+import { Kbd, StatusDot } from '../../ui/primitives';
 import {
   groupModels,
   matchesModel,
@@ -32,11 +22,9 @@ import {
  * and an optional muted note after its name.
  */
 export type ListedModel = ModelChoice & { reason?: string; detail?: string };
-/** What a row's menu changes (F10): favourites first, hidden under More models. */
-export type VisibilityAction = 'favourite' | 'unfavourite' | 'hide' | 'show';
-type Row =
-  | { key: string; kind: 'model'; model: ListedModel }
-  | { key: string; kind: 'more'; count: number };
+/** What a row's star changes: your models are the starred ones. */
+export type VisibilityAction = 'favourite' | 'unfavourite';
+type Row = { key: string; kind: 'model'; model: ListedModel };
 type Section = {
   key: string;
   label: string;
@@ -83,11 +71,10 @@ const modelRows = (prefix: string, models: readonly ListedModel[]): Row[] =>
 
 /**
  * The one searchable model list (U12): the composer's picker, the default
- * models in Settings and Setup all use it. Favourites first (F10), then
+ * models in Settings and Setup all use it. Your starred models first, then
  * recent choices, then the providers with a status dot and a billing tag,
  * on-device providers marked and providers that are not connected muted with
- * Connect. Hidden models wait under "More models"; the current model is
- * always in view, hidden or not.
+ * Connect. The current model is always in view.
  */
 export default function ModelList({
   models,
@@ -107,7 +94,7 @@ export default function ModelList({
   onChoose: (model: ModelChoice) => void;
   /** Open provider setup (for providers that are not connected). */
   onConnect?: () => void;
-  /** Favourite or hide a model from its row; rows have no menu without it. */
+  /** Star or unstar a model from its row; rows have no star without it. */
   onVisibility?: (model: ModelChoice, action: VisibilityAction) => void;
   inputRef?: RefObject<HTMLInputElement | null>;
   showRecent?: boolean;
@@ -118,23 +105,11 @@ export default function ModelList({
   const input = inputRef ?? ownInput;
   const [query, setQuery] = useState('');
   const [active, setActive] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  // The model just hidden, said once in the list with Undo (no toast over it).
-  const [moved, setMoved] = useState<{
-    model: ListedModel;
-    undo: VisibilityAction;
-  } | null>(null);
   const [recent] = useState<string[]>(() =>
     showRecent ? readRecentModels() : [],
   );
   const sections = useMemo<Section[]>(() => {
     const matching = models.filter((model) => matchesModel(model, query));
-    // Hidden models wait under More models, except the one in use.
-    const tucked = (model: ModelChoice) =>
-      !!model.hidden &&
-      model.favourite_rank == null &&
-      model.model_ref !== current;
     const result: Section[] = [];
     const first = leading.filter((model) => matchesModel(model, query));
     if (first.length)
@@ -150,7 +125,7 @@ export default function ModelList({
     if (favourites.length)
       result.push({
         key: 'favourites',
-        label: 'Favourites',
+        label: 'Your models',
         connected: true,
         local: false,
         billing: null,
@@ -162,9 +137,7 @@ export default function ModelList({
         .map((ref) => models.find((model) => model.model_ref === ref))
         .filter(
           (model): model is ListedModel =>
-            Boolean(model?.available) &&
-            !isFavourite(model!) &&
-            !tucked(model!),
+            Boolean(model?.available) && !isFavourite(model!),
         );
       if (recentModels.length)
         result.push({
@@ -177,9 +150,7 @@ export default function ModelList({
           rows: modelRows('recent', recentModels),
         });
     }
-    const groups = groupModels(
-      matching.filter((model) => !isFavourite(model) && !tucked(model)),
-    );
+    const groups = groupModels(matching.filter((model) => !isFavourite(model)));
     const currentGroup = groups.findIndex((group) =>
       group.models.some((model) => model.model_ref === current),
     );
@@ -193,41 +164,14 @@ export default function ModelList({
         billing: group.models.find((model) => model.billing)?.billing ?? null,
         rows: modelRows(group.id, group.models),
       });
-    const more = matching.filter(tucked);
-    if (more.length)
-      result.push(
-        // A search shows matching hidden models without asking.
-        query || expanded
-          ? {
-              key: 'more',
-              label: 'More models',
-              connected: true,
-              local: false,
-              billing: null,
-              mixed: true,
-              rows: modelRows('more', more),
-            }
-          : {
-              key: 'more-toggle',
-              label: '',
-              connected: true,
-              local: false,
-              billing: null,
-              rows: [{ key: 'more-toggle', kind: 'more', count: more.length }],
-            },
-      );
     return result;
-  }, [current, expanded, leading, models, query, recent]);
+  }, [current, leading, models, query, recent]);
   const rows = sections.flatMap((section) => section.rows);
-  const enabled = rows.filter(
-    (row) => row.kind === 'more' || row.model.available,
-  );
+  const enabled = rows.filter((row) => row.model.available);
   const activeRow =
     enabled.find((row) => row.key === active) ??
     (active === null
-      ? (enabled.find(
-          (row) => row.kind === 'model' && row.model.model_ref === current,
-        ) ?? enabled[0])
+      ? (enabled.find((row) => row.model.model_ref === current) ?? enabled[0])
       : enabled[0]) ??
     null;
   const optionId = (key: string) =>
@@ -243,46 +187,23 @@ export default function ModelList({
     // optionId is derived from rows, which the active key already tracks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRow?.key]);
-  const expand = () => {
-    setExpanded(true);
-    setActive(
-      `more:${
-        models.find(
-          (model) =>
-            model.hidden &&
-            model.favourite_rank == null &&
-            model.model_ref !== current &&
-            matchesModel(model, query),
-        )?.model_ref
-      }`,
-    );
-  };
   const choose = (row: Row) => {
-    if (row.kind === 'more') expand();
-    else if (row.model.available) onChoose(row.model);
+    if (row.model.available) onChoose(row.model);
   };
-  const change = (row: Row, action: VisibilityAction) => {
-    if (row.kind !== 'model' || !onVisibility) return;
+  const toggleStar = (row: Row) => {
+    if (!onVisibility) return;
     // The highlight moves on to the next row, as the changed one moves away.
     if (row.key === activeRow?.key) {
       const index = enabled.indexOf(row);
       setActive((enabled[index + 1] ?? enabled[index - 1])?.key ?? null);
     }
-    setMoved(
-      action === 'hide'
-        ? {
-            model: row.model,
-            undo: row.model.favourite_rank != null ? 'favourite' : 'show',
-          }
-        : null,
+    onVisibility(
+      row.model,
+      row.model.favourite_rank != null ? 'unfavourite' : 'favourite',
     );
-    onVisibility(row.model, action);
   };
-  const hasMenu = (section: Section, row: Row) =>
-    !!onVisibility &&
-    row.kind === 'model' &&
-    section.key !== 'leading' &&
-    !!row.model.model_ref;
+  const hasStar = (section: Section, row: Row) =>
+    !!onVisibility && section.key !== 'leading' && !!row.model.model_ref;
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || !enabled.length) return;
     const index = activeRow ? enabled.indexOf(activeRow) : -1;
@@ -302,62 +223,16 @@ export default function ModelList({
     } else if (
       (event.key === 'ContextMenu' ||
         (event.key === 'F10' && event.shiftKey)) &&
-      activeRow?.kind === 'model' &&
+      activeRow &&
       onVisibility &&
       activeRow.model.model_ref &&
       !activeRow.key.startsWith('leading:')
     ) {
       event.preventDefault();
-      setMenuFor(activeRow.key);
+      toggleStar(activeRow);
     }
   };
-  const actions = (row: Row & { kind: 'model' }): MenuAction[] => [
-    row.model.favourite_rank != null
-      ? {
-          label: 'Remove from favourites',
-          icon: <StarOff size={16} />,
-          onSelect: () => change(row, 'unfavourite'),
-        }
-      : {
-          label: 'Add to favourites',
-          description: 'Listed first.',
-          icon: <Star size={16} />,
-          onSelect: () => change(row, 'favourite'),
-        },
-    row.model.hidden
-      ? {
-          label: 'Show in the list',
-          icon: <Eye size={16} />,
-          onSelect: () => change(row, 'show'),
-        }
-      : {
-          label: 'Hide',
-          description: 'Moves it under More models.',
-          icon: <EyeOff size={16} />,
-          onSelect: () => change(row, 'hide'),
-        },
-  ];
   const option = (section: Section, row: Row) => {
-    if (row.kind === 'more')
-      return (
-        <div
-          key={row.key}
-          id={optionId(row.key)}
-          role="option"
-          className="model-picker-option model-picker-more"
-          aria-selected={row.key === activeRow?.key}
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseMove={() => {
-            if (active !== row.key) setActive(row.key);
-          }}
-          onClick={expand}
-        >
-          <ChevronRight size={14} aria-hidden />
-          <span className="model-picker-option-name">
-            More models ({row.count})
-          </span>
-        </div>
-      );
     const label = splitModelLabel(row.model.label);
     const isCurrent = row.model.model_ref === current;
     const choice = (
@@ -372,11 +247,6 @@ export default function ModelList({
         onMouseDown={(event) => event.preventDefault()}
         onMouseMove={() => {
           if (row.model.available && active !== row.key) setActive(row.key);
-        }}
-        onContextMenu={(event) => {
-          if (!hasMenu(section, row)) return;
-          event.preventDefault();
-          setMenuFor(row.key);
         }}
         onClick={() => choose(row)}
       >
@@ -406,10 +276,6 @@ export default function ModelList({
               : ''}
           </span>
         )}
-        {/* The model in use stays in view even when hidden; say why it's here. */}
-        {row.model.hidden && section.key !== 'more' && (
-          <span className="model-picker-option-provider">Hidden</span>
-        )}
         {!row.model.available && onConnect ? (
           <button
             type="button"
@@ -434,32 +300,38 @@ export default function ModelList({
         )}
       </div>
     );
-    if (!hasMenu(section, row)) return choice;
-    // The menu button sits beside the option, not inside it: an option holds
-    // no controls. It is the pointer's way in; the keyboard's is Shift+F10
-    // (said on the search field), so it stays out of the accessibility tree.
+    if (!hasStar(section, row)) return choice;
+    // The star sits beside the option, not inside it: an option holds no
+    // controls. It is the pointer's way in; the keyboard's is Shift+F10 (said
+    // on the search field), so it stays out of the accessibility tree.
+    const starred = row.model.favourite_rank != null;
     return (
       <div
         key={row.key}
         className="model-picker-row"
         role="presentation"
-        data-menu={menuFor === row.key ? 'open' : undefined}
+        data-starred={starred ? 'true' : undefined}
       >
         {choice}
         <span className="model-picker-row-menu" aria-hidden>
-          <Menu
-            label={`More for ${label.name}`}
-            actions={actions(row)}
-            iconOnly
-            variant="ghost"
-            tabIndex={-1}
+          <button
+            type="button"
             className="model-picker-row-menu-button"
-            open={menuFor === row.key}
-            onOpenChange={(open) => setMenuFor(open ? row.key : null)}
-            focusAfterClose={() => input.current}
+            tabIndex={-1}
+            aria-label={
+              starred
+                ? `Remove ${label.name} from your models`
+                : `Add ${label.name} to your models`
+            }
+            title={starred ? 'Remove from your models' : 'Add to your models'}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              toggleStar(row);
+              input.current?.focus();
+            }}
           >
-            <MoreHorizontal size={14} aria-hidden />
-          </Menu>
+            <Star size={14} fill={starred ? 'currentColor' : 'none'} />
+          </button>
         </span>
       </div>
     );
@@ -475,7 +347,7 @@ export default function ModelList({
           aria-label="Search models"
           aria-description={
             onVisibility
-              ? 'Shift+F10 favourites or hides the highlighted model.'
+              ? 'Shift+F10 stars or unstars the highlighted model.'
               : undefined
           }
           aria-expanded
@@ -505,7 +377,7 @@ export default function ModelList({
         className="model-picker-list"
       >
         {sections.map((section, sectionIndex) =>
-          section.key === 'leading' || section.key === 'more-toggle' ? (
+          section.key === 'leading' ? (
             section.rows.map((row) => option(section, row))
           ) : (
             <div
@@ -549,25 +421,6 @@ export default function ModelList({
       {!rows.length && (
         <p className="model-picker-empty" role="status">
           {models.length || leading.length ? 'No models match.' : emptyText}
-        </p>
-      )}
-      {moved && onVisibility && (
-        <p className="model-picker-note" role="status">
-          <span>
-            {splitModelLabel(moved.model.label).name} is under More models.
-          </span>
-          <button
-            type="button"
-            className="model-picker-connect"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              onVisibility(moved.model, moved.undo);
-              setMoved(null);
-              input.current?.focus();
-            }}
-          >
-            Undo
-          </button>
         </p>
       )}
     </>

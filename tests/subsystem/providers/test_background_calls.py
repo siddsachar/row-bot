@@ -154,8 +154,7 @@ def test_shipped_routes_name_no_background_model(monkeypatch) -> None:
 
     assert all(routing.task_route_model(purpose) == "" for purpose in ("dream", "extraction", "verifier"))
 
-    configured = normalize_provider_config({"routes": [
-        {"id": "balanced", "task_routes": {"dream": " model:openai:gpt-5-mini "}}]})
+    configured = normalize_provider_config({"task_routes": {"dream": " model:openai:gpt-5-mini "}})
     monkeypatch.setattr(routing, "load_provider_config", lambda: configured)
     assert routing.task_route_model("dream") == "model:openai:gpt-5-mini"
     assert routing.task_route_model("verifier") == ""
