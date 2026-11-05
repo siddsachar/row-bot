@@ -12,6 +12,7 @@ import type {
   DataBackupSignIn,
   DataBackupState,
   DataRestoreReview,
+  SettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { usePlace } from '../../api/place';
@@ -23,6 +24,7 @@ import { When } from '../../ui/When';
 
 type Action = DataBackupCommand['action'];
 type Extra = { file_grant?: string; review_id?: string; upload_id?: string };
+type Host = SettingsSnapshot['system']['hosted_by'];
 
 export type DataBackupOwner = {
   read: () => Promise<DataBackupState>;
@@ -96,20 +98,34 @@ function size(bytes: number) {
 const RESTORE_IN_DESKTOP_APP =
   'Restoring picks the backup file in the Row-Bot desktop app on the computer Row-Bot runs on.';
 
+/** The host keeps backups of the server, too (F3): one quiet line under the server's own copy. */
+function HostBackups({ host }: { host: NonNullable<Host> }) {
+  return (
+    <p className="muted data-backup-host">
+      {host.name} can also keep its own backups of your server.
+    </p>
+  );
+}
+
 /**
  * Settings › Data: Back up now, and Restore from backup on the next start,
  * from any signed-in device. A device that can't open the Backups folder
- * downloads the backup, and sends the file it restores from. On a hosted
- * Row-Bot, Move Row-Bot makes a fresh backup and downloads it, then says what
- * that backup's own manifest leaves out and what to sign in to again (U9).
+ * downloads the backup, and sends the file it restores from. Away from the
+ * computer Row-Bot runs on (a hosted Row-Bot, or a server), Download backup
+ * comes first: it makes a fresh backup and saves it on this device, then says
+ * what that backup's own manifest leaves out and what to sign in to again
+ * (U9). Back up now keeps its copy on the server, and says so (F3).
  */
 export function DataBackup({
   owner,
   canPick = true,
+  host = null,
 }: {
   owner: DataBackupOwner;
   /** The desktop app picks a backup file to restore; other devices send one. */
   canPick?: boolean;
+  /** The company that runs this Row-Bot (H13), which may back up the server too. */
+  host?: Host;
 }) {
   const [state, setState] = useState<DataBackupState | null>(null);
   const [review, setReview] = useState<DataRestoreReview | null>(null);
@@ -119,11 +135,20 @@ export function DataBackup({
     null,
   );
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  // Move Row-Bot (hosted): the backup made for moving, and whether it was saved.
+  // Back up now finished: the backup's name and the files it couldn't read.
+  const [notice, setNotice] = useState<{
+    name: string;
+    skipped: string[];
+  } | null>(null);
+  // Download backup (away from the computer Row-Bot runs on): the backup made
+  // for it, and whether it was saved on this device.
   const [moved, setMoved] = useState<DataBackupJob | null>(null);
   const [saved, setSaved] = useState(false);
-  const hosted = usePlace().kind === 'hosted';
+  const place = usePlace();
+  // A hosted Row-Bot, or a server: Back up now keeps its copy over there (F3).
+  const remote = place.kind !== 'this_computer';
+  const hosted = place.kind === 'hosted';
+  const server = hosted ? 'your Row-Bot server' : place.noun;
   const alive = useRef(true);
   const watched = useRef<string | null>(null);
   const moving = useRef(false);
@@ -160,13 +185,10 @@ export function DataBackup({
               () => undefined,
             );
         } else if (job.kind === 'backup')
-          setNotice(
-            `Saved “${job.name ?? next.last_backup_name}” in ${next.folder}.` +
-              (job.skipped?.length
-                ? // The file's name, never its path inside Row-Bot's folder (U11).
-                  ` Left out ${job.skipped.length === 1 ? `${job.skipped[0].split('/').pop()}, which` : `${job.skipped.length} files that`} couldn't be read.`
-                : ''),
-          );
+          setNotice({
+            name: job.name ?? next.last_backup_name ?? '',
+            skipped: job.skipped ?? [],
+          });
       }
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
@@ -199,7 +221,7 @@ export function DataBackup({
   async function send(action: Action, extra?: Extra) {
     setBusy(true);
     setError('');
-    setNotice('');
+    setNotice(null);
     try {
       const receipt = await owner.send(action, extra);
       if (!alive.current) return null;
@@ -250,7 +272,7 @@ export function DataBackup({
 
   async function chooseBackup() {
     setError('');
-    setNotice('');
+    setNotice(null);
     const picked = await owner.pick();
     if (!alive.current || picked === null) return;
     if (picked === 'unavailable') {
@@ -263,7 +285,7 @@ export function DataBackup({
 
   async function sendBackup(file: File) {
     setError('');
-    setNotice('');
+    setNotice(null);
     setReview(null);
     forget();
     const control = new AbortController();
@@ -356,13 +378,14 @@ export function DataBackup({
           </Button>
         </div>
       )}
-      {hosted && (
+      {remote && (
         <div className="settings-inline-row data-backup-row">
           <div>
-            <strong>Move Row-Bot</strong>
+            <strong>Download a backup</strong>
             <p>
-              Download a backup, then install Row-Bot on your computer, open
-              Settings › Data and choose Restore from backup.
+              Makes a fresh backup and saves it on this device.
+              {hosted &&
+                ' To move Row-Bot to your computer, install Row-Bot there, open Settings › Data and choose Restore from backup.'}
             </p>
             {moved && (
               <div className="data-backup-moved" role="status">
@@ -376,7 +399,7 @@ export function DataBackup({
                 )}
                 {Boolean(moved.sign_in_again?.length) && (
                   <>
-                    <p>After moving, set these up again:</p>
+                    <p>After restoring it, set these up again:</p>
                     <SignInList items={moved.sign_in_again!} />
                   </>
                 )}
@@ -401,9 +424,9 @@ export function DataBackup({
         <div>
           <strong>Back up now</strong>
           <p>
-            Saves conversations, memories, workflows, designs and settings to
-            the {state.folder} folder. Passwords, keys, sign-ins, caches and
-            logs are left out.
+            Saves conversations, memories, workflows, designs and settings{' '}
+            {remote ? `on ${server}` : `to the ${state.folder} folder`}.
+            Passwords, keys, sign-ins, caches and logs are left out.
           </p>
           <p className="muted">
             Last backup:{' '}
@@ -424,9 +447,10 @@ export function DataBackup({
               </Button>
             )}
           </p>
+          {remote && host && <HostBackups host={host} />}
         </div>
         <Button
-          variant={hosted ? 'secondary' : 'primary'}
+          variant={remote ? 'secondary' : 'primary'}
           disabled={locked}
           onClick={() => void send('backup')}
         >
@@ -438,9 +462,13 @@ export function DataBackup({
       </div>
       {notice && (
         <p className="settings-saved-note" role="status">
-          {notice}
-          {notice.startsWith('Saved') &&
-            state.last_backup_name &&
+          {remote
+            ? `Saved on ${server}. Download it to keep a copy somewhere else.`
+            : `Saved “${notice.name}” in ${state.folder}.`}
+          {notice.skipped.length > 0 &&
+            // The file's name, never its path inside Row-Bot's folder (U11).
+            ` Left out ${notice.skipped.length === 1 ? `${notice.skipped[0].split('/').pop()}, which` : `${notice.skipped.length} files that`} couldn't be read.`}
+          {state.last_backup_name &&
             // The file manager opens on the computer Row-Bot runs on.
             state.reveal_available && (
               <Button
@@ -559,7 +587,7 @@ export function DataBackup({
   );
 }
 
-export default function ConnectedDataBackup() {
+export default function ConnectedDataBackup({ host = null }: { host?: Host }) {
   const { controller, platform } = useRuntime();
   const [desktop, setDesktop] = useState(false);
   useEffect(() => {
@@ -614,5 +642,5 @@ export default function ConnectedDataBackup() {
       controller.uploadDataBackup(file, progress, signal),
     discard: (upload) => controller.cancelDataBackupUpload(upload),
   });
-  return <DataBackup owner={owner.current} canPick={desktop} />;
+  return <DataBackup owner={owner.current} canPick={desktop} host={host} />;
 }

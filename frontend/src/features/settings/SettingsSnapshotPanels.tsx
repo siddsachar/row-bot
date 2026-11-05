@@ -5741,7 +5741,7 @@ export function PreferencesSnapshotPanel({
             icon={HardDrive}
             anchor="backup"
           >
-            <ConnectedDataBackup />
+            <ConnectedDataBackup host={host} />
           </Section>
         )}
         <Section

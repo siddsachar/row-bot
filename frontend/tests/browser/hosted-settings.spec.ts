@@ -2,8 +2,8 @@ import type { Page } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
 
 // A hosted Row-Bot's own Settings: System names its host with the version,
-// memory and the host's pages (U5); Data moves Row-Bot with a fresh backup and
-// says what that backup leaves out (U9); Devices offers the pod's own address,
+// memory and the host's pages (U5); Data downloads a fresh backup first and
+// says what that backup leaves out (U9, F3); Devices offers the pod's own address,
 // with no way to choose how it is reached. The fixture switches make the
 // handshake say "hosted", give the server a 2 GB memory limit, and save a
 // pod's https address (the fixture's own is loopback). On Railway (R1) the same
@@ -49,12 +49,16 @@ test('a hosted Row-Bot names its host, moves with a backup and connects devices 
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'hosted-system');
 
-  // Data: Move Row-Bot makes a fresh backup and saves it on this device.
+  // Data: Download backup comes first; it makes a fresh backup and saves it on
+  // this device. Back up now keeps its copy on the server, and says so (F3).
   await page.goto('/app-v2/settings/data');
   await expect(
     page.getByText(
-      'Download a backup, then install Row-Bot on your computer, open Settings › Data and choose Restore from backup.',
+      'Makes a fresh backup and saves it on this device. To move Row-Bot to your computer, install Row-Bot there, open Settings › Data and choose Restore from backup.',
     ),
+  ).toBeVisible();
+  await expect(
+    page.getByText('PikaPods can also keep its own backups of your server.'),
   ).toBeVisible();
   const saved = page.waitForEvent('download');
   const move = page.getByRole('button', { name: 'Download backup' });
@@ -138,7 +142,7 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   await screenshot(page, testInfo, 'railway-updates');
 });
 
-test('the desktop shows no host card or Move row, and its restore takes a hosted backup', async ({
+test('the desktop shows no host card or Download a backup row, and its restore takes a hosted backup', async ({
   page,
 }) => {
   await page.goto('/app-v2/settings/system');
@@ -148,7 +152,7 @@ test('the desktop shows no host card or Move row, and its restore takes a hosted
   await expect(
     page.getByText(/A backup from a hosted Row-Bot works too\./),
   ).toBeVisible();
-  await expect(page.getByText('Move Row-Bot')).toHaveCount(0);
+  await expect(page.getByText('Download a backup')).toHaveCount(0);
   await page.goto('/app-v2/settings/access');
   await page
     .getByRole('button', { name: 'Connect a phone or computer' })
