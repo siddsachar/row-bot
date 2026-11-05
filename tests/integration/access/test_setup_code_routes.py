@@ -343,6 +343,11 @@ def test_on_railway_wheres_my_code_opens_the_services_variables_and_points_to_th
     # No IDs: no button. No public address: no link in the logs to point to.
     assert "where-variables" not in bare and "where-logs" not in bare
     assert "where-variables" in with_ids and "where-logs" not in with_ids
-    # Someone owns it: neither, and the page carries no ID of the service but in its Manage link.
+    # The service's IDs show only in the Variables button: the page's Manage links keep the dashboard.
+    for value in RAILWAY_IDS.values():
+        assert unclaimed.count(value) == 1
+    assert 'id="claim-manage" href="https://railway.com/dashboard"' in unclaimed
+    # Someone owns it: neither, and the public page carries no ID of the service at all.
     assert "where-variables" not in owned and "where-logs" not in owned
-    assert "/variables" not in owned
+    assert not any(value in owned for value in RAILWAY_IDS.values())
+    assert 'id="lost-host" href="https://railway.com/dashboard"' in owned

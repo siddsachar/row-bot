@@ -23,7 +23,7 @@ def test_every_known_host_links_only_to_its_own_site_over_https(host_id: str) ->
     # With the IDs a host gives its service, too (A2).
     paged = hosted_by({HOSTED_BY_ENV: host_id, **RAILWAY_IDS})
     links = [host.home_url, host.support_url, host.status_url, host.manage_url, host.plans_url] + [
-        paged.manage_url, paged.variables_url, paged.settings_url, paged.backups_url, paged.usage_url,
+        paged.service_url, paged.variables_url, paged.settings_url, paged.usage_url,
     ]
 
     assert host.id == host_id and host.name
@@ -48,8 +48,8 @@ def test_pikapods_is_named_and_linked_from_its_reviewed_entry() -> None:
         "applies_updates": True,
         "updates_help": "They test each release first, so new versions usually arrive within a week.",
         "settings_url": None,
-        "backups_url": None,
         "usage_url": None,
+        "backups_note": "PikaPods can also keep its own backups of your server.",
     }
 
 
@@ -104,17 +104,19 @@ def test_railways_ids_link_the_services_own_pages_on_railway_com() -> None:
     service = f"https://railway.com/project/{PROJECT}/service/{SERVICE}"
 
     assert host is not None
-    assert (host.manage_url, host.variables_url, host.settings_url, host.backups_url, host.usage_url) == (
+    assert (host.service_url, host.variables_url, host.settings_url, host.usage_url) == (
         f"{service}?environmentId={ENVIRONMENT}",
         f"{service}/variables?environmentId={ENVIRONMENT}",
         f"{service}/settings?environmentId={ENVIRONMENT}",
-        f"{service}/backups?environmentId={ENVIRONMENT}",
         "https://railway.com/workspace/usage",
     )
+    # Signed-in pages open the service itself; the public setup page keeps the dashboard, with no ID.
+    assert host.to_public_dict()["manage_url"] == f"{service}?environmentId={ENVIRONMENT}"
+    assert host.manage_url == "https://railway.com/dashboard"
     # IDs as Railway may spell them, upper case or padded, are the same IDs.
     shouted = hosted_by({HOSTED_BY_ENV: "railway", **{k: f" {v.upper()} " for k, v in RAILWAY_IDS.items()}})
     assert shouted == host
-    for link in (host.manage_url, host.variables_url, host.settings_url, host.backups_url, host.usage_url):
+    for link in (host.service_url, host.variables_url, host.settings_url, host.usage_url):
         parts = urlsplit(link)
         assert (parts.scheme, parts.hostname, parts.username, parts.port) == ("https", "railway.com", None, None)
 
@@ -141,7 +143,7 @@ def test_anything_but_three_uuids_gives_no_service_links_and_the_entrys_own_word
 
     assert host == KNOWN_HOSTS["railway"]
     assert host.manage_url == "https://railway.com/dashboard"
-    assert (host.variables_url, host.settings_url, host.backups_url, host.usage_url) == (None, None, None, None)
+    assert (host.service_url, host.variables_url, host.settings_url, host.usage_url) == (None, None, None, None)
 
 
 def test_only_railway_reads_railways_ids() -> None:
@@ -166,3 +168,12 @@ def test_railways_trial_is_a_server_of_1_gb_or_less(limit, on_trial: bool) -> No
     # A host with no trial, or none at all, never says so.
     assert trial(KNOWN_HOSTS["pikapods"], limit) is None
     assert trial(None, limit) is None
+
+
+def test_each_host_says_in_its_own_words_what_it_does_about_backups() -> None:
+    """F3: PikaPods keeps backups of its own; Railway's volume backups are its Pro plan's alone."""
+    assert KNOWN_HOSTS["pikapods"].backups_note == "PikaPods can also keep its own backups of your server."
+    assert KNOWN_HOSTS["railway"].backups_note == (
+        "Railway backs up your server only on its Pro plan. "
+        "Download a backup from time to time to keep a copy somewhere else."
+    )

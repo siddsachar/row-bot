@@ -1126,10 +1126,10 @@
           "title": "Applies Updates",
           "type": "boolean"
         },
-        "backups_url": {
+        "backups_note": {
           "anyOf": [
             {
-              "maxLength": 512,
+              "maxLength": 256,
               "type": "string"
             },
             {
@@ -1137,7 +1137,7 @@
             }
           ],
           "default": null,
-          "title": "Backups Url"
+          "title": "Backups Note"
         },
         "home_url": {
           "maxLength": 512,

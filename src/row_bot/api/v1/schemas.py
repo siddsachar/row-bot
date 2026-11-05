@@ -869,10 +869,11 @@ class SettingsHostSnapshot(WireModel):
     applies_updates: bool
     updates_help: str = Field(min_length=1, max_length=512)
     # The service's own pages at the host (A2), when the host told it its IDs: its settings (memory,
-    # updates), its backups and the workspace's usage. Null otherwise.
+    # updates) and the workspace's usage. Null otherwise.
     settings_url: str | None = Field(default=None, max_length=512)
-    backups_url: str | None = Field(default=None, max_length=512)
     usage_url: str | None = Field(default=None, max_length=512)
+    # Data's line about the host's own backups of the server (F3), in the host's words.
+    backups_note: str | None = Field(default=None, max_length=256)
     # Only while the server has a trial's memory (A4).
     trial: HostTrial | None = None
 

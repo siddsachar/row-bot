@@ -150,13 +150,18 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   for (const [name, url] of [
     ['Manage your service in Railway', service],
     ['Usage in Railway', /^https:\/\/railway\.com\/workspace\/usage$/],
-    ['Backups in Railway', /\/backups\?environmentId=[0-9a-f-]{36}$/],
   ] as const)
     await expect(card.getByRole('link', { name })).toHaveAttribute('href', url);
+  // Railway backs up volumes only on its Pro plan (F3): no Backups button, and
+  // Data says so.
+  await expect(card.getByRole('link', { name: /Backups/ })).toHaveCount(0);
   await page.goto('/app-v2/settings/data');
   await expect(
-    page.getByRole('link', { name: 'Backups in Railway' }),
-  ).toHaveAttribute('href', /\/backups\?environmentId=/);
+    page.getByText(
+      'Railway backs up your server only on its Pro plan. Download a backup from time to time to keep a copy somewhere else.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: /Backups in/ })).toHaveCount(0);
   await assertNoOverflow(page);
 });
 

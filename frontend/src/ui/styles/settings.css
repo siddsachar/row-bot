@@ -3113,13 +3113,6 @@
 .data-backup-host {
   margin-top: 6px;
 }
-.data-backup-host a {
-  white-space: nowrap;
-}
-.data-backup-host a svg {
-  margin-left: 3px;
-  vertical-align: -1px;
-}
 /* Voice's sheet on a small server: where it gets more memory (A2, A4). */
 .voice-sheet-grow {
   margin: 0 0 12px;

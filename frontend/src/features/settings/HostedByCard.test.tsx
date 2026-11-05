@@ -137,12 +137,10 @@ const railwayService = {
     'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
   settings_url:
     'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
-  backups_url:
-    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/backups?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
   usage_url: 'https://railway.com/workspace/usage',
 };
 
-it('on Railway links the service itself, its usage and its backups, as icon buttons (A2)', () => {
+it('on Railway links the service itself and its usage, as icon buttons, and no backups it doesn’t make (A2)', () => {
   render(
     <HostedByCard
       host={railwayService}
@@ -162,7 +160,6 @@ it('on Railway links the service itself, its usage and its backups, as icon butt
   ).toEqual([
     ['Manage your service in Railway', railwayService.manage_url],
     ['Usage in Railway', 'https://railway.com/workspace/usage'],
-    ['Backups in Railway', railwayService.backups_url],
     ['Railway support', 'https://station.railway.com/'],
     ['Railway status', 'https://status.railway.com/'],
   ]);

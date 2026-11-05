@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArchiveRestore,
   Download,
-  ExternalLink,
   FolderOpen,
   HardDriveDownload,
 } from 'lucide-react';
@@ -22,7 +21,6 @@ import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
 import { When } from '../../ui/When';
-import { webPage } from '../shell/hosted-links';
 
 type Action = DataBackupCommand['action'];
 type Extra = { file_grant?: string; review_id?: string; upload_id?: string };
@@ -101,24 +99,12 @@ const RESTORE_IN_DESKTOP_APP =
   'Restoring picks the backup file in the Row-Bot desktop app on the computer Row-Bot runs on.';
 
 /**
- * The host keeps backups of the server, too (F3): one quiet line under the
- * server's own copy, with the service's own Backups page when known (A2).
+ * What the host does about backups of the server (F3), in its own words: one
+ * quiet line under the server's own copy. PikaPods keeps its own; Railway
+ * does only on its Pro plan.
  */
-function HostBackups({ host }: { host: NonNullable<Host> }) {
-  return (
-    <p className="muted data-backup-host">
-      {host.name} can also keep its own backups of your server.
-      {webPage(host.backups_url) && (
-        <>
-          {' '}
-          <a href={host.backups_url} target="_blank" rel="noopener noreferrer">
-            Backups in {host.name}
-            <ExternalLink size={12} aria-hidden />
-          </a>
-        </>
-      )}
-    </p>
-  );
+function HostBackups({ note }: { note: string }) {
+  return <p className="muted data-backup-host">{note}</p>;
 }
 
 /**
@@ -461,7 +447,9 @@ export function DataBackup({
               </Button>
             )}
           </p>
-          {remote && host && <HostBackups host={host} />}
+          {remote && host?.backups_note && (
+            <HostBackups note={host.backups_note} />
+          )}
         </div>
         <Button
           variant={remote ? 'secondary' : 'primary'}

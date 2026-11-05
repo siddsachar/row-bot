@@ -6,8 +6,8 @@ can point the owner anywhere else. A value Row-Bot doesn't know means "no known
 host": one warning, and nothing host-specific is shown.
 
 Railway also tells every service its own IDs (A2). Each checked as a UUID, they
-fill in the fixed addresses of that service's own pages here (its Variables,
-Settings and Backups), so a link lands on the right page; anything else in them
+fill in the fixed addresses of that service's own pages here (the service, its
+Variables and Settings), so a link lands on the right page; anything else in them
 means no such links, and the entry's own words stand.
 """
 
@@ -60,12 +60,15 @@ class Host:
     # real deploy. Read only from a trusted proxy (ROW_BOT_TRUSTED_PROXY_CIDRS); None: X-Forwarded-For decides.
     client_address_header: str | None = None
     # The service's own pages (A2), filled in by ``pages`` from what the host tells the service about itself;
-    # None without that. With them, ``manage_url`` is the service itself rather than the host's dashboard.
+    # None without that. Signed-in pages open the service itself rather than ``manage_url``, the host's own
+    # page, which the public setup page keeps: it never shows the service's IDs but in its Variables button.
+    service_url: str | None = None
     variables_url: str | None = None
     settings_url: str | None = None
-    backups_url: str | None = None
     usage_url: str | None = None
     pages: Callable[[Mapping[str, str]], dict[str, str]] | None = None
+    # Data's line about the host's own backups of the server (F3): what it does, in its own words.
+    backups_note: str | None = None
     # Where the start-up output with the sign-in link shows, after "or click the sign-in link in " (R4).
     sign_in_link_where: str | None = None
     # A trial's small server (A4): what works there, the step that unlocks the rest and the host's page for it.
@@ -80,14 +83,14 @@ class Host:
             "home_url": self.home_url,
             "support_url": self.support_url,
             "status_url": self.status_url,
-            "manage_url": self.manage_url,
+            "manage_url": self.service_url or self.manage_url,
             "unit": self.unit,
             "runs": self.runs,
             "applies_updates": self.applies_updates,
             "updates_help": self.updates_help,
             "settings_url": self.settings_url,
-            "backups_url": self.backups_url,
             "usage_url": self.usage_url,
+            "backups_note": self.backups_note,
         }
 
 
@@ -96,10 +99,9 @@ class Host:
 _RAILWAY_SERVICE = "https://railway.com/project/{project}/service/{service}"
 RAILWAY_PAGES: Mapping[str, str] = MappingProxyType(
     {
-        "manage_url": _RAILWAY_SERVICE + "?environmentId={environment}",
+        "service_url": _RAILWAY_SERVICE + "?environmentId={environment}",
         "variables_url": _RAILWAY_SERVICE + "/variables?environmentId={environment}",
         "settings_url": _RAILWAY_SERVICE + "/settings?environmentId={environment}",
-        "backups_url": _RAILWAY_SERVICE + "/backups?environmentId={environment}",
         "usage_url": "https://railway.com/workspace/usage",
     }
 )
@@ -137,6 +139,8 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
             resize_to_4gb="Make the pod 4 GB in PikaPods",
             resize_bigger="Make the pod bigger in PikaPods",
             runs="the server, billing and backups",
+            # Its backups go to the person's own storage, set up in PikaPods.
+            backups_note="PikaPods can also keep its own backups of your server.",
             # PikaPods tests each release, then rolls it out to every pod.
             applies_updates=True,
             updates_help="They test each release first, so new versions usually arrive within a week.",
@@ -158,6 +162,11 @@ KNOWN_HOSTS: Mapping[str, Host] = MappingProxyType(
             resize_to_4gb="Raise the service's memory limit to 4 GB in Railway",
             resize_bigger="Raise the service's memory limit in Railway",
             runs="the server and billing",
+            # Checked on a Hobby service, 5 Nov 2026: only Pro creates volume backups or schedules them.
+            backups_note=(
+                "Railway backs up your server only on its Pro plan. "
+                "Download a backup from time to time to keep a copy somewhere else."
+            ),
             applies_updates=False,
             updates_help=(
                 "When a new version is out, Railway offers it in your service's settings. "

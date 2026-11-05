@@ -1,7 +1,6 @@
 import {
   Activity,
   CircleHelp,
-  DatabaseBackup,
   ExternalLink,
   Gauge,
   Server,
@@ -29,8 +28,8 @@ function webPage(url: string | null | undefined): url is string {
  * Who runs it, its version and who updates it (the host, or its owner there),
  * the memory in use of the server's limit (H12, when the limit is known), and
  * the host's own pages (each only when the host confirmed it) as icon buttons,
- * in the host's own words (a pod, a service): on Railway, the service itself,
- * its usage and backups (A2). On a trial's small server, one line says what
+ * in the host's own words (a pod, a service): on Railway, the service itself
+ * and the workspace's usage (A2). On a trial's small server, one line says what
  * works (A4). The host runs what it says it runs (the machine, billing, maybe
  * backups); Row-Bot's help covers the rest.
  */
@@ -49,13 +48,8 @@ export default function HostedByCard({
       label: `Manage your ${host.unit} in ${host.name}`,
       Icon: ExternalLink,
     },
-    // The service's own pages, when the host told it its IDs (A2).
+    // The workspace's usage, when the host told the service its IDs (A2).
     { url: host.usage_url, label: `Usage in ${host.name}`, Icon: Gauge },
-    {
-      url: host.backups_url,
-      label: `Backups in ${host.name}`,
-      Icon: DatabaseBackup,
-    },
     { url: host.support_url, label: `${host.name} support`, Icon: CircleHelp },
     { url: host.status_url, label: `${host.name} status`, Icon: Activity },
   ].filter((link) => webPage(link.url));

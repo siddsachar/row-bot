@@ -495,8 +495,8 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "applies_updates": True,
         "updates_help": "They test each release first, so new versions usually arrive within a week.",
         "settings_url": None,
-        "backups_url": None,
         "usage_url": None,
+        "backups_note": "PikaPods can also keep its own backups of your server.",
         "trial": None,
     }
     assert pod.memory is not None
@@ -518,8 +518,9 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "updates_help": "When a new version is out, Railway offers it in your service's settings. "
         "Turn on auto updates there to get each one by itself.",
         "settings_url": None,
-        "backups_url": None,
         "usage_url": None,
+        "backups_note": "Railway backs up your server only on its Pro plan. "
+        "Download a backup from time to time to keep a copy somewhere else.",
         "trial": None,
     }
     monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
@@ -1971,10 +1972,9 @@ def test_on_railway_the_card_links_the_services_own_pages_and_a_trial_says_what_
 
     railway = host()
     assert railway is not None
-    assert (railway.manage_url, railway.settings_url, railway.backups_url, railway.usage_url) == (
+    assert (railway.manage_url, railway.settings_url, railway.usage_url) == (
         SERVICE + ENVIRONMENT,
         SERVICE + "/settings" + ENVIRONMENT,
-        SERVICE + "/backups" + ENVIRONMENT,
         "https://railway.com/workspace/usage",
     )
     assert railway.trial is None
@@ -1990,7 +1990,7 @@ def test_on_railway_the_card_links_the_services_own_pages_and_a_trial_says_what_
         monkeypatch.delenv(name)
     bare = host()
     assert bare is not None and bare.manage_url == "https://railway.com/dashboard"
-    assert (bare.settings_url, bare.backups_url, bare.usage_url) == (None, None, None)
+    assert (bare.settings_url, bare.usage_url) == (None, None)
     monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
     pod = host()
     assert pod is not None and pod.trial is None
