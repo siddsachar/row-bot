@@ -367,7 +367,7 @@ export function SearchResults({
           summary={`More results (${more})`}
           meta={
             page.hidden && !everything
-              ? `${page.hidden} copies and placeholders hidden`
+              ? `${page.hidden} ${page.hidden === 1 ? 'copy or placeholder' : 'copies and placeholders'} hidden`
               : undefined
           }
           defaultOpen={!best && top.length === 0}
