@@ -112,13 +112,17 @@ for entry in Path("/proc").iterdir():
         continue
     try:
         status = dict(line.split(":", 1) for line in (entry / "status").read_text().splitlines() if ":" in line)
-        if server is None and listening:
-            if any(os.readlink(fd) in listening for fd in (entry / "fd").iterdir()):
-                server = entry.name
     except OSError:
         continue
     parents[entry.name] = status["PPid"].strip()
     processes[entry.name] = {key.lower(): [int(v) for v in status[key].split()] for key in ("Uid", "Gid", "Groups")}
+    # Another user's non-dumpable process shows its open files only to CAP_SYS_PTRACE.
+    if server is None and listening:
+        try:
+            if any(os.readlink(fd) in listening for fd in (entry / "fd").iterdir()):
+                server = entry.name
+        except OSError:
+            pass
 row_bot, grew = {root_pid}, True
 while grew:
     found = {pid for pid, parent in parents.items() if parent in row_bot} - row_bot
@@ -422,8 +426,12 @@ class HostingPartnerSmoke(DockerServerSmoke):
 
     def _check_runs_as_row_bot(self) -> None:
         """Railway's shape: Row-Bot runs as 10001, /data is all 10001's, and H2's private environment holds."""
+        # The probe alone runs privileged: which process listens on 8080 shows in its open files, and a
+        # container's root may read those of Row-Bot's non-dumpable uid-10001 processes only with
+        # CAP_SYS_PTRACE, which Docker doesn't give it. The container itself stays as Railway runs it.
         probe = self.runner.run(
-            ("docker", "exec", self.container_name, "python", "-c", ROW_BOT_USER_PROBE, "/data", "8080", "1")
+            ("docker", "exec", "--privileged", self.container_name, "python", "-c", ROW_BOT_USER_PROBE,
+             "/data", "8080", "1")
         )
         try:
             report = json.loads(probe.stdout)
