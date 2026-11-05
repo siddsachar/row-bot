@@ -3,6 +3,10 @@
 Server-rendered like ``/connect``: a browser without a session can't open the
 React client. The page follows the client's palette, type and spacing, light and
 dark by the browser's setting, at phone width too.
+
+A sign-in link, ``/setup#code=ABCD-EFGH-JKMN`` (A1), claims in one click: the
+page's script takes the code from the fragment, clears the fragment, and sends
+the code exactly as Continue does, through the same checks, refusals and pauses.
 """
 
 from __future__ import annotations
@@ -213,12 +217,27 @@ details .code-form { margin-top: 16px; }
 }
 """
 
-_SCRIPT = """
+# Raw: the JavaScript's own escapes stay as written.
+_SCRIPT = r"""
 (() => {
   const state = JSON.parse(document.getElementById('setup-state').textContent);
   const words = state.words;
   const $ = (id) => document.getElementById(id);
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // A sign-in link (A1): /setup#code=ABCD-EFGH-JKMN, opened or pasted into a tab already here. A
+  // browser never sends the fragment to a server, and it leaves the address bar and this page's
+  // history at once, whatever comes of it: only the form's own POST carries the code. One that
+  // can't be a code is ignored.
+  function takeLink() {
+    if (!location.hash) return '';
+    let code = '';
+    try { code = new URLSearchParams(location.hash.slice(1)).get('code') || ''; } catch (_) {}
+    try { history.replaceState(history.state, '', location.pathname + location.search); } catch (_) {}
+    code = code.trim();
+    const bare = code.replace(/[\s\u002d\u2010-\u2015\u2212]/g, '');
+    return code.length <= 80 && /^[0-9A-Za-z]{12,64}$/.test(bare) ? code : '';
+  }
+  const linked = takeLink();
+  const wait =(ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const unavailable = (status) => status >= 502 && status <= 504;
   const duration = (seconds) => {
     if (seconds >= 60) {
@@ -331,23 +350,44 @@ _SCRIPT = """
       input.focus();
       input.select();
     }
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
+    // Continue: the button, Enter, or a sign-in link.
+    function proceed() {
       if (!input.value.trim()) { input.focus(); return; }
       submit(input.value.trim());
+    }
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      proceed();
     });
     input.addEventListener('input', () => { if (!input.disabled) quiet(); });
-    return { input, pause, untilReady };
+    return { input, pause, untilReady, proceed };
   }
 
   if (state.owned) {
+    // A link's code is never sent here: someone owns this Row-Bot, and only a recovery code,
+    // which signs out every other browser, could sign in. That takes a deliberate Continue.
     const lost = flow('lost', []);
     if (state.paused) lost.pause(state.paused);
+    window.addEventListener('hashchange', takeLink);
     return;
   }
   const claim = flow('claim', [$('claim-lead'), $('where')]);
+  let ready = false;
+  let pending = '';
+  // A link's code goes in the field and on as Continue, once Row-Bot answers; not while a code
+  // is being checked, or during a pause.
+  function fromLink(code) {
+    if (!code || claim.input.readOnly || claim.input.disabled) return;
+    claim.input.value = code;
+    if (ready) claim.proceed();
+    else pending = code;
+  }
+  fromLink(linked);
+  window.addEventListener('hashchange', () => fromLink(takeLink()));
   claim.untilReady().then(() => {
+    ready = true;
     if (state.paused) claim.pause(state.paused);
+    else if (pending) claim.proceed();
     else claim.input.focus();
   });
 })();

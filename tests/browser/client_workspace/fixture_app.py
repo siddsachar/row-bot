@@ -4681,6 +4681,23 @@ def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
     return {"notice": _server_memory.notice() is not None}
 
 
+# ── R2 (A1): the setup page's sign-in link ─────────────────────────────────
+# The fixture is a desktop, which has no setup page. This hands a spec the real page as /setup serves it
+# on Railway, with its own headers, for a Row-Bot nobody owns ("unclaimed") or one somebody does
+# ("owned"); the spec serves it at /setup and answers the page's own requests.
+@app.post("/__r2_fixture/setup-page/{state}")
+def r2_setup_page(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.access.routes import SETUP_PAGE_HEADERS
+    from row_bot.access.setup_page import render_setup_page
+    from row_bot.hosting import KNOWN_HOSTS
+
+    predecessor._authorize(x_fixture_token)
+    if state not in {"unclaimed", "owned"}:
+        raise HTTPException(status_code=422, detail="Unknown setup page state")
+    html = render_setup_page(owned=state == "owned", host=KNOWN_HOSTS["railway"], paused_seconds=0)
+    return {"html": html, "headers": dict(SETUP_PAGE_HEADERS)}
+
+
 # ── A9 (Devices on a hosted Row-Bot) ────────────────────────────────────────
 # The fixture's browser is on a loopback address, which no phone reaches. A pod's own https address is
 # what Devices offers there: "on" saves that address as the server's own, the way a pod's
