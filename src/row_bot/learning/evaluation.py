@@ -191,6 +191,11 @@ class CaseResult:
     cause: str = ""
     # It failed only because its final message offered more than one answer (METRIC_VERSION 3's guard).
     guarded: bool = False
+    # A replayed run's own action, unbridged as it was compared, and whether no check could decide it only
+    # because its reference is a long answer and no judge was given: in memory only, for the freeze's scoring
+    # sensitivity analyses inside this module (A12). Never serialised, compared or shown (E10).
+    action: Action | None = field(default=None, compare=False, repr=False)
+    awaits_judge: bool = field(default=False, compare=False, repr=False)
 
     @property
     def passed(self) -> bool:
@@ -632,6 +637,8 @@ def _same_value(expected: Any, actual: Any) -> bool:
 
 
 _KEY_TOKEN = re.compile(r"\b(?=[\w.,:/-]*\d)[\w.,:/-]+\b|\b[A-Z]{2,}[\w-]*\b")
+#: Why no check decided an answer whose reference is a long answer when no judge was given.
+LONG_ANSWER_DETAIL = "a long answer and no calibrated judge"
 
 
 def _states(answer: str, reply: str) -> tuple[bool | None, str]:
@@ -701,7 +708,7 @@ def compare_action(candidate: Action, reference: Action, *, check: Check = "exac
         same = normalize(candidate.text) == normalize(reference.text)
         return same, "" if same else "a different answer"
     if judge is None:
-        return None, "a long answer and no calibrated judge"
+        return None, LONG_ANSWER_DETAIL
     verdict = judge.judge(task_text, reference.text, candidate.text)
     if verdict and _offers_alternatives(candidate.text, reference.text):
         return False, GUARD_DETAIL
@@ -1075,7 +1082,8 @@ def run_replay_case(case: ReplayCase, arm: Arm, *, client: ModelClient, budget: 
     judged = not case.reference.tool_calls and case.check == "exact_action" and len(case.reference.text) > SHORT_TEXT
     return CaseResult(case.decision_id, "replay", case.kind_of_work, status, "judge" if judged else case.check,
                       reply.tokens, reply.tokens if reply.local else 0, 1, round(time.monotonic() - started, 3), detail,
-                      guarded=status == "failed" and detail == GUARD_DETAIL)
+                      guarded=status == "failed" and detail == GUARD_DETAIL, action=_unbridged(candidate),
+                      awaits_judge=judged and verdict is None and detail == LONG_ANSWER_DETAIL)
 
 
 # ── Pack runners and the main model's cache ─────────────────────────────────
@@ -1295,6 +1303,59 @@ def paired_analysis(differences: Sequence[tuple[str, float]], *, resamples: int 
         p_value = (hits + 1) / (int(permutations) + 1)
     return {**base, "difference": round(mean, 6), "low": round(_percentile(boots, 0.025), 6),
             "high": round(_percentile(boots, 0.975), 6), "p_value": round(p_value, 6), "exact": exact}
+
+
+#: A ratio's interval is unbounded when more than this share of its resamples has a denominator of 0 or less (A12).
+RATIO_UNBOUNDED_SHARE = 0.025
+
+
+def ratio_analysis(rows: Sequence[tuple[str, float, float]], *, resamples: int = RESAMPLES,
+                   seed: int = ANALYSIS_SEED, unbounded_share: float = RATIO_UNBOUNDED_SHARE) -> dict[str, Any]:
+    """The ratio of two mean paired differences, ``G = mean(a) / mean(b)``, given as (cluster, a(i), b(i)) per
+    problem (A12's gap closed: ``a = s(personal) - s(start)``, ``b = s(main) - s(start)`` on the problems all three
+    arms counted).
+
+    Returns the point estimate, a 95% percentile interval from a cluster bootstrap of the ratio (source chats
+    resampled with replacement, ``resamples`` times, with ``seed``) and the share of resamples whose denominator is
+    0 or less. The ratio is defined only where the denominator is positive, so the percentiles are taken over those
+    resamples; when more than ``unbounded_share`` (2.5%) of them have none, the interval is unbounded (``low`` and
+    ``high`` None, ``bounded`` False), as it is when the observed denominator is 0 or less (then ``estimate`` is None
+    too). ``enough`` is §7's minimum size. Aggregates only; deterministic for a seed."""
+
+    import random
+
+    clusters: dict[str, list[tuple[float, float]]] = {}
+    for cluster, top, bottom in rows:
+        clusters.setdefault(str(cluster), []).append((float(top), float(bottom)))
+    keys = sorted(clusters)
+    tops = [sum(item[0] for item in clusters[key]) for key in keys]
+    bottoms = [sum(item[1] for item in clusters[key]) for key in keys]
+    problems = sum(len(clusters[key]) for key in keys)
+    base = {"problems": problems, "clusters": len(keys), "resamples": int(resamples), "seed": int(seed),
+            "enough": problems >= MIN_PROBLEMS}
+    if not problems:
+        return {**base, "estimate": None, "low": None, "high": None, "denominator_nonpositive_share": None,
+                "bounded": False}
+    rng = random.Random(int(seed))
+    indexes = range(len(keys))
+    ratios: list[float] = []
+    nonpositive = 0
+    for _ in range(int(resamples)):
+        picks = rng.choices(indexes, k=len(keys))
+        bottom = sum(bottoms[index] for index in picks)
+        if bottom <= 1e-12:
+            nonpositive += 1
+        else:
+            ratios.append(sum(tops[index] for index in picks) / bottom)
+    ratios.sort()
+    share = nonpositive / int(resamples) if resamples else 1.0
+    total = sum(bottoms)
+    estimate = sum(tops) / total if total > 1e-12 else None
+    bounded = estimate is not None and bool(ratios) and share <= unbounded_share
+    return {**base, "estimate": None if estimate is None else round(estimate, 6),
+            "low": round(_percentile(ratios, 0.025), 6) if bounded else None,
+            "high": round(_percentile(ratios, 0.975), 6) if bounded else None,
+            "denominator_nonpositive_share": round(share, 6), "bounded": bounded}
 
 
 def holm(p_values: Mapping[str, float | None], *, family: Sequence[str] | None = None) -> dict[str, float]:
@@ -2012,6 +2073,109 @@ def _scores(cases: Sequence[CaseResult], *, majority: bool = False, version: int
     return {task: sum(found) / len(found) for task, found in runs.items()}
 
 
+#: A12's arms by name: the teacher of the teacher-agreement scoring (the main-model reference), and gap closed's
+#: start, personal and main arms.
+TEACHER_ARM = "main"
+GAP_ARMS = ("start", "personal", "main")
+#: A12's scoring sensitivity analyses (real work only; the primary checker is unchanged).
+SCORINGS = ("teacher_agreement", "right_tool", "judged_long_answers")
+
+
+def _rescored(cases: Sequence[CaseResult], reading: Callable[[int, CaseResult], str]) -> dict[str, float]:
+    """Each problem's pass fraction with every run read as ``reading(index, run)`` says (its status under another
+    scoring); a run counts when that status does (passed, failed, out of budget)."""
+
+    runs: dict[str, list[int]] = {}
+    for index, case in enumerate(cases):
+        status = reading(index, case)
+        if status in ("passed", "failed", "budget"):
+            runs.setdefault(case.task_id, []).append(int(status == "passed"))
+    return {task: sum(found) / len(found) for task, found in runs.items()}
+
+
+def _teacher_reading(cases: Sequence[CaseResult], teacher: Sequence[CaseResult], by_id: Mapping[str, ReplayCase], *,
+                     own: bool) -> Callable[[int, CaseResult], str]:
+    """A12 4a: a failed replayed run also passes when its action matches, under the problem's own check, the action of
+    any counted run of the teacher arm on the same problem (``own``: the teacher itself, its other runs only). Every
+    other status is kept: only a failed run can become passed."""
+
+    actions: dict[str, list[tuple[int, Action]]] = {}
+    for index, case in enumerate(teacher):
+        if case.counted and case.action is not None and case.task_id in by_id:
+            actions.setdefault(case.task_id, []).append((index, case.action))
+
+    def reading(index: int, case: CaseResult) -> str:
+        problem = by_id.get(case.task_id)
+        if case.status != "failed" or case.action is None or problem is None:
+            return case.status
+        for other, action in actions.get(case.task_id, ()):
+            if own and other == index:
+                continue
+            if compare_action(case.action, action, check=problem.check, task_text=problem.text)[0] is True:
+                return "passed"
+        return case.status
+
+    return reading
+
+
+def _right_tool_reading(references: Mapping[str, Action]) -> Callable[[int, CaseResult], str]:
+    """A12 4b: on a problem whose reference calls tools, a failed run passes when it called the same tools, whatever
+    the arguments (the checker's tool-choice mode)."""
+
+    def reading(_index: int, case: CaseResult) -> str:
+        reference = references.get(case.task_id)
+        if case.status != "failed" or case.action is None or reference is None:
+            return case.status
+        verdict, _detail = compare_action(case.action, reference, check="tool_choice")
+        return "passed" if verdict is True else case.status
+
+    return reading
+
+
+def _judged_reading(verdicts: Mapping[int, bool | None]) -> Callable[[int, CaseResult], str]:
+    """A12 4c: a run left undecided because its reference is a long answer, as the judge decided it (still undecided
+    when the judge couldn't tell)."""
+
+    def reading(index: int, case: CaseResult) -> str:
+        if index not in verdicts:
+            return case.status
+        verdict = verdicts[index]
+        return "unverified" if verdict is None else ("passed" if verdict else "failed")
+
+    return reading
+
+
+def _judge_long_answers(arms: Sequence[Arm], results: Mapping[str, Sequence[CaseResult]],
+                        by_id: Mapping[str, ReplayCase], judge: Judge) -> dict[str, dict[int, bool | None]]:
+    """The judge's verdict on every replayed run left undecided only because its reference is a long answer (A12 4c),
+    by arm and run: the module's grading prompt, then METRIC_VERSION 3's commits-to-one-answer guard as
+    :func:`compare_action` applies it. An answer is judged once per problem; a call that fails leaves it undecided.
+    Raises ``_LimitReached`` when the token limit stops the judging."""
+
+    seen: dict[tuple[str, str], bool | None] = {}
+    found: dict[str, dict[int, bool | None]] = {}
+    for arm in arms:
+        verdicts: dict[int, bool | None] = {}
+        for index, case in enumerate(results[arm.name]):
+            problem = by_id.get(case.task_id)
+            if not case.awaits_judge or case.action is None or problem is None:
+                continue
+            key = (case.task_id, case.action.text)
+            if key not in seen:
+                try:
+                    verdict = judge.judge(problem.text, problem.reference.text, case.action.text)
+                except _LimitReached:
+                    raise
+                except Exception:  # noqa: BLE001 - a judge call that fails decides nothing
+                    verdict = None
+                if verdict and _offers_alternatives(case.action.text, problem.reference.text):
+                    verdict = False
+                seen[key] = verdict
+            verdicts[index] = seen[key]
+        found[arm.name] = verdicts
+    return found
+
+
 def _pair_summary(base: Mapping[str, float], other: Mapping[str, float], problems: Sequence[str],
                   clusters: Mapping[str, str], *, seed: int) -> dict[str, Any]:
     """``other`` against ``base`` on the ``problems`` both counted (a problem with no counted run in an
@@ -2024,10 +2188,15 @@ def _pair_summary(base: Mapping[str, float], other: Mapping[str, float], problem
 
 def _freeze_analysis(arms: Sequence[Arm], results: Mapping[str, Sequence[CaseResult]], tasks: Sequence[PackTask],
                      replay: Sequence[ReplayCase], contrasts: Sequence[tuple[str, str]], *,
-                     seed: int) -> dict[str, Any]:
+                     seed: int, judged: Mapping[str, Mapping[int, bool | None]] | None = None) -> dict[str, Any]:
     """Per arm and split: problems, counted problems, the mean score, run statuses and causes. Per contrast
     and split: the primary analysis and §7's sensitivity analyses (exact fidelity only, a majority vote,
-    without clustering, per main model), per kind of work, and how many problems left the pair."""
+    without clustering, per main model), per kind of work, and how many problems left the pair.
+
+    A12's scoring sensitivity analyses on real work, per contrast and per arm (each arm's mean under that scoring):
+    teacher agreement (with a ``main`` arm), right tool (on the problems whose reference calls tools and is checked
+    by its exact action) and, with ``judged`` (the judge's verdicts by arm and run), judged long answers. With the
+    contrasts (start, personal) and (start, main): the gap closed on real work (:func:`ratio_analysis`)."""
 
     from row_bot.learning import kinds
 
@@ -2056,6 +2225,21 @@ def _freeze_analysis(arms: Sequence[Arm], results: Mapping[str, Sequence[CaseRes
     majority = {arm.name: _scores(results[arm.name], majority=True) for arm in arms}
     # §7: H1 and H2 also under the checker version before the guard (the same runs, read without it).
     previous = {arm.name: _scores(results[arm.name], version=PREVIOUS_METRIC_VERSION) for arm in arms}
+    # A12's scorings of the same runs (real work only), and the problems each covers.
+    by_id = {case.decision_id: case for case in replay}
+    tool_references = {case.decision_id: _unbridged(case.reference) for case in replay
+                       if case.reference.tool_calls and case.check == "exact_action"}
+    names = {arm.name for arm in arms}
+    scorings: dict[str, tuple[dict[str, dict[str, float]], set[str] | None]] = {}
+    if TEACHER_ARM in names:
+        teacher = results[TEACHER_ARM]
+        scorings["teacher_agreement"] = ({arm.name: _rescored(results[arm.name], _teacher_reading(
+            results[arm.name], teacher, by_id, own=arm.name == TEACHER_ARM)) for arm in arms}, None)
+    scorings["right_tool"] = ({arm.name: _rescored(results[arm.name], _right_tool_reading(tool_references))
+                               for arm in arms}, set(tool_references))
+    if judged is not None:
+        scorings["judged_long_answers"] = ({arm.name: _rescored(results[arm.name], _judged_reading(
+            judged.get(arm.name) or {})) for arm in arms}, None)
 
     per_arm: dict[str, Any] = {}
     for arm in arms:
@@ -2073,6 +2257,14 @@ def _freeze_analysis(arms: Sequence[Arm], results: Mapping[str, Sequence[CaseRes
                 "runs": dict(sorted(Counter(case.status for case in cases).items())),
                 "causes": dict(sorted(Counter(case.cause for case in cases if case.cause).items())),
             }
+            if name != "packs":
+                rows[name]["scoring"] = {}
+                for scoring, (scores, covered) in scorings.items():
+                    chosen = [task for task in problems if covered is None or task in covered]
+                    values = [scores[arm.name][task] for task in chosen if task in scores[arm.name]]
+                    rows[name]["scoring"][scoring] = {
+                        "problems": len(chosen), "counted": len(values),
+                        "mean": round(sum(values) / len(values), 6) if values else None}
         per_arm[arm.name] = {"splits": rows}
 
     def summary(scores: Mapping[str, Mapping[str, float]], base: str, other: str, problems: Sequence[str],
@@ -2107,9 +2299,27 @@ def _freeze_analysis(arms: Sequence[Arm], results: Mapping[str, Sequence[CaseRes
                     label: summary(fractions, base, other, [task for task in problems if model[task] == label],
                                    clusters)
                     for label in sorted({model[task] for task in problems})}
+                # A12 4: the same runs under the scoring sensitivity analyses.
+                for scoring, (scores, covered) in scorings.items():
+                    part[scoring] = summary(scores, base, other,
+                                            [task for task in problems if covered is None or task in covered], clusters)
             entry[name] = part
         found[f"{other} vs {base}"] = entry
-    return {"arms": per_arm, "contrasts": found, "main_models": len(ordinals)}
+    analysis: dict[str, Any] = {"arms": per_arm, "contrasts": found, "main_models": len(ordinals)}
+    start, personal, main = GAP_ARMS
+    pairs = {(str(base), str(other)) for base, other in contrasts}
+    if (start, personal) in pairs and (start, main) in pairs:
+        # A12 2: the gap closed on real work, on the problems with a counted run in all three arms.
+        gap: dict[str, Any] = {}
+        for name in SPLITS[:2]:
+            if name == "real_corrected" and not by_split[name]:
+                continue
+            both = [task for task in by_split[name]
+                    if all(task in fractions[arm] for arm in GAP_ARMS)]
+            gap[name] = ratio_analysis([(clusters[task], fractions[personal][task] - fractions[start][task],
+                                         fractions[main][task] - fractions[start][task]) for task in both], seed=seed)
+        analysis["gap_closed"] = gap
+    return analysis
 
 
 def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts: Sequence[tuple[str, str]],
@@ -2117,12 +2327,19 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
                  store: Any | None = None, runner: PackRunner | None = None, cache: ArmCache | None = None,
                  packs: Iterable[str] | None = None, verifiers: Iterable[str] | None = None, repeats: int = 3,
                  seed: int = ANALYSIS_SEED, on_progress: Callable[[int, int], None] | None = None,
-                 clock: Callable[[], float] = time.time, order: str = "interleaved") -> dict[str, Any]:
+                 clock: Callable[[], float] = time.time, order: str = "interleaved", since: float | None = None,
+                 judge: Judge | None = None, calibration: Calibration | None = None) -> dict[str, Any]:
     """The pre-registered freeze evaluation (§7): the arms on every hidden problem the vault holds from
     before ``as_of`` (real work, by its captured time) and the packs' hidden tasks, ``repeats`` runs per arm,
     one budget, this module's checker. Returns aggregates only: per arm and split, counts, mean scores, run
     statuses and causes; per contrast ((baseline, arm) names) and split, the primary paired analysis and §7's
-    sensitivity analyses. No problem, id, text or per-problem result leaves (E10)."""
+    sensitivity analyses. No problem, id, text or per-problem result leaves (E10).
+
+    ``since`` (paper v2, A12): only real work captured after it (``since < created_at <= as_of``); the problems
+    before it are counted (``before_since``). ``order="model"`` runs one arm's problems after the other's (the same
+    results). ``judge`` with its ``calibration`` (A12 4c) decides, after the runs, only those left undecided because
+    their reference is a long answer, for a sensitivity analysis beside the primary one: it is never given to the
+    runs, so the primary results don't change, and it is used only when the calibration is reliable."""
 
     from row_bot.learning.store import LearningStore
 
@@ -2132,13 +2349,18 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
     names = {arm.name for arm in arms}
     if not contrasts or {name for pair in contrasts for name in pair} - names:
         raise EvaluationError("unknown_arm")
+    if judge is not None and judge.model_ref and any(arm.model_ref == judge.model_ref and arm.subject_kind == "release"
+                                                     for arm in arms):
+        raise EvaluationError("judge_is_a_subject", "a model never judges its own version (D21)")
     who = f"{_caller()}: {asked_by}".strip(": ")
     vault = _vault(saved)
     allowed = None if verifiers is None else set(verifiers)
     tasks = [task for task in vault.hidden_tasks(asked_by=who, packs=packs)
              if allowed is None or task.verifier.kind in allowed]
     everything = [ReplayCase.from_content(item) for item in vault.replay_tasks(asked_by=who)]
-    replay = [case for case in everything if case.created_at <= float(as_of)]
+    lower = None if since is None else float(since)
+    replay = [case for case in everything
+              if case.created_at <= float(as_of) and (lower is None or case.created_at > lower)]
     total = (len(tasks) + len(replay)) * len(arms) * max(1, int(repeats))
     done = [0]
 
@@ -2148,9 +2370,28 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
             on_progress(done[0], total)
 
     found: dict[str, Any] = {}
+    use_judge = judge is not None and calibration is not None and calibration.reliable
+    judging: dict[str, Any] = {}
 
     def inspect(results: Mapping[str, list[CaseResult]]) -> None:
-        found.update(_freeze_analysis(arms, results, tasks, replay, contrasts, seed=seed))
+        verdicts: dict[str, dict[int, bool | None]] | None = None
+        if use_judge and judge is not None:
+            before = int(getattr(judge, "tokens", 0) or 0)
+            try:
+                verdicts = _judge_long_answers(arms, results, {case.decision_id: case for case in replay}, judge)
+            except _LimitReached:
+                judging["stopped"] = True  # a part-judged reading is never reported
+            judging["tokens"] = int(getattr(judge, "tokens", 0) or 0) - before
+        if judge is not None:
+            judging["runs"] = {}
+            for arm in arms:
+                decided = list((verdicts or {}).get(arm.name, {}).values())
+                judging["runs"][arm.name] = {
+                    "undecided": sum(1 for case in results[arm.name] if case.awaits_judge),
+                    "passed": sum(1 for verdict in decided if verdict is True),
+                    "failed": sum(1 for verdict in decided if verdict is False),
+                    "still_undecided": sum(1 for verdict in decided if verdict is None)}
+        found.update(_freeze_analysis(arms, results, tasks, replay, contrasts, seed=seed, judged=verdicts))
 
     comparison = _compare(arms, tasks, replay, client=client, judge=None, calibration=None, budget=budget,
                           meter=meter, store=saved, save=False, clock=clock, backend="auto", suite="audit",
@@ -2164,13 +2405,24 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
         })
     splits = {name: sum(1 for case in replay if (case.reference_source == "corrected") == (name == "real_corrected"))
               for name in SPLITS[:2]}
+    problems: dict[str, Any] = {**splits, "packs": len(tasks),
+                                "after_as_of": sum(1 for case in everything if case.created_at > float(as_of)),
+                                "untrusted": sum(1 for case in replay if case.untrusted),
+                                "with_picture": sum(1 for case in replay if case.has_picture)}
+    if lower is not None:
+        problems["before_since"] = sum(1 for case in everything if case.created_at <= min(lower, float(as_of)))
+    if judge is not None:
+        stopped = bool(judging.get("stopped"))
+        ran = use_judge and not stopped
+        found["judged_long_answers"] = {
+            "state": "run" if ran else "not_run",
+            "reason": None if ran else ("stopped" if stopped else "not_reliable"),
+            "calibration": calibration.to_dict() if calibration is not None else None,
+            "tokens": int(judging.get("tokens") or 0), "runs": dict(judging.get("runs") or {})}
     return {"metric_version": METRIC_VERSION, "previous_metric_version": PREVIOUS_METRIC_VERSION,
             "repeats": comparison.repeats, "seed": int(seed),
             "resamples": RESAMPLES, "permutations": PERMUTATIONS, "stopped": bool(comparison.stopped),
-            "budget": budget.to_dict(),
-            "problems": {**splits, "packs": len(tasks), "after_as_of": len(everything) - len(replay),
-                         "untrusted": sum(1 for case in replay if case.untrusted),
-                         "with_picture": sum(1 for case in replay if case.has_picture)}, **found}
+            "budget": budget.to_dict(), "problems": problems, **found}
 
 
 # ── Strategy trials (L4a, pre-registration §3.3, §6.1, §7): only aggregates leave ──
