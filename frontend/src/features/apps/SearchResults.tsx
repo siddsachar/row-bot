@@ -292,6 +292,7 @@ export function SearchResults({
   summaries,
   busy,
   everything,
+  online,
   onMore,
   onEverything,
 }: {
@@ -301,6 +302,7 @@ export function SearchResults({
   summaries: (entry: IntegrationEntry) => string | undefined;
   busy: boolean;
   everything: boolean;
+  online: boolean;
   onMore: () => void;
   onEverything: () => void;
 }) {
@@ -328,6 +330,11 @@ export function SearchResults({
   const revision = page.revision;
   return (
     <div className="apps-results">
+      {online && (
+        <p className="settings-help" role="status">
+          Includes online catalogs.
+        </p>
+      )}
       {onlyCommunity && (
         <p className="apps-results-note" role="note">
           No official or reviewed app matches “{query}”. These are made by the

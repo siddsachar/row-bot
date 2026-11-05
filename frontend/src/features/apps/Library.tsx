@@ -365,6 +365,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           }
           busy={busy}
           everything={everything}
+          online={online}
           onMore={() => void more()}
           onEverything={() => setEverything(true)}
         />
