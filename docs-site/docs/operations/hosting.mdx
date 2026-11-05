@@ -182,7 +182,7 @@ If Row-Bot restarts because the server ran out of memory, Home and System Monito
 - **Row-Bot never updates itself in the image.** The image sets `ROW_BOT_UPDATES=external`: Row-Bot runs no update checks or downloads, its agent has no update tool, and **Settings › Updates** says the host installs updates. A program that updates Row-Bot can show its progress there through a shared folder ([Updates](/docs/operations/updates#docker-and-hosts-that-update-row-bot)).
 - **To update,** start the new version's image with the same `/data` volume and the same settings. Conversations, settings, sign-ins and signed-in browsers stay. Read the version's **For Hosts** section first.
 - **Going back** is a restore, not a downgrade: a newer version can change data so that an older image can't open it. Go back only with a backup made before the update ([Docker And VPS Operations](/docs/operations/docker#explicit-upgrade-and-rollback)).
-- **For the people on your servers,** the host decides when an update arrives. A host that tests each release first may take some days. On Railway the owner is the host: Railway offers each new image in the service's settings, and installs it only when the owner says so or has turned on auto updates.
+- **For the people on your servers,** the host decides when an update arrives. A host that tests each release first may take some days. On Railway the owner is the host: with Railway's automatic updates on, as the template sets them, each new image installs in the next night's window (02:00–06:00 UTC).
 
 ## Started As Root
 
@@ -198,14 +198,14 @@ A file root adds to `/data` later stays root's, since the top of `/data` is 1000
 
 ## Railway
 
-Row-Bot's "Deploy on Railway" template runs the published image in the owner's own Railway account: one service with one volume at `/data`, public over HTTPS at a generated `up.railway.app` address, and a 4 GB, 2 vCPU limit. Its definition, with the reasons for each value, is `deploy/railway/README.md` in Row-Bot's repository. In short:
+Row-Bot's "Deploy on Railway" template runs the published image in the owner's own Railway account: one service with one volume at `/data`, public over HTTPS at a generated `up.railway.app` address, and an 8 GB, 8 vCPU limit: the Hobby plan's ceiling, billed only by use. Its definition, with the reasons for each value, is `deploy/railway/README.md` in Row-Bot's repository. In short:
 
 - **As root:** `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root ([Started As Root](#started-as-root)).
 - **Variables:** `ROW_BOT_HOSTED_BY=railway`, `ROW_BOT_PUBLIC_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`, a setup code from `${{secret(12, "0123456789ABCDEFGHJKMNPQRSTVWXYZ")}}`, and the proxy's addresses.
 - **The proxy:** Railway's edge ends HTTPS and connects from addresses in `100.64.0.0/10`, measured on a real deploy (Railway documents none), so `ROW_BOT_TRUSTED_PROXY_CIDRS=100.64.0.0/10`. It sends `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Real-IP`, and replaces any a visitor sent. Because Railway's `X-Forwarded-For` ends with its edge's own address, Row-Bot takes the visitor from `X-Real-IP`, and only for `ROW_BOT_HOSTED_BY=railway`.
 - **No secret-store key in Railway's variables.** Railway disclosed on 21 October 2026 that customers' environment variables may have been decrypted, so Row-Bot makes its key on the volume instead ([The Secret-Store Key](#the-secret-store-key), the third way).
-- **No Railway health check.** Railway's deploy check calls the service as `healthcheck.railway.app`, a host name Row-Bot doesn't allow. It's only used while a deploy goes live, and a service with a volume pauses on every redeploy anyway; if Row-Bot can't start, it exits and Railway shows the deployment as crashed. To add one, set the path to `/readyz` and `ROW_BOT_ALLOWED_HOSTS` to the service's own host name and `healthcheck.railway.app`.
-- **Updates:** the template uses `latest`. Railway doesn't update an image service by itself; the owner updates it in the service's settings, or turns on Railway's auto updates there.
+- **No Railway health check, and `PORT=8080`.** Railway's deploy check calls the service as `healthcheck.railway.app`, a host name Row-Bot doesn't allow, so it gets a 400: on a real deploy with `/healthz` set, the deploy hung in DEPLOYING until it was cancelled. It's only used while a deploy goes live, and a service with a volume pauses on every redeploy anyway; if Row-Bot can't start, it exits and Railway shows the deployment as crashed. To add one, set the path to `/readyz` and `ROW_BOT_ALLOWED_HOSTS` to the service's own host name and `healthcheck.railway.app`.
+- **Updates:** the template uses `latest` and turns on Railway's automatic updates (**Settings › Source › Configure auto updates**, "Update to the latest tag", Overnight, 02:00–06:00 UTC), so each stable release installs by itself the next night. **Settings › Updates** says so and links the service's settings.
 
 ## Related
 
