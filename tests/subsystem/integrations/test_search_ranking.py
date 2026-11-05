@@ -214,3 +214,9 @@ def test_a_shared_endpoint_serving_different_tools_is_not_one_deployment():
     other = sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.apify.com/?tools=b/signals"})
     template = sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.example.test/mcp?project={project}"})
     assert one != other and template == sources.mcp_identity({"transport": "streamable_http", "url": "https://mcp.example.test/mcp"})
+
+
+def test_a_listing_without_a_title_gets_the_letter_of_the_name_it_shows(local, monkeypatch):
+    use_registry(monkeypatch, local, REGISTRY)
+    row = next(row for row in search_catalog(kind="app", query="reddit")["items"] if row["name"] == "reddit-mcp-server")
+    assert row["icon"] == "letter:R"  # Not "I" from "io.github.jordanburke/...".

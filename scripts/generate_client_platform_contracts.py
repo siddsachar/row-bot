@@ -1453,7 +1453,7 @@ export const setAppViewSettings = (base: string, proof: SessionProof, body: AppV
   jsonRequest(base, '/integrations/views', 'AppViewSettings', proof, 'PUT', validateWire('AppViewSettings', body), undefined, signal);
 export const setAppViewAppSetting = (base: string, proof: SessionProof, body: AppViewAppSetting, signal?: AbortSignal): Promise<AppViewSettings> =>
   jsonRequest(base, '/integrations/views/apps', 'AppViewSettings', proof, 'PUT', validateWire('AppViewAppSetting', body), undefined, signal);
-export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
+export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true';labels?:string;runs?:'anywhere'|'hosted'|'local';no_sign_in?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items' + query(options), 'IntegrationEntryPage', proof, 'GET', undefined, undefined, signal);
 export const searchIntegrationItems = (base: string, proof: SessionProof, body: IntegrationSearchRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items/search', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);

@@ -81,7 +81,19 @@ function WayText({ way }: { way: IntegrationWay }) {
       <small>
         {[
           WAYS[way.method] ?? '',
-          way.verified ? `by ${way.publisher}` : way.publisher,
+          {
+            official: `Official · by ${way.publisher}`,
+            reviewed: `Reviewed · ${way.publisher}`,
+            community: `Community · ${way.publisher}`,
+            built_in: way.publisher,
+          }[
+            way.label ??
+              (way.method === 'built_in'
+                ? 'built_in'
+                : way.verified
+                  ? 'official'
+                  : 'community')
+          ],
           way.recommended ? 'Recommended' : '',
           way.supported ? '' : 'Not available yet',
         ]
