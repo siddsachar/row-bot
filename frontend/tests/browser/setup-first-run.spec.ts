@@ -98,7 +98,7 @@ test('no runtime yet: Setup opens, Ollama appears by itself, the pick becomes th
     const pill = page.getByRole('button', { name: 'Model', exact: true });
     await expect(pill).toContainText('fixture-local:27b');
     await expect(
-      pill.getByRole('img', { name: 'Runs on this device' }),
+      pill.getByRole('img', { name: 'Runs on this computer' }),
     ).toBeVisible();
   }
 });

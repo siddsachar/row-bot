@@ -45,22 +45,12 @@ export const PROVIDER_KEYS: Readonly<Record<string, ProviderKeyInfo>> = {
   vercel: { url: 'https://vercel.com/ai-gateway' },
 };
 
-/** Recommended first in Setup; the rest sit under "More providers". */
+/** Recommended first in Setup; every other API-key provider sits under "More providers". */
 export const RECOMMENDED_KEY_PROVIDERS = [
   'openai',
   'anthropic',
   'google',
   'openrouter',
-] as const;
-
-export const MORE_KEY_PROVIDERS = [
-  'xai',
-  'minimax',
-  'requesty',
-  'opencode_zen',
-  'opencode_go',
-  'atlascloud',
-  'ollama_cloud',
 ] as const;
 
 export function keyFormatHint(providerId: string): string {

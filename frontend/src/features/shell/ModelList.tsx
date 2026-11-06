@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
-import { Check, HardDrive, Search, Star } from 'lucide-react';
+import { Check, ChevronDown, HardDrive, Search, Star } from 'lucide-react';
 import type { ModelChoice } from '../../api/types';
 import { usePlace } from '../../api/place';
 import { Kbd, StatusDot } from '../../ui/primitives';
@@ -70,12 +70,17 @@ const modelRows = (prefix: string, models: readonly ListedModel[]): Row[] =>
     model,
   }));
 
+/** How long typing rests before the whole catalogue is searched. */
+const SEARCH_DELAY_MS = 200;
+
 /**
  * The one searchable model list (U12): the composer's picker, the default
  * models in Settings and Setup all use it. Your starred models first, then
  * recent choices, then the providers with a status dot and a billing tag,
  * on-device providers marked and providers that are not connected muted with
- * Connect. The current model is always in view.
+ * Connect. With stars, the providers fold under Browse by provider. Typing
+ * also searches every connected provider's models (`search`). The current
+ * model is always in view.
  */
 export default function ModelList({
   models,
@@ -86,6 +91,7 @@ export default function ModelList({
   onVisibility,
   inputRef,
   showRecent = true,
+  search,
   emptyText = 'No cached models. Open Models in Settings.',
 }: {
   models: readonly ListedModel[];
@@ -93,18 +99,23 @@ export default function ModelList({
   leading?: readonly ListedModel[];
   current: string | undefined;
   onChoose: (model: ModelChoice) => void;
-  /** Open provider setup (for providers that are not connected). */
-  onConnect?: () => void;
+  /** Open this model's provider, to connect or reconnect it. */
+  onConnect?: (model: ModelChoice) => void;
   /** Star or unstar a model from its row; rows have no star without it. */
   onVisibility?: (model: ModelChoice, action: VisibilityAction) => void;
   inputRef?: RefObject<HTMLInputElement | null>;
   showRecent?: boolean;
+  /** Every connected provider's models matching a query, beyond the listed ones. */
+  search?: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<readonly ListedModel[]>;
   emptyText?: string;
 }) {
   const place = usePlace();
   const runsHere =
     place.kind === 'this_computer'
-      ? 'Runs on this device'
+      ? 'Runs on this computer'
       : `Runs on ${place.name}`;
   const id = useId();
   const ownInput = useRef<HTMLInputElement>(null);
@@ -114,7 +125,30 @@ export default function ModelList({
   const [recent] = useState<string[]>(() =>
     showRecent ? readRecentModels() : [],
   );
-  const sections = useMemo<Section[]>(() => {
+  const [found, setFound] = useState<readonly ListedModel[]>(NO_ROWS);
+  const [browsing, setBrowsing] = useState(false);
+  useEffect(() => {
+    const text = query.trim();
+    if (!search || !text) {
+      setFound(NO_ROWS);
+      return;
+    }
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      search(text, abort.signal)
+        .then((rows) => {
+          if (!abort.signal.aborted) setFound(rows);
+        })
+        .catch(() => {
+          /* The listed models still match; the wider search is a bonus. */
+        });
+    }, SEARCH_DELAY_MS);
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+  }, [query, search]);
+  const [sections, foldable] = useMemo(() => {
     const matching = models.filter((model) => matchesModel(model, query));
     const result: Section[] = [];
     const first = leading.filter((model) => matchesModel(model, query));
@@ -161,17 +195,44 @@ export default function ModelList({
       group.models.some((model) => model.model_ref === current),
     );
     if (currentGroup > 0) groups.unshift(...groups.splice(currentGroup, 1));
-    for (const group of groups)
+    // With stars, the providers fold away at rest, unless the current model is
+    // only in them: Your models and Recent are the short list.
+    const shown = new Set(
+      result
+        .flatMap((section) => section.rows)
+        .map((row) => row.model.model_ref),
+    );
+    const foldable =
+      !query &&
+      favourites.length > 0 &&
+      groups.length > 0 &&
+      (!current || shown.has(current));
+    if (!foldable || browsing)
+      for (const group of groups)
+        result.push({
+          key: `provider:${group.id}`,
+          label: group.label,
+          connected: group.connected,
+          local: group.local,
+          billing: group.models.find((model) => model.billing)?.billing ?? null,
+          rows: modelRows(group.id, group.models),
+        });
+    const listed = new Set(models.map((model) => model.model_ref));
+    const more = query
+      ? found.filter((model) => !listed.has(model.model_ref))
+      : [];
+    if (more.length)
       result.push({
-        key: `provider:${group.id}`,
-        label: group.label,
-        connected: group.connected,
-        local: group.local,
-        billing: group.models.find((model) => model.billing)?.billing ?? null,
-        rows: modelRows(group.id, group.models),
+        key: 'search',
+        label: 'All models',
+        connected: true,
+        local: false,
+        billing: null,
+        mixed: true,
+        rows: modelRows('search', more),
       });
-    return result;
-  }, [current, leading, models, query, recent]);
+    return [result, foldable] as const;
+  }, [browsing, current, found, leading, models, query, recent]);
   const rows = sections.flatMap((section) => section.rows);
   const enabled = rows.filter((row) => row.model.available);
   const activeRow =
@@ -289,7 +350,7 @@ export default function ModelList({
             tabIndex={-1}
             onClick={(event) => {
               event.stopPropagation();
-              onConnect();
+              onConnect(row.model);
             }}
           >
             Connect
@@ -425,6 +486,21 @@ export default function ModelList({
         <p className="model-picker-empty" role="status">
           {models.length || leading.length ? 'No models match.' : emptyText}
         </p>
+      )}
+      {foldable && (
+        <button
+          type="button"
+          className="model-picker-browse"
+          aria-expanded={browsing}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setBrowsing((value) => !value);
+            input.current?.focus();
+          }}
+        >
+          Browse by provider
+          <ChevronDown size={14} aria-hidden />
+        </button>
       )}
     </>
   );

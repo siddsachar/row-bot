@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type RefObject } from 'react';
+import { useCallback, useId, useRef, useState, type RefObject } from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
   Blocks,
@@ -29,9 +29,10 @@ import ComposerSkills, {
   type ComposerSkillAction,
 } from './ComposerSkills';
 import ModelPicker from './ModelPicker';
-import type { VisibilityAction } from './ModelList';
+import type { ListedModel, VisibilityAction } from './ModelList';
 import {
   modelRefName,
+  providerSheetPath,
   rememberRecentModel,
   splitModelLabel,
 } from './model-choices';
@@ -123,6 +124,32 @@ export default function ComposerControls({
   const plusRef = useRef<HTMLButtonElement>(null);
   const shieldRef = useRef<HTMLButtonElement>(null);
   const confirmFullAutonomy = useConfirmFullAutonomy();
+  // Typing in the picker also searches every connected provider's chat models.
+  const searchModels = useCallback(
+    async (query: string, signal: AbortSignal): Promise<ListedModel[]> => {
+      const page = await controller.modelCatalogPage(
+        'chat',
+        undefined,
+        query,
+        undefined,
+        signal,
+      );
+      return (page?.items ?? []).map((row) => ({
+        provider_id: row.provider_id,
+        model_ref: row.selection_ref,
+        label: `${row.display_name} - ${row.provider_display_name}`,
+        available:
+          row.configured && row.runtime_ready && row.installed !== false,
+        reason: row.status_reason || undefined,
+        billing: null,
+        personal: false,
+      }));
+    },
+    [controller],
+  );
+  // Connect and Reconnect open that provider's sheet in Settings › Models.
+  const providerSheet = (providerId?: string) =>
+    navigate(providerSheetPath(providerId));
   const workspace = state.workspace;
   const controls = workspace?.controls;
   const id = state.selectedConversationId;
@@ -637,11 +664,12 @@ export default function ComposerControls({
         reasoning={reasoning?.available ? reasoning : null}
         thinkingLabel={thinkingLabel}
         onThinking={(selection) => void chooseThinking(selection)}
-        onConnect={() => navigate('/settings/providers')}
-        onReconnect={() => navigate('/settings/providers')}
+        onConnect={providerSheet}
+        onReconnect={() => providerSheet(controls.model_selection?.provider_id)}
         onManage={() => navigate('/settings/models')}
         onSetup={() => navigate('/setup')}
         onVisibility={(item, action) => void changeVisibility(item, action)}
+        search={searchModels}
         anchor={singleLine ? anchor : undefined}
         returnFocusTo={singleLine ? () => plusRef.current : undefined}
       />

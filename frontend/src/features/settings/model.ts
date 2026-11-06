@@ -362,7 +362,7 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'models',
     anchor: 'providers-local',
-    label: 'On this device',
+    label: 'On this computer',
     keywords: 'ollama local models computer',
   },
   {

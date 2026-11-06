@@ -168,7 +168,11 @@ import {
   readQuestion,
   waitingApproval,
 } from './answer-question';
-import { modelRefName, splitModelLabel } from './model-choices';
+import {
+  modelRefName,
+  providerSheetPath,
+  splitModelLabel,
+} from './model-choices';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
@@ -311,6 +315,8 @@ export default function Conversation({
   const state = useClientState();
   const { controller, platform, conversationActionsOwner, goalProfileOwner } =
     useRuntime();
+  // Reconnect opens the chat's provider in Settings › Models.
+  const chatProvider = state.workspace?.controls?.model_selection?.provider_id;
   const overlay = useOverlay();
   const navigate = useNavigate();
   const id = state.selectedConversationId;
@@ -2724,10 +2730,10 @@ export default function Conversation({
   const recoverTurn = useCallback(
     (next: RecoveryAction) => {
       if (next === 'model') setModelPickerOpen(true);
-      else if (next === 'providers') navigate('/settings/providers');
+      else if (next === 'providers') navigate(providerSheetPath(chatProvider));
       else if (next === 'new') newChatRef.current();
     },
-    [navigate],
+    [navigate, chatProvider],
   );
   // Waiting messages come from the server's list, re-read when a queue event
   // arrives, a run starts or ends, or the server changes (B107, B108).
@@ -3205,7 +3211,7 @@ export default function Conversation({
       className="composer-setup-model"
       onClick={() =>
         reconnect
-          ? navigate('/settings/providers')
+          ? navigate(providerSheetPath(chatProvider))
           : anyModel
             ? setModelPickerOpen(true)
             : navigate('/setup')
@@ -3682,7 +3688,9 @@ export default function Conversation({
                     </span>
                   </div>
                   <div className="turn-notice-actions">
-                    <Button onClick={() => navigate('/settings/providers')}>
+                    <Button
+                      onClick={() => navigate(providerSheetPath(chatProvider))}
+                    >
                       {claudeSignedOut ? 'Sign in again' : 'Reconnect'}
                     </Button>
                   </div>

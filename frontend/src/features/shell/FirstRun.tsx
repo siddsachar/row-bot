@@ -48,10 +48,7 @@ import ClaudePlanSetup, {
   USE_MY_CLAUDE_PLAN,
 } from '../settings/ClaudePlanSetup';
 import ProviderSettingsPanel from '../settings/ProviderSettingsPanel';
-import {
-  MORE_KEY_PROVIDERS,
-  RECOMMENDED_KEY_PROVIDERS,
-} from '../settings/provider-keys';
+import { RECOMMENDED_KEY_PROVIDERS } from '../settings/provider-keys';
 import { BillingTag } from './ModelList';
 import { useWorkspaceActions } from './workspace-actions';
 import { markFirstChat } from './first-chat';
@@ -587,6 +584,7 @@ function ProviderModels({
 function KeyPanel({
   keyProvider,
   setKeyProvider,
+  cards,
   connected,
   billing,
   onPick,
@@ -594,12 +592,28 @@ function KeyPanel({
 }: {
   keyProvider: string | null;
   setKeyProvider: (id: string | null) => void;
+  /** Every provider Row-Bot knows, as Settings › Models lists them. */
+  cards: readonly ProviderLiveCard[];
   connected: Set<string>;
   billing: (id: string) => ProviderLiveCard['billing'] | null;
   onPick: (modelRef: string, label: string) => void;
   onSaved: () => void;
 }) {
   const { providerSettingsSessions } = useRuntime();
+  const label = (id: string) =>
+    KEY_LABELS[id] ??
+    cards.find((card) => card.provider_id === id)?.display_name ??
+    id;
+  // Every other API-key provider, the same list as Settings › Models › Add a provider.
+  const recommended: readonly string[] = RECOMMENDED_KEY_PROVIDERS;
+  const more = cards
+    .filter(
+      (card) => card.group === 'api' && !recommended.includes(card.provider_id),
+    )
+    .map((card) => card.provider_id)
+    .sort((a, b) =>
+      label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }),
+    );
   if (keyProvider)
     return (
       <div className="first-run-panel-body">
@@ -614,7 +628,7 @@ function KeyPanel({
           <ProviderModels
             key={keyProvider}
             providerId={keyProvider}
-            label={KEY_LABELS[keyProvider] ?? keyProvider}
+            label={label(keyProvider)}
             onPick={onPick}
           />
         ) : providerSettingsSessions ? (
@@ -642,7 +656,7 @@ function KeyPanel({
               className="first-run-provider"
               onClick={() => setKeyProvider(id)}
             >
-              <span>{KEY_LABELS[id]}</span>
+              <span>{label(id)}</span>
               {connected.has(id) && (
                 <span className="first-run-model-tag">Connected</span>
               )}
@@ -653,14 +667,14 @@ function KeyPanel({
       </ul>
       <Disclosure summary="More providers">
         <ul className="first-run-providers" aria-label="More providers">
-          {MORE_KEY_PROVIDERS.map((id) => (
+          {more.map((id) => (
             <li key={id}>
               <button
                 type="button"
                 className="first-run-provider"
                 onClick={() => setKeyProvider(id)}
               >
-                <span>{KEY_LABELS[id]}</span>
+                <span>{label(id)}</span>
                 {connected.has(id) && (
                   <span className="first-run-model-tag">Connected</span>
                 )}
@@ -1217,6 +1231,7 @@ export default function FirstRun({
     <KeyPanel
       keyProvider={keyProvider}
       setKeyProvider={setKeyProvider}
+      cards={cards}
       connected={connected}
       billing={billing}
       onPick={pick}

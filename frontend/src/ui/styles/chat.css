@@ -3977,7 +3977,7 @@ button.attachment-tile-face:hover {
 .model-picker {
   display: flex;
   flex-direction: column;
-  width: min(360px, calc(100vw - 24px));
+  width: min(440px, calc(100vw - 24px));
   max-height: min(520px, var(--radix-popover-content-available-height, 520px));
   padding: 0;
   overflow: hidden;
@@ -4157,6 +4157,30 @@ button.attachment-tile-face:hover {
   padding: 16px 12px;
   color: var(--text-muted);
   font-size: var(--text-13);
+}
+/* Browse by provider: the providers fold under it while you have stars. */
+.model-picker-browse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 8px 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+.model-picker-browse:hover,
+.model-picker-browse:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.model-picker-browse[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 .model-picker-footer {
   display: grid;
