@@ -1112,6 +1112,12 @@ def project_assistant_row_traces(
     for record_index, (record, row) in enumerate(zip(records, output)):
         if str(row.get("role") or "") != "tool":
             continue
+        # These fields are checkpoint-reader inputs to the reviewed trace
+        # projection, not members of the public TranscriptRow. Consume them
+        # from every tool row, including one whose call is older than this
+        # window, so the closed wire record never fails validation on reload.
+        carried = {field_name: row.pop(field_name)
+                   for field_name in ("status", "error", "ok", "media", "media_error") if field_name in row}
         call_id = str(row.get("tool_call_id") or "").strip()
         call = calls.get(call_id)
         if call is None or int(call["record_index"]) >= record_index:
@@ -1123,14 +1129,8 @@ def project_assistant_row_traces(
         result: dict[str, Any] = {
             "name": call["tool_name"],
             "content": _row_text(row),
+            **carried,
         }
-        for field_name in ("status", "error", "ok", "media", "media_error"):
-            if field_name in row:
-                # These fields are checkpoint-reader inputs to the reviewed
-                # trace projection, not members of the public TranscriptRow.
-                # Consume them here so the closed wire record cannot expose
-                # the internal carrier or fail validation on reload.
-                result[field_name] = row.pop(field_name)
         call["result"] = result
         call["result_row"] = row
 
