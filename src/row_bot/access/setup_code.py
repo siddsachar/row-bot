@@ -5,7 +5,8 @@ At each start ``row-bot serve`` settles the one code that may sign in: the host'
 ``ROW_BOT_SETUP_CODE`` (taken out of the environment, so no program Row-Bot
 starts inherits it), or else a new code of its own, so the last one stops
 working. Only its salted verifier is kept, and it signs in once. While nobody
-owns this Row-Bot the code is printed to the console, which is the host's log.
+owns this Row-Bot the code is printed to the console, which is the host's log,
+with a link that signs in with one click when the public address is known (A1).
 
 A *new* host code also works once after someone owns this Row-Bot: it signs out
 every other browser (recovery). It is never printed.
@@ -26,11 +27,11 @@ import logging
 import math
 import os
 import secrets
-import sys
 import threading
 import time
 from typing import Any, Callable, Mapping, MutableMapping
 
+from row_bot.access.config import canonical_origin
 from row_bot.access.service import AccessService, SetupCodeClaim
 from row_bot.access.store import (
     SETUP_CODE_ACTIVE_KEY,
@@ -38,11 +39,13 @@ from row_bot.access.store import (
     AccessStore,
 )
 from row_bot.access.tokens import hash_secret, verify_secret
+from row_bot.console_logging import console_handlers
 from row_bot.environment_secrets import take_secret
 
 logger = logging.getLogger(__name__)
 
 SETUP_CODE_ENV = "ROW_BOT_SETUP_CODE"
+PUBLIC_URL_ENV = "ROW_BOT_PUBLIC_URL"
 # Crockford's base32 has no I, L, O or U, so no symbol reads as another; 12 carry 60 bits.
 CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 CODE_LENGTH = 12
@@ -85,20 +88,44 @@ def _verifies(code: str, verifier: Any) -> bool:
     )
 
 
+def sign_in_link(code: str, environ: Mapping[str, str]) -> str | None:
+    """``<public address>/setup#code=ABCD-EFGH-JKMN`` (A1), or None without a public address.
+
+    The address is ``ROW_BOT_PUBLIC_URL`` as ``row-bot serve`` resolved it (Railway's template sets it to
+    ``https://${{RAILWAY_PUBLIC_DOMAIN}}``). The code rides in the fragment, which a browser never sends:
+    the setup page reads it, clears it from the address bar and history, and posts it as if typed.
+    """
+    origin = _public_origin(environ)
+    return f"{origin}/setup#code={format_setup_code(code)}" if origin else None
+
+
+def prints_sign_in_link(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether the start-up output shows the sign-in link beside the code: the public address is known."""
+    return _public_origin(os.environ if environ is None else environ) is not None
+
+
+def _public_origin(environ: Mapping[str, str]) -> str | None:
+    try:
+        return canonical_origin(environ.get(PUBLIC_URL_ENV))
+    except ValueError:
+        return None
+
+
 def _console() -> logging.Logger:
-    """A logger whose only handler is this process's console stream, where hosts show logs.
+    """A logger whose only handlers are this process's console streams, where hosts show logs.
 
     The code must reach a host's log view (PikaPods: More › Show Logs) and nothing that
-    persists: it never propagates to Row-Bot's own log files.
+    persists: it never propagates to Row-Bot's own log files. In Row-Bot's image it is on
+    stdout, like the rest of the launcher's INFO lines (F2).
     """
     console = logging.getLogger(f"{__name__}.console")
     console.propagate = False
     console.setLevel(logging.INFO)
     for handler in console.handlers[:]:
         console.removeHandler(handler)
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    console.addHandler(handler)
+    for handler in console_handlers():
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        console.addHandler(handler)
     return console
 
 
@@ -111,8 +138,9 @@ def prepare_setup_code_at_start(
 
     The host's code is taken out of the environment. It counts if it never signed anyone in;
     otherwise, while nobody owns this Row-Bot, a new code replaces the last one. While nobody owns
-    it, the code is printed to the console. Once someone does, only a new host code is kept, as
-    a recovery code, and it is not printed.
+    it, the code is printed to the console, with its sign-in link when ``ROW_BOT_PUBLIC_URL`` names
+    the public address. Once someone does, only a new host code is kept, as a recovery code, and
+    neither it nor a link is printed.
     """
     env = os.environ if environ is None else environ
     raw = take_secret(SETUP_CODE_ENV, env)
@@ -146,10 +174,12 @@ def prepare_setup_code_at_start(
     )
     if not owned:
         rule = "=" * 72
+        link = sign_in_link(code, env)
         _console().info(
-            "%s\nRow-Bot setup code: %s (open your Row-Bot and enter it)\n%s",
+            "%s\nRow-Bot setup code: %s (open your Row-Bot and enter it)\n%s%s",
             rule,
             format_setup_code(code),
+            f"Open this link to sign in: {link}\n" if link else "",
             rule,
         )
 
@@ -286,4 +316,6 @@ __all__ = [
     "generate_setup_code",
     "normalize_setup_code",
     "prepare_setup_code_at_start",
+    "prints_sign_in_link",
+    "sign_in_link",
 ]

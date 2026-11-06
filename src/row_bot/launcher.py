@@ -68,12 +68,15 @@ from row_bot.data_paths import (
     get_row_bot_data_dir,
 )
 from row_bot import install_layout
+from row_bot.console_logging import route_console_by_level
 from row_bot.runtime_paths import app_icon_path, app_root, static_dir
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
 
 # ── Setup logging ────────────────────────────────────────────────────────────
+# On stderr, so a command's own output (``row-bot access doctor --json``) has stdout to itself. Only
+# ``row-bot serve`` in Row-Bot's image splits it by level (F2, ``route_console_by_level``).
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 _LAUNCH_STARTED = time.perf_counter()
@@ -4179,6 +4182,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(plugin_devtools.run_cli(args))
     _warn_deprecated_client_flags(args)
     if getattr(args, "command", "") == "serve":
+        # The container's main process: its console is the host's log, so INFO goes to stdout there (F2).
+        route_console_by_level()
         from row_bot.access.access_routes import AccessRouteConfigStore
         from row_bot.access.cli import resolve_serve_options, serve_startup_lines
 

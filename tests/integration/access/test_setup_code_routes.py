@@ -297,3 +297,57 @@ def test_the_desktop_app_has_no_setup_code_and_keeps_its_connect_page(tmp_path) 
     assert browser.get("/setup").status_code == 404
     assert enter(browser, "ABCD-EFGH-JKMN").status_code == 404
     assert "Connect to this Row-Bot" in browser.get("/connect").text
+
+# What Railway gives every service (A2).
+RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+SERVICE = (
+    "https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30"
+    "/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901"
+)
+ENVIRONMENT = "?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10"
+TRIAL = {
+    "note": "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. "
+    "Browser tasks and local speech-to-text need Railway's Hobby plan.",
+    "upgrade_url": "https://railway.com/workspace/plans",
+}
+
+
+def test_on_railway_wheres_my_code_opens_the_services_variables_and_points_to_the_logged_link(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    """R4: with the IDs Railway gives the service and its public address, "Where's my code?" has a button to
+    the service's Variables and the line about the sign-in link in the deploy logs; only while unclaimed."""
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    pod = Pod(tmp_path)
+    pod.start(capsys, "R0B0-T1S1-GN1N")
+    variables = SERVICE + "/variables" + ENVIRONMENT
+
+    bare = pod.browser().get("/setup").text
+    for name, value in RAILWAY_IDS.items():
+        monkeypatch.setenv(name, value)
+    with_ids = pod.browser().get("/setup").text
+    monkeypatch.setenv("ROW_BOT_PUBLIC_URL", "https://row-bot-production.up.railway.app")
+    unclaimed = pod.browser().get("/setup").text
+    assert enter(pod.browser(), "R0B0-T1S1-GN1N").status_code == 200
+    owned = pod.browser("203.0.113.9").get("/setup").text
+
+    button = re.search(r'<a class="secondary" id="where-variables" href="([^"]+)"[^>]*>([^<]+)<', unclaimed)
+    assert button is not None
+    assert button.group(1) == variables
+    assert button.group(2) == "Open your Variables in Railway"
+    assert "or click the sign-in link in Railway&#x27;s deploy logs" in unclaimed
+    # No IDs: no button. No public address: no link in the logs to point to.
+    assert "where-variables" not in bare and "where-logs" not in bare
+    assert "where-variables" in with_ids and "where-logs" not in with_ids
+    # The service's IDs show only in the Variables button: the page's Manage links keep the dashboard.
+    for value in RAILWAY_IDS.values():
+        assert unclaimed.count(value) == 1
+    assert 'id="claim-manage" href="https://railway.com/dashboard"' in unclaimed
+    # Someone owns it: neither, and the public page carries no ID of the service at all.
+    assert "where-variables" not in owned and "where-logs" not in owned
+    assert not any(value in owned for value in RAILWAY_IDS.values())
+    assert 'id="lost-host" href="https://railway.com/dashboard"' in owned

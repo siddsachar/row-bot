@@ -2,8 +2,8 @@ import type { Page } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
 
 // A hosted Row-Bot's own Settings: System names its host with the version,
-// memory and the host's pages (U5); Data moves Row-Bot with a fresh backup and
-// says what that backup leaves out (U9); Devices offers the pod's own address,
+// memory and the host's pages (U5); Data downloads a fresh backup first and
+// says what that backup leaves out (U9, F3); Devices offers the pod's own address,
 // with no way to choose how it is reached. The fixture switches make the
 // handshake say "hosted", give the server a 2 GB memory limit, and save a
 // pod's https address (the fixture's own is loopback). On Railway (R1) the same
@@ -20,6 +20,7 @@ async function fixture(page: Page, path: string) {
 }
 
 test.afterEach(async ({ page }) => {
+  await fixture(page, '/__r2_fixture/railway-ids/off');
   await fixture(page, '/__a9_fixture/pod-address/off');
   await fixture(page, '/__a8_fixture/memory/off');
   await fixture(page, '/__a7_fixture/place/this_computer');
@@ -49,12 +50,16 @@ test('a hosted Row-Bot names its host, moves with a backup and connects devices 
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'hosted-system');
 
-  // Data: Move Row-Bot makes a fresh backup and saves it on this device.
+  // Data: Download backup comes first; it makes a fresh backup and saves it on
+  // this device. Back up now keeps its copy on the server, and says so (F3).
   await page.goto('/app-v2/settings/data');
   await expect(
     page.getByText(
-      'Download a backup, then install Row-Bot on your computer, open Settings › Data and choose Restore from backup.',
+      'Makes a fresh backup and saves it on this device. To move Row-Bot to your computer, install Row-Bot there, open Settings › Data and choose Restore from backup.',
     ),
+  ).toBeVisible();
+  await expect(
+    page.getByText('PikaPods can also keep its own backups of your server.'),
   ).toBeVisible();
   const saved = page.waitForEvent('download');
   const move = page.getByRole('button', { name: 'Download backup' });
@@ -105,13 +110,15 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
 }, testInfo) => {
   await fixture(page, '/__r1_fixture/host/railway');
   await fixture(page, '/__a7_fixture/place/hosted');
-  await fixture(page, '/__a8_fixture/memory/4');
+  // Railway sets limits in decimal GB: 8,000,000,000 bytes reads 8 GB, not 7.5 (F1).
+  await fixture(page, '/__a8_fixture/memory/8?unit=gb');
 
   await page.goto('/app-v2/settings/system');
   const card = page.getByRole('region', { name: 'Hosted by Railway' });
   await expect(
-    card.getByText(/^Row-Bot .+ · you update it in Railway$/),
+    card.getByText(/^Row-Bot .+ · updates come from Railway$/),
   ).toBeVisible();
+  await expect(card.getByText('Memory 2.0 GB of 8 GB')).toBeVisible();
   for (const [name, url] of [
     ['Manage your service in Railway', 'https://railway.com/dashboard'],
     ['Railway support', 'https://station.railway.com/'],
@@ -123,10 +130,10 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   await screenshot(page, testInfo, 'railway-system');
 
   await page.goto('/app-v2/settings/updates');
-  await expect(page.getByText('You update it in Railway')).toBeVisible();
+  await expect(page.getByText('Updates come from Railway')).toBeVisible();
   await expect(
     page.getByText(
-      "When a new version is out, Railway offers it in your service's settings. Turn on auto updates there to get each one by itself.",
+      'New versions install by themselves each night when automatic updates are on in Railway.',
     ),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: /Check|Update/ })).toHaveCount(
@@ -134,9 +141,37 @@ test('on Railway, System and Updates speak Railway’s words: a service its owne
   );
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'railway-updates');
+
+  // With the IDs Railway gives every service, links land on its own pages (A2).
+  await fixture(page, '/__r2_fixture/railway-ids/on');
+  await page.goto('/app-v2/settings/system');
+  const service =
+    /^https:\/\/railway\.com\/project\/[0-9a-f-]{36}\/service\/[0-9a-f-]{36}/;
+  for (const [name, url] of [
+    ['Manage your service in Railway', service],
+    ['Usage in Railway', /^https:\/\/railway\.com\/workspace\/usage$/],
+  ] as const)
+    await expect(card.getByRole('link', { name })).toHaveAttribute('href', url);
+  // Railway backs up volumes only on its Pro plan (F3): no Backups button, and
+  // Data says so.
+  await expect(card.getByRole('link', { name: /Backups/ })).toHaveCount(0);
+  await page.goto('/app-v2/settings/data');
+  await expect(
+    page.getByText(
+      'Railway backs up your server only on its Pro plan. Download a backup from time to time to keep a copy somewhere else.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: /Backups in/ })).toHaveCount(0);
+  await assertNoOverflow(page);
+  // Updates: where Railway's automatic updates are switched on (A5).
+  await page.goto('/app-v2/settings/updates');
+  await expect(
+    page.getByRole('link', { name: 'Check in Railway' }),
+  ).toHaveAttribute('href', /\/settings\?environmentId=[0-9a-f-]{36}$/);
+  await assertNoOverflow(page);
 });
 
-test('the desktop shows no host card or Move row, and its restore takes a hosted backup', async ({
+test('the desktop shows no host card or Download a backup row, and its restore takes a hosted backup', async ({
   page,
 }) => {
   await page.goto('/app-v2/settings/system');
@@ -146,7 +181,7 @@ test('the desktop shows no host card or Move row, and its restore takes a hosted
   await expect(
     page.getByText(/A backup from a hosted Row-Bot works too\./),
   ).toBeVisible();
-  await expect(page.getByText('Move Row-Bot')).toHaveCount(0);
+  await expect(page.getByText('Download a backup')).toHaveCount(0);
   await page.goto('/app-v2/settings/access');
   await page
     .getByRole('button', { name: 'Connect a phone or computer' })

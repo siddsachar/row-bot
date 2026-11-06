@@ -3108,6 +3108,19 @@
   font-size: var(--type-size-metadata);
   line-height: var(--type-line-metadata);
 }
+/* The host's own backups of the server (F3): one quiet line, apart from
+   Last backup. */
+.data-backup-host {
+  margin-top: 6px;
+}
+/* Voice's sheet on a small server: where it gets more memory (A2, A4). */
+.voice-sheet-grow {
+  margin: 0 0 12px;
+}
+.voice-sheet-grow a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
 
 /* Settings › System on a hosted Row-Bot (U5): who runs it, the memory in
    use of the server's limit, and the host's own pages. */
@@ -3140,6 +3153,23 @@
 }
 .settings-row-extra > p.hosted-by-note {
   color: var(--text-muted);
+}
+/* U7 (A3): the host's one step after the first answer, with a ✓ that hides
+   it for good. */
+.settings-row-extra > p.hosted-by-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-13);
+}
+.hosted-by-step > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.hosted-by-step a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
 }
 
 /* Settings › Devices & remote access (Phase 14). ------------------------ */

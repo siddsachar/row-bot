@@ -8,7 +8,7 @@ import { bindDraftSync } from './draft-sync';
 import { reloadAfterUpdate } from './api/stale-build';
 import { keepNativeLease } from './native-lease';
 import { keepAccessSessionRenewed } from './api/access-renewal';
-import { claimLauncherSignIn } from './api/sign-in';
+import { claimLauncherSignIn, forgetSetupCode } from './api/sign-in';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -147,6 +147,8 @@ class RenderBoundary extends Component<
 }
 async function start() {
   installInputModality();
+  // A setup page's sign-in link opened in a browser already signed in: its code leaves the address (A1).
+  forgetSetupCode();
   // The window or browser the launcher opened signs in before the first handshake (A0).
   await claimLauncherSignIn();
   const query = new URLSearchParams(location.search).get('fixture');

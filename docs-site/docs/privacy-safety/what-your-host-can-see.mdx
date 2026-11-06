@@ -32,7 +32,7 @@ The setup code, invitations and browser sessions are never stored at all: Row-Bo
 Where the key that opens your saved sign-ins lives depends on your host:
 
 - **Your host gives Row-Bot the key** (`ROW_BOT_SECRET_STORE_KEY`, in its settings for your server). The key is never written to the data folder, so a copy of the data folder, or a backup of it, holds only encrypted sign-ins. The host still has the key in its settings.
-- **Your host gives none.** Row-Bot makes a key at its first start and keeps it in the data folder (`secret-store-key`), readable only by Row-Bot. Anyone with a full copy of the data folder, including the host's backups, can then open your saved sign-ins. Row-Bot's Railway template works this way on purpose: Railway disclosed on 21 October 2026 that customers' environment variables may have been decrypted, so the key is kept out of them ([Railway's October Incident](/docs/getting-started/on-railway#railways-october-incident)).
+- **Your host gives none.** Row-Bot makes a key at its first start and keeps it in the data folder (`secret-store-key`), readable only by Row-Bot. Anyone with a full copy of the data folder, including the host's backups, can then open your saved sign-ins. Row-Bot on Railway works this way on purpose ([Railway](#railway), below).
 
 Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave out both the key and your saved sign-ins.
 
@@ -42,23 +42,36 @@ Either way, Row-Bot's own backups (**Settings › Data › Back up now**) leave 
 
 - Row-Bot reads the key and the setup code as it starts, then removes them from its environment. The programs it runs for you (shell commands, MCP servers, Claude Code, Python, Row-Bot's browser) never get them, and a command such as `env` can't show them.
 - On Linux, Row-Bot's own processes also hide the environment they started with: only the server's administrator (root) can read it.
-- Neither appears in Row-Bot's log files. While nobody owns your Row-Bot, the setup code shows only in the server's console output.
+- Neither appears in Row-Bot's log files. While nobody owns your Row-Bot, the setup code shows only in the server's console output, with a link that signs in with it when the server knows its own address.
 
 This keeps both secrets away from the programs Row-Bot runs. It doesn't keep them from your host, which set them.
 
 ## Nothing New Goes To Row-Bot's Maker
 
-- A hosted Row-Bot makes the same connections as any Row-Bot, and no others: see [Every Connection At A Glance](/docs/privacy-safety/#every-connection-at-a-glance). It doesn't check for updates itself; your host installs them (on Railway, when you update the service there).
+- A hosted Row-Bot makes the same connections as any Row-Bot, and no others: see [Every Connection At A Glance](/docs/privacy-safety/#every-connection-at-a-glance). It doesn't check for updates itself; your host installs them (on Railway, each night once automatic updates are on).
 - [Install stats](/docs/privacy-safety/#install-stats) count a hosted Row-Bot as `docker`, like any Row-Bot in a container. They don't say who hosts it. Turn them off in **Settings › System › Privacy**.
 - The name of your host is used only on your Row-Bot's own pages, and isn't sent anywhere.
 
 What your host itself records, such as its own logs and billing, is up to the host: read its privacy policy.
 
+## Railway
+
+On Railway you run Row-Bot in your own Railway account ([Row-Bot On Railway](/docs/getting-started/on-railway)), and Railway is the host, as above.
+
+- **What Railway can reach:**
+  - the service's **volume** (`/data`): your data folder, and the key that opens your saved sign-ins, which lives there;
+  - the service's **variables**: the setup code, your Row-Bot's address and its other settings;
+  - the service's **logs**: the deploy log and Row-Bot's console output, which shows the setup code and its sign-in link while nobody owns your Row-Bot;
+  - the **traffic** to your Row-Bot, since Railway's proxy ends HTTPS in front of it.
+- **The key stays on the volume, not in Railway's variables.** On 21 October 2026 Railway [disclosed](https://blog.railway.com/p/security-disclosure-wednesday-october-21st) that customers' environment variables may have been decrypted ([Railway's October Incident](/docs/getting-started/on-railway#railways-october-incident)). So neither **Continue with Railway** nor the template sets `ROW_BOT_SECRET_STORE_KEY`: Row-Bot makes its key on the volume at its first start, readable only by Row-Bot, and leaves it out of its own backups. Railway's variables then hold nothing that opens your saved sign-ins, and the setup code in them works only once.
+- **Railway's own backups** are on its Pro plan only. They copy the whole volume, the key included.
+- **Continue with Railway** ([row-bot.ai/railway](https://row-bot.ai/railway/)) talks only to Railway. Railway's API doesn't accept calls from web pages, so the page's calls pass through a small relay Row-Bot runs on Cloudflare. The relay passes on only the calls the page needs, with your Railway sign-in, and keeps and logs nothing. The sign-in stays in the page while it works and is forgotten once your Row-Bot opens; Row-Bot never stores it, and the relay never reaches your Row-Bot.
+
 ## Protect Yourself
 
 - **Give model API keys a spending limit.** Most providers let you set a budget for a key or an account, so a key that leaks can't cost more than that.
 - **Prefer sign-ins you can revoke.** A sign-in you can end from the service's own security settings, or a bot token you can regenerate, is quicker to cut off than a password.
-- **Keep your own backup.** Choose **Back up now**, then **Download**, in **Settings › Data**. It saves a copy on your device, without passwords or sign-ins.
+- **Keep your own backup.** Choose **Download backup** in **Settings › Data**. It saves a copy on your device, without passwords or sign-ins.
 - **Check your devices now and then.** The list in **Settings › Devices & remote access** shows every signed-in phone and computer, and signs one out.
 
 **If your host has a security incident,** assume your saved sign-ins and keys were exposed, and replace them:

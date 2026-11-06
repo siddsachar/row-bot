@@ -542,7 +542,7 @@ def _memory_problems() -> list[dict[str, Any]]:
     """Row-Bot restarted because the server ran out of memory (H12, U8): its size, what needs more, and
     how to resize, with the host's own page when a known host runs it. Only where there is a limit."""
     from row_bot import server_memory
-    from row_bot.hosting import hosted_by
+    from row_bot.hosting import hosted_by, trial
 
     notice = server_memory.notice()
     if notice is None:
@@ -550,12 +550,21 @@ def _memory_problems() -> list[dict[str, Any]]:
     host = hosted_by()
     size = notice["limit_bytes"]
     target = "4 GB" if size < server_memory.SMALL_SERVER_BYTES else "bigger"
-    if host is not None:
+    # A trial's small server (A4) grows only on the host's paid plan: that is the step to name.
+    on_trial = trial(host, size)
+    if host is not None and on_trial is not None:
+        resize = str(host.trial_resize)
+    elif host is not None:
         resize = host.resize_to_4gb if target == "4 GB" else host.resize_bigger
     else:
         resize = "Give the server 4 GB" if target == "4 GB" else "Give the server more memory"
     links = [{"label": "How to resize", "url": server_memory.RESIZE_GUIDE}]
-    if host is not None and host.manage_url:
+    if host is not None and on_trial is not None:
+        links.append({"label": f"Upgrade in {host.name}", "url": on_trial["upgrade_url"]})
+    elif host is not None and host.settings_url:
+        # The service's own settings, where its memory limit is (A2).
+        links.append({"label": "Raise the memory limit", "url": host.settings_url})
+    elif host is not None and host.manage_url:
         links.append({"label": f"Manage your {host.unit} in {host.name}", "url": host.manage_url})
     return [{
         **_problem("memory:restarted", "Row-Bot restarted because the server ran out of memory",

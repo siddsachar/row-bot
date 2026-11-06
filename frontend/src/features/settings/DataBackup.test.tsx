@@ -478,10 +478,10 @@ it('a hosted Row-Bot moves to a computer: a fresh backup downloads, with what it
   setPlace({ kind: 'hosted', host_name: 'PikaPods' });
   const { fake, done } = moving();
   render(<DataBackup owner={fake} canPick={false} />);
-  expect(await screen.findByText('Move Row-Bot')).toBeVisible();
+  expect(await screen.findByText('Download a backup')).toBeVisible();
   expect(
     screen.getByText(
-      'Download a backup, then install Row-Bot on your computer, open Settings › Data and choose Restore from backup.',
+      'Makes a fresh backup and saves it on this device. To move Row-Bot to your computer, install Row-Bot there, open Settings › Data and choose Restore from backup.',
     ),
   ).toBeVisible();
   expect(
@@ -500,7 +500,7 @@ it('a hosted Row-Bot moves to a computer: a fresh backup downloads, with what it
   expect(status).toHaveTextContent(
     'Not in the backup: API keys, sign-in tokens and passwords · Caches, logs and downloaded runtimes',
   );
-  expect(status).toHaveTextContent('After moving, set these up again:');
+  expect(status).toHaveTextContent('After restoring it, set these up again:');
   expect(
     within(screen.getByRole('list', { name: 'Sign in again' })).getByText(
       'OpenAI (provider)',
@@ -535,7 +535,7 @@ it('a backup made for moving waits for a click when the browser won’t save it 
   expect(fake.send).toHaveBeenCalledTimes(1);
 });
 
-it('the desktop has no Move row, and its restore takes a hosted Row-Bot’s backup', async () => {
+it('the desktop has no Download a backup row, and its restore takes a hosted Row-Bot’s backup', async () => {
   render(<DataBackup owner={owner()} />);
   expect(await screen.findByText('Restore from backup')).toBeVisible();
   expect(
@@ -543,14 +543,14 @@ it('the desktop has no Move row, and its restore takes a hosted Row-Bot’s back
       'Checks the backup first. A backup from a hosted Row-Bot works too. Your current profile is kept aside, and nothing changes until Row-Bot restarts.',
     ),
   ).toBeVisible();
-  expect(screen.queryByText('Move Row-Bot')).toBeNull();
+  expect(screen.queryByText('Download a backup')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Download backup' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Back up now' })).toHaveClass(
     'primary',
   );
 });
 
-it('the Move row lists exactly what the backup says to sign in to again, and nothing when it says nothing', async () => {
+it('Download backup lists exactly what the backup says to sign in to again, and nothing when it says nothing', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   setPlace({ kind: 'hosted', host_name: 'PikaPods' });
   const move = async (signIns: DataBackupSignIn[]) => {
@@ -569,7 +569,9 @@ it('the Move row lists exactly what the backup says to sign in to again, and not
   };
 
   const nothing = await move([]);
-  expect(screen.queryByText('After moving, set these up again:')).toBeNull();
+  expect(
+    screen.queryByText('After restoring it, set these up again:'),
+  ).toBeNull();
   expect(screen.queryByRole('list', { name: 'Sign in again' })).toBeNull();
   nothing.unmount();
 
@@ -577,7 +579,9 @@ it('the Move row lists exactly what the backup says to sign in to again, and not
     { kind: 'provider', name: 'anthropic' },
     { kind: 'mcp', name: 'Notes server' },
   ]);
-  expect(screen.getByText('After moving, set these up again:')).toBeVisible();
+  expect(
+    screen.getByText('After restoring it, set these up again:'),
+  ).toBeVisible();
   const items = within(
     screen.getByRole('list', { name: 'Sign in again' }),
   ).getAllByRole('listitem');
@@ -585,4 +589,190 @@ it('the Move row lists exactly what the backup says to sign in to again, and not
     'Anthropic (provider)',
     'Notes server (MCP server)',
   ]);
+});
+
+const railway = {
+  id: 'railway',
+  name: 'Railway',
+  home_url: 'https://railway.com/',
+  support_url: 'https://station.railway.com/',
+  status_url: 'https://status.railway.com/',
+  manage_url: 'https://railway.com/dashboard',
+  unit: 'service',
+  runs: 'the server and billing',
+  applies_updates: false,
+  updates_help:
+    'New versions install by themselves each night when automatic updates are on in Railway.',
+  backups_note:
+    'Railway backs up your server only on its Pro plan. Download a backup from time to time to keep a copy somewhere else.',
+};
+
+it.each([
+  [
+    'a hosted Row-Bot',
+    { kind: 'hosted', host_name: 'Railway' } as const,
+    'your Row-Bot server',
+  ],
+  [
+    'a server',
+    { kind: 'server', host_name: null } as const,
+    'the computer Row-Bot runs on',
+  ],
+])(
+  'on %s, Download backup comes first and Back up now says its copy stays there (F3)',
+  async (_where, place, server) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setPlace(place);
+    const away: DataBackupState = { ...idle, reveal_available: false };
+    const fake = owner(away);
+    fake.send.mockResolvedValueOnce(
+      receipt(
+        {
+          ...away,
+          job: {
+            kind: 'backup',
+            status: 'running',
+            started_at: '2026-11-05T09:00:00',
+          },
+        },
+        { status: 'accepted' },
+      ),
+    );
+    render(
+      <DataBackup
+        owner={fake}
+        canPick={false}
+        host={place.kind === 'hosted' ? railway : null}
+      />,
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Download backup' }),
+    ).toHaveClass('primary');
+    expect(screen.getByText('Download a backup')).toBeVisible();
+    const backUp = screen.getByRole('button', { name: 'Back up now' });
+    expect(backUp).toHaveClass('secondary');
+    expect(
+      screen.getByText(
+        `Saves conversations, memories, workflows, designs and settings on ${server}. Passwords, keys, sign-ins, caches and logs are left out.`,
+      ),
+    ).toBeVisible();
+    // Only a known host says what it does about backups, in its own words.
+    const hostLine = screen.queryByText(
+      'Railway backs up your server only on its Pro plan. Download a backup from time to time to keep a copy somewhere else.',
+    );
+    if (place.kind === 'hosted') expect(hostLine).toBeVisible();
+    else expect(hostLine).toBeNull();
+    // Moving to a computer is a hosted Row-Bot's; a server may be one already.
+    expect(
+      screen.queryByText(/To move Row-Bot to your computer/) !== null,
+    ).toBe(place.kind === 'hosted');
+
+    fireEvent.click(backUp);
+    await screen.findAllByRole('button', { name: 'Backing up…' });
+    fake.read.mockResolvedValue({
+      ...away,
+      last_backup_at: '2026-11-05T09:00:00',
+      last_backup_name: 'Row-Bot backup 2026-11-05 0900.zip',
+      job: {
+        kind: 'backup',
+        status: 'completed',
+        name: 'Row-Bot backup 2026-11-05 0900.zip',
+      },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(
+      await screen.findByText(
+        `Saved on ${server}. Download it to keep a copy somewhere else.`,
+      ),
+    ).toBeVisible();
+    // The copy on the server downloads from its row.
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    expect(fake.download).toHaveBeenCalledWith(
+      'Row-Bot backup 2026-11-05 0900.zip',
+    );
+  },
+);
+
+it('the desktop names no host and says where its backup went, as before (F3)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const fake = owner();
+  fake.send.mockResolvedValueOnce(
+    receipt(
+      {
+        ...idle,
+        job: {
+          kind: 'backup',
+          status: 'running',
+          started_at: '2026-11-05T09:00:00',
+        },
+      },
+      { status: 'accepted' },
+    ),
+  );
+  render(<DataBackup owner={fake} host={railway} />);
+  expect(
+    await screen.findByText(
+      'Saves conversations, memories, workflows, designs and settings to the Row-Bot › Backups folder. Passwords, keys, sign-ins, caches and logs are left out.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/can also keep its own backups/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Back up now' }));
+  await screen.findByRole('button', { name: 'Backing up…' });
+  fake.read.mockResolvedValue({
+    ...idle,
+    last_backup_at: '2026-11-05T09:00:00',
+    last_backup_name: 'Row-Bot backup 2026-11-05 0900.zip',
+    job: {
+      kind: 'backup',
+      status: 'completed',
+      name: 'Row-Bot backup 2026-11-05 0900.zip',
+    },
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  const saved = await screen.findByRole('status');
+  expect(saved).toHaveTextContent(
+    'Saved “Row-Bot backup 2026-11-05 0900.zip” in Row-Bot › Backups.',
+  );
+  expect(saved).not.toHaveTextContent(/somewhere else/);
+});
+
+it('says what each host does about backups, in its own words, with no link (F3)', async () => {
+  setPlace({ kind: 'hosted', host_name: 'Railway' });
+  const view = render(
+    <DataBackup
+      owner={owner({ ...idle, reveal_available: false })}
+      canPick={false}
+      host={railway}
+    />,
+  );
+  // Railway backs up volumes only on its Pro plan: the copy to keep is the download.
+  const line = await screen.findByText(
+    'Railway backs up your server only on its Pro plan. Download a backup from time to time to keep a copy somewhere else.',
+  );
+  expect(within(line).queryByRole('link')).toBeNull();
+  expect(screen.queryByText(/can also keep its own backups/)).toBeNull();
+  view.unmount();
+
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  render(
+    <DataBackup
+      owner={owner({ ...idle, reveal_available: false })}
+      canPick={false}
+      host={{
+        ...railway,
+        id: 'pikapods',
+        name: 'PikaPods',
+        backups_note: 'PikaPods can also keep its own backups of your server.',
+      }}
+    />,
+  );
+  expect(
+    await screen.findByText(
+      'PikaPods can also keep its own backups of your server.',
+    ),
+  ).toBeVisible();
 });
