@@ -275,6 +275,32 @@ def test_reloaded_trace_keeps_generated_media_failure_under_closed_code(platform
     assert "must-not-project" not in json.dumps(trace)
 
 
+def test_a_chat_whose_latest_rows_start_with_media_results_still_opens(platform):
+    """A long video chat wouldn't open: the newest hundred messages began with two generated-media
+    results whose tool call was just older, and their media failed the closed row (503 on every open)."""
+    from row_bot import threads
+    from row_bot.api.v1.schemas import Snapshot
+    from row_bot.application.attachments import register_attachment
+
+    media = register_attachment("conversation-a", "scene.png", b"\x89PNG\r\n\x1a\nsynthetic")
+    results = [
+        ToolMessage(content="Synthetic scene rendered", id=f"scene-result-{index}", tool_call_id=f"scene-call-{index}",
+                    additional_kwargs={"platform_media": [{"type": "media.available", "payload": {
+                        "media_ref": media["attachment_ref"], "mime_type": media["mime_type"]}}]})
+        for index in range(2)
+    ]
+    later = [message for index in range(49) for message in (
+        HumanMessage(content=f"Next scene {index}", id=f"ask-{index}"),
+        AIMessage(content=f"Scene {index} is ready", id=f"answer-{index}"))]
+    assert threads.append_checkpoint_messages("conversation-a", [
+        AIMessage(content="", id="scenes-owner", tool_calls=[
+            {"id": f"scene-call-{index}", "name": "image_gen", "args": {}} for index in range(2)]),
+        *results, *later])
+
+    snapshot = Snapshot.model_validate(platform.snapshot("conversation-a"))
+    assert [row.id for row in snapshot.rows[:2]] == ["tool:checkpoint:scene-result-0", "tool:checkpoint:scene-result-1"]
+
+
 def test_checkpoint_container_work_and_depth_are_explicitly_bounded(monkeypatch):
     """A read may walk a checkpoint a few times over, never without end."""
     import msgpack
