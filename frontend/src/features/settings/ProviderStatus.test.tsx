@@ -285,6 +285,43 @@ it('keeps providers not connected in Add a provider, by how they are paid', asyn
   expect(screen.queryByRole('dialog', { name: 'Add a provider' })).toBeNull();
 });
 
+it('Find a provider narrows the gallery, and says when nothing matches', async () => {
+  render(
+    <ProviderStatus
+      load={async () => ({
+        schema_version: 1,
+        providers: [
+          card,
+          unconnected('mistral', 'Mistral'),
+          unconnected('deepseek', 'DeepSeek'),
+          unconnected('groq', 'Groq'),
+        ],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  const gallery = await openGallery('API key');
+  const find = within(gallery).getByRole('searchbox', {
+    name: 'Find a provider',
+  });
+
+  fireEvent.change(find, { target: { value: 'deep' } });
+  expect(
+    within(gallery)
+      .getAllByRole('button', { name: /Needs an API key/ })
+      .map((option) => option.textContent),
+  ).toEqual(['DDeepSeekNeeds an API key']);
+
+  fireEvent.change(find, { target: { value: 'nothing like it' } });
+  expect(
+    within(gallery).queryAllByRole('button', { name: /Needs an API key/ }),
+  ).toEqual([]);
+  expect(gallery).toHaveTextContent(
+    'No provider here matches “nothing like it”.',
+  );
+});
+
 it('Add a provider › Your server opens the custom endpoint dialog', async () => {
   const onAddServer = vi.fn();
   render(

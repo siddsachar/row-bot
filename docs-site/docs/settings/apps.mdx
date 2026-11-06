@@ -22,16 +22,42 @@ The page lists:
 
 While the app catalog is first being built, the page says **Preparing the app catalog…** and more apps appear in a moment.
 
-Each app appears once in results; its other ways to connect are on its page. Apps from their own vendors and from Row-Bot come first, then **More from the community**. Listings that look like placeholders, staging copies or duplicates are left out; **Show all results** shows them too.
+### Search Results
 
-Each card shows the app's logo, its name and what it does, and who publishes it:
+A search answers with one result first:
 
-- **by _Vendor_** with a check: the service's own vendor publishes it, which Row-Bot confirms by rule, never from a listing's name.
+- **Best match**: the result that fits best, when its name matches what you typed and its vendor or Row-Bot stands behind it, or the community made it well (many people starred it and it is kept up). It shows what the app does, how it connects, and its stars, such as **★ 1.2k · active**.
+- **Also good**: four more results whose names match. Without a best match they are **Top results**, and when none of them comes from a vendor or Row-Bot a line says **No official or reviewed app matches "_search_". These are made by the community.**
+- **More results (_n_)**: everything else, folded. Open it to see the rest grouped as **Official**, **Reviewed by Row-Bot**, **Built in** and **Community**, with **Show more** for the next page. A result found only in a description, not in a name, is always here.
+
+Each app appears once in results; its other ways to connect are on its page. One server listed several times (the same package in several catalogs, the same repository under the same name, a near-identical copy from the same publisher, or a fork with fewer stars than the original) is one result; its page lists every catalog it is in. Listings that look like placeholders, staging copies or duplicates are left out, and **More results** says how many; **Show all results** shows them too.
+
+A search word has to start a word: "reddit" finds "Reddit tools", not "subreddit".
+
+### Who Stands Behind A Result
+
+Each result says who stands behind it, decided by rule, never by what a listing says about itself:
+
+- **Official** with a check, and **by _Vendor_**: the service's own vendor publishes it. Row-Bot confirms this from the vendor's domain or GitHub organisation.
+- **Reviewed** with a check: Row-Bot reviewed how it installs and signs in. An app the vendor doesn't publish itself can still be reviewed, as Reddit is.
 - **Built in**: it comes with Row-Bot.
-- **Community · _publisher_**: anyone else. Check who publishes it and its source on its page before you connect it.
+- **Community · _publisher_**: anyone else. This isn't a warning; check who publishes it and what it may do on its page before you connect it.
 - **Made by you**: a connection you added yourself.
 
-A card also says how the app connects: **Hosted · Sign-in**, **API key**, **Hosted** or **Runs on this computer**. Package entries from the Hermes catalog say **Checked when you add**; one made for the Hermes app itself can't be added, and its page says why. Logos come only from Row-Bot or its saved copies; browsing never downloads them, and a letter stands in until a logo is ready.
+An app with both an official and a reviewed way shows **Official**; its page lists each way with its own label.
+
+### Filters
+
+While you search, chips under the search box narrow the results. They apply to everything found, so the counts stay true:
+
+- **Apps**, **Skills** or **Plugins**: what kind of result.
+- **Official & reviewed only**: only results their vendor or Row-Bot stands behind, and built-in ways. Row-Bot remembers this one on this device.
+- **Runs anywhere**, **Hosted** or **On this computer**: where it runs.
+- **No sign-in**: only ways that work without an account or a key.
+
+On a phone the filters are in one **Filters** sheet; its button shows how many are on.
+
+A result also says how the app connects: **Hosted · Sign-in**, **API key**, **Hosted** or **Runs on this computer**. Package entries from the Hermes catalog say **Checked when you add**; one made for the Hermes app itself can't be added, and its page says why. Logos come only from Row-Bot or its saved copies; browsing never downloads them, and a letter stands in until a logo is ready.
 
 ## The App Page
 

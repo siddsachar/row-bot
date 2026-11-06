@@ -220,7 +220,7 @@ class _McpCatalog(Source):
         shipped = shipped_signals(entry.url, canonical, updated)
         row = _available("mcp", entry.source + ":" + entry.id, name, app=app, source=entry.source,
             verified=apps.verified(app, refs), setup_tier=0 if supported and known else 1 if supported else 2,
-            updated_at=updated, icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
+            updated_at=updated, icon=icons.entry_icon(app, metadata.get("icon", ""), name),
             # A Registry record is also known by its server part ("reddit-mcp-buddy"), as the index matches it.
             keywords=[canonical.rpartition("/")[2]] if canonical else [], has_icon=bool(metadata.get("icon")),
             sign_in=sign_in(entry.install, metadata.get("auth_mode", ""), entry.requires_auth),
@@ -731,7 +731,7 @@ BEST_STANDING = 6              # Stars and activity (about 50 stars, kept up) th
 def label(row: dict) -> str:
     """Who stands behind a result, by rule only: the vendor (official), Row-Bot (built in, or reviewed:
     a setup recipe, a featured skill, or a way tested through Row-Bot), or anyone else (community)."""
-    if row["kind"] == "builtin":
+    if row["kind"] == "builtin" or row["source"] == "bundled":
         return "built_in"
     if row["verified"]:
         return "official"

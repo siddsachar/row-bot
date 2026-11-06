@@ -2499,6 +2499,9 @@ export class ClientController {
       scope?: 'installed' | 'catalog';
       cursor?: string;
       all?: 'true';
+      labels?: string;
+      runs?: 'anywhere' | 'hosted' | 'local';
+      no_sign_in?: 'true';
     },
     signal?: AbortSignal,
   ) => this.query(() => this.transport.integrationItems?.(options, signal));
