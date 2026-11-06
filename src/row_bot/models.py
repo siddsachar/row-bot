@@ -2191,7 +2191,8 @@ def _fetch_cloud_models(provider: str) -> int:
         api_key = get_provider_secret(provider)
         if not api_key:
             return 0
-        url = f"{OPENROUTER_BASE_URL}/models"
+        # Every kind of model, not only text: image and video models are kept for their tools.
+        url = f"{OPENROUTER_BASE_URL}/models?output_modalities=all"
         headers = {"Authorization": f"Bearer {api_key}"}
     elif provider == "requesty":
         api_key = get_provider_secret(provider)
@@ -2740,6 +2741,7 @@ def _fetch_requesty_models(api_key: str) -> int:
         if not any(model_supports_surface(model_info, surface) for surface in ("chat", "vision")):
             continue
         model_infos.append(model_info)
+    model_infos.extend(_requesty_image_model_infos(api_key, verified_at, seen))
 
     if not model_infos:
         logger.warning("Requesty model fetch returned no usable chat model rows; preserving previous cache")
@@ -2754,8 +2756,34 @@ def _fetch_requesty_models(api_key: str) -> int:
     return count
 
 
+def _requesty_image_model_infos(api_key: str, verified_at: str, seen: set[str]) -> list:
+    """Requesty's image models, from its separate image list; none when that list fails."""
+    import httpx
+    from dataclasses import replace
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.requesty import requesty_models_url
+
+    try:
+        resp = httpx.get(f"{requesty_models_url()}/image", headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
+        resp.raise_for_status()
+        rows = resp.json().get("data", [])
+    except Exception as exc:
+        logger.warning("Failed to fetch requesty image models: %s", exc)
+        return []
+    infos = []
+    for row in rows if isinstance(rows, list) else []:
+        model_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        info = model_info_from_metadata("requesty", model_id, {"output_modalities": ["image"]},
+                                        display_name=model_id, context_window=0)
+        infos.append(replace(info, last_verified_at=verified_at))
+    return infos
+
+
 def _fetch_preset_models(provider_id: str, api_key: str) -> int:
-    """Fetch one table provider's chat models from its OpenAI-compatible ``/models``."""
+    """Fetch one table provider's models from its OpenAI-compatible ``/models``."""
     import httpx
     from row_bot.providers.catalog import model_info_to_cache_entry
     from row_bot.providers.presets import model_infos_from_catalog, models_url

@@ -1,4 +1,4 @@
-"""Video generation tool — generate videos via Google Veo / xAI.
+"""Video generation tool — generate videos via Google Veo, xAI, OpenRouter or Together AI.
 
 The agent calls ``generate_video`` to create videos from text prompts, or
 ``animate_image`` to turn a still image into a short video clip.
@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 # ── Timeouts & polling ───────────────────────────────────────────────────
 _GOOGLE_POLL_INTERVAL = 10   # seconds
 _XAI_POLL_INTERVAL = 5       # seconds
+_JOB_POLL_INTERVAL = 5       # seconds, OpenRouter and Together
 _POLL_TIMEOUT = 360           # 6 minutes hard ceiling
 
 # No preset: video generation stays off and unset until the person chooses a
@@ -631,6 +632,138 @@ def _generate_video_xai(
     return result
 
 
+# ── OpenRouter and Together: submit a job, poll it, download the clip ─────
+
+# The short side of each resolution, for providers that take width and height.
+_SHORT_SIDE = {"480p": 480, "720p": 720, "1080p": 1080, "4k": 2160}
+
+
+def _frame_size(resolution: str, aspect_ratio: str) -> tuple[int, int]:
+    """Width and height for a resolution and aspect ratio, rounded to even pixels."""
+    short = _SHORT_SIDE.get(resolution.lower(), 720)
+    w, _, h = aspect_ratio.partition(":")
+    ratio_w, ratio_h = (int(w), int(h)) if w.isdigit() and h.isdigit() and int(h) else (16, 9)
+    long = round(short * max(ratio_w, ratio_h) / min(ratio_w, ratio_h) / 2) * 2
+    return (long, short) if ratio_w >= ratio_h else (short, long)
+
+
+def _job_request(provider_id: str, method: str, path: str, *, json: dict | None = None, timeout: float = 30):
+    """Call a video provider's own API with its key, raising its error message."""
+    import httpx
+
+    from row_bot.api_keys import get_key
+    from row_bot.providers.media import VIDEO_PROVIDER_META, media_error_text
+
+    meta = VIDEO_PROVIDER_META[provider_id]
+    _validate_generation()
+    response = httpx.request(
+        method, f"{meta['base_url']}{path}", json=json, timeout=timeout,
+        headers={"Authorization": f"Bearer {get_key(meta['key'])}"},
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {media_error_text(response)}")
+    return response
+
+
+def _generate_video_job(
+    prompt: str,
+    duration: int,
+    aspect_ratio: str,
+    resolution: str,
+    image_bytes: bytes | None = None,
+    *,
+    provider_id: str,
+) -> str:
+    """Generate a video on OpenRouter or Together.  Blocks until completion or timeout."""
+    import httpx
+
+    from row_bot.providers.media import VIDEO_PROVIDER_META
+
+    meta = VIDEO_PROVIDER_META[provider_id]
+    label, openrouter = meta["label"], meta["route"] == "openrouter"
+    model = _get_configured_model()
+    data_url = ""
+    if image_bytes is not None:
+        data_url = f"data:{_detect_mime(image_bytes)};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    if openrouter:
+        body: dict = {"model": model, "prompt": prompt, "duration": duration,
+                      "resolution": resolution, "aspect_ratio": aspect_ratio}
+        if data_url:
+            body["frame_images"] = [{"type": "image_url", "image_url": {"url": data_url}, "frame_type": "first_frame"}]
+    else:
+        width, height = _frame_size(resolution, aspect_ratio)
+        body = {"model": model, "prompt": prompt, "seconds": str(duration), "width": width, "height": height}
+        if data_url:
+            body["media"] = {"frame_images": [{"input_image": data_url, "frame": "first"}]}
+
+    logger.info("generate_video (%s): model=%s, duration=%ds, aspect=%s, res=%s",
+                label, model, duration, aspect_ratio, resolution)
+    try:
+        job_id = str(_job_request(provider_id, "POST", "/videos", json=body).json().get("id") or "")
+    except Exception as e:
+        logger.error("%s video generation request failed: %s", label, e, exc_info=True)
+        return f"Video generation failed: {e}{_unlisted_note()}"
+    if not job_id:
+        return f"{label} started no video job."
+
+    elapsed = 0
+    while True:
+        if elapsed >= _POLL_TIMEOUT:
+            return (f"Video generation timed out after {_POLL_TIMEOUT}s. "
+                    f"Job: {job_id}. The video may still be processing.")
+        time.sleep(_JOB_POLL_INTERVAL)
+        elapsed += _JOB_POLL_INTERVAL
+        try:
+            job = _job_request(provider_id, "GET", f"/videos/{job_id}").json()
+        except Exception as e:
+            logger.error("%s polling failed: %s", label, e, exc_info=True)
+            return f"Video generation polling failed: {e}"
+        status = str(job.get("status") or "")
+        if status == "completed":
+            break
+        if status in {"failed", "cancelled", "expired"}:
+            error = job.get("error")
+            detail = error.get("message") if isinstance(error, dict) else error
+            return f"Video generation {status} on {label}'s side{f': {detail}' if detail else ''}. Job: {job_id}"
+
+    try:
+        if openrouter:
+            video_bytes = _job_request(provider_id, "GET", f"/videos/{job_id}/content?index=0", timeout=120).content
+        else:
+            # Together's clip is at a short-lived link it gives; the key isn't sent there.
+            url = str((job.get("outputs") or {}).get("video_url") or "")
+            if not url:
+                return f"Video generation completed but no URL returned. Job: {job_id}"
+            _validate_generation()
+            download = httpx.get(url, timeout=120, follow_redirects=True)
+            download.raise_for_status()
+            video_bytes = download.content
+    except Exception as e:
+        logger.error("%s video download failed: %s", label, e, exc_info=True)
+        return f"Video generated but download failed: {e}"
+    if not video_bytes:
+        return "Video download returned no data."
+
+    saved = _save_video_to_disk(video_bytes)
+    mode = "image-to-video" if image_bytes else "text-to-video"
+    _set_pending_video({
+        "path": saved,
+        "filename": Path(saved).name if saved else None,
+        "provider": label,
+        "model": model,
+        "duration": duration,
+        "mode": mode,
+    })
+    result = (
+        f"Video generated successfully. Model: {model} | "
+        f"Duration: {duration}s | Aspect ratio: {aspect_ratio} | Resolution: {resolution} | "
+        f"Mode: {mode} | Provider: {label}"
+    )
+    if saved:
+        result += f"\nSaved to: {saved}"
+    return result
+
+
 # ── Core generation functions (dispatchers) ──────────────────────────────
 
 def _generate_video(
@@ -649,6 +782,8 @@ def _generate_video(
         return _generate_video_google(prompt, duration_seconds, aspect_ratio, resolution)
     if provider in {"xai", "xai_oauth"}:
         return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, provider_id=provider)
+    if provider in {"openrouter", "together"}:
+        return _generate_video_job(prompt, duration_seconds, aspect_ratio, resolution, provider_id=provider)
 
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 
@@ -675,6 +810,8 @@ def _animate_image(
         return _generate_video_google(prompt, duration_seconds, aspect_ratio, resolution, image_bytes)
     if provider in {"xai", "xai_oauth"}:
         return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, image_bytes, provider_id=provider)
+    if provider in {"openrouter", "together"}:
+        return _generate_video_job(prompt, duration_seconds, aspect_ratio, resolution, image_bytes, provider_id=provider)
 
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 

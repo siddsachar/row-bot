@@ -166,13 +166,27 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
 
 
 def model_infos_from_catalog(preset: ProviderPreset, payload: Any, *, verified_at: str = "") -> list[ModelInfo]:
-    """The chat models in this provider's ``/models`` answer."""
+    """The chat models in this provider's ``/models`` answer, and its image and video
+    models when Row-Bot's image and video tools can call this provider."""
     from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META
 
+    makes = {kind for kind, table in (("image", IMAGE_PROVIDER_META), ("video", VIDEO_PROVIDER_META))
+             if preset.id in table}
     infos: list[ModelInfo] = []
     seen: set[str] = set()
     for row in _rows(payload):
         model_id = str(row.get("id") or "").strip()
+        kind = str(row.get("type") or "").strip().lower()
+        if model_id and model_id not in seen and kind in makes:
+            seen.add(model_id)
+            info = model_info_from_metadata(
+                preset.id, model_id, {"output_modalities": [kind]},
+                display_name=str(row.get("name") or row.get("display_name") or model_id),
+                context_window=0, risk_label=preset.risk_label, source="preset_catalog",
+            )
+            infos.append(replace(info, last_verified_at=verified_at) if verified_at else info)
+            continue
         if not model_id or model_id in seen or not _is_chat(preset, row):
             continue
         seen.add(model_id)
