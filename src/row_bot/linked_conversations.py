@@ -360,8 +360,8 @@ def _workflow_of(conversation_id: str) -> dict[str, Any] | None:
                  if str(task.get("persistent_thread_id") or "") == conversation_id), None)
 
 
-def take_held(conversation_id: str) -> list[tuple[str, str]]:
-    """Messages held for a workflow's next run, oldest first, as (from, text); they're read once."""
+def take_held(conversation_id: str) -> list[dict[str, str]]:
+    """Messages held for a workflow's next run, oldest first, with who sent them; they're read once."""
     with closing(_conn()) as conn, conn:
         found = conn.execute(f"{_SELECT} WHERE target_id = ? AND status = 'held' ORDER BY created_at",
                              (conversation_id,)).fetchall()
@@ -371,7 +371,8 @@ def take_held(conversation_id: str) -> list[tuple[str, str]]:
                          [record["id"] for record in records])
     if records:
         _publish()
-    return [(_name(record["source_id"]), record["message"]) for record in records]
+    return [{"id": record["source_id"], "title": _name(record["source_id"]), "text": record["message"]}
+            for record in records]
 
 
 def _keep_going(source: Origin) -> bool:

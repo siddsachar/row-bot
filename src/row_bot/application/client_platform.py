@@ -128,6 +128,48 @@ def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, 
     return [(indexed[0], row) for indexed, row in zip(records, projected)]
 
 
+def with_run_failures(conversation_id: str, rows: list[dict]) -> list[dict]:
+    """A workflow run that didn't finish says why under its last line in the chat.
+
+    A run's lines are its first message's note and the notes of the messages after it; a run's outcome lives
+    with the run (``tasks.runs_by_first_message``), never in the saved messages the model reads.
+    """
+    lines = [row["message_id"] for row in rows if row.get("note") == "continuation" and row.get("message_id")]
+    if not lines:
+        return rows
+    from row_bot import tasks
+    try:
+        runs = tasks.runs_by_first_message(conversation_id, lines)
+    except sqlite3.Error:
+        _LOG.debug("Could not read the workflow runs of %s", conversation_id, exc_info=True)
+        return rows
+    last_line: dict[str, int] = {}
+    current = ""
+    for index, row in enumerate(rows):
+        if row.get("note") != "continuation":
+            continue
+        current = row.get("message_id") if row.get("message_id") in runs else current
+        if current:
+            last_line[current] = index
+    failed = {last_line[first]: runs[first]["notice"] or "The run didn't finish."
+              for first in last_line if runs[first]["status"] == "failed"
+              and not _error_follows(rows, last_line[first])}
+    return [{**row, "run_failure": failed[index][:512]} if index in failed else row
+            for index, row in enumerate(rows)]
+
+
+def _error_follows(rows: list[dict], line: int) -> bool:
+    """Whether the turn after a run's line already shows its error ("⚠️ Rate limit reached…")."""
+    for row in rows[line + 1:]:
+        if row.get("role") == "user":
+            return False
+        text = next((str(block.get("text") or "") for block in row.get("blocks") or []
+                     if block.get("type") in {"text", "markdown"}), "")
+        if row.get("role") == "assistant" and text.lstrip().startswith("⚠"):
+            return True
+    return False
+
+
 def _buddy(conversation_id: str, event_type: str, label: str, **payload: Any) -> None:
     """Tell Buddy what a turn is doing; Buddy never breaks a turn."""
     try:
@@ -397,12 +439,13 @@ class ClientPlatformService:
                         resume_pending: bool = False,
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "", retry: bool = False, shown: dict[str, str] | None = None,
-                        linked: dict[str, Any] | None = None) -> Any:
+                        linked: dict[str, Any] | None = None, held: tuple[dict, ...] = ()) -> Any:
         """Single admission path for every conversation turn.
 
         ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
         admits the new one, after every check has passed (``threads.append_checkpoint_messages``). ``shown``: what
-        the transcript shows instead of the text, and its note (the person's message sent from a page)."""
+        the transcript shows instead of the text, and its note (the person's message sent from a page). ``held``:
+        with a note, the messages other conversations left for a workflow run, shown under its line."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -451,6 +494,13 @@ class ClientPlatformService:
                 # A server-started follow-up: the transcript shows the note,
                 # the model reads the prompt.
                 public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
+                if held:
+                    from row_bot.runtime.checkpoint_reader import HELD_TEXT_CHARS, MAX_HELD_SHOWN
+                    cut = HELD_TEXT_CHARS - 1
+                    public_metadata["row_bot_ui"] = {"held": [
+                        {"id": item["id"], "title": item["title"][:160],
+                         "text": item["text"] if len(item["text"]) <= HELD_TEXT_CHARS else item["text"][:cut] + "…"}
+                        for item in held[-MAX_HELD_SHOWN:]]}
             elif shown:
                 # The person's message from a page (N5): the chat shows its decisions in words, the model reads
                 # them with their structured list. Its note keeps it from counting as the person's request when
@@ -819,32 +869,37 @@ class ClientPlatformService:
         return {"items": items, "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
-    def _refresh_checkpoint(self, conversation_id: str, *, settle: tuple[str, bool] | None = None) -> None:
+    def _refresh_checkpoint(self, conversation_id: str, *, settle: tuple[str, bool] | None = None,
+                            reread: bool = False) -> None:
         """Read the saved messages in; with *settle* (a live row, adopted or not), retire that live row in the
-        same step, so no read shows the saved answer and its live row together."""
+        same step, so no read shows the saved answer and its live row together. *reread*: read them in again
+        though they're unchanged (what's shown beside them, a run's outcome, changed)."""
         from row_bot import threads
         from row_bot.runtime.checkpoint_reader import open_checkpoint
         with threads.checkpoint_mutation(conversation_id):
             threads.migrate_checkpoint_message_ids(conversation_id)
             with open_checkpoint(conversation_id) as reader:
-                if reader and reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]:
+                if reader and (reread or reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]):
                     records = list(reader.records(start=-100))
-                    rows = [row for _, row in project_checkpoint_records(reader, records)]
-                    self.projection.install_rows(conversation_id, reader.revision, rows, settle=settle)
+                    rows = with_run_failures(conversation_id,
+                                             [row for _, row in project_checkpoint_records(reader, records)])
+                    self.projection.install_rows(conversation_id, reader.revision, rows, settle=settle,
+                                                 replace=reread)
                     return
         if settle is not None:
             self.projection.settle_live(conversation_id, settle[0], adopted=settle[1])
 
-    def conversation_changed(self, conversation_id: str) -> None:
+    def conversation_changed(self, conversation_id: str, *, reread: bool = False) -> None:
         """A conversation was written outside its own turns (a delegated
-        agent's approval notice in its parent, the agent's paused turn): pages
-        showing it re-read it (B186). Best effort, off the writer's thread."""
+        agent's approval notice in its parent, the agent's paused turn), or a
+        workflow run in it ended (*reread*): pages showing it re-read it (B186).
+        Best effort, off the writer's thread."""
 
         def publish() -> None:
             try:
                 with _COMMAND_LOCK:
                     before = self.projection.snapshot(conversation_id)["projection_revision"]
-                    self._refresh_checkpoint(conversation_id)
+                    self._refresh_checkpoint(conversation_id, reread=reread)
                     current = self.projection.snapshot(conversation_id)
                     if current["projection_revision"] == before:
                         self.projection.publish(conversation_id, "transcript.checkpoint",
@@ -956,7 +1011,9 @@ class ClientPlatformService:
         with open_checkpoint(conversation_id, snap["checkpoint_revision"]) as reader:
             if reader:
                 records = list(reader.records(start=max(0, offset - 256)))
-                for index, row in project_checkpoint_records(reader, records):
+                projected = project_checkpoint_records(reader, records)
+                rows = with_run_failures(conversation_id, [row for _, row in projected])
+                for (index, _), row in zip(projected, rows):
                     if index < offset:
                         continue
                     encoded_size = len(json.dumps(row, ensure_ascii=False).encode())
@@ -1643,7 +1700,8 @@ class ClientPlatformService:
                 retry=not resume and queue_record is None and followup is None and payload.get("retry") is True,
                 shown=shown,
                 linked=({"text": followup.shown or followup.prompt, **(followup.linked_from or {})}
-                        if followup is not None and followup.kind == "linked" else None))
+                        if followup is not None and followup.kind == "linked" else None),
+                held=followup.held if followup is not None else ())
         except BaseException:
             if page_id:
                 from row_bot import pages

@@ -8584,6 +8584,14 @@ class LinkedFrom(WireModel):
     kind: Literal["message", "reply"] = "message"
 
 
+class HeldMessage(WireModel):
+    """A message another conversation left for a workflow's next run, shown under that run's line."""
+
+    id: OpaqueId
+    title: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=4_000)
+
+
 class ConversationLinkView(WireModel):
     """A conversation another one started or proposed, as its card shows it (5.3.1 C)."""
 
@@ -8622,6 +8630,10 @@ class TranscriptRow(WireModel):
                   "linked"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
+    # A workflow run's line (note "continuation"): the messages other conversations left for that run.
+    held: list[HeldMessage] = Field(default_factory=list, max_length=10)
+    # A workflow run's last line, when the run didn't finish: why, in plain words.
+    run_failure: str | None = Field(default=None, max_length=512)
     # A delegated agent's approval announced in its parent conversation: the
     # row is answered in place with the approval card.
     approval_id: str | None = Field(default=None, max_length=128)
