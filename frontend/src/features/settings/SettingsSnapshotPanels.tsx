@@ -2,6 +2,7 @@ import { BrowserSites } from '../browser/BrowserSites';
 import { Link } from 'react-router-dom';
 import {
   Activity,
+  AlertTriangle,
   AtSign,
   BarChart3,
   BookOpen,
@@ -1088,6 +1089,54 @@ function ReviewedSettingsAction({
         </div>
       </ModalTask>
     </Wrapper>
+  );
+}
+
+/**
+ * Shown on every Settings page while tools_config.json can't be read: the
+ * registry then keeps every tool off rather than at its defaults, and saving
+ * a tool setting is refused. The reset keeps the old file beside it.
+ */
+export function ToolSettingsUnreadable({
+  unreadable,
+  mutation,
+}: {
+  unreadable: boolean;
+  mutation: SettingsMutationIO | null;
+}) {
+  const notify = useNotify();
+  const was = useRef(unreadable);
+  useEffect(() => {
+    if (was.current && !unreadable) {
+      notify(
+        'Tool settings start from the defaults now. Turn on the tools you use and add your blocked commands again.',
+      );
+    }
+    was.current = unreadable;
+  }, [unreadable, notify]);
+  if (!unreadable || !mutation) return null;
+  return (
+    <div className="settings-tool-notice" role="alert">
+      <AlertTriangle size={20} aria-hidden />
+      <div>
+        <strong>Tool settings can’t be read</strong>
+        <p>
+          Row-Bot couldn’t read its tool settings file, so every tool is off
+          and tool settings can’t be saved. Restore the file from a backup, or
+          start again from the defaults.
+        </p>
+        <ReviewedSettingsAction
+          mutation={mutation}
+          field="tools.reset_unreadable"
+          label="Start from defaults"
+          description="Keeps the unreadable file beside the new one and starts tool settings from the defaults."
+          presentation="button"
+          variant="primary"
+          icon={<RotateCcw size={14} aria-hidden />}
+          confirm="Tools go back to their defaults, and your blocked commands are cleared. The unreadable file is kept so nothing is lost."
+        />
+      </div>
+    </div>
   );
 }
 

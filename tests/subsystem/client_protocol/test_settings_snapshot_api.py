@@ -1816,3 +1816,49 @@ def test_tracker_entries_refuse_unknown_trackers_without_reading_others(api):
     known = client.get(TRACKER_ENTRIES.format("water"), headers=headers).json()
     assert [item["at"] for item in known["items"]] == ["2026-01-02T09:00:00"]
     assert client.get(TRACKER_ENTRIES.format("water")).status_code == 401
+
+
+def test_an_unreadable_tool_settings_file_is_reported_and_reset_keeps_it_aside(api):
+    client, headers, data, _ = api
+    path = data / "tools_config.json"
+    path.write_bytes(b'{"tools": {"shell": fal')
+    snapshot = client.get(BASE, headers=headers).json()
+    assert snapshot["tool_settings_unreadable"] is True
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "tools.reset_unreadable",
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    assert path.read_bytes() == b'{"tools": {"shell": fal'
+
+    result = _execute(client, headers, request, review)
+
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "completed"
+    kept = list(data.glob("tools_config.unreadable-*.json"))
+    assert [item.read_bytes() for item in kept] == [b'{"tools": {"shell": fal']
+    assert kept[0].name in result.json()["action_result"]["message"]
+    assert not path.exists()
+    assert client.get(BASE, headers=headers).json()["tool_settings_unreadable"] is False
+
+
+def test_resetting_tool_settings_leaves_a_readable_file_alone(api):
+    client, headers, data, _ = api
+    path = data / "tools_config.json"
+    before = path.read_bytes()
+    snapshot = client.get(BASE, headers=headers).json()
+    assert snapshot["tool_settings_unreadable"] is False
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "tools.reset_unreadable",
+        "value": True,
+    }
+
+    result = _execute(client, headers, request, _review(client, headers, request))
+
+    assert result.status_code == 200, result.text
+    assert path.read_bytes() == before
+    assert not list(data.glob("tools_config.unreadable-*.json"))
