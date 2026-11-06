@@ -1,0 +1,44 @@
+name: Catalog signals
+
+# Release preparation: the quality signals shipped beside the MCP Registry snapshot (stars, last push,
+# archived, fork parent and licence per repository; first publish and versions per Registry record).
+# Run it once the snapshot is current, download the file and commit it in the release-preparation
+# pull request. It reads with the workflow's own token, which can only read; Row-Bot never makes these calls.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-signals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.7,<1.0"
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Build the signals file
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run python scripts/build_catalog_signals.py
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: registry-signals
+          path: src/row_bot/mcp_client/registry_signals.json.xz
+          if-no-files-found: error

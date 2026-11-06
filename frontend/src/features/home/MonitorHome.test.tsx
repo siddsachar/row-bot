@@ -381,8 +381,8 @@ it('shows the kept results after leaving the tab, without running anything', asy
   ).toHaveAttribute('href', '/settings/models');
   expect(cloud).toHaveTextContent('OK');
   expect(
-    within(cloud).getByRole('link', { name: 'Open Providers settings' }),
-  ).toHaveAttribute('href', '/settings/providers');
+    within(cloud).getByRole('link', { name: 'Open Models settings' }),
+  ).toHaveAttribute('href', '/settings/models');
   // Checks from other areas stay in their own tile.
   expect(checks).not.toHaveTextContent('Disk');
 });
@@ -1579,8 +1579,8 @@ it('puts the worst check fix under its tile and in its detail', async () => {
   ).toHaveAttribute('href', '/settings/models#default-model');
   // A healthy check keeps the way to its settings page.
   expect(
-    within(cloud).getByRole('link', { name: 'Open Providers settings' }),
-  ).toHaveAttribute('href', '/settings/providers');
+    within(cloud).getByRole('link', { name: 'Open Models settings' }),
+  ).toHaveAttribute('href', '/settings/models');
 });
 
 it('renews an expired sign-in from its tile with the Accounts row action', async () => {

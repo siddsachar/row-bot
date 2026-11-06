@@ -15,7 +15,6 @@ const settingsRoutes = [
   ['preferences', 'Preferences'],
   ['appearance', 'Appearance'],
   ['buddy', 'Buddy'],
-  ['providers', 'Providers'],
   ['models', 'Models'],
   ['voice', 'Voice'],
   ['knowledge', 'Memory'],
@@ -30,12 +29,7 @@ const settingsRoutes = [
   ['data', 'Data'],
 ] as const;
 
-const firefoxPhoneRoutes = new Set([
-  'providers',
-  'system',
-  'apps',
-  'preferences',
-]);
+const firefoxPhoneRoutes = new Set(['models', 'system', 'apps', 'preferences']);
 
 // Legacy ids and moved pages redirect to their new page (and row).
 const aliases = [
@@ -43,7 +37,9 @@ const aliases = [
   ['plugins', 'apps', 'Apps'],
   ['mcp', 'apps', 'Apps'],
   ['wiki', 'knowledge', 'Memory'],
-  ['cloud', 'providers', 'Providers'],
+  // Providers merged into Models (5.3.3).
+  ['cloud', 'models', 'Models'],
+  ['providers', 'models', 'Models'],
   // Accounts and channels are apps: their old pages open the app.
   ['google', 'apps/google', 'Apps'],
   ['gmail', 'apps/google', 'Apps'],
@@ -201,7 +197,7 @@ test('Settings groups list every page, and search finds pages and rows', async (
     navigation.getByRole('link', { name: 'Documents', exact: true }),
   ).toHaveAttribute('aria-current', 'page');
   await expect(
-    navigation.getByRole('link', { name: 'Providers', exact: true }),
+    navigation.getByRole('link', { name: 'Models', exact: true }),
   ).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-category-deep-link-wide');
@@ -245,8 +241,8 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await screenshot(page, info, 'settings-category-search-wide');
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(settingsPath('providers'));
-  await waitForSettings(page, 'Providers');
+  await page.goto(settingsPath('models'));
+  await waitForSettings(page, 'Models');
   // Compact: the picker replaces the page links; the search stays.
   await expect(navigation.getByRole('link')).toHaveCount(0);
   await expect(
@@ -256,8 +252,8 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await picker.focus();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
-  await waitForSettings(page, 'Models');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('voice')}$`));
+  await waitForSettings(page, 'Voice');
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-picker-keyboard-narrow');
 });
@@ -274,8 +270,8 @@ test('Settings shell preserves the exact owner order aliases history and reload'
   await blockFixtureServiceWorkers(context);
   await useLightBlueCompact(page);
   await page.goto('/app-v2/settings');
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('providers')}$`));
-  await waitForSettings(page, 'Providers');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
+  await waitForSettings(page, 'Models');
 
   const expectedLabels = settingsRoutes.map(([, label]) => label);
   if (info.project.use.viewport!.width >= 1024) {
@@ -335,7 +331,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     await expect(agents).toHaveCount(0);
   }
 
-  await page.goto(settingsPath('providers'));
+  await page.goto(settingsPath('buddy'));
   await page.goto(settingsPath('models'));
   await page.goto(settingsPath('tracker'));
   await page.goBack();
@@ -355,13 +351,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     aliases: Object.fromEntries(
       aliases.map(([alias, destination]) => [alias, destination]),
     ),
-    history: [
-      'providers',
-      'models',
-      'tracker',
-      'back:models',
-      'forward:tracker',
-    ],
+    history: ['buddy', 'models', 'tracker', 'back:models', 'forward:tracker'],
     reload: 'tracker',
     browser: browserName,
   });
@@ -379,7 +369,7 @@ for (const [id, label] of settingsRoutes) {
     );
     test.skip(
       browserName === 'firefox' && !firefoxPhoneRoutes.has(id),
-      'Firefox phone smoke is scoped to the shell, Providers, System, MCP, and Preferences.',
+      'Firefox phone smoke is scoped to the shell, Models, System, MCP, and Preferences.',
     );
     await blockFixtureServiceWorkers(context);
     await useLightBlueCompact(page);
@@ -589,7 +579,7 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
     name: 'Settings sections',
     exact: true,
   });
-  for (const name of ['Preferences', 'Appearance', 'Buddy', 'Providers']) {
+  for (const name of ['Preferences', 'Appearance', 'Buddy']) {
     await page.keyboard.press('Tab');
     await expect(nav.getByRole('link', { name, exact: true })).toBeFocused();
   }

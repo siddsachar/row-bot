@@ -25,6 +25,7 @@ import zlib
 
 from row_bot.integrations import apps
 from row_bot.integrations.safe import write_atomic
+from row_bot.mcp_client import registry_signals
 
 if TYPE_CHECKING:
     from row_bot.mcp_client.marketplace import MarketplaceEntry
@@ -122,13 +123,17 @@ def derive(entry: MarketplaceEntry) -> dict:
     how = sources.catalog_method(identity, metadata.get("auth_mode") or ("oauth" if entry.requires_auth else ""))
     sign_in = sources.sign_in(install, metadata.get("auth_mode", ""), entry.requires_auth)
     updated = epoch(metadata.get("updated_at", ""))
-    merit = sources.merit(stars=0, words=len(sources.plain_text(entry.description[:2048], 2048).split()),
-                          licence=bool(metadata.get("license")), icon=bool(metadata.get("icon") or (app and app.icon)),
-                          sign_in_known=sign_in != "unknown", fork=False)
+    shipped = sources.shipped_signals(entry.url, canonical, updated)
+    stars = (shipped["signals"] or {}).get("stars") or 0
+    merit = sources.merit(stars=stars, words=len(sources.plain_text(entry.description[:2048], 2048).split()),
+                          licence=bool(metadata.get("license") or shipped["licence"]),
+                          icon=bool(metadata.get("icon") or (app and app.icon)), sign_in_known=sign_in != "unknown",
+                          fork=shipped["fork"])
     return {"app": app.id if app else "", "verified": apps.verified(app, refs), "featured": app.featured_rank if app else None,
             "setup": sources.setup_order(how, 0 if supported and known else 1 if supported else 2),
-            "hosted": identity.startswith("mcp:endpoint:"), "sign_in": _SIGN_IN[sign_in], "merit": merit, "stars": 0,
-            "pushed": updated, "archived": False, "first": 0, "updated": updated, "app_names": " ".join(apps.names(app)),
+            "hosted": identity.startswith("mcp:endpoint:"), "sign_in": _SIGN_IN[sign_in], "merit": merit, "stars": stars,
+            "pushed": shipped["pushed_at"] or updated, "archived": shipped["archived"], "first": shipped["first_published"],
+            "updated": updated, "app_names": " ".join(apps.names(app)),
             "about": " ".join([app.publisher, app.summary] if app else [])}
 
 
@@ -193,7 +198,8 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
             if cancelled():
                 raise ValueError("integration_search_cancelled")
             os.replace(building, root / name)
-            value = {"schema": SCHEMA, "file": name, "apps": apps.digest(), "captured_at": captured_at, "watermark": watermark,
+            value = {"schema": SCHEMA, "file": name, "apps": apps.digest(), "signals": registry_signals.digest(),
+                     "captured_at": captured_at, "watermark": watermark,
                      "etag": etag, "digest": digest.hexdigest(), "count": len(by_name), "updated_at": updated_at,
                      "built_at": time.time()}
             for attempt in range(5):  # A search may hold the pointer open for a moment (Windows).
@@ -224,12 +230,13 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
 
 def ensure() -> dict:
     """The index in use, built first from the shipped snapshot when it is missing, outdated
-    by a newer release snapshot, or derived under other app rules."""
+    by a newer release snapshot, or derived under other app rules or other shipped signals."""
     from row_bot.mcp_client import registry_snapshot
     with _LOCK:
         current = pointer()
         try:
-            shipped_key = (str(registry_snapshot.SHIPPED), registry_snapshot.SHIPPED.stat().st_mtime_ns)
+            shipped_key = (str(registry_snapshot.SHIPPED), registry_snapshot.SHIPPED.stat().st_mtime_ns,
+                           registry_signals.digest())
         except OSError:
             shipped_key = None
         if current and _READY.get("key") == (current["file"], shipped_key):
@@ -243,7 +250,7 @@ def ensure() -> dict:
             current = None  # Torn by a crash or damaged: rebuilt from the release snapshot.
         if current and (shipped is None or current["digest"] == shipped["digest"]
                         or registry_snapshot.instant(current["watermark"]) > registry_snapshot.instant(shipped["watermark"])):
-            if current["apps"] == apps.digest():
+            if current["apps"] == apps.digest() and current.get("signals", "") == registry_signals.digest():
                 _READY["key"] = (current["file"], shipped_key)
                 return current
             return build(list(rows(current)), captured_at=current["captured_at"], watermark=current["watermark"],
@@ -331,8 +338,8 @@ def _order(strong: str) -> str:
     quality = (f"e.merit + CASE WHEN e.archived THEN {ARCHIVED} WHEN e.pushed = 0 THEN 0 WHEN :now - e.pushed <= {90 * 86400} "
                f"THEN {ACTIVE} WHEN :now - e.pushed <= {365 * 86400} THEN {ALIVE} ELSE 0 END - CASE WHEN e.first > 0 AND "
                f":now - e.first < {NEW_DAYS * 86400} AND e.stars = 0 THEN {NEW} ELSE 0 END")
-    return (f"ORDER BY ({match}) = 2, NOT e.verified, {match}, COALESCE(e.featured, 1000000), -({quality}), e.setup, "
-            "lower(e.title), e.name LIMIT :limit")
+    return (f"ORDER BY ({match}) = 2, NOT e.verified, CASE WHEN e.verified THEN {match} ELSE 0 END, "
+            f"COALESCE(e.featured, 1000000), -({quality}), {match}, e.setup, lower(e.title), e.name LIMIT :limit")
 
 
 _NAMESPACE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+(/[a-z0-9._-]*)?")

@@ -58,18 +58,31 @@ async function shoot(page: Page, info: TestInfo, name: string) {
   await page.emulateMedia({ colorScheme: 'light' });
 }
 
-async function claudeRow(page: Page, state: string, setUpAgain = false) {
+/** Claude's sheet: from its tile once ready, else from Add a provider. */
+async function claudeSheet(page: Page, state: string, setUpAgain = false) {
   await fixture(
     page,
     `/__s9_fixture/claude-plan/${state}${setUpAgain ? '?set_up_again=true' : ''}`,
   );
-  await page.goto('/app-v2/settings/providers');
-  const row = page
-    .getByRole('region', { name: 'Subscriptions' })
-    .getByRole('listitem')
-    .filter({ hasText: 'Claude (your Claude plan)' });
-  await expect(row).toBeVisible();
-  return row;
+  await page.goto('/app-v2/settings/models');
+  const connected = page.getByRole('region', { name: 'Connected' });
+  const add = connected.getByRole('button', { name: 'Add a provider' });
+  await expect(add).toBeVisible();
+  const tile = connected.locator('.settings-provider-tile', {
+    hasText: 'Claude (your Claude plan)',
+  });
+  if (await tile.count()) await tile.click();
+  else {
+    await add.click();
+    const gallery = page.getByRole('dialog', { name: 'Add a provider' });
+    await gallery.getByRole('tab', { name: 'Subscription' }).click();
+    await gallery
+      .getByRole('button', { name: /Claude \(your Claude plan\)/ })
+      .click();
+  }
+  const sheet = page.getByRole('dialog', { name: 'Claude (your Claude plan)' });
+  await expect(sheet).toBeVisible();
+  return sheet;
 }
 
 const SUMMARY =
@@ -98,20 +111,10 @@ const states = [
   },
 ];
 
-async function claudeDialog(page: Page, state: string) {
-  const row = await claudeRow(page, state);
-  await row.getByRole('button', { name: 'Set up Claude' }).click();
-  return page.getByRole('dialog', { name: 'Claude (your Claude plan)' });
-}
-
 for (const { state, pill, button, words } of states)
   test(`Claude plan: ${state} shows one next step`, async ({ page }, info) => {
-    const row = await claudeRow(page, state);
-    await expect(row).toContainText(pill);
-    await row.getByRole('button', { name: 'Set up Claude' }).click();
-    const dialog = page.getByRole('dialog', {
-      name: 'Claude (your Claude plan)',
-    });
+    const dialog = await claudeSheet(page, state);
+    await expect(dialog).toContainText(pill);
     await expect(dialog).toContainText(SUMMARY);
     if (words) await expect(dialog).toContainText(words);
     await expect(dialog.getByRole('button', { name: button })).toBeVisible();
@@ -127,7 +130,7 @@ for (const { state, pill, button, words } of states)
 test('Claude plan: Use my Claude plan installs Claude Code, then Claude’s own sign-in connects it', async ({
   page,
 }, info) => {
-  const dialog = await claudeDialog(page, 'not_installed');
+  const dialog = await claudeSheet(page, 'not_installed');
   await fixture(page, '/__a5_fixture/claude-install/hold');
   await dialog.getByRole('button', { name: 'Use my Claude plan' }).click();
   await expect(dialog).toContainText('Installing Claude Code from Anthropic…');
@@ -192,7 +195,7 @@ test('Claude plan: Use my Claude plan installs Claude Code, then Claude’s own 
 test('Claude plan: an install that failed says why, and Try again', async ({
   page,
 }, info) => {
-  const dialog = await claudeDialog(page, 'not_installed');
+  const dialog = await claudeSheet(page, 'not_installed');
   await fixture(page, '/__a5_fixture/claude-install/checksum_mismatch');
   await dialog.getByRole('button', { name: 'Use my Claude plan' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
@@ -209,7 +212,7 @@ test('Claude plan: an install that failed says why, and Try again', async ({
 test('Claude plan: closing Claude’s sign-in early says so, and Sign in again', async ({
   page,
 }, info) => {
-  const dialog = await claudeDialog(page, 'signed_out');
+  const dialog = await claudeSheet(page, 'signed_out');
   await dialog.getByRole('button', { name: 'Use my Claude plan' }).click();
   const panel = dialog.getByRole('region', { name: 'Claude’s sign-in' });
   await expect(panel).toContainText('Paste code here if prompted');
@@ -225,18 +228,18 @@ test('Claude plan: closing Claude’s sign-in early says so, and Sign in again',
 test('Claude plan: ready shows the plan and Claude Code’s version', async ({
   page,
 }, info) => {
-  const row = await claudeRow(page, 'ready');
-  await expect(row).toContainText('Ready');
-  await expect(row).toContainText('Runs Claude Code with your Claude plan');
-  await expect(row).toContainText('Claude Max');
+  await fixture(page, '/__s9_fixture/claude-plan/ready');
+  await page.goto('/app-v2/settings/models');
+  const tile = page
+    .getByRole('region', { name: 'Connected' })
+    .locator('.settings-provider-tile', {
+      hasText: 'Claude (your Claude plan)',
+    });
+  await expect(tile).toContainText('Subscription');
   await shoot(page, info, 'claude-plan-ready-row');
-  await row
-    .getByRole('button', { name: 'More actions for Claude (your Claude plan)' })
-    .click();
-  await page.getByRole('menuitem', { name: 'Check Claude Code' }).click();
-  const dialog = page.getByRole('dialog', {
-    name: 'Claude (your Claude plan)',
-  });
+  const dialog = await claudeSheet(page, 'ready');
+  await expect(dialog).toContainText('Ready');
+  await expect(dialog).toContainText('Runs Claude Code with your Claude plan');
   await expect(dialog).toContainText('Claude plan connected');
   await expect(dialog).toContainText('Claude Max · Claude Code 2.1.282');
   await expect(
@@ -250,21 +253,16 @@ test('Claude plan: ready shows the plan and Claude Code’s version', async ({
 test('Claude plan: a profile the old sign-in set up is told to set it up again', async ({
   page,
 }, info) => {
-  const row = await claudeRow(page, 'signed_out', true);
-  await expect(row).toContainText('Set up again');
-  await expect(row).toContainText(
-    'Claude now works through Claude Code. Set it up again',
+  const dialog = await claudeSheet(page, 'signed_out', true);
+  await expect(dialog).toContainText('Set up again');
+  await expect(dialog).toContainText(
+    'Claude now works through Claude Code. Set it up again.',
   );
-  await shoot(page, info, 'claude-plan-set-up-again-row');
-  await row.getByRole('button', { name: 'Set up Claude' }).click();
-  await expect(
-    page.getByRole('dialog', { name: 'Claude (your Claude plan)' }),
-  ).toContainText('Claude now works through Claude Code. Set it up again.');
   await shoot(page, info, 'claude-plan-set-up-again');
 });
 
 test('Claude plan: Check again reads Claude Code afresh', async ({ page }) => {
-  const dialog = await claudeDialog(page, 'error');
+  const dialog = await claudeSheet(page, 'error');
   await fixture(page, '/__s9_fixture/claude-plan/ready');
   await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog).toContainText('Claude Max · Claude Code 2.1.282');

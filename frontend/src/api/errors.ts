@@ -32,12 +32,8 @@ function open(leaf: string, label: string, anchor?: string): ErrorAction {
     label: `Open ${label}`,
   };
 }
-const PROVIDERS = open('providers', 'Providers');
-const CUSTOM_ENDPOINTS = open(
-  'providers',
-  'Custom endpoints',
-  'custom-endpoints',
-);
+const PROVIDERS = open('models', 'Models', 'connections');
+const CUSTOM_ENDPOINTS = open('models', 'Custom endpoints', 'custom-endpoints');
 const IMAGE_MODEL = open('models', 'Image model', 'image-model');
 const VOICE = open('voice', 'Voice settings', 'dictation');
 // Accounts and channels are apps: their fixes open the app.

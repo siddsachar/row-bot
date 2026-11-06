@@ -487,6 +487,8 @@ def _small_registry_snapshot(_registry_fixture_snapshot: Path, monkeypatch: pyte
     # The shipped Registry mirror holds tens of thousands of records. Deterministic tests
     # index a one-record fixture instead; a test of the shipped snapshot sets SHIPPED itself.
     monkeypatch.setattr("row_bot.mcp_client.registry_snapshot.SHIPPED", _registry_fixture_snapshot)
+    # And no shipped quality signals: a test that ranks with signals ships its own (tests/helpers/registry.py).
+    monkeypatch.setattr("row_bot.mcp_client.registry_signals.SHIPPED", _registry_fixture_snapshot.with_name("no-signals.json.xz"))
 
 
 @pytest.fixture

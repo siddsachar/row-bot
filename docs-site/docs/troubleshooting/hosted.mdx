@@ -65,7 +65,7 @@ xAI's sign-in can only send your browser back to an address on the server's own 
 - **Claude turned the code down:** Claude's own message shows in the panel and it asks again. Paste the code again, all of it.
 - **"Claude's sign-in was closed before it finished."** The panel was closed, or nothing happened in it for ten minutes. Choose **Sign in again**.
 - **"Row-Bot needs Claude Code … or newer."** Choose **Update Claude Code**.
-- **"Claude signed you out."** Choose **Sign in again** in **Settings › Providers › Claude (your Claude plan)**.
+- **"Claude signed you out."** Choose **Sign in again** in **Settings › Models › Claude (your Claude plan)**.
 
 [Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan) explains the panel.
 
@@ -73,7 +73,7 @@ xAI's sign-in can only send your browser back to an address on the server's own 
 
 Your hosted server has no graphics card, so it can't run chat models itself, and Row-Bot doesn't offer Ollama on it. Row-Bot's own search model for memory and documents does run there; only chat models need more. To use models on hardware of your own:
 
-- **Connect your own model server.** Run Ollama, llama.cpp, vLLM or LM Studio on a computer with a graphics card, and add it as a custom endpoint: **Other ways › Use my own model server** at first launch, or **Add custom endpoint** in **Settings › Providers**. Your hosted Row-Bot reaches it over the internet, so it needs an address the internet can reach, with a key or a tunnel in front: see [Reach It From Anywhere](/docs/guides/own-model-server#reach-it-from-anywhere).
+- **Connect your own model server.** Run Ollama, llama.cpp, vLLM or LM Studio on a computer with a graphics card, and add it as a custom endpoint: **Other ways › Use my own model server** at first launch, or **Add a provider › Your server** in **Settings › Models**. Your hosted Row-Bot reaches it over the internet, so it needs an address the internet can reach, with a key or a tunnel in front: see [Reach It From Anywhere](/docs/guides/own-model-server#reach-it-from-anywhere).
 - **Use the desktop app,** which runs Ollama on your own computer. [Move your Row-Bot there](/docs/getting-started/in-your-browser#moving-to-your-computer-and-back) whenever you like.
 
 What Row-Bot says:

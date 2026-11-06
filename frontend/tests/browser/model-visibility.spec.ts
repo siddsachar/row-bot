@@ -147,7 +147,7 @@ test('stars from the picker make your models, in the order they were added', asy
   ).toHaveText([/^qwen3\.8:27b/]);
 });
 
-test('Settings › Models lists the local models with their stars', async ({
+test('Settings › Models lists your starred models, and takes one out', async ({
   page,
 }, info) => {
   await fixture(
@@ -155,19 +155,17 @@ test('Settings › Models lists the local models with their stars', async ({
     '/__s8_fixture/models/seed?favourites=qwen3.8:27b,llama3.1:8b',
   );
   await page.goto('/app-v2/settings/models');
-  const group = page.getByRole('region', { name: 'On this computer' });
-  await expect(group).toContainText('2 starred');
-  const listed = group.getByRole('list', { name: 'Models on this computer' });
-  await expect(listed.getByRole('listitem')).toHaveCount(21);
-  await expect(listed.getByRole('listitem').first()).toContainText(
-    'qwen3.8:27bIn your models',
+  const yours = page.getByRole('list', { name: 'Your models' });
+  await expect(yours.getByRole('listitem')).toHaveCount(2);
+  await expect(yours.getByRole('listitem').first()).toContainText(
+    'qwen3.8:27b',
   );
-  await group.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+  await yours.evaluate((element) => element.scrollIntoView({ block: 'start' }));
   await shoot(page, info, 'models-settings');
-  await group
+  await yours
     .getByRole('button', { name: 'Remove llama3.1:8b from your models' })
     .click();
-  await expect(group).toContainText('1 starred');
+  await expect(yours.getByRole('listitem')).toHaveCount(1);
 });
 
 test('Setup lists your models, then Row-Bot’s picks, then every model', async ({

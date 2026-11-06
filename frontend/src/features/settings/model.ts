@@ -11,7 +11,7 @@ export const settingsGroups = [
     label: 'General',
     leaves: ['preferences', 'appearance', 'buddy'],
   },
-  { id: 'models', label: 'Models', leaves: ['providers', 'models', 'voice'] },
+  { id: 'models', label: 'Models', leaves: ['models', 'voice'] },
   {
     id: 'knowledge',
     label: 'Knowledge',
@@ -48,7 +48,6 @@ const leafLabels: Record<ListedLeafId, string> = {
   preferences: 'Preferences',
   appearance: 'Appearance',
   buddy: 'Buddy',
-  providers: 'Providers',
   models: 'Models',
   voice: 'Voice',
   knowledge: 'Memory',
@@ -72,10 +71,8 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   preferences: 'identity name personality launch window dream cycle',
   appearance: 'theme dark light accent colour color density transparency',
   buddy: 'companion avatar pack motion desktop',
-  providers:
-    'api key credentials ollama openai anthropic claude chatgpt codex grok xai gemini subscription sign in cloud connect',
   models:
-    'default model brain thinking reasoning catalog pin vision camera image video reading limit context steps helpers',
+    'main model default brain thinking reasoning catalog star favourite vision camera image video reading limit context steps helpers providers api key credentials ollama openai anthropic claude chatgpt codex grok xai gemini subscription sign in cloud connect',
   voice: 'dictation talk speech microphone tts read aloud whisper',
   knowledge: 'knowledge memories wiki graph vault',
   documents: 'files upload pdf library embedding index search model',
@@ -156,7 +153,9 @@ export const settingsRedirects: Record<
   mcp: { leaf: 'apps' },
   wiki: { leaf: 'knowledge', anchor: 'wiki-vault' },
   memory: { leaf: 'knowledge' },
-  cloud: { leaf: 'providers' },
+  cloud: { leaf: 'models', anchor: 'connections' },
+  // Providers merged into Models (5.3.3).
+  providers: { leaf: 'models', anchor: 'connections' },
   migration: { leaf: 'data', anchor: 'migration' },
   backup: { leaf: 'data', anchor: 'backup' },
   search: { leaf: 'tools', anchor: 'search-tools' },
@@ -361,26 +360,26 @@ export const settingsRows: SettingsRow[] = [
     keywords: 'avatar pack',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'providers-local',
     label: 'On this device',
     keywords: 'ollama local models computer',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'providers-subscription',
     label: 'Subscriptions',
     keywords: 'claude chatgpt codex grok xai sign in plan account',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'providers-api',
     label: 'API providers',
     keywords:
       'api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'custom-endpoints',
     label: 'Custom endpoints',
     keywords: 'base url openai compatible self-hosted',
@@ -388,8 +387,8 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'models',
     anchor: 'default-model',
-    label: 'Brain model',
-    keywords: 'default model chat main',
+    label: 'Main model',
+    keywords: 'default model chat brain',
   },
   {
     leaf: 'models',

@@ -80,7 +80,7 @@ const descriptions: Record<string, string> = {
   learning:
     'How Row-Bot learns from your work, and the personal model it can train.',
   providers: 'Where Row-Bot’s models come from. Defaults live in Models.',
-  models: 'Which model does each job.',
+  models: 'What Row-Bot thinks with, and where it comes from.',
   voice: 'Talk, dictation and read-aloud.',
   knowledge:
     'Memory, graph health and the wiki vault. Memories live in Knowledge.',

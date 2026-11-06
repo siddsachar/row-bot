@@ -13,15 +13,15 @@ Providers are the model services Row-Bot can call. This page answers whether eac
 
 ## Where To Find It
 
-Open **Settings**, then choose **Providers** in the **Models** group, or search for it with **Find a setting**.
+Providers are on **Settings › Models**, under **Connected**. Search for a provider's name with **Find a setting**, or open it from the model picker's **Connect**. Links to the old Providers page land there.
 
 ## Controls
 
-- Connection Status summarizes how many providers are connected, local, API-based, subscription-based, or media-capable.
+- Each connected provider has a tile; its sheet holds its connection, its models and **Refresh**. **Add a provider** lists the ones not connected yet, by how you pay.
 - Local providers show runtimes such as Ollama. Refresh checks what the local service currently exposes.
-- Subscription accounts show providers that use a plan you already pay for: ChatGPT / Codex, Claude (your Claude plan) and xAI Grok. Use the row's actions to set one up, reconnect it, test it or refresh its models.
+- Subscription accounts show providers that use a plan you already pay for: ChatGPT / Codex, Claude (your Claude plan) and xAI Grok. Its sheet sets it up, reconnects it, tests it or refreshes its models.
 - ChatGPT signs in with a code: open OpenAI's page, enter the code Row-Bot shows, and Row-Bot notices when you approve, on this computer or another device. Grok signs in on xAI's page, which then returns to the computer Row-Bot runs on. From another device, such as a phone or a hosted Row-Bot, that last page doesn't load: copy its address from the address bar and paste it into Row-Bot. Starting a sign-in again replaces one left waiting.
-- API providers show services that need an API key or compatible endpoint. Their credential buttons open the setup flow for that provider.
+- API providers show services that need an API key or compatible endpoint. Their sheet has the key field for that provider.
 - xAI API catalog refresh also discovers live image-generation models and their supported output formats, aspect ratios, resolutions, and quality choices. Row-Bot keeps that capability metadata separate from ordinary chat models.
 - Custom endpoint providers let advanced users point Row-Bot at OpenAI-compatible servers such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, or SGLang. [Use Your Own Model Server](/docs/guides/own-model-server) walks through each, and how to reach one at home safely from a Row-Bot elsewhere.
 - Custom endpoint Advanced settings can describe reasoning mode, a thinking budget, returned reasoning content, and whether preserved reasoning may be replayed to that endpoint.
@@ -31,14 +31,14 @@ Open **Settings**, then choose **Providers** in the **Models** group, or search 
 
 Row-Bot runs Claude Code, Anthropic's program, with your own Claude plan (Pro, Max, Team or Enterprise), and your plan's limits apply. You sign in to Claude Code, in Claude Code: Row-Bot offers no Claude login of its own, and never sees, stores or relays your Claude sign-in.
 
-1. In **Settings › Providers**, choose **Set up Claude** on the Claude row (or **With my subscription › Claude** the first time Row-Bot starts), then **Use my Claude plan**.
+1. In **Settings › Models**, choose **Add a provider › Subscription › Claude (your Claude plan)** (or **With my subscription › Claude** the first time Row-Bot starts), then **Use my Claude plan**.
 2. If Claude Code isn't installed yet, Row-Bot installs it from Anthropic first, with its progress: the newest version, downloaded from Anthropic and checked against the checksum Anthropic publishes before it ever runs, and set up by Claude Code's own installer where it always lives in your home folder. Nothing is downloaded until you choose **Use my Claude plan**.
 3. Claude's own sign-in opens in a small terminal panel. Open the link it shows, sign in to Claude, then paste the code Claude gives you into the panel. On the computer Row-Bot runs on, Claude usually opens your browser by itself and needs no code: finish signing in there.
-4. When Claude Code says it's signed in, the panel closes by itself and the row says **Claude plan connected**; Claude models appear in the model picker. It works the same from a phone, on a Row-Bot you reach remotely or one a hosting service runs for you.
+4. When Claude Code says it's signed in, the panel closes by itself and its sheet says **Claude plan connected**; Claude models appear in the model picker. It works the same from a phone, on a Row-Bot you reach remotely or one a hosting service runs for you.
 
 The panel runs Claude's sign-in (`claude auth login`) and nothing else: it isn't a terminal you can type commands into. Row-Bot carries what you type to Claude and what Claude shows back to you, and keeps none of it: nothing reaches logs, chats or storage. It closes when Claude's sign-in ends, when you close it, or after ten minutes with nothing happening. Whether you're signed in comes from Claude Code itself, never from Claude's files.
 
-If the code is wrong, Claude says so in the panel and asks again. What the row and the panel say otherwise:
+If the code is wrong, Claude says so in the panel and asks again. What its sheet and the panel say otherwise:
 
 | Row-Bot says | What to do |
 | --- | --- |
@@ -53,14 +53,14 @@ Claude Code signed in with an API key or another cloud counts as not signed in, 
 
 Row-Bot starts Claude Code with its non-essential traffic turned off: no telemetry, error reports or automatic updates come from these runs, its installs included. Claude Code's own tools are off; when Claude asks for one of Row-Bot's tools, Row-Bot runs it after its usual approval check. The models are the ones Claude Code lists for your plan. Claude Code keeps its own files (its sign-in, settings and installs) in your home folder; Row-Bot's backups never include them.
 
-Earlier versions signed in to Claude inside Row-Bot. That sign-in is gone and its saved tokens were deleted when you updated; the Claude row says **Set up again** until Claude Code is ready.
+Earlier versions signed in to Claude inside Row-Bot. That sign-in is gone and its saved tokens were deleted when you updated; Claude says **Set up again** until Claude Code is ready.
 
 ## Common Workflow
 
 1. Pick one provider path first: local Ollama for private local runs, a subscription account if you already use one, or an API provider if you prefer hosted models.
-2. Add credentials or sign in only through the provider row you intend to use.
+2. Add credentials or sign in only in the sheet of the provider you intend to use.
 3. Refresh the provider so Row-Bot can discover available models.
-4. Open **Settings › Models** to choose which model does each job and pin the ones you use most.
+4. Star the models you use most in its sheet, and choose your main model under **Defaults**.
 
 ## What Is Saved
 
@@ -72,11 +72,11 @@ Review credential, account, channel, provider, or tool settings before enabling 
 
 ## Control-Level Reference
 
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#providers-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#models-controls) lists every searchable setting on the Models page, providers included, with its deep link, search keywords, and any dependency or security notes.
 
 ## Troubleshooting
 
-- If a provider is connected but models do not appear, refresh Providers, then refresh Models.
-- If an xAI image model is missing or rejects a media option, refresh Providers so Row-Bot can use the live image-generation catalog. A quality choice that the endpoint rejects is retried once without that optional field; other generation failures are returned without an automatic duplicate request.
-- If a runtime test fails, read the row message before changing credentials; the model may be chat-capable but not tool-capable.
+- If a provider is connected but models do not appear, refresh its model list in its sheet.
+- If an xAI image model is missing or rejects a media option, refresh xAI's model list so Row-Bot can use the live image-generation catalog. A quality choice that the endpoint rejects is retried once without that optional field; other generation failures are returned without an automatic duplicate request.
+- If a runtime test fails, read its message before changing credentials; the model may be chat-capable but not tool-capable.
 - If local Ollama is missing, start Ollama and make sure at least one model is installed.

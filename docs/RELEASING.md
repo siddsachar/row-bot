@@ -90,6 +90,17 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    tag. The release refuses a section that still says `TODO:` (see the
    [Hosting checklist](#hosting-checklist)).
 
+   Refresh the app catalog's quality signals for the Registry snapshot this
+   release ships: run the **Catalog signals** workflow on the release-prep
+   branch (Actions → Catalog signals → Run workflow), download its
+   `registry-signals` artifact and commit it as
+   `src/row_bot/mcp_client/registry_signals.json.xz`. It reads stars, last
+   push, archived, fork parent and licence per repository from GitHub, and
+   first publish and version count per Registry record, with the workflow's own
+   read-only token (`scripts/build_catalog_signals.py`; locally,
+   `GITHUB_TOKEN=$(gh auth token) python scripts/build_catalog_signals.py`).
+   Searches only read the file. Without it, search ranks without stars.
+
    Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md` and the
    version sentence on `docs-site/docs/index.mdx` (publish again if you change
    docs pages). Leave historical release notes alone. The landing page's
