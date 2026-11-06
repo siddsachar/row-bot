@@ -11,6 +11,10 @@ about what it may sign and publish is made here:
 ``accept-assets``       every file on the draft was built by this run: CI's checksum or, for a DMG
                         notarize-finish.yml attached later, its record for this run
 ``same-assets``         the draft still holds exactly the files the SHA-256 block lists
+``resign-listing``      a published release whose Windows installer is re-signed (``-Resign``): every
+                        other file is still the one its block lists, and the block with the new installer
+``check-revocation``    the signing certificate is not revoked, by a fresh OCSP answer
+                        (``certutil -verify -urlfetch``; Windows' cached CRL can be a week old)
 
 Stdlib only; run it with any Python 3.11+.
 """
@@ -26,6 +30,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import append_sha_manifest as manifest  # noqa: E402
 import build_update_parts as parts  # noqa: E402
 
 _SHA = re.compile(r"[0-9a-f]{64}")
@@ -160,6 +165,65 @@ def same_assets(expected: Iterable[Mapping[str, Any]], current: Iterable[Mapping
     return problems
 
 
+def resign_listing(
+    release: Mapping[str, Any], assets: Iterable[Mapping[str, Any]], *, installer: str, installer_sha256: str,
+    installer_size: int, done: bool = False,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The block of a published release with its Windows installer re-signed, and what is wrong.
+
+    Only the installer may differ from the block: on the release it is the
+    published one or (a run that stopped after the upload) the one signed
+    here. With *done*, the block and the release must both hold the new one.
+    """
+    problems = []
+    if release.get("draft"):
+        problems.append("the release is a draft: publish it with a normal run, not -Resign")
+    block = manifest.parse_block(str(release.get("body") or ""))
+    if not block:
+        return [], problems + ["the release has no SHA-256 block"]
+    have = {str(item["name"]): str(item["sha256"]).lower() for item in assets}
+    sizes = {str(item["name"]): int(item["size"]) for item in assets}
+    new = installer_sha256.lower()
+    if installer not in block:
+        problems.append(f"the block does not list {installer}")
+    elif installer not in have:
+        problems.append(f"{installer} is gone from the release")
+    elif done and (block[installer], have[installer]) != (new, new):
+        problems.append(f"the release does not list and hold the {installer} signed here")
+    elif have[installer] not in {block[installer], new}:
+        problems.append(f"{installer} on the release is neither the published one nor the one signed here")
+    for name in sorted((set(block) | set(have)) - {installer}):
+        if name not in have:
+            problems.append(f"{name} is in the block but gone from the release")
+        elif name not in block:
+            problems.append(f"{name} is on the release but not in its block")
+        elif block[name] != have[name]:
+            problems.append(f"{name} changed since the release was published")
+    listing = [
+        {"name": name, "size": installer_size if name == installer else sizes.get(name, 0),
+         "sha256": new if name == installer else digest}
+        for name, digest in sorted(block.items())
+    ]
+    return listing, problems
+
+
+def revocation_problems(certutil_output: str) -> list[str]:
+    """Why the signing certificate may not sign, from ``certutil -verify -urlfetch`` of it.
+
+    Only the leaf (``CertContext[0][0]``) counts. certutil exits 0 even for a
+    revoked certificate when its cached CRL is older than the revocation, so
+    the answer is the leaf's OCSP line: ``Verified "OCSP"`` and nothing revoked.
+    """
+    leaf = re.search(r"^CertContext\[0\]\[0\].*?(?=^CertContext\[|\Z)", certutil_output, re.M | re.S)
+    if not leaf:
+        return ["certutil printed no chain for the certificate"]
+    if re.search(r'^\s*Revoked\s+"', leaf.group(0), re.M):
+        return ["the certificate is revoked: sign with the certificate Certum issued in its place (-CertificateSha1)"]
+    if not re.search(r'^\s*Verified\s+"OCSP"', leaf.group(0), re.M):
+        return ["Certum's OCSP server did not confirm the certificate (offline?); try again"]
+    return []
+
+
 def _load(path: Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
@@ -201,6 +265,14 @@ def main(argv: list[str] | None = None) -> int:
     same = commands.add_parser("same-assets")
     same.add_argument("--listing", type=Path, required=True)
     same.add_argument("--assets", type=Path, required=True)
+    resign = commands.add_parser("resign-listing")
+    resign.add_argument("--release", type=Path, required=True)
+    resign.add_argument("--assets", type=Path, required=True)
+    resign.add_argument("--installer-file", type=Path, required=True)
+    resign.add_argument("--done", action="store_true", help="the release must already hold and list it")
+    resign.add_argument("--out", type=Path)
+    revoked = commands.add_parser("check-revocation")
+    revoked.add_argument("--certutil-output", type=Path, required=True)
     args = parser.parse_args(argv)
 
     problems: list[str] = []
@@ -236,6 +308,16 @@ def main(argv: list[str] | None = None) -> int:
             _write(args.out, listing)
         elif args.command == "same-assets":
             problems = same_assets(_load(args.listing), _load(args.assets))
+        elif args.command == "resign-listing":
+            listing, problems = resign_listing(
+                _load(args.release), _load(args.assets), installer=args.installer_file.name,
+                installer_sha256=sha256_file(args.installer_file), installer_size=args.installer_file.stat().st_size,
+                done=args.done,
+            )
+            if args.out:
+                _write(args.out, listing)
+        elif args.command == "check-revocation":
+            problems = revocation_problems(args.certutil_output.read_text(encoding="utf-8-sig", errors="replace"))
     except (ValueError, KeyError, OSError) as exc:
         problems = [str(exc)]
     for problem in problems:

@@ -131,9 +131,8 @@ def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
     assert "cancel=available" in output
 
 
-def test_row_bot_status_media_update_seeds_quick_choices(monkeypatch):
+def test_row_bot_status_media_update_saves_the_tool_model(monkeypatch):
     import langgraph.types
-    import row_bot.providers.selection as provider_selection
     import row_bot.tools.image_gen_tool as image_gen_tool
     import row_bot.tools.registry as tool_registry
     from row_bot.tools.row_bot_status_tool import _update_setting
@@ -144,13 +143,11 @@ def test_row_bot_status_media_update_seeds_quick_choices(monkeypatch):
         "openai/gpt-image-2": "⬡  GPT Image 2  (OpenAI)",
     })
     monkeypatch.setattr(tool_registry, "set_tool_config", lambda tool, key, value: calls.append((tool, key, value)))
-    monkeypatch.setattr(provider_selection, "seed_configured_media_quick_choices", lambda: calls.append(("seed", "media", "quick_choices")))
 
     result = _update_setting("image_gen_model", "GPT Image 2")
 
     assert result == "Image generation model set to: openai/gpt-image-2"
-    assert ("image_gen", "model", "openai/gpt-image-2") in calls
-    assert ("seed", "media", "quick_choices") in calls
+    assert calls == [("image_gen", "model", "openai/gpt-image-2")]
 
 
 def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatch):
@@ -265,27 +262,16 @@ def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monke
     assert calls == ["clear"]
 
 
-def test_row_bot_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
+def test_row_bot_status_allows_a_starred_codex_vision_model(tmp_path, monkeypatch):
     import row_bot.models as models
-    import row_bot.providers.config as provider_config
-    import row_bot.providers.runtime as provider_runtime
     from row_bot.providers.codex import fallback_codex_model_infos
-    from row_bot.providers.selection import add_quick_choice_for_model
     from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
+    from tests.helpers.starred_models import starred_profile
 
     model_info = next(info for info in fallback_codex_model_infos() if info.model_id == "gpt-5.5")
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(models, "is_model_local", _is_local_model())
-    monkeypatch.setattr(provider_runtime, "provider_status", lambda provider_id: {"runtime_enabled": True})
-    add_quick_choice_for_model(
-        "gpt-5.5",
-        provider_id="codex",
-        display_name="GPT-5.5",
-        capabilities_snapshot=model_info.capability_snapshot(),
-        surface="vision",
-    )
+    starred_profile(tmp_path, monkeypatch, {"model:codex:gpt-5.5": "GPT-5.5"},
+                    snapshot=model_info.capability_snapshot())
 
     model_value, error = _resolve_model_update_value("model:codex:gpt-5.5", surface="vision")
 

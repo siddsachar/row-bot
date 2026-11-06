@@ -43,10 +43,7 @@ def test_local_runtime_is_detected_without_asking(fake_ollama):
 def test_first_pick_becomes_the_default(tmp_path, monkeypatch, fake_ollama):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(models, "_current_model", "")
-    pinned: list[tuple[str, str]] = []
     refreshed: list[str] = []
-    monkeypatch.setattr("row_bot.providers.selection.add_quick_choice_for_model",
-                        lambda model_id, provider_id=None, **_kwargs: pinned.append((provider_id, model_id)))
     monkeypatch.setattr("row_bot.providers.model_catalog_cache.refresh_model_catalog_cache",
                         lambda **kwargs: refreshed.append(kwargs["provider_id"]))
     fake_ollama.update(running=True, models=["qwen3.8:27b"])
@@ -70,9 +67,11 @@ def test_first_pick_becomes_the_default(tmp_path, monkeypatch, fake_ollama):
 
     assert chosen["needs_model"] is False
     assert chosen["default_model"] == "model:ollama:qwen3.8:27b"
-    assert json.loads((tmp_path / "model_settings.json").read_text(encoding="utf-8"))["model"] == "model:ollama:qwen3.8:27b"
+    saved = json.loads((tmp_path / "model_settings.json").read_text(encoding="utf-8"))
+    assert saved["model"] == "model:ollama:qwen3.8:27b"
+    # Starred too, so every picker lists it.
+    assert saved["model_visibility"] == {"favourites": ["model:ollama:qwen3.8:27b"]}
     assert models.get_current_model() == "model:ollama:qwen3.8:27b"
-    assert pinned == [("ollama", "qwen3.8:27b")]
     assert refreshed == ["ollama"]
 
 
@@ -210,7 +209,6 @@ def test_home_health_follows_the_first_pick_at_once(tmp_path, monkeypatch, fake_
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(models, "_current_model", "")
-    monkeypatch.setattr("row_bot.providers.selection.add_quick_choice_for_model", lambda *_a, **_kw: None)
     monkeypatch.setattr("row_bot.providers.model_catalog_cache.refresh_model_catalog_cache", lambda **_kw: None)
     monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_active_model,))
     scheduler = FakeScheduler()
@@ -232,8 +230,8 @@ def test_home_health_follows_the_first_pick_at_once(tmp_path, monkeypatch, fake_
     assert model_check()["status"] == "ok"
 
 
-def test_local_models_carry_favourites_hidden_and_suggested_picks(tmp_path, monkeypatch, fake_ollama):
-    """F10: Setup lists favourites first, then Row-Bot's picks, then "Show all models"."""
+def test_local_models_carry_stars_and_suggested_picks(tmp_path, monkeypatch, fake_ollama):
+    """Setup lists starred models first, then Row-Bot's picks, then "Show all models"."""
     from row_bot.providers import model_visibility
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
@@ -245,18 +243,17 @@ def test_local_models_carry_favourites_hidden_and_suggested_picks(tmp_path, monk
     # Nothing chosen: the three largest tool-using chat models are suggested (N16), the strongest first (U3).
     rows = {row["name"]: row for row in client_first_run.detect_local_runtime()["models"]}
     assert [name for name, row in rows.items() if row.get("recommended")] == ["qwen3:32b", "gpt-oss:20b", "llama3.1:8b"]
-    assert not any("favourite_rank" in row or "hidden" in row for row in rows.values())
+    assert not any("favourite_rank" in row for row in rows.values())
 
     (tmp_path / "model_settings.json").write_text(json.dumps({"model": "model:ollama:qwen3:8b"}), encoding="utf-8")
     model_visibility.update_model_visibility("favourite", "model:ollama:gemma3:4b")
-    model_visibility.update_model_visibility("hide", "model:ollama:llama3.1:8b")
-    model_visibility.update_model_visibility("hide", "model:ollama:removed:1b")
+    model_visibility.update_model_visibility("favourite", "model:ollama:qwen3:32b")
+    model_visibility.update_model_visibility("favourite", "model:ollama:removed:1b")
     rows = {row["name"]: row for row in client_first_run.detect_local_runtime()["models"]}
-    assert rows["gemma3:4b"]["favourite_rank"] == 1
-    assert rows["llama3.1:8b"]["hidden"] is True
-    # Hidden models aren't suggested, and the saved default is picked first.
+    assert rows["gemma3:4b"]["favourite_rank"] == 1 and rows["qwen3:32b"]["favourite_rank"] == 2
+    # Starred models aren't suggested again, and the saved default is picked first.
     assert sorted(name for name, row in rows.items() if row.get("recommended")) == [
-        "gpt-oss:20b", "qwen3:32b", "qwen3:8b",
+        "gpt-oss:20b", "llama3.1:8b", "qwen3:8b",
     ]
     assert "removed:1b" not in rows and "recommended" not in rows["nomic-embed-text:latest"]
 

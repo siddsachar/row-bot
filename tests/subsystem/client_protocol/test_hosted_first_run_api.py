@@ -142,7 +142,6 @@ def test_a_sign_in_starts_on_its_providers_own_first_pick(profile, catalog, monk
 
 
 def test_the_suggested_pick_becomes_the_saved_default(profile, catalog, monkeypatch):
-    monkeypatch.setattr("row_bot.providers.selection.add_quick_choice_for_model", lambda *_a, **_kw: None)
     monkeypatch.setattr("row_bot.application.client_diagnosis.recheck_default_model", lambda: None)
     catalog.extend(_rows(("codex", "gpt-5.2", True), ("codex", "gpt-5.6-sol", True)))
     monkeypatch.setattr(client_first_run, "_chat_row", lambda ref: next(row for row in catalog if row.selection_ref == ref))

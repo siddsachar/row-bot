@@ -193,7 +193,7 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
         return result
     try:
         from row_bot.providers.capabilities import snapshot_supports_surface
-        from row_bot.providers.selection import parse_model_ref, model_ref
+        from row_bot.providers.selection import parse_model_ref
 
         parsed = parse_model_ref(raw)
         if parsed:
@@ -246,31 +246,6 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
             except Exception:
                 logger.debug("Could not inspect provider Vision model metadata", exc_info=True)
 
-            try:
-                from row_bot.providers.config import load_provider_config
-
-                ref = model_ref(provider_id, model_id)
-                for choice in load_provider_config().get("quick_choices", []):
-                    if not isinstance(choice, dict) or choice.get("id") != ref:
-                        continue
-                    inactive = choice.get("inactive_surfaces")
-                    if isinstance(inactive, dict) and inactive.get("vision"):
-                        result.update({
-                            "usable": False,
-                            "explicit": True,
-                            "reason": str(inactive.get("vision") or "model is not compatible with vision"),
-                        })
-                        return result
-                    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-                    if snapshot and not snapshot_supports_surface(snapshot, "vision"):
-                        result.update({
-                            "usable": False,
-                            "explicit": True,
-                            "reason": "capability metadata says this model is not compatible with vision",
-                        })
-                    return result
-            except Exception:
-                logger.debug("Could not inspect Vision quick choice metadata", exc_info=True)
     except Exception:
         logger.debug("Vision compatibility check failed", exc_info=True)
     return result

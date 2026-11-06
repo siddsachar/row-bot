@@ -34,6 +34,7 @@ def test_every_curated_recipe_and_seed_package_has_an_app_identity():
     ({"command": "npx", "args": ["-y", "@playwright/mcp@1.2.3"]}, ["npm:@playwright/mcp"]),
     ({"command": "npx.cmd", "args": ["tavily-mcp@0.1.4"]}, ["npm:tavily-mcp"]),
     ({"command": "uvx", "args": ["mcp-server-fetch"]}, ["pypi:mcp-server-fetch"]),
+    ({"command": "uvx", "args": ["--from", "markitdown-mcp[all]==0.1.2", "markitdown-mcp"]}, ["pypi:markitdown-mcp"]),
     ({"command": "docker", "args": ["run", "-i", "--rm", "-e", "TOKEN", "ghcr.io/github/github-mcp-server:latest"]},
      ["oci:ghcr.io/github/github-mcp-server"]),
     ({"command": "docker", "args": ["run", "-v", "ghcr.io/github/github-mcp-server:/x", "--rm", "example/other"]},
@@ -64,7 +65,7 @@ def test_all_curated_recipes_are_visible_and_findable_by_job(local):
     page = search_catalog(sources=["recommended"], limit=96)
     # One card per app; an app's other recipes (GitHub's token, OAuth app and local server) are on its page.
     cards = {getattr(apps.match(["curated:" + entry.id.lower()]), "id", entry.id) for entry in marketplace.CURATED_STARTER_CATALOG}
-    assert page["total"] == len(cards) == 49 and len(marketplace.CURATED_STARTER_CATALOG) == 51
+    assert page["total"] == len(cards) == 50 and len(marketplace.CURATED_STARTER_CATALOG) == 52
     for job, app in (("payments", "Stripe MCP"), ("issues tickets", "Linear MCP"), ("web search", "Tavily MCP"),
                      ("local files", "Filesystem"), ("website traffic", "Google Analytics MCP Server")):
         found = search_catalog(sources=["recommended"], query=job)

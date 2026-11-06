@@ -1149,34 +1149,6 @@ def test_xai_oauth_runtime_factory_and_probe(tmp_path, monkeypatch):
         _set_backend_for_tests(None)
 
 
-def test_xai_oauth_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
-    from row_bot.providers.selection import add_quick_choice_for_model, list_quick_model_ids
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {
-        "configured": True,
-        "runtime_enabled": False,
-    })
-
-    add_quick_choice_for_model(
-        "grok-4",
-        provider_id="xai_oauth",
-        display_name="Grok 4",
-        capabilities_snapshot={
-            "tasks": ["responses"],
-            "input_modalities": ["text"],
-            "output_modalities": ["text"],
-            "tool_calling": True,
-            "streaming": True,
-            "transport": "openai_responses",
-        },
-    )
-
-    assert list_quick_model_ids("chat") == []
-
-
 def test_xai_oauth_status_cards_expose_client_id_and_probe_state(tmp_path, monkeypatch):
     from row_bot.providers.status import provider_status_cards
     import row_bot.providers.xai_oauth as xai_oauth_module

@@ -126,8 +126,6 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
             if tool is None:
                 raise ValueError("model_surface_unavailable")
             tool.set_config("model", f"{provider_id}/{model_id}")
-            from row_bot.providers.selection import seed_configured_media_quick_choices
-            seed_configured_media_quick_choices()
     elif action == "enabled" and type(enabled) is bool:
         if surface == "vision":
             get_vision_service().enabled = enabled
@@ -187,8 +185,8 @@ def catalog_provider_summary(surface: str, *, validate: Callable[[], None] = lam
             "display_name": row.provider_display_name, "total": 0, "ready": 0, "pinned": 0})
         group["total"] += 1
         group["ready"] += int(row.configured and row.runtime_ready and bool(row.installed))
-        # Listed in its pickers: pinned for the job, or a favourite (U10).
-        group["pinned"] += int(surface in row.pinned_surfaces or row.selection_ref in starred)
+        # Listed in its pickers: starred.
+        group["pinned"] += int(row.selection_ref in starred)
     validate()
     return {"schema_version": 1, "revision": snapshot.revision, "surface": surface,
             "providers": sorted(groups.values(), key=lambda row: (row["display_name"].casefold(), row["provider_id"]))}

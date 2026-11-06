@@ -333,19 +333,11 @@ export interface ClientTransport {
     body: Wire.ArtifactBrandSuggestionRequest,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactBrandSuggestion>;
-  saveArtifactExport?(
-    conversation: string,
-    binding: string,
-    exportId: string,
+  /** One file to save (5.3.3): a reference the Save dialog, a download or Exports reads once. */
+  createSaveOffer?(
+    body: Wire.SaveOfferRequest,
     signal?: AbortSignal,
-  ): Promise<Wire.ArtifactSavedExport>;
-  revealArtifactExport?(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: Wire.ArtifactExportReveal,
-    signal?: AbortSignal,
-  ): Promise<Wire.ArtifactExportRevealResult>;
+  ): Promise<Wire.SaveOffer>;
   /** Write a conversation export into Exports when the desktop app can't show its Save dialog (B238). */
   saveAttachmentExport?(
     reference: string,
@@ -355,12 +347,6 @@ export interface ClientTransport {
     body: Wire.ExportRevealRequest,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactExportRevealResult>;
-  artifactDownload?(
-    conversation: string,
-    binding: string,
-    descriptor: Wire.ArtifactExport,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
   taskSettings?(
     task: string,
     signal?: AbortSignal,
@@ -931,18 +917,6 @@ export interface ClientTransport {
     deliveryId: string,
     signal?: AbortSignal,
   ): Promise<Wire.DeliveryView>;
-  /** One file sent to the devices, with this session; refused once it expired. */
-  downloadDelivery?(
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
-  /** Desktop window: the file saved into Exports on this computer. */
-  saveDelivery?(
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ): Promise<Wire.ExportSaved>;
   /** The person's "Send to your devices instead". No approval. */
   sendDeliveryToDevices?(
     deliveryId: string,
@@ -974,18 +948,6 @@ export interface ClientTransport {
     decision: Wire.PageDecisionWrite,
     signal?: AbortSignal,
   ): Promise<Wire.PageView>;
-  /** Download as HTML. */
-  downloadPage?(
-    pageId: string,
-    theme: Wire.PageTheme,
-    signal?: AbortSignal,
-  ): Promise<Wire.PageDownload>;
-  /** Desktop window: the page saved into Exports on this computer. */
-  savePageToExports?(
-    pageId: string,
-    theme: Wire.PageTheme,
-    signal?: AbortSignal,
-  ): Promise<Wire.ExportSaved>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
   dismissMemoryNotice?(): Promise<Wire.MemoryNoticeDismissed>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;

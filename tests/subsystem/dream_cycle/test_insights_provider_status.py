@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from row_bot.providers.model_visibility import ModelVisibility
+
 
 def test_dream_snapshot_preserves_unknown_provider_model_counts(monkeypatch):
     import row_bot.dream_cycle as dream_cycle
 
-    monkeypatch.setattr("row_bot.providers.selection.list_quick_choices", lambda _surface: [])
+    monkeypatch.setattr("row_bot.providers.model_visibility.read_model_visibility", lambda: ModelVisibility())
     monkeypatch.setattr(
         "row_bot.providers.status.provider_status_cards",
         lambda: [
@@ -29,7 +31,7 @@ def test_dream_snapshot_preserves_unknown_provider_model_counts(monkeypatch):
 def test_provider_summary_distinguishes_unknown_from_verified_empty(monkeypatch):
     import row_bot.providers.status as provider_status
 
-    monkeypatch.setattr(provider_status, "list_quick_choices", lambda _surface: [])
+    monkeypatch.setattr("row_bot.providers.model_visibility.read_model_visibility", lambda: ModelVisibility())
     monkeypatch.setattr(
         provider_status,
         "provider_status_cards",

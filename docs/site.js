@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const WINDOWS_URL = 'https://github.com/siddsachar/row-bot/releases/download/v5.3.2/Row-Bot-5.3.2-Windows-x64.exe';
+    const WINDOWS_URL = 'https://github.com/siddsachar/row-bot/releases/download/v5.3.1/Row-Bot-5.3.1-Windows-x64.exe';
     const MAC_URL = 'https://github.com/siddsachar/row-bot/releases/download/v5.3.2/Row-Bot-5.3.2-macOS-arm64.dmg';
     const LINUX_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 5.3.2';
     const DESKTOP_LINK = 'https://row-bot.ai/';

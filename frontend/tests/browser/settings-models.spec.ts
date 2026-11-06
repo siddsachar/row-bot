@@ -223,15 +223,17 @@ test('Catalog star and default actions update the picker (U10)', async ({
     .locator('.settings-model-row-list > li')
     .filter({ hasText: label });
   await expect(row).toBeVisible();
-  // One concept: the star lists a model first wherever a model is chosen.
-  await row.getByRole('button', { name: `Add ${label} to favourites` }).click();
+  // One concept: a star puts a model in your models, which every picker lists.
+  await row
+    .getByRole('button', { name: `Add ${label} to your models` })
+    .click();
   await expect(
     row.getByRole('button', {
-      name: `Remove ${label} from favourites`,
+      name: `Remove ${label} from your models`,
       pressed: true,
     }),
   ).toBeVisible();
-  await expect(row.getByText(/^Listed first · /)).toBeVisible();
+  await expect(row.getByText(/^In your models · /)).toBeVisible();
   await row
     .getByRole('button', { name: `Set ${label} as chat default` })
     .click();

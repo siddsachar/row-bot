@@ -19,7 +19,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkflowTemplateApp", "WorkflowTemplate", "WorkflowTemplateList", "WorkflowTemplateCreated",
     "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView",
     "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
-    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
+    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationLabelCounts", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanDeviceCode", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
     "PlanReview", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
@@ -76,7 +76,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "PageDownload", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -96,8 +96,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactShareChannels", "ArtifactPublication",
     "TaskRunReview", "TaskRunAction", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskStopResult",
     "ArtifactExport",
-    "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult",
-    "ExportSaved", "ExportRevealRequest",
+    "ArtifactExportRevealResult",
+    "ExportSaved", "ExportRevealRequest", "SaveOfferRequest", "SaveOffer",
     "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
@@ -245,8 +245,6 @@ OPERATIONS = (
     ("put", "/video-brand", "VideoBrand", "VideoBrand"),
     ("get", "/deliveries", None, "DeliveryPage"),
     ("get", "/deliveries/{delivery_id}", None, "DeliveryView"),
-    ("get", "/deliveries/{delivery_id}/files/{index}", None, "bytes"),
-    ("post", "/deliveries/{delivery_id}/files/{index}/save", None, "ExportSaved"),
     ("post", "/deliveries/{delivery_id}/to-devices", None, "DeliveryView"),
     ("get", "/pages", None, "PagePage"),
     ("get", "/media", None, "MediaPage"),
@@ -255,8 +253,6 @@ OPERATIONS = (
     ("post", "/pages/{page_id}/frame", "PageFrameRequest", "PageFrame"),
     ("put", "/pages/{page_id}/state", "PageStateWrite", "PageView"),
     ("post", "/pages/{page_id}/decisions", "PageDecisionWrite", "PageView"),
-    ("post", "/pages/{page_id}/download", "PageFrameRequest", "PageDownload"),
-    ("post", "/pages/{page_id}/save", "PageFrameRequest", "ExportSaved"),
     ("get", "/monitor/attention", None, "AttentionSnapshot"),
     ("delete", "/monitor/memory-notice", None, "MemoryNoticeDismissed"),
     ("get", "/monitor/approvals", None, "PendingApprovalPage"),
@@ -461,10 +457,7 @@ OPERATIONS = (
     ("get", "/tasks/{task_id}/runs", None, "TaskRunPage"),
     ("get", "/tasks/{task_id}/runs/{run_id}", None, "TaskRunSummary"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}", None, "ArtifactExport"),
-    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save", None, "ArtifactSavedExport"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion", "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion"),
-    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal", "ArtifactExportReveal", "ArtifactExportRevealResult"),
-    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download", None, "bytes"),
     ("post", "/tasks/commands", "Command", "CommandReceipt"),
     ("get", "/knowledge/entities", None, "EntitySummaryPage"),
     ("get", "/knowledge/entities/{entity_id}", None, "KnowledgeEntityDetail"),
@@ -500,6 +493,7 @@ OPERATIONS = (
     ("get", "/attachments/{reference}/thumbnail", None, "bytes"),
     ("get", "/attachments/{reference}", None, "bytes"),
     ("post", "/attachments/{reference}/save", None, "ExportSaved"),
+    ("post", "/saves", "SaveOfferRequest", "SaveOffer"),
     ("post", "/exports/reveal", "ExportRevealRequest", "ArtifactExportRevealResult"),
     ("get", "/native/bootstrap", None, "NativeBootstrapView"),
     ("post", "/native/attest", "NativeAttestationRequest", "NativeAttestationView"),
@@ -884,20 +878,6 @@ export const getDeliveries = (base: string, proof: SessionProof, conversation_id
   jsonRequest(base, '/deliveries' + query({conversation_id}), 'DeliveryPage', proof, 'GET', undefined, undefined, signal);
 export const getDelivery = (base: string, proof: SessionProof, delivery: string, signal?: AbortSignal): Promise<DeliveryView> =>
   jsonRequest(base, `/deliveries/${id(delivery)}`, 'DeliveryView', proof, 'GET', undefined, undefined, signal);
-/** One file sent to the devices, with the person's session; refused once it expired. */
-export async function readDeliveryFile(base: string, proof: SessionProof, delivery: string, index: number, signal?: AbortSignal): Promise<Blob> {
-  if (!Number.isInteger(index) || index < 0 || index > 9) throw new Error('invalid_request');
-  const response = await fetch(`${base}/api/v1/deliveries/${id(delivery)}/files/${index}`, {
-    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
-  });
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  const data = await response.blob();
-  if (data.size > 104857600) throw new Error('protocol_incompatible');
-  return data;
-}
-/** Desktop window: the file is saved into Exports on this computer (it can't download). */
-export const saveDeliveryFile = (base: string, proof: SessionProof, delivery: string, index: number, signal?: AbortSignal): Promise<ExportSaved> =>
-  jsonRequest(base, `/deliveries/${id(delivery)}/files/${index}/save`, 'ExportSaved', proof, 'POST', {}, undefined, signal);
 /** The person's "Send to your devices instead" for files that didn't go to a chat app. No approval. */
 export const sendDeliveryToDevices = (base: string, proof: SessionProof, delivery: string, signal?: AbortSignal): Promise<DeliveryView> =>
   jsonRequest(base, `/deliveries/${id(delivery)}/to-devices`, 'DeliveryView', proof, 'POST', {}, undefined, signal);
@@ -920,12 +900,6 @@ export const savePageState = (base: string, proof: SessionProof, page: string, b
 /** One decision from a page's bridge; it only gathers until the person sends them. */
 export const savePageDecision = (base: string, proof: SessionProof, page: string, body: PageDecisionWrite, signal?: AbortSignal): Promise<PageView> =>
   jsonRequest(base, `/pages/${id(page)}/decisions`, 'PageView', proof, 'POST', validateWire('PageDecisionWrite', body), undefined, signal);
-/** Download as HTML: one file that works on its own. */
-export const downloadPage = (base: string, proof: SessionProof, page: string, body: PageFrameRequest, signal?: AbortSignal): Promise<PageDownload> =>
-  jsonRequest(base, `/pages/${id(page)}/download`, 'PageDownload', proof, 'POST', validateWire('PageFrameRequest', body), undefined, signal);
-/** Desktop window: the page is saved into Exports on this computer (it can't download). */
-export const savePageToExports = (base: string, proof: SessionProof, page: string, body: PageFrameRequest, signal?: AbortSignal): Promise<ExportSaved> =>
-  jsonRequest(base, `/pages/${id(page)}/save`, 'ExportSaved', proof, 'POST', validateWire('PageFrameRequest', body), undefined, signal);
 export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
   jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
 /** The person read the out-of-memory notice (U8): it stays away until the next such restart. */
@@ -1716,6 +1690,9 @@ export const getAttachmentMetadata = (base: string, proof: SessionProof, referen
   jsonRequest(base, `/attachments/${id(reference)}/metadata`, 'AttachmentView', proof, 'GET', undefined, undefined, signal);
 export const saveAttachmentExport = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<ExportSaved> =>
   jsonRequest(base, `/attachments/${id(reference)}/save`, 'ExportSaved', proof, 'POST', {}, undefined, signal);
+/** One file to save (5.3.3): its reference goes to the Save dialog, a download, or Exports while reconnecting. */
+export const createSaveOffer = (base: string, proof: SessionProof, body: SaveOfferRequest, signal?: AbortSignal): Promise<SaveOffer> =>
+  jsonRequest(base, '/saves', 'SaveOffer', proof, 'POST', validateWire('SaveOfferRequest', body), undefined, signal);
 export const revealExport = (base: string, proof: SessionProof, body: ExportRevealRequest, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
   jsonRequest(base, `/exports/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
 export const readNativeTerminal = (base: string, proof: SessionProof, terminal: string, cursor = 0, maxBytes = 65536, signal?: AbortSignal): Promise<NativeTerminalOutput> =>
@@ -1730,47 +1707,6 @@ export const getArtifactExport = (base: string, proof: SessionProof, conversatio
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}`, 'ArtifactExport', proof, 'GET', undefined, undefined, signal);
 export const suggestArtifactBrand = (base: string, proof: SessionProof, conversation: string, binding: string, body: ArtifactBrandSuggestionRequest, signal?: AbortSignal): Promise<ArtifactBrandSuggestion> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/brand-suggestion`, 'ArtifactBrandSuggestion', proof, 'POST', body, undefined, signal);
-export const saveArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactSavedExport> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
-export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
-export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, sha256Hex: (data: ArrayBuffer) => Promise<string>, signal?: AbortSignal): Promise<Blob> {
-  validateWire<ArtifactExport>('ArtifactExport', descriptor);
-  const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(descriptor.export_id)}/download`, {
-    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
-  });
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase();
-  const length = response.headers.get('Content-Length');
-  // Fetch exposes decoded bytes while Content-Length describes the encoded
-  // transfer. The immutable descriptor bounds and authenticates decoded data.
-  if (!response.body || (encoding && !['identity', 'gzip', 'br', 'deflate'].includes(encoding)) ||
-      ((!encoding || encoding === 'identity') && length !== null && Number(length) !== descriptor.size_bytes)) {
-    try { await response.body?.cancel(); } catch { /* Closed response. */ }
-    throw new Error('protocol_incompatible');
-  }
-  const reader = response.body.getReader();
-  const parts: Uint8Array<ArrayBuffer>[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const part = await reader.read();
-      if (part.done) break;
-      size += part.value.byteLength;
-      if (size > descriptor.size_bytes || size > 67108864) throw new Error('protocol_incompatible');
-      parts.push(part.value);
-    }
-  } finally {
-    try { await reader.cancel(); } catch { /* Closed response. */ }
-    reader.releaseLock();
-  }
-  if (size !== descriptor.size_bytes) throw new Error('protocol_incompatible');
-  const blob = new Blob(parts, {type: descriptor.media_type});
-  // The caller hashes: pages opened over plain HTTP have no crypto.subtle.
-  if (await sha256Hex(await blob.arrayBuffer()) !== descriptor.sha256)
-    throw new Error('protocol_incompatible');
-  return blob;
-}
 export async function* observeEvents(base: string, proof: SessionProof, subscription_id: string,
   cursor: string, signal?: AbortSignal, notices?: NoticePosition): AsyncGenerator<EventRecord | StreamReset | {notice: NoticeFrame}> {
   signal?.throwIfAborted();
@@ -2104,7 +2040,6 @@ def outputs() -> dict[Path, str]:
             parameters.append({"name": "Idempotency-Key", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":
-                            67108864 if suffix.endswith("/exports/{export_id}/download") else
                             209715200 if suffix.endswith("/attachments/{reference}") else
                             65536 if suffix.endswith("/webhook-configuration") else
                             8388608 if suffix.endswith(SPEECH_OUTPUTS) else

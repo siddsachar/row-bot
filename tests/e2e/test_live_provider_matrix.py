@@ -92,7 +92,6 @@ def _hydrate_live_provider_profile() -> dict[str, Any]:
     return {
         "loaded_api_key_envs": loaded_env_keys,
         "copied_cache_files": copied_cache_files,
-        "copied_quick_choices": len(live_provider_config.get("quick_choices") or []),
         "copied_custom_endpoints": len(live_provider_config.get("custom_endpoints") or []),
     }
 
@@ -245,29 +244,26 @@ def _run_poisoned_case(agent_module, *, model_ref: str, provider_id: str) -> dic
 
 def _discover_live_candidates() -> list[dict[str, str]]:
     from row_bot.providers.runtime import list_configured_provider_ids, provider_status
-    from row_bot.providers.selection import list_quick_choices, model_ref
+    from row_bot.providers.selection import _selection_capability_snapshot, list_model_choice_options, model_ref
     from row_bot.providers.custom import list_custom_endpoints
 
     configured = set(list_configured_provider_ids())
     candidates: dict[str, dict[str, str]] = {}
-    for choice in list_quick_choices("chat", include_inactive=True):
-        if choice.get("kind") != "model":
-            continue
+    for choice in list_model_choice_options("chat", include_inactive=True):
         provider_id = str(choice.get("provider_id") or "")
         model_id = str(choice.get("model_id") or "")
         if not provider_id or not model_id or provider_id not in configured:
             continue
         if provider_id == "openrouter" and model_id != FALLBACK_LIVE_MODEL_IDS["openrouter"]:
             continue
-        snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-        if not _agent_smoke_candidate_supported(provider_id, snapshot):
+        if not _agent_smoke_candidate_supported(provider_id, _selection_capability_snapshot(provider_id, model_id)):
             continue
         status = provider_status(provider_id)
         if not status.get("configured"):
             continue
         candidates.setdefault(provider_id, {
             "provider_id": provider_id,
-            "model_ref": str(choice.get("id") or model_ref(provider_id, model_id)),
+            "model_ref": str(choice["value"]),
             "model_id": model_id,
             "display_name": str(choice.get("display_name") or model_id),
         })

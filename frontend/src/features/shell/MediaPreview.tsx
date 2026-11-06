@@ -8,7 +8,8 @@ import {
 import { Download, File as FileIcon, Maximize2 } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
-import { useOverlay } from '../../ui/overlays';
+import { useNotify, useOverlay } from '../../ui/overlays';
+import { announceSaved } from './save-file';
 import { Button, IconButton } from '../../ui/primitives';
 import { CodeBlock, languageForFile } from './CodeBlock';
 
@@ -351,7 +352,10 @@ export function MediaPreview({
     event.preventDefault();
     void platform.discover().then((found) => {
       if (found.status === 'ok' && found.value.kind === 'pywebview')
-        void platform.save(reference, downloadName);
+        void platform.save(reference, downloadName).then((result) => {
+          if (result.status === 'ok')
+            announceSaved(overlay.notify, result.value, downloadName);
+        });
       else {
         link.dataset.browser = 'true';
         link.click();
@@ -513,17 +517,15 @@ function FileOnDemand({
 }) {
   const { platform } = useRuntime();
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  const notify = useNotify();
   const [error, setError] = useState('');
   // The desktop window saves through its own Save dialog; a browser downloads.
   async function save() {
     setBusy(true);
-    setNotice('');
     setError('');
     const result = await platform.save(reference, name);
     setBusy(false);
-    if (result.status === 'ok' && result.value.kind === 'exports')
-      setNotice(`Saved to ${result.value.folder} as ${result.value.fileName}.`);
+    if (result.status === 'ok') announceSaved(notify, result.value, name);
     else if (result.status === 'unavailable')
       setError('Row-Bot couldn’t save that file. Try again.');
   }
@@ -546,7 +548,6 @@ function FileOnDemand({
           </small>
         </span>
       </div>
-      {notice && <p role="status">{notice}</p>}
       {error && (
         <div role="alert" className="media-preview-error">
           {error}

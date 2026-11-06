@@ -24,9 +24,7 @@
         "provider.endpoint.save",
         "provider.endpoint.delete",
         "provider.endpoint.probe",
-        "provider.endpoint.refresh",
-        "provider.model.pin",
-        "provider.model.unpin"
+        "provider.endpoint.refresh"
       ],
       "title": "Operation",
       "type": "string"

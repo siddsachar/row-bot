@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from row_bot.application import provider_configuration_controls as controls
-from row_bot.providers import auth_store, config, custom, selection
+from row_bot.providers import auth_store, config, custom
 from row_bot.runtime import admissions
 from tests.subsystem.providers import test_provider_settings_controls as fixtures
 
@@ -119,14 +119,10 @@ def test_receipt_failure_proves_publication_without_second_save(store, monkeypat
     assert config.CONFIG_PATH.read_bytes() == before
 
 
-def test_delete_removes_exact_provider_pins_and_retains_credentials_and_other_references(store, monkeypatch):
+def test_delete_removes_the_endpoint_and_retains_credentials(store, monkeypatch):
     execute(command())
-    cfg = config.load_provider_config(strict=True)
-    cfg["quick_choices"] = [{"id": "model:custom_openai_synthetic:same", "provider_id": "custom_openai_synthetic", "model_id": "same"}, {"id": "model:openai:same", "provider_id": "openai", "model_id": "same"}]
-    config.save_provider_config(cfg)
     monkeypatch.setattr(auth_store, "delete_provider_secret", lambda *_: pytest.fail("Retain secret bytes"))
     execute(command("provider.endpoint.delete", {"endpoint_id": "synthetic"}))
-    assert config.load_provider_config(strict=True)["quick_choices"] == [cfg["quick_choices"][1]]
     assert custom.get_custom_endpoint("synthetic") is None
 
 
@@ -237,19 +233,6 @@ def test_strict_response_stream_is_bounded_cancelled_and_closed(store, monkeypat
         assert closed[0] == "cancelled-reader"
 
 
-def test_model_pin_preserves_exact_provider_and_other_surface_groups(store, monkeypatch):
-    from row_bot.providers import model_catalog_cache
-    monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda **kw: SimpleNamespace(cloud_cache={"model:openai:shared": {"provider": "openai", "model_id": "shared", "label": "Shared", "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text", "image"], "output_modalities": ["text"], "tool_calling": True}}}, ollama_rows=[]))
-    for surface in ("chat", "vision"):
-        execute(command("provider.model.pin", {"provider_id": "openai", "model_id": "shared", "surface": surface}))
-    execute(command("provider.model.unpin", {"provider_id": "openai", "model_id": "shared", "surface": "vision"}))
-    quick = config.load_provider_config(strict=True)["quick_choices"]
-    assert len(quick) == 1 and quick[0]["id"] == "model:openai:shared"
-    assert set(quick[0]["visibility"]) == set(selection.CHAT_VISIBILITY)
-    with pytest.raises(config.ProviderConfigError, match="model_configuration_unavailable"):
-        execute(command("provider.model.pin", {"provider_id": "anthropic", "model_id": "shared", "surface": "chat"}))
-
-
 def test_create_collision_and_save_missing_never_overwrite(store):
     execute(command())
     before = config.CONFIG_PATH.read_bytes()
@@ -297,7 +280,6 @@ def test_unpublished_receipt_remains_uncertain_and_late_authority_denies(store):
 
 def test_strict_refresh_retains_pins_and_default_and_probe_redacts_remote_diagnostics(store, monkeypatch, caplog):
     execute(command())
-    monkeypatch.setattr(selection, "remove_quick_choices_for_missing_models", lambda *_: pytest.fail("No incidental pin changes"))
     monkeypatch.setattr(custom, "_probe_request", lambda *_a, **_k: SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": [{"id": "saved"}]}))
     refreshed = custom.refresh_custom_endpoint_models("synthetic", strict=True)
     assert [item.model_id for item in refreshed] == ["saved"] and not refreshed.default_reset

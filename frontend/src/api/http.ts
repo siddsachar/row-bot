@@ -306,24 +306,6 @@ export class HttpTransport implements ClientTransport {
   delivery(deliveryId: string, signal?: AbortSignal) {
     return wire.getDelivery(this.base, this.session(), deliveryId, signal);
   }
-  downloadDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
-    return wire.readDeliveryFile(
-      this.base,
-      this.session(),
-      deliveryId,
-      index,
-      signal,
-    );
-  }
-  saveDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
-    return wire.saveDeliveryFile(
-      this.base,
-      this.session(),
-      deliveryId,
-      index,
-      signal,
-    );
-  }
   sendDeliveryToDevices(deliveryId: string, signal?: AbortSignal) {
     return wire.sendDeliveryToDevices(
       this.base,
@@ -378,28 +360,6 @@ export class HttpTransport implements ClientTransport {
       this.session(),
       pageId,
       decision,
-      signal,
-    );
-  }
-  downloadPage(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
-    return wire.downloadPage(
-      this.base,
-      this.session(),
-      pageId,
-      { theme },
-      signal,
-    );
-  }
-  savePageToExports(
-    pageId: string,
-    theme: wire.PageTheme,
-    signal?: AbortSignal,
-  ) {
-    return wire.savePageToExports(
-      this.base,
-      this.session(),
-      pageId,
-      { theme },
       signal,
     );
   }
@@ -2747,54 +2707,6 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  saveArtifactExport(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    signal?: AbortSignal,
-  ) {
-    return wire.saveArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      exportId,
-      signal,
-    );
-  }
-  revealArtifactExport(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: wire.ArtifactExportReveal,
-    signal?: AbortSignal,
-  ) {
-    return wire.revealArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      exportId,
-      body,
-      signal,
-    );
-  }
-  artifactDownload(
-    conversation: string,
-    binding: string,
-    descriptor: wire.ArtifactExport,
-    signal?: AbortSignal,
-  ) {
-    return wire.downloadArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      descriptor,
-      sha256Hex,
-      signal,
-    );
-  }
   cachedModels(
     providerId?: string,
     query = '',
@@ -3406,6 +3318,9 @@ export class HttpTransport implements ClientTransport {
       reference,
       signal,
     );
+  }
+  createSaveOffer(body: wire.SaveOfferRequest, signal?: AbortSignal) {
+    return wire.createSaveOffer(this.base, this.session(), body, signal);
   }
   saveAttachmentExport(reference: string, signal?: AbortSignal) {
     return wire.saveAttachmentExport(

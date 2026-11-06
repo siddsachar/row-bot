@@ -35,13 +35,3 @@ export function choiceWords(choice: string): string {
 export function decisionCount(count: number): string {
   return `${count} decision${count === 1 ? '' : 's'}`;
 }
-
-/** "Launch plan" → "Launch-plan.html", as Row-Bot names the download. */
-export function pageFileName(title: string): string {
-  const stem = title
-    .replace(/[^A-Za-z0-9 _-]+/g, '')
-    .trim()
-    .replaceAll(' ', '-')
-    .slice(0, 80);
-  return `${stem || 'page'}.html`;
-}

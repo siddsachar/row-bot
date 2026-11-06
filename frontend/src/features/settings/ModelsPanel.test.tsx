@@ -232,7 +232,7 @@ it('says the Brain picker lists starred models first and where to star more (U10
   fireEvent.click(await screen.findByRole('button', { name: 'Brain model' }));
   expect(
     await screen.findByText(
-      'Starred models come first. Star more in the Catalog below.',
+      'Your models come first. Star more in the Catalog below.',
     ),
   ).toBeVisible();
 });

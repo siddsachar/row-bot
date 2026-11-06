@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.helpers.starred_models import starred_profile
+
 
 def _fresh_agent_tool_modules(tmp_path, monkeypatch, reload_for_data_dir):
     data_dir = tmp_path / "data"
@@ -26,26 +28,6 @@ def _fresh_agent_tool_modules(tmp_path, monkeypatch, reload_for_data_dir):
 
     monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
     return agent_tool, agent_runs
-
-
-def _isolated_model_choices(tmp_path, monkeypatch):
-    import row_bot.providers.config as provider_config
-    import row_bot.providers.selection as selection
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(selection, "load_provider_config", provider_config.load_provider_config)
-    monkeypatch.setattr(selection, "save_provider_config", provider_config.save_provider_config)
-    provider_config.save_provider_config({})
-    selection._provider_status_picker_cache.clear()
-    return selection
-
-
-def _chat_snapshot() -> dict:
-    return {
-        "tasks": ["chat"],
-        "input_modalities": ["text"],
-        "output_modalities": ["text"],
-    }
 
 
 def test_agents_tool_registers_expected_subtools(tmp_path, monkeypatch, reload_for_data_dir):
@@ -354,13 +336,7 @@ def test_delegate_work_rejects_missing_workspace_path_without_spawning(
 
 
 def test_delegate_work_resolves_optional_model_to_canonical_ref(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "claude-sonnet-4-5",
-        provider_id="anthropic",
-        display_name="Claude Work",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {"model:anthropic:claude-sonnet-4-5": "Claude Work"})
     agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch, reload_for_data_dir)
     calls = {}
 
@@ -395,19 +371,8 @@ def test_delegate_work_resolves_optional_model_to_canonical_ref(tmp_path, monkey
 
 
 def test_delegate_work_rejects_unknown_or_ambiguous_model_without_spawning(tmp_path, monkeypatch, reload_for_data_dir):
-    selection = _isolated_model_choices(tmp_path, monkeypatch)
-    selection.add_quick_choice_for_model(
-        "lab-chat",
-        provider_id="openai",
-        display_name="Shared Model",
-        capabilities_snapshot=_chat_snapshot(),
-    )
-    selection.add_quick_choice_for_model(
-        "lab-chat",
-        provider_id="anthropic",
-        display_name="Shared Model",
-        capabilities_snapshot=_chat_snapshot(),
-    )
+    starred_profile(tmp_path / "models", monkeypatch, {
+        "model:openai:lab-chat": "Shared Model", "model:anthropic:lab-chat": "Shared Model"})
     agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch, reload_for_data_dir)
     calls = {"count": 0}
 
@@ -434,7 +399,7 @@ def test_delegate_work_rejects_unknown_or_ambiguous_model_without_spawning(tmp_p
 
 
 def test_delegate_work_rejects_unpinned_canonical_model_without_spawning(tmp_path, monkeypatch, reload_for_data_dir):
-    _isolated_model_choices(tmp_path, monkeypatch)
+    starred_profile(tmp_path / "models", monkeypatch, {"model:openai:gpt-4o-mini": "GPT-4o mini"}, stars=[])
     agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch, reload_for_data_dir)
     calls = {"count": 0}
 

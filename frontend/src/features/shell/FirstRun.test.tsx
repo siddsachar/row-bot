@@ -456,7 +456,7 @@ it("lists a connected provider's usable chat models from the assessed catalog", 
   );
 });
 
-it('lists favourites, then Row-Bot’s picks, with every other model one step away (F10)', async () => {
+it('lists your models, then Row-Bot’s picks, with every other model one step away', async () => {
   const names = [
     'gemma3:4b',
     'gpt-oss:20b',
@@ -473,7 +473,6 @@ it('lists favourites, then Row-Bot’s picks, with every other model one step aw
     'qwen3:32b': { favourite_rank: 1 },
     'gpt-oss:20b': { recommended: true },
     'mistral:7b': { recommended: true },
-    'phi4:14b': { hidden: true },
   };
   mock.controller.localRuntime.mockResolvedValue({
     ...listed,
@@ -489,11 +488,11 @@ it('lists favourites, then Row-Bot’s picks, with every other model one step aw
       .getAllByRole('button')
       .map((button) => button.textContent?.replace(/Use$/, ''));
   expect(
-    await screen.findByRole('heading', { name: 'Your favourites' }),
+    await screen.findByRole('heading', { name: 'Your models' }),
   ).toBeVisible();
-  expect(rows('Your favourites')).toEqual(['qwen3:32b', 'qwen3:8b']);
+  expect(rows('Your models')).toEqual(['qwen3:32b', 'qwen3:8b']);
   expect(rows('Recommended')).toEqual(['gpt-oss:20b', 'mistral:7b']);
-  // The rest wait behind one line, hidden models last and marked.
+  // The rest wait behind one line.
   const all = screen.getByText('Show all models (4)');
   expect(
     screen.getByRole('list', { name: 'All models on this computer' }),
@@ -503,7 +502,7 @@ it('lists favourites, then Row-Bot’s picks, with every other model one step aw
     'gemma3:4b',
     'llama3.1:8b',
     'nomic-embed-text',
-    'phi4:14bHidden',
+    'phi4:14b',
   ]);
   fireEvent.click(screen.getByRole('button', { name: /phi4:14b/ }));
   await vi.waitFor(() =>

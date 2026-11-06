@@ -10,7 +10,7 @@ import {
   type TranscriptCard,
 } from './TranscriptCards';
 import { OverlayProvider } from '../../ui/overlays';
-import { buildTranscript } from './transcript-model';
+import { buildTranscript, foldLiveVideos } from './transcript-model';
 
 vi.mock('../../api/errors', () => ({
   clientError: (cause: { code?: string }) => ({
@@ -337,4 +337,141 @@ it('hoists cards from a turn’s traces and from live tool activity', () => {
       bound: true,
     },
   ]);
+});
+
+function videoRow(
+  id: string,
+  role: 'user' | 'assistant',
+  specs: Record<string, unknown>[],
+  text = '',
+) {
+  return {
+    id,
+    role,
+    blocks: text ? [{ type: 'text', text }] : [],
+    tool_call_ids: [],
+    tool_call_id: '',
+    traces: specs.length
+      ? [
+          {
+            group_id: `${id}:g`,
+            name: 'edit_video',
+            kind: 'generic' as const,
+            group_order: 0,
+            status: 'succeeded' as const,
+            counts: { succeeded: specs.length },
+            items: specs.map((specialization, index) => ({
+              item_id: `${id}:${index}`,
+              group_id: `${id}:g`,
+              call_id: `${id}:${index}`,
+              result_message_id: '',
+              call_order: index,
+              group_order: 0,
+              canonical_name: 'edit_video',
+              group_name: 'edit_video',
+              group_kind: 'generic' as const,
+              status: 'succeeded' as const,
+              safe_input: '',
+              safe_summary: '',
+              summary_truncated: false,
+              content_ref: '',
+              specialization,
+            })),
+          },
+        ]
+      : [],
+  } as unknown as Parameters<typeof buildTranscript>[0][number];
+}
+
+const recording = { kind: 'recording', recording_id: 'rec-00000001' };
+const edit = (id: string, media_kind = '') => ({
+  kind: 'video_edit',
+  edit_id: id,
+  media_kind,
+});
+
+it('shows only a reply’s newest video in full and folds the earlier ones under it', () => {
+  const items = buildTranscript([
+    videoRow('user:1', 'user', [], 'Make a demo video'),
+    videoRow('assistant:1', 'assistant', [recording]),
+    // Text between the steps splits the reply into items; the fold spans them.
+    videoRow('assistant:2', 'assistant', [edit('edit-0000000a')], 'Trimmed.'),
+    videoRow('assistant:3', 'assistant', [
+      edit('edit-0000000b'),
+      // Stills taken to check the video are no newer version of it.
+      edit('edit-0000000c', 'frames'),
+    ]),
+    videoRow('user:2', 'user', [], 'Thanks'),
+    // The next reply's one video stands alone.
+    videoRow('assistant:4', 'assistant', [edit('edit-0000000d')], 'Here.'),
+  ]);
+  const keys = (cards: TranscriptCard[] | undefined) =>
+    (cards ?? []).map((card) =>
+      card.kind === 'video_edit'
+        ? card.editId
+        : card.kind === 'recording'
+          ? card.recordingId
+          : card.kind,
+    );
+  expect(items.map((item) => keys(item.cards))).toEqual([
+    [],
+    [],
+    [],
+    ['edit-0000000b', 'edit-0000000c'],
+    [],
+    ['edit-0000000d'],
+  ]);
+  expect(items.map((item) => keys(item.earlier))).toEqual([
+    [],
+    [],
+    [],
+    ['rec-00000001', 'edit-0000000a'],
+    [],
+    [],
+  ]);
+});
+
+it('folds what a turn in flight already shows under its newer live video', () => {
+  const items = buildTranscript([
+    videoRow('user:1', 'user', [], 'Make a demo video'),
+    videoRow('assistant:1', 'assistant', [recording, edit('edit-0000000a')]),
+  ]);
+  const live: TranscriptCard[] = [
+    { kind: 'video_edit', editId: 'edit-0000000b' },
+    { kind: 'page', pageId: 'page-00000001' },
+  ];
+  const shown = foldLiveVideos(items, live);
+  expect(shown.items[1].cards).toEqual([]);
+  expect(shown.items[1].earlier).toBeUndefined();
+  expect(shown.pending).toEqual(live);
+  expect(shown.earlier).toEqual([
+    { kind: 'recording', recordingId: 'rec-00000001' },
+    { kind: 'video_edit', editId: 'edit-0000000a' },
+  ]);
+  // Live cards without a video leave the saved ones as they are.
+  const quiet = foldLiveVideos(items, [live[1]]);
+  expect(quiet.items).toBe(items);
+  expect(quiet.earlier).toEqual([]);
+});
+
+it('keeps earlier versions behind one quiet toggle', () => {
+  render(
+    <OverlayProvider>
+      <CardActionsContext.Provider value={actions()}>
+        <TranscriptCards
+          cards={[design]}
+          earlier={[
+            { ...design, bindingId: 'binding-x', name: 'Raw take' },
+            { ...design, bindingId: 'binding-y', name: 'Trimmed take' },
+          ]}
+        />
+      </CardActionsContext.Provider>
+    </OverlayProvider>,
+  );
+  const toggle = screen.getByText('2 earlier versions');
+  const fold = toggle.closest('details')!;
+  expect(fold).not.toHaveAttribute('open');
+  fireEvent.click(toggle);
+  expect(fold).toHaveAttribute('open');
+  expect(within(fold).getAllByRole('button', { name: 'Open' })).toHaveLength(2);
 });

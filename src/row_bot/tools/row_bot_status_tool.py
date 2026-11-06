@@ -206,7 +206,7 @@ def _resolve_model_update_value(value: str, *, surface: str) -> tuple[str | None
 
     from row_bot.models import is_model_local, list_cloud_models, list_cloud_vision_models
     from row_bot.providers.capabilities import snapshot_supports_surface
-    from row_bot.providers.selection import list_quick_choices, model_ref, resolve_selection
+    from row_bot.providers.selection import star_cannot_run, list_model_choice_options, model_ref, resolve_selection
 
     raw = (value or "").strip()
     if not raw:
@@ -215,27 +215,18 @@ def _resolve_model_update_value(value: str, *, surface: str) -> tuple[str | None
     resolved = resolve_selection(raw)
     if not resolved:
         return None, f"Model '{raw}' not found. Pin it in Settings → Models first."
-    if resolved.kind == "route":
-        return None, f"Route '{raw}' is configured but runtime routing is not enabled yet. Choose a direct model Quick Choice."
-    if resolved.active is False:
-        reason = f" {resolved.reason}" if resolved.reason else ""
-        return None, f"Model '{raw}' is inactive.{reason}"
 
     provider_id = resolved.provider_id or "local"
     model_id = resolved.model_id
-    quick_choices = {
-        str(choice.get("id")): choice
-        for choice in list_quick_choices(surface, include_inactive=True)
-        if isinstance(choice, dict)
+    starred = {
+        str(option["value"]): option
+        for option in list_model_choice_options(surface, include_inactive=True)
     }
-    quick_choice = quick_choices.get(resolved.ref)
-    if quick_choice:
-        if quick_choice.get("active") is False:
-            reason = str(quick_choice.get("inactive_reason") or "This Quick Choice is inactive.")
+    star = starred.get(resolved.ref)
+    if star:
+        if star_cannot_run(star):
+            reason = str(star.get("reason") or "This Quick Choice is inactive.")
             return None, f"Model '{raw}' is not active for {_surface_label(surface)}. {reason}"
-        snapshot = quick_choice.get("capabilities_snapshot") if isinstance(quick_choice.get("capabilities_snapshot"), dict) else {}
-        if snapshot and not snapshot_supports_surface(snapshot, surface):
-            return None, f"Model '{raw}' is not compatible with {_surface_label(surface)}."
         return model_id, None
 
     if provider_id in {"local", "ollama"}:
@@ -2177,9 +2168,7 @@ def _update_setting(setting: str, value: str) -> str:
             return "Image gen model change cancelled."
         try:
             from row_bot.tools import registry as tool_registry
-            from row_bot.providers.selection import seed_configured_media_quick_choices
             tool_registry.set_tool_config("image_gen", "model", model_value)
-            seed_configured_media_quick_choices()
             return f"Image generation model set to: {model_value}"
         except Exception as exc:
             return f"Failed to change image gen model: {exc}"
@@ -2196,9 +2185,7 @@ def _update_setting(setting: str, value: str) -> str:
             return "Video gen model change cancelled."
         try:
             from row_bot.tools import registry as tool_registry
-            from row_bot.providers.selection import seed_configured_media_quick_choices
             tool_registry.set_tool_config("video_gen", "model", model_value)
-            seed_configured_media_quick_choices()
             return f"Video generation model set to: {model_value}"
         except Exception as exc:
             return f"Failed to change video gen model: {exc}"

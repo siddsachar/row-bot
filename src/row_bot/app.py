@@ -722,6 +722,14 @@ async def _run_startup_sequence():
     except Exception:
         logger.warning("Could not keep the models this profile was using", exc_info=True)
 
+    # Once (5.3.3): pinned, starred and hidden models fold into one list of stars.
+    try:
+        from row_bot.providers.model_visibility import migrate_to_stars
+        with _startup_phase("starred_models"):
+            await asyncio.to_thread(migrate_to_stars)
+    except Exception:
+        logger.warning("Could not fold the model lists into stars; the old files are kept", exc_info=True)
+
     # Once: Claude now runs the person's own Claude Code; the old Claude sign-in's stored tokens go (N1).
     try:
         from row_bot.providers.claude_subscription import retire_old_claude_sign_in

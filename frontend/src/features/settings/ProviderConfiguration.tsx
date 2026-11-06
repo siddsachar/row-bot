@@ -38,13 +38,8 @@ type Operation =
   | 'provider.endpoint.save'
   | 'provider.endpoint.delete'
   | 'provider.endpoint.probe'
-  | 'provider.endpoint.refresh'
-  | 'provider.model.pin'
-  | 'provider.model.unpin';
-type Fields =
-  | ProviderEndpointFields
-  | { endpoint_id: string }
-  | { provider_id: string; model_id: string; surface: string };
+  | 'provider.endpoint.refresh';
+type Fields = ProviderEndpointFields | { endpoint_id: string };
 type Review = {
   configuration_revision: string;
   operation: string;
@@ -160,9 +155,6 @@ type State = {
   editing: boolean;
   dirty: boolean;
   operation: Operation;
-  provider: string;
-  model: string;
-  surface: string;
   busy: string;
   error: string;
   notice: string;
@@ -183,9 +175,6 @@ const initial = (): State => ({
   editing: false,
   dirty: false,
   operation: 'provider.endpoint.save',
-  provider: '',
-  model: '',
-  surface: 'chat',
   busy: '',
   error: '',
   notice: '',
@@ -310,21 +299,14 @@ export default function ProviderConfiguration(
       reviewed: null,
     });
   }, [props.autoAdd, props.addProfile, page, locked, state.editing, session]);
-  const modelAction = operation.startsWith('provider.model.');
   const networkAction =
     operation === 'provider.endpoint.probe' ||
     operation === 'provider.endpoint.refresh';
   const payload = (): Fields =>
-    modelAction
-      ? {
-          provider_id: state.provider,
-          model_id: state.model,
-          surface: state.surface,
-        }
-      : operation === 'provider.endpoint.save' ||
-          operation === 'provider.endpoint.create'
-        ? sendable(fields)
-        : { endpoint_id: fields.endpoint_id };
+    operation === 'provider.endpoint.save' ||
+    operation === 'provider.endpoint.create'
+      ? sendable(fields)
+      : { endpoint_id: fields.endpoint_id };
 
   async function load(cursor?: string) {
     if (
@@ -1428,19 +1410,6 @@ export default function ProviderConfiguration(
           <Plus size={15} aria-hidden />
           New endpoint
         </Button>
-        <Button
-          disabled={locked || state.dirty || !page}
-          onClick={() =>
-            session.update({
-              revision: page!.revision,
-              editing: true,
-              operation: 'provider.model.pin',
-              reviewed: null,
-            })
-          }
-        >
-          Model picker settings
-        </Button>
         <Button onClick={() => props.onCredentials()}>
           Manage credentials
         </Button>
@@ -1455,290 +1424,232 @@ export default function ProviderConfiguration(
                 changed({ operation: event.target.value as Operation })
               }
             >
-              {modelAction ? (
-                <>
-                  <option value="provider.model.pin">
-                    List model in a picker
-                  </option>
-                  <option value="provider.model.unpin">
-                    Take model out of a picker
-                  </option>
-                </>
-              ) : (
-                <>
-                  <option
-                    value={
-                      state.existing
-                        ? 'provider.endpoint.save'
-                        : 'provider.endpoint.create'
-                    }
-                  >
-                    {state.existing ? 'Save endpoint' : 'Create endpoint'}
-                  </option>
-                  <option
-                    value="provider.endpoint.delete"
-                    disabled={!state.existing}
-                  >
-                    Remove endpoint
-                  </option>
-                  <option
-                    value="provider.endpoint.refresh"
-                    disabled={!state.existing}
-                  >
-                    Refresh endpoint models
-                  </option>
-                  <option
-                    value="provider.endpoint.probe"
-                    disabled={!state.existing}
-                  >
-                    Probe endpoint readiness
-                  </option>
-                </>
-              )}
+              <>
+                <option
+                  value={
+                    state.existing
+                      ? 'provider.endpoint.save'
+                      : 'provider.endpoint.create'
+                  }
+                >
+                  {state.existing ? 'Save endpoint' : 'Create endpoint'}
+                </option>
+                <option
+                  value="provider.endpoint.delete"
+                  disabled={!state.existing}
+                >
+                  Remove endpoint
+                </option>
+                <option
+                  value="provider.endpoint.refresh"
+                  disabled={!state.existing}
+                >
+                  Refresh endpoint models
+                </option>
+                <option
+                  value="provider.endpoint.probe"
+                  disabled={!state.existing}
+                >
+                  Probe endpoint readiness
+                </option>
+              </>
             </Select>
           </Field>
-          {modelAction ? (
-            <>
-              <Field label="Provider ID">
-                <Input
-                  disabled={locked}
-                  maxLength={128}
-                  value={state.provider}
-                  onChange={(event) =>
-                    changed({ provider: event.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Exact model ID">
-                <Input
-                  disabled={locked}
-                  maxLength={512}
-                  value={state.model}
-                  onChange={(event) => changed({ model: event.target.value })}
-                />
-              </Field>
-              <Field label="Picker">
-                <Select
-                  disabled={locked}
-                  value={state.surface}
-                  onChange={(event) => changed({ surface: event.target.value })}
-                >
-                  {['chat', 'vision', 'image', 'video', 'voice'].map(
-                    (surface) => (
-                      <option key={surface}>{surface}</option>
-                    ),
-                  )}
-                </Select>
-              </Field>
-              <p>
-                Provider identity is preserved. Listing does not select a
-                default or prove runtime readiness.
-              </p>
-            </>
-          ) : (
-            <>
-              <Field label="Endpoint ID">
-                <Input
-                  value={fields.endpoint_id}
-                  disabled={locked || state.existing}
-                  maxLength={64}
-                  onChange={(event) => field('endpoint_id', event.target.value)}
-                />
-              </Field>
-              <Field label="Display name">
-                <Input
-                  value={fields.display_name}
-                  disabled={
-                    locked ||
-                    (operation !== 'provider.endpoint.save' &&
-                      operation !== 'provider.endpoint.create')
-                  }
-                  maxLength={160}
-                  onChange={(event) =>
-                    field('display_name', event.target.value)
-                  }
-                />
-              </Field>
-              <Field label="Base URL">
-                <Input
-                  value={fields.base_url}
-                  disabled={
-                    locked ||
-                    (operation !== 'provider.endpoint.save' &&
-                      operation !== 'provider.endpoint.create')
-                  }
-                  maxLength={2048}
-                  onChange={(event) => field('base_url', event.target.value)}
-                />
-              </Field>
-              {(operation === 'provider.endpoint.save' ||
-                operation === 'provider.endpoint.create') && (
-                <>
-                  {allowedNote}
-                  <div className="field-row">
-                    {serverType}
-                    <Field label="Execution location">
-                      <Select
-                        disabled={locked || state.existing}
-                        value={fields.execution_location}
-                        onChange={(event) =>
-                          field(
-                            'execution_location',
-                            event.target
-                              .value as ProviderEndpointFields['execution_location'],
-                          )
+          <>
+            <Field label="Endpoint ID">
+              <Input
+                value={fields.endpoint_id}
+                disabled={locked || state.existing}
+                maxLength={64}
+                onChange={(event) => field('endpoint_id', event.target.value)}
+              />
+            </Field>
+            <Field label="Display name">
+              <Input
+                value={fields.display_name}
+                disabled={
+                  locked ||
+                  (operation !== 'provider.endpoint.save' &&
+                    operation !== 'provider.endpoint.create')
+                }
+                maxLength={160}
+                onChange={(event) => field('display_name', event.target.value)}
+              />
+            </Field>
+            <Field label="Base URL">
+              <Input
+                value={fields.base_url}
+                disabled={
+                  locked ||
+                  (operation !== 'provider.endpoint.save' &&
+                    operation !== 'provider.endpoint.create')
+                }
+                maxLength={2048}
+                onChange={(event) => field('base_url', event.target.value)}
+              />
+            </Field>
+            {(operation === 'provider.endpoint.save' ||
+              operation === 'provider.endpoint.create') && (
+              <>
+                {allowedNote}
+                <div className="field-row">
+                  {serverType}
+                  <Field label="Execution location">
+                    <Select
+                      disabled={locked || state.existing}
+                      value={fields.execution_location}
+                      onChange={(event) =>
+                        field(
+                          'execution_location',
+                          event.target
+                            .value as ProviderEndpointFields['execution_location'],
+                        )
+                      }
+                    >
+                      <option value="local">Local/private</option>
+                      <option value="remote">Remote/proxy</option>
+                    </Select>
+                  </Field>
+                </div>
+                {ollamaHint}
+                <label className="actions">
+                  <Toggle
+                    label="Enable this endpoint"
+                    checked={fields.enabled}
+                    disabled={locked}
+                    onChange={(event) => field('enabled', event.target.checked)}
+                  />
+                  Enable this endpoint
+                </label>
+                <label className="actions">
+                  <Toggle
+                    label="Require an existing saved credential"
+                    checked={fields.auth_required}
+                    disabled={locked}
+                    onChange={(event) =>
+                      field('auth_required', event.target.checked)
+                    }
+                  />
+                  Require an existing saved credential
+                </label>
+                <p>
+                  Credential bytes are managed separately. This form never
+                  replaces or deletes them.
+                </p>
+                <details>
+                  <summary>Advanced capabilities and reasoning</summary>
+                  <div className="stack">
+                    {(
+                      ['vision_mode', 'tool_mode', 'reasoning_mode'] as const
+                    ).map((key) => (
+                      <Field
+                        key={key}
+                        label={
+                          {
+                            vision_mode: 'Vision input',
+                            tool_mode: 'Tool calling',
+                            reasoning_mode: 'Reasoning mode',
+                          }[key]
                         }
                       >
-                        <option value="local">Local/private</option>
-                        <option value="remote">Remote/proxy</option>
-                      </Select>
-                    </Field>
-                  </div>
-                  {ollamaHint}
-                  <label className="actions">
-                    <Toggle
-                      label="Enable this endpoint"
-                      checked={fields.enabled}
-                      disabled={locked}
-                      onChange={(event) =>
-                        field('enabled', event.target.checked)
-                      }
-                    />
-                    Enable this endpoint
-                  </label>
-                  <label className="actions">
-                    <Toggle
-                      label="Require an existing saved credential"
-                      checked={fields.auth_required}
-                      disabled={locked}
-                      onChange={(event) =>
-                        field('auth_required', event.target.checked)
-                      }
-                    />
-                    Require an existing saved credential
-                  </label>
-                  <p>
-                    Credential bytes are managed separately. This form never
-                    replaces or deletes them.
-                  </p>
-                  <details>
-                    <summary>Advanced capabilities and reasoning</summary>
-                    <div className="stack">
-                      {(
-                        ['vision_mode', 'tool_mode', 'reasoning_mode'] as const
-                      ).map((key) => (
+                        <Select
+                          disabled={locked}
+                          value={fields[key]}
+                          onChange={(event) =>
+                            field(
+                              key,
+                              event.target
+                                .value as ProviderEndpointFields[typeof key],
+                            )
+                          }
+                        >
+                          {['auto', 'on', 'off'].map((mode) => (
+                            <option key={mode}>{mode}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                    ))}
+                    {(['context_window', 'thinking_budget'] as const).map(
+                      (key) => (
                         <Field
                           key={key}
                           label={
-                            {
-                              vision_mode: 'Vision input',
-                              tool_mode: 'Tool calling',
-                              reasoning_mode: 'Reasoning mode',
-                            }[key]
+                            key === 'context_window'
+                              ? 'Native context limit'
+                              : 'Thinking budget'
                           }
                         >
-                          <Select
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10000000}
                             disabled={locked}
-                            value={fields[key]}
+                            value={fields[key] ?? ''}
                             onChange={(event) =>
                               field(
                                 key,
-                                event.target
-                                  .value as ProviderEndpointFields[typeof key],
+                                event.target.value === ''
+                                  ? null
+                                  : Number(event.target.value),
                               )
                             }
-                          >
-                            {['auto', 'on', 'off'].map((mode) => (
-                              <option key={mode}>{mode}</option>
-                            ))}
-                          </Select>
-                        </Field>
-                      ))}
-                      {(['context_window', 'thinking_budget'] as const).map(
-                        (key) => (
-                          <Field
-                            key={key}
-                            label={
-                              key === 'context_window'
-                                ? 'Native context limit'
-                                : 'Thinking budget'
-                            }
-                          >
-                            <Input
-                              type="number"
-                              min={1}
-                              max={10000000}
-                              disabled={locked}
-                              value={fields[key] ?? ''}
-                              onChange={(event) =>
-                                field(
-                                  key,
-                                  event.target.value === ''
-                                    ? null
-                                    : Number(event.target.value),
-                                )
-                              }
-                            />
-                          </Field>
-                        ),
-                      )}
-                      {(
-                        [
-                          'supports_reasoning_content',
-                          'supports_reasoning_replay',
-                        ] as const
-                      ).map((key) => (
-                        <label className="actions" key={key}>
-                          <Toggle
-                            label={
-                              key === 'supports_reasoning_content'
-                                ? 'Endpoint returns reasoning content'
-                                : 'Send earlier reasoning back'
-                            }
-                            checked={fields[key]}
-                            disabled={locked}
-                            onChange={(event) =>
-                              field(key, event.target.checked)
-                            }
                           />
-                          {key === 'supports_reasoning_content'
-                            ? 'Endpoint returns reasoning content'
-                            : 'Send earlier reasoning back'}
-                        </label>
-                      ))}
-                      <Field label="Credential-free extra request JSON">
-                        <textarea
-                          className="input"
-                          value={fields.extra_body_json}
-                          maxLength={16384}
-                          disabled={locked}
-                          onChange={(event) =>
-                            field('extra_body_json', event.target.value)
+                        </Field>
+                      ),
+                    )}
+                    {(
+                      [
+                        'supports_reasoning_content',
+                        'supports_reasoning_replay',
+                      ] as const
+                    ).map((key) => (
+                      <label className="actions" key={key}>
+                        <Toggle
+                          label={
+                            key === 'supports_reasoning_content'
+                              ? 'Endpoint returns reasoning content'
+                              : 'Send earlier reasoning back'
                           }
+                          checked={fields[key]}
+                          disabled={locked}
+                          onChange={(event) => field(key, event.target.checked)}
                         />
-                      </Field>
-                    </div>
-                  </details>
-                </>
-              )}
-              {operation === 'provider.endpoint.delete' && (
-                <p>
-                  Removes this endpoint and its models from the model lists.
-                  Credential recovery bytes and global model selections are
-                  retained; unavailable selections require an explicit new
-                  choice.
-                </p>
-              )}
-              {networkAction && (
-                <p>
-                  This explicit action contacts the saved endpoint and may
-                  consume provider quota. It sends synthetic probe content,
-                  never conversation history. Changing this form does not probe
-                  automatically.
-                </p>
-              )}
-            </>
-          )}
+                        {key === 'supports_reasoning_content'
+                          ? 'Endpoint returns reasoning content'
+                          : 'Send earlier reasoning back'}
+                      </label>
+                    ))}
+                    <Field label="Credential-free extra request JSON">
+                      <textarea
+                        className="input"
+                        value={fields.extra_body_json}
+                        maxLength={16384}
+                        disabled={locked}
+                        onChange={(event) =>
+                          field('extra_body_json', event.target.value)
+                        }
+                      />
+                    </Field>
+                  </div>
+                </details>
+              </>
+            )}
+            {operation === 'provider.endpoint.delete' && (
+              <p>
+                Removes this endpoint and its models from the model lists.
+                Credential recovery bytes and global model selections are
+                retained; unavailable selections require an explicit new choice.
+              </p>
+            )}
+            {networkAction && (
+              <p>
+                This explicit action contacts the saved endpoint and may consume
+                provider quota. It sends synthetic probe content, never
+                conversation history. Changing this form does not probe
+                automatically.
+              </p>
+            )}
+          </>
           {operation === 'provider.endpoint.delete' && state.reviewed && (
             <p role="status">
               Confirm removal of this endpoint and its models from the model
@@ -1761,13 +1672,9 @@ export default function ProviderConfiguration(
                   ? 'Check endpoint'
                   : operation === 'provider.endpoint.refresh'
                     ? 'Refresh models'
-                    : operation === 'provider.model.pin'
-                      ? 'List model'
-                      : operation === 'provider.model.unpin'
-                        ? 'Take model out'
-                        : state.existing
-                          ? 'Save endpoint'
-                          : 'Create endpoint'}
+                    : state.existing
+                      ? 'Save endpoint'
+                      : 'Create endpoint'}
             </Button>
             {operation === 'provider.endpoint.delete' && state.reviewed && (
               <Button
