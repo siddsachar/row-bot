@@ -1121,9 +1121,9 @@ export function ToolSettingsUnreadable({
       <div>
         <strong>Tool settings can’t be read</strong>
         <p>
-          Row-Bot couldn’t read its tool settings file, so every tool is off
-          and tool settings can’t be saved. Restore the file from a backup, or
-          start again from the defaults.
+          Row-Bot couldn’t read its tool settings file, so every tool is off and
+          tool settings can’t be saved. Restore the file from a backup, or start
+          again from the defaults.
         </p>
         <ReviewedSettingsAction
           mutation={mutation}
