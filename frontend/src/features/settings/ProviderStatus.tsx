@@ -40,7 +40,7 @@ import ClaudePlanSetup, { claudePlanSummary } from './ClaudePlanSetup';
 import { LOCAL_SERVERS } from './local-servers';
 
 const groups = {
-  local: 'On this device',
+  local: 'On this computer',
   subscription: 'Subscriptions',
   api: 'API providers',
   custom: 'Custom endpoints',

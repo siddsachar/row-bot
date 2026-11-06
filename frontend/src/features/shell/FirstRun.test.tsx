@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { OnboardingSnapshot } from '../../api/types';
@@ -311,6 +318,39 @@ it('lists recommended key providers first, the rest under More providers', async
   ).toEqual(['OpenAI', 'Anthropic', 'Google Gemini', 'OpenRouter']);
   expect(within(providers).getAllByText('Pay per use')).toHaveLength(4);
   expect(screen.getByText('More providers')).toBeVisible();
+});
+
+it('lists every other API-key provider Row-Bot knows under More providers, as Settings does', async () => {
+  const api = (provider_id: string, display_name: string) => ({
+    provider_id,
+    display_name,
+    group: 'api',
+    configured: false,
+    billing: 'pay_per_use',
+  });
+  mock.controller.liveProviderStatus.mockResolvedValue({
+    schema_version: 1,
+    providers: [
+      api('openai', 'OpenAI API'),
+      api('mistral', 'Mistral'),
+      api('deepseek', 'DeepSeek'),
+      api('xai', 'xAI API'),
+      { ...api('codex', 'ChatGPT / Codex'), group: 'subscription' },
+    ],
+  });
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /With an API key/ }));
+  const more = await screen.findByRole('list', {
+    name: 'More providers',
+    hidden: true,
+  });
+  await waitFor(() =>
+    expect(
+      within(more)
+        .getAllByRole('button', { hidden: true })
+        .map((button) => button.querySelector('span')?.textContent),
+    ).toEqual(['DeepSeek', 'Mistral', 'xAI']),
+  );
 });
 
 it('says once that an installed Row-Bot downloads updates in the background', async () => {

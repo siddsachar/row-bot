@@ -663,7 +663,7 @@ it('offers no Ollama on a hosted server, unless one is connected (U3)', async ()
     />,
   );
   expect(await screen.findByLabelText('API providers')).toBeVisible();
-  expect(screen.queryByLabelText('On this device')).toBeNull();
+  expect(screen.queryByLabelText('On this computer')).toBeNull();
   expect(screen.queryByText('Ollama Local')).toBeNull();
   unmount();
   render(
@@ -702,7 +702,7 @@ it('names where local models run: this device here, the Row-Bot server elsewhere
       />,
     );
   const desktop = show();
-  const here = await screen.findByRole('region', { name: 'On this device' });
+  const here = await screen.findByRole('region', { name: 'On this computer' });
   expect(within(here).getByText('Ollama Local')).toBeVisible();
   desktop.unmount();
   for (const kind of ['hosted', 'server'] as const) {

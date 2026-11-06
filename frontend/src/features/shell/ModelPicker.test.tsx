@@ -84,7 +84,7 @@ it('carries a cloud or local glyph and never says Ready for an unavailable model
     />,
   );
   expect(
-    within(pill()).getByRole('img', { name: 'Runs on this device' }),
+    within(pill()).getByRole('img', { name: 'Runs on this computer' }),
   ).toBeVisible();
   rerender(
     <ModelPicker
@@ -299,4 +299,112 @@ it('offers a ready personal model with a Personal tag; it can be starred like an
     expect.objectContaining({ model_ref: personal.model_ref }),
     'favourite',
   );
+});
+
+it('with stars, folds the providers under Browse by provider until you open them', async () => {
+  show(
+    'model:ollama:qwen3:8b',
+    { state: 'ready' },
+    { open: true, models: shelf },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  expect(groupNames(list)).toEqual(['Your models']);
+  expect(names(list).some((row) => row.startsWith('gemma3:4b'))).toBe(false);
+
+  const browse = screen.getByRole('button', { name: 'Browse by provider' });
+  expect(browse).toHaveAttribute('aria-expanded', 'false');
+  await act(async () => fireEvent.click(browse));
+  expect(browse).toHaveAttribute('aria-expanded', 'true');
+  expect(groupNames(list)).toEqual([
+    'Your models',
+    'ChatGPT / CodexConnectedSubscription',
+    'Ollama LocalConnectedRuns on this computerLocal · free',
+  ]);
+  expect(names(list).some((row) => row.startsWith('gemma3:4b'))).toBe(true);
+});
+
+it('keeps the providers open with nothing starred, or when the current model is only there', async () => {
+  const { unmount } = show(
+    'model:codex:gpt-5.6-sol',
+    { state: 'ready' },
+    { open: true },
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Browse by provider' }),
+  ).toBeNull();
+  unmount();
+  show(
+    'model:codex:gpt-5.6-sol',
+    { state: 'ready' },
+    { open: true, models: shelf },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  expect(names(list).some((row) => row.startsWith('GPT-5.6-Sol'))).toBe(true);
+  expect(
+    screen.queryByRole('button', { name: 'Browse by provider' }),
+  ).toBeNull();
+});
+
+it('typing also searches every connected provider’s models, beyond the listed ones', async () => {
+  vi.useFakeTimers();
+  try {
+    const search = vi.fn(async () => [
+      {
+        provider_id: 'groq',
+        model_ref: 'model:groq:openai/gpt-oss-120b',
+        label: 'gpt-oss-120b - Groq',
+        available: true,
+        billing: null,
+      },
+      // Already listed: shown once, where it is.
+      { ...models[1] },
+    ]);
+    const { onChoose } = show(
+      'model:codex:gpt-5.6-sol',
+      { state: 'ready' },
+      { open: true, search },
+    );
+    const field = screen.getByRole('combobox', { name: 'Search models' });
+    fireEvent.change(field, { target: { value: 'gpt' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(search).toHaveBeenCalledWith('gpt', expect.any(AbortSignal));
+    const list = screen.getByRole('listbox', { name: 'Models' });
+    expect(groupNames(list).at(-1)).toBe('All models');
+    const found = within(list).getByRole('option', { name: /gpt-oss-120b/ });
+    expect(found).toHaveTextContent('Groq');
+    expect(
+      names(list).filter((row) => row.startsWith('OpenAI: GPT-5.6 Sol')),
+    ).toHaveLength(1);
+    fireEvent.click(found);
+    expect(onChoose).toHaveBeenCalledWith(
+      expect.objectContaining({ model_ref: 'model:groq:openai/gpt-oss-120b' }),
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('Connect on a model whose provider is not connected opens that provider', async () => {
+  const { onConnect } = show(
+    'model:codex:gpt-5.6-sol',
+    { state: 'ready' },
+    {
+      open: true,
+      models: [
+        ...models,
+        {
+          provider_id: 'anthropic',
+          model_ref: 'model:anthropic:claude-opus-5-5',
+          label: 'Claude Opus 5.5 - Anthropic API',
+          available: false,
+          unavailable_reason: 'configuration_required',
+          billing: 'pay_per_use',
+        },
+      ],
+    },
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  expect(onConnect).toHaveBeenCalledWith('anthropic');
 });

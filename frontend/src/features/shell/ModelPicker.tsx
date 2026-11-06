@@ -17,7 +17,10 @@ import {
   Select,
   StatusDot,
 } from '../../ui/primitives';
-import ModelList, { type VisibilityAction } from './ModelList';
+import ModelList, {
+  type ListedModel,
+  type VisibilityAction,
+} from './ModelList';
 import {
   isLocalProvider,
   modelRefName,
@@ -51,6 +54,7 @@ export default function ModelPicker({
   onManage,
   onSetup,
   onVisibility,
+  search,
   anchor,
   returnFocusTo,
 }: {
@@ -66,8 +70,8 @@ export default function ModelPicker({
   reasoning: ReasoningView | null;
   thinkingLabel: string;
   onThinking: (selection: ReasoningSelectionValue) => void;
-  /** Open provider setup (for unconnected providers). */
-  onConnect: () => void;
+  /** Open a provider's sheet to connect it (its ID), or Settings › Models. */
+  onConnect: (providerId?: string) => void;
   /** Reconnect the conversation's provider (defaults to onConnect). */
   onReconnect?: () => void;
   /** Open the model catalog settings. */
@@ -76,6 +80,11 @@ export default function ModelPicker({
   onSetup?: () => void;
   /** Favourite or hide a model from its row (F10). */
   onVisibility?: (model: ModelChoice, action: VisibilityAction) => void;
+  /** Every connected provider's models matching what is typed. */
+  search?: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<readonly ListedModel[]>;
   /**
    * Open over this element instead of from the pill: a one-line composer
    * keeps the model in its + menu, so the picker opens above the field.
@@ -151,7 +160,7 @@ export default function ModelPicker({
                     !local
                       ? 'Cloud model'
                       : place.kind === 'this_computer'
-                        ? 'Runs on this device'
+                        ? 'Runs on this computer'
                         : `Runs on ${place.name}`
                   }
                 />
@@ -225,11 +234,12 @@ export default function ModelPicker({
               onChoose(model);
               onOpenChange(false);
             }}
-            onConnect={() => {
+            onConnect={(model) => {
               onOpenChange(false);
-              onConnect();
+              onConnect(model.provider_id);
             }}
             onVisibility={onVisibility}
+            search={search}
           />
           <div className="model-picker-footer">
             {reasoning?.available && (

@@ -19,6 +19,13 @@ export function splitModelLabel(label: string): {
     : { name: label.trim(), provider: '' };
 }
 
+/** A provider's sheet in Settings › Models (its connection and models), or the page. */
+export function providerSheetPath(providerId?: string | null): string {
+  return providerId
+    ? `/settings/models?provider=${encodeURIComponent(providerId)}`
+    : '/settings/models';
+}
+
 /** A short display name for a model reference outside the catalog. */
 export function modelRefName(ref: string | undefined | null): string {
   if (!ref) return '';
