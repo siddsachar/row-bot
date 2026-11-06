@@ -2095,6 +2095,11 @@ def _catalog_or_heuristic(provider_id: str, model_id: str) -> int:
             cat_val = _context_catalog.get(runtime_model)
             if cat_val:
                 return cat_val
+    from row_bot.providers.capability_catalog import lookup
+
+    known = lookup(provider, runtime_model)
+    if known and known.context_window:
+        return known.context_window
     return _maintained_context_limit(provider, runtime_model)
 
 
@@ -2174,6 +2179,7 @@ def _fetch_cloud_models(provider: str) -> int:
     import httpx
     from row_bot.providers.auth_store import get_provider_secret
     from row_bot.providers.capabilities import model_supports_surface
+    from row_bot.providers.capability_catalog import lookup
     from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
     if provider == "openai":
@@ -2259,6 +2265,11 @@ def _fetch_cloud_models(provider: str) -> int:
             mid = str(m.get("id") or "").strip()
             if not mid:
                 continue
+            # OpenAI's list names its models and nothing else; models.dev says what each one does.
+            known = lookup("openai", mid)
+            if known:
+                m = {**m, "tool_calling": known.tool_calling, "vision": known.vision,
+                     "output_modalities": sorted(known.outputs)}
             model_info = model_info_from_metadata(
                 "openai", mid, m,
                 display_name=mid,
@@ -3186,8 +3197,12 @@ def _fetch_xai_oauth_models() -> int:
 
 def refresh_cloud_provider_models(provider_id: str) -> ProviderCatalogRefreshResult:
     """Refresh one provider while retaining its last-known-good catalog."""
+    from row_bot.providers import capability_catalog
+
     provider = str(provider_id or "").strip()
     before_stamp = _provider_catalog_cache_stamp(provider)
+    # What models.dev says fills gaps in lists that only name their models (at most hourly).
+    capability_catalog.refresh()
     try:
         update_count = _fetch_cloud_models(provider)
     except Exception as exc:
