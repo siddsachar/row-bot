@@ -1097,6 +1097,25 @@ class AccessStore:
             rows = connection.execute(query).fetchall()
         return [_device_from_row(row) for row in rows]
 
+    def active_device_count(self, *, excluding_route: str = "") -> int:
+        """Devices signed in now (not revoked), read only: nothing is created, migrated or
+        locked, and a store that doesn't exist yet has none."""
+        if not self.db_path.exists():
+            return 0
+        try:
+            connection = sqlite3.connect(f"{self.db_path.as_uri()}?mode=ro", uri=True)
+            try:
+                row = connection.execute(
+                    "SELECT COUNT(*) FROM access_devices WHERE revoked_at IS NULL"
+                    " AND (access_route IS NULL OR access_route != ?)",
+                    (excluding_route,),
+                ).fetchone()
+            finally:
+                connection.close()
+        except sqlite3.Error:
+            return 0
+        return int(row[0]) if row else 0
+
     def get_session(self, session_id: str) -> AccessSession | None:
         self.ensure_schema()
         with self._read_connection() as connection:

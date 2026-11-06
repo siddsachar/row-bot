@@ -22,6 +22,7 @@ import {
   HeartPulse,
   Hourglass,
   ImageOff,
+  MemoryStick,
   MessageSquare,
   Palette,
   Paperclip,
@@ -75,6 +76,7 @@ import {
 } from '../shell/needs';
 import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
+import MemoryNoticeActions from './MemoryNotice';
 import { useWaits } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
 
@@ -715,6 +717,24 @@ export default function OverviewHome({
     },
   );
   const problemNeeds = problems.map((problem: AttentionProblem): Item => {
+    // Row-Bot restarted for lack of memory (U8): its own actions; Monitor has the whole notice.
+    if (problem.place === 'memory')
+      return {
+        key: `problem:${problem.id}`,
+        icon: <MemoryStick size={16} />,
+        tone: 'warning',
+        title: problem.title,
+        meta: problem.detail,
+        label: `Open ${problem.title}`,
+        onOpen: () => onOpenTab('monitor'),
+        actions: (
+          <MemoryNoticeActions
+            problem={problem}
+            look="icon"
+            onDismissed={refixed}
+          />
+        ),
+      };
     // A workflow its removed code folder stopped (N9): running it again can't help;
     // its fix is choosing a folder, as on the run itself.
     const folder =

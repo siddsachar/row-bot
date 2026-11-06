@@ -453,6 +453,7 @@ class ChatOpenAICompatible(BaseChatModel):
                 json=body,
                 headers=self._headers(api_key),
                 timeout=request_timeout,
+                **self._connection_check(),
             )
             _raise_for_status(response, self.endpoint)
             return response
@@ -519,11 +520,13 @@ class ChatOpenAICompatible(BaseChatModel):
                 json=body,
                 headers=self._headers(api_key),
                 timeout=request_timeout,
+                **self._connection_check(),
             ) if hasattr(client, "stream") else nullcontext(client.post(
                 _chat_url(base_url),
                 json=body,
                 headers=self._headers(api_key),
                 timeout=request_timeout,
+                **self._connection_check(),
             ))
             with context as response:
                 _raise_for_status(response, self.endpoint)
@@ -593,6 +596,14 @@ class ChatOpenAICompatible(BaseChatModel):
         if found is None:
             raise RuntimeError("Row-Bot couldn't start the server that runs your personal model.")
         return found
+
+    def _connection_check(self) -> dict[str, Any]:
+        """On a hosted server, a custom endpoint's connection is checked before anything is sent (H16)."""
+
+        from row_bot.providers.endpoint_addresses import connection_check
+
+        check = connection_check(self.endpoint)
+        return {} if check is None else {"extensions": {"trace": check.trace(None)}}
 
     def _headers(self, api_key: str | None = None) -> dict[str, str]:
         headers = dict(self.endpoint.get("headers") or {})

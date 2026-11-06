@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -18,6 +19,7 @@ import type {
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
+import { setPlace } from '../../api/place';
 import { WorkspaceActionsContext } from '../shell/workspace-actions';
 import AccessSheet from './AccessSheet';
 import AppsArea from './AppsArea';
@@ -237,6 +239,62 @@ const page = (items: IntegrationEntry[], sources: unknown[] = []) => ({
 
 afterEach(() => {
   vi.useRealTimers();
+  setPlace(null);
+});
+
+it('says where a local app runs: this computer here, the Row-Bot server elsewhere (U7)', async () => {
+  const files = entry({
+    id: 'mcp:curated:filesystem',
+    name: 'Files on this computer',
+    method: 'local',
+    installed: true,
+    lifecycle: 'installed',
+    readiness: 'ready',
+  });
+  const value = detail({
+    entry: files,
+    plan: null,
+    about: {
+      ...detail().about,
+      destination: '',
+      runs_locally: true,
+      signs_in: false,
+    },
+  });
+  const controller = () => ({
+    integrationItems: vi.fn(async () => page([files])),
+    integrationDetail: vi.fn(async () => value),
+  });
+  const read = async (path: string, card: string, page: string) => {
+    show('/settings/apps', controller());
+    const yours = await screen.findByRole('region', { name: 'Your apps' });
+    expect(within(yours).getByRole('link')).toHaveTextContent(card);
+    cleanup();
+    show(
+      `/settings/apps/item?id=${encodeURIComponent(files.id)}`,
+      controller(),
+    );
+    expect(await screen.findByRole('heading', { name: path })).toBeVisible();
+    expect(screen.getByText(page)).toBeVisible();
+    cleanup();
+  };
+  await read(
+    'Files on this computer',
+    'Runs on this computer',
+    'Runs on this computer.',
+  );
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  await read(
+    'Files on your Row-Bot server',
+    'Runs on your Row-Bot server',
+    'Runs on your Row-Bot server at PikaPods.',
+  );
+  setPlace({ kind: 'server' });
+  await read(
+    'Files on your Row-Bot server',
+    'Runs on your Row-Bot server',
+    'Runs on the computer Row-Bot runs on.',
+  );
 });
 
 it('puts your apps first, attention first, and only searches online when asked', async () => {

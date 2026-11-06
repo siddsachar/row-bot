@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  Archive,
   BadgeCheck,
   BookOpen,
   Brain,
@@ -16,6 +17,7 @@ import {
   Palette,
   Puzzle,
   SkipForward,
+  Smartphone,
   Sparkles,
   Workflow,
   Wrench,
@@ -38,6 +40,7 @@ import {
 } from '../../ui/primitives';
 import { useWorkspaceActions } from './workspace-actions';
 import FirstRun from './FirstRun';
+import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
 
 type Owner = {
   load: (signal?: AbortSignal) => Promise<OnboardingSnapshot>;
@@ -55,6 +58,17 @@ type Area = {
 /** Where each area is set up. Designs start in a chat (no studio gallery). */
 const areas: Record<string, Area> = {
   models: { icon: Cpu, action: 'Choose models', to: '/settings/models' },
+  // A hosted Row-Bot's own areas (U4).
+  phone: {
+    icon: Smartphone,
+    action: 'Connect a phone',
+    to: '/settings/access#connect',
+  },
+  backup: {
+    icon: Archive,
+    action: 'Download a backup',
+    to: '/settings/data#backup',
+  },
   knowledge: {
     icon: Brain,
     action: 'Open Knowledge',
@@ -254,8 +268,9 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
 
   /** First-run commands: the result or the error goes back to the step. */
   async function firstRun(
-    action: 'choose_model' | 'finish_models',
+    action: 'choose_model' | 'choose_suggested' | 'finish_models',
     modelRef = '',
+    providerId = '',
   ): Promise<OnboardingSnapshot> {
     // The latest snapshot: the choice moves the revision before finishing.
     const current = latest.current;
@@ -267,6 +282,7 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
       profile: [],
       step: '',
       ...(modelRef ? { model_ref: modelRef } : {}),
+      ...(providerId ? { provider_id: providerId } : {}),
     };
     const receipt = await owner.send(command);
     if (
@@ -305,6 +321,8 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
         snapshot={snapshot}
         actions={{
           choose: (modelRef) => firstRun('choose_model', modelRef),
+          chooseSuggested: (providerId) =>
+            firstRun('choose_suggested', '', providerId),
           finish: () => firstRun('finish_models'),
         }}
       />
@@ -397,6 +415,31 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
                 );
               })}
             </div>
+            {snapshot.host_name && (
+              // Models can't run on a hosted server: say what works (U4).
+              <p className="setup-intent-note">
+                <HardDrive size={14} aria-hidden />
+                <span>
+                  Local/private AI:{' '}
+                  <a
+                    href={OWN_MODEL_SERVER_GUIDE}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Use your own model server
+                  </a>
+                  , or{' '}
+                  <a
+                    href={DESKTOP_APP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Row-Bot on your own computer
+                  </a>
+                  .
+                </span>
+              </p>
+            )}
           </section>
           {snapshot.setup_complete && (
             <section className="setup-section" aria-label="Setup checklist">

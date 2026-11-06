@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { BrowserPaneAction, BrowserPaneState } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { useClientSelector, useRuntime } from '../../runtime';
 import {
   Button,
@@ -100,6 +101,7 @@ export default function BrowserPane({
   mode?: 'docked' | 'window';
   visible?: boolean;
 }) {
+  const place = usePlace();
   const { controller, platform } = useRuntime();
   const overlay = useOverlay();
   const notify = useNotify();
@@ -375,11 +377,11 @@ export default function BrowserPane({
         }),
     },
     {
-      label: 'Addresses on this computer…',
+      label: `Addresses on ${place.name}…`,
       icon: <Laptop size={16} aria-hidden />,
       onSelect: () =>
         overlay.open({
-          title: 'Addresses on this computer',
+          title: `Addresses on ${place.name}`,
           description:
             'Addresses like localhost:5173 that Row-Bot’s browser may open in this chat.',
           content: (

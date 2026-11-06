@@ -8,6 +8,7 @@ import {
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
+import { setPlace } from '../../api/place';
 import type { IntegrationEntry, IntegrationEntryPage } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
@@ -159,6 +160,7 @@ function show(
 
 afterEach(() => {
   window.localStorage.clear();
+  setPlace(null);
 });
 
 it('leads with the best match and four more, and folds the rest by who stands behind them', async () => {
@@ -230,6 +232,34 @@ it('leads with the best match and four more, and folds the rest by who stands be
       expect.anything(),
     ),
   );
+});
+
+it('says where a local result runs when Row-Bot runs on a server (U7)', async () => {
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const files = entry({
+    id: 'mcp:curated:filesystem',
+    name: 'Files on this computer',
+    label: 'reviewed',
+    match: 'exact',
+    publisher: 'Row-Bot',
+  });
+  show('/settings/apps?q=files', () =>
+    page([files, community(1, { name: 'files-1' })], {
+      best_match_id: files.id,
+    }),
+  );
+  const best = await screen.findByRole('region', { name: 'Best match' });
+  expect(best).toHaveTextContent('Files on your Row-Bot server');
+  expect(best).toHaveTextContent('Runs on your Row-Bot server');
+  expect(screen.getByRole('region', { name: 'Also good' })).toHaveTextContent(
+    'Runs on your Row-Bot server',
+  );
+  expect(
+    within(screen.getByRole('group', { name: 'Filters' })).getByRole('option', {
+      name: 'On your Row-Bot server',
+    }),
+  ).toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent(/this computer/);
 });
 
 it('says so when only the community makes what was searched for, with no best match', async () => {

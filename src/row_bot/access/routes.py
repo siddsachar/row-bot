@@ -46,7 +46,7 @@ from row_bot.access.service import (
     AccessService,
     InvitationClaimError,
 )
-from row_bot.access.setup_code import SetupCodes, SetupOutcome
+from row_bot.access.setup_code import SetupCodes, SetupOutcome, prints_sign_in_link
 from row_bot.hosting import hosted_by
 
 ACCESS_REQUEST_BODY_LIMIT = 32 * 1024
@@ -418,6 +418,9 @@ def _route_inventory(request: Request, context: AccessContext):
             *AccessConfig.from_env().public_origins,
         ),
         current_server_origin=context.origin,
+        # The handshake's rule (api/v1 routes' on_this_computer): only the owner's own window on
+        # direct loopback is on this computer (U7).
+        remote=not (context.is_local_owner and context.direct_loopback),
     )
 
 
@@ -615,6 +618,7 @@ def build_access_router(
                 paused_seconds=setup_codes.pause_remaining(
                     context.effective_client if context is not None else None
                 ),
+                link_logged=prints_sign_in_link(),
             ),
             headers=SETUP_PAGE_HEADERS,
         )

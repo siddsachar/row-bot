@@ -1,6 +1,11 @@
 {
   "additionalProperties": false,
   "properties": {
+    "allow_private_address": {
+      "default": false,
+      "title": "Allow Private Address",
+      "type": "boolean"
+    },
     "auth_required": {
       "default": false,
       "title": "Auth Required",

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
+import { setPlace } from '../../api/place';
 import {
   createDocumentProcessingSession,
   DocumentProcessingPanel,
@@ -375,4 +376,47 @@ it('processes from Settings without any conversation and says a refusal in words
   ).toBeVisible();
   expect(screen.getByText(/runs on this device|cloud models/)).toBeVisible();
   f.owner.dispose();
+});
+
+afterEach(() => setPlace(null));
+
+it('says where local processing runs: this device here, the Row-Bot server elsewhere (U7)', async () => {
+  const local = async () => {
+    const f = fixture();
+    f.controller.reviewDocumentProcessing.mockImplementationOnce(
+      async (conversation_id, batch_id) => ({
+        ...(await fixture().controller.reviewDocumentProcessing(
+          conversation_id,
+          batch_id,
+          'row-revision',
+        )),
+        chat: {
+          provider_id: 'ollama',
+          model_ref: 'model:ollama:synthetic',
+          execution_location: 'local',
+        },
+      }),
+    );
+    const view = render(<DocumentProcessingPanel owner={f.owner} />);
+    return { view, owner: f.owner };
+  };
+  let shown = await local();
+  expect(
+    await screen.findByText(/^Everything runs on this device\./),
+  ).toBeVisible();
+  expect(screen.getByText(/^Embeddings: .* · on this device$/)).toBeVisible();
+  shown.view.unmount();
+  shown.owner.dispose();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  shown = await local();
+  expect(
+    await screen.findByText(
+      /^Everything runs on your Row-Bot server at PikaPods\./,
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/^Embeddings: .* · on your Row-Bot server$/),
+  ).toBeVisible();
+  shown.view.unmount();
+  shown.owner.dispose();
 });

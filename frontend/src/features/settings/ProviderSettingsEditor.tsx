@@ -4,6 +4,7 @@ import {
   useProviderSettingsValue,
 } from './provider-settings-sessions';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import type {
   ProviderKeyCheck,
   ProviderSettingsSnapshot,
@@ -65,6 +66,8 @@ export default function ProviderSettingsEditor(
   const { providerId, load, review, apply, receipt, onSaved, onCancel } = props;
   const keyInfo = PROVIDER_KEYS[providerId];
   const hintId = useId();
+  const place = usePlace();
+  const server = place.kind === 'this_computer' ? undefined : place.name;
   const check = keyInfo ? props.check : undefined;
   const local = useRef<ProviderSettingsSession | null>(null);
   if (!local.current || local.current.providerId !== providerId)
@@ -322,7 +325,7 @@ export default function ProviderSettingsEditor(
               {snapshot.configured
                 ? snapshot.source === 'keyring'
                   ? 'Saved in keyring'
-                  : `Key saved · ${credentialSourceLabel(snapshot.source) || 'on this computer'}`
+                  : `Key saved · ${credentialSourceLabel(snapshot.source, server) || `on ${place.name}`}`
                 : 'No saved key'}
             </p>
             {snapshot.externally_managed ? (
@@ -372,7 +375,11 @@ export default function ProviderSettingsEditor(
                 {keyInfo && (
                   <p className="settings-help">
                     Saving sends the key to {snapshot.display_name} to check it,
-                    then keeps it in this computer's keychain.
+                    then keeps it{' '}
+                    {place.kind === 'this_computer'
+                      ? "in this computer's keychain"
+                      : `encrypted ${place.on}`}
+                    .
                   </p>
                 )}
                 <div className="actions">

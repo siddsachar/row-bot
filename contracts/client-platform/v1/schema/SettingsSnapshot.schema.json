@@ -563,6 +563,30 @@
       "title": "DreamCycleSettingsSnapshot",
       "type": "object"
     },
+    "HostTrial": {
+      "additionalProperties": false,
+      "description": "A host's trial server, by its memory (A4): what works there, and the host's page to upgrade.",
+      "properties": {
+        "note": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "upgrade_url": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Upgrade Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "note",
+        "upgrade_url"
+      ],
+      "title": "HostTrial",
+      "type": "object"
+    },
     "IdentitySettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1098,6 +1122,23 @@
       "additionalProperties": false,
       "description": "The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null.",
       "properties": {
+        "applies_updates": {
+          "title": "Applies Updates",
+          "type": "boolean"
+        },
+        "backups_note": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backups Note"
+        },
         "home_url": {
           "maxLength": 512,
           "title": "Home Url",
@@ -1127,6 +1168,38 @@
           "title": "Name",
           "type": "string"
         },
+        "runs": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Runs",
+          "type": "string"
+        },
+        "settings_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Settings Url"
+        },
+        "spending_limit_step": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spending Limit Step"
+        },
         "status_url": {
           "anyOf": [
             {
@@ -1150,6 +1223,42 @@
             }
           ],
           "title": "Support Url"
+        },
+        "trial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostTrial"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unit": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "updates_help": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Updates Help",
+          "type": "string"
+        },
+        "usage_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Url"
         }
       },
       "required": [
@@ -1158,7 +1267,11 @@
         "home_url",
         "support_url",
         "status_url",
-        "manage_url"
+        "manage_url",
+        "unit",
+        "runs",
+        "applies_updates",
+        "updates_help"
       ],
       "title": "SettingsHostSnapshot",
       "type": "object"
@@ -1375,6 +1488,28 @@
       "title": "SettingsRuntimeToggleSnapshot",
       "type": "object"
     },
+    "SettingsServerMemorySnapshot": {
+      "additionalProperties": false,
+      "description": "A server's memory limit and the working set now (H12), for the host card (U5).",
+      "properties": {
+        "limit_bytes": {
+          "minimum": 1,
+          "title": "Limit Bytes",
+          "type": "integer"
+        },
+        "used_bytes": {
+          "minimum": 0,
+          "title": "Used Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit_bytes",
+        "used_bytes"
+      ],
+      "title": "SettingsServerMemorySnapshot",
+      "type": "object"
+    },
     "SettingsShellSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1545,6 +1680,17 @@
         },
         "logging": {
           "$ref": "#/$defs/SettingsLoggingSnapshot"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsServerMemorySnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "mobile_access": {
           "$ref": "#/$defs/SettingsMobileAccessSnapshot"

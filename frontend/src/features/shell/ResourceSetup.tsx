@@ -17,6 +17,7 @@ import type {
   ResourceChoicePage,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import { useClientState, useRuntime } from '../../runtime';
 import { useDialogFooter } from '../../ui/dialog-footer';
 import { useOverlay } from '../../ui/overlays';
@@ -34,7 +35,7 @@ import {
 import { Code2, Palette, X } from 'lucide-react';
 import { setupSessions, type SetupDraft } from './setup-state';
 import { APPROVAL_LABELS, approvalLevel } from './approval-levels';
-import { FolderBrowser, cloneName } from './FolderBrowser';
+import { FolderBrowser, cloneName, gitSignIn } from './FolderBrowser';
 
 /** The repository's host, for the clone's confirmation ("github.com"). */
 function cloneHost(url: string) {
@@ -53,20 +54,21 @@ export type ResourceSetupEntry = {
   resource?: ResourceChoice;
 };
 
-const RESOURCE_TYPES = [
-  {
-    value: 'artifact',
-    label: 'Design',
-    hint: 'A deck, document, page, mockup or storyboard',
-    icon: <Palette size={20} aria-hidden />,
-  },
-  {
-    value: 'workspace',
-    label: 'Code folder',
-    hint: 'A folder or repository on this computer',
-    icon: <Code2 size={20} aria-hidden />,
-  },
-] as const;
+const resourceTypes = (place: PlaceWords) =>
+  [
+    {
+      value: 'artifact',
+      label: 'Design',
+      hint: 'A deck, document, page, mockup or storyboard',
+      icon: <Palette size={20} aria-hidden />,
+    },
+    {
+      value: 'workspace',
+      label: 'Code folder',
+      hint: `A folder or repository on ${place.name}`,
+      icon: <Code2 size={20} aria-hidden />,
+    },
+  ] as const;
 
 /** Type tiles: a radio group with roving focus, one tile per resource kind. */
 function ResourceTypeTiles({
@@ -78,13 +80,15 @@ function ResourceTypeTiles({
   disabled: boolean;
   onChange: (value: ResourceSetupEntry['kind']) => void;
 }) {
+  const place = usePlace();
+  const types = resourceTypes(place);
   return (
     <div
       className="setup-type-tiles"
       role="radiogroup"
       aria-label="Resource type"
     >
-      {RESOURCE_TYPES.map((type, index) => (
+      {types.map((type, index) => (
         <button
           key={type.value}
           type="button"
@@ -104,12 +108,11 @@ function ResourceTypeTiles({
             )
               return;
             event.preventDefault();
-            const next =
-              RESOURCE_TYPES[(index + 1) % RESOURCE_TYPES.length].value;
+            const next = types[(index + 1) % types.length].value;
             onChange(next);
             (
               event.currentTarget.parentElement?.querySelector(
-                `[aria-label="${RESOURCE_TYPES.find((item) => item.value === next)!.label}"]`,
+                `[aria-label="${types.find((item) => item.value === next)!.label}"]`,
               ) as HTMLElement | null
             )?.focus();
           }}
@@ -141,6 +144,7 @@ export default function ResourceSetup({
   onPanel: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   initialEntry?: ResourceSetupEntry;
 }) {
+  const place = usePlace();
   const { controller, platform } = useRuntime();
   const client = useClientState();
   const overlay = useOverlay();
@@ -1457,8 +1461,8 @@ export default function ResourceSetup({
                 it
                 {cloneHost(repoUrl)
                   ? ` from ${cloneHost(repoUrl)}`
-                  : ''} into {folder?.label ?? 'the folder you chose'}, with
-                this computer&apos;s own Git sign-in.
+                  : ''} into {folder?.label ?? 'the folder you chose'}, with{' '}
+                {gitSignIn(place)}.
               </p>
               {cloneFooter ? (
                 createPortal(cloneActions, cloneFooter)

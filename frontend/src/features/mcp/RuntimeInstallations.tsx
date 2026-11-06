@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { Download, MoreHorizontal, RefreshCw } from 'lucide-react';
 import { useRuntime } from '../../runtime';
+import { usePlace } from '../../api/place';
 import type { ClientController } from '../../api/controller';
 import { Menu, type MenuAction } from '../../ui/primitives';
 import { SettingsItem } from '../settings/anatomy';
@@ -76,6 +77,7 @@ export function RuntimesRow({
   sessions: Record<Runtime, McpRuntimeInstallationSession>;
   controller: ClientController;
 }) {
+  const place = usePlace();
   const callbacks = useMemo(
     () => ({
       uv: runtimeCallbacks(controller, 'uv'),
@@ -113,7 +115,7 @@ export function RuntimesRow({
   return (
     <SettingsItem
       label="Runtimes"
-      help="For servers that run on this computer."
+      help={`For servers that run ${place.on}.`}
       anchor="mcp-runtimes"
       bind={false}
       className="settings-mcp-runtimes"

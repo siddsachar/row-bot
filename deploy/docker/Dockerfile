@@ -165,6 +165,8 @@ RUN python /opt/row-bot/app/scripts/verify_runtime_dependencies.py all \
     } >> /opt/row-bot/build-metadata.txt
 
 WORKDIR /data
+# A host that starts the container as root anyway (Railway's RAILWAY_RUN_UID=0) gets the same
+# user: `row-bot` first makes /data 10001's, then drops to 10001 for good.
 USER 10001:10001
 
 VOLUME ["/data"]

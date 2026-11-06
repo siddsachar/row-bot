@@ -3,6 +3,10 @@
 Server-rendered like ``/connect``: a browser without a session can't open the
 React client. The page follows the client's palette, type and spacing, light and
 dark by the browser's setting, at phone width too.
+
+A sign-in link, ``/setup#code=ABCD-EFGH-JKMN`` (A1), claims in one click: the
+page's script takes the code from the fragment, clears the fragment, and sends
+the code exactly as Continue does, through the same checks, refusals and pauses.
 """
 
 from __future__ import annotations
@@ -30,7 +34,6 @@ WRONG = "That code doesn't match. Check it and try again."
 RECOVERY = "Using this code signs out every other browser."
 WHERE = "Where's my code?"
 LOST = "Lost access?"
-MANAGE = "Manage pod"
 FAILED = "Row-Bot couldn't check the code. Try again."
 NO_SCRIPT = "Turn on JavaScript in this browser to sign in."
 # {time} is "14 minutes", "1 minute" or "40 seconds"; the page counts it down.
@@ -50,7 +53,17 @@ def where_help(host: Host | None) -> str:
             "Row-Bot shows the setup code in its log when it starts. "
             'Look for \u201cRow-Bot setup code\u201d.'
         )
-    return f"In {host.name}, open your pod's More\u00a0›\u00a0Show Logs and copy the setup code."
+    return f"In {host.name}, {host.setup_code_where}."
+
+
+def variables_label(host: Host) -> str:
+    """The button to the service's own Variables, where the host keeps the code (R4)."""
+    return f"Open your Variables in {host.name}"
+
+
+def link_in_logs(host: Host) -> str:
+    """Beside it, when the start-up output shows the sign-in link (A1): where that output is."""
+    return f"or click the sign-in link in {host.sign_in_link_where}"
 
 
 def lost_help(host: Host | None) -> str:
@@ -59,10 +72,7 @@ def lost_help(host: Host | None) -> str:
             "Give this Row-Bot a new setup code in its server settings and restart it, "
             "then enter the new code here."
         )
-    return (
-        "Change the setup code in your pod's settings and restart it, "
-        "then enter the new code here."
-    )
+    return f"{host.setup_code_change}, then enter the new code here."
 
 
 def used_message(host: Host | None) -> str:
@@ -71,10 +81,16 @@ def used_message(host: Host | None) -> str:
             "This code has already been used or has expired. To make a new one, give "
             "this Row-Bot a new setup code in its server settings and restart it."
         )
+    change = host.setup_code_change
     return (
-        "This code has already been used or has expired. To make a new one, change "
-        "the setup code in your pod's settings and restart it."
+        "This code has already been used or has expired. To make a new one, "
+        f"{change[:1].lower()}{change[1:]}."
     )
+
+
+def manage_label(host: Host) -> str:
+    """The host's own page for what runs Row-Bot: "Manage pod", "Manage service"."""
+    return f"Manage {host.unit}"
 
 
 def tries_left_message(tries_left: int) -> str:
@@ -194,6 +210,7 @@ summary svg { width: 14px; height: 14px; transition: transform 120ms cubic-bezie
 details[open] summary svg { transform: rotate(90deg); }
 details > p { margin: 8px 0 0; color: var(--text-2); }
 details > .secondary { margin-top: 12px; }
+.where-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; color: var(--text-2); }
 details .code-form { margin-top: 16px; }
 .spinner {
   flex: none; width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent;
@@ -211,11 +228,26 @@ details .code-form { margin-top: 16px; }
 }
 """
 
-_SCRIPT = """
+# Raw: the JavaScript's own escapes stay as written.
+_SCRIPT = r"""
 (() => {
   const state = JSON.parse(document.getElementById('setup-state').textContent);
   const words = state.words;
   const $ = (id) => document.getElementById(id);
+  // A sign-in link (A1): /setup#code=ABCD-EFGH-JKMN, opened or pasted into a tab already here. A
+  // browser never sends the fragment to a server, and it leaves the address bar and this page's
+  // history at once, whatever comes of it: only the form's own POST carries the code. One that
+  // can't be a code is ignored.
+  function takeLink() {
+    if (!location.hash) return '';
+    let code = '';
+    try { code = new URLSearchParams(location.hash.slice(1)).get('code') || ''; } catch (_) {}
+    try { history.replaceState(history.state, '', location.pathname + location.search); } catch (_) {}
+    code = code.trim();
+    const bare = code.replace(/[\s\u002d\u2010-\u2015\u2212]/g, '');
+    return code.length <= 80 && /^[0-9A-Za-z]{12,64}$/.test(bare) ? code : '';
+  }
+  const linked = takeLink();
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const unavailable = (status) => status >= 502 && status <= 504;
   const duration = (seconds) => {
@@ -329,23 +361,44 @@ _SCRIPT = """
       input.focus();
       input.select();
     }
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
+    // Continue: the button, Enter, or a sign-in link.
+    function proceed() {
       if (!input.value.trim()) { input.focus(); return; }
       submit(input.value.trim());
+    }
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      proceed();
     });
     input.addEventListener('input', () => { if (!input.disabled) quiet(); });
-    return { input, pause, untilReady };
+    return { input, pause, untilReady, proceed };
   }
 
   if (state.owned) {
+    // A link's code is never sent here: someone owns this Row-Bot, and only a recovery code,
+    // which signs out every other browser, could sign in. That takes a deliberate Continue.
     const lost = flow('lost', []);
     if (state.paused) lost.pause(state.paused);
+    window.addEventListener('hashchange', takeLink);
     return;
   }
   const claim = flow('claim', [$('claim-lead'), $('where')]);
+  let ready = false;
+  let pending = '';
+  // A link's code goes in the field and on as Continue, once Row-Bot answers; not while a code
+  // is being checked, or during a pause.
+  function fromLink(code) {
+    if (!code || claim.input.readOnly || claim.input.disabled) return;
+    claim.input.value = code;
+    if (ready) claim.proceed();
+    else pending = code;
+  }
+  fromLink(linked);
+  window.addEventListener('hashchange', () => fromLink(takeLink()));
   claim.untilReady().then(() => {
+    ready = true;
     if (state.paused) claim.pause(state.paused);
+    else if (pending) claim.proceed();
     else claim.input.focus();
   });
 })();
@@ -377,8 +430,28 @@ def _manage_link(host: Host | None, element_id: str, *, hidden: bool) -> str:
     return (
         f'<a class="secondary" id="{element_id}" href="{escape(host.manage_url, quote=True)}" '
         f'target="_blank" rel="noopener noreferrer" title="{escape(tooltip, quote=True)}"'
-        f'{" hidden" if hidden else ""}>{escape(MANAGE)}{_EXTERNAL_ICON}</a>'
+        f'{" hidden" if hidden else ""}>{escape(manage_label(host))}{_EXTERNAL_ICON}</a>'
     )
+
+
+def _where_actions(host: Host | None, *, link_logged: bool) -> str:
+    """Under "Where's my code?" (R4): the service's Variables, and the sign-in link in the host's logs."""
+    if host is None:
+        return ""
+    button = ""
+    if host.variables_url:
+        tooltip = f"Opens {host.name} in a new tab"
+        button = (
+            f'<a class="secondary" id="where-variables" href="{escape(host.variables_url, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer" title="{escape(tooltip, quote=True)}">'
+            f"{escape(variables_label(host))}{_EXTERNAL_ICON}</a>"
+        )
+    logs = (
+        f'<span id="where-logs">{escape(link_in_logs(host))}</span>'
+        if link_logged and host.sign_in_link_where
+        else ""
+    )
+    return f'<div class="where-actions">{button}{logs}</div>' if button or logs else ""
 
 
 def render_setup_page(
@@ -386,8 +459,12 @@ def render_setup_page(
     owned: bool,
     host: Host | None,
     paused_seconds: int,
+    link_logged: bool = False,
 ) -> str:
-    """The whole page. Both views are present; the script shows each state."""
+    """The whole page. Both views are present; the script shows each state.
+
+    ``link_logged``: the start-up output shows the sign-in link beside the code (A1).
+    """
     words = {
         "continue": CONTINUE,
         "checking": CHECKING,
@@ -414,6 +491,7 @@ def render_setup_page(
   <details id="where">
     <summary>{escape(WHERE)}{_CHEVRON_ICON}</summary>
     <p>{escape(where_help(host))}</p>
+    {"" if owned else _where_actions(host, link_logged=link_logged)}
   </details>
 </section>"""
     owner = f"""

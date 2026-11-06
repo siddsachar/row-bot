@@ -58,3 +58,26 @@ export async function claimLauncherSignIn(
     // The page still opens; it says it is view-only and how to sign in.
   }
 }
+
+const SETUP_CODE = /(^|[#&])code=[^&]*/;
+
+/**
+ * A setup page's sign-in link (A1), `/setup#code=…`, opened in a browser
+ * that is already signed in, arrives here with its fragment: the setup page
+ * hands a signed-in browser to the client, and the browser keeps the
+ * fragment. The code, used by then, leaves the address bar and history at
+ * once; the rest of the address stays as it is.
+ */
+export function forgetSetupCode(target: Window = window): void {
+  const { hash, pathname, search } = target.location;
+  if (!SETUP_CODE.test(hash)) return;
+  const rest = hash
+    .replace(SETUP_CODE, '$1')
+    .replace(/^#&/, '#')
+    .replace(/[#&]$/, '');
+  target.history.replaceState(
+    target.history.state,
+    '',
+    pathname + search + rest,
+  );
+}

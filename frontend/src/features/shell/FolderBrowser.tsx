@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { WorkspaceFolderPage } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import { useRuntime } from '../../runtime';
 import { useDialogFooter } from '../../ui/dialog-footer';
 import { Button, InlineEmpty, Input, Skeleton } from '../../ui/primitives';
@@ -42,6 +43,13 @@ export function cloneName(url: string) {
     .split(/[/:]/)
     .at(-1);
   return (last ?? '').replace(/\.git$/i, '') || 'the repository';
+}
+
+/** Whose Git sign-in a clone uses: the computer Row-Bot runs on's (U7). */
+export function gitSignIn(place: PlaceWords) {
+  return place.kind === 'this_computer'
+    ? "this computer's own Git sign-in"
+    : `the Git sign-in ${place.on}`;
 }
 
 /**
@@ -85,6 +93,7 @@ export function FolderBrowser({
    */
   dock?: boolean;
 }) {
+  const place = usePlace();
   const { controller } = useRuntime();
   const [path, setPath] = useState('');
   const [page, setPage] = useState<WorkspaceFolderPage | null>(null);
@@ -262,7 +271,7 @@ export function FolderBrowser({
           icon={<FolderOpen size={16} />}
         >
           {shown.is_root
-            ? `No folders in ${shown.name} yet. Clone a repository here, or put a folder in it on this computer.`
+            ? `No folders in ${shown.name} yet. Clone a repository here, or put a folder in it ${place.on}.`
             : purpose === 'folder'
               ? `No folders inside ${shown.name}. Use it, or go back.`
               : `No folders inside ${shown.name}.`}
@@ -340,7 +349,7 @@ export function FolderBrowser({
               <p>
                 <strong>Clone {repository}?</strong> Row-Bot downloads it
                 {host(url) ? ` from ${host(url)}` : ''} into {choice.label},
-                with this computer&apos;s own Git sign-in.
+                with {gitSignIn(place)}.
               </p>
               <div className="action-cluster">
                 <Button disabled={busy} onClick={() => setConfirming(false)}>
@@ -357,8 +366,8 @@ export function FolderBrowser({
             </div>
           ) : (
             <p className="muted folder-browser-note">
-              Downloads into {choice?.label ?? 'this folder'}, with this
-              computer&apos;s own Git sign-in.
+              Downloads into {choice?.label ?? 'this folder'}, with{' '}
+              {gitSignIn(place)}.
             </p>
           )}
         </div>

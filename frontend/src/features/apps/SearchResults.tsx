@@ -11,9 +11,11 @@ import {
   Toggle,
 } from '../../ui/primitives';
 import { Drawer } from '../../ui/overlays';
+import { usePlace, type PlaceWords } from '../../api/place';
 import {
   AppIcon,
   itemHref,
+  placedName,
   Publisher,
   signalsLine,
   statusOf,
@@ -73,11 +75,14 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: 'skill', label: 'Skills' },
   { value: 'plugin', label: 'Plugins' },
 ];
-const RUNS: { value: Runs; label: string }[] = [
-  { value: 'anywhere', label: 'Anywhere' },
-  { value: 'hosted', label: 'Hosted' },
-  { value: 'local', label: 'On this computer' },
-];
+/** Where a result runs; a local one runs where Row-Bot runs (U7). */
+function runOptions(place: PlaceWords): { value: Runs; label: string }[] {
+  return [
+    { value: 'anywhere', label: 'Anywhere' },
+    { value: 'hosted', label: 'Hosted' },
+    { value: 'local', label: `On ${place.name}` },
+  ];
+}
 
 /**
  * The search filters: a row of chips on a wide screen, one Filters sheet (with how many are on) on a phone.
@@ -95,6 +100,7 @@ export function FilterBar({
 }) {
   const [open, setOpen] = useState(false);
   const active = activeFilters(filters, pageKind);
+  const runs = runOptions(usePlace());
   const set = (change: Partial<Filters>) => onChange({ ...filters, ...change });
   return (
     <>
@@ -123,7 +129,7 @@ export function FilterBar({
           value={filters.runs}
           onChange={(event) => set({ runs: event.target.value as Runs })}
         >
-          {RUNS.map(({ value, label }) => (
+          {runs.map(({ value, label }) => (
             <option key={value} value={value}>
               {value === 'anywhere' ? 'Runs anywhere' : label}
             </option>
@@ -169,7 +175,7 @@ export function FilterBar({
               label="Where it runs"
               size="sm"
               value={filters.runs}
-              options={RUNS}
+              options={runs}
               onChange={(runs) => set({ runs })}
             />
           </div>
@@ -194,8 +200,11 @@ export function FilterBar({
   );
 }
 
-function nameOf(entry: IntegrationEntry) {
-  return (entry.kind !== 'skill' && entry.app?.name) || entry.name;
+function nameOf(entry: IntegrationEntry, place: PlaceWords) {
+  return placedName(
+    (entry.kind !== 'skill' && entry.app?.name) || entry.name,
+    place,
+  );
 }
 
 /** One quiet result: icon, name, who stands behind it, and how it connects. */
@@ -207,14 +216,15 @@ export function ResultRow({
   revision?: string;
 }) {
   const status = statusOf(entry);
-  const how = wayLabel(entry);
+  const place = usePlace();
+  const how = wayLabel(entry, place);
   return (
     <li>
       <Link className="app-row" to={itemHref(entry, revision)}>
         <AppIcon icon={entry.icon} size={32} />
         <span className="app-row-text">
           <span className="app-row-name">
-            <strong>{nameOf(entry)}</strong>
+            <strong>{nameOf(entry, place)}</strong>
             <Publisher entry={entry} />
           </span>
           <span className="app-row-meta">
@@ -249,13 +259,14 @@ function BestMatch({
   summary?: string;
   revision?: string;
 }) {
-  const how = wayLabel(entry);
+  const place = usePlace();
+  const how = wayLabel(entry, place);
   const signals = signalsLine(entry);
   return (
     <Link className="app-hero" to={itemHref(entry, revision)}>
       <AppIcon icon={entry.icon} size={48} />
       <span className="app-hero-text">
-        <strong>{nameOf(entry)}</strong>
+        <strong>{nameOf(entry, place)}</strong>
         <span className="app-hero-job">
           {summary || entry.description || 'No description.'}
         </span>

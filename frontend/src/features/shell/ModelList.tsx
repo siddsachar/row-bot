@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { Check, HardDrive, Search, Star } from 'lucide-react';
 import type { ModelChoice } from '../../api/types';
+import { usePlace } from '../../api/place';
 import { Kbd, StatusDot } from '../../ui/primitives';
 import {
   groupModels,
@@ -100,6 +101,11 @@ export default function ModelList({
   showRecent?: boolean;
   emptyText?: string;
 }) {
+  const place = usePlace();
+  const runsHere =
+    place.kind === 'this_computer'
+      ? 'Runs on this device'
+      : `Runs on ${place.name}`;
   const id = useId();
   const ownInput = useRef<HTMLInputElement>(null);
   const input = inputRef ?? ownInput;
@@ -401,12 +407,9 @@ export default function ModelList({
                   />
                 )}
                 {section.local && section.key.startsWith('provider:') && (
-                  <span
-                    className="model-picker-local"
-                    title="Runs on this device"
-                  >
+                  <span className="model-picker-local" title={runsHere}>
                     <HardDrive size={12} aria-hidden />
-                    <span className="visually-hidden">Runs on this device</span>
+                    <span className="visually-hidden">{runsHere}</span>
                   </span>
                 )}
                 {section.key.startsWith('provider:') && (

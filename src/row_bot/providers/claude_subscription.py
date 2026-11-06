@@ -1,9 +1,10 @@
 """Claude (your Claude plan): every model call runs the person's own Claude Code.
 
-Row-Bot never reads, stores, refreshes or relays a Claude credential. It finds the ``claude`` program the
-person installed, asks it ``claude auth status``, and runs it as installed for each call
-(``transports/claude_plan_cli.py``). Signing in happens only in Claude Code, with ``claude auth login``,
-which the person runs themselves.
+Row-Bot never reads, stores, refreshes or relays a Claude credential. It finds the ``claude`` program (the
+person's own, or the one "Use my Claude plan" installed from Anthropic, ``claude_install.py``), asks it
+``claude auth status``, and runs it as installed for each call (``transports/claude_plan_cli.py``). Signing
+in happens only in Claude Code, with ``claude auth login`` in Claude's own sign-in panel
+(``claude_sign_in.py``).
 
 Claude Code is started with its non-essential traffic off (no telemetry, error reports or automatic
 updates from these runs), without Row-Bot's own keys and settings in its environment, and without any
@@ -35,8 +36,6 @@ CLAUDE_PLAN_LABEL = "Claude (your Claude plan)"
 #: The first Claude Code release whose print mode Row-Bot's protocol was checked against.
 MINIMUM_CLAUDE_CODE_VERSION = "2.1.263"
 CLAUDE_CODE_INSTALL_URL = "https://code.claude.com/docs/en/setup"
-SIGN_IN_COMMAND = "claude auth login"
-UPDATE_COMMAND = "claude update"
 #: Settings say this once, for a profile the old Claude sign-in had set up, until Claude is ready.
 SET_UP_AGAIN = "set_up_again"
 #: ``claude auth status`` names a Claude plan sign-in this way; anything else is not the person's plan.
@@ -78,7 +77,7 @@ class ClaudePlanStatus:
     def ready(self) -> bool:
         return self.state == "ready"
 
-    def to_json(self, *, set_up_again: bool = False) -> dict[str, Any]:
+    def to_json(self, *, set_up_again: bool = False, signed_in_before: bool = False) -> dict[str, Any]:
         return {
             "state": self.state,
             "version": self.version,
@@ -86,6 +85,8 @@ class ClaudePlanStatus:
             "plan": self.plan,
             "detail": self.detail,
             "set_up_again": bool(set_up_again and not self.ready),
+            # Claude had this profile signed in once (it listed its models): a signed-out Claude signed them out.
+            "signed_in_before": bool(signed_in_before and self.state == "signed_out"),
         }
 
 
@@ -190,7 +191,7 @@ def check_claude_code() -> ClaudePlanStatus:
         answer = _run(program, "--version")
     except (OSError, subprocess.SubprocessError):
         logger.info("Claude Code didn't start to report its version", exc_info=True)
-        return ClaudePlanStatus("error", detail="Claude Code didn't start on this computer.", program=program)
+        return ClaudePlanStatus("error", detail="Claude Code didn't start.", program=program)
     version = parse_version(answer.stdout)
     if answer.returncode != 0 or version is None:
         return ClaudePlanStatus("error", detail="Claude Code didn't say which version it is.", program=program)
@@ -243,19 +244,27 @@ def forget_claude_plan_status() -> None:
         _status_cache = None
 
 
+#: Where the person fixes anything about Claude: the words of Settings › Providers.
+CLAUDE_PLAN_SETTINGS = "Settings › Providers › Claude (your Claude plan)"
+SIGNED_OUT_MESSAGE = "Claude signed you out. Sign in again to keep using your plan."
+
+
+def too_old_message() -> str:
+    return f"Row-Bot needs Claude Code {MINIMUM_CLAUDE_CODE_VERSION} or newer."
+
+
 def unavailable_message(status: ClaudePlanStatus) -> str:
-    """What a call says when Claude Code can't take it, with the one thing to do."""
+    """What a call says when Claude Code can't take it, with the one thing to do (never a terminal)."""
     if status.state == "not_installed":
-        return ("Claude Code isn't installed on this computer. Install it, then set Claude up again in "
-                "Settings › Providers.")
+        return f"Your Claude plan isn't set up. Choose Use my Claude plan in {CLAUDE_PLAN_SETTINGS}."
     if status.state == "too_old":
-        return (f"Claude Code {status.version} is too old for Row-Bot; it needs {MINIMUM_CLAUDE_CODE_VERSION} or "
-                f"newer. Open a terminal and run `{UPDATE_COMMAND}`, then try again.")
+        return f"{too_old_message()} Update Claude Code in {CLAUDE_PLAN_SETTINGS}."
     if status.state == "signed_out":
-        return (f"{status.detail + ' ' if status.detail else ''}Open a terminal and run `{SIGN_IN_COMMAND}`, "
-                "sign in with your Claude plan, then try again.").strip()
-    return (f"Row-Bot couldn't use Claude Code: {status.detail or 'it did not answer.'} Open a terminal and run "
-            "`claude doctor` to see what's wrong.")
+        if status.detail:
+            return f"{status.detail} Sign in with your Claude plan in {CLAUDE_PLAN_SETTINGS}."
+        return f"{SIGNED_OUT_MESSAGE} Sign in in {CLAUDE_PLAN_SETTINGS}."
+    return (f"Row-Bot couldn't use Claude Code: {status.detail or 'it did not answer.'} Check it in "
+            f"{CLAUDE_PLAN_SETTINGS}.")
 
 
 def require_claude_plan() -> ClaudePlanStatus:
@@ -308,9 +317,14 @@ def claude_plan_provider_status(*, fresh: bool = False) -> dict[str, Any]:
         "plan_type": status.plan,
         "cli_installed": status.state != "not_installed",
         "cli_version": status.version,
-        "claude_plan": status.to_json(set_up_again=set_up_again),
+        "claude_plan": status.to_json(set_up_again=set_up_again, signed_in_before=_signed_in_before()),
         "last_error": "" if status.ready else unavailable_message(status),
     }
+
+
+def _signed_in_before() -> bool:
+    cache = _saved_entry().get("catalog_cache")
+    return isinstance(cache, dict) and bool(cache.get("models"))
 
 
 def _clear_set_up_again() -> None:

@@ -17,6 +17,7 @@ import type {
   ProviderRuntimeProbe,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import {
   Button,
   Disclosure,
@@ -42,6 +43,12 @@ const groups = {
   api: 'API providers',
   custom: 'Custom endpoints',
 } as const;
+/** A group's heading; local models run where Row-Bot runs (U7). */
+function groupLabel(group: keyof typeof groups, place: PlaceWords) {
+  return group === 'local' && place.kind !== 'this_computer'
+    ? `On ${place.name}`
+    : groups[group];
+}
 const stateTones: Record<string, Tone> = {
   enabled: 'success',
   saved: 'info',
@@ -58,7 +65,6 @@ const sourceLabels: Record<string, string> = {
   oauth_device: 'Signed in with ChatGPT',
   oauth_pkce: 'Signed in through Row-Bot',
   no_auth: 'No API key required',
-  local_daemon: 'Running on this computer',
   not_running: 'Not running',
 };
 /** The app whose sign-in a subscription can borrow. */
@@ -74,11 +80,12 @@ function notConnectedDetail(card: ProviderLiveCard) {
   const account = subscriptionAccounts[card.provider_id] ?? card.display_name;
   return `Sign in with your ${account} account`;
 }
-function sourceLabel(card: ProviderLiveCard) {
+function sourceLabel(card: ProviderLiveCard, place: PlaceWords) {
   const app = cliApps[card.provider_id] ?? 'its own app';
   if (card.source === 'external_cli') return `Uses your ${app} sign-in`;
   if (card.source === 'external_cli_detected')
-    return `${app} is signed in on this computer; not used yet`;
+    return `${app} is signed in on ${place.name}; not used yet`;
+  if (card.source === 'local_daemon') return `Running on ${place.name}`;
   return sourceLabels[card.source];
 }
 /** One mark style for every provider: its initial on a tile. */
@@ -137,7 +144,7 @@ function canDisconnect(card: ProviderLiveCard) {
     (card.provider_id === 'codex' && card.source === 'external_cli')
   );
 }
-function cardDetail(card: ProviderLiveCard) {
+function cardDetail(card: ProviderLiveCard, place: PlaceWords) {
   if (card.claude_plan) {
     const details = [claudePlanSummary(card.claude_plan).detail];
     if (card.claude_plan.state === 'ready') {
@@ -157,7 +164,7 @@ function cardDetail(card: ProviderLiveCard) {
           ? card.oauth_client_id_configured
             ? 'Ready to sign in with your xAI account'
             : 'Needs an xAI client ID first: Set up xAI sign-in'
-          : sourceLabel(card) ||
+          : sourceLabel(card, place) ||
             (card.configured ? 'Connected' : notConnectedDetail(card));
   const details = [source];
   if (card.plan_type) details.push(`${humanizeToken(card.plan_type)} plan`);
@@ -201,11 +208,11 @@ function tileDetail(card: ProviderLiveCard, plan = false) {
  * A sheet's line under its title: its state, then payment, plan and models,
  * or in full what's wrong (and what Claude Code says).
  */
-function sheetSummary(card: ProviderLiveCard) {
+function sheetSummary(card: ProviderLiveCard, place: PlaceWords) {
   const state = cardState(card);
   const detail =
     card.claude_plan || state.tone === 'warning' || !card.configured
-      ? cardDetail(card)
+      ? cardDetail(card, place)
       : tileDetail(card, true);
   return [state.label, detail].filter(Boolean).join(' · ');
 }
@@ -234,6 +241,7 @@ export default function ProviderStatus({
   onSubscription,
   onSubscriptionOption,
   hideCustom = false,
+  hideLocal = false,
   models,
   openProvider = '',
   onAddServer,
@@ -251,6 +259,11 @@ export default function ProviderStatus({
   onSubscriptionOption?: (provider: string) => void;
   /** Custom endpoints listed by their own editor below. */
   hideCustom?: boolean;
+  /**
+   * A hosted Row-Bot (U3): the server has no GPU, so Ollama on it isn't
+   * offered. A local runtime that is connected still shows.
+   */
+  hideLocal?: boolean;
   /** A provider's models in its sheet, with their stars. */
   models?: (card: ProviderLiveCard) => ReactNode;
   /** The provider whose sheet opens first (`?provider=` in a link). */
@@ -258,6 +271,7 @@ export default function ProviderStatus({
   /** Add a provider › Your server: the custom endpoint dialog. */
   onAddServer?: () => void;
 }) {
+  const place = usePlace();
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
   const [open, setOpen] = useState(openProvider);
   const [adding, setAdding] = useState(false);
@@ -349,7 +363,9 @@ export default function ProviderStatus({
     }
   }
   const cards = (snapshot?.providers ?? []).filter(
-    (card) => !(card.group === 'custom' && hideCustom),
+    (card) =>
+      !(card.group === 'custom' && hideCustom) &&
+      !(card.group === 'local' && hideLocal && !card.configured),
   );
   const tiles = cards.filter(isTile);
   const waiting = (id: string) =>
@@ -496,12 +512,12 @@ export default function ProviderStatus({
                 return (
                   <section
                     className="settings-provider-group"
-                    aria-label={groups[group]}
+                    aria-label={groupLabel(group, place)}
                     key={group}
                     data-setting-anchor={`providers-${group}`}
                   >
                     <h4 className="settings-provider-group-heading">
-                      {groups[group]}
+                      {groupLabel(group, place)}
                     </h4>
                     <ul className="settings-provider-tiles">
                       {members.map(tile)}
@@ -529,7 +545,7 @@ export default function ProviderStatus({
           open
           modal
           title={current.display_name}
-          description={sheetSummary(current)}
+          description={sheetSummary(current, place)}
           className="settings-provider-sheet"
           onOpenChange={(value) => {
             if (!value) setOpen('');
@@ -681,7 +697,7 @@ export default function ProviderStatus({
                           {mark(card)}
                           <span className="settings-provider-copy">
                             <strong>{card.display_name}</strong>
-                            <small>{cardDetail(card)}</small>
+                            <small>{cardDetail(card, place)}</small>
                           </span>
                           <BillingTag billing={card.billing ?? null} />
                           <ChevronRight size={16} aria-hidden />

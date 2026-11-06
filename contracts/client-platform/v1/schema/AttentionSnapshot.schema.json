@@ -25,6 +25,14 @@
           "title": "Id",
           "type": "string"
         },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/ProblemLink"
+          },
+          "maxItems": 2,
+          "title": "Links",
+          "type": "array"
+        },
         "place": {
           "enum": [
             "channels",
@@ -34,7 +42,8 @@
             "models",
             "workflows",
             "health",
-            "data"
+            "data",
+            "memory"
           ],
           "title": "Place",
           "type": "string"
@@ -129,6 +138,30 @@
         "name"
       ],
       "title": "ProblemFix",
+      "type": "object"
+    },
+    "ProblemLink": {
+      "additionalProperties": false,
+      "description": "A page outside Row-Bot that helps with a problem (U8): how to resize, the host's own page.",
+      "properties": {
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 512,
+          "pattern": "^https://",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "url"
+      ],
+      "title": "ProblemLink",
       "type": "object"
     }
   },

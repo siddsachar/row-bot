@@ -511,6 +511,7 @@ it('shows the host’s status and sends requests when the host applies updates',
     send,
   );
   expect(await screen.findByText('Ready to update')).toBeVisible();
+  expect(screen.getByText('Updated by your host')).toBeVisible();
   expect(
     screen.queryByRole('switch', { name: 'Download updates automatically' }),
   ).toBeNull();
@@ -546,25 +547,121 @@ it('offers to remove an earlier all-users install once', async () => {
   ).toBeVisible();
 });
 
+const container: UpdateSnapshot = {
+  ...snapshot,
+  mode: 'external',
+  host: {
+    state: 'unknown',
+    current_version: null,
+    available_version: null,
+    message: null,
+    notes_url: null,
+    updated_at: null,
+    request: null,
+  },
+};
+
 it('explains a container that no host updater reports for', async () => {
-  show(
-    vi.fn(async () => ({
-      ...snapshot,
-      mode: 'external' as const,
-      host: {
-        state: 'unknown' as const,
-        current_version: null,
-        available_version: null,
-        message: null,
-        notes_url: null,
-        updated_at: null,
-        request: null,
-      },
-    })),
-  );
-  expect(await screen.findByText(/pull a newer image/)).toBeVisible();
+  show(vi.fn(async () => container));
+  expect(await screen.findByText('Updated by your host')).toBeVisible();
+  expect(
+    screen.getByText(
+      'This Row-Bot doesn’t update itself. For Docker, pull a newer image and start the container again.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText('This Row-Bot’s host installs its updates.'),
+  ).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Pause updates' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Update now' })).toBeNull();
+});
+
+const pikapods = {
+  id: 'pikapods',
+  name: 'PikaPods',
+  home_url: 'https://www.pikapods.com/',
+  support_url: null,
+  status_url: null,
+  manage_url: null,
+  unit: 'pod',
+  runs: 'the server, billing and backups',
+  applies_updates: true,
+  updates_help:
+    'They test each release first, so new versions usually arrive within a week.',
+};
+
+it('names a known host that applies updates and offers nothing to press (H3, U6)', async () => {
+  const notes = 'https://github.com/example/row-bot/releases/tag/v1.0.0';
+  const load = vi.fn(async () => ({
+    ...container,
+    host: { ...container.host!, notes_url: notes },
+  }));
+  const send = vi.fn();
+  render(<UpdateControls owner={{ load, send }} hostedBy={pikapods} />);
+  expect(await screen.findByText('Updated by PikaPods')).toBeVisible();
+  expect(
+    screen.getByText(
+      'They test each release first, so new versions usually arrive within a week.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
+  ).toHaveAttribute('href', notes);
+  // No check, install, skip or pause: the host does all of it.
+  expect(screen.queryAllByRole('button')).toEqual([]);
+  expect(screen.queryByText(/Docker/)).toBeNull();
+  expect(send).not.toHaveBeenCalled();
+});
+
+it('on Railway says new versions come each night once automatic updates are on, and where to check (A5)', async () => {
+  const notes = 'https://github.com/example/row-bot/releases/tag/v1.0.0';
+  const load = vi.fn(async () => ({
+    ...container,
+    host: { ...container.host!, notes_url: notes },
+  }));
+  const send = vi.fn();
+  const railway = {
+    ...pikapods,
+    id: 'railway',
+    name: 'Railway',
+    unit: 'service',
+    applies_updates: false,
+    updates_help:
+      'New versions install by themselves each night when automatic updates are on in Railway.',
+    settings_url:
+      'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  };
+  const view = render(
+    <UpdateControls owner={{ load, send }} hostedBy={railway} />,
+  );
+  expect(await screen.findByText('Updates come from Railway')).toBeVisible();
+  expect(
+    screen.getByText(
+      'New versions install by themselves each night when automatic updates are on in Railway.',
+    ),
+  ).toBeVisible();
+  // Where they're switched on: the service's own settings in Railway.
+  const check = screen.getByRole('link', { name: 'Check in Railway' });
+  expect(check).toHaveAttribute('href', railway.settings_url);
+  expect(check).toHaveAttribute('target', '_blank');
+  expect(screen.queryByText(/Updated by|They test/)).toBeNull();
+  expect(
+    screen.getByRole('link', { name: 'What’s new in Row-Bot 1.0.0' }),
+  ).toHaveAttribute('href', notes);
+  // Nothing to press here either: the owner turns updates on in Railway.
+  expect(screen.queryAllByRole('button')).toEqual([]);
+  expect(send).not.toHaveBeenCalled();
+  view.unmount();
+
+  // Without the service's IDs, no page to send the owner to.
+  render(
+    <UpdateControls
+      owner={{ load, send }}
+      hostedBy={{ ...railway, settings_url: null }}
+    />,
+  );
+  expect(await screen.findByText('Updates come from Railway')).toBeVisible();
+  expect(screen.queryByRole('link', { name: /Check in/ })).toBeNull();
 });
 
 it('reports an update that did not start once and downloads it again only when asked', async () => {

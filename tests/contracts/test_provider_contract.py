@@ -364,9 +364,9 @@ def test_claude_code_errors_say_what_happened_and_what_to_do(code, text, state) 
     assert error.state == state
     message = str(error)
     if state == "plan_limit":
-        assert "usage limit" in message and "resets 3pm" in message
+        assert message == "Your Claude plan's limit is reached until 3pm (Europe/London). Pick another model for now."
     if state == "too_old":
-        assert "claude update" in message
+        assert "Update Claude Code in Settings › Providers" in message and "terminal" not in message
     if code == "":
         assert "Prompt is too long" in message  # Row-Bot's context handling reads Claude Code's own words
 
@@ -379,7 +379,8 @@ def test_a_claude_code_sign_in_problem_asks_the_person_to_sign_in_again() -> Non
 
     assert isinstance(error, ProviderSignInRequired)
     assert error.provider_id == "claude_subscription" and error.label == "Claude"
-    assert "claude auth login" in str(error)
+    assert str(error).startswith("Claude signed you out. Sign in again to keep using your plan.")
+    assert "terminal" not in str(error)
 
 
 def test_claude_code_runs_without_row_bots_keys_or_anything_that_leaves_the_plan(monkeypatch) -> None:

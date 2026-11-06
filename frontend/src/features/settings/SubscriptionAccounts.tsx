@@ -1,5 +1,5 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import { writeClipboardText } from '../../platform/clipboard';
 import { RuntimeContext } from '../../runtime';
 import type {
@@ -57,6 +57,25 @@ export type SubscriptionAccountsProps = {
   initialAction?: 'connect' | 'manage' | 'disconnect';
   /** The saved sign-in can't be used any more: it says so and offers Reconnect (B342). */
   signInExpired?: boolean;
+  /** Start the sign-in at once, when nothing else is in progress (U3's one click). */
+  autoStart?: boolean;
+  /** Runs inside the click that starts a sign-in, before anything is sent. */
+  beforeStart?: () => void;
+  /** A Start finished: the sign-in's page and code, or null when it didn't start. */
+  onStarted?: (flow: SubscriptionFlowSnapshot | null) => void;
+  /** One line that replaces the numbered steps while a code waits (U3). */
+  guide?: ReactNode;
+  /**
+   * Inside a first run (U3): the button above already names the sign-in, so
+   * no title, account line, start notice or Close; Cancel ends it.
+   */
+  quiet?: boolean;
+  /**
+   * This browser isn't on the computer Row-Bot runs on (H5). Grok's page
+   * returns to that computer's own address, so here it ends on a page that
+   * doesn't load, and its address is pasted instead.
+   */
+  remote?: boolean;
   onClose?: () => void;
   session?: SubscriptionAccountsSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionAccountsSnapshot>;
@@ -120,7 +139,11 @@ export function signInStateLabel(state: SubscriptionFlowSnapshot['state']) {
 function settledRefusal(operation: Action, error: ClientError) {
   return (
     rejectedBeforeRunning(error) &&
-    (operation === 'start' || error.code === 'subscription_storage_unavailable')
+    (operation === 'start' ||
+      error.code === 'subscription_storage_unavailable' ||
+      // A pasted Grok address the server refused unread (H5): paste again.
+      error.code === 'subscription_callback_invalid' ||
+      error.code === 'subscription_denied')
   );
 }
 /** ChatGPT / Codex and xAI sign-ins are checked while they wait. */
@@ -292,6 +315,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setBusy('');
+      if (operation === 'start') props.onStarted?.(null);
       return;
     }
     if (!session.active) return;
@@ -318,6 +342,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       setCode('');
       setPending(null);
       session.resolved();
+      if (operation === 'start') props.onStarted?.(result.flow ?? null);
       // A check that is still waiting says nothing (the status line does).
       setNotice(
         operation === 'check'
@@ -332,6 +357,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     } catch (cause) {
       const refused = clientError(cause);
       setError(refused.message);
+      if (operation === 'start') props.onStarted?.(null);
       if (settledRefusal(operation, refused)) {
         // The server said no and nothing was saved (a locked keychain, say):
         // only the reason shows, and Connect tries again (B413).
@@ -345,6 +371,24 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       setBusy('');
     }
   }
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (
+      !props.autoStart ||
+      autoStarted.current ||
+      !props.compact ||
+      !snapshot ||
+      locked ||
+      retained ||
+      provider !== props.initialProvider ||
+      account?.saved_state === 'saved'
+    )
+      return;
+    autoStarted.current = true;
+    void performDirect('start');
+    // performDirect reads the current session; the guard runs it once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.autoStart, snapshot, locked, retained, provider]);
   async function readReceipt() {
     if (busy || !pending || !session.active) return;
     const abort = session.read();
@@ -550,11 +594,11 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         aria-label={`${labels[provider]} account`}
         aria-busy={!!busy}
       >
-        <h2>{labels[provider]}</h2>
+        {!props.quiet && <h2>{labels[provider]}</h2>}
         {busy === 'load' && <Skeleton label="Loading account" />}
         {error && <p role="alert">{error}</p>}
-        {notice && <p role="status">{notice}</p>}
-        {account && !flowShown && (
+        {notice && !props.quiet && <p role="status">{notice}</p>}
+        {account && !props.quiet && !flowShown && (
           <p>
             {account.saved_state === 'saved' && props.signInExpired
               ? 'Sign-in expired'
@@ -575,24 +619,36 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         {flowShown && flow && (
           <div className="stack subscription-flow">
             <p className="subscription-flow-state" role="status">
-              {signInStateLabel(flow.state)}
-              {active && POLLED.has(provider) && !error && (
-                <span className="subscription-flow-auto">
-                  {' '}
-                  · Row-Bot notices when you're done
-                </span>
-              )}
+              {props.quiet && flow.state === 'expired' && provider === 'codex'
+                ? 'This code expired.'
+                : signInStateLabel(flow.state)}
+              {active &&
+                POLLED.has(provider) &&
+                !error &&
+                !props.guide &&
+                // Grok's page can't come back to a browser elsewhere: it's pasted.
+                !(props.remote && provider === 'xai_oauth') && (
+                  <span className="subscription-flow-auto">
+                    {' '}
+                    · Row-Bot notices when you're done
+                  </span>
+                )}
             </p>
-            {active && flow.device_code && (
-              <ol className="subscription-flow-steps">
-                <li>Open the sign-in page and sign in.</li>
-                <li>Enter this code when it asks.</li>
-              </ol>
-            )}
+            {active &&
+              flow.device_code &&
+              (props.guide ? (
+                <p className="subscription-flow-guide">{props.guide}</p>
+              ) : (
+                <ol className="subscription-flow-steps">
+                  <li>Open the sign-in page and sign in.</li>
+                  <li>Enter this code when it asks.</li>
+                </ol>
+              ))}
             {active && !flow.device_code && provider !== 'codex' && (
               <p className="settings-help">
-                Sign in on the page that opens. If it ends on an error page,
-                copy its address into the field below.
+                {props.remote
+                  ? 'Sign in on the page that opens. It then sends you to a page that doesn’t load: copy that page’s address from the address bar and paste it below.'
+                  : 'Sign in on the page that opens. If it ends on an error page, copy its address into the field below.'}
               </p>
             )}
             {active && login && (
@@ -607,6 +663,19 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
             )}
             {active && flow.device_code && (
               <DeviceCode code={flow.device_code} expiresAt={flow.expires_at} />
+            )}
+            {active && flow.device_code && provider === 'codex' && (
+              <p className="settings-help subscription-flow-device-login">
+                If ChatGPT won’t take the code, enable device code login in your
+                ChatGPT security settings, then try again.{' '}
+                <a
+                  href={CHATGPT_DEVICE_LOGIN_HELP}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  OpenAI’s steps <ExternalLink size={12} aria-hidden />
+                </a>
+              </p>
             )}
             {active && (
               <div className="actions">
@@ -629,7 +698,13 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           </div>
         )}
         {active && provider !== 'codex' && (
-          <Field label="Authorization code or callback URL">
+          <Field
+            label={
+              props.remote
+                ? 'Address of the page that didn’t load'
+                : 'Authorization code or callback URL'
+            }
+          >
             <Input
               type="password"
               value={code}
@@ -642,10 +717,18 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           {!active &&
             (props.initialAction === 'connect' || props.signInExpired) && (
               <Button
+                variant={flow?.state === 'expired' ? 'primary' : undefined}
                 disabled={locked}
-                onClick={() => void performDirect('start')}
+                onClick={() => {
+                  props.beforeStart?.();
+                  void performDirect('start');
+                }}
               >
-                {account?.saved_state === 'saved' ? 'Reconnect' : 'Connect'}
+                {flow?.state === 'expired' && provider === 'codex'
+                  ? 'Get a new code'
+                  : account?.saved_state === 'saved'
+                    ? 'Reconnect'
+                    : 'Connect'}
               </Button>
             )}
           {active && provider !== 'codex' && (
@@ -681,9 +764,11 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
               Check again
             </Button>
           )}
-          <Button disabled={!!busy || !!pending} onClick={props.onClose}>
-            Close
-          </Button>
+          {!props.quiet && (
+            <Button disabled={!!busy || !!pending} onClick={props.onClose}>
+              Close
+            </Button>
+          )}
         </div>
       </section>
     );
@@ -874,6 +959,14 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     </details>
   );
 }
+
+/**
+ * OpenAI's Codex sign-in docs (F4). A ChatGPT account may need device code
+ * login switched on first; OpenAI's own step: "Enable device code login in
+ * your ChatGPT security settings". Its refusal shows on OpenAI's page, never
+ * here: Row-Bot only sees a code nobody approved yet.
+ */
+const CHATGPT_DEVICE_LOGIN_HELP = 'https://developers.openai.com/codex/auth';
 
 /** The device code, large, with Copy and how long it stays valid. */
 function DeviceCode({

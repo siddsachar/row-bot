@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import hashlib
 import json
 from pathlib import Path
@@ -446,6 +448,121 @@ def test_snapshot_names_the_host_only_when_row_bot_knows_it(api, monkeypatch):
     assert hosted.manage_url == "https://www.pikapods.com/pods"
     monkeypatch.setenv("ROW_BOT_HOSTED_BY", "somewhere-else")
     assert host() is None
+
+
+def _cgroup(folder: Path, *, limit: str, current: int, inactive_file: int = 0) -> Path:
+    """A container's cgroup v2 memory files, as the kernel writes them."""
+    folder.mkdir(exist_ok=True)
+    (folder / "memory.max").write_text(limit, encoding="ascii")
+    (folder / "memory.current").write_text(str(current), encoding="ascii")
+    (folder / "memory.stat").write_text(f"anon 4096\ninactive_file {inactive_file}\n", encoding="ascii")
+    return folder
+
+
+def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(api, monkeypatch, tmp_path):
+    """U5: the System snapshot carries what the Hosted by card shows, and only what is known."""
+    from row_bot import hosting, server_memory
+
+    client, headers, _data, _ = api
+    gib, mib = 2**30, 2**20
+
+    def system():
+        response = client.get(BASE, headers=headers)
+        assert response.status_code == 200, response.text
+        return SettingsSnapshot.model_validate(response.json()).system
+
+    # The desktop: no host and no memory limit, so no card and nothing read.
+    monkeypatch.delenv("ROW_BOT_HOSTED_BY", raising=False)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", None)
+    desktop = system()
+    assert desktop.hosted_by is None and desktop.memory is None
+
+    # A pod: every link PikaPods confirmed, and its working set of its 2 GB (the cache it can drop
+    # isn't counted).
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    cgroup = _cgroup(tmp_path / "cgroup", limit=str(2 * gib), current=900 * mib, inactive_file=300 * mib)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+    pod = system()
+    assert pod.hosted_by is not None and pod.hosted_by.model_dump() == {
+        "id": "pikapods",
+        "name": "PikaPods",
+        "home_url": "https://www.pikapods.com/",
+        "support_url": "https://docs.pikapods.com/",
+        "status_url": "https://docs.pikapods.com/faq/account#business-use-and-service-level",
+        "manage_url": "https://www.pikapods.com/pods",
+        "unit": "pod",
+        "runs": "the server, billing and backups",
+        "applies_updates": True,
+        "updates_help": "They test each release first, so new versions usually arrive within a week.",
+        "settings_url": None,
+        "usage_url": None,
+        "backups_note": "PikaPods can also keep its own backups of your server.",
+        "spending_limit_step": None,
+        "trial": None,
+    }
+    assert pod.memory is not None
+    assert (pod.memory.limit_bytes, pod.memory.used_bytes) == (2 * gib, 600 * mib)
+
+    # Railway (R1): its own pages and words. It runs no backups, and the owner installs new versions there.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    railway = system().hosted_by
+    assert railway is not None and railway.model_dump() == {
+        "id": "railway",
+        "name": "Railway",
+        "home_url": "https://railway.com/",
+        "support_url": "https://station.railway.com/",
+        "status_url": "https://status.railway.com/",
+        "manage_url": "https://railway.com/dashboard",
+        "unit": "service",
+        "runs": "the server and billing",
+        "applies_updates": False,
+        "updates_help": "New versions install by themselves each night when automatic updates are on in Railway.",
+        "settings_url": None,
+        "usage_url": None,
+        "backups_note": "Railway backs up your server only on its Pro plan. "
+        "Download a backup from time to time to keep a copy somewhere else.",
+        "spending_limit_step": "Set a spending limit in Railway",
+        "trial": None,
+    }
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+
+    # A host whose pages nobody confirmed: only its name and home, no link to guess.
+    unconfirmed = dataclasses.replace(hosting.KNOWN_HOSTS["pikapods"], support_url=None, status_url=None,
+                                      manage_url=None)
+    with monkeypatch.context() as patch:
+        patch.setattr(hosting, "KNOWN_HOSTS", {"pikapods": unconfirmed})
+        bare = system().hosted_by
+    assert bare is not None and (bare.support_url, bare.status_url, bare.manage_url) == (None, None, None)
+
+    # A host Row-Bot doesn't know: no card, even on a server with a limit.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "somewhere-else")
+    assert system().hosted_by is None
+
+    # No limit ("max"): the card has no memory row.
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    _cgroup(cgroup, limit="max", current=900 * mib)
+    unlimited = system()
+    assert unlimited.hosted_by is not None and unlimited.memory is None
+
+
+def test_memory_use_moving_on_a_server_does_not_make_a_save_stale(api, monkeypatch, tmp_path):
+    # The working set changes all the time; it isn't a setting, so a change the person is making stays good.
+    from row_bot import server_memory
+
+    client, headers, data, _ = api
+    cgroup = _cgroup(tmp_path / "cgroup", limit=str(2**31), current=2**29)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+    before = client.get(BASE, headers=headers).json()
+    request = {"settings_revision": before["revision"], "page": "preferences", "field": "updates.channel",
+               "value": "stable"}
+    review = _review(client, headers, request)
+    _cgroup(cgroup, limit=str(2**31), current=2**30)
+    assert client.get(BASE, headers=headers).json()["system"]["memory"]["used_bytes"] == 2**30
+
+    response = _execute(client, headers, request, review)
+
+    assert response.status_code == 200, response.text
+    assert json.loads((data / "update_config.json").read_text(encoding="utf-8"))["channel"] == "stable"
 
 
 def test_x_account_requires_saved_client_credentials_before_token_state(
@@ -1816,6 +1933,68 @@ def test_tracker_entries_refuse_unknown_trackers_without_reading_others(api):
     known = client.get(TRACKER_ENTRIES.format("water"), headers=headers).json()
     assert [item["at"] for item in known["items"]] == ["2026-01-02T09:00:00"]
     assert client.get(TRACKER_ENTRIES.format("water")).status_code == 401
+
+# What Railway gives every service (A2).
+RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+SERVICE = (
+    "https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30"
+    "/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901"
+)
+ENVIRONMENT = "?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10"
+TRIAL = {
+    "note": "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. "
+    "Browser tasks and local speech-to-text need Railway's Hobby plan.",
+    "upgrade_url": "https://railway.com/workspace/plans",
+}
+
+
+def test_on_railway_the_card_links_the_services_own_pages_and_a_trial_says_what_works(
+    api, monkeypatch, tmp_path
+):
+    """A2, A4: with the IDs Railway gives the service, its own pages; on a 1 GB server, the trial's words."""
+    from row_bot import server_memory
+
+    client, headers, _data, _ = api
+
+    def host():
+        response = client.get(BASE, headers=headers)
+        assert response.status_code == 200, response.text
+        return SettingsSnapshot.model_validate(response.json()).system.hosted_by
+
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    for name, value in RAILWAY_IDS.items():
+        monkeypatch.setenv(name, value)
+    cgroup = _cgroup(tmp_path / "cgroup", limit="8000000000", current=1_100_000_000)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+
+    railway = host()
+    assert railway is not None
+    assert (railway.manage_url, railway.settings_url, railway.usage_url) == (
+        SERVICE + ENVIRONMENT,
+        SERVICE + "/settings" + ENVIRONMENT,
+        "https://railway.com/workspace/usage",
+    )
+    assert railway.trial is None
+
+    # Railway's trial: 1 GB, as the kernel keeps it (in whole pages).
+    _cgroup(cgroup, limit="999997440", current=300_000_000)
+    on_trial = host()
+    assert on_trial is not None and on_trial.trial is not None
+    assert on_trial.trial.model_dump() == TRIAL
+
+    # Without the IDs, the entry's own page; PikaPods has no trial.
+    for name in RAILWAY_IDS:
+        monkeypatch.delenv(name)
+    bare = host()
+    assert bare is not None and bare.manage_url == "https://railway.com/dashboard"
+    assert (bare.settings_url, bare.usage_url) == (None, None)
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    pod = host()
+    assert pod is not None and pod.trial is None
 
 
 def test_an_unreadable_tool_settings_file_is_reported_and_reset_keeps_it_aside(api):

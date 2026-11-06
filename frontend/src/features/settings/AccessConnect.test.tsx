@@ -8,6 +8,7 @@ import type {
   AccessRoute,
   AccessTailscaleClient,
 } from '../../api/access';
+import { setPlace } from '../../api/place';
 import { OverlayProvider } from '../../ui/overlays';
 import AccessConnect, {
   ARRIVAL_POLL_MS,
@@ -44,20 +45,22 @@ const phone: AccessDevice = {
   sessions: [],
 };
 
-function fixture() {
+function fixture(
+  routes: AccessRoute[] = [
+    route({}),
+    // The loopback address is never offered to another device (U56).
+    route({
+      id: 'current-1',
+      kind: 'current_server',
+      label: 'Current server address — 127.0.0.1:8080',
+      origin: 'http://127.0.0.1:8080',
+      warning: null,
+    }),
+  ],
+) {
   const minted: AccessInvitation[] = [];
   const client: AccessInvitationClient = {
-    routes: vi.fn(async () => [
-      route({}),
-      // The loopback address is never offered to another device (U56).
-      route({
-        id: 'current-1',
-        kind: 'current_server',
-        label: 'Current server address — 127.0.0.1:8080',
-        origin: 'http://127.0.0.1:8080',
-        warning: null,
-      }),
-    ]),
+    routes: vi.fn(async () => routes),
     routeSettings: vi.fn(async () => ({
       listen_mode: 'local_network' as const,
       configured_origins: [],
@@ -67,7 +70,8 @@ function fixture() {
     create: vi.fn(async (routeId: string) => {
       const invitation: AccessInvitation = {
         id: `invite-${minted.length + 1}`,
-        intended_origin: routeId === 'lan-1' ? 'http://192.168.1.23:8080' : '',
+        intended_origin:
+          routes.find((item) => item.id === routeId)?.origin ?? '',
         session_lifetime: 'trusted',
         expires_at: new Date(Date.now() + TEN_MINUTES).toISOString(),
         claimed_at: null,
@@ -100,7 +104,10 @@ function fixture() {
   return { client, devices, tailscale, minted };
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  setPlace(null);
+});
 
 it('renews the QR code before it expires, copies its link, and names the device on arrival', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -237,4 +244,85 @@ it('says how to install on the phone that connected, and why not over plain HTTP
   expect(installSteps(phone, 'http://192.168.1.23:8080')[0]).toMatch(
     /needs a secure address/,
   );
+});
+
+it('on a hosted Row-Bot the code opens the server’s own https address, with no way to choose', async () => {
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const { client, devices, tailscale } = fixture([
+    // The container's own network address: no phone reaches it.
+    route({
+      id: 'lan-pod',
+      label: 'Local network — 172.17.0.2',
+      origin: 'http://172.17.0.2:8080',
+    }),
+    route({
+      id: 'current-pod',
+      kind: 'current_server',
+      label: 'Current server address — row-bot-demo.pikapod.net',
+      origin: 'https://row-bot-demo.pikapod.net',
+      warning: null,
+    }),
+  ]);
+  render(
+    <OverlayProvider>
+      <AccessConnect client={client} devices={devices} tailscale={tailscale} />
+    </OverlayProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Connect a phone or computer' }),
+  );
+  expect(
+    await screen.findByRole('img', {
+      name: 'QR code to connect a phone or computer',
+    }),
+  ).toBeVisible();
+  expect(client.create).toHaveBeenLastCalledWith('current-pod', 'trusted');
+  expect(screen.getByText('row-bot-demo.pikapod.net')).toBeVisible();
+  // Its host runs the network: no Tailscale, Same Wi-Fi or public link.
+  expect(
+    screen.queryByRole('radiogroup', { name: /How it reaches/ }),
+  ).toBeNull();
+  expect(screen.queryByText(/Tailscale|Same Wi-Fi|ngrok|172\.17/)).toBeNull();
+  expect(tailscale.status).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Copy link' })).toBeVisible();
+});
+
+it('on a hosted Row-Bot without an address another device reaches, it says so and makes no code', async () => {
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const { client, devices, tailscale } = fixture([
+    route({ id: 'lan-pod', origin: 'http://172.17.0.2:8080' }),
+  ]);
+  render(
+    <OverlayProvider>
+      <AccessConnect client={client} devices={devices} tailscale={tailscale} />
+    </OverlayProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Connect a phone or computer' }),
+  );
+  expect(
+    await screen.findByText(
+      'Another device can’t reach the address this browser uses. Open Row-Bot at your server’s web address to show a code here.',
+    ),
+  ).toBeVisible();
+  expect(client.create).not.toHaveBeenCalled();
+});
+
+it('a self-hosted server still asks how the device reaches it', async () => {
+  setPlace({ kind: 'server' });
+  const { client, devices, tailscale } = fixture();
+  render(
+    <OverlayProvider>
+      <AccessConnect client={client} devices={devices} tailscale={tailscale} />
+    </OverlayProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Connect a phone or computer' }),
+  );
+  const ways = await screen.findByRole('radiogroup', {
+    name: 'How it reaches your Row-Bot server',
+  });
+  expect(
+    within(ways).getByRole('radio', { name: /Tailscale/ }),
+  ).toBeInTheDocument();
 });

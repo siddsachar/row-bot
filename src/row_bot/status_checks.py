@@ -261,8 +261,16 @@ def check_channels() -> list[CheckResult]:
     return results
 
 
-def check_tunnel() -> CheckResult:
-    """Health check for the tunnel subsystem."""
+def check_tunnel() -> CheckResult | list[CheckResult]:
+    """Health check for the tunnel subsystem.
+
+    A hosted Row-Bot has its own address from its host, so no row: "NGROK_AUTHTOKEN is not
+    set · Not in use" only confuses there (U4). The desktop and self-hosted servers keep it.
+    """
+    from row_bot.hosting import hosted_by
+
+    if hosted_by() is not None:
+        return []
     try:
         from row_bot.tunnel import tunnel_manager
         # The manager reports what this process is doing, including a start
@@ -674,6 +682,20 @@ def check_client_build() -> list[CheckResult]:
     )]
 
 
+def check_hosting() -> list[CheckResult]:
+    """A hosted Row-Bot's host, and that this server answers (U4's final check).
+
+    It is the server answering itself: no call leaves it. Without a known host
+    (the desktop, a self-hosted server) there is no row.
+    """
+    from row_bot.hosting import hosted_by
+
+    host = hosted_by()
+    if host is None:
+        return []
+    return [CheckResult(f"Hosted by {host.name}", "ok", "Reachable", settings_tab="System")]
+
+
 def check_search_tools() -> CheckResult:
     """Check search/research tool availability."""
     try:
@@ -820,6 +842,7 @@ def check_plugins() -> CheckResult:
 
 # Ordered list of all checks — determines display order in status bar
 ALL_CHECKS = [
+    check_hosting,
     check_ollama,
     check_active_model,
     check_cloud_api,
@@ -884,6 +907,8 @@ _RESULT_ORDER = {
 
 def status_result_order_key(result: CheckResult) -> tuple[float, str]:
     """Return a stable display key matching the registry order."""
+    if result.name.startswith("Hosted by "):
+        return (-1.0, result.name)  # The host's row leads (U4), as check_hosting leads the registry.
     return (_RESULT_ORDER.get(result.name, 3.0), result.name)
 
 

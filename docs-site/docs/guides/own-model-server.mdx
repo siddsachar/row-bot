@@ -27,11 +27,11 @@ If Ollama runs on the same computer as Row-Bot, you don't need this page: choose
    | **Endpoint id** | A short name in lowercase letters, numbers, `-` or `_`, such as `home-gpu`. |
    | **Display name** | The name the model picker shows, such as "Home GPU". |
    | **Base URL** | The server's address, ending in `/v1`. Each server's address is below. |
-   | **Endpoint profile** | `llama_cpp`, `vllm` or `lmstudio` for those servers; `generic_openai` for Ollama and anything else. |
+   | **Server type** | **Ollama**, **llama.cpp**, **vLLM** or **LM Studio** for those servers; **OpenAI-compatible** for anything else. |
    | **Execution location** | **Local/private** when the model server is on your own network next to Row-Bot; **Remote/proxy** when Row-Bot reaches it over the internet. |
    | **API key required** | On whenever the server checks a key, and always for a server the internet can reach. |
 
-   **Endpoint id**, **Endpoint profile** and **Execution location** can't be changed later: remove the endpoint and add it again.
+   **Endpoint id**, **Server type** and **Execution location** can't be changed later: remove the endpoint and add it again.
 
 3. Choose **Save**. With **API key required** on, Row-Bot asks for the key next: paste it under **API key** and choose **Save key**. Row-Bot keeps the key with its other secrets, not in its settings file, and sends it with every request as `Authorization: Bearer <key>`.
 4. Row-Bot reads the server's list of models. They appear in the model picker under the display name.
@@ -45,7 +45,7 @@ Each server's base URL below is for the Row-Bot desktop app on the same computer
 
 ### Ollama
 
-- **Base URL:** `http://127.0.0.1:11434/v1`. **Endpoint profile:** `generic_openai`.
+- **Base URL:** `http://127.0.0.1:11434/v1`. **Server type:** **Ollama** (Row-Bot saves it as **OpenAI-compatible**, which is how it talks to Ollama).
 - Ollama listens only on its own computer. For other computers on your home network, set `OLLAMA_HOST=0.0.0.0` before starting it.
 - Ollama gives a model 4,096 tokens of context unless you set more. Set `OLLAMA_CONTEXT_LENGTH=32768` (or what fits your graphics card) before starting Ollama, and enter the same number as **Native context limit** under **Advanced**: Ollama's OpenAI-compatible API doesn't report it.
 - Ollama has no sign-in or keys of its own. To reach it from outside your home network, put [the key check](#a-key-check-in-front-of-ollama) in front of it.
@@ -56,7 +56,7 @@ Each server's base URL below is for the Row-Bot desktop app on the same computer
 llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081 -c 32768 --jinja --api-key YOUR-KEY
 ```
 
-- **Base URL:** `http://127.0.0.1:8081/v1`. **Endpoint profile:** `llama_cpp`.
+- **Base URL:** `http://127.0.0.1:8081/v1`. **Server type:** **llama.cpp**.
 - `--jinja` uses the model's own chat template, which tool calls need. `--api-key` refuses every request without the key. Row-Bot reads the context size from the server.
 
 ### vLLM
@@ -65,13 +65,13 @@ llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8081 -c 32768 --jinj
 vllm serve Qwen/Qwen3-8B --host 127.0.0.1 --port 8000 --max-model-len 32768 --api-key YOUR-KEY --enable-auto-tool-choice --tool-call-parser hermes
 ```
 
-- **Base URL:** `http://127.0.0.1:8000/v1`. **Endpoint profile:** `vllm`.
+- **Base URL:** `http://127.0.0.1:8000/v1`. **Server type:** **vLLM**.
 - Tool calls need `--enable-auto-tool-choice` and the parser for your model's family; vLLM's tool-calling docs list them (`hermes` suits Qwen models). Row-Bot reads the context size from the server.
 - vLLM listens on every network address unless `--host` says otherwise.
 
 ### LM Studio
 
-- Start the server from LM Studio's **Developer** tab. **Base URL:** `http://127.0.0.1:1234/v1`. **Endpoint profile:** `lmstudio`.
+- Start the server from LM Studio's **Developer** tab. **Base URL:** `http://127.0.0.1:1234/v1`. **Server type:** **LM Studio**.
 - For other computers on your network, turn on **Serve on Local Network** in the server settings.
 - To require a key, turn on **Require Authentication**, create a token with **Manage Tokens**, and paste the token into Row-Bot as the API key.
 - Row-Bot reads each model's context size from LM Studio.
@@ -79,6 +79,10 @@ vllm serve Qwen/Qwen3-8B --host 127.0.0.1 --port 8000 --max-model-len 32768 --ap
 ## Reach It From Anywhere
 
 A Row-Bot on another network can't see addresses inside your home: a hosted Row-Bot, a Row-Bot on a server, or the desktop app on a laptop away from home. It needs an HTTPS address the internet can reach, with a key check in front of the model server.
+
+:::note On a hosted Row-Bot
+Private addresses such as `10.x`, `192.168.x` or `169.254.x` are on the hosting company's network, not yours. A hosted Row-Bot asks before an endpoint uses one: choose **Allow and save** only if your model server really runs there. It never connects to a cloud metadata address such as `169.254.169.254`.
+:::
 
 | Way | When it fits | What you need |
 |---|---|---|
@@ -177,8 +181,9 @@ Every request sends your prompt, files you attach and tool results to your model
 
 ## Troubleshooting
 
-- **"Row-Bot couldn't reach that endpoint":** check that the base URL ends in `/v1`, the server is running, and it can be reached from where your Row-Bot runs. A missing or wrong key shows the same message: try the [`curl` check](#check-it-from-outside). The row says **Unavailable** until a refresh works.
-- **Ollama answers 403 Forbidden:** a request reached Ollama under your public name. Send it through [the key check](#a-key-check-in-front-of-ollama), which rewrites the name.
+- **"Row-Bot couldn't reach https://…":** check that the base URL ends in `/v1`, the server is running, and it can be reached from where your Row-Bot runs (from the internet, for a hosted Row-Bot). Try the [`curl` check](#check-it-from-outside). The row says **Unavailable** until a refresh works.
+- **"The model server refused the API key":** the server turned the key down. Choose **Enter API key**, paste the key again, and Row-Bot refreshes the endpoint. **"This endpoint needs an API key"** means none is saved yet.
+- **Ollama refuses the key although it's right:** Ollama answers 403 Forbidden when a request reaches it under your public name. Send it through [the key check](#a-key-check-in-front-of-ollama), which rewrites the name.
 - **The row says Chat only:** the model or the server isn't set up for tool calls. Choose a model that supports tools, start `llama-server` with `--jinja`, or start vLLM with `--enable-auto-tool-choice` and the right `--tool-call-parser`, then **Probe** again.
 - **Answers lose track of the conversation or stop early:** the server has less context than Row-Bot thinks. Start it with more, or set **Native context limit** under **Advanced** to what the server uses.
 - **The first answer is slow:** the server loads the model on first use; the next answers come faster.

@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { AccessClient, AccessDevice } from '../../api/access';
+import { placeWords } from '../../api/place';
 import { OverlayProvider } from '../../ui/overlays';
 import AccessDevices, { addressInWords } from './AccessDevices';
 
@@ -112,8 +113,17 @@ it('says when and where a device was last seen in words, never raw timestamps (U
     document.querySelector('time[datetime="2026-09-20T01:00:00.000Z"]'),
   ).not.toBeNull();
   expect(screen.getByText(/on your network \(192\.168\.1\.40\)/)).toBeVisible();
-  expect(addressInWords('100.101.2.3')).toBe('over Tailscale (100.101.2.3)');
-  expect(addressInWords('203.0.113.9')).toBe('from the internet (203.0.113.9)');
-  expect(addressInWords('127.0.0.1')).toBe('via this computer');
-  expect(addressInWords(null)).toBe('');
+  const here = placeWords({ kind: 'this_computer' });
+  expect(addressInWords('100.101.2.3', here)).toBe(
+    'over Tailscale (100.101.2.3)',
+  );
+  expect(addressInWords('203.0.113.9', here)).toBe(
+    'from the internet (203.0.113.9)',
+  );
+  expect(addressInWords('127.0.0.1', here)).toBe('via this computer');
+  expect(addressInWords(null, here)).toBe('');
+  // Seen from a phone, the loopback address is the computer Row-Bot runs on (U7).
+  expect(addressInWords('127.0.0.1', placeWords({ kind: 'server' }))).toBe(
+    'via your Row-Bot server',
+  );
 });

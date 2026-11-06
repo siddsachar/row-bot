@@ -20,9 +20,9 @@ import sys
 import time
 from typing import Any
 
-from row_bot import account_tokens, x_accounts
+from row_bot import account_tokens, server_memory, x_accounts
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.hosting import hosted_by
+from row_bot.hosting import hosted_by, trial
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _MAX_ITEMS = 128
@@ -599,8 +599,24 @@ def _system(
             "directory_available": (root / "logs").is_dir(),
         },
         # The company that runs this Row-Bot, from its reviewed entry (H13); None when none is known.
-        "hosted_by": host.to_public_dict() if (host := hosted_by()) is not None else None,
+        "hosted_by": _hosted_by(),
+        "memory": _server_memory(),
     }
+
+
+def _hosted_by() -> dict[str, Any] | None:
+    """The host's reviewed entry (H13), with its trial words while the server has a trial's memory (A4)."""
+    host = hosted_by()
+    if host is None:
+        return None
+    return {**host.to_public_dict(), "trial": trial(host, server_memory.limit_bytes())}
+
+
+def _server_memory() -> dict[str, int] | None:
+    """The server's memory limit and use now (H12), for the host card (U5); None without a limit."""
+    limit = server_memory.limit_bytes()
+    used = server_memory.working_set_bytes() if limit is not None else None
+    return None if limit is None or used is None else {"limit_bytes": limit, "used_bytes": used}
 
 
 def _mobile_access(root: Path) -> dict[str, Any]:
@@ -1754,13 +1770,14 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 def _revision(value: Mapping[str, Any]) -> str:
-    # An update check writes its own times by itself; they are not a setting the person changed, so they
-    # never make a change the person is making stale.
+    # An update check writes its own times by itself, and the server's memory use moves by itself; they
+    # are not a setting the person changed, so they never make a change the person is making stale.
     value = copy.deepcopy(dict(value))
     updates = value.get("preferences", {}).get("updates")
     if isinstance(updates, dict):
         updates.pop("last_check", None)
         updates.pop("last_success", None)
+    value.get("system", {}).pop("memory", None)
     return hashlib.sha256(
         json.dumps(
             value, sort_keys=True, ensure_ascii=True, separators=(",", ":")

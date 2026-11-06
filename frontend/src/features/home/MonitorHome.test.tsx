@@ -186,6 +186,7 @@ function fakeController() {
   const controller = {
     subscribe: () => () => undefined,
     getSnapshot: () => state,
+    dismissMemoryNotice: vi.fn(async () => ({ dismissed: true })),
     channels: vi.fn(async () => ({
       schema_version: 1 as const,
       total: 1,
@@ -1714,3 +1715,92 @@ it('lists what the indicator counts, each with only the fix it carries', () => {
     expect(within(item).queryByRole('button')).toBeNull();
   }
 });
+
+it('shows the out-of-memory notice in full with how to resize, cloud speech-to-text and Dismiss (U8)', async () => {
+  const onFixed = vi.fn();
+  renderMonitor({
+    onFixed,
+    attention: [
+      {
+        id: 'memory:restarted',
+        title: 'Row-Bot restarted because the server ran out of memory',
+        detail:
+          'Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. Make the pod 4 GB in PikaPods, or use cloud speech-to-text.',
+        place: 'memory',
+        fix: null,
+        links: [
+          {
+            label: 'How to resize',
+            url: 'https://row-bot.ai/docs/operations/hosting#memory',
+          },
+          {
+            label: 'Manage your pod in PikaPods',
+            url: 'https://www.pikapods.com/pods',
+          },
+        ],
+      },
+    ],
+  });
+  const [notice] = within(
+    screen
+      .getByRole('heading', { name: 'Needs attention' })
+      .closest('section')!,
+  ).getAllByRole('listitem');
+  expect(notice).toHaveTextContent(
+    'Row-Bot restarted because the server ran out of memory Your server has 2 GB.',
+  );
+  expect(
+    within(notice).getByRole('link', { name: 'How to resize' }),
+  ).toHaveAttribute(
+    'href',
+    'https://row-bot.ai/docs/operations/hosting#memory',
+  );
+  expect(
+    within(notice).getByRole('link', { name: 'Manage your pod in PikaPods' }),
+  ).toHaveAttribute('href', 'https://www.pikapods.com/pods');
+  expect(
+    within(notice).getByRole('link', { name: 'Use cloud speech-to-text' }),
+  ).toHaveAttribute('href', '/settings/voice#talk');
+
+  fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }));
+  await waitFor(() => expect(onFixed).toHaveBeenCalledOnce());
+  expect(runtime.controller.dismissMemoryNotice).toHaveBeenCalledOnce();
+});
+
+it.each([
+  [
+    'Raise the memory limit',
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  ],
+  ['Upgrade in Railway', 'https://railway.com/workspace/plans'],
+])(
+  'on Railway the out-of-memory notice links “%s” to Railway’s own page (A2, A4)',
+  (label, url) => {
+    renderMonitor({
+      attention: [
+        {
+          id: 'memory:restarted',
+          title: 'Row-Bot restarted because the server ran out of memory',
+          detail: 'Your server has 1 GB.',
+          place: 'memory',
+          fix: null,
+          links: [
+            {
+              label: 'How to resize',
+              url: 'https://row-bot.ai/docs/operations/hosting#memory',
+            },
+            { label, url },
+          ],
+        },
+      ],
+    });
+    const [notice] = within(
+      screen
+        .getByRole('heading', { name: 'Needs attention' })
+        .closest('section')!,
+    ).getAllByRole('listitem');
+    const link = within(notice).getByRole('link', { name: label });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+  },
+);
