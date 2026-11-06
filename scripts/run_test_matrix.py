@@ -168,6 +168,22 @@ def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> Comm
                 "--timeout", "7200", "--", *playwright_args, env=TEST_ENV)
 
 
+def _browser_smoke(specs: tuple[str, ...]) -> CommandSpec:
+    return _browser("browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*specs))
+
+
+def smoke_shard(shard: str) -> tuple[str, ...]:
+    """The browser smoke specs one CI job runs for ROW_BOT_TEST_SHARD=k/N.
+
+    Dealt round-robin in listed order, so the slow Learning specs at the end are
+    spread across the jobs. Every spec lands in exactly one shard.
+    """
+    index, _, total = shard.partition("/")
+    if not (index.isdigit() and total.isdigit() and 1 <= int(index) <= int(total)):
+        raise ValueError(f"ROW_BOT_TEST_SHARD must look like 1/2, not {shard!r}")
+    return BROWSER_SMOKE_SPECS[int(index) - 1::int(total)]
+
+
 # pytest-xdist: one worker per CPU; a file's tests stay on one worker (module
 # fixtures, and tests that rely on their file's order). A worker that crashes
 # fails the run at once: after a restart, loadfile hands finished files out
@@ -244,9 +260,7 @@ COMMANDS: dict[str, CommandSpec] = {
         "install-count-worker", "node", "services/install-count/node_modules/vitest/vitest.mjs", "run",
         "--root", "services/install-count", env={"WRANGLER_SEND_METRICS": "false"},
     ),
-    "browser-smoke": _browser(
-        "browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*BROWSER_SMOKE_SPECS),
-    ),
+    "browser-smoke": _browser_smoke(BROWSER_SMOKE_SPECS),
     "browser-nightly-desktop": _browser("browser-nightly-desktop", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
     "browser-nightly-unified": _browser("browser-nightly-unified", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
     "browser-nightly-apps": _browser("browser-nightly-apps", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_APPS_SPECS)),
@@ -382,6 +396,9 @@ def commands_for_tier(tier: str, changed_files: list[str] | None = None) -> list
         return changed_commands(changed_files or [])
     if tier not in TIER_COMMANDS:
         raise KeyError(f"unknown tier: {tier}")
+    # CI splits the browser smoke set across jobs, as it splits the python tier.
+    if tier == "browser-smoke" and (shard := os.environ.get("ROW_BOT_TEST_SHARD", "").strip()):
+        return [_browser_smoke(smoke_shard(shard))]
     return _dedupe_commands(TIER_COMMANDS[tier])
 
 

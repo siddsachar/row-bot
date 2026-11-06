@@ -1,8 +1,9 @@
 name: CI
 
 # Every job runs in parallel; `ci-ok` is the one required check. The
-# deterministic suite runs once, on Linux, split into shards; the tests marked
-# `platform` also run on Windows (the shipped Python 3.13) and macOS. The full
+# deterministic suite and the browser smoke set run once, on Linux, split into
+# shards; the tests marked `platform` also run on Windows (the shipped Python
+# 3.13) and macOS. The full
 # suite on every OS, the slow tests and the browser nightly set run in
 # nightly.yml.
 
@@ -167,9 +168,14 @@ jobs:
         run: uv run python scripts/run_test_matrix.py platform
 
   browser-smoke:
-    name: Browser smoke
+    name: Browser smoke (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The whole set takes about 26 minutes on one runner; two shards take about 13 each.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v7
 
@@ -211,7 +217,9 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp/p2-browser-cache
         run: node node_modules/@playwright/test/cli.js install --with-deps chromium
 
-      - name: Browser smoke set (Chromium desktop)
+      - name: Browser smoke set (Chromium desktop, one shard)
+        env:
+          ROW_BOT_TEST_SHARD: ${{ matrix.shard }}
         run: uv run python scripts/run_test_matrix.py browser-smoke
 
       # Fixture data only: a throwaway backend with fake providers; the runner
@@ -220,7 +228,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-smoke-evidence
+          name: browser-smoke-evidence-${{ strategy.job-index }}
           path: .local/evidence/unified-client-platform/phase-3-visual-alignment/qa
           if-no-files-found: ignore
           retention-days: 7
