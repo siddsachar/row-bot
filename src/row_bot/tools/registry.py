@@ -10,7 +10,6 @@ Usage
 
 from __future__ import annotations
 
-import json
 import logging
 import copy
 import pathlib
@@ -49,20 +48,20 @@ _CONFIG_LOCK = tool_configuration.LOCK
 
 
 # ── Config persistence ───────────────────────────────────────────────────────
-def _read_config(path: pathlib.Path) -> dict:
-    """Load the persisted config from disk, never in the middle of a save (B408)."""
-    with _CONFIG_LOCK:
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                logger.warning("Failed to load tools config from %s", path, exc_info=True)
-                return {}
-        return {}
+def _read_config(path: pathlib.Path) -> dict | None:
+    """Load the persisted config from disk, never in the middle of a save (B408).
+
+    No file yet is ``{}`` (defaults apply). A file that exists but can't be read or parsed is ``None``:
+    the person's switches and deny lists are unknown then, and defaults would turn off-tools back on.
+    """
+    try:
+        return tool_configuration.read_saved(path).document
+    except tool_configuration.ToolConfigurationError:
+        logger.error("Tools config at %s can't be read; tools stay off until it is fixed", path)
+        return None
 
 
-def _load_config() -> dict:
+def _load_config() -> dict | None:
     return _read_config(_config_path())
 
 
@@ -74,7 +73,13 @@ def _write_config_atomic(path: pathlib.Path, payload: dict, *, expected_digest: 
         builtin.changed()  # A key tool switched on or off shows as it is now in Apps.
 
 
-def _apply_saved_config(tool: "BaseTool", saved: dict) -> None:
+def _apply_saved_config(tool: "BaseTool", saved: dict | None) -> None:
+    if saved is None:
+        # Unreadable settings: keep what was loaded, else the tool is off (never its default).
+        if tool.name not in _enabled:
+            _enabled[tool.name] = False
+            _tool_configs[tool.name] = {key: spec.get("default") for key, spec in tool.config_schema.items()}
+        return
     # Support new format {"tools": {...}} and old flat format
     tools_map = saved.get("tools", saved) if isinstance(saved.get("tools"), dict) else saved
     if tool.name in tools_map:
@@ -294,7 +299,7 @@ def _load_global_config():
     global _global_config
     _ensure_config_scope()
     saved = _load_config()
-    _global_config = saved.get("global", {})
+    _global_config = (saved or {}).get("global", {})
 
 
 def reload_saved_config() -> None:
@@ -304,6 +309,8 @@ def reload_saved_config() -> None:
     with _CONFIG_LOCK:
         _ensure_config_scope()
         saved = _load_config()
+        if saved is None:
+            return  # Unreadable: the loaded switches and deny lists stay as they were.
         _enabled.clear()
         _tool_configs.clear()
         for tool in _tools.values():
