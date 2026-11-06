@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.providers.presets import PRESETS
 
 try:
     import ollama as _ollama_mod
@@ -197,6 +198,7 @@ REFRESHABLE_CLOUD_PROVIDER_IDS: tuple[str, ...] = (
     "opencode_go",
     "atlascloud",
     "claude_subscription",
+    *PRESETS,
 )
 
 _SUBSCRIPTION_CATALOG_PROVIDER_IDS = frozenset({"codex", "claude_subscription", "xai_oauth"})
@@ -1559,6 +1561,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "google": "💎",
     "xai": "𝕏",
     "minimax": "M",
+    **{preset.id: preset.icon for preset in PRESETS.values()},
     None: "☁️",  # fallback for unknown cloud
 }
 
@@ -2227,6 +2230,11 @@ def _fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_atlascloud_models(api_key)
+    elif provider in PRESETS:
+        api_key = get_provider_secret(provider)
+        if not api_key:
+            return 0
+        return _fetch_preset_models(provider, api_key)
     elif provider == "codex":
         return _fetch_codex_models()
     elif provider == "claude_subscription":
@@ -2739,6 +2747,30 @@ def _fetch_requesty_models(api_key: str) -> int:
     }
     count = _replace_provider_cloud_cache_entries("requesty", entries)
     logger.info("Fetched %d requesty models", count)
+    return count
+
+
+def _fetch_preset_models(provider_id: str, api_key: str) -> int:
+    """Fetch one table provider's chat models from its OpenAI-compatible ``/models``."""
+    import httpx
+    from row_bot.providers.catalog import model_info_to_cache_entry
+    from row_bot.providers.presets import model_infos_from_catalog, models_url
+
+    preset = PRESETS[provider_id]
+    try:
+        resp = httpx.get(models_url(preset), headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as exc:
+        logger.warning("Failed to fetch %s models: %s; keeping the saved list", preset.name, exc)
+        return 0
+    model_infos = model_infos_from_catalog(preset, payload, verified_at=_utc_now_iso())
+    if not model_infos:
+        logger.warning("%s listed no chat models; keeping the saved list", preset.name)
+        return 0
+    entries = {info.selection_ref: model_info_to_cache_entry(info) for info in model_infos}
+    count = _replace_provider_cloud_cache_entries(provider_id, entries)
+    logger.info("Fetched %d %s models", count, preset.name)
     return count
 
 

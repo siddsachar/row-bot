@@ -25,6 +25,24 @@ export const PROVIDER_KEYS: Readonly<Record<string, ProviderKeyInfo>> = {
   opencode_go: { url: 'https://opencode.ai' },
   atlascloud: { url: 'https://atlascloud.ai' },
   ollama_cloud: { url: 'https://ollama.com' },
+  deepseek: { url: 'https://platform.deepseek.com/api_keys', prefix: 'sk-' },
+  mistral: { url: 'https://console.mistral.ai/api-keys' },
+  groq: { url: 'https://console.groq.com/keys', prefix: 'gsk_' },
+  moonshot: {
+    url: 'https://platform.moonshot.ai/console/api-keys',
+    prefix: 'sk-',
+  },
+  zai: { url: 'https://z.ai/manage-apikey/apikey-list' },
+  dashscope: { url: 'https://modelstudio.console.alibabacloud.com' },
+  together: { url: 'https://api.together.ai/settings/api-keys' },
+  fireworks: { url: 'https://fireworks.ai/account/api-keys', prefix: 'fw_' },
+  cerebras: { url: 'https://cloud.cerebras.ai', prefix: 'csk-' },
+  huggingface: { url: 'https://huggingface.co/settings/tokens', prefix: 'hf_' },
+  nvidia: {
+    url: 'https://build.nvidia.com/settings/api-keys',
+    prefix: 'nvapi-',
+  },
+  vercel: { url: 'https://vercel.com/ai-gateway' },
 };
 
 /** Recommended first in Setup; the rest sit under "More providers". */
