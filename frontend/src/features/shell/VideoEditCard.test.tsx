@@ -127,6 +127,34 @@ it('shows the download of ffmpeg the first time, with its progress and Stop', as
   expect(within(card).queryByText('Details')).toBeNull();
 });
 
+it('keeps following the edit when the settled card replaces the live one', async () => {
+  const edits = io([
+    view({
+      status: 'getting_ffmpeg',
+      progress: 0.4,
+      download_received: 12 * 1024 * 1024,
+      download_total: 30 * 1024 * 1024,
+    }),
+  ]);
+  const shown = (place: string) => (
+    <VideoEditIoContext.Provider value={edits}>
+      <VideoEditCard
+        key={place}
+        editId="edit-1a2b3c4d"
+        conversationId="conversation-a"
+      />
+    </VideoEditIoContext.Provider>
+  );
+  const { rerender } = render(shown('live'));
+  await screen.findByRole('group', {
+    name: 'Getting ffmpeg for video editing: Downloading · 12 MB of 30 MB',
+  });
+  rerender(shown('saved'));
+  await screen.findByRole('group', {
+    name: 'Getting ffmpeg for video editing: Downloading · 12 MB of 30 MB',
+  });
+});
+
 it('shows an edit in progress and stops it, with nothing saved', async () => {
   const edits = io([view()]);
   renderCard(edits);
