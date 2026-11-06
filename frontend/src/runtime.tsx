@@ -111,6 +111,10 @@ export function useRuntime() {
   if (!runtime) throw new Error('RuntimeContext is required');
   return runtime;
 }
+/** The runtime, or null outside the app (a message rendered on its own). */
+export function useOptionalRuntime() {
+  return useContext(RuntimeContext);
+}
 export function useClientState() {
   const { controller } = useRuntime();
   return useSyncExternalStore(controller.subscribe, controller.getSnapshot);

@@ -128,21 +128,57 @@ def test_the_user_probe_finds_the_server_its_tree_and_every_owner_on_a_real_kern
             smoke.check_row_bot_user(report)
 
 
-def test_the_log_may_show_the_code_once_at_the_first_start_and_never_a_secret() -> None:
-    first_start = "Row-Bot server mode listening\n" + "=" * 72 + "\nRow-Bot setup code: ABCD-EFGH-JKMN (open your Row-Bot and enter it)\n"
+POD = "http://pod.row-bot.test:8155"
+LINK = f"Open this link to sign in: {POD}/setup#code=ABCD-EFGH-JKMN\n"
+
+
+def test_the_log_may_show_the_code_and_its_link_once_at_the_first_start_and_never_a_secret() -> None:
+    rule = "=" * 72 + "\n"
+    first_start = (
+        "Row-Bot server mode listening\n" + rule
+        + "Row-Bot setup code: ABCD-EFGH-JKMN (open your Row-Bot and enter it)\n" + LINK + rule
+    )
     restarted = first_start + "Row-Bot server mode listening\n"
 
-    smoke.check_container_log(restarted, code=CODE, secret_values=(KEY,))
+    smoke.check_container_log(restarted, code=CODE, public_origin=POD, secret_values=(KEY,))
     failures = {
         "": "does not show the setup code",
+        restarted.replace(LINK, ""): "does not show the sign-in link",
+        restarted.replace(POD, "http://127.0.0.1:8155"): "does not show the sign-in link",
         restarted + "Row-Bot setup code: ABCD-EFGH-JKMN\n": "after the first start's code line",
+        restarted + LINK: "after the first start's code line",
         restarted + f"claimed with {CODE}\n": "after the first start's code line",
         restarted + f"key={KEY}\n": "A secret appears",
     }
     for log, reason in failures.items():
         with pytest.raises(smoke.SmokeError, match=reason) as raised:
-            smoke.check_container_log(log, code=CODE, secret_values=(KEY,))
+            smoke.check_container_log(log, code=CODE, public_origin=POD, secret_values=(KEY,))
         assert CODE not in str(raised.value) and KEY not in str(raised.value)
+
+
+def test_the_smoke_signs_in_with_the_code_the_logged_link_carries() -> None:
+    log = "INFO: Row-Bot server mode listening\nRow-Bot setup code: ABCD-EFGH-JKMN (open…)\n" + LINK
+
+    assert smoke.link_code(log) == "ABCD-EFGH-JKMN"
+    with pytest.raises(smoke.SmokeError, match="does not show the sign-in link"):
+        smoke.link_code(log.replace(LINK, ""))
+
+
+def test_info_lines_must_be_on_stdout_where_a_host_does_not_show_them_as_errors() -> None:
+    out = "INFO: Row-Bot is running at http://127.0.0.1:8080\nRow-Bot setup code: ABCD-EFGH-JKMN\n"
+    warning = "WARNING: Row-Bot made its own secret-store key on the volume\n"
+
+    smoke.check_log_streams(out, warning)
+    failures = {
+        ("", out): "stdout does not say that Row-Bot is running",
+        ("INFO: Row-Bot is running at http://127.0.0.1:8080\n", "Row-Bot setup code: ABCD-EFGH-JKMN\n"):
+            "stdout does not say the setup code",
+        (out, out): "stderr says that Row-Bot is running",
+    }
+    for (stdout, stderr), reason in failures.items():
+        with pytest.raises(smoke.SmokeError, match=reason) as raised:
+            smoke.check_log_streams(stdout, stderr)
+        assert "ABCD" not in str(raised.value)
 
 
 def test_the_summary_flags_a_memory_high_water_mark_over_the_release_budget() -> None:

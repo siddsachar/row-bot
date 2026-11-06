@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security issue
-    url: mailto:siddsachar@gmail.com
+    url: mailto:syd@row-bot.ai
     about: Please report vulnerabilities privately by email.
   - name: Questions and ideas
     url: https://github.com/siddsachar/row-bot/discussions

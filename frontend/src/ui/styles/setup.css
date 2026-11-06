@@ -642,6 +642,29 @@
 .first-run-note a {
   color: var(--text-link);
 }
+/* A4: a host's trial server, what works there and where to upgrade; on the
+   hosted first run and the host card. */
+.host-trial-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.host-trial-note > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.host-trial-note a {
+  color: var(--text-link);
+  white-space: nowrap;
+}
+.host-trial-note a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
 /*
  * U3, a hosted first run: two big buttons (ChatGPT, Claude plan), "Other
  * ways" below, and the one line about models needing a GPU.

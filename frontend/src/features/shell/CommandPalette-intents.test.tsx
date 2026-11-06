@@ -182,7 +182,9 @@ const INTENTS: {
     query: 'connect a model',
     first: /^Connect a model provider/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/providers'),
+      expect(h.onOpenSetting).toHaveBeenCalledWith(
+        '/settings/models#connections',
+      ),
   },
   {
     query: 'turn on developer tools',
@@ -209,7 +211,9 @@ const INTENTS: {
     query: 'api key',
     first: /^Connect a model provider/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/providers'),
+      expect(h.onOpenSetting).toHaveBeenCalledWith(
+        '/settings/models#connections',
+      ),
   },
   {
     query: 'dark mode',

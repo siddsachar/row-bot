@@ -114,6 +114,18 @@ def test_a_big_server_that_ran_out_is_told_to_grow_not_to_become_4_gb(cgroup, mo
     assert problem["detail"].endswith("Make the pod bigger in PikaPods, or use cloud speech-to-text.")
 
 
+@pytest.mark.parametrize(("size", "words"), [(8_000_000_000, "8 GB"), (999_997_440, "1 GB")])
+def test_railways_limits_are_said_as_railway_sets_them(cgroup, monkeypatch, size, words):
+    # Railway sets limits in decimal GB: 8 GB, and its trial's 1 GB (as the kernel keeps it, in whole pages).
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    ran_out_of_memory(cgroup, size)
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        [problem] = problems(client, headers)
+    assert problem["detail"].startswith(f"Your server has {words}. Local speech-to-text")
+
+
 def test_dismissing_the_notice_keeps_it_away_until_another_such_restart(cgroup):
     ran_out_of_memory(cgroup)
     client, _, _ = client_app(remote=True)
@@ -132,3 +144,49 @@ def test_dismissing_the_notice_keeps_it_away_until_another_such_restart(cgroup):
         assert problems(client, headers) == []
         ran_out_of_memory(cgroup)
         assert [problem["title"] for problem in problems(client, headers)] == [TITLE]
+
+# What Railway gives every service (A2).
+RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+SERVICE = (
+    "https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30"
+    "/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901"
+)
+ENVIRONMENT = "?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10"
+TRIAL = {
+    "note": "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. "
+    "Browser tasks and local speech-to-text need Railway's Hobby plan.",
+    "upgrade_url": "https://railway.com/workspace/plans",
+}
+
+
+def test_on_railway_the_notice_links_the_services_settings_and_on_a_trial_names_the_plan(cgroup, monkeypatch):
+    """A2: with the service's IDs, "Raise the memory limit" opens its settings. A4: on the trial's 1 GB,
+    only Railway's Hobby plan gives more, so that is the step and the link."""
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    for name, value in RAILWAY_IDS.items():
+        monkeypatch.setenv(name, value)
+    ran_out_of_memory(cgroup, 2_000_000_000)
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        [problem] = problems(client, headers)
+    assert problem["detail"].endswith(
+        "needs about 3.2 GB. Raise the service's memory limit to 4 GB in Railway, or use cloud speech-to-text."
+    )
+    assert problem["links"] == [GUIDE, {"label": "Raise the memory limit", "url": SERVICE + "/settings" + ENVIRONMENT}]
+
+    server_memory.dismiss()
+    ran_out_of_memory(cgroup, 999_997_440)
+    with client:
+        _, headers = bootstrap(client)
+        [problem] = problems(client, headers)
+    assert problem["detail"] == (
+        "Your server has 1 GB. Local speech-to-text together with the search model and browser needs about "
+        "3.2 GB. Move to Railway's Hobby plan and raise the service's memory limit to 4 GB, or use cloud "
+        "speech-to-text."
+    )
+    assert problem["links"] == [GUIDE, {"label": "Upgrade in Railway", "url": "https://railway.com/workspace/plans"}]

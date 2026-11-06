@@ -2528,7 +2528,10 @@ it('offers a speech engine choice in Voice › Advanced only once there is one',
 
 const GB = 2 ** 30;
 
-function showVoice(talkProvider: string) {
+function showVoice(
+  talkProvider: string,
+  host: SettingsSnapshot['system']['hosted_by'] = null,
+) {
   mutation.page = 'voice';
   return render(
     <MemoryRouter>
@@ -2540,6 +2543,7 @@ function showVoice(talkProvider: string) {
           }}
           conversationId={null}
           mutation={mutation}
+          host={host}
         />
       </OverlayProvider>
     </MemoryRouter>,
@@ -2648,4 +2652,70 @@ it('suggests Free memory when idle where the search model is chosen on a small s
   setMemoryLimit(4 * GB);
   show(false);
   expect(screen.queryByText(/Suggested on a/)).toBeNull();
+});
+
+const railwayHost = {
+  id: 'railway',
+  name: 'Railway',
+  home_url: 'https://railway.com/',
+  support_url: 'https://station.railway.com/',
+  status_url: 'https://status.railway.com/',
+  manage_url:
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  unit: 'service',
+  runs: 'the server and billing',
+  applies_updates: false,
+  updates_help: 'Turn on auto updates in Railway.',
+  settings_url:
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  usage_url: 'https://railway.com/workspace/usage',
+  trial: null,
+};
+
+it.each([
+  [
+    'its service’s settings',
+    railwayHost,
+    'Raise the memory limit',
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  ],
+  [
+    'its plans, on the trial',
+    {
+      ...railwayHost,
+      trial: {
+        note: 'Railway’s trial gives Row-Bot 1 GB.',
+        upgrade_url: 'https://railway.com/workspace/plans',
+      },
+    },
+    'Upgrade in Railway',
+    'https://railway.com/workspace/plans',
+  ],
+])(
+  'on Railway the local speech-to-text sheet links %s (A2, A4)',
+  (_what, host, label, url) => {
+    setMemoryLimit(2 * GB);
+    showVoice('openai_realtime', host);
+    fireEvent.change(screen.getByLabelText('Listen with'), {
+      target: { value: 'local' },
+    });
+    const sheet = screen.getByRole('dialog', {
+      name: 'Use local speech-to-text?',
+    });
+    const link = within(sheet).getByRole('link', { name: label });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+  },
+);
+
+it('without the host’s page, the sheet links nowhere (A2)', () => {
+  setMemoryLimit(2 * GB);
+  showVoice('openai_realtime', { ...railwayHost, settings_url: null });
+  fireEvent.change(screen.getByLabelText('Listen with'), {
+    target: { value: 'local' },
+  });
+  const sheet = screen.getByRole('dialog', {
+    name: 'Use local speech-to-text?',
+  });
+  expect(within(sheet).queryByRole('link')).toBeNull();
 });

@@ -10,7 +10,6 @@ Usage
 
 from __future__ import annotations
 
-import json
 import logging
 import copy
 import pathlib
@@ -49,20 +48,27 @@ _CONFIG_LOCK = tool_configuration.LOCK
 
 
 # ── Config persistence ───────────────────────────────────────────────────────
-def _read_config(path: pathlib.Path) -> dict:
-    """Load the persisted config from disk, never in the middle of a save (B408)."""
-    with _CONFIG_LOCK:
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                logger.warning("Failed to load tools config from %s", path, exc_info=True)
-                return {}
-        return {}
+def _read_config(path: pathlib.Path) -> dict | None:
+    """Load the persisted config from disk, never in the middle of a save (B408).
+
+    No file yet is ``{}`` (defaults apply). A file that exists but can't be read or parsed is ``None``:
+    the person's switches and deny lists are unknown then, and defaults would turn off-tools back on.
+    """
+    try:
+        document = tool_configuration.read_saved(path).document
+    except tool_configuration.ToolConfigurationError:
+        if path not in _reported_unreadable:  # Every tool reads it at start-up: say so once.
+            _reported_unreadable.add(path)
+            logger.error("Tools config at %s can't be read; tools stay off until it is fixed", path)
+        return None
+    _reported_unreadable.discard(path)
+    return document
 
 
-def _load_config() -> dict:
+_reported_unreadable: set[pathlib.Path] = set()
+
+
+def _load_config() -> dict | None:
     return _read_config(_config_path())
 
 
@@ -74,7 +80,13 @@ def _write_config_atomic(path: pathlib.Path, payload: dict, *, expected_digest: 
         builtin.changed()  # A key tool switched on or off shows as it is now in Apps.
 
 
-def _apply_saved_config(tool: "BaseTool", saved: dict) -> None:
+def _apply_saved_config(tool: "BaseTool", saved: dict | None) -> None:
+    if saved is None:
+        # Unreadable settings: keep what was loaded, else the tool is off (never its default).
+        if tool.name not in _enabled:
+            _enabled[tool.name] = False
+            _tool_configs[tool.name] = {key: spec.get("default") for key, spec in tool.config_schema.items()}
+        return
     # Support new format {"tools": {...}} and old flat format
     tools_map = saved.get("tools", saved) if isinstance(saved.get("tools"), dict) else saved
     if tool.name in tools_map:
@@ -212,7 +224,12 @@ def read_policy_snapshot() -> dict:
     path = get_row_bot_data_dir(create=False) / "tools_config.json"
     with _CONFIG_LOCK:
         # The saved file and the loaded switches as of one moment: a save in between is all or nothing (B408).
-        saved = tool_configuration.read_saved(path)
+        try:
+            saved_revision = tool_configuration.read_saved(path).digest
+        except tool_configuration.ToolConfigurationError:
+            # Unreadable: the registry keeps every tool off, and an approval given now no longer matches once the
+            # file reads again. Failing here instead would stop the app loading at all.
+            saved_revision = "unreadable"
         if len(_tools) > 10000:
             raise ValueError("tool_policy_unavailable")
         same_scope = path == _active_config_path
@@ -228,7 +245,7 @@ def read_policy_snapshot() -> dict:
                 # it here must not construct tools or discover providers.
                 effects = {"descriptor": id(destructive)}
             registrations.append((name, id(tool), _enabled.get(name) if same_scope else None, effects))
-        return {"saved_revision": saved.digest, "registrations": registrations,
+        return {"saved_revision": saved_revision, "registrations": registrations,
             "tool_configs": copy.deepcopy(_tool_configs) if same_scope else {},
             "global_config": copy.deepcopy(_global_config) if same_scope else {}}
 
@@ -294,7 +311,7 @@ def _load_global_config():
     global _global_config
     _ensure_config_scope()
     saved = _load_config()
-    _global_config = saved.get("global", {})
+    _global_config = (saved or {}).get("global", {})
 
 
 def reload_saved_config() -> None:
@@ -304,6 +321,8 @@ def reload_saved_config() -> None:
     with _CONFIG_LOCK:
         _ensure_config_scope()
         saved = _load_config()
+        if saved is None:
+            return  # Unreadable: the loaded switches and deny lists stay as they were.
         _enabled.clear()
         _tool_configs.clear()
         for tool in _tools.values():

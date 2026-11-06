@@ -27,7 +27,7 @@ from row_bot.providers.opencode import (
 from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
 from row_bot.providers.readiness import evaluate_agent_readiness, evaluate_runtime_readiness
 from row_bot.providers.resolution import resolve_provider_config
-from row_bot.providers.selection import ModelSelectionError, add_quick_choice_for_model, canonicalize_model_selection, list_quick_choices, model_choice_value
+from row_bot.providers.selection import ModelSelectionError, canonicalize_model_selection, model_choice_value
 
 
 pytestmark = pytest.mark.platform
@@ -241,25 +241,26 @@ def test_phase2_legacy_cache_conversion_reads_provider_qualified_keys():
     assert infos[0].selection_ref == "model:opencode_go:glm-5.1"
 
 
-def test_phase2_quick_choices_keep_same_opencode_model_id_unambiguous(tmp_path, monkeypatch):
+def test_phase2_starred_models_keep_same_opencode_model_id_unambiguous(tmp_path, monkeypatch):
+    import row_bot.providers.model_catalog_cache as cache
+    from row_bot.providers import model_catalog, model_visibility
+    from row_bot.providers.selection import starred_model_refs
+
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
+    chat = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"], "tool_calling": True}
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(cache.CACHE_VERSION, 1.0, {
+        "model:openrouter:glm-5.1": {"provider": "openrouter", "label": "GLM via OpenRouter", "capabilities_snapshot": chat},
+        "model:opencode_go:glm-5.1": {"provider": "opencode_go", "label": "GLM via OpenCode Go", "capabilities_snapshot": chat},
+    }, [], {}, (), "test"))
+    settings = tmp_path / "model_settings.json"
+    settings.write_text(json.dumps({"model_visibility": {"favourites": [
+        "model:openrouter:glm-5.1", "model:opencode_go:glm-5.1"]}}), encoding="utf-8")
+    monkeypatch.setattr(model_visibility, "_settings_path", lambda: settings)
+    ready = {"configured": True, "runtime_enabled": True}
+    monkeypatch.setattr(model_catalog, "_provider_status_by_id", lambda: {"openrouter": ready, "opencode_go": ready})
 
-    add_quick_choice_for_model(
-        "glm-5.1",
-        provider_id="openrouter",
-        display_name="GLM via OpenRouter",
-    )
-    add_quick_choice_for_model(
-        "glm-5.1",
-        provider_id="opencode_go",
-        display_name="GLM via OpenCode Go",
-    )
-
-    assert {choice["id"] for choice in list_quick_choices("")} == {
-        "model:openrouter:glm-5.1",
-        "model:opencode_go:glm-5.1",
-    }
+    assert starred_model_refs("workflow") == ["model:openrouter:glm-5.1", "model:opencode_go:glm-5.1"]
     with pytest.raises(ModelSelectionError, match="Ambiguous model selection 'glm-5.1'"):
         canonicalize_model_selection("glm-5.1", "workflow")
 
@@ -1146,21 +1147,8 @@ def test_phase5_opencode_gemini_route_is_blocked_with_deferred_reason(monkeypatc
     assert any("OpenCode Gemini routes are deferred" in error for error in result.agent.errors)
 
 
-def test_phase6_default_and_quick_choice_values_use_opencode_canonical_refs(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
-
-    default_ref = model_choice_value("nemotron-3-super-free", provider_id="opencode_zen")
-    add_quick_choice_for_model(
-        "nemotron-3-super-free",
-        provider_id="opencode_zen",
-        display_name="Nemotron via OpenCode Zen",
-    )
-
-    assert default_ref == "model:opencode_zen:nemotron-3-super-free"
-    stored = provider_config.load_provider_config()["quick_choices"][0]
-    assert stored["id"] == "model:opencode_zen:nemotron-3-super-free"
-    assert list_quick_choices("chat")[0]["id"] == "model:opencode_zen:nemotron-3-super-free"
+def test_phase6_default_values_use_opencode_canonical_refs():
+    assert model_choice_value("nemotron-3-super-free", provider_id="opencode_zen") == "model:opencode_zen:nemotron-3-super-free"
 
 
 def test_phase6_workflow_model_overrides_store_opencode_refs(tmp_path, monkeypatch, reload_for_data_dir):
@@ -1191,16 +1179,6 @@ def test_phase6_channel_model_override_preserves_opencode_ref(tmp_path, monkeypa
     threads._set_thread_model_override("tg_opencode", ref)
 
     assert threads._get_thread_model_override("tg_opencode") == ref
-
-
-def test_phase6_ambiguous_bare_opencode_model_fails_clearly(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
-    add_quick_choice_for_model("glm-5.1", provider_id="opencode_go", display_name="OpenCode GLM")
-    add_quick_choice_for_model("glm-5.1", provider_id="openrouter", display_name="OpenRouter GLM")
-
-    with pytest.raises(ModelSelectionError, match="Use one of: model:opencode_go:glm-5.1, model:openrouter:glm-5.1|Use one of: model:openrouter:glm-5.1, model:opencode_go:glm-5.1"):
-        canonicalize_model_selection("glm-5.1", "workflow")
 
 
 def test_phase7_opencode_route_diagnostics_include_provider_model_and_transport():

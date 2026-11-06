@@ -22,7 +22,7 @@ from typing import Any
 
 from row_bot import account_tokens, server_memory, x_accounts
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.hosting import hosted_by
+from row_bot.hosting import hosted_by, trial
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _MAX_ITEMS = 128
@@ -599,9 +599,17 @@ def _system(
             "directory_available": (root / "logs").is_dir(),
         },
         # The company that runs this Row-Bot, from its reviewed entry (H13); None when none is known.
-        "hosted_by": host.to_public_dict() if (host := hosted_by()) is not None else None,
+        "hosted_by": _hosted_by(),
         "memory": _server_memory(),
     }
+
+
+def _hosted_by() -> dict[str, Any] | None:
+    """The host's reviewed entry (H13), with its trial words while the server has a trial's memory (A4)."""
+    host = hosted_by()
+    if host is None:
+        return None
+    return {**host.to_public_dict(), "trial": trial(host, server_memory.limit_bytes())}
 
 
 def _server_memory() -> dict[str, int] | None:
@@ -1801,11 +1809,16 @@ def read_settings_snapshot(
         "preferences": _preferences(root),
         "learning": _learning(root),
     }
+    from row_bot import tool_configuration
+
+    # The registry keeps every tool off while this file can't be read; Settings says so and offers a reset.
+    unreadable = tool_configuration.unreadable(root / "tools_config.json")
     validate()
     return {
         "schema_version": 1,
         "revision": _revision(sections),
         **sections,
+        "tool_settings_unreadable": unreadable,
         # Defaults never change the revision: they are not saved state.
         "defaults": copy.deepcopy(SETTING_DEFAULTS),
     }

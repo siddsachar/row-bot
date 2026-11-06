@@ -395,3 +395,26 @@ it('Sign in with Grok tells a browser elsewhere to paste the address it ends on'
     '_blank',
   );
 });
+
+it('on Railway’s trial says what 1 GB runs, under the choices (A4)', () => {
+  show({
+    host_name: 'Railway',
+    host_trial: {
+      note: "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. Browser tasks and local speech-to-text need Railway's Hobby plan.",
+      upgrade_url: 'https://railway.com/workspace/plans',
+    },
+  });
+  const line = screen.getByText(/trial gives Row-Bot 1 GB/);
+  expect(line.closest('p')).toHaveTextContent(
+    "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. Browser tasks and local speech-to-text need Railway's Hobby plan. Upgrade in Railway",
+  );
+  expect(
+    screen.getByRole('link', { name: 'Upgrade in Railway' }),
+  ).toHaveAttribute('href', 'https://railway.com/workspace/plans');
+});
+
+it('says nothing of a trial off one (A4)', () => {
+  show();
+  expect(screen.queryByText(/trial/)).toBeNull();
+  expect(screen.queryByRole('link', { name: /Upgrade in/ })).toBeNull();
+});

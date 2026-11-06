@@ -230,27 +230,80 @@ export function placedName(name: string, place: PlaceWords) {
   return name.replace(/ on this computer$/, ` on ${place.name}`);
 }
 
-/** "by" only for a vendor verified by rule; otherwise who actually published it, or Community. */
+const LABELS: Record<
+  IntegrationEntry['label'] & string,
+  { text: string; tip: (publisher: string) => string }
+> = {
+  official: {
+    text: 'Official',
+    tip: (publisher) =>
+      `Published by ${publisher}. Row-Bot checked this by its domain or GitHub organisation, not by what the listing says.`,
+  },
+  reviewed: {
+    text: 'Reviewed',
+    tip: () => 'Reviewed by Row-Bot: how it installs and signs in.',
+  },
+  built_in: { text: 'Built in', tip: () => 'Part of Row-Bot.' },
+  community: {
+    text: 'Community',
+    tip: () =>
+      'Made by someone else. Row-Bot shows you what it can do before you add it.',
+  },
+};
+
+/**
+ * Who stands behind a result, decided by rule on the server: Official (its vendor), Reviewed (by Row-Bot),
+ * Built in, or Community with who published it. Never what a listing calls itself.
+ */
 export function Publisher({ entry }: { entry: IntegrationEntry }) {
-  if (entry.verified)
+  if (entry.source === 'user')
+    return <span className="app-publisher">Made by you</span>;
+  const label =
+    entry.label ??
+    (entry.verified
+      ? 'official'
+      : ['bundled', 'builtin'].includes(entry.source)
+        ? 'built_in'
+        : 'community');
+  const publisher = entry.app?.publisher || entry.publisher;
+  const { text, tip } = LABELS[label];
+  if (label === 'community')
     return (
-      <span className="app-publisher" data-verified="true">
-        <BadgeCheck size={14} aria-hidden />
-        by {entry.app?.publisher || entry.publisher}
+      <span className="app-publisher" title={tip(publisher)}>
+        {entry.publisher ? `${text} · ${entry.publisher}` : text}
       </span>
     );
-  // Not verified as the service's own: always says so, whatever name it gives itself.
   return (
     <span className="app-publisher">
-      {['bundled', 'builtin'].includes(entry.source)
-        ? 'Built in'
-        : entry.source === 'user'
-          ? 'Made by you'
-          : entry.publisher
-            ? `Community · ${entry.publisher}`
-            : 'Community'}
+      <span className="app-label" data-label={label} title={tip(publisher)}>
+        {label !== 'built_in' && <BadgeCheck size={12} aria-hidden />}
+        {text}
+      </span>
+      {label === 'official' && publisher && <span>by {publisher}</span>}
+      {label === 'reviewed' && entry.publisher && (
+        <span>{entry.publisher}</span>
+      )}
     </span>
   );
+}
+
+/** "1.2k" for 1,234 stars. */
+export function compactCount(value: number) {
+  if (value < 1000) return String(value);
+  const thousands = value / 1000;
+  return `${thousands < 10 ? thousands.toFixed(1).replace(/\.0$/, '') : Math.round(thousands)}k`;
+}
+
+/** Stars and whether it is kept up, shown for the best match only: "★ 1.2k · active". */
+export function signalsLine(entry: IntegrationEntry, now = Date.now()) {
+  const stars = entry.signals?.stars;
+  const active = entry.signals?.last_activity_at;
+  return [
+    stars ? `★ ${compactCount(stars)}` : '',
+    active && now / 1000 - active <= 90 * 86400 ? 'active' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /**
@@ -272,9 +325,13 @@ export function wayLabel(entry: IntegrationEntry, place: PlaceWords) {
   return methods[entry.method ?? ''] ?? '';
 }
 
-/** A featured app, or one whose publisher is verified; the rest is "More from the community". */
+/** A featured app, or one its vendor or Row-Bot stands behind; the rest is "More from the community". */
 export function fromApp(entry: IntegrationEntry) {
-  return Boolean(entry.verified || entry.app?.featured_rank);
+  return Boolean(
+    (entry.label && entry.label !== 'community') ||
+    entry.verified ||
+    entry.app?.featured_rank,
+  );
 }
 
 /** A link to one item: an installed skill by name, otherwise `item?id=` (ids carry `:` and `/`, which paths refuse). */

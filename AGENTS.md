@@ -180,8 +180,8 @@ tiers.
 
 Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 `contracts`, `subsystem`, `installer-contracts`, `dependency-integrity`,
-`app-smoke`, `docs`. CI splits the `python` tier across jobs with
-`ROW_BOT_TEST_SHARD=k/N`.
+`app-smoke`, `docs`. CI splits the `python` and `browser-smoke` tiers across
+jobs with `ROW_BOT_TEST_SHARD=k/N`.
 
 ## Where To Put Tests
 

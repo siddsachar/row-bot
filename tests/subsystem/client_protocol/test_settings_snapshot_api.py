@@ -494,6 +494,11 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "runs": "the server, billing and backups",
         "applies_updates": True,
         "updates_help": "They test each release first, so new versions usually arrive within a week.",
+        "settings_url": None,
+        "usage_url": None,
+        "backups_note": "PikaPods can also keep its own backups of your server.",
+        "spending_limit_step": None,
+        "trial": None,
     }
     assert pod.memory is not None
     assert (pod.memory.limit_bytes, pod.memory.used_bytes) == (2 * gib, 600 * mib)
@@ -511,8 +516,13 @@ def test_the_host_card_shows_the_hosts_confirmed_links_and_the_servers_memory(ap
         "unit": "service",
         "runs": "the server and billing",
         "applies_updates": False,
-        "updates_help": "When a new version is out, Railway offers it in your service's settings. "
-        "Turn on auto updates there to get each one by itself.",
+        "updates_help": "New versions install by themselves each night when automatic updates are on in Railway.",
+        "settings_url": None,
+        "usage_url": None,
+        "backups_note": "Railway backs up your server only on its Pro plan. "
+        "Download a backup from time to time to keep a copy somewhere else.",
+        "spending_limit_step": "Set a spending limit in Railway",
+        "trial": None,
     }
     monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
 
@@ -1923,3 +1933,111 @@ def test_tracker_entries_refuse_unknown_trackers_without_reading_others(api):
     known = client.get(TRACKER_ENTRIES.format("water"), headers=headers).json()
     assert [item["at"] for item in known["items"]] == ["2026-01-02T09:00:00"]
     assert client.get(TRACKER_ENTRIES.format("water")).status_code == 401
+
+# What Railway gives every service (A2).
+RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+SERVICE = (
+    "https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30"
+    "/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901"
+)
+ENVIRONMENT = "?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10"
+TRIAL = {
+    "note": "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. "
+    "Browser tasks and local speech-to-text need Railway's Hobby plan.",
+    "upgrade_url": "https://railway.com/workspace/plans",
+}
+
+
+def test_on_railway_the_card_links_the_services_own_pages_and_a_trial_says_what_works(
+    api, monkeypatch, tmp_path
+):
+    """A2, A4: with the IDs Railway gives the service, its own pages; on a 1 GB server, the trial's words."""
+    from row_bot import server_memory
+
+    client, headers, _data, _ = api
+
+    def host():
+        response = client.get(BASE, headers=headers)
+        assert response.status_code == 200, response.text
+        return SettingsSnapshot.model_validate(response.json()).system.hosted_by
+
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    for name, value in RAILWAY_IDS.items():
+        monkeypatch.setenv(name, value)
+    cgroup = _cgroup(tmp_path / "cgroup", limit="8000000000", current=1_100_000_000)
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+
+    railway = host()
+    assert railway is not None
+    assert (railway.manage_url, railway.settings_url, railway.usage_url) == (
+        SERVICE + ENVIRONMENT,
+        SERVICE + "/settings" + ENVIRONMENT,
+        "https://railway.com/workspace/usage",
+    )
+    assert railway.trial is None
+
+    # Railway's trial: 1 GB, as the kernel keeps it (in whole pages).
+    _cgroup(cgroup, limit="999997440", current=300_000_000)
+    on_trial = host()
+    assert on_trial is not None and on_trial.trial is not None
+    assert on_trial.trial.model_dump() == TRIAL
+
+    # Without the IDs, the entry's own page; PikaPods has no trial.
+    for name in RAILWAY_IDS:
+        monkeypatch.delenv(name)
+    bare = host()
+    assert bare is not None and bare.manage_url == "https://railway.com/dashboard"
+    assert (bare.settings_url, bare.usage_url) == (None, None)
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
+    pod = host()
+    assert pod is not None and pod.trial is None
+
+
+def test_an_unreadable_tool_settings_file_is_reported_and_reset_keeps_it_aside(api):
+    client, headers, data, _ = api
+    path = data / "tools_config.json"
+    path.write_bytes(b'{"tools": {"shell": fal')
+    snapshot = client.get(BASE, headers=headers).json()
+    assert snapshot["tool_settings_unreadable"] is True
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "tools.reset_unreadable",
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    assert path.read_bytes() == b'{"tools": {"shell": fal'
+
+    result = _execute(client, headers, request, review)
+
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "completed"
+    kept = list(data.glob("tools_config.unreadable-*.json"))
+    assert [item.read_bytes() for item in kept] == [b'{"tools": {"shell": fal']
+    assert kept[0].name in result.json()["action_result"]["message"]
+    assert not path.exists()
+    assert client.get(BASE, headers=headers).json()["tool_settings_unreadable"] is False
+
+
+def test_resetting_tool_settings_leaves_a_readable_file_alone(api):
+    client, headers, data, _ = api
+    path = data / "tools_config.json"
+    before = path.read_bytes()
+    snapshot = client.get(BASE, headers=headers).json()
+    assert snapshot["tool_settings_unreadable"] is False
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "tools.reset_unreadable",
+        "value": True,
+    }
+
+    result = _execute(client, headers, request, _review(client, headers, request))
+
+    assert result.status_code == 200, result.text
+    assert path.read_bytes() == before
+    assert not list(data.glob("tools_config.unreadable-*.json"))

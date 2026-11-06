@@ -49,6 +49,7 @@ import { approvalLevel, approvalTag } from '../shell/approval-levels';
 import { favouritesFirst } from '../shell/model-choices';
 import { webhookReach } from './webhook-reach';
 import { writeClipboardText } from '../../platform/clipboard';
+import { useSaveFile } from '../shell/save-file';
 import { RunSparkline } from './RunSparkline';
 import {
   Button,
@@ -675,6 +676,18 @@ export function SavedTasks({
               <Button
                 variant="ghost"
                 className="small"
+                disabled={
+                  selected.size === page.items.length || Boolean(action)
+                }
+                onClick={() =>
+                  setSelected(new Set(page.items.map((item) => item.id)))
+                }
+              >
+                Select all
+              </Button>
+              <Button
+                variant="ghost"
+                className="small"
                 disabled={selected.size === 0 || Boolean(action)}
                 onClick={() => setSelected(new Set())}
               >
@@ -831,6 +844,9 @@ export function SavedTasks({
                     data-enabled={task.enabled ? 'true' : 'false'}
                     data-running={running ? 'true' : undefined}
                     data-failed={failed ? 'true' : undefined}
+                    data-selected={
+                      selecting && selected.has(task.id) ? 'true' : undefined
+                    }
                     key={task.id}
                   >
                     {selecting && (
@@ -1077,6 +1093,19 @@ function EditorFrame({
 
 export default function TaskLibrary() {
   const { controller, taskEditSessions, platform } = useRuntime();
+  const saveFile = useSaveFile();
+  // The webhook's private file, saved the one way every download saves (5.3.3).
+  const saveWebhook = async (task: string, revision: string) => {
+    if (!saveFile) throw clientError({ code: 'capability_unavailable' });
+    const result = await saveFile({
+      kind: 'workflow_webhook',
+      task_id: task,
+      revision,
+    });
+    if (result.status === 'unavailable')
+      throw clientError({ code: result.reason || 'action_denied' });
+    return result.status === 'ok';
+  };
   const reach = useMemo(() => webhookReach(controller), [controller]);
   const state = useClientState();
   const navigate = useNavigate();
@@ -1231,7 +1260,6 @@ export default function TaskLibrary() {
   ).map((model) => ({
     id: model.model_ref,
     label: model.label,
-    ...(model.hidden ? { group: 'More models' } : {}),
   }));
   // The draft in the editor is not waiting to be continued. Its row stays
   // mounted (hidden) so closing the editor returns focus to it.
@@ -1334,7 +1362,7 @@ export default function TaskLibrary() {
           review={controller.reviewTaskSettings}
           save={selected.settings.save}
           rotate={selected.settings.rotate}
-          download={selected.settings.download}
+          download={saveWebhook}
           onSaved={saved}
           onCancel={close}
           profileOptions={profileOptions}

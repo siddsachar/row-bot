@@ -71,7 +71,7 @@
         "favourite_rank": {
           "anyOf": [
             {
-              "maximum": 64,
+              "maximum": 256,
               "minimum": 1,
               "type": "integer"
             },
@@ -81,11 +81,6 @@
           ],
           "default": null,
           "title": "Favourite Rank"
-        },
-        "hidden": {
-          "default": false,
-          "title": "Hidden",
-          "type": "boolean"
         },
         "label": {
           "maxLength": 256,

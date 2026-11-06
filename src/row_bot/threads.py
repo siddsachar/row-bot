@@ -1146,6 +1146,15 @@ def _get_thread_model_override(thread_id: str) -> str:
     return row[0] if row else ""
 
 
+@_publishes_live("conversations")
+def _set_thread_name(thread_id: str, name: str) -> None:
+    """Rename a thread without moving it up the list: only something the chat shows does that."""
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        conn.execute("UPDATE thread_meta SET name = ? WHERE thread_id = ?",
+                     (_normalize_thread_name(name, fallback="Untitled"), thread_id))
+
+
 def _set_thread_model_override(thread_id: str, model_name: str) -> None:
     """Set or clear the model override for a thread."""
     _ensure_thread_db()
@@ -1227,8 +1236,8 @@ def set_thread_reasoning_selection(
             else:
                 payload[model_key] = validated.to_json()
         conn.execute(
-            "UPDATE thread_meta SET reasoning_selections_json = ?, updated_at = ? WHERE thread_id = ?",
-            (json.dumps(payload, sort_keys=True, separators=(",", ":")), datetime.now().isoformat(), thread_id),
+            "UPDATE thread_meta SET reasoning_selections_json = ? WHERE thread_id = ?",
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")), thread_id),
         )
         conn.commit()
 
@@ -1307,8 +1316,8 @@ def set_thread_app(thread_id: str, item_id: str, on: bool) -> int:
         except (json.JSONDecodeError, TypeError):
             off = []
         off = [item for item in off if item != item_id] + ([] if on else [item_id])
-        conn.execute("UPDATE thread_meta SET apps_off_json = ?, updated_at = ?, client_revision = client_revision + 1 "
-                     "WHERE thread_id = ?", (json.dumps(off[-256:]), datetime.now().isoformat(), thread_id))
+        conn.execute("UPDATE thread_meta SET apps_off_json = ?, client_revision = client_revision + 1 "
+                     "WHERE thread_id = ?", (json.dumps(off[-256:]), thread_id))
         return int(row[1] or 0) + 1
 
 
@@ -1320,9 +1329,9 @@ def set_thread_skills_override(thread_id: str, skill_names: list[str] | None) ->
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "UPDATE thread_meta SET skills_override = ?, updated_at = ?, "
+            "UPDATE thread_meta SET skills_override = ?, "
             "client_revision = client_revision + 1 WHERE thread_id = ?",
-            (value, datetime.now().isoformat(), thread_id),
+            (value, thread_id),
         )
         conn.commit()
 
@@ -1335,9 +1344,8 @@ def bump_thread_client_revision(thread_id: str) -> int:
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
         conn.execute("BEGIN IMMEDIATE")
         result = conn.execute(
-            "UPDATE thread_meta SET updated_at = ?, client_revision = client_revision + 1 "
-            "WHERE thread_id = ?",
-            (datetime.now().isoformat(), thread_id),
+            "UPDATE thread_meta SET client_revision = client_revision + 1 WHERE thread_id = ?",
+            (thread_id,),
         )
         if result.rowcount != 1:
             raise ValueError("conversation_missing")
@@ -2281,10 +2289,14 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
             kept = {key: copy.deepcopy(extra[key])
                     for key in ("platform_public_content", "platform_attachments", "platform_note")
                     if key in extra}
-            # A message from another conversation keeps where it came from (5.3.1 C).
+            # A message from another conversation keeps where it came from (5.3.1 C); a run's line, the
+            # messages other conversations left for that run.
             ui = extra.get("row_bot_ui")
-            if isinstance(ui, dict) and isinstance(ui.get("linked_from"), dict):
-                kept["row_bot_ui"] = {"linked_from": copy.deepcopy(ui["linked_from"])}
+            if isinstance(ui, dict):
+                kept_ui = {key: copy.deepcopy(ui[key]) for key in ("linked_from", "held")
+                           if isinstance(ui.get(key), (dict, list))}
+                if kept_ui:
+                    kept["row_bot_ui"] = kept_ui
             return kept
     return {}
 

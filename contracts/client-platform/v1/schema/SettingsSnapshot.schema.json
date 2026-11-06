@@ -563,6 +563,30 @@
       "title": "DreamCycleSettingsSnapshot",
       "type": "object"
     },
+    "HostTrial": {
+      "additionalProperties": false,
+      "description": "A host's trial server, by its memory (A4): what works there, and the host's page to upgrade.",
+      "properties": {
+        "note": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "upgrade_url": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Upgrade Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "note",
+        "upgrade_url"
+      ],
+      "title": "HostTrial",
+      "type": "object"
+    },
     "IdentitySettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1102,6 +1126,19 @@
           "title": "Applies Updates",
           "type": "boolean"
         },
+        "backups_note": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backups Note"
+        },
         "home_url": {
           "maxLength": 512,
           "title": "Home Url",
@@ -1137,6 +1174,32 @@
           "title": "Runs",
           "type": "string"
         },
+        "settings_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Settings Url"
+        },
+        "spending_limit_step": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spending Limit Step"
+        },
         "status_url": {
           "anyOf": [
             {
@@ -1161,6 +1224,17 @@
           ],
           "title": "Support Url"
         },
+        "trial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostTrial"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "unit": {
           "maxLength": 32,
           "minLength": 1,
@@ -1172,6 +1246,19 @@
           "minLength": 1,
           "title": "Updates Help",
           "type": "string"
+        },
+        "usage_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Url"
         }
       },
       "required": [
@@ -2444,6 +2531,11 @@
     },
     "system": {
       "$ref": "#/$defs/SystemSettingsSnapshot"
+    },
+    "tool_settings_unreadable": {
+      "default": false,
+      "title": "Tool Settings Unreadable",
+      "type": "boolean"
     },
     "tools": {
       "$ref": "#/$defs/ToolSettingsSnapshot"

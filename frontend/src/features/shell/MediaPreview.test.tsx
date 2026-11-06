@@ -8,12 +8,14 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileKind, forgetMediaPreviews, MediaPreview } from './MediaPreview';
 
-const mock = vi.hoisted(() => ({ download: vi.fn() }));
+const mock = vi.hoisted(() => ({ download: vi.fn(), notify: vi.fn() }));
 const platform = vi.hoisted(() => ({ save: vi.fn(), discover: vi.fn() }));
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: mock, platform }),
+  useOptionalRuntime: () => ({ controller: mock, platform }),
 }));
 vi.mock('../../ui/overlays', () => ({
+  useNotify: () => mock.notify,
   useOverlay: () => ({
     open: vi.fn(),
     close: vi.fn(),

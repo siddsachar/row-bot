@@ -142,7 +142,6 @@ def test_a_sign_in_starts_on_its_providers_own_first_pick(profile, catalog, monk
 
 
 def test_the_suggested_pick_becomes_the_saved_default(profile, catalog, monkeypatch):
-    monkeypatch.setattr("row_bot.providers.selection.add_quick_choice_for_model", lambda *_a, **_kw: None)
     monkeypatch.setattr("row_bot.application.client_diagnosis.recheck_default_model", lambda: None)
     catalog.extend(_rows(("codex", "gpt-5.2", True), ("codex", "gpt-5.6-sol", True)))
     monkeypatch.setattr(client_first_run, "_chat_row", lambda ref: next(row for row in catalog if row.selection_ref == ref))
@@ -263,3 +262,47 @@ def test_a_hosted_diagnosis_leaves_out_the_public_link(profile, monkeypatch):
     assert [check["name"] for check in client_diagnosis.run_system_diagnosis()["checks"]] == ["Tunnel"]
     monkeypatch.setenv("ROW_BOT_HOSTED_BY", "pikapods")
     assert client_diagnosis.run_system_diagnosis()["checks"] == []
+
+
+TRIAL = {
+    "note": "Railway's trial gives Row-Bot 1 GB: chats, memory and schedules work. "
+    "Browser tasks and local speech-to-text need Railway's Hobby plan.",
+    "upgrade_url": "https://railway.com/workspace/plans",
+}
+
+
+@pytest.mark.parametrize(
+    ("host", "limit", "words"),
+    [
+        ("railway", "999997440", TRIAL),  # Railway's trial: 1 GB, in whole pages.
+        ("railway", "8000000000", None),  # Hobby.
+        ("railway", "max", None),  # No limit.
+        ("pikapods", "999997440", None),  # A host with no trial.
+        (None, "999997440", None),  # No known host: no hosted first run.
+    ],
+)
+def test_the_hosted_first_run_says_what_a_trial_server_runs(profile, monkeypatch, tmp_path, host, limit, words):
+    from row_bot import server_memory
+
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    (cgroup / "memory.max").write_text(limit, encoding="ascii")
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", cgroup)
+    if host:
+        monkeypatch.setenv("ROW_BOT_HOSTED_BY", host)
+
+    assert client_onboarding.read_onboarding()["host_trial"] == words
+
+
+def test_the_spending_limit_step_once_hidden_stays_hidden(profile, monkeypatch):
+    """A3: Row-Bot can't see Railway's billing, so the person hides the card's step; it stays hidden."""
+    monkeypatch.setenv("ROW_BOT_HOSTED_BY", "railway")
+    assert client_onboarding.read_onboarding()["dismissed_spending_limit"] is False
+
+    hidden = _send("dismiss_spending_limit")
+
+    assert hidden["dismissed_spending_limit"] is True
+    assert client_onboarding.read_onboarding()["dismissed_spending_limit"] is True
+    # Nothing else rides along with it.
+    with pytest.raises(Exception, match="invalid_onboarding_command"):
+        _send("dismiss_spending_limit", step="phone")

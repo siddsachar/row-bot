@@ -12,6 +12,7 @@ import type { ConversationView } from '../../api/types';
 import type { CapabilityResult, SavedFile } from '../../platform';
 import { parseTimestamp, relativeTime } from '../../ui/format';
 import { useOverlay } from '../../ui/overlays';
+import { announceSaved } from '../shell/save-file';
 import {
   Button,
   Input,
@@ -592,22 +593,7 @@ export default function ConversationActions({
     }
     session.update({ busy: '', exported: null, message: '' });
     if (mounted.current) close();
-    const saved = result.value;
-    if (saved.kind === 'exports')
-      notify(`Saved to ${saved.folder}`, undefined, {
-        label: 'Show in folder',
-        onAction: () =>
-          void saved.reveal().then((shown) => {
-            if (!shown)
-              notify('Row-Bot couldn’t open the Exports folder.', 'warning');
-          }),
-      });
-    else
-      notify(
-        saved.kind === 'file'
-          ? 'Conversation export saved.'
-          : 'Download started.',
-      );
+    announceSaved(notify, result.value, current.exported.file_name);
   };
 
   const exportAs = (format: ExportFormat) =>

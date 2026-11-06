@@ -381,8 +381,8 @@ it('shows the kept results after leaving the tab, without running anything', asy
   ).toHaveAttribute('href', '/settings/models');
   expect(cloud).toHaveTextContent('OK');
   expect(
-    within(cloud).getByRole('link', { name: 'Open Providers settings' }),
-  ).toHaveAttribute('href', '/settings/providers');
+    within(cloud).getByRole('link', { name: 'Open Models settings' }),
+  ).toHaveAttribute('href', '/settings/models');
   // Checks from other areas stay in their own tile.
   expect(checks).not.toHaveTextContent('Disk');
 });
@@ -1579,8 +1579,8 @@ it('puts the worst check fix under its tile and in its detail', async () => {
   ).toHaveAttribute('href', '/settings/models#default-model');
   // A healthy check keeps the way to its settings page.
   expect(
-    within(cloud).getByRole('link', { name: 'Open Providers settings' }),
-  ).toHaveAttribute('href', '/settings/providers');
+    within(cloud).getByRole('link', { name: 'Open Models settings' }),
+  ).toHaveAttribute('href', '/settings/models');
 });
 
 it('renews an expired sign-in from its tile with the Accounts row action', async () => {
@@ -1766,3 +1766,41 @@ it('shows the out-of-memory notice in full with how to resize, cloud speech-to-t
   await waitFor(() => expect(onFixed).toHaveBeenCalledOnce());
   expect(runtime.controller.dismissMemoryNotice).toHaveBeenCalledOnce();
 });
+
+it.each([
+  [
+    'Raise the memory limit',
+    'https://railway.com/project/0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30/service/7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901/settings?environmentId=c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10',
+  ],
+  ['Upgrade in Railway', 'https://railway.com/workspace/plans'],
+])(
+  'on Railway the out-of-memory notice links “%s” to Railway’s own page (A2, A4)',
+  (label, url) => {
+    renderMonitor({
+      attention: [
+        {
+          id: 'memory:restarted',
+          title: 'Row-Bot restarted because the server ran out of memory',
+          detail: 'Your server has 1 GB.',
+          place: 'memory',
+          fix: null,
+          links: [
+            {
+              label: 'How to resize',
+              url: 'https://row-bot.ai/docs/operations/hosting#memory',
+            },
+            { label, url },
+          ],
+        },
+      ],
+    });
+    const [notice] = within(
+      screen
+        .getByRole('heading', { name: 'Needs attention' })
+        .closest('section')!,
+    ).getAllByRole('listitem');
+    const link = within(notice).getByRole('link', { name: label });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+  },
+);

@@ -106,6 +106,16 @@ it('starts subscription sign-in from the compact row action and shows its flow',
   ).toBeVisible();
   expect(screen.getByText('Enter this code when it asks.')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Review sign-in' })).toBeNull();
+  // A ChatGPT account may need device code login switched on first (F4).
+  expect(screen.getByText(/If ChatGPT won’t take the code/)).toHaveTextContent(
+    'If ChatGPT won’t take the code, enable device code login in your ChatGPT security settings, then try again. OpenAI’s steps',
+  );
+  const steps = screen.getByRole('link', { name: 'OpenAI’s steps' });
+  expect(steps).toHaveAttribute(
+    'href',
+    'https://developers.openai.com/codex/auth',
+  );
+  expect(steps).toHaveAttribute('target', '_blank');
 });
 
 it('follows a waiting ChatGPT sign-in, which the server checks itself, until it connects (B342)', async () => {

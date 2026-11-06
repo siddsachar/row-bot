@@ -1967,27 +1967,6 @@ progress {
 .workflow-bulk-actions > [role='status'] {
   margin-right: auto;
 }
-.workflow-card {
-  position: relative;
-}
-.workflow-select-control {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-  display: grid;
-  min-width: var(--control-size);
-  min-height: var(--control-size);
-  place-items: center;
-}
-.workflow-select-control input,
-.workflow-enabled-control input {
-  width: 20px;
-  height: 20px;
-}
-.workflow-enabled-control {
-  font-size: var(--type-size-metadata);
-}
 
 .knowledge-home {
   display: grid;

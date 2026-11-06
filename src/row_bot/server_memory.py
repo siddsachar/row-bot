@@ -106,10 +106,28 @@ def _oom_kills() -> int:
     return _keyed(files[4]).get("oom_kill", 0) if files else 0
 
 
-def size_words(value: int) -> str:
-    """A memory size as people say it: "2 GB", "1.5 GB" (to the nearest half)."""
-    halves = max(1, round(value / 2**30 * 2))
-    return f"{halves / 2:g} GB"
+_GB = 10**9
+_GIB = 2**30
+# The kernel keeps a limit in whole memory pages, so one set as 1 GB reads a little under it.
+_PAGE_SLACK = 2**20
+
+
+def _whole(value: int, unit: int) -> int:
+    """How many whole ``unit``s ``value`` is, give or take the page rounding; 0 when it isn't whole."""
+    count = round(value / unit)
+    return count if count >= 1 and abs(value - count * unit) <= _PAGE_SLACK else 0
+
+
+def size_words(value: int, limit: int | None = None) -> str:
+    """Memory in the unit the host set the limit in (F1), as the client's ``sizeWords`` says it.
+
+    A limit of a whole number of GB (Railway's 8,000,000,000 bytes) or GiB (Docker's ``--memory 4g``) is
+    that number: "8 GB", "4 GB"; any other limit is decimal GB to one place, "2.7 GB". With ``limit``,
+    ``value`` is memory in use, said to one place in the limit's unit: "1.4 GB" of "4 GB".
+    """
+    unit = _GIB if _whole(value if limit is None else limit, _GIB) else _GB
+    count = _whole(value, unit) if limit is None else 0
+    return f"{count} GB" if count else f"{max(0.1, value / unit):.1f} GB"
 
 
 def _path() -> Path:
@@ -166,7 +184,7 @@ def started(*, tick: Callable[[], object] | None = None) -> int | None:
             }
             logger.warning(
                 "Row-Bot restarted after running out of memory (it had used %s of %s)",
-                size_words(last["peak_bytes"]), size_words(last["limit_bytes"]),
+                size_words(last["peak_bytes"], last["limit_bytes"]), size_words(last["limit_bytes"]),
             )
         _peak, _kills, _killed = working_set_bytes() or 0, _oom_kills(), 0
         state["run"] = {"running": True, "limit_bytes": limit, "peak_bytes": _peak, "oom_kills": 0}

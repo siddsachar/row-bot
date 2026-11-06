@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import { writeClipboardText } from '../../platform/clipboard';
 import { RuntimeContext } from '../../runtime';
 import type {
@@ -664,6 +664,19 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
             {active && flow.device_code && (
               <DeviceCode code={flow.device_code} expiresAt={flow.expires_at} />
             )}
+            {active && flow.device_code && provider === 'codex' && (
+              <p className="settings-help subscription-flow-device-login">
+                If ChatGPT won’t take the code, enable device code login in your
+                ChatGPT security settings, then try again.{' '}
+                <a
+                  href={CHATGPT_DEVICE_LOGIN_HELP}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  OpenAI’s steps <ExternalLink size={12} aria-hidden />
+                </a>
+              </p>
+            )}
             {active && (
               <div className="actions">
                 {/* While Row-Bot checks by itself there is nothing to press;
@@ -946,6 +959,14 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     </details>
   );
 }
+
+/**
+ * OpenAI's Codex sign-in docs (F4). A ChatGPT account may need device code
+ * login switched on first; OpenAI's own step: "Enable device code login in
+ * your ChatGPT security settings". Its refusal shows on OpenAI's page, never
+ * here: Row-Bot only sees a code nobody approved yet.
+ */
+const CHATGPT_DEVICE_LOGIN_HELP = 'https://developers.openai.com/codex/auth';
 
 /** The device code, large, with Copy and how long it stays valid. */
 function DeviceCode({

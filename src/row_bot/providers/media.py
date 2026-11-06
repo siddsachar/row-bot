@@ -3,56 +3,34 @@ from __future__ import annotations
 from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
-from row_bot.providers.catalog import model_info_from_metadata
 
+# Who makes images and videos, and how: each provider's route is the shape of its
+# API ("openai" is POST /images/generations and /images/edits at base_url), so a
+# provider that speaks a known shape is one row here.
 IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
-    "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡"},
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
-    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription"},
+    "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡", "route": "openai",
+               "base_url": "https://api.openai.com/v1"},
+    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎", "route": "google"},
+    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏", "route": "xai"},
+    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription", "route": "xai"},
+    "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
+                   "base_url": "https://openrouter.ai/api/v1"},
+    "vercel": {"key": "AI_GATEWAY_API_KEY", "label": "Vercel AI Gateway", "emoji": "VG", "route": "openai",
+               "base_url": "https://ai-gateway.vercel.sh/v1"},
+    "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
+                 "base_url": "https://api.together.xyz/v1"},
+    "requesty": {"key": "REQUESTY_API_KEY", "label": "Requesty", "emoji": "🛰️", "route": "openai",
+                 "base_url": "https://router.requesty.ai/v1"},
 }
 
 VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
-    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription"},
-}
-
-CURATED_IMAGE_MODELS: dict[str, list[dict[str, str]]] = {
-    "openai": [
-        {"id": "gpt-image-1.5", "label": "GPT Image 1.5"},
-        {"id": "gpt-image-1", "label": "GPT Image 1"},
-        {"id": "gpt-image-1-mini", "label": "GPT Image 1 Mini"},
-    ],
-    "google": [
-        {"id": "gemini-3.1-flash-image-preview", "label": "Nano Banana 2"},
-        {"id": "gemini-3-pro-image-preview", "label": "Nano Banana Pro"},
-        {"id": "gemini-2.5-flash-image", "label": "Nano Banana"},
-        {"id": "imagen-4.0-generate-001", "label": "Imagen 4"},
-        {"id": "imagen-4.0-fast-generate-001", "label": "Imagen 4 Fast"},
-        {"id": "imagen-4.0-ultra-generate-001", "label": "Imagen 4 Ultra"},
-    ],
-    "xai": [
-        {"id": "grok-imagine-image", "label": "Grok Imagine"},
-        {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
-    ],
-    "xai_oauth": [
-        {"id": "grok-imagine-image", "label": "Grok Imagine"},
-        {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
-    ],
-}
-
-CURATED_VIDEO_MODELS: dict[str, list[dict[str, str]]] = {
-    "google": [
-        {"id": "veo-3.1-generate-preview", "label": "Veo 3.1"},
-        {"id": "veo-3.1-fast-generate-preview", "label": "Veo 3.1 Fast"},
-    ],
-    "xai": [
-        {"id": "grok-imagine-video", "label": "Grok Imagine Video"},
-    ],
-    "xai_oauth": [
-        {"id": "grok-imagine-video", "label": "Grok Imagine Video"},
-    ],
+    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎", "route": "google"},
+    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏", "route": "xai"},
+    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription", "route": "xai"},
+    "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
+                   "base_url": "https://openrouter.ai/api/v1"},
+    "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
+                 "base_url": "https://api.together.xyz/v2"},
 }
 
 
@@ -75,38 +53,12 @@ def _media_provider_available(provider_id: str, meta: dict[str, str]) -> bool:
     return bool(get_key(key_name))
 
 
-def curated_media_cache_entries(surface: str) -> dict[str, dict[str, Any]]:
-    provider_models = CURATED_IMAGE_MODELS if surface == "image" else CURATED_VIDEO_MODELS if surface == "video" else {}
-    entries: dict[str, dict[str, Any]] = {}
-    for provider_id, models in provider_models.items():
-        for model in models:
-            model_id = model["id"]
-            info = model_info_from_metadata(
-                provider_id,
-                model_id,
-                display_name=model.get("label") or model_id,
-                context_window=0,
-                source="curated_media_catalog",
-            )
-            snapshot = info.capability_snapshot()
-            entries[f"{provider_id}/{model_id}"] = {
-                "label": info.display_name,
-                "ctx": 0,
-                "provider": provider_id,
-                "vision": False,
-                "capabilities_snapshot": snapshot,
-                "transport": info.transport.value,
-                "risk_label": info.risk_label,
-                "source": info.source,
-            }
-    return entries
-
-
 def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """The image or video models a connected provider's own list offers, as {provider/model: label}."""
     from row_bot.providers.selection import parse_model_ref
 
     provider_meta = IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META if surface == "video" else {}
-    entries = curated_media_cache_entries(surface)
+    entries: dict[str, dict[str, Any]] = {}
     for cache_key, info in cloud_cache.items():
         provider_id = str(info.get("provider") or "")
         model_id = str(cache_key or "")
@@ -136,3 +88,31 @@ def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) ->
         label = str(info.get("label") or model_id)
         options[config_value] = f"{meta['emoji']}  {label}  ({meta['label']})"
     return options
+
+
+def unlisted_media_note(surface: str, selection: str, cloud_cache: dict[str, dict[str, Any]]) -> str:
+    """Why a saved image or video model may be gone: its provider's list no longer has it.
+
+    Empty while the provider's list has the model, or before the provider has listed anything.
+    """
+    provider_id, _, model_id = selection.partition("/")
+    meta = (IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META).get(provider_id)
+    if not meta or not model_id or selection in media_model_options(surface, cloud_cache):
+        return ""
+    if not any(str(info.get("provider") or "") == provider_id for info in cloud_cache.values()):
+        return ""
+    return (f"{meta['label']} no longer lists {model_id}, so it may have been retired. "
+            f"Choose another {surface} model in Settings › Models.")
+
+
+def media_error_text(response: Any) -> str:
+    """A provider's own error message from a failed media request, briefly."""
+    try:
+        body = response.json()
+    except ValueError:
+        return str(response.text or "").strip()[:300] or "no details"
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        error = error.get("message")
+    message = error or (body.get("message") if isinstance(body, dict) else None)
+    return str(message or body)[:300]

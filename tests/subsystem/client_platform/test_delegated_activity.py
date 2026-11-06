@@ -436,7 +436,7 @@ def test_the_service_settles_outside_change_refreshes_and_the_work_they_start(se
     release = threading.Event()
     refreshed = []
 
-    def refresh(conversation_id):
+    def refresh(conversation_id, **_options):
         assert release.wait(5)
         refreshed.append(conversation_id)
         if conversation_id == "first":

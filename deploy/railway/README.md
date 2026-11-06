@@ -40,19 +40,20 @@ hand from the table below.
 | Start command | none (the image's own: `row-bot serve`) | |
 | Volume | one, mount path `/data` (**right-click the service › Attach Volume**) | Everything Row-Bot keeps lives in `/data`. |
 | Public networking | HTTP, a generated Railway domain (`*.up.railway.app`), **target port 8080** | The image listens on `ROW_BOT_PORT=8080`. |
-| Healthcheck path | none | See [Health check](#health-check). |
+| Healthcheck path | none | A health check hangs the deploy: see [Health check](#health-check). |
 | Restart policy | Railway's default (On Failure, 10 retries) | Row-Bot exits non-zero when it can't start, with the reason in the log. |
-| Replica limits | memory **4 GB**, CPU **2 vCPU**, one replica | See [Memory limit](#memory-limit). |
+| Replica limits | memory **8 GB**, CPU **8 vCPU**, one replica | The Hobby plan's ceiling, billed only by use. See [Memory limit](#memory-limit). |
+| Automatic updates | **Settings › Source › Configure auto updates**: "Update to the latest tag", **Overnight** (02:00–06:00 UTC) | Each stable release moves `latest`; Railway then installs it in the next night's window. Row-Bot's Updates page says so and links the service's settings. Railway's own page for Row-Bot (row-bot.ai/railway) sets the same. |
 
 ## Variables
 
 | Variable | Value | Why |
 |---|---|---|
-| `ROW_BOT_HOSTED_BY` | `railway` | Row-Bot's pages name Railway and use Railway's words: the service's Variables for the setup code, "Manage service", and on Updates "You update it in Railway". |
+| `ROW_BOT_HOSTED_BY` | `railway` | Row-Bot's pages name Railway and use Railway's words: the service's Variables for the setup code, "Manage service", and on Updates "Updates come from Railway". |
 | `ROW_BOT_PUBLIC_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | The exact address people open. Row-Bot allows that host name, and X and Google sign-ins return to it. |
 | `ROW_BOT_SETUP_CODE` | `${{secret(12, "0123456789ABCDEFGHJKMNPQRSTVWXYZ")}}` | A new code for each deploy, from Row-Bot's own alphabet (Crockford's base32: no I, L, O or U). Row-Bot accepts 12 to 64 letters or digits (`access/setup_code.py`); 12 carry 60 bits. Railway's `secret()` takes a length and an alphabet; its default alphabet isn't documented, so it's given. |
 | `RAILWAY_RUN_UID` | `0` | Railway mounts volumes as root and tells images with their own user to set this ([Volumes › Permissions](https://docs.railway.com/volumes)). The container then starts as root; Row-Bot's first step gives `/data` to uid 10001 and drops to 10001 for good, before it reads a secret, writes `/data` or starts a program. |
-| `PORT` | `8080` | Railway's docs expect a web service to listen on `PORT`; setting it to 8080 keeps Railway's defaults and the domain's target port in agreement. Row-Bot listens on `ROW_BOT_PORT` and ignores `PORT`. |
+| `PORT` | `8080` | Railway's docs expect a web service to listen on `PORT`; setting it to 8080 keeps Railway's defaults and the domain's target port in agreement. Row-Bot listens on `ROW_BOT_PORT` and ignores `PORT`. Railway's health check would probe on `PORT`, which is one more reason there is none ([Health check](#health-check)). |
 | `ROW_BOT_TRUSTED_PROXY_CIDRS` | `100.64.0.0/10` | Railway's proxy, measured on a deploy. See [Proxy addresses](#proxy-addresses). |
 
 **Never set `ROW_BOT_SECRET_STORE_KEY` in Railway.** On 21 Oct 2026 Railway
@@ -99,10 +100,12 @@ as root; if you did, `chown -R 10001:10001` it.
 Railway's deploy health check calls the service from the host name
 `healthcheck.railway.app`, on `PORT`
 ([Healthchecks](https://docs.railway.com/deployments/healthchecks)). Row-Bot
-answers only host names it knows, so it would answer 400 and the deploy would
-fail after 5 minutes.
+answers only host names it knows, so it answers that probe with 400.
+**Measured on a real Hobby deploy (5 Nov 2026):** with the path `/healthz`, the
+deploy sat in DEPLOYING until it was cancelled.
 
-The template sets **no** health check path, because it buys nothing here:
+The template sets **no** health check path, and `PORT=8080`. A check would buy
+nothing here anyway:
 
 - It's used only while a deploy goes live; Railway doesn't monitor with it
   afterwards.
@@ -232,16 +235,22 @@ builds and deploys again. Delete the branch and the service afterwards.
 
 ## Memory limit
 
-Railway bills memory and CPU by what the service uses, up to its replica limits
-(on Hobby, up to 48 GB and 48 vCPU per service). The template caps the service
-at **4 GB and 2 vCPU** (**Service › Settings › Deploy › Replica Limits**):
+Railway bills memory and CPU by what the service uses, up to its replica limits.
+The template sets them at **8 GB and 8 vCPU** (**Service › Settings › Deploy ›
+Replica Limits**), the Hobby plan's ceiling (measured on a Hobby workspace,
+5 Nov 2026):
 
-- the bill can't run away (a stuck browser, a big local model download);
-- Row-Bot reads the limit (cgroup `memory.max`), so its memory guidance works:
-  local speech-to-text, the search model and the browser together peak at about
-  3.2 GB, and Row-Bot says so if a restart came from lack of memory, with
-  "Raise the service's memory limit … in Railway";
-- Settings › System's "Hosted by Railway" card shows the use against 4 GB.
+- On Hobby only what's used is billed, so a high ceiling costs nothing while
+  Row-Bot idles (about 0.4 GB) and leaves room for the busiest moment: local
+  speech-to-text, the search model and the browser together peak at about
+  3.2 GB, so Row-Bot doesn't restart for lack of memory.
+- The bill is capped by the workspace's own hard limit
+  (**Workspace › Usage › Usage Limits**), not by a small service. After the
+  first answer, Row-Bot's "Hosted by Railway" card suggests one: "Set a
+  spending limit in Railway".
+- Row-Bot reads the limit (cgroup `memory.max`, 8,000,000,000 bytes, which it
+  shows as 8 GB): Settings › System's card shows the use against it, and a
+  restart for lack of memory says how to raise it.
 
 If the template composer can't carry replica limits, the docs tell each owner to
 set them after the first deploy (`docs-site/docs/getting-started/on-railway.mdx`).
@@ -287,8 +296,9 @@ After the founder's check, and once a release includes this work:
    - the setup code in the service's Variables signs a browser in at the
      service's address, and the same code is refused afterwards;
    - `ROW_BOT_PUBLIC_URL` resolved to `https://<the domain>`;
-   - the replica limits came from the template (4 GB, 2 vCPU), and
-     **Settings › System** shows "Memory … of 4 GB";
+   - the replica limits came from the template (8 GB, 8 vCPU), and
+     **Settings › System** shows "Memory … of 8 GB";
+   - automatic updates are on (**Settings › Source**), Overnight;
    - a ChatGPT or Claude plan sign-in, and an X sign-in with the callback
      `https://<the domain>/api/v1/accounts/x/auth/callback`, work;
    - the usage page's cost after a day.

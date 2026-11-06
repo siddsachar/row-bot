@@ -197,9 +197,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "row_bot.plugins" = ["bundled/local-text-tools/*.json", "bundled/local-text-tools/*.mjs", "bundled/local-text-tools/skills/*/*.md", "bundled/local-text-tools/skills/*/references/*.md"]
-"row_bot.mcp_client" = ["recommended_servers.json", "registry_snapshot.jsonl.xz"]
+"row_bot.mcp_client" = ["recommended_servers.json", "registry_snapshot.jsonl.xz", "registry_signals.json.xz"]
 "row_bot.integrations" = ["apps.json", "icons.json", "skills.json", "broker_apps.json", "public_suffix_list.dat.xz"]
 "row_bot.computer_use" = ["*.json"]
+"row_bot.providers" = ["model_capabilities.json"]
 "row_bot.designer.runtime" = ["runtime_bridge.js", "runtime_bridge.css"]
 "row_bot.voice" = ["realtime_runtime.js", "realtime_runtime.d.ts"]
 # Learning (preview): the training engine's own locked project and entry (O46), and the recipes.

@@ -1518,6 +1518,38 @@
       "title": "GenerationStateEvent",
       "type": "object"
     },
+    "HeldMessage": {
+      "additionalProperties": false,
+      "description": "A message another conversation left for a workflow's next run, shown under that run's line.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "text"
+      ],
+      "title": "HeldMessage",
+      "type": "object"
+    },
     "LinkedFrom": {
       "additionalProperties": false,
       "properties": {
@@ -3753,6 +3785,14 @@
           "title": "Cut Short",
           "type": "boolean"
         },
+        "held": {
+          "items": {
+            "$ref": "#/$defs/HeldMessage"
+          },
+          "maxItems": 10,
+          "title": "Held",
+          "type": "array"
+        },
         "id": {
           "maxLength": 1024,
           "minLength": 1,
@@ -3824,6 +3864,19 @@
           ],
           "title": "Role",
           "type": "string"
+        },
+        "run_failure": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Failure"
         },
         "tool_call_id": {
           "default": "",

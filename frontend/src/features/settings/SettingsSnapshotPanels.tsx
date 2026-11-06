@@ -2,10 +2,12 @@ import { BrowserSites } from '../browser/BrowserSites';
 import { Link } from 'react-router-dom';
 import {
   Activity,
+  AlertTriangle,
   AtSign,
   BarChart3,
   BookOpen,
   AppWindow,
+  ExternalLink,
   Calculator,
   CalendarClock,
   CheckCircle2,
@@ -58,6 +60,7 @@ import {
 import { clientError } from '../../api/errors';
 import { usePlace, type PlaceWords } from '../../api/place';
 import { useSmallServer } from '../../api/server-memory';
+import { webPage } from '../shell/hosted-links';
 import { RuntimeContext } from '../../runtime';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
@@ -1095,6 +1098,54 @@ function ReviewedSettingsAction({
   );
 }
 
+/**
+ * Shown on every Settings page while tools_config.json can't be read: the
+ * registry then keeps every tool off rather than at its defaults, and saving
+ * a tool setting is refused. The reset keeps the old file beside it.
+ */
+export function ToolSettingsUnreadable({
+  unreadable,
+  mutation,
+}: {
+  unreadable: boolean;
+  mutation: SettingsMutationIO | null;
+}) {
+  const notify = useNotify();
+  const was = useRef(unreadable);
+  useEffect(() => {
+    if (was.current && !unreadable) {
+      notify(
+        'Tool settings start from the defaults now. Turn on the tools you use and add your blocked commands again.',
+      );
+    }
+    was.current = unreadable;
+  }, [unreadable, notify]);
+  if (!unreadable || !mutation) return null;
+  return (
+    <div className="settings-tool-notice" role="alert">
+      <AlertTriangle size={20} aria-hidden />
+      <div>
+        <strong>Tool settings can’t be read</strong>
+        <p>
+          Row-Bot couldn’t read its tool settings file, so every tool is off and
+          tool settings can’t be saved. Restore the file from a backup, or start
+          again from the defaults.
+        </p>
+        <ReviewedSettingsAction
+          mutation={mutation}
+          field="tools.reset_unreadable"
+          label="Start from defaults"
+          description="Keeps the unreadable file beside the new one and starts tool settings from the defaults."
+          presentation="button"
+          variant="primary"
+          icon={<RotateCcw size={14} aria-hidden />}
+          confirm="Tools go back to their defaults, and your blocked commands are cleared. The unreadable file is kept so nothing is lost."
+        />
+      </div>
+    </div>
+  );
+}
+
 function TextSetting({
   mutation,
   field,
@@ -1789,10 +1840,13 @@ export function VoiceSnapshotPanel({
   snapshot,
   conversationId,
   mutation,
+  host = null,
 }: {
   snapshot: SettingsSnapshot['voice'];
   conversationId: string | null;
   mutation: SettingsMutationIO;
+  /** The company that runs this Row-Bot: where its memory grows (A2, A4). */
+  host?: SettingsSnapshot['system']['hosted_by'];
 }) {
   const place = usePlace();
   const [talkProvider, setTalkProvider] = useState(() =>
@@ -1827,6 +1881,13 @@ export function VoiceSnapshotPanel({
   const needsBigger = small
     ? { status: <span className="status-chip">Needs a 4 GB server</span> }
     : undefined;
+  // Where the server gets more memory: the host's paid plan on a trial, else
+  // the service's own settings (A2, A4).
+  const grow = host?.trial
+    ? { url: host.trial.upgrade_url, label: `Upgrade in ${host.name}` }
+    : host?.settings_url
+      ? { url: host.settings_url, label: 'Raise the memory limit' }
+      : null;
   // Choosing Whisper there asks first; this makes the choice the person makes in the sheet.
   const [localChoice, setLocalChoice] = useState<
     ((value: string) => void) | null
@@ -2216,6 +2277,14 @@ export function VoiceSnapshotPanel({
         title="Use local speech-to-text?"
         description={`This server has ${small}. Local speech-to-text may make Row-Bot restart.`}
       >
+        {grow && webPage(grow.url) && (
+          <p className="voice-sheet-grow">
+            <a href={grow.url} target="_blank" rel="noopener noreferrer">
+              {grow.label}
+              <ExternalLink size={12} aria-hidden />
+            </a>
+          </p>
+        )}
         <div className="button-row">
           <Button onClick={() => chooseFromSheet('local')}>
             Use local anyway
@@ -5741,7 +5810,7 @@ export function PreferencesSnapshotPanel({
             icon={HardDrive}
             anchor="backup"
           >
-            <ConnectedDataBackup />
+            <ConnectedDataBackup host={host} />
           </Section>
         )}
         <Section

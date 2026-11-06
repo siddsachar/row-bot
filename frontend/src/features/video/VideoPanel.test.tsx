@@ -383,8 +383,9 @@ it('Download saves the made video through the app, and says where it went', asyn
   );
   expect(save).toHaveBeenCalledWith(made.media_ref, made.output_name);
   expect(
-    await screen.findByText('Saved Launch demo v2.mp4 to Exports.'),
+    await screen.findByText('Saved Launch demo v2.mp4 to Exports'),
   ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Show in folder' })).toBeVisible();
 });
 
 it('a made version offers its other shapes, says where each fits, and downloads the ones made', async () => {

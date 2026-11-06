@@ -26,6 +26,7 @@ vi.mock('../../runtime', async () => {
   const { useSyncExternalStore } = await import('react');
   return {
     useRuntime: () => ({ controller: store.controller }),
+    useOptionalRuntime: () => ({ controller: store.controller }),
     useOnThisComputer: () => true,
     useClientSelector: (selector: (state: ClientState) => unknown) =>
       useSyncExternalStore(

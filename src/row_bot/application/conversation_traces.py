@@ -41,6 +41,7 @@ _RECORDING_TOOLS = frozenset({"Browser Record", "Screen Record", "Computer activ
 _RECORDING_LINE = re.compile(r"Recording (rec-[0-9a-f]{8}): ")
 # A video edit a step started or followed (F3): the result's first line after its approval line names it.
 _VIDEO_EDIT_LINE = re.compile(r"Video edit (edit-[0-9a-f]{8}): ")
+_VIDEO_EDIT_FRAMES = re.compile(r"saved \d+ frames |taking the frames\.")
 # Files a send_file step sent, or couldn't (F7): the result's first line after its approval line names them.
 _DELIVERY_LINE = re.compile(r"Delivery (send-[0-9a-f]{8}): ")
 # A page a step made or changed (N5): the result's first line names it, and the card opens it by that id.
@@ -696,7 +697,11 @@ def _video_edit_specialization(name: str, content: Any) -> TraceSpecialization |
     if first.startswith("Approval: "):
         first = rest.partition("\n")[0]
     match = _VIDEO_EDIT_LINE.match(first)
-    return TraceSpecialization(kind="video_edit", edit_id=match.group(1)) if match else None
+    if not match:
+        return None
+    # Stills taken from a video are no version of it: the chat never folds a video under them.
+    frames = _VIDEO_EDIT_FRAMES.match(first, match.end())
+    return TraceSpecialization(kind="video_edit", edit_id=match.group(1), media_kind="frames" if frames else "")
 
 
 def _delivery_specialization(name: str, content: Any) -> TraceSpecialization | None:
@@ -1065,7 +1070,12 @@ def project_assistant_row_traces(
             call_id = _identifier(raw_call.get("id"), "call_id")
             if call_id in calls:
                 raise ValueError("duplicate_trace_call_id")
-            name = canonical_tool_name(raw_call.get("name"))
+            # A discovered tool runs through tool_invoke: its step is the tool it ran, as it was live, so
+            # its card (a video edit, a video project) still shows after a reload.
+            raw_name, args = raw_call.get("name"), raw_call.get("args")
+            if raw_name == "tool_invoke" and isinstance(args, dict) and args.get("name"):
+                raw_name = args["name"]
+            name = canonical_tool_name(raw_name)
             group_name, group_kind = canonical_group(name)
             group_key = (group_name, group_kind)
             supplied_group = _identifier(
@@ -1102,6 +1112,12 @@ def project_assistant_row_traces(
     for record_index, (record, row) in enumerate(zip(records, output)):
         if str(row.get("role") or "") != "tool":
             continue
+        # These fields are checkpoint-reader inputs to the reviewed trace
+        # projection, not members of the public TranscriptRow. Consume them
+        # from every tool row, including one whose call is older than this
+        # window, so the closed wire record never fails validation on reload.
+        carried = {field_name: row.pop(field_name)
+                   for field_name in ("status", "error", "ok", "media", "media_error") if field_name in row}
         call_id = str(row.get("tool_call_id") or "").strip()
         call = calls.get(call_id)
         if call is None or int(call["record_index"]) >= record_index:
@@ -1113,14 +1129,8 @@ def project_assistant_row_traces(
         result: dict[str, Any] = {
             "name": call["tool_name"],
             "content": _row_text(row),
+            **carried,
         }
-        for field_name in ("status", "error", "ok", "media", "media_error"):
-            if field_name in row:
-                # These fields are checkpoint-reader inputs to the reviewed
-                # trace projection, not members of the public TranscriptRow.
-                # Consume them here so the closed wire record cannot expose
-                # the internal carrier or fail validation on reload.
-                result[field_name] = row.pop(field_name)
         call["result"] = result
         call["result_row"] = row
 

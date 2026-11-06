@@ -877,6 +877,57 @@ it('selects bounded visible workflows and confirms bulk deletion', async () => {
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
 
+it('selecting puts a checkbox in each row, marks chosen rows and selects all', async () => {
+  const user = userEvent.setup();
+  show(
+    vi.fn(async () => pageOf([task('First'), task('Second'), task('Third')])),
+    {
+      onBulkDelete: vi.fn(),
+    },
+  );
+  await screen.findByText('First');
+  await user.click(
+    screen.getByRole('button', { name: 'More workflow actions' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Select workflows' }),
+  );
+  // Each checkbox sits in the row it selects, before the workflow's name.
+  for (const name of ['First', 'Second', 'Third']) {
+    const box = screen.getByRole('checkbox', {
+      name: `Select workflow: ${name}`,
+    });
+    const row = box.closest('li')!;
+    expect(within(row).getByText(name)).toBeVisible();
+    expect(
+      box.compareDocumentPosition(within(row).getByText(name)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(row).not.toHaveAttribute('data-selected');
+  }
+  const second = screen.getByRole('checkbox', {
+    name: 'Select workflow: Second',
+  });
+  await user.click(second);
+  expect(second.closest('li')).toHaveAttribute('data-selected', 'true');
+  expect(screen.getByText('1 workflow selected')).toBeVisible();
+
+  const actions = screen.getByRole('group', {
+    name: 'Selected workflow actions',
+  });
+  await user.click(within(actions).getByRole('button', { name: 'Select all' }));
+  expect(within(actions).getByText('3 workflows selected')).toBeVisible();
+  expect(
+    within(actions).getByRole('button', { name: 'Select all' }),
+  ).toBeDisabled();
+  for (const box of screen.getAllByRole('checkbox', {
+    name: /^Select workflow: /,
+  })) {
+    expect(box).toBeChecked();
+    expect(box.closest('li')).toHaveAttribute('data-selected', 'true');
+  }
+});
+
 it('leaves selection mode from the menu or the Done button', async () => {
   const user = userEvent.setup();
   const load = vi.fn(async () => pageOf([task('First'), task('Second')]));

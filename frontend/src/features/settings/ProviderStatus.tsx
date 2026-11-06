@@ -1,13 +1,15 @@
 import {
+  ChevronRight,
   FlaskConical,
   KeyRound,
   Link2Off,
   LogIn,
-  MoreHorizontal,
+  Network,
+  Plus,
   RefreshCw,
-  SquareTerminal,
+  Search,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ProviderCatalogRefresh,
   ProviderLiveCard,
@@ -17,27 +19,23 @@ import type {
 import { clientError } from '../../api/errors';
 import { usePlace, type PlaceWords } from '../../api/place';
 import {
-  CompactAction,
+  Button,
   Disclosure,
-  EmptyState,
   ErrorState,
-  Menu,
+  IconButton,
+  Input,
   Skeleton,
   StatusDot,
-  type MenuAction,
+  Tabs,
   type Tone,
 } from '../../ui/primitives';
-import { apiKeyLabel, humanizeToken, maskedTail } from '../../ui/format';
-import { SettingsRefresh, SettingsSummary, SummaryChip } from './anatomy';
-import { ModalTask } from '../../ui/overlays';
+import { humanizeToken, maskedTail } from '../../ui/format';
+import { SettingsGroup, SettingsRefresh } from './anatomy';
+import { Drawer, ModalTask } from '../../ui/overlays';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import type { createProviderSettingsSessions } from './provider-settings-sessions';
-import { BillingTag } from '../shell/ModelList';
-import ClaudePlanSetup, {
-  CLAUDE_PLAN_SUMMARY,
-  CLAUDE_PLAN_TITLE,
-  claudePlanSummary,
-} from './ClaudePlanSetup';
+import { BillingTag, billingLabel } from '../shell/ModelList';
+import ClaudePlanSetup, { claudePlanSummary } from './ClaudePlanSetup';
 
 const groups = {
   local: 'On this device',
@@ -165,7 +163,7 @@ function cardDetail(card: ProviderLiveCard, place: PlaceWords) {
         : card.provider_id === 'xai_oauth' && !card.configured
           ? card.oauth_client_id_configured
             ? 'Ready to sign in with your xAI account'
-            : 'Needs an xAI client ID first: ⋯ › Set up xAI sign-in'
+            : 'Needs an xAI client ID first: Set up xAI sign-in'
           : sourceLabel(card, place) ||
             (card.configured ? 'Connected' : notConnectedDetail(card));
   const details = [source];
@@ -185,6 +183,55 @@ function cardDetail(card: ProviderLiveCard, place: PlaceWords) {
   return details.join(' · ');
 }
 
+type SheetAction = {
+  label: string;
+  icon: ReactNode;
+  onSelect: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+};
+/** What a tile says under its name: how it is paid and its models, or what's wrong. */
+function tileDetail(card: ProviderLiveCard, plan = false) {
+  const state = cardState(card);
+  if (state.tone === 'warning' || !card.configured) return state.label;
+  return [
+    billingLabel(card.billing ?? null),
+    plan && card.plan_type ? `${humanizeToken(card.plan_type)} plan` : '',
+    card.model_count != null
+      ? `${card.model_count} model${card.model_count === 1 ? '' : 's'}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+/**
+ * A sheet's line under its title: its state, then payment, plan and models,
+ * or in full what's wrong (and what Claude Code says).
+ */
+function sheetSummary(card: ProviderLiveCard, place: PlaceWords) {
+  const state = cardState(card);
+  const detail =
+    card.claude_plan || state.tone === 'warning' || !card.configured
+      ? cardDetail(card, place)
+      : tileDetail(card, true);
+  return [state.label, detail].filter(Boolean).join(' · ');
+}
+/** Connected providers are tiles; the rest wait in Add a provider. Local runtimes always show. */
+function isTile(card: ProviderLiveCard) {
+  return card.configured || card.group === 'local';
+}
+const galleryTabs: { id: keyof typeof groups | 'server'; label: string }[] = [
+  { id: 'local', label: 'On this computer' },
+  { id: 'subscription', label: 'Subscription' },
+  { id: 'api', label: 'API key' },
+  { id: 'server', label: 'Your server' },
+];
+
+/**
+ * Settings › Models › Connected: a tile for each connected provider, which
+ * opens its sheet (status, the one way to connect, its models with stars),
+ * and Add a provider, a gallery of the rest by how they are paid for.
+ */
 export default function ProviderStatus({
   load,
   refresh,
@@ -195,6 +242,9 @@ export default function ProviderStatus({
   onSubscriptionOption,
   hideCustom = false,
   hideLocal = false,
+  models,
+  openProvider = '',
+  onAddServer,
 }: {
   load: (signal?: AbortSignal) => Promise<ProviderLiveSnapshot>;
   refresh: (provider: string) => Promise<ProviderCatalogRefresh>;
@@ -214,11 +264,19 @@ export default function ProviderStatus({
    * offered. A local runtime that is connected still shows.
    */
   hideLocal?: boolean;
+  /** A provider's models in its sheet, with their stars. */
+  models?: (card: ProviderLiveCard) => ReactNode;
+  /** The provider whose sheet opens first (`?provider=` in a link). */
+  openProvider?: string;
+  /** Add a provider › Your server: the custom endpoint dialog. */
+  onAddServer?: () => void;
 }) {
   const place = usePlace();
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
-  const [selected, setSelected] = useState('');
-  const [claudeOpen, setClaudeOpen] = useState(false);
+  const [open, setOpen] = useState(openProvider);
+  const [adding, setAdding] = useState(false);
+  const [tab, setTab] = useState('');
+  const [find, setFind] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState('');
   const [testing, setTesting] = useState('');
@@ -304,307 +362,354 @@ export default function ProviderStatus({
       setTesting('');
     }
   }
-  const cards = snapshot?.providers ?? [];
-  const connected = cards.filter((card) => card.configured).length;
-  /** `folded`: a not-yet-connected API provider under "Connect…": its name and key button only. */
-  const renderRow = (card: ProviderLiveCard, folded = false) => {
-    const state = cardState(card);
-    const detail = folded ? '' : cardDetail(card, place);
-    const menu: MenuAction[] = [];
-    const claude = card.claude_plan;
-    if (claude?.state === 'ready')
-      menu.push({
-        label: 'Check Claude Code',
-        icon: <SquareTerminal size={16} />,
-        onSelect: () => setClaudeOpen(true),
+  const cards = (snapshot?.providers ?? []).filter(
+    (card) =>
+      !(card.group === 'custom' && hideCustom) &&
+      !(card.group === 'local' && hideLocal && !card.configured),
+  );
+  const tiles = cards.filter(isTile);
+  const waiting = (id: string) =>
+    cards.filter((card) => card.group === id && !isTile(card));
+  const found = (id: string) =>
+    waiting(id).filter((card) =>
+      card.display_name.toLowerCase().includes(find.trim().toLowerCase()),
+    );
+  const tabs = galleryTabs.filter((item) =>
+    item.id === 'server' ? !!onAddServer : waiting(item.id).length > 0,
+  );
+  const galleryTab = tabs.some((item) => item.id === tab)
+    ? tab
+    : (tabs[0]?.id ?? '');
+  const current = cards.find((card) => card.provider_id === open);
+  /** A subscription's sign-in steps open their own dialog, so the sheet closes first. */
+  const handOff = (run: () => void) => () => {
+    setOpen('');
+    run();
+  };
+  const sheetActions = (card: ProviderLiveCard): SheetAction[] => {
+    const actions: SheetAction[] = [];
+    if (card.group !== 'subscription' || card.claude_plan) return actions;
+    if (onSubscription && canConnect(card))
+      actions.push({
+        label: `${card.configured ? 'Reconnect' : 'Connect'} ${card.display_name}`,
+        icon: <LogIn size={16} aria-hidden />,
+        onSelect: handOff(() =>
+          onSubscription(card.provider_id, 'connect', needsReconnect(card)),
+        ),
       });
-    if (
-      card.group === 'subscription' &&
-      card.provider_id === 'xai_oauth' &&
-      onSubscriptionOption
-    )
-      menu.push({
+    if (card.provider_id === 'xai_oauth' && onSubscriptionOption)
+      actions.push({
         label: 'Set up xAI sign-in',
-        icon: <KeyRound size={16} />,
-        onSelect: () => onSubscriptionOption(card.provider_id),
+        icon: <KeyRound size={16} aria-hidden />,
+        onSelect: handOff(() => onSubscriptionOption(card.provider_id)),
       });
     if (
-      card.group === 'subscription' &&
       card.provider_id === 'codex' &&
       card.external_reference_exists &&
       !card.configured &&
       onSubscriptionOption
     )
-      menu.push({
+      actions.push({
         label: `Use your ${cliApps[card.provider_id] ?? card.display_name} sign-in`,
-        icon: <KeyRound size={16} />,
-        onSelect: () => onSubscriptionOption(card.provider_id),
+        icon: <KeyRound size={16} aria-hidden />,
+        onSelect: handOff(() => onSubscriptionOption(card.provider_id)),
       });
     if (
-      card.group === 'subscription' &&
+      card.provider_id === 'xai_oauth' &&
       card.runtime_enabled &&
       card.configured &&
-      testRuntime &&
-      card.provider_id === 'xai_oauth'
+      testRuntime
     )
-      menu.push({
+      actions.push({
         label: `Test ${card.display_name} runtime`,
-        icon: <FlaskConical size={16} />,
+        icon: <FlaskConical size={16} aria-hidden />,
         disabled: !!testing,
         onSelect: () => void runtimeTest(card),
       });
-    if (
-      card.group === 'subscription' &&
-      !claude &&
-      canDisconnect(card) &&
-      onSubscription
-    )
-      menu.push({
+    if (canDisconnect(card) && onSubscription)
+      actions.push({
         label: `Disconnect ${card.display_name}`,
-        icon: <Link2Off size={16} />,
+        icon: <Link2Off size={16} aria-hidden />,
         danger: true,
-        onSelect: () =>
+        onSelect: handOff(() =>
           onSubscription(card.provider_id, 'disconnect', needsReconnect(card)),
+        ),
       });
+    return actions;
+  };
+  const mark = (card: ProviderLiveCard) => (
+    <span className="settings-provider-mark" aria-hidden>
+      {providerMark(card)}
+    </span>
+  );
+  const tile = (card: ProviderLiveCard) => {
+    const state = cardState(card);
     return (
-      <li key={card.provider_id} className="settings-provider-row">
-        <span className="settings-provider-mark" aria-hidden>
-          {providerMark(card)}
-        </span>
-        <span className="settings-provider-copy">
-          <span className="settings-provider-title">
+      <li key={card.provider_id}>
+        <button
+          type="button"
+          className="settings-provider-tile"
+          aria-haspopup="dialog"
+          onClick={() => setOpen(card.provider_id)}
+        >
+          {mark(card)}
+          <span className="settings-provider-copy">
             <strong>{card.display_name}</strong>
-            {!folded && (
-              <StatusDot
-                tone={stateTones[state.tone] ?? 'neutral'}
-                label={state.label}
-                showLabel
-              />
-            )}
+            <small>{tileDetail(card)}</small>
           </span>
-          {detail && <small title={detail}>{detail}</small>}
-        </span>
-        <span className="settings-provider-risk">
-          {card.billing ? (
-            // How it is paid for (U13): Subscription, Pay per use, Credits, Local · free.
-            <BillingTag billing={card.billing} />
-          ) : card.group === 'subscription' ? (
-            ''
-          ) : (
-            humanizeToken(card.risk_label)
-          )}
-        </span>
-        <span className="settings-provider-actions">
-          {card.group === 'api' && owner && (
-            <CompactAction
-              label={`Manage ${apiKeyLabel(card.display_name)}`}
-              onClick={() => setSelected(card.provider_id)}
-            >
-              <KeyRound size={16} aria-hidden />
-            </CompactAction>
-          )}
-          {claude && claude.state !== 'ready' && (
-            <CompactAction
-              label="Set up Claude"
-              onClick={() => setClaudeOpen(true)}
-            >
-              <LogIn size={16} aria-hidden />
-            </CompactAction>
-          )}
-          {card.group === 'subscription' &&
-            onSubscription &&
-            canConnect(card) && (
-              <CompactAction
-                label={`${card.configured ? 'Reconnect' : 'Connect'} ${card.display_name}`}
-                onClick={() =>
-                  onSubscription(
-                    card.provider_id,
-                    'connect',
-                    needsReconnect(card),
-                  )
-                }
-              >
-                <LogIn size={16} aria-hidden />
-              </CompactAction>
-            )}
-          {/* Nothing to refresh before it connects; the page's ↻ re-reads
-              every row. */}
-          {hasModels(card) && (
-            <CompactAction
-              label={`Refresh ${card.display_name} model list`}
-              disabled={!!refreshing}
-              onClick={() => void refreshProvider(card)}
-            >
-              <RefreshCw
-                size={16}
-                aria-hidden
-                data-spinning={refreshing === card.provider_id || undefined}
-              />
-            </CompactAction>
-          )}
-          {menu.length > 0 && (
-            <Menu
-              label={`More actions for ${card.display_name}`}
-              actions={menu}
-              iconOnly
-              variant="ghost"
-              className="icon-action icon-action-sm"
-            >
-              <MoreHorizontal size={16} aria-hidden />
-            </Menu>
-          )}
-        </span>
+          <StatusDot
+            tone={stateTones[state.tone] ?? 'neutral'}
+            label={state.label}
+          />
+        </button>
       </li>
     );
   };
   return (
-    <section
-      className="stack settings-provider-status"
-      id="provider-saved-status"
-      aria-label="Provider connections"
-      aria-busy={loading}
-    >
-      <SettingsSummary>
-        {snapshot && (
-          <span
-            className="settings-summary-group"
-            role="group"
-            aria-label="Provider summary"
-          >
-            <SummaryChip tone={connected ? 'success' : 'warning'}>
-              {connected} connected
-            </SummaryChip>
-          </span>
-        )}
+    <SettingsGroup
+      title="Connected"
+      anchor="connections"
+      surface={false}
+      className="settings-provider-status"
+      meta={
         <SettingsRefresh
           label="Reload provider status"
           busy={loading}
           onRefresh={() => setReload((value) => value + 1)}
         />
-      </SettingsSummary>
-      {notice && (
-        <p className="settings-provider-notice" role="status">
-          {notice}
-        </p>
-      )}
-      {loading && !snapshot && (
-        <Skeleton label="Checking provider connections" />
-      )}
-      {error && (
-        <ErrorState title="Provider information unavailable">
-          {error}
-        </ErrorState>
-      )}
-      {snapshot && (
-        <>
-          {!snapshot.providers.length && (
-            <EmptyState title="No providers">
-              No provider definitions are available.
-            </EmptyState>
-          )}
-          {(Object.keys(groups) as Array<keyof typeof groups>).map((group) => {
-            const members = cards.filter((card) => card.group === group);
-            if (
-              !members.length ||
-              (group === 'custom' && hideCustom) ||
-              (group === 'local' &&
-                hideLocal &&
-                !members.some((card) => card.configured))
-            )
-              return null;
-            const shown =
-              group === 'api'
-                ? members.filter((card) => card.configured)
-                : members;
-            const folded =
-              group === 'api' ? members.filter((card) => !card.configured) : [];
-            return (
-              <section
-                className="settings-provider-group"
-                aria-label={groupLabel(group, place)}
-                key={group}
-                data-setting-anchor={`providers-${group}`}
-              >
-                <h3 className="settings-provider-group-heading">
-                  {groupLabel(group, place)}
-                </h3>
-                {shown.length > 0 && (
-                  <ul className="settings-provider-list">
-                    {shown.map((card) => renderRow(card))}
-                  </ul>
-                )}
-                {folded.length > 0 && (
-                  <Disclosure
-                    className="settings-provider-more"
-                    summary={
-                      shown.length
-                        ? 'More API providers'
-                        : 'Connect an API provider'
-                    }
-                    meta={`${folded.length} available`}
-                    defaultOpen={!shown.length && !connected}
+      }
+    >
+      <div
+        className="stack"
+        id="provider-saved-status"
+        aria-label="Provider connections"
+        aria-busy={loading}
+      >
+        {notice && (
+          <p className="settings-provider-notice" role="status">
+            {notice}
+          </p>
+        )}
+        {loading && !snapshot && (
+          <Skeleton label="Checking provider connections" />
+        )}
+        {error && (
+          <ErrorState title="Provider information unavailable">
+            {error}
+          </ErrorState>
+        )}
+        {snapshot && (
+          <>
+            {!tiles.length && (
+              <p className="settings-provider-empty">
+                Nothing is connected yet. Add a provider to choose its models.
+              </p>
+            )}
+            {(Object.keys(groups) as Array<keyof typeof groups>).map(
+              (group) => {
+                const members = tiles.filter((card) => card.group === group);
+                if (!members.length) return null;
+                return (
+                  <section
+                    className="settings-provider-group"
+                    aria-label={groupLabel(group, place)}
+                    key={group}
+                    data-setting-anchor={`providers-${group}`}
                   >
-                    <ul className="settings-provider-list">
-                      {folded.map((card) => renderRow(card, true))}
+                    <h4 className="settings-provider-group-heading">
+                      {groupLabel(group, place)}
+                    </h4>
+                    <ul className="settings-provider-tiles">
+                      {members.map(tile)}
                     </ul>
-                  </Disclosure>
-                )}
-              </section>
-            );
-          })}
-        </>
-      )}
-      {claudeOpen && (
-        <ModalTask
-          open
-          title={CLAUDE_PLAN_TITLE}
-          description={CLAUDE_PLAN_SUMMARY}
-          ariaLabel={CLAUDE_PLAN_TITLE}
-          onOpenChange={(open) => {
-            if (!open) setClaudeOpen(false);
-          }}
-        >
-          <div className="settings-provider-dialog-content">
-            <ClaudePlanSetup
-              plan={
-                cards.find((card) => card.provider_id === 'claude_subscription')
-                  ?.claude_plan
-              }
-              checking={loading}
-              onCheck={() => setReload((value) => value + 1)}
-              onDone={() => setClaudeOpen(false)}
-            />
-          </div>
-        </ModalTask>
-      )}
-      {selected && owner && (
-        <ModalTask
-          open
-          title="Manage API key"
-          description="Update this provider credential without leaving Settings."
-          ariaLabel="Manage API key"
-          onOpenChange={(open) => {
-            if (!open) setSelected('');
-          }}
-        >
-          <div className="settings-provider-dialog-content">
-            <ProviderSettingsPanel
-              compact
-              owner={owner}
-              providerId={selected}
-              onSaved={() => {
-                const card = snapshot?.providers.find(
-                  (item) => item.provider_id === selected,
+                  </section>
                 );
-                setSelected('');
-                if (card) void refreshProvider(card);
-                else setReload((value) => value + 1);
-              }}
-              onCancel={() => setSelected('')}
-            />
+              },
+            )}
+            {tabs.length > 0 && (
+              <button
+                type="button"
+                className="settings-provider-add"
+                aria-haspopup="dialog"
+                onClick={() => setAdding(true)}
+              >
+                <Plus size={16} aria-hidden />
+                Add a provider
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {current && (
+        <Drawer
+          open
+          modal
+          title={current.display_name}
+          description={sheetSummary(current, place)}
+          className="settings-provider-sheet"
+          onOpenChange={(value) => {
+            if (!value) setOpen('');
+          }}
+          actions={
+            hasModels(current) ? (
+              <IconButton
+                size="sm"
+                label={`Refresh ${current.display_name} model list`}
+                disabled={!!refreshing}
+                onClick={() => void refreshProvider(current)}
+              >
+                <RefreshCw
+                  size={16}
+                  aria-hidden
+                  data-spinning={
+                    refreshing === current.provider_id || undefined
+                  }
+                />
+              </IconButton>
+            ) : undefined
+          }
+        >
+          <div className="stack settings-provider-sheet-body">
+            {notice && (
+              <p className="settings-provider-notice" role="status">
+                {notice}
+              </p>
+            )}
+            {current.group === 'api' && owner && (
+              <Disclosure
+                className="settings-provider-key"
+                summary="API key"
+                meta={
+                  current.configured && current.fingerprint
+                    ? `key ${maskedTail(current.fingerprint)}`
+                    : 'Not saved'
+                }
+                defaultOpen={!current.configured}
+              >
+                <ProviderSettingsPanel
+                  compact
+                  owner={owner}
+                  providerId={current.provider_id}
+                  onSaved={() => void refreshProvider(current)}
+                  onCancel={() => setOpen('')}
+                />
+              </Disclosure>
+            )}
+            {current.claude_plan && (
+              <ClaudePlanSetup
+                plan={current.claude_plan}
+                checking={loading}
+                onCheck={() => setReload((value) => value + 1)}
+                onDone={() => setOpen('')}
+              />
+            )}
+            {sheetActions(current).length > 0 && (
+              <div className="settings-provider-sheet-actions">
+                {sheetActions(current).map((action) => (
+                  <Button
+                    key={action.label}
+                    variant={action.danger ? 'danger' : undefined}
+                    disabled={action.disabled}
+                    onClick={() => action.onSelect()}
+                  >
+                    {action.icon}
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {models && hasModels(current) && models(current)}
           </div>
+        </Drawer>
+      )}
+      {adding && (
+        <ModalTask
+          open
+          title="Add a provider"
+          description="Grouped by how you pay. Pick one to connect it."
+          ariaLabel="Add a provider"
+          className="settings-provider-gallery"
+          onOpenChange={(value) => {
+            if (!value) {
+              setAdding(false);
+              setFind('');
+            }
+          }}
+        >
+          <label className="settings-inline-search">
+            <span className="visually-hidden">Find a provider</span>
+            <Search size={14} aria-hidden />
+            <Input
+              type="search"
+              maxLength={80}
+              placeholder="Find a provider"
+              value={find}
+              onChange={(event) => setFind(event.target.value)}
+            />
+          </label>
+          <Tabs
+            label="Kinds of provider"
+            value={galleryTab}
+            onChange={setTab}
+            items={tabs.map((item) => ({
+              id: item.id,
+              label: item.label,
+              content:
+                item.id === 'server' ? (
+                  <ul className="settings-provider-options">
+                    <li>
+                      <button
+                        type="button"
+                        className="settings-provider-option"
+                        onClick={() => {
+                          setAdding(false);
+                          onAddServer?.();
+                        }}
+                      >
+                        <span className="settings-provider-mark" aria-hidden>
+                          <Network size={16} aria-hidden />
+                        </span>
+                        <span className="settings-provider-copy">
+                          <strong>OpenAI-compatible server</strong>
+                          <small>Its address, and a key if it needs one</small>
+                        </span>
+                        <ChevronRight size={16} aria-hidden />
+                      </button>
+                    </li>
+                  </ul>
+                ) : !found(item.id).length ? (
+                  <p className="settings-provider-empty">
+                    No provider here matches “{find.trim()}”.
+                  </p>
+                ) : (
+                  <ul className="settings-provider-options">
+                    {found(item.id).map((card) => (
+                      <li key={card.provider_id}>
+                        <button
+                          type="button"
+                          className="settings-provider-option"
+                          onClick={() => {
+                            setAdding(false);
+                            setFind('');
+                            setOpen(card.provider_id);
+                          }}
+                        >
+                          {mark(card)}
+                          <span className="settings-provider-copy">
+                            <strong>{card.display_name}</strong>
+                            <small>{cardDetail(card, place)}</small>
+                          </span>
+                          <BillingTag billing={card.billing ?? null} />
+                          <ChevronRight size={16} aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+            }))}
+          />
         </ModalTask>
       )}
-    </section>
+    </SettingsGroup>
   );
 }

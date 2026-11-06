@@ -324,9 +324,9 @@ test('compact navigation opens Settings after its drawer releases history', asyn
   await drawer.getByRole('link', { name: 'Settings', exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(
-    page.getByRole('heading', { name: 'Providers', exact: true }),
+    page.getByRole('heading', { name: 'Models', exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/conversation-a/);
   await expect(drawer).toHaveCount(0);

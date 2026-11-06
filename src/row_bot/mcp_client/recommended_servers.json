@@ -1748,5 +1748,47 @@
         }
       ]
     }
+  },
+  {
+    "id": "karanb192-reddit-mcp-buddy",
+    "name": "Reddit Buddy",
+    "description": "Browse subreddits from Reddit's public feeds and explain Reddit terms, with no account or key. Searching, reading comments and looking up users need your own approved Reddit API app.",
+    "source": "curated",
+    "url": "https://github.com/karanb192/reddit-mcp-buddy",
+    "publisher": "karanb192",
+    "classification": "community",
+    "category": "Social Media",
+    "trust_tier": "community_reviewed",
+    "risk_level": "low",
+    "action_scope": "read_only",
+    "transport": "stdio",
+    "requires_auth": false,
+    "recommended": false,
+    "capabilities": [
+      "reddit",
+      "social_media",
+      "browsing"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-11-05",
+    "notes": [
+      "Made by the community (karanb192, MIT licence), not by Reddit. Reviewed by Row-Bot and pinned to 1.1.14, which only reads.",
+      "Without an approved Reddit API app it browses subreddits from Reddit's public feeds, which Reddit may slow down or block."
+    ],
+    "metadata": {
+      "version": "1.1.14",
+      "auth_mode": "none",
+      "license": "MIT",
+      "version_policy": "Pinned reddit-mcp-buddy release; a newer one is reviewed before it runs.",
+      "evidence": "Reviewed 2026-11-05 from its repository and npm 1.1.14: five read-only tools (browse_subreddit, search_reddit, get_post_details, user_analysis, reddit_explain); posting arrived in 1.2.0 behind an opt-in. Not yet live-tested through Row-Bot."
+    },
+    "install": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "reddit-mcp-buddy@1.1.14"
+      ]
+    }
   }
 ]

@@ -170,6 +170,7 @@ _ACTION_FIELDS = {
     ("system", "tunnel.start_main"),
     ("system", "tunnel.stop_main"),
     ("system", "logging.open"),
+    ("system", "tools.reset_unreadable"),
     ("documents", "vectors.rebuild"),
     ("documents", "memory_index.rebuild"),
     ("documents", "local_model.retry"),
@@ -514,6 +515,8 @@ def review_settings_update(
         summary = "Stop the Row-Bot app tunnel managed by this process"
     elif (page, field) == ("system", "logging.open"):
         summary = "Open Row-Bot's local log folder with the operating system"
+    elif (page, field) == ("system", "tools.reset_unreadable"):
+        summary = "Keep the unreadable tool settings file aside and start tool settings from the defaults"
     elif (page, field) == ("documents", "vectors.rebuild"):
         summary = "Rebuild saved document vectors from the local document vault"
     elif (page, field) == ("documents", "memory_index.rebuild"):
@@ -955,6 +958,19 @@ def _run_system_action(field: str) -> dict[str, str] | None:
         else:
             subprocess.Popen(["xdg-open", directory])
         return
+    if field == "tools.reset_unreadable":
+        from row_bot import tool_configuration
+
+        try:
+            kept = tool_configuration.set_aside_unreadable()
+        except tool_configuration.ToolConfigurationError:
+            raise SettingsCommandError("settings_unavailable") from None
+        if kept is None:
+            return None  # It reads again: nothing to set aside.
+        registry = sys.modules.get("row_bot.tools.registry")
+        if registry is not None:
+            registry.reload_saved_config()  # The registry kept every tool off while the file couldn't be read.
+        return {"code": "tool_settings_reset", "message": f"The unreadable file was kept as {kept}.", "remediation": ""}
     raise SettingsCommandError("settings_action_unavailable")
 
 

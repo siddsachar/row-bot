@@ -6,11 +6,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  useClientSelector,
-  useOnThisComputer,
-  useRuntime,
-} from '../../runtime';
+import { useClientSelector, useRuntime } from '../../runtime';
+import { useSaveFile } from '../shell/save-file';
 import { Disclosure, EmptyState, Skeleton } from '../../ui/primitives';
 import { useNotify } from '../../ui/overlays';
 import WorkspaceProcesses from './WorkspaceProcesses';
@@ -436,9 +433,7 @@ function ResourcePanel({
   const workspace = useClientSelector((state) => state.workspace);
   const selected = useClientSelector((state) => state.selectedConversationId);
   const loading = useClientSelector((state) => state.loadingConversation);
-  // Saving into Exports, then Open and Show in folder, is for the desktop app
-  // on the computer Row-Bot runs on; other devices download the export.
-  const onThisComputer = useOnThisComputer();
+  const saveFile = useSaveFile();
   if (import.meta.env.VITE_ENABLE_FIXTURES === '1')
     resourcePanelMetrics.renders++;
   useEffect(() => {
@@ -610,9 +605,17 @@ function ResourcePanel({
       onDraftText={designSession ? draftDesignText : undefined}
       edit={api.edit}
       createExport={api.exports.create}
-      downloadExport={api.exports.download}
-      saveExport={onThisComputer ? api.exports.save : undefined}
-      revealExport={onThisComputer ? api.exports.reveal : undefined}
+      downloadExport={
+        saveFile
+          ? (exportId) =>
+              saveFile({
+                kind: 'design_export',
+                conversation_id: conversation,
+                binding_id: binding,
+                export_id: exportId,
+              })
+          : undefined
+      }
       sharing={api.sharing}
       presentation={api.presentation}
       lifecycle={api.lifecycle}

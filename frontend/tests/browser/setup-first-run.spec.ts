@@ -224,7 +224,8 @@ test('custom endpoint and Set up later: nothing traps the person', async ({
   ).toBeVisible();
   await screenshot(page, testInfo, 'custom-endpoint');
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers/);
+  // The old Providers link lands on Models, which holds the providers.
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models/);
   // A deep link is never redirected; the plain address still opens Setup.
   await page.goto('/app-v2/settings/models');
   await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);

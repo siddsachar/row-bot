@@ -185,10 +185,9 @@ const local = (
 });
 const shelf: ModelChoice[] = [
   models[0],
-  local('gemma3:4b', { hidden: true }),
+  local('gemma3:4b'),
   local('llama3.1:8b', { favourite_rank: 2 }),
   local('mistral:7b'),
-  local('phi4:14b', { hidden: true }),
   local('qwen3:8b', { favourite_rank: 1 }),
 ];
 const names = (list: HTMLElement) =>
@@ -204,7 +203,7 @@ const groupNames = (list: HTMLElement) =>
           ?.textContent,
     );
 
-it('lists favourites first in their order and hidden models under More models', async () => {
+it('lists your models first in their order, then the providers', async () => {
   show(
     'model:codex:gpt-5.6-sol',
     { state: 'ready' },
@@ -214,67 +213,17 @@ it('lists favourites first in their order and hidden models under More models', 
     },
   );
   const list = await screen.findByRole('listbox', { name: 'Models' });
-  expect(groupNames(list)[0]).toBe('Favourites');
+  expect(groupNames(list)[0]).toBe('Your models');
   const rows = names(list);
   expect(rows[0]).toMatch(/^qwen3:8b/);
   expect(rows[1]).toMatch(/^llama3\.1:8b/);
-  // Each favourite appears once; the hidden ones wait behind one row.
+  // Each starred model appears once; the others stay in their provider group.
   expect(rows.filter((row) => row.startsWith('qwen3:8b'))).toHaveLength(1);
-  expect(rows.some((row) => row.startsWith('gemma3:4b'))).toBe(false);
-  expect(rows.at(-1)).toBe('More models (2)');
-
-  await act(async () =>
-    fireEvent.click(screen.getByRole('option', { name: 'More models (2)' })),
-  );
-  expect(groupNames(list).at(-1)).toBe('More models');
-  expect(
-    names(list)
-      .slice(-2)
-      .map((row) => row.split('Ollama')[0]),
-  ).toEqual(['gemma3:4b', 'phi4:14b']);
+  expect(rows.some((row) => row.startsWith('gemma3:4b'))).toBe(true);
+  expect(rows.some((row) => row.startsWith('More models'))).toBe(false);
 });
 
-it('keeps a hidden model that is in use in view, still chosen', async () => {
-  show(
-    'model:ollama:gemma3:4b',
-    { state: 'ready', local: true },
-    {
-      open: true,
-      models: shelf,
-    },
-  );
-  expect(pill()).toHaveTextContent('gemma3:4b');
-  const list = await screen.findByRole('listbox', { name: 'Models' });
-  const row = within(list).getByRole('option', { name: /^gemma3:4b/ });
-  expect(row).toHaveTextContent('Hidden');
-  expect(within(row).getByRole('img', { name: 'Current' })).toBeVisible();
-  // Only the other hidden model waits under More models.
-  expect(
-    within(list).getByRole('option', { name: 'More models (1)' }),
-  ).toBeVisible();
-});
-
-it('a search finds hidden models without opening More models first', async () => {
-  show(
-    'model:codex:gpt-5.6-sol',
-    { state: 'ready' },
-    {
-      open: true,
-      models: shelf,
-    },
-  );
-  fireEvent.change(
-    await screen.findByRole('combobox', { name: 'Search models' }),
-    {
-      target: { value: 'phi' },
-    },
-  );
-  const list = screen.getByRole('listbox', { name: 'Models' });
-  expect(groupNames(list)).toEqual(['More models']);
-  expect(within(list).getByRole('option', { name: /^phi4:14b/ })).toBeVisible();
-});
-
-it('favourites or hides a model from its row menu, by pointer or keyboard', async () => {
+it('stars or unstars a model from its row, by pointer or keyboard', async () => {
   const onVisibility = vi.fn();
   show(
     'model:codex:gpt-5.6-sol',
@@ -286,54 +235,29 @@ it('favourites or hides a model from its row menu, by pointer or keyboard', asyn
     },
   );
   // A pointer's way in (hidden from assistive tech, which uses Shift+F10).
-  const menu = await screen.findByRole('button', {
-    name: 'More for mistral:7b',
+  const star = await screen.findByRole('button', {
+    name: 'Add mistral:7b to your models',
     hidden: true,
   });
-  await act(async () => {
-    fireEvent.pointerDown(menu, { button: 0, pointerType: 'mouse' });
-  });
-  await act(async () =>
-    fireEvent.click(
-      await screen.findByRole('menuitem', { name: /Add to favourites/ }),
-    ),
-  );
+  await act(async () => fireEvent.click(star));
   expect(onVisibility).toHaveBeenCalledWith(
     expect.objectContaining({ model_ref: 'model:ollama:mistral:7b' }),
     'favourite',
   );
 
-  // Keyboard: highlight a favourite, then Shift+F10 opens its menu.
+  // Keyboard: highlight a starred model, then Shift+F10 unstars it.
   const search = screen.getByRole('combobox', { name: 'Search models' });
   fireEvent.change(search, { target: { value: 'llama3' } });
   await act(async () => {
     fireEvent.keyDown(search, { key: 'F10', shiftKey: true });
   });
-  expect(
-    await screen.findByRole('menuitem', { name: /Remove from favourites/ }),
-  ).toBeVisible();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('menuitem', { name: /^Hide/ })),
-  );
   expect(onVisibility).toHaveBeenLastCalledWith(
     expect.objectContaining({ model_ref: 'model:ollama:llama3.1:8b' }),
-    'hide',
+    'unfavourite',
   );
-  // Said once in the list, not as a toast over it; Undo puts it back as it was.
-  const note = screen.getByText('llama3.1:8b is under More models.');
-  await act(async () =>
-    fireEvent.click(
-      within(note.parentElement!).getByRole('button', { name: 'Undo' }),
-    ),
-  );
-  expect(onVisibility).toHaveBeenLastCalledWith(
-    expect.objectContaining({ model_ref: 'model:ollama:llama3.1:8b' }),
-    'favourite',
-  );
-  expect(screen.queryByText(/is under More models/)).toBeNull();
 });
 
-it('has no row menu where a list only chooses', async () => {
+it('has no row star where a list only chooses', async () => {
   show(
     'model:codex:gpt-5.6-sol',
     { state: 'ready' },
@@ -344,11 +268,11 @@ it('has no row menu where a list only chooses', async () => {
   );
   await screen.findByRole('listbox', { name: 'Models' });
   expect(
-    screen.queryByRole('button', { name: /^More for /, hidden: true }),
+    screen.queryByRole('button', { name: /your models$/, hidden: true }),
   ).toBeNull();
 });
 
-it('offers a ready personal model with a Personal tag; it can be a favourite or hidden like any model (Learning, D11)', async () => {
+it('offers a ready personal model with a Personal tag; it can be starred like any model (Learning, D11)', async () => {
   const onVisibility = vi.fn();
   const personal = local('row-bot-personal-v1:ab12cd34', {
     label: 'Personal model v1 - Ollama Local',
@@ -363,16 +287,12 @@ it('offers a ready personal model with a Personal tag; it can be a favourite or 
   const row = within(list).getByRole('option', { name: /^Personal model v1/ });
   expect(row).toHaveTextContent('Personal');
   expect(row).not.toHaveTextContent('row-bot-personal');
-  const menu = await screen.findByRole('button', {
-    name: 'More for Personal model v1',
-    hidden: true,
-  });
-  await act(async () => {
-    fireEvent.pointerDown(menu, { button: 0, pointerType: 'mouse' });
-  });
   await act(async () =>
     fireEvent.click(
-      await screen.findByRole('menuitem', { name: /Add to favourites/ }),
+      await screen.findByRole('button', {
+        name: 'Add Personal model v1 to your models',
+        hidden: true,
+      }),
     ),
   );
   expect(onVisibility).toHaveBeenCalledWith(

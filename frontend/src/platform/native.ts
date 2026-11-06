@@ -284,13 +284,33 @@ export function createPyWebViewPlatform(
       if (signal?.aborted) return { status: 'cancelled' };
       if (!reference(ref) || !safeDownloadName(name))
         return unavailable('invalid_request');
-      const result = await call('save', { reference: ref, name }, nullValue);
+      const result = await call(
+        'save',
+        { reference: ref, name },
+        (value): value is { saved: string } | null =>
+          value === null ||
+          (object(value) &&
+            Object.keys(value).length === 1 &&
+            typeof value.saved === 'string' &&
+            /^[0-9a-f]{32}$/.test(value.saved)),
+      );
       // Discard late completion; this cannot undo an already performed host save.
       if (signal?.aborted) return { status: 'cancelled' };
-      // The host answers ok only once the chosen file is written.
-      return result.status === 'ok'
-        ? { status: 'ok', value: { kind: 'file' } }
-        : result;
+      if (result.status !== 'ok') return result;
+      // The host answers ok only once the chosen file is written; Show in
+      // folder finds it by a token, never by the path chosen.
+      const saved = result.value?.saved;
+      return {
+        status: 'ok',
+        value: saved
+          ? {
+              kind: 'file',
+              reveal: async () =>
+                (await call('reveal_saved', { saved }, nullValue)).status ===
+                'ok',
+            }
+          : { kind: 'file' },
+      };
     },
   };
 }

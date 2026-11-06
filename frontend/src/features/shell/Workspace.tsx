@@ -991,7 +991,7 @@ export default function Workspace() {
         label: 'Settings',
         keywords: 'configuration providers models',
         icon: <SettingsIcon size={16} />,
-        run: () => go('/settings/providers'),
+        run: () => go('/settings/models'),
       },
       ...(session
         ? [

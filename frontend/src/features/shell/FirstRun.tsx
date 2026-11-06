@@ -56,6 +56,7 @@ import { BillingTag } from './ModelList';
 import { useWorkspaceActions } from './workspace-actions';
 import { markFirstChat } from './first-chat';
 import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
+import HostTrialNote from './HostTrialNote';
 
 /** "Set up later" for this window: Home stops opening Setup until next time. */
 export const SETUP_LATER_KEY = 'row-bot:setup-later:v1';
@@ -363,20 +364,18 @@ type Option = {
   ref: string;
   name: string;
   chatOnly: boolean;
-  hidden?: boolean;
 };
 
 const localOption = (model: LocalRuntimeModel): Option => ({
   ref: model.model_ref,
   name: model.name,
   chatOnly: model.agent_ready === false,
-  ...(model.hidden ? { hidden: true } : {}),
 });
 
 /**
- * The local models, short list first (F10): the person's favourites, then
+ * The local models, short list first: the person's starred models, then
  * Row-Bot's suggested picks, with every other model one "Show all models"
- * away (hidden ones last). Without either, every model is listed as before.
+ * away. Without either, every model is listed as before.
  */
 function LocalModels({
   models,
@@ -393,11 +392,7 @@ function LocalModels({
     (model) => model.recommended && model.favourite_rank == null,
   );
   const short = new Set([...favourites, ...picks]);
-  const rest = models.filter((model) => !short.has(model));
-  const others = [
-    ...rest.filter((model) => !model.hidden),
-    ...rest.filter((model) => model.hidden),
-  ];
+  const others = models.filter((model) => !short.has(model));
   if (!short.size)
     return (
       <ModelOptions
@@ -410,8 +405,8 @@ function LocalModels({
     <div className="first-run-model-groups">
       {favourites.length > 0 && (
         <ModelOptions
-          label="Your favourites"
-          title="Your favourites"
+          label="Your models"
+          title="Your models"
           options={favourites.map(localOption)}
           onPick={onPick}
         />
@@ -479,9 +474,6 @@ function ModelOptions({
               <span>{option.name}</span>
               {option.chatOnly && (
                 <span className="first-run-model-tag">Chat only</span>
-              )}
-              {option.hidden && (
-                <span className="first-run-model-tag">Hidden</span>
               )}
               <span className="first-run-model-use" aria-hidden>
                 Use
@@ -726,6 +718,7 @@ function HostedChoices({
   keyPanel,
   endpointModels,
   setUpLater,
+  trialNote,
 }: {
   cards: ProviderLiveCard[];
   connected: Set<string>;
@@ -737,6 +730,8 @@ function HostedChoices({
   keyPanel: ReactNode;
   endpointModels: ReactNode;
   setUpLater: ReactNode;
+  /** A host's trial server: what works there (A4). */
+  trialNote?: ReactNode;
 }) {
   const { controller, subscriptionAccountsOwner } = useRuntime();
   const writer = useContext(RuntimeContext)?.platform.writeClipboard;
@@ -980,6 +975,7 @@ function HostedChoices({
           </a>
         </span>
       </p>
+      {trialNote}
       <footer className="first-run-footer">{setUpLater}</footer>
     </section>
   );
@@ -1241,6 +1237,11 @@ export default function FirstRun({
         keyPanel={keyPanel}
         endpointModels={endpointModels}
         setUpLater={setUpLater}
+        trialNote={
+          snapshot.host_trial && (
+            <HostTrialNote trial={snapshot.host_trial} hostName={host} />
+          )
+        }
       />
     );
 

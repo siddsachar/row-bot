@@ -258,7 +258,7 @@ it('saves a Markdown export in one click, then closes and confirms it (B237)', a
   exportReceipt(props);
   const { user, dialog } = await openDialog(props);
   await user.click(within(dialog).getByRole('button', { name: 'Markdown' }));
-  expect(await screen.findByText('Conversation export saved.')).toBeVisible();
+  expect(await screen.findByText('Saved conversation-export.md')).toBeVisible();
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(props.execute.mock.calls[0][1].payload).toEqual({
     checkpoint_revision: 'checkpoint-7',
@@ -287,7 +287,11 @@ it('says a save into Exports went there, with Show in folder (B238)', async () =
   });
   const { user, dialog } = await openDialog(props);
   await user.click(within(dialog).getByRole('button', { name: 'Markdown' }));
-  expect(await screen.findByText('Saved to Row-Bot › Exports')).toBeVisible();
+  expect(
+    await screen.findByText(
+      'Saved conversation-export.md to Row-Bot › Exports',
+    ),
+  ).toBeVisible();
   // jsdom lacks the pointer capture Radix toasts use for swipes.
   fireEvent.click(screen.getByRole('button', { name: 'Show in folder' }));
   await waitFor(() => expect(reveal).toHaveBeenCalledTimes(1));
@@ -302,7 +306,9 @@ it('never says a browser download was saved (B238)', async () => {
   });
   const { user, dialog } = await openDialog(props);
   await user.click(within(dialog).getByRole('button', { name: 'Markdown' }));
-  expect(await screen.findByText('Download started.')).toBeVisible();
+  expect(
+    await screen.findByText('Downloading conversation-export.md'),
+  ).toBeVisible();
   expect(screen.queryByText(/export saved|Saved to/)).toBeNull();
 });
 
@@ -338,7 +344,9 @@ it('exports the same reviewed transcript as a PDF (parity row 2)', async () => {
   exportReceipt(props, 'conversation-export.pdf');
   const { user, dialog } = await openDialog(props);
   await user.click(within(dialog).getByRole('button', { name: 'PDF' }));
-  expect(await screen.findByText('Conversation export saved.')).toBeVisible();
+  expect(
+    await screen.findByText('Saved conversation-export.pdf'),
+  ).toBeVisible();
   expect(props.review.mock.calls[0][3]).toEqual({ format: 'pdf' });
   expect(props.execute.mock.calls[0][1].payload).toEqual({
     checkpoint_revision: 'checkpoint-7',

@@ -92,28 +92,6 @@ def test_minimax_provider_refresh_does_not_preclear_on_failed_fetch(monkeypatch)
         models._cloud_model_cache.update(old_cache)
 
 
-def test_model_catalog_refresh_prunes_stale_custom_quick_choices(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
-    import row_bot.providers.config as provider_config
-    import row_bot.providers.model_catalog_cache as cache
-    from row_bot.providers.selection import add_quick_choice_for_model
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
-    monkeypatch.setattr(cache, "_refresh_cloud_cache", lambda provider_id=None: (
-        {"gpt-test": {"provider": "openai", "label": "GPT Test"}},
-        {"openai": {"status": "ok", "count": 1}},
-    ))
-    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
-    add_quick_choice_for_model("ghost-model", provider_id="custom_openai_deleted")
-
-    refreshed = cache.refresh_model_catalog_cache(reason="test", force=True)
-
-    assert refreshed.total_rows == 1
-    assert provider_config.load_provider_config()["quick_choices"] == []
-
-
 def test_background_model_catalog_refresh_coalesces(monkeypatch):
     import row_bot.providers.model_catalog_cache as cache
 

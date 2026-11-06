@@ -2138,7 +2138,7 @@ def n7_accounts(x_fixture_token: str = Header(default="")) -> dict:
         account = x_accounts.add(fake.sign_in(*user))
         # Documentation-capture mode (this fixture) never remembers a check; a real sign-in's passes.
         account_tokens._CHECKS[account.slot] = (account_tokens.digest(account.slot), True)
-    _N7["question"] = fake.post("999", "What does Row-Bot actually do with my data?")
+    _N7["question"] = fake.post("999", "@rowbot_ai What does Row-Bot actually do with my data?")
     _n7_picture(_N7["folder"] / "launch-card.png")
     return {"accounts": [account.handle for account in x_accounts.listed()]}
 
@@ -4645,7 +4645,8 @@ _a8_cgroup: Path | None = None
 
 
 @app.post("/__a8_fixture/memory/{gb}")
-def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
+def a8_memory(gb: str, unit: str = "gib", x_fixture_token: str = Header(default="")) -> dict:
+    """``unit=gb``: a limit in decimal GB, as Railway sets one (F1); else in GiB, as Docker's ``--memory``."""
     global _a8_cgroup
     predecessor._authorize(x_fixture_token)
     if gb == "off":
@@ -4654,7 +4655,7 @@ def a8_memory(gb: str, x_fixture_token: str = Header(default="")) -> dict:
         _server_memory.CGROUP_ROOT = None
         return {"limit_bytes": None}
     try:
-        size = int(float(gb) * 2**30)
+        size = int(float(gb) * (10**9 if unit == "gb" else 2**30))
     except ValueError:
         raise HTTPException(status_code=422, detail="Unknown memory size") from None
     import tempfile
@@ -4678,6 +4679,47 @@ def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
     _server_memory.started()  # A run whose working set came within 10% of the limit…
     _server_memory.started()  # …and the next start finds it never shut down.
     return {"notice": _server_memory.notice() is not None}
+
+
+# ── R2 (A1, A2): the setup page's sign-in link, and Railway's own pages ─────
+# The fixture is a desktop, which has no setup page. This hands a spec the real page as /setup serves it
+# on a Railway template's service (its IDs and public address known), with its own headers, for a
+# Row-Bot nobody owns ("unclaimed") or one somebody does ("owned"); the spec serves it at /setup and
+# answers the page's own requests.
+_R2_RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+
+
+@app.post("/__r2_fixture/setup-page/{state}")
+def r2_setup_page(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.access.routes import SETUP_PAGE_HEADERS
+    from row_bot.access.setup_page import render_setup_page
+    from row_bot.hosting import hosted_by
+
+    predecessor._authorize(x_fixture_token)
+    if state not in {"unclaimed", "owned"}:
+        raise HTTPException(status_code=422, detail="Unknown setup page state")
+    host = hosted_by({"ROW_BOT_HOSTED_BY": "railway", **_R2_RAILWAY_IDS})
+    html = render_setup_page(owned=state == "owned", host=host, paused_seconds=0, link_logged=True)
+    return {"html": html, "headers": dict(SETUP_PAGE_HEADERS)}
+
+
+# "on" gives the service Railway's IDs, as Railway does every service: its host entry then links the
+# service's own pages (A2). "off" takes them away again.
+@app.post("/__r2_fixture/railway-ids/{state}")
+def r2_railway_ids(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if state not in {"on", "off"}:
+        raise HTTPException(status_code=422, detail="Unknown state")
+    for name, value in _R2_RAILWAY_IDS.items():
+        if state == "on":
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+    return {"railway_ids": state}
 
 
 # ── A9 (Devices on a hosted Row-Bot) ────────────────────────────────────────
@@ -4704,9 +4746,9 @@ def a9_pod_address(state: str, x_fixture_token: str = Header(default="")) -> dic
 
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
-# (a pinned choice with its saved catalog row) and on the synthetic local
-# runtime that Setup and Settings › Models read. Favourites and hidden models
-# start empty. Nothing reaches a runtime, a provider or the network.
+# (a ready model with its saved catalog row, nothing starred yet) and on the
+# synthetic local runtime that Setup and Settings › Models read. Stars start
+# empty. Nothing reaches a runtime, a provider or the network.
 _S8_LOCAL_MODELS = (
     "deepseek-r1:14b", "gemma3:12b", "gemma3:4b", "gpt-oss:20b", "granite3.3:8b", "llama3.1:8b",
     "llama3.2:3b", "llava:13b", "mistral-nemo:12b", "mistral-small3.2:24b", "mistral:7b", "phi4-mini:3.8b",
@@ -4718,15 +4760,13 @@ _s8_backup: dict | None = None
 
 
 @app.post("/__s8_fixture/models/{action}")
-def s8_models(action: str, favourites: str = "", hidden: str = "",
-              x_fixture_token: str = Header(default="")) -> dict:
-    """seed: twenty local models everywhere models are chosen, with any favourites
-    and hidden models given (comma-separated names); restore: the profile back."""
+def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """seed: twenty local models everywhere models are chosen, with any stars given
+    (comma-separated names); restore: the profile back."""
     global _s8_backup
     predecessor._authorize(x_fixture_token)
     from row_bot.providers import config as provider_config, model_catalog_cache as cache, saved_model_settings
     from row_bot.providers.model_visibility import update_model_visibility
-    from row_bot.providers.selection import add_quick_choice_for_model
 
     files = {
         "providers": Path(provider_config.CONFIG_PATH),
@@ -4752,16 +4792,11 @@ def s8_models(action: str, favourites: str = "", hidden: str = "",
               "capabilities_snapshot": chat(name)} for name in _S8_LOCAL_MODELS],
             {"ollama": {"status": "ok", "count": len(_S8_LOCAL_MODELS)}}, (), "synthetic-browser",
         ))
-        for name in _S8_LOCAL_MODELS:
-            add_quick_choice_for_model(name, provider_id="ollama", display_name=name,
-                                       capabilities_snapshot=chat(name), surface="chat")
         saved_model_settings.update_saved_model_settings(
             lambda raw: {key: value for key, value in raw.items() if key != "model_visibility"},
             path=files["settings"])
         for name in filter(None, favourites.split(",")):
             update_model_visibility("favourite", f"model:ollama:{name}", path=files["settings"])
-        for name in filter(None, hidden.split(",")):
-            update_model_visibility("hide", f"model:ollama:{name}", path=files["settings"])
         # Setup and Settings › Models read the same models from the local runtime.
         _p10_state.update(runtime="running", models=[*_S8_LOCAL_MODELS, "nomic-embed-text:latest"])
     elif action == "restore":
@@ -6763,7 +6798,6 @@ def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(def
         _l2c2_chat()
     elif action == "picker":  # v1 in the composer's picker, beside the synthetic local models (s8's seed first)
         from row_bot.providers import model_catalog_cache as cache
-        from row_bot.providers.selection import add_quick_choice_for_model
 
         snapshot = cache.read_model_catalog_cache()
         tag = _L2C2_REF.split(":", 2)[2]
@@ -6773,8 +6807,6 @@ def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(def
         cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
             1, snapshot.generated_at + 1, snapshot.cloud_cache, rows,
             {"ollama": {"status": "ok", "count": len(rows)}}, (), "synthetic-browser"))
-        add_quick_choice_for_model(tag, provider_id="ollama", display_name=tag, capabilities_snapshot=_S8_CHAT,
-                                   surface="chat")
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}

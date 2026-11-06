@@ -37,7 +37,7 @@
         "favourite_rank": {
           "anyOf": [
             {
-              "maximum": 64,
+              "maximum": 256,
               "minimum": 1,
               "type": "integer"
             },
@@ -47,11 +47,6 @@
           ],
           "default": null,
           "title": "Favourite Rank"
-        },
-        "hidden": {
-          "default": false,
-          "title": "Hidden",
-          "type": "boolean"
         },
         "input_modalities": {
           "items": {
@@ -80,6 +75,11 @@
           "title": "Model Id",
           "type": "string"
         },
+        "offered": {
+          "default": false,
+          "title": "Offered",
+          "type": "boolean"
+        },
         "output_modalities": {
           "items": {
             "maxLength": 80,
@@ -87,15 +87,6 @@
           },
           "maxItems": 32,
           "title": "Output Modalities",
-          "type": "array"
-        },
-        "pinned_surfaces": {
-          "items": {
-            "maxLength": 80,
-            "type": "string"
-          },
-          "maxItems": 32,
-          "title": "Pinned Surfaces",
           "type": "array"
         },
         "provider_display_name": {
@@ -177,7 +168,6 @@
         "categories",
         "input_modalities",
         "output_modalities",
-        "pinned_surfaces",
         "configured",
         "runtime_ready",
         "status_reason",

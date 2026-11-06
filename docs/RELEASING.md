@@ -79,8 +79,14 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    the reference pages from the code, builds the site with its search index and
    syncs it into `docs/`, never touching the landing page. Pull requests between
    releases change only the docs' sources (`docs-site/docs`), so the published
-   site describes the release people can install. `--no-docs` skips it; then
-   run `python scripts/docs/publish.py` before opening the release-prep PR.
+   site describes the release people can install. With it, it refreshes the
+   model capabilities bundled with the release
+   (`scripts/refresh_model_capabilities.py` writes
+   `src/row_bot/providers/model_capabilities.json` from models.dev), the copy
+   Row-Bot reads when its live fetch fails. `--no-docs` skips both; then run
+   `python scripts/docs/publish.py` and
+   `python scripts/refresh_model_capabilities.py` before opening the
+   release-prep PR.
 
    It adds the version's section to `RELEASE_NOTES.md` when it has none, and a
    `### For Hosts` section at its end. Write there what changes for hosts that
@@ -89,6 +95,17 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    hosts must be flagged there and announced to them at least 7 days before the
    tag. The release refuses a section that still says `TODO:` (see the
    [Hosting checklist](#hosting-checklist)).
+
+   Refresh the app catalog's quality signals for the Registry snapshot this
+   release ships: run the **Catalog signals** workflow on the release-prep
+   branch (Actions → Catalog signals → Run workflow), download its
+   `registry-signals` artifact and commit it as
+   `src/row_bot/mcp_client/registry_signals.json.xz`. It reads stars, last
+   push, archived, fork parent and licence per repository from GitHub, and
+   first publish and version count per Registry record, with the workflow's own
+   read-only token (`scripts/build_catalog_signals.py`; locally,
+   `GITHUB_TOKEN=$(gh auth token) python scripts/build_catalog_signals.py`).
+   Searches only read the file. Without it, search ranks without stars.
 
    Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md` and the
    version sentence on `docs-site/docs/index.mdx` (publish again if you change
@@ -230,7 +247,10 @@ the updater trusts only files listed there.
 - **SimplySign Desktop** with the Certum code signing certificate
   (thumbprint `2341B4B36A21DF948E538A88BB194FAE4D1CAE51`). The script asks you
   to log in (the code from the phone app) once, before the first signature, and
-  signs both files in that session.
+  signs both files in that session. Before the first signature it checks the
+  certificate with a fresh OCSP answer (`certutil -verify -urlfetch`) and
+  refuses a revoked one: Windows keeps a CRL for a week, so its own checks
+  (`Get-AuthenticodeSignature`, `signtool verify`) can still call it valid.
 - **GitHub CLI** logged in with write access to the repository (`gh auth login`).
 - **Python 3.11 or newer** on `PATH` (`python` or `py -3`); no packages needed.
 - About 5 GB free in `%LOCALAPPDATA%\rbr\<run id>` (the installer stage is 1.9 GB
@@ -388,6 +408,25 @@ signed but not submitted: one submission per dry run), and runs
 packed by ISCC, the release is checked and the SHA-256 block is printed, with
 no signing, upload or publishing. The same works locally:
 `.\scripts\release_windows.ps1 -Version <version> -RunId <dry run ID> -DryRun`.
+
+### Re-signing the Windows installer
+
+If Certum revokes the certificate that signed a published Windows installer,
+Windows distrusts it once a machine has a fresh revocation list (a signature
+timestamped before the revocation stays valid). Re-sign that release with the
+certificate Certum issued in its place:
+
+```powershell
+.\scripts\release_windows.ps1 -Version X.Y.Z -Resign -CertificateSha1 <new thumbprint>
+```
+
+It signs the same run's stage again, packs and signs the installer, checks
+that every other file on the release is still the one its SHA-256 block lists,
+and after you type `resign X.Y.Z` replaces only the installer and its line in
+the block. This is the one change a published release takes: the update
+description names the installer without a hash and the update parts hold no
+programs, so installs that already prepared the update are unaffected. Until
+it is done, point the landing page's Windows download at the previous release.
 
 ### Pulling a bad release
 

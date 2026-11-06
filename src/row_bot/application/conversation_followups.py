@@ -66,6 +66,8 @@ class Followup:
     # A message from another conversation (5.3.1 C): where it came from, and the text the chat shows.
     linked_from: dict | None = None
     shown: str = ""
+    # A workflow run's first turn: the messages other conversations left for it ({id, title, text}).
+    held: tuple[dict, ...] = ()
 
 
 _PENDING: dict[str, Followup] = {}

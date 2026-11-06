@@ -268,6 +268,31 @@ def test_native_exception_never_exposes_private_paths(native) -> None:
     assert bridge.native_client_dispatch(proof, "select_file", _picker_payload()) == {"status": "unavailable", "reason": "operation_failed"}
 
 
+def test_a_saved_file_is_shown_in_its_folder_by_a_token_never_by_its_path(native, tmp_path: Path) -> None:
+    """Show in folder after a Save dialog (5.3.3): the page gets a one-time token for the file chosen,
+    never the path; an unknown or malformed token reveals nothing."""
+    bridge, proof, driver, _, _ = native
+    chosen = tmp_path / "launch-deck.pdf"
+    chosen.write_bytes(b"%PDF")
+    revealed: list[Path] = []
+    driver.save = lambda reference, name, authorized: chosen if authorized() else False
+    driver.reveal = lambda path: revealed.append(path) or True
+    assert "reveal_saved" in bridge.native_client_dispatch(proof, "discover", {})["value"]["capabilities"]
+
+    result = bridge.native_client_dispatch(proof, "save", {"reference": "save:" + "a" * 32, "name": "launch-deck.pdf"})
+    assert result["status"] == "ok" and set(result["value"]) == {"saved"}
+    assert str(tmp_path) not in str(result)
+    token = result["value"]["saved"]
+
+    assert bridge.native_client_dispatch(proof, "reveal_saved", {"saved": token}) == {"status": "ok", "value": None}
+    assert revealed == [chosen]
+    for wrong in ({"saved": "f" * 32}, {"saved": str(chosen)}, {"saved": token, "path": str(chosen)}, {}):
+        assert bridge.native_client_dispatch(proof, "reveal_saved", wrong)["status"] == "unavailable", wrong
+    chosen.unlink()  # Moved away since: nothing to show.
+    assert bridge.native_client_dispatch(proof, "reveal_saved", {"saved": token})["status"] == "unavailable"
+    assert revealed == [chosen]
+
+
 def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import sys
@@ -303,14 +328,14 @@ def test_a_save_dialog_answering_one_path_saves_exactly_there(monkeypatch: pytes
     saved: list[tuple[str, Path]] = []
     driver = PyWebViewDriver(window, save_reference=lambda reference, path: saved.append((reference, path)) or True)
 
-    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) == Path(chosen)
     assert saved == [("fixture", Path(chosen))]
     # The dialog opens in Downloads with the suggested name (pywebview's own
     # Windows default folder has no drive).
     assert dialogs[0] == (30, {"save_filename": "conversation-export.pdf", "directory": str(tmp_path / "Downloads")})
     # A one-item tuple (GTK, Qt) is the same choice.
     answer["value"] = (chosen,)
-    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) == Path(chosen)
     assert saved[-1] == ("fixture", Path(chosen))
     # A cancelled dialog writes nothing and says so.
     answer["value"] = None

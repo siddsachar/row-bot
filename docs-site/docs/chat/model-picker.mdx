@@ -16,10 +16,10 @@ The model picker in the composer chooses which model answers in the current conv
 Models appear after Row-Bot discovers them from a connected provider or local runtime:
 
 - Local Ollama models come from the Ollama service running on your computer.
-- Subscription models come from your ChatGPT or Grok plan, signed in from Settings › Providers, or your Claude plan through Claude Code, which you sign in to with Claude's own sign-in (**Use my Claude plan**).
-- Pay-per-use models come from a provider connected with an API key in Settings › Providers.
+- Subscription models come from your ChatGPT or Grok plan, signed in from Settings › Models, or your Claude plan through Claude Code, which you sign in to with Claude's own sign-in (**Use my Claude plan**).
+- Pay-per-use models come from a provider connected with an API key in Settings › Models.
 - Custom endpoint models come from the compatible endpoint details you provide.
-- Your favourites appear first.
+- Your models, the ones you starred, appear first.
 
 The same list is used everywhere a model is chosen: the composer, and the Brain, Vision, Image and Video pickers in Settings › Models.
 
@@ -37,16 +37,17 @@ Use a smaller or local model for quick private chats. Use a stronger tool-capabl
 
 Reasoning choices belong to the exact provider-qualified model, not just its display name. After choosing a supported model, use the conditional Thinking control described in [Reasoning Controls](/docs/chat/reasoning-controls).
 
-## Favourite And Hidden Models
+## Your Models
 
-- A model row's **⋯** menu (or Shift+F10 on it) offers **Add to favourites** or **Remove from favourites**, and **Hide** or **Show in the list**.
-- A favourite is listed first in every picker. A hidden model moves under **More models**, and still works.
-- **Settings › Models** does the same with each model's star and eye. See [Settings › Models](/docs/settings/models#catalog).
+- A model row's **star** (or Shift+F10 on it) adds it to **Your models** or takes it out.
+- Your models are listed first in every picker. Once you star a model from a provider, that provider's other models leave the pickers; they stay in Settings › Models.
+- The model you chose as your main model is always listed.
+- **Settings › Models** does the same with each model's star. See [Settings › Models](/docs/settings/models#catalog).
 
 ## Troubleshooting
 
-- If the picker says there are no models yet, choose how Row-Bot thinks in Setup, or connect a provider in Settings › Providers.
-- If a model is missing, refresh the provider in Settings › Providers, then refresh the catalog in Settings › Models.
+- If the picker says there are no models yet, choose how Row-Bot thinks in Setup, or connect a provider in Settings › Models › Add a provider.
+- If a model is missing, open its provider in Settings › Models and refresh its model list.
 - If a model shows as unavailable, read its reason; reconnecting its provider usually fixes it.
 - If a model appears but fails with tools, choose a model that isn't marked **Chat only**.
 - If custom endpoint models look duplicated, use the provider-qualified name.

@@ -246,7 +246,7 @@ const TILES: {
 
 const SETTINGS_ROUTES: Record<string, string> = {
   Models: 'models',
-  Providers: 'providers',
+  Providers: 'models',
   Voice: 'voice',
   Channels: 'apps',
   Accounts: 'apps',

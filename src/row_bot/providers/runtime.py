@@ -10,6 +10,7 @@ from typing import Any, TYPE_CHECKING
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
 from row_bot.providers.catalog import get_provider_definition
+from row_bot.providers.presets import PRESETS, get_preset, preset_endpoint
 from row_bot.providers.custom import (
     custom_endpoint_auth_missing_message,
     custom_endpoint_secret,
@@ -415,7 +416,8 @@ def captured_chat_model(
             model = Transport(model_name=resolved.runtime_model,base_url=resolved.base_url,
                 http_client=sync,reasoning_plan=capture.reasoning_plan)
             model.bind_captured_credentials(capture.oauth_snapshot,validate,headers=capture.headers)
-        elif transport == "openai_chat" and (is_custom_openai_provider(provider) or provider in {"opencode_zen","opencode_go"}):
+        elif transport == "openai_chat" and (is_custom_openai_provider(provider)
+                or provider in {"opencode_zen","opencode_go",*PRESETS}):
             from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
             model = ChatOpenAICompatible(model_name=resolved.runtime_model,api_key=capture.credential,
                 base_url=resolved.base_url,endpoint=resolved.endpoint,http_client=sync,timeout=120,
@@ -549,6 +551,7 @@ def list_configured_provider_ids() -> list[str]:
             "google",
             "xai",
             "minimax",
+            *PRESETS,
         )
         if is_provider_available(provider_id)
     ]
@@ -1092,6 +1095,20 @@ def _create_chat_model(
                 "transport": "openai_chat",
                 "profile": "atlascloud",
             },
+            reasoning_plan=reasoning_plan,
+        )
+
+    if preset := get_preset(provider):
+        from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+        api_key = get_provider_secret(provider)
+        if not api_key:
+            raise ValueError(f"{preset.name} API key not configured. Set it in Settings → Models.")
+        return ChatOpenAICompatible(
+            model_name=model_name,
+            api_key=api_key,
+            base_url=preset.base_url,
+            endpoint=preset_endpoint(preset),
             reasoning_plan=reasoning_plan,
         )
 

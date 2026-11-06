@@ -189,7 +189,7 @@ def test_domain_supported_long_model_identity_round_trips(api_saved, provider, i
 
 
 def test_public_redaction_no_implicit_runtime_io_or_saved_mutation(api_saved, monkeypatch):
-    from row_bot.providers import auth_store, custom, model_catalog, runtime, selection
+    from row_bot.providers import auth_store, custom, model_catalog, runtime
 
     write, _ = api_saved
     secret = {"api_key": "PRIVATE_SENTINEL", "fingerprint": "PRIVATE_SENTINEL", "last_error": "PRIVATE_SENTINEL", "path": "PRIVATE_SENTINEL"}
@@ -209,7 +209,7 @@ def test_public_redaction_no_implicit_runtime_io_or_saved_mutation(api_saved, mo
     for module, names in [
         (cache, ["_bootstrap_snapshot_from_runtime", "refresh_model_catalog_cache", "write_model_catalog_cache"]),
         (config, ["save_provider_config"]), (auth_store, ["get_provider_secret", "provider_secret_status"]),
-        (runtime, ["provider_status"]), (selection, ["prune_stale_custom_quick_choices", "list_quick_choices"]),
+        (runtime, ["provider_status"]),
         (custom, ["custom_probe_for_model", "refresh_custom_endpoint_models"]),
         (model_catalog, ["_provider_status_by_id", "_probe_ollama_show_metadata"]),
     ]:

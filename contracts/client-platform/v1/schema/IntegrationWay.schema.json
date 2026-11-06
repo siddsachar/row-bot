@@ -8,6 +8,17 @@
       "title": "Id",
       "type": "string"
     },
+    "label": {
+      "default": "community",
+      "enum": [
+        "official",
+        "reviewed",
+        "built_in",
+        "community"
+      ],
+      "title": "Label",
+      "type": "string"
+    },
     "method": {
       "enum": [
         "hosted_sign_in",

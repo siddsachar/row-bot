@@ -6,7 +6,7 @@ from typing import Callable
 
 from row_bot.application.provider_default_model import read_default_model
 from row_bot.providers import client_status
-from row_bot.providers.catalog import provider_billing
+from row_bot.providers.catalog import get_provider_definition, provider_billing
 from row_bot.providers.model_catalog import picker_options
 from row_bot.providers.model_visibility import ModelVisibility, annotate, read_model_visibility
 from row_bot.providers.selection import format_model_choice_label, model_choice_value, parse_model_ref
@@ -19,6 +19,19 @@ def _media_ref(value: str, *, default_provider: str) -> str:
     if not model_id:
         provider_id, model_id = default_provider, provider_id
     return model_choice_value(model_id, provider_id=provider_id) if provider_id and model_id else ""
+
+
+def _unlisted(current: str, rows: tuple) -> str:
+    """A saved model its provider's list no longer has, once that provider has listed models."""
+    parsed = parse_model_ref(current)
+    if not parsed or parsed[0] == "ollama" or any(row.selection_ref == current for row in rows):
+        return ""
+    provider_id, model_id = parsed
+    if not any(row.provider_id == provider_id for row in rows):
+        return ""
+    definition = get_provider_definition(provider_id)
+    name = definition.display_name if definition else provider_id
+    return f"{name} no longer lists {model_id}, so it may have been retired. Choose another model."
 
 
 def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = None,
@@ -42,7 +55,12 @@ def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = N
     current_option = next((option for option in options if option["selection_ref"] == current), None)
     warning = ""
     if current and (current_option is None or not current_option["available"]):
-        if current.startswith("model:ollama:"):
+        unlisted = _unlisted(current, rows)
+        if unlisted:
+            warning = unlisted
+            if current_option is not None:
+                current_option["reason"] = "No longer listed"
+        elif current.startswith("model:ollama:"):
             warning = f"Current {surface.capitalize()} local model is unavailable. Manage local models in Ollama, then refresh or choose another model."
         else:
             warning = f"Current {surface.capitalize()} default is unavailable. Connect the provider, refresh the catalog, or choose another model."
@@ -126,8 +144,6 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
             if tool is None:
                 raise ValueError("model_surface_unavailable")
             tool.set_config("model", f"{provider_id}/{model_id}")
-            from row_bot.providers.selection import seed_configured_media_quick_choices
-            seed_configured_media_quick_choices()
     elif action == "enabled" and type(enabled) is bool:
         if surface == "vision":
             get_vision_service().enabled = enabled
@@ -187,8 +203,8 @@ def catalog_provider_summary(surface: str, *, validate: Callable[[], None] = lam
             "display_name": row.provider_display_name, "total": 0, "ready": 0, "pinned": 0})
         group["total"] += 1
         group["ready"] += int(row.configured and row.runtime_ready and bool(row.installed))
-        # Listed in its pickers: pinned for the job, or a favourite (U10).
-        group["pinned"] += int(surface in row.pinned_surfaces or row.selection_ref in starred)
+        # Listed in its pickers: starred.
+        group["pinned"] += int(row.selection_ref in starred)
     validate()
     return {"schema_version": 1, "revision": snapshot.revision, "surface": surface,
             "providers": sorted(groups.values(), key=lambda row: (row["display_name"].casefold(), row["provider_id"]))}

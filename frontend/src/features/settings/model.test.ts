@@ -34,7 +34,6 @@ describe('settings navigation metadata', () => {
       'Preferences',
       'Appearance',
       'Buddy',
-      'Providers',
       'Models',
       'Voice',
       'Memory',
@@ -79,7 +78,8 @@ describe('settings navigation metadata', () => {
 
   it('redirects legacy ids and moved pages to their new home and row', () => {
     for (const [alias, target] of [
-      ['Cloud', 'providers'],
+      ['Cloud', 'models'],
+      ['providers', 'models'],
       ['Wiki', 'knowledge'],
       ['Migration', 'data'],
       ['Search', 'tools'],
@@ -110,7 +110,8 @@ describe('settings navigation metadata', () => {
     expect(
       legacyIntegrationHref(new URLSearchParams('type=mcp&view=catalogs')),
     ).toBe('/settings/apps?view=advanced');
-    expect(settingsHref('providers')).toBe('/settings/providers');
+    // Providers merged into Models: its links land on the connections.
+    expect(settingsHref('providers')).toBe('/settings/models#connections');
     // Accounts and channels are apps: their old pages and rows open the app.
     expect(settingsHref('accounts', 'google')).toBe('/settings/apps/google');
     expect(settingsHref('gmail')).toBe('/settings/apps/google');

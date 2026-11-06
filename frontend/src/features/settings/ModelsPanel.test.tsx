@@ -7,7 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import { LiveUpdates } from '../../api/live-updates';
@@ -16,6 +16,7 @@ import type {
   DefaultModelSnapshot,
   LiveFrame,
   ModelsSettingsState,
+  ProviderLiveCard,
 } from '../../api/types';
 import { provideLive } from '../../live';
 import { OverlayProvider } from '../../ui/overlays';
@@ -188,13 +189,17 @@ function fixture() {
       models: [],
     })),
     refreshChoices: vi.fn(async () => undefined),
+    updateModelVisibility: vi.fn(async () => ({
+      schema_version: 2,
+      favourites: [],
+    })),
     subscribe: vi.fn(() => () => undefined),
     getSnapshot: vi.fn(() => clientSnapshot),
   } as unknown as ClientController;
   return controller;
 }
 /** Every Models picker is the composer's searchable list (U12, B227). */
-async function chooseDefault(name: RegExp, picker = 'Brain model') {
+async function chooseDefault(name: RegExp, picker = 'Main model') {
   const button = await screen.findByRole('button', { name: picker });
   // A save in flight disables the pickers until it settles.
   await waitFor(() => expect(button).toBeEnabled());
@@ -202,10 +207,11 @@ async function chooseDefault(name: RegExp, picker = 'Brain model') {
   const option = await screen.findByRole('option', { name });
   await act(async () => fireEvent.click(option));
 }
-function Location() {
-  return <output aria-label="Location">{useLocation().pathname}</output>;
-}
-function show(controller = fixture(), openExternal = vi.fn()) {
+function show(
+  controller = fixture(),
+  openExternal = vi.fn(),
+  connections?: Parameters<typeof ModelsPanel>[0]['connections'],
+) {
   const session = new DefaultModelSession();
   render(
     <MemoryRouter initialEntries={['/settings/models']}>
@@ -214,8 +220,8 @@ function show(controller = fixture(), openExternal = vi.fn()) {
           controller={controller}
           session={session}
           openExternal={openExternal}
+          connections={connections}
         />
-        <Location />
       </OverlayProvider>
     </MemoryRouter>,
   );
@@ -227,12 +233,12 @@ async function notice(text: string | RegExp) {
   return within(notices.parentElement!).findByText(text);
 }
 
-it('says the Brain picker lists starred models first and where to star more (U10)', async () => {
+it('says the main model picker lists your models first and where to star more (U10)', async () => {
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Brain model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Main model' }));
   expect(
     await screen.findByText(
-      'Starred models come first. Star more in the Catalog below.',
+      'Your models come first. Star more in a provider or the Catalog below.',
     ),
   ).toBeVisible();
 });
@@ -240,7 +246,7 @@ it('says the Brain picker lists starred models first and where to star more (U10
 it('renders actual defaults and limits while leaving catalog rows unloaded', async () => {
   const { controller } = show();
   expect(
-    await screen.findByRole('button', { name: 'Brain model' }),
+    await screen.findByRole('button', { name: 'Main model' }),
   ).toHaveTextContent('GPT-6-Astra');
   expect(
     screen.getByRole('button', { name: 'Vision model' }),
@@ -272,23 +278,29 @@ it('renders actual defaults and limits while leaving catalog rows unloaded', asy
 
 it('has a row for every Models result of Settings search', async () => {
   show();
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   await screen.findByRole('spinbutton', { name: /Helper levels/ });
   const rendered = new Set(
     [...document.querySelectorAll<HTMLElement>('[data-setting-anchor]')].map(
       (element) => element.dataset.settingAnchor,
     ),
   );
+  // The connected providers' rows belong to their own list (ProviderStatus).
   expect(
     settingsRows
-      .filter((row) => row.leaf === 'models' && !rendered.has(row.anchor))
+      .filter(
+        (row) =>
+          row.leaf === 'models' &&
+          !/^(providers-|custom-endpoints)/.test(row.anchor) &&
+          !rendered.has(row.anchor),
+      )
       .map((row) => row.label),
   ).toEqual([]);
 });
 
 it('gives the four jobs one row each: name, purpose, switch, picker (B229)', async () => {
   show();
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   expect(screen.getByText('Chats, agents and workflows.')).toBeVisible();
   expect(
     screen.getByText('Reads images, screenshots and your camera.'),
@@ -297,18 +309,18 @@ it('gives the four jobs one row each: name, purpose, switch, picker (B229)', asy
   expect(
     screen.getByText('Makes short clips and animates pictures.'),
   ).toBeVisible();
-  // Vision, Image and Video can be switched off; the Brain can't.
+  // Vision, Image and Video can be switched off; the main model can't.
   expect(
     screen.getAllByRole('switch').map((toggle) => toggle.ariaLabel),
   ).toEqual(['Enable vision', 'Enable image', 'Enable video']);
-  // No stray save line, no chip repeating the Brain model.
+  // No stray save line, no chip repeating the main model.
   expect(screen.queryByText(/Brain default saved/)).toBeNull();
   expect(screen.queryByTitle(/Default model:/)).toBeNull();
 });
 
 it('says how much there is to choose, and from how many providers, in one status line (B229, U10)', async () => {
   show();
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   // ChatGPT / Codex, OpenAI and Google offer available models; the unavailable
   // xAI video model counts for neither.
   // It counts providers with a model to choose, so it never claims what
@@ -320,7 +332,7 @@ it('says how much there is to choose, and from how many providers, in one status
 it('offers models for this computer from the page menu only when Ollama is not running (B117)', async () => {
   const user = userEvent.setup();
   const { controller, openExternal } = show();
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
   await user.click(screen.getByRole('button', { name: 'More model actions' }));
   await user.click(
@@ -344,11 +356,11 @@ it('leaves the download out of the page menu while Ollama runs (B117)', async ()
     models: [],
   });
   show(controller);
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
   await user.click(screen.getByRole('button', { name: 'More model actions' }));
   expect(
-    await screen.findByRole('menuitem', { name: 'Provider connections' }),
+    await screen.findByRole('menuitem', { name: 'Re-read model settings' }),
   ).toBeVisible();
   expect(
     screen.queryByRole('menuitem', { name: /Get models for this computer/ }),
@@ -367,34 +379,21 @@ it('leaves the download out on another device, where it would land on that devic
     models: [],
   });
   show(controller);
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
   await user.click(screen.getByRole('button', { name: 'More model actions' }));
   expect(
-    await screen.findByRole('menuitem', { name: 'Provider connections' }),
+    await screen.findByRole('menuitem', { name: 'Re-read model settings' }),
   ).toBeVisible();
   expect(
     screen.queryByRole('menuitem', { name: /Get models for this computer/ }),
   ).toBeNull();
 });
 
-it('opens Provider connections inside the router from the page menu (B31)', async () => {
-  const user = userEvent.setup();
-  show();
-  await screen.findByRole('button', { name: 'Brain model' });
-  await user.click(screen.getByRole('button', { name: 'More model actions' }));
-  await user.click(
-    await screen.findByRole('menuitem', { name: 'Provider connections' }),
-  );
-  expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
-    '/settings/providers',
-  );
-});
-
 it('re-reads the model settings from the page menu', async () => {
   const user = userEvent.setup();
   const { controller } = show();
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   expect(controller.modelsSettings).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole('button', { name: 'More model actions' }));
   await user.click(
@@ -410,7 +409,7 @@ it('lets Vision follow the Brain from the top of its list (decision 11, B227)', 
   fireEvent.click(await screen.findByRole('button', { name: 'Vision model' }));
   const list = await screen.findByRole('listbox', { name: 'Models' });
   const [first] = within(list).getAllByRole('option');
-  expect(first).toHaveTextContent('Same as Brain');
+  expect(first).toHaveTextContent('Same as main model');
   // It names the model it follows.
   expect(first).toHaveTextContent('GPT-6-Astra');
   await act(async () => fireEvent.click(first));
@@ -421,10 +420,10 @@ it('lets Vision follow the Brain from the top of its list (decision 11, B227)', 
       selection_ref: '',
     }),
   );
-  expect(await notice('Vision now follows the Brain')).toBeInTheDocument();
+  expect(await notice('Vision now follows the main model')).toBeInTheDocument();
   expect(
     screen.getByRole('button', { name: 'Vision model' }),
-  ).toHaveTextContent('Same as Brain');
+  ).toHaveTextContent('Same as main model');
 });
 
 it('lists only the Vision choices, grouped by provider with how each is paid for (B227)', async () => {
@@ -436,7 +435,7 @@ it('lists only the Vision choices, grouped by provider with how each is paid for
       .getAllByRole('option')
       .map((option) => option.textContent),
   ).toEqual([
-    expect.stringContaining('Same as Brain'),
+    expect.stringContaining('Same as main model'),
     expect.stringContaining('GPT-6-Astra'),
     expect.stringContaining('GPT-4.1'),
   ]);
@@ -486,7 +485,9 @@ it('keeps an unset Image model unset and lists an unavailable Video model with i
   fireEvent.click(imagePicker);
   await screen.findByRole('listbox', { name: 'Models' });
   // Only Vision can follow the Brain; Image and Video have no such row.
-  expect(screen.queryByRole('option', { name: /Same as Brain/ })).toBeNull();
+  expect(
+    screen.queryByRole('option', { name: /Same as main model/ }),
+  ).toBeNull();
   fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search models' }), {
     key: 'Escape',
   });
@@ -505,7 +506,7 @@ it('keeps an unset Image model unset and lists an unavailable Video model with i
 
 it('reviews and saves the selected Brain default internally with the exact qualified identity', async () => {
   const { controller } = show();
-  const select = await screen.findByRole('button', { name: 'Brain model' });
+  const select = await screen.findByRole('button', { name: 'Main model' });
   await chooseDefault(/GPT-5\.5/);
   await waitFor(() =>
     expect(controller.executeDefaultModel).toHaveBeenCalledTimes(1),
@@ -526,7 +527,7 @@ it('reviews and saves the selected Brain default internally with the exact quali
 it('confirms a Brain change with the floating notice, whose Undo saves the previous model back (B229)', async () => {
   const { controller } = show();
   await chooseDefault(/GPT-5\.5/);
-  const confirmation = await notice('Brain is now GPT-5.5');
+  const confirmation = await notice('Main model is now GPT-5.5');
   const undo = within(confirmation.closest('li')!).getByRole('button', {
     name: 'Undo',
   });
@@ -682,7 +683,7 @@ it('sets a default goal turn limit, where 0 means no limit (B243)', async () => 
 
 it('refreshes the catalog only from its status line and keeps its rows closed', async () => {
   const { controller } = show();
-  await screen.findByRole('button', { name: 'Brain model' });
+  await screen.findByRole('button', { name: 'Main model' });
   expect(controller.refreshModelsCatalog).not.toHaveBeenCalled();
   expect(screen.getByText(/^Updated /)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh catalog' }));
@@ -709,7 +710,7 @@ it('keeps only the original receipt action visible while a Brain save is uncerta
     });
   show(controller);
   const selector = await screen.findByRole('button', {
-    name: 'Brain model',
+    name: 'Main model',
   });
   await chooseDefault(/GPT-5\.5/);
   const button = await screen.findByRole('button', {
@@ -745,7 +746,7 @@ it("offers the page's one model list in the Brain picker, never a second list (B
     },
   } as never);
   show(controller);
-  const picker = await screen.findByRole('button', { name: 'Brain model' });
+  const picker = await screen.findByRole('button', { name: 'Main model' });
   expect(picker).toHaveTextContent('ChatGPT / Codex · Subscription');
   fireEvent.click(picker);
   expect(
@@ -775,7 +776,7 @@ it('lists a pinned model without saved details with its reason and a catalog ref
     },
   });
   show(controller);
-  fireEvent.click(await screen.findByRole('button', { name: 'Brain model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Main model' }));
   const row = await screen.findByRole('option', { name: /Claude Mystery/ });
   expect(row).toHaveAttribute('aria-disabled', 'true');
   expect(row).toHaveTextContent('No saved details for this model yet.');
@@ -847,4 +848,111 @@ it('shows a newly signed-in provider’s models once its catalog refreshes, with
   } finally {
     live.stop();
   }
+});
+
+it('lists your models: every job’s stars, the main model marked, a star to take one out', async () => {
+  const controller = fixture();
+  vi.spyOn(controller, 'modelsSettings').mockResolvedValue({
+    ...structuredClone(baseState),
+    brain: {
+      ...baseState.brain,
+      options: [
+        {
+          ...option(brain, 'GPT-6-Astra - ChatGPT / Codex'),
+          favourite_rank: 1,
+        },
+        option('model:codex:gpt-5.5', 'GPT-5.5 - ChatGPT / Codex'),
+      ],
+    },
+    vision: {
+      ...baseState.vision,
+      options: [
+        {
+          ...option(vision, 'GPT-6-Astra - ChatGPT / Codex'),
+          favourite_rank: 1,
+        },
+        {
+          ...option('model:openai:gpt-4.1', 'GPT-4.1 - OpenAI'),
+          favourite_rank: 2,
+        },
+      ],
+    },
+  });
+  show(controller);
+  const list = await screen.findByRole('list', { name: 'Your models' });
+  expect(
+    within(list)
+      .getAllByRole('listitem')
+      .map((row) => within(row).getByTitle(/^model:/).textContent),
+  ).toEqual(['GPT-6-AstraMain model', 'GPT-4.1']);
+  expect(list).toHaveTextContent('ChatGPT / Codex · chat, sees images');
+  expect(list).toHaveTextContent('OpenAI · sees images');
+  // Only a model that can chat can be the main model.
+  expect(
+    within(list).queryByRole('button', { name: 'Make GPT-4.1 the main model' }),
+  ).toBeNull();
+  fireEvent.click(
+    within(list).getByRole('button', {
+      name: 'Remove GPT-4.1 from your models',
+    }),
+  );
+  await waitFor(() =>
+    expect(controller.updateModelVisibility).toHaveBeenCalledWith({
+      action: 'unfavourite',
+      model_ref: 'model:openai:gpt-4.1',
+    }),
+  );
+  await waitFor(() =>
+    expect(controller.modelsSettings).toHaveBeenCalledTimes(2),
+  );
+});
+
+it('makes a starred model the main model from Your models', async () => {
+  const controller = fixture();
+  const state = structuredClone(baseState);
+  state.brain.options = state.brain.options.map((item, index) => ({
+    ...item,
+    favourite_rank: index + 1,
+  }));
+  vi.spyOn(controller, 'modelsSettings').mockResolvedValue(state);
+  show(controller);
+  const list = await screen.findByRole('list', { name: 'Your models' });
+  fireEvent.click(
+    within(list).getByRole('button', { name: 'Make GPT-5.5 the main model' }),
+  );
+  expect(await notice('Main model is now GPT-5.5')).toBeInTheDocument();
+  expect(controller.executeDefaultModel).toHaveBeenCalledOnce();
+});
+
+it('lists one provider’s models in its sheet, without the catalog’s provider choice', async () => {
+  const controller = fixture();
+  vi.spyOn(controller, 'modelCatalogPage').mockResolvedValue({
+    schema_version: 1,
+    revision: 'one',
+    surface: 'chat',
+    total: 0,
+    items: [],
+    next_cursor: null,
+  } as never);
+  show(controller, vi.fn(), (models) => (
+    <section aria-label="OpenAI sheet">
+      {models({ provider_id: 'openai' } as ProviderLiveCard)}
+    </section>
+  ));
+  const sheet = await screen.findByRole('region', { name: 'OpenAI sheet' });
+  await waitFor(() =>
+    expect(controller.modelCatalogPage).toHaveBeenCalledWith(
+      'chat',
+      'openai',
+      '',
+      undefined,
+      expect.anything(),
+    ),
+  );
+  expect(
+    within(sheet).queryByRole('combobox', { name: 'Provider' }),
+  ).toBeNull();
+  expect(
+    within(sheet).queryByRole('button', { name: 'All providers' }),
+  ).toBeNull();
 });

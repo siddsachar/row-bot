@@ -202,10 +202,7 @@ export default function ComposerControls({
       setSaving(false);
     }
   }
-  /**
-   * Favourite or hide a model from the picker (F10). It never changes the
-   * chat's model; the picker itself says where a hidden model went.
-   */
+  /** Star or unstar a model from the picker. It never changes the chat's model. */
   async function changeVisibility(item: ModelChoice, action: VisibilityAction) {
     try {
       await controller.updateModelVisibility({

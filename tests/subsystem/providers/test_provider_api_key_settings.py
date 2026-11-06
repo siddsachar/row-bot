@@ -134,7 +134,7 @@ def test_provider_api_key_save_replaces_legacy_local_key_and_clear_removes_provi
                     "context_length": 128_000,
                 }],
             },
-            "https://openrouter.ai/api/v1/models",
+            "https://openrouter.ai/api/v1/models?output_modalities=all",
             "deepseek/deepseek-chat",
         ),
         (

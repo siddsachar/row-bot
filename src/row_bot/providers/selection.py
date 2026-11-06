@@ -2,32 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Any, Iterable, Callable
+from typing import Any, Iterable
 
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.catalog import infer_provider_id
-from row_bot.providers.config import (load_provider_config, save_provider_config,
-    provider_config_transaction, provider_config_revision, ProviderConfigError)
-from row_bot.providers.errors import NormalizedProviderError, normalize_provider_error
 
-CHAT_VISIBILITY = ["chat", "workflow", "channels", "designer", "status_tool"]
-DEFAULT_VISIBILITY = list(CHAT_VISIBILITY)
-SURFACE_VISIBILITY: dict[str, list[str]] = {
-    "chat": list(CHAT_VISIBILITY),
-    "vision": ["vision"],
-    "image": ["image"],
-    "video": ["video"],
-    "voice": ["voice"],
-}
-QUICK_CHOICE_SURFACE_GROUPS = [
-    {"id": "chat", "display_name": "Chat"},
-    {"id": "vision", "display_name": "Vision"},
-    {"id": "image", "display_name": "Image"},
-    {"id": "video", "display_name": "Video"},
-    {"id": "voice", "display_name": "Voice"},
-]
-_PROVIDER_STATUS_PICKER_CACHE_TTL_SECONDS = 5.0
-_provider_status_picker_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+# Every job that runs on a chat model reads the chat list (your models that can chat).
+CHAT_JOBS = frozenset({"chat", "workflow", "channels", "designer", "status_tool"})
+
+
+def _job(surface: str) -> str:
+    return "chat" if surface in CHAT_JOBS else surface
 
 
 @dataclass(frozen=True)
@@ -36,7 +21,6 @@ class ResolvedSelection:
     kind: str
     model_id: str = ""
     provider_id: str = ""
-    route_id: str = ""
     display_name: str = ""
     legacy_value: str = ""
     active: bool = True
@@ -79,10 +63,9 @@ def resolve_catalog_model_selection(
     """Strictly resolve a model selection without inventing a provider.
 
     This helper is for user-facing persistent writes and child-agent model
-    selection. It reads configured quick choices, custom endpoint metadata, and
-    the cached model catalog only; it does not probe providers or refresh live
-    catalogs. When require_pinned is true, only configured Quick Choices are
-    accepted.
+    selection. It reads custom endpoint metadata and the cached model catalog
+    only; it does not probe providers or refresh live catalogs. When
+    require_pinned is true, only your starred models are accepted.
     """
     raw = str(value or "").strip()
     if not raw or raw.lower() == "default":
@@ -92,7 +75,6 @@ def resolve_catalog_model_selection(
 
     parsed = parse_model_ref(raw)
     candidates = _strict_catalog_model_candidates(surface=surface)
-    # A favourite is listed in the pickers like a pinned model (U10).
     favourites = _favourite_refs() if require_pinned else frozenset()
     if parsed:
         provider_id, model_id = parsed
@@ -208,8 +190,8 @@ def _favourite_refs() -> frozenset[str]:
     return frozenset(read_model_visibility().favourites)
 
 
-def _catalog_candidate_is_pinned(candidate: dict[str, Any], favourites: frozenset[str] = frozenset()) -> bool:
-    return str(candidate.get("source") or "") == "quick_choice" or str(candidate.get("ref") or "") in favourites
+def _catalog_candidate_is_pinned(candidate: dict[str, Any], favourites: frozenset[str]) -> bool:
+    return str(candidate.get("ref") or "") in favourites
 
 
 def _pinned_model_suggestions(
@@ -219,10 +201,11 @@ def _pinned_model_suggestions(
     limit: int = 5,
 ) -> tuple[str, ...]:
     provider = _canonical_provider_id(provider_id)
+    favourites = _favourite_refs()
     pinned = [
         item
         for item in _unique_catalog_candidates(candidates)
-        if _catalog_candidate_is_pinned(item) and item.get("active") is not False
+        if _catalog_candidate_is_pinned(item, favourites) and item.get("active") is not False
     ]
     scoped = [
         item
@@ -264,7 +247,7 @@ def pinned_model_choice_summaries(
     include_inactive: bool = True,
     limit: int = 0,
 ) -> list[dict[str, Any]]:
-    """Return compact, agent-readable pinned model choices for a surface."""
+    """Return compact, agent-readable starred model choices for a surface."""
     summaries: list[dict[str, Any]] = []
     try:
         options = list_model_choice_options(surface, include_inactive=include_inactive)
@@ -288,7 +271,7 @@ def pinned_model_choice_summaries(
             "model_id": model_id,
             "active": active,
             "reason": str(option.get("reason") or ""),
-            "source": str(option.get("source") or "quick_choice"),
+            "source": str(option.get("source") or "star"),
         })
         if limit and len(summaries) >= limit:
             break
@@ -348,26 +331,6 @@ def _strict_catalog_model_candidates(*, surface: str) -> list[dict[str, Any]]:
             "runtime_mode": str(runtime_mode or ""),
         })
 
-    for choice in _configured_quick_model_choices():
-        if choice.get("kind") != "model":
-            continue
-        provider_id = str(choice.get("provider_id") or "")
-        model_id = str(choice.get("model_id") or "")
-        display_name = str(choice.get("display_name") or model_id)
-        add_candidate(
-            provider_id=provider_id,
-            model_id=model_id,
-            display_name=display_name,
-            source="quick_choice",
-            aliases=(str(choice.get("id") or ""),),
-            active=choice.get("active") is not False,
-            reason=str(choice.get("inactive_reason") or choice.get("last_error") or ""),
-            visibility=choice.get("visibility") if isinstance(choice.get("visibility"), list) else None,
-            capabilities_snapshot=choice.get("capabilities_snapshot")
-            if isinstance(choice.get("capabilities_snapshot"), dict)
-            else None,
-        )
-
     for provider_id, model_id, display_name in _custom_endpoint_model_matches_for_catalog():
         add_candidate(
             provider_id=provider_id,
@@ -388,24 +351,13 @@ def _strict_catalog_model_candidates(*, surface: str) -> list[dict[str, Any]]:
     return _unique_catalog_candidates(candidates)
 
 
-def _configured_quick_model_choices() -> list[dict[str, Any]]:
-    try:
-        return [
-            dict(choice)
-            for choice in load_provider_config().get("quick_choices", [])
-            if isinstance(choice, dict)
-        ]
-    except Exception:
-        return []
-
-
 def _catalog_candidate_supports_surface(
     surface: str,
     *,
     visibility: Iterable[str] | None,
     capabilities_snapshot: dict[str, Any],
 ) -> bool:
-    selected_surface = str(surface or "").strip()
+    selected_surface = _job(str(surface or "").strip())
     if not selected_surface:
         return True
     visible = {str(item) for item in (visibility or []) if str(item)}
@@ -568,7 +520,7 @@ def canonicalize_model_selection(
             source="provider_ref",
         )
 
-    match = _canonical_quick_choice_match(raw, surface)
+    match = _canonical_star_match(raw, surface)
     if match:
         return match
 
@@ -608,56 +560,27 @@ def canonicalize_model_selection(
     )
 
 
-def _canonical_quick_choice_match(raw: str, surface: str) -> CanonicalModelSelection | None:
+def _canonical_star_match(raw: str, surface: str) -> CanonicalModelSelection | None:
+    """A bare name or label that matches exactly one of your models for this job."""
     lower = raw.lower()
-    matches: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for choice in list_quick_choices(surface, include_inactive=True):
-        if choice.get("kind") != "model" or not choice.get("model_id"):
-            continue
-        provider_id = str(choice.get("provider_id") or infer_provider_id(str(choice.get("model_id") or "")) or "")
-        model_id = str(choice.get("model_id") or "")
-        ref = model_choice_value(model_id, provider_id=provider_id)
-        aliases = {
-            str(choice.get("id") or "").lower(),
-            ref.lower(),
-            str(choice.get("display_name") or "").lower(),
-            model_id.lower(),
-        }
-        if lower not in aliases or ref in seen:
-            continue
-        seen.add(ref)
-        item = dict(choice)
-        item["id"] = ref
-        item["provider_id"] = provider_id
-        item["model_id"] = model_id
-        matches.append(item)
+    matches = [
+        option for option in list_model_choice_options(surface, include_inactive=True)
+        if lower in {str(option.get(key) or "").lower() for key in ("value", "model_id", "display_name")}
+    ]
     if not matches:
         return None
     if len(matches) > 1:
-        refs = ", ".join(str(choice.get("id") or "") for choice in matches)
-        raise ModelSelectionError(
-            f"Ambiguous model selection '{raw}'. Use one of: {refs}."
-        )
-    choice = matches[0]
-    if choice.get("active") is False:
-        reason = str(choice.get("inactive_reason") or "This Quick Choice is inactive.")
-        raise ModelSelectionError(f"Model selection '{raw}' is inactive: {reason}")
-    provider_id = str(choice.get("provider_id") or "")
-    model_id = str(choice.get("model_id") or "")
+        refs = ", ".join(str(option["value"]) for option in matches)
+        raise ModelSelectionError(f"Ambiguous model selection '{raw}'. Use one of: {refs}.")
+    option = matches[0]
+    if star_cannot_run(option):
+        raise ModelSelectionError(f"Model selection '{raw}' is inactive: {option.get('reason') or 'unavailable'}")
+    provider_id, model_id = str(option["provider_id"]), str(option["model_id"])
     return CanonicalModelSelection(
-        ref=str(choice.get("id") or model_ref(provider_id, model_id)),
-        provider_id=provider_id,
-        model_id=model_id,
-        display_label=format_model_choice_label(
-            provider_id,
-            model_id,
-            str(choice.get("display_name") or model_id),
-            include_icon=False,
-        ),
-        active=True,
-        reason=str(choice.get("inactive_reason") or ""),
-        source="quick_choice",
+        ref=str(option["value"]), provider_id=provider_id, model_id=model_id,
+        display_label=format_model_choice_label(provider_id, model_id, str(option.get("display_name") or model_id),
+                                                include_icon=False),
+        active=True, source="star",
     )
 
 
@@ -813,7 +736,7 @@ def _model_choice_option_for_value(
         "source": "included_value",
     }
     if surface:
-        ref = model_ref(provider_id, model_id)
+        surface = _job(surface)
         snapshot = _selection_capability_snapshot(provider_id, model_id)
         if snapshot and not provider_id.startswith("custom_openai_") and not snapshot_supports_surface(snapshot, surface):
             reason = _surface_unsupported_reason(surface)
@@ -848,22 +771,59 @@ def _model_choice_option_for_value(
                     break
             except Exception:
                 pass
-        for choice in load_provider_config().get("quick_choices", []):
-            if not isinstance(choice, dict) or choice.get("id") != ref:
-                continue
-            inactive_reason = _surface_inactive_reason(choice, surface)
-            snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-            if inactive_reason or (snapshot and not snapshot_supports_surface(snapshot, surface)):
-                reason = inactive_reason or _surface_unsupported_reason(surface)
-                if not include_inactive:
-                    return None
-                option.update({
-                    "active": False,
-                    "reason": reason,
-                })
-                option["label"] = f"Unavailable: {option['label']}"
-            break
     return option
+
+
+def _star_options(surface: str, *, include_inactive: bool) -> list[dict[str, Any]]:
+    """Your starred models that can do this job, in the order they were starred, with readiness.
+
+    Learning's offered personal models are listed for chat too. A star whose
+    model is gone from the saved catalog is not listed.
+    """
+    from row_bot.providers.client_status import _read
+    from row_bot.providers.model_visibility import read_model_visibility
+
+    job = _job(surface)
+    _snapshot, rows = _read(None, include_readiness=True)
+    by_ref = {row.selection_ref: row for row in rows}
+    refs = list(read_model_visibility().favourites)
+    if job == "chat":
+        refs += [row.selection_ref for row in rows if row.offered and row.selection_ref not in refs]
+    options = []
+    for ref in refs:
+        row = by_ref.get(ref)
+        if row is None or (row.categories and job not in row.categories):
+            continue
+        reason = ""
+        if not row.categories:
+            reason = "No saved details for this model yet. Refresh the catalog."
+        elif not (row.configured and row.runtime_ready and row.installed):
+            reason = row.status_reason or "This model isn't available right now."
+        if reason and not include_inactive:
+            continue
+        options.append({
+            "value": ref,
+            "label": format_model_choice_label(row.provider_id, row.model_id, row.display_name, include_icon=False),
+            "provider_id": row.provider_id,
+            "model_id": row.model_id,
+            "display_name": row.display_name,
+            "source": "star",
+            "active": not reason,
+            "reason": reason,
+            # Known by name but not yet described (a local server before its first check): it still runs.
+            "metadata_missing": not row.categories,
+        })
+    return options
+
+
+def star_cannot_run(option: dict[str, Any]) -> bool:
+    """A starred model that can't run now; one only missing its saved details can."""
+    return option.get("active") is False and not option.get("metadata_missing")
+
+
+def starred_model_refs(surface: str = "chat") -> list[str]:
+    """Your ready starred models for one job, as provider-qualified refs."""
+    return [str(option["value"]) for option in _star_options(surface, include_inactive=False)]
 
 
 def list_model_choice_options(
@@ -892,44 +852,11 @@ def list_model_choice_options(
         seen.add(value)
         options.append(option)
 
-    quick_started = time.perf_counter()
-    quick_result = list_quick_choices(
-        surface,
-        include_inactive=include_inactive,
-        return_diagnostics=return_diagnostics,
-    )
-    if return_diagnostics:
-        quick_choices, quick_diagnostics = quick_result
-        diagnostics.update({
-            f"quick_choices_{key}": value
-            for key, value in quick_diagnostics.items()
-        })
-    else:
-        quick_choices = quick_result
-    diagnostics["quick_choices_ms"] = (time.perf_counter() - quick_started) * 1000.0
+    stars_started = time.perf_counter()
+    for option in _star_options(surface, include_inactive=include_inactive):
+        add_option(option)
+    diagnostics["stars_ms"] = (time.perf_counter() - stars_started) * 1000.0
     option_build_started = time.perf_counter()
-    for choice in quick_choices:
-        if choice.get("kind") != "model" or not choice.get("model_id"):
-            continue
-        provider_id = str(choice.get("provider_id") or infer_provider_id(str(choice.get("model_id") or "")) or "local")
-        model_id = str(choice.get("model_id") or "")
-        value = model_choice_value(model_id, provider_id=provider_id)
-        add_option({
-            "value": value,
-            "label": format_model_choice_label(
-                provider_id,
-                model_id,
-                str(choice.get("display_name") or model_id),
-                include_icon=False,
-            ),
-            "provider_id": provider_id,
-            "model_id": model_id,
-            "display_name": str(choice.get("display_name") or model_id),
-            "source": str(choice.get("source") or "quick_choice"),
-            "active": choice.get("active") is not False,
-            "reason": str(choice.get("inactive_reason") or ""),
-        })
-
     for value in include_values_list:
         add_option(_model_choice_option_for_value(
             str(value or ""),
@@ -945,129 +872,9 @@ def list_model_choice_options(
     return options
 
 
-def route_ref(route_id: str) -> str:
-    return f"route:{route_id}"
-
-
-def _quick_choice_for_model(
-    model_id: str,
-    *,
-    provider_id: str | None = None,
-    display_name: str | None = None,
-    source: str = "manual",
-    capabilities_snapshot: dict[str, Any] | None = None,
-    visibility: Iterable[str] | None = None,
-) -> dict[str, Any] | None:
-    provider_id = _canonical_provider_id(provider_id) if provider_id else infer_provider_id(model_id)
-    if not provider_id:
-        return None
-    try:
-        from row_bot.providers.catalog import get_provider_definition
-        definition = get_provider_definition(provider_id)
-        risk_label = definition.risk_label if definition else "custom_endpoint" if provider_id.startswith("custom_openai_") else "api_key"
-    except Exception:
-        risk_label = "custom_endpoint" if provider_id.startswith("custom_openai_") else "api_key"
-    return {
-        "id": model_ref(provider_id, model_id),
-        "kind": "model",
-        "provider_id": provider_id,
-        "model_id": model_id,
-        "display_name": display_name or model_id,
-        "visibility": list(visibility or DEFAULT_VISIBILITY),
-        "pinned": True,
-        "order": 1000,
-        "recommended": source != "manual",
-        "source": source,
-        "capabilities_snapshot": dict(capabilities_snapshot or {}),
-        "risk_label": risk_label,
-        "active": True,
-        "inactive_reason": "",
-        "inactive_surfaces": {},
-        "last_validated_at": "",
-        "last_error": "",
-    }
-
-
-def _provider_status_for_picker(provider_id: str, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
-    cache = None
-    if diagnostics is not None:
-        cache = diagnostics.setdefault("_provider_status_cache", {})
-        if provider_id in cache:
-            return dict(cache[provider_id])
-    global_cached = _provider_status_picker_cache.get(provider_id)
-    now = time.monotonic()
-    if global_cached is not None:
-        cached_at, cached_status = global_cached
-        if now - cached_at <= _PROVIDER_STATUS_PICKER_CACHE_TTL_SECONDS:
-            if cache is not None:
-                cache[provider_id] = dict(cached_status)
-            return dict(cached_status)
-    started = time.perf_counter()
-    try:
-        from row_bot.providers.runtime import provider_status
-
-        try:
-            status = dict(provider_status(provider_id, refresh_tokens=False) or {})
-        except TypeError:
-            status = dict(provider_status(provider_id) or {})
-    finally:
-        if diagnostics is not None:
-            diagnostics["provider_status_ms"] = diagnostics.get("provider_status_ms", 0.0) + (
-                time.perf_counter() - started
-            ) * 1000.0
-            diagnostics["provider_status_calls"] = diagnostics.get("provider_status_calls", 0) + 1
-            diagnostics["provider_status_refresh_tokens"] = False
-    if cache is not None:
-        cache[provider_id] = dict(status)
-    _provider_status_picker_cache[provider_id] = (now, dict(status))
-    return status
-
-
-def _surface_inactive_reason(choice: dict[str, Any], surface: str, diagnostics: dict[str, Any] | None = None) -> str:
-    if choice.get("provider_id") == "codex":
-        try:
-            if not _provider_status_for_picker("codex", diagnostics).get("runtime_enabled"):
-                return "Codex account is connected, but direct chat runtime is not enabled yet."
-        except Exception:
-            return "Codex direct chat runtime is not enabled yet."
-    if choice.get("provider_id") == "claude_subscription":
-        try:
-            if not _provider_status_for_picker("claude_subscription", diagnostics).get("runtime_enabled"):
-                return "Set up Claude in Settings › Providers: it runs Claude Code on this computer."
-        except Exception:
-            return "Claude isn't set up yet."
-    if choice.get("provider_id") == "xai_oauth":
-        try:
-            if not _provider_status_for_picker("xai_oauth", diagnostics).get("runtime_enabled"):
-                return "xAI Grok runtime needs a Row-Bot OAuth connection."
-        except Exception:
-            return "xAI Grok runtime is not enabled yet."
-    if choice.get("active") is False:
-        return str(choice.get("inactive_reason") or choice.get("last_error") or "This Quick Choice is inactive.")
-    inactive_surfaces = choice.get("inactive_surfaces")
-    if surface and isinstance(inactive_surfaces, dict) and inactive_surfaces.get(surface):
-        return str(inactive_surfaces[surface])
-    return ""
-
-
-def _annotated_choice(choice: dict[str, Any], surface: str, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
-    annotated = dict(choice)
-    reason = _surface_inactive_reason(choice, surface, diagnostics)
-    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-    if surface and snapshot and not snapshot_supports_surface(snapshot, surface) and not reason:
-        reason = _surface_unsupported_reason(surface)
-    annotated["active"] = not bool(reason)
-    annotated["inactive_reason"] = reason
-    return annotated
-
-
 def _surface_unsupported_reason(surface: str) -> str:
     label = surface.replace("_", " ") if surface else "this surface"
     return f"Capability metadata says this model is not compatible with {label}."
-
-
-def _is_auto_capability_reason(reason: Any) -> bool:
-    return str(reason or "").startswith("Capability metadata says this model is not compatible with ")
 
 
 def _ollama_uncached_capability_snapshot() -> dict[str, Any]:
@@ -1162,550 +969,15 @@ def _selection_capability_snapshot(provider_id: str, model_id: str) -> dict[str,
     })
 
 
-def refresh_quick_choice_capability_snapshots() -> list[dict[str, Any]]:
-    cfg = load_provider_config()
-    quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]
-    changed = False
-    for choice in quick:
-        if choice.get("kind") != "model":
-            continue
-        inferred = _inferred_capability_snapshot(choice)
-        if not inferred:
-            continue
-        current = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-        if current != inferred:
-            choice["capabilities_snapshot"] = inferred
-            inactive_surfaces = choice.get("inactive_surfaces")
-            if isinstance(inactive_surfaces, dict):
-                choice["inactive_surfaces"] = {
-                    surface: reason for surface, reason in inactive_surfaces.items()
-                    if not _is_auto_capability_reason(reason)
-                }
-            if _is_auto_capability_reason(choice.get("last_error")):
-                choice["last_error"] = ""
-            changed = True
-    if changed:
-        cfg["quick_choices"] = quick
-        return save_provider_config(cfg).get("quick_choices", [])
-    return quick
-
-
-def prune_stale_custom_quick_choices() -> int:
-    try:
-        from row_bot.providers.custom import is_custom_openai_provider, list_custom_endpoints
-    except Exception:
-        return 0
-    endpoints = list_custom_endpoints()
-    active_providers = {str(endpoint.get("provider_id") or "") for endpoint in endpoints}
-    known_models_by_provider: dict[str, set[str]] = {}
-    for endpoint in endpoints:
-        provider_id = str(endpoint.get("provider_id") or "")
-        models = endpoint.get("models") if isinstance(endpoint.get("models"), list) else []
-        model_ids = {
-            str(model.get("model_id") or model.get("id") or "")
-            for model in models
-            if isinstance(model, dict) and str(model.get("model_id") or model.get("id") or "")
-        }
-        if provider_id and model_ids:
-            known_models_by_provider[provider_id] = model_ids
-    cfg = load_provider_config()
-    quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]
-    kept: list[dict[str, Any]] = []
-    removed = 0
-    for choice in quick:
-        provider_id = str(choice.get("provider_id") or "")
-        if not is_custom_openai_provider(provider_id):
-            kept.append(choice)
-            continue
-        model_id = str(choice.get("model_id") or "")
-        if provider_id not in active_providers:
-            removed += 1
-            continue
-        known_models = known_models_by_provider.get(provider_id)
-        if known_models is not None and model_id not in known_models:
-            removed += 1
-            continue
-        kept.append(choice)
-    if removed:
-        cfg["quick_choices"] = kept
-        save_provider_config(cfg)
-    return removed
-
-
-def _media_tool_selection(tool_name: str) -> str:
-    """The chosen image/video model, or "" when none is chosen (no preset)."""
-    try:
-        from row_bot.tools import registry
-        tool = registry.get_tool(tool_name)
-        if tool:
-            return str(tool.get_config("model", "") or "")
-    except Exception:
-        pass
-    return ""
-
-
-def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str, Any] | None:
-    if "/" not in selection:
-        return None
-    provider_id, model_id = selection.split("/", 1)
-    if not provider_id or not model_id:
-        return None
-    try:
-        from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META, _media_provider_available
-
-        provider_meta = IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META
-        meta = provider_meta.get(provider_id)
-        if not meta or not _media_provider_available(provider_id, meta):
-            return None
-    except Exception:
-        return None
-    try:
-        from row_bot.models import _cloud_model_cache
-        cached = _cloud_model_cache.get(model_ref(provider_id, model_id)) or _cloud_model_cache.get(model_id)
-        if isinstance(cached, dict) and cached.get("provider") == provider_id:
-            snapshot = cached.get("capabilities_snapshot") if isinstance(cached.get("capabilities_snapshot"), dict) else {}
-            display_name = str(cached.get("label") or model_id)
-        else:
-            from row_bot.providers.catalog import model_info_from_metadata
-            model_info = model_info_from_metadata(provider_id, model_id)
-            snapshot = model_info.capability_snapshot()
-            display_name = model_info.display_name
-    except Exception:
-        return None
-    if not snapshot_supports_surface(snapshot, surface):
-        return None
-    choice = _quick_choice_for_model(
-        model_id,
-        provider_id=provider_id,
-        display_name=display_name,
-        source=f"{surface}_tool_default",
-        capabilities_snapshot=snapshot,
-    )
-    if choice:
-        choice["visibility"] = SURFACE_VISIBILITY.get(surface, [surface])
-        choice["order"] = 50 if surface == "image" else 60
-        choice["recommended"] = True
-    return choice
-
-
-def seed_configured_media_quick_choices() -> list[dict[str, Any]]:
-    candidates = [
-        _quick_choice_for_media_selection(_media_tool_selection("image_gen"), "image"),
-        _quick_choice_for_media_selection(_media_tool_selection("video_gen"), "video"),
-    ]
-    cfg = load_provider_config()
-    quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]
-    by_id = {choice.get("id"): choice for choice in quick}
-    changed = False
-    for choice in candidates:
-        if not choice:
-            continue
-        existing = by_id.get(choice["id"])
-        if existing:
-            snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-            if existing.get("source") in {"image_tool_default", "video_tool_default"}:
-                existing.update({
-                    "display_name": choice["display_name"],
-                    "visibility": choice["visibility"],
-                    "capabilities_snapshot": snapshot,
-                    "active": True,
-                    "inactive_reason": "",
-                    "inactive_surfaces": {},
-                    "last_error": "",
-                })
-                changed = True
-            continue
-        quick.append(choice)
-        by_id[choice["id"]] = choice
-        changed = True
-    if changed:
-        cfg["quick_choices"] = quick
-        return save_provider_config(cfg).get("quick_choices", [])
-    return quick
-
-
-def _choice_matches_surface(
-    choice: dict[str, Any],
-    surface: str,
-    *,
-    include_inactive: bool = False,
-    diagnostics: dict[str, Any] | None = None,
-) -> bool:
-    visibility = choice.get("visibility")
-    supports_surface = snapshot_supports_surface(choice.get("capabilities_snapshot"), surface)
-    inactive_reason = _surface_inactive_reason(choice, surface, diagnostics)
-    if inactive_reason and not include_inactive:
-        return False
-    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-    if surface and isinstance(visibility, list) and surface not in visibility:
-        return supports_surface and bool(choice.get("capabilities_snapshot"))
-    if surface and snapshot and not supports_surface:
-        return include_inactive
-    return supports_surface or (include_inactive and bool(inactive_reason))
-
-
-def validate_quick_choices_for_surface(surface: str = "chat") -> list[dict[str, Any]]:
-    if not surface:
-        return migrate_legacy_starred_models()
-    migrate_legacy_starred_models()
-    quick = refresh_quick_choice_capability_snapshots()
-    cfg = load_provider_config()
-    changed = False
-    for choice in quick:
-        if choice.get("kind") != "model" or choice.get("active") is False:
-            continue
-        snapshot = choice.get("capabilities_snapshot")
-        if not isinstance(snapshot, dict) or not snapshot:
-            continue
-        if snapshot_supports_surface(snapshot, surface):
-            continue
-        inactive_surfaces = choice.get("inactive_surfaces")
-        if not isinstance(inactive_surfaces, dict):
-            inactive_surfaces = {}
-            choice["inactive_surfaces"] = inactive_surfaces
-        reason = _surface_unsupported_reason(surface)
-        if inactive_surfaces.get(surface):
-            continue
-        if inactive_surfaces.get(surface) != reason:
-            inactive_surfaces[surface] = reason
-            choice["last_error"] = reason
-            changed = True
-    if changed:
-        cfg["quick_choices"] = quick
-        return save_provider_config(cfg).get("quick_choices", [])
-    return quick
-
-
-def migrate_legacy_starred_models(*, cloud_models: Iterable[str] | None = None) -> list[dict[str, Any]]:
-    try:
-        from row_bot.api_keys import get_cloud_config
-        starred = list(get_cloud_config().get("starred_models", []))
-    except Exception:
-        starred = []
-    if cloud_models is not None:
-        available = set(cloud_models)
-        starred = [model_id for model_id in starred if model_id in available]
-    if not starred:
-        return load_provider_config().get("quick_choices", [])
-    cfg = load_provider_config()
-    quick = list(cfg.get("quick_choices", []))
-    existing = {choice.get("id") for choice in quick if isinstance(choice, dict)}
-    changed = False
-    for model_id in starred:
-        choice = _quick_choice_for_model(model_id, source="legacy_starred_cloud")
-        if choice and choice["id"] not in existing:
-            choice["order"] = len(quick) + 100
-            quick.append(choice)
-            existing.add(choice["id"])
-            changed = True
-    if changed:
-        cfg["quick_choices"] = quick
-        save_provider_config(cfg)
-    return quick
-
-
-@provider_config_transaction()
-def add_quick_choice_for_model(
-    model_id: str,
-    *,
-    provider_id: str | None = None,
-    display_name: str | None = None,
-    source: str = "manual",
-    capabilities_snapshot: dict[str, Any] | None = None,
-    visibility: Iterable[str] | None = None,
-    surface: str | None = None,
-) -> None:
-    if surface and visibility is None:
-        visibility = SURFACE_VISIBILITY.get(surface, [surface])
-    if capabilities_snapshot is None:
-        inferred_provider = _canonical_provider_id(provider_id) if provider_id else infer_provider_id(model_id)
-        if inferred_provider:
-            capabilities_snapshot = _selection_capability_snapshot(inferred_provider, model_id)
-    choice = _quick_choice_for_model(
-        model_id,
-        provider_id=provider_id,
-        display_name=display_name,
-        source=source,
-        capabilities_snapshot=capabilities_snapshot,
-        visibility=visibility,
-    )
-    if not choice:
-        return
-    cfg = load_provider_config()
-    quick = [c for c in cfg.get("quick_choices", []) if isinstance(c, dict)]
-    for existing in quick:
-        if existing.get("id") == choice["id"]:
-            existing.update({
-                "pinned": True,
-                "display_name": existing.get("display_name") or choice["display_name"],
-                "visibility": choice["visibility"],
-                "active": True,
-                "inactive_reason": "",
-                "inactive_surfaces": {},
-                "last_error": "",
-            })
-            if capabilities_snapshot:
-                existing["capabilities_snapshot"] = dict(capabilities_snapshot)
-            cfg["quick_choices"] = quick
-            save_provider_config(cfg)
-            return
-    choice["order"] = len(quick) + 100
-    quick.append(choice)
-    cfg["quick_choices"] = quick
-    save_provider_config(cfg)
-
-
-def set_reviewed_model_pin(provider_id: str, model_id: str, surface: str, pinned: bool, *,
-                           expected_revision: str, validate: Callable[[], None],
-                           record_commit: Callable[[dict], None]) -> None:
-    """Change one picker group against canonical config and saved catalog only."""
-    from row_bot.providers.model_catalog_cache import read_model_catalog_cache
-    from row_bot.providers.model_catalog import build_saved_model_catalog_rows
-    if surface not in SURFACE_VISIBILITY or type(pinned) is not bool:
-        raise ProviderConfigError("invalid_command")
-    with provider_config_transaction():
-        validate()
-        cfg = load_provider_config(strict=True)
-        if provider_config_revision(cfg) != expected_revision:
-            raise ProviderConfigError("revision_conflict")
-        ref = model_ref(provider_id, model_id)
-        quick = cfg["quick_choices"]
-        existing = next((item for item in quick if isinstance(item, dict) and item.get("id") == ref), None)
-        group = set(SURFACE_VISIBILITY[surface])
-        if pinned:
-            saved = read_model_catalog_cache(allow_runtime_bootstrap=False)
-            rows = build_saved_model_catalog_rows(cloud_cache=saved.cloud_cache, ollama_rows=saved.ollama_rows, provider_config=cfg)
-            row = next((item for item in rows if item.provider_id == provider_id and item.model_id == model_id and surface in item.categories), None)
-            if row is None:
-                raise ProviderConfigError("model_configuration_unavailable")
-            snapshot = {name: sorted(value) if isinstance(value, (set, frozenset)) else value
-                        for name, value in row.capabilities_snapshot.items()}
-            choice = _quick_choice_for_model(model_id, provider_id=provider_id, display_name=row.display_name,
-                source="models_catalog", capabilities_snapshot=snapshot, visibility=sorted(group))
-            if existing is None:
-                quick.append(choice)
-            else:
-                visibility = set(existing.get("visibility", [])) | group
-                existing.update({"pinned": True, "active": True, "inactive_reason": "", "inactive_surfaces": {},
-                    "last_error": "", "visibility": sorted(visibility), "capabilities_snapshot": snapshot})
-        elif existing is not None:
-            visibility = set(existing.get("visibility", [])) - group
-            if visibility:
-                existing["visibility"] = sorted(visibility)
-            else:
-                quick.remove(existing)
-        validate()
-        record_commit(cfg)
-        save_provider_config(cfg, expected_revision=expected_revision)
-
-
-@provider_config_transaction()
-def remove_quick_choice_for_model(model_id: str, *, provider_id: str | None = None) -> None:
-    provider_id = provider_id or infer_provider_id(model_id)
-    if not provider_id:
-        return
-    ref = model_ref(provider_id, model_id)
-    cfg = load_provider_config()
-    cfg["quick_choices"] = [
-        c for c in cfg.get("quick_choices", [])
-        if not isinstance(c, dict) or c.get("id") != ref
-    ]
-    save_provider_config(cfg)
-
-
-@provider_config_transaction()
-def remove_quick_choices_for_missing_models(provider_id: str, valid_model_ids: set[str]) -> int:
-    provider_id = str(provider_id or "").strip()
-    valid = {str(model_id) for model_id in valid_model_ids if str(model_id)}
-    if not provider_id:
-        return 0
-    cfg = load_provider_config()
-    quick = [c for c in cfg.get("quick_choices", []) if isinstance(c, dict)]
-    kept = [
-        c for c in quick
-        if str(c.get("provider_id") or "") != provider_id
-        or str(c.get("model_id") or "") in valid
-    ]
-    removed = len(quick) - len(kept)
-    if removed:
-        cfg["quick_choices"] = kept
-        save_provider_config(cfg)
-    return removed
-
-
-def deactivate_quick_choice(
-    ref: str | None = None,
-    *,
-    model_id: str | None = None,
-    provider_id: str | None = None,
-    surface: str | None = None,
-    reason: str = "",
-) -> bool:
-    if not ref and model_id:
-        provider = provider_id or infer_provider_id(model_id)
-        ref = model_ref(provider, model_id) if provider else ""
-    if not ref:
-        return False
-    cfg = load_provider_config()
-    quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]
-    changed = False
-    inactive_reason = reason or "This Quick Choice is inactive."
-    for choice in quick:
-        if choice.get("id") != ref:
-            continue
-        if surface:
-            inactive_surfaces = choice.get("inactive_surfaces")
-            if not isinstance(inactive_surfaces, dict):
-                inactive_surfaces = {}
-                choice["inactive_surfaces"] = inactive_surfaces
-            inactive_surfaces[surface] = inactive_reason
-        else:
-            choice["active"] = False
-            choice["inactive_reason"] = inactive_reason
-        choice["last_error"] = inactive_reason
-        changed = True
-        break
-    if changed:
-        cfg["quick_choices"] = quick
-        save_provider_config(cfg)
-    return changed
-
-
-def deactivate_quick_choice_for_error(
-    ref: str | None = None,
-    *,
-    model_id: str | None = None,
-    provider_id: str | None = None,
-    surface: str | None = None,
-    error: BaseException | NormalizedProviderError,
-) -> bool:
-    normalized = error if isinstance(error, NormalizedProviderError) else normalize_provider_error(error)
-    reason = normalized.next_action or normalized.message or "Choose a compatible provider model."
-    return deactivate_quick_choice(ref, model_id=model_id, provider_id=provider_id, surface=surface, reason=reason)
-
-
-def list_quick_choices(
-    surface: str = "chat",
-    *,
-    include_routes: bool = False,
-    include_inactive: bool = False,
-    return_diagnostics: bool = False,
-) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
-    started = time.perf_counter()
-    diagnostics: dict[str, Any] = {
-        "surface": surface,
-        "include_routes": include_routes,
-        "include_inactive": include_inactive,
-        "read_only": True,
-        "provider_status_ms": 0.0,
-        "provider_status_calls": 0,
-    }
-    migrate_started = time.perf_counter()
-    quick = [choice for choice in load_provider_config().get("quick_choices", []) if isinstance(choice, dict)]
-    diagnostics["migrate_ms"] = (time.perf_counter() - migrate_started) * 1000.0
-    validate_started = time.perf_counter()
-    diagnostics["validate_ms"] = (time.perf_counter() - validate_started) * 1000.0
-    annotate_started = time.perf_counter()
-    choices = [
-        _annotated_choice(choice, surface, diagnostics) for choice in quick
-        if isinstance(choice, dict) and _choice_matches_surface(choice, surface, include_inactive=include_inactive, diagnostics=diagnostics)
-    ]
-    diagnostics["annotate_ms"] = (time.perf_counter() - annotate_started) * 1000.0
-    if include_routes:
-        routes_started = time.perf_counter()
-        cfg = load_provider_config()
-        for route in cfg.get("routes", []):
-            if isinstance(route, dict) and route.get("enabled"):
-                choices.append({
-                    "id": route_ref(str(route.get("id"))),
-                    "kind": "route",
-                    "route_id": str(route.get("id")),
-                    "display_name": f"Route: {route.get('display_name') or route.get('id')}",
-                    "visibility": list(DEFAULT_VISIBILITY),
-                    "order": 10,
-                    "pinned": True,
-                    "recommended": True,
-                    "risk_label": route.get("data_policy", "route"),
-                    "active": False,
-                    "inactive_reason": "Routing execution is configured but not enabled until the routing phase.",
-                })
-        diagnostics["routes_ms"] = (time.perf_counter() - routes_started) * 1000.0
-    sorted_choices = sorted(choices, key=lambda c: (int(c.get("order", 1000)), str(c.get("display_name") or c.get("id"))))
-    diagnostics["total_ms"] = (time.perf_counter() - started) * 1000.0
-    diagnostics["choices"] = len(sorted_choices)
-    diagnostics.pop("_provider_status_cache", None)
-    if return_diagnostics:
-        return sorted_choices, diagnostics
-    return sorted_choices
-
-
-def grouped_quick_choices(
-    *,
-    include_inactive: bool = True,
-    include_routes: bool = False,
-    include_media_defaults: bool = True,
-) -> list[dict[str, Any]]:
-    if include_media_defaults:
-        seed_configured_media_quick_choices()
-    groups: list[dict[str, Any]] = []
-    group_defs = list(QUICK_CHOICE_SURFACE_GROUPS)
-    if include_routes:
-        group_defs.append({"id": "routes", "display_name": "Routes"})
-    for group in group_defs:
-        surface = group["id"]
-        if surface == "routes":
-            choices = [
-                choice for choice in list_quick_choices("", include_routes=True, include_inactive=True)
-                if choice.get("kind") == "route"
-            ]
-        else:
-            choices = [
-                choice for choice in list_quick_choices(surface, include_inactive=include_inactive)
-                if choice.get("kind") == "model"
-            ]
-        groups.append({"id": surface, "display_name": group["display_name"], "choices": choices})
-    return groups
-
-
-def list_quick_model_ids(surface: str = "chat") -> list[str]:
-    model_ids: list[str] = []
-    for choice in list_quick_choices(surface):
-        if choice.get("kind") == "model" and choice.get("model_id"):
-            model_ids.append(str(choice["model_id"]))
-    return model_ids
-
-
 def resolve_selection(value: str) -> ResolvedSelection | None:
+    """Read a stored model value (a provider-qualified ref, or a legacy bare name)."""
     raw = (value or "").strip()
     if not raw:
         return None
-    choices = list_quick_choices("", include_routes=True, include_inactive=True)
-    lower = raw.lower()
-    for choice in choices:
-        aliases = {
-            str(choice.get("id", "")).lower(),
-            str(choice.get("display_name", "")).lower(),
-            str(choice.get("model_id", "")).lower(),
-            str(choice.get("route_id", "")).lower(),
-        }
-        if lower in aliases:
-            if choice.get("kind") == "route":
-                return ResolvedSelection(
-                    ref=str(choice.get("id")), kind="route", route_id=str(choice.get("route_id")),
-                    display_name=str(choice.get("display_name") or choice.get("route_id")), legacy_value=raw,
-                    active=False, reason="Routing execution is configured but not enabled until the routing phase.",
-                )
-            return ResolvedSelection(
-                ref=str(choice.get("id")), kind="model", model_id=str(choice.get("model_id")),
-                provider_id=str(choice.get("provider_id")), display_name=str(choice.get("display_name") or choice.get("model_id")),
-                legacy_value=raw, active=choice.get("active") is not False, reason=str(choice.get("inactive_reason") or ""),
-            )
     parsed = parse_model_ref(raw)
     if parsed:
         provider_id, model_id = parsed
         return ResolvedSelection(ref=raw, kind="model", provider_id=provider_id, model_id=model_id, display_name=model_id, legacy_value=raw)
-    if raw.startswith("route:"):
-        return ResolvedSelection(ref=raw, kind="route", route_id=raw.split(":", 1)[1], display_name=raw, legacy_value=raw, active=False, reason="Routing execution is not enabled yet.")
     provider_id = infer_provider_id(raw)
     if provider_id:
         return ResolvedSelection(ref=model_ref(provider_id, raw), kind="model", provider_id=provider_id, model_id=raw, display_name=raw, legacy_value=raw)

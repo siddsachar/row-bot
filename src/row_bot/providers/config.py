@@ -78,74 +78,12 @@ def provider_config_revision(config: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(config, sort_keys=True, ensure_ascii=True,
                                     separators=(",", ":")).encode()).hexdigest()
 
-DEFAULT_ROUTE_PROFILES: list[dict[str, Any]] = [
-    {
-        "id": "balanced",
-        "display_name": "Balanced",
-        "description": "Use the selected default model with conservative fallback controls.",
-        "enabled": True,
-        "primary": "",
-        "fallbacks": [],
-        "triggers": ["auth_failure", "quota", "rate_limit", "timeout", "provider_5xx"],
-        "data_policy": "allow_api_key",
-        "max_fallbacks_per_turn": 1,
-        "task_routes": {},
-    },
-    {
-        "id": "private",
-        "display_name": "Private",
-        "description": "Prefer local/private models and avoid third-party routers.",
-        "enabled": True,
-        "primary": "",
-        "fallbacks": [],
-        "triggers": [],
-        "data_policy": "local_only",
-        "max_fallbacks_per_turn": 0,
-        "task_routes": {},
-    },
-    {
-        "id": "fast",
-        "display_name": "Fast",
-        "description": "Prefer low-latency choices once routing is enabled.",
-        "enabled": True,
-        "primary": "",
-        "fallbacks": [],
-        "triggers": ["timeout", "provider_5xx"],
-        "data_policy": "allow_api_key",
-        "max_fallbacks_per_turn": 1,
-        "task_routes": {},
-    },
-    {
-        "id": "best",
-        "display_name": "Best",
-        "description": "Prefer highest-quality configured choices once routing is enabled.",
-        "enabled": True,
-        "primary": "",
-        "fallbacks": [],
-        "triggers": ["quota", "rate_limit", "provider_5xx"],
-        "data_policy": "allow_api_key",
-        "max_fallbacks_per_turn": 1,
-        "task_routes": {},
-    },
-    {
-        "id": "cheap",
-        "display_name": "Cheap",
-        "description": "Prefer lower-cost choices once routing is enabled.",
-        "enabled": True,
-        "primary": "",
-        "fallbacks": [],
-        "triggers": ["quota", "rate_limit"],
-        "data_policy": "allow_api_key",
-        "max_fallbacks_per_turn": 1,
-        "task_routes": {},
-    },
-]
-
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": CONFIG_VERSION,
     "providers": {},
-    "quick_choices": [],
-    "routes": DEFAULT_ROUTE_PROFILES,
+    # Background purpose -> provider-qualified model ref, read by
+    # ``routing.task_route_model``. Nothing sets it today (D1).
+    "task_routes": {},
     "custom_endpoints": [],
 }
 
@@ -161,20 +99,10 @@ def normalize_provider_config(raw: Any) -> dict[str, Any]:
     cfg["version"] = CONFIG_VERSION
     if not isinstance(cfg.get("providers"), dict):
         cfg["providers"] = {}
-    if not isinstance(cfg.get("quick_choices"), list):
-        cfg["quick_choices"] = []
+    if not isinstance(cfg.get("task_routes"), dict):
+        cfg["task_routes"] = {}
     if not isinstance(cfg.get("custom_endpoints"), list):
         cfg["custom_endpoints"] = []
-
-    routes = cfg.get("routes") if isinstance(cfg.get("routes"), list) else []
-    by_id = {str(r.get("id")): dict(r) for r in routes if isinstance(r, dict) and r.get("id")}
-    merged_routes: list[dict[str, Any]] = []
-    for default_route in DEFAULT_ROUTE_PROFILES:
-        route = dict(default_route)
-        route.update(by_id.pop(default_route["id"], {}))
-        merged_routes.append(route)
-    merged_routes.extend(by_id.values())
-    cfg["routes"] = merged_routes
     return cfg
 
 

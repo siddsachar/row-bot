@@ -177,9 +177,11 @@ vi.mock('../../runtime', () => {
     useClientSelector: <T,>(selector: (state: typeof mock.state) => T) =>
       selector(mock.state),
     useRuntime: () => runtime,
+    useOptionalRuntime: () => runtime,
   };
 });
 vi.mock('../../ui/overlays', () => ({
+  useNotify: () => () => {},
   useOverlay: () => ({
     close: mock.close,
     open: mock.open,

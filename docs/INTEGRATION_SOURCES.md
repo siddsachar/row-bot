@@ -61,8 +61,16 @@ uv run python scripts/build_mcp_registry_snapshot.py --sync --since src/row_bot/
 uv run python scripts/build_mcp_registry_snapshot.py --input registry.json --captured-at 2026-10-02T07:47:45Z
 ```
 
+`registry_signals.json.xz`, beside it, holds the quality signals ranking uses: per
+GitHub repository the snapshot names, its stars, last push, archived flag, fork
+parent and licence; per Registry record, its first publish time and version count.
+Release preparation writes it with `scripts/build_catalog_signals.py` (the manual
+**Catalog signals** workflow runs it with the workflow's own read-only
+`GITHUB_TOKEN`). The app only reads the file; without it, search ranks without
+stars. A user's catalog update refreshes Registry records, not signals.
+
 At start-up Row-Bot builds a local SQLite FTS5 index under `catalogs/` in the data
-folder when it is missing or a release ships a newer snapshot. Searching only reads
+folder when it is missing, a release ships a newer snapshot or other signals. Searching only reads
 that index; it never builds, writes or contacts the Registry. Records that cannot
 be reviewed (for example more than 16 declared remotes) stay listed with a reason
 and no recipe, so they can never be imported. SVG icons are dropped at
@@ -117,8 +125,12 @@ checked address within the same deadline.
 ## Search API handoff
 
 `POST /api/v1/integrations/items/search` accepts `kind`, `query`, optional
-`sources`, `refresh`, `include_incompatible`, `cursor` and
-`limit` (1-96, default 50). Omit sources for the selected type's eligible catalogs;
+`sources`, `refresh`, `include_incompatible`, `cursor`,
+`limit` (1-96, default 50) and the filters `labels` (any of `official`,
+`reviewed`, `built_in`, `community`), `runs` (`anywhere`, `hosted`, `local`) and
+`no_sign_in`. `GET /api/v1/integrations/items` takes the same filters as query
+parameters (`labels` comma-separated). Filters apply before the Registry index
+keeps its top 200 and before ranking, so counts stay true. Omit sources for the selected type's eligible catalogs;
 source ids come from `GET /api/v1/integrations/sources`, and the server rejects
 unknown ids.
 `refresh=false` is passive/cache-only, including pasted query drafts. An explicit
@@ -133,13 +145,27 @@ and propagates cancellation before source cache publication. In-flight blocking
 transport reads can finish within their transport timeout; they cannot publish a
 cancelled search revision. No forced process termination is involved.
 
-Ranking is deterministic, one key for every source (and the same order inside the
-Registry index): a featured app or a vendor-verified record first (a community
-record never wins on its name alone); then an exact name or app name; every query
-word in the name, publisher, app name, synonyms or jobs; featured order; an
-installable plan with known authentication; freshness (90 days, a year);
-source-provided popularity; then source precedence and stable ties (a merged
-deployment is led by its most reviewed source, then its vendor-verified record). The
+A query word must start a word (the Registry's FTS prefix match, and the same in
+every other source), so "reddit" never matches "subreddit". Each result gets a
+`match`: `exact` (the query is its name or app name), `name` (every word starts a
+word of its name, server name, app name, synonyms or jobs) or `description`. Each
+gets a `label` by rule: `official` (the vendor badge below), `reviewed` (setup
+recipes, featured skills, examples, or `tested_with_row_bot`), `built_in` or
+`community`; an app card takes the best label of its ways.
+
+Ranking is deterministic, one key for every source (`sources.order`, mirrored in
+the Registry index's SQL): name matches before description-only ones; a community
+record never wins on its name alone; an exact name; the label (official and built
+in, then reviewed); featured order; quality; setup (hosted, a key, runs here, no
+recipe); source popularity; then source precedence and stable ties. Quality is
+`3·log10(1 + stars)` plus activity (2 within 90 days of the last push, or of the
+listing's update without a repository; 1 within a year; −2 archived), plus 1 each
+for a 12-word description, a licence, an icon and a known sign-in, less 3 for a
+fork whose parent is listed and 2 for an unstarred first version under 30 days old.
+`IntegrationEntryPage.best_match_id` names the first result when it is a name match
+and official, reviewed or built in, or of quality 6 or more; `label_counts` counts
+every result by label. The golden queries in
+`tests/subsystem/integrations/test_search_ranking.py` pin what each must show. The
 empty query lists featured app records only, never an alphabetical dump; the
 Registry returns its top 200 matches and reports `truncated` beyond that. There is
 no LLM and no popularity-as-safety score. The vendor badge comes only from rules: a
@@ -156,10 +182,16 @@ limits, so results do not claim exhaustive upstream coverage.
 (`listed` or `inspected`), `tested_with_row_bot` and `auth_requirement`. Unknown
 auth stays unknown. Uninspected rows stay `not_inspected`/`discover`, never ready.
 Known incompatible rows appear only when searched for (or requested), with their
-reason. One deployment (transport and endpoint, package and version, or the
-Registry record when there is no recipe) or one pinned repository/subpath merges
-into the record of the most reviewed source; labels never merge. Merged rows keep
-every source's attribution.
+reason. One deployment (transport and endpoint with any fixed header or query
+values, package and version, or the Registry record when there is no recipe) or
+one pinned repository/subpath merges into the record of the most reviewed source.
+So does one server listed several times: the same npm, PyPI or OCI package run the
+same way at any version; the same repository under the same name, run the same way
+(a repository alone never merges: most shared repositories hold different
+servers); near-identical listings (one owner, the same name, run the same way,
+descriptions sharing 90% of their words, the freshest leading); and a fork, folded
+into its parent (counted in `forks`) unless the fork has more stars. Merged rows
+keep every source's attribution.
 `IntegrationSourceStatus` adds typed eligibility/access, enablement, snapshot
 version/digest, fetched time and truncation. Installed inventory remains local.
 Existing preview references remain owner-bound; setup, secrets, approvals,

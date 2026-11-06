@@ -42,6 +42,7 @@ import type {
   GitHubAccessCommand,
   AccountAuthCommand,
   XPostEdit,
+  SaveOfferRequest,
 } from './types';
 
 const INITIAL: ClientState = {
@@ -2498,6 +2499,9 @@ export class ClientController {
       scope?: 'installed' | 'catalog';
       cursor?: string;
       all?: 'true';
+      labels?: string;
+      runs?: 'anywhere' | 'hosted' | 'local';
+      no_sign_in?: 'true';
     },
     signal?: AbortSignal,
   ) => this.query(() => this.transport.integrationItems?.(options, signal));
@@ -2750,24 +2754,6 @@ export class ClientController {
   /** Files sent to the person's devices or a chat app (F7). */
   delivery = (deliveryId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.delivery?.(deliveryId, signal));
-  /** One file sent to the devices, with this session (refused once expired). */
-  downloadDelivery = (
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ) =>
-    this.authenticatedResult((current) => {
-      if (!this.transport.downloadDelivery)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.downloadDelivery(deliveryId, index, current);
-    }, signal);
-  /** Desktop window: save a sent file into Exports on this computer. */
-  saveDelivery = (deliveryId: string, index: number) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.saveDelivery)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.saveDelivery(deliveryId, index, signal);
-    });
   /** "Send to your devices instead" for files that didn't go to a chat app. */
   sendDeliveryToDevices = (deliveryId: string) =>
     this.authenticatedResult((signal) => {
@@ -2805,20 +2791,6 @@ export class ClientController {
       if (!this.transport.savePageDecision)
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.savePageDecision(pageId, decision, signal);
-    });
-  /** Download as HTML: one file that works on its own. */
-  downloadPage = (pageId: string, theme: PageTheme) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.downloadPage)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.downloadPage(pageId, theme, signal);
-    });
-  /** Desktop window: save a page into Exports on this computer. */
-  savePageToExports = (pageId: string, theme: PageTheme) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.savePageToExports)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.savePageToExports(pageId, theme, signal);
     });
   /** The local addresses a conversation's browser may open now (F4). */
   browserLocalAddresses = (conversation: string, signal?: AbortSignal) =>
@@ -5011,50 +4983,6 @@ export class ClientController {
         signal,
       ),
     );
-  saveArtifactExport = (
-    conversation: string,
-    binding: string,
-    exportId: string,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.saveArtifactExport?.(
-        conversation,
-        binding,
-        exportId,
-        signal,
-      ),
-    );
-  revealArtifactExport = (
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: import('./types').ArtifactExportReveal,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.revealArtifactExport?.(
-        conversation,
-        binding,
-        exportId,
-        body,
-        signal,
-      ),
-    );
-  artifactDownload = (
-    conversation: string,
-    binding: string,
-    descriptor: import('./types').ArtifactExport,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.artifactDownload?.(
-        conversation,
-        binding,
-        descriptor,
-        signal,
-      ),
-    );
   cachedModels = (
     providerId?: string,
     query = '',
@@ -5079,8 +5007,8 @@ export class ClientController {
       return this.transport.updateModelContext(body, signal);
     });
   /**
-   * Favourite or hide a model (F10). The composer's list changes at once and
-   * settles on what the server saved; a failed save puts it back.
+   * Star or unstar a model. The composer's list changes at once and settles on
+   * what the server saved; a failed save puts it back.
    */
   updateModelVisibility = async (
     body: import('./types').ModelVisibilityMutation,
@@ -5104,11 +5032,10 @@ export class ClientController {
           throw clientError({ code: 'capability_unavailable' });
         return this.transport.updateModelVisibility(body, signal);
       });
+      // Only the stars change here: an open picker keeps its rows, so several
+      // models can be starred in a row. A provider's first star narrows its list
+      // to the starred models; the picker shows that the next time it reads it.
       mark((models) => markModels(models, saved));
-      // A provider's first star narrows its list to the starred models and
-      // removing its last one lists all its ready models again: re-read the
-      // list so an open picker shows what the server now offers.
-      await this.refreshChoices().catch(() => undefined);
       return saved;
     } catch (cause) {
       if (before) mark((models) => restoreVisibility(models, before));
@@ -5874,6 +5801,13 @@ export class ClientController {
       signal,
     );
   }
+  /** One file to save, offered by the server for the one save path (5.3.3). */
+  saveOffer = (source: SaveOfferRequest['source'], signal?: AbortSignal) =>
+    this.query(() => {
+      if (!this.transport.createSaveOffer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createSaveOffer({ source }, signal);
+    });
   /** Desktop app: a conversation export saved into Exports by the server (B238). */
   saveToExports = (reference: string, signal?: AbortSignal) =>
     this.query(() => this.transport.saveAttachmentExport?.(reference, signal));

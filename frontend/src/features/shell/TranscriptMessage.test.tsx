@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
 import { AgentAvatar } from '../../ui/AgentAvatar';
@@ -63,6 +64,45 @@ it('shows a follow-up as a quiet note, not as the person’s message', () => {
   expect(screen.getByRole('note')).toHaveTextContent('Goal · turn 2 of 10');
   expect(screen.queryByRole('article')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
+});
+
+it('shows what other chats left for a workflow run under its line, and why it didn’t finish', () => {
+  const row = {
+    id: 'user:submission:run-1',
+    message_id: 'run-1',
+    role: 'user',
+    note: 'continuation',
+    blocks: [
+      { id: 'b', type: 'markdown', text: 'Scheduled run · 6 Nov, 08:31' },
+    ],
+    held: [
+      {
+        id: 'results-chat',
+        title: '⚡ Growth | Daily results',
+        text: 'Downloads rose 8% this week.',
+      },
+    ],
+    run_failure: "The run didn't finish: The provider is busy.",
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  render(
+    <MemoryRouter>
+      <TranscriptMessage row={row} conversationId="conversation-a" />
+    </MemoryRouter>,
+  );
+  const [line, held, failure] = screen.getAllByRole('note');
+  expect(line).toHaveTextContent('Scheduled run · 6 Nov, 08:31');
+  expect(held).toHaveTextContent(
+    'From ⚡ Growth | Daily results' + 'Downloads rose 8% this week.',
+  );
+  expect(
+    within(held).getByRole('link', { name: '⚡ Growth | Daily results' }),
+  ).toHaveAttribute('href', '/conversations/results-chat');
+  expect(failure).toHaveTextContent(
+    "The run didn't finish" + 'The provider is busy.',
+  );
+  expect(screen.queryByRole('article')).toBeNull();
 });
 
 it('keeps Read aloud and says what is missing without a voice (U28)', () => {

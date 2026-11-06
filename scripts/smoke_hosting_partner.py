@@ -8,14 +8,15 @@ with an exact ROW_BOT_ALLOWED_HOSTS that leaves out 127.0.0.1 (a VPS's shape).
 Through the HTTP API a browser at the pod's address uses, it checks that:
 
 - the container becomes healthy, its launcher reports Row-Bot running, and its
-  log shows the setup code;
+  log shows the setup code and its sign-in link at the pod's address, all on
+  stdout: only warnings go to stderr, which hosts show as errors;
+- the code the logged link carries signs this browser in (A1);
 - the host list is exact: from outside, a request naming 127.0.0.1 is refused;
-- the code signs this browser in;
 - an API key saved for a custom endpoint, and a chat turn through it, work;
 - after ``docker restart`` the container is healthy again, the session cookie
   still works, the key is still saved and a second chat turn uses it;
 - the key and the code never reach the container log after the first start's
-  code line, and the key never reaches /data.
+  code and link lines, and the key never reaches /data.
 
 ``--shape railway`` runs the same checks the way Railway runs a template's image
 (R1): as root (Railway's ``RAILWAY_RUN_UID=0``), on a volume whose top root owns
@@ -55,6 +56,7 @@ import sys
 import tempfile
 import uuid
 from typing import Mapping, Sequence
+from urllib.parse import parse_qs, urlsplit
 
 try:  # run as a script, from its own folder
     from smoke_docker_server import KIND_LABEL, SMOKE_LABEL, STOP_GRACE_SECONDS, DockerServerSmoke, SmokeError
@@ -69,6 +71,8 @@ PROVIDER_ID = "custom_openai_smoke"
 MODEL_REF = f"model:{PROVIDER_ID}:row-bot-dummy-chat"
 # What the launcher logs once it has reached its own server (row-bot serve).
 RUNNING_LINE = "Row-Bot is running at"
+# The one-click sign-in link Row-Bot prints beside the code while nobody owns it (A1).
+LINK_LINE = "Open this link to sign in: "
 # The pod's own name, as a host gives each pod one (PikaPods: <pod>.pikapod.net). The runner reaches the
 # published port by 127.0.0.1 and names the pod in Host, as a browser at the pod's address does.
 POD_HOST = "pod.row-bot.test"
@@ -294,15 +298,38 @@ def check_row_bot_user(report: Mapping[str, object], *, uid: int = ROW_BOT_UID, 
         raise SmokeError(f"{len(others)} entries in /data are not Row-Bot's, such as {others[0]}")
 
 
-def check_container_log(log: str, *, code: str, secret_values: Sequence[str]) -> None:
-    """The first start prints the code once, readably; nothing prints it again, or prints a secret."""
+def check_container_log(log: str, *, code: str, public_origin: str, secret_values: Sequence[str]) -> None:
+    """The first start prints the code once, readably, with its sign-in link (A1); nothing prints either
+    again, or prints a secret."""
     readable = format_setup_code(code)
     if f"Row-Bot setup code: {readable}" not in log:
         raise SmokeError("The container log does not show the setup code")
-    if log.count(readable) != 1 or code in log:
+    if f"{LINK_LINE}{public_origin}/setup#code={readable}" not in log.splitlines():
+        raise SmokeError("The container log does not show the sign-in link at the pod's address")
+    if log.count(readable) != 2 or log.count(LINK_LINE) != 1 or code in log:
         raise SmokeError("The setup code appears in the container log after the first start's code line")
     if any(value and value in log for value in secret_values):
         raise SmokeError("A secret appears in the container log")
+
+
+def link_code(log: str) -> str:
+    """The code in the logged sign-in link's fragment, as the setup page's script reads it (A1)."""
+    for line in log.splitlines():
+        if line.startswith(LINK_LINE):
+            fragment = urlsplit(line[len(LINK_LINE):].strip()).fragment
+            codes = parse_qs(fragment).get("code")
+            if codes:
+                return codes[0]
+    raise SmokeError("The container log does not show the sign-in link")
+
+
+def check_log_streams(out: str, err: str) -> None:
+    """In Row-Bot's image INFO lines are on stdout and only warnings on stderr, which hosts colour as errors (F2)."""
+    for line, what in ((RUNNING_LINE, "that Row-Bot is running"), ("Row-Bot setup code:", "the setup code")):
+        if line not in out:
+            raise SmokeError(f"The container's stdout does not say {what}")
+        if line in err:
+            raise SmokeError(f"The container's stderr says {what}, which a host shows as an error")
 
 
 def memory_report(architecture: str, peaks: Sequence[int | None], shape: str = "partner") -> tuple[str, bool]:
@@ -420,9 +447,13 @@ class HostingPartnerSmoke(DockerServerSmoke):
             self._sleep(1.0)
         self._wait_ready(self.origin)
 
-    def _log(self) -> str:
+    def _log_streams(self) -> tuple[str, str]:
+        """The container's stdout and stderr, apart (``docker logs`` replays each to its own)."""
         result = self.runner.run(("docker", "logs", self.container_name), check=False)
-        return "\n".join((result.stdout, result.stderr))
+        return result.stdout, result.stderr
+
+    def _log(self) -> str:
+        return "\n".join(self._log_streams())
 
     def _check_runs_as_row_bot(self) -> None:
         """Railway's shape: Row-Bot runs as 10001, /data is all 10001's, and H2's private environment holds."""
@@ -508,10 +539,11 @@ class HostingPartnerSmoke(DockerServerSmoke):
         }
         return self._api("POST", path, body=command, expect=expect, command_id=command_id)
 
-    def _claim(self) -> str:
+    def _claim(self, code: str) -> str:
+        """Sign in as the setup page does, with the code a browser took from the logged link (A1)."""
         response = self._send_http(
             "POST", self.origin, "/api/access/setup", stage="setup-code sign-in",
-            headers={"Origin": self.public_origin, "Accept": "application/json"}, json_body={"code": self.code},
+            headers={"Origin": self.public_origin, "Accept": "application/json"}, json_body={"code": code},
         )
         payload = response.json()
         if response.status != 200 or not isinstance(payload, dict) or payload.get("authenticated") is not True:
@@ -631,7 +663,7 @@ class HostingPartnerSmoke(DockerServerSmoke):
                     self._check_exact_hosts()
                 if f"Row-Bot setup code: {format_setup_code(self.code)}" not in self._log():
                     raise SmokeError("The container log does not show the setup code")
-                session_id = self._claim()
+                session_id = self._claim(link_code(self._log()))
                 self._start_fake_model()
                 self._handshake()
                 self._connect_fake_model()
@@ -659,7 +691,10 @@ class HostingPartnerSmoke(DockerServerSmoke):
                 peaks.append(self._memory_peak())
 
                 log = self._log()
-                check_container_log(log, code=self.code, secret_values=(self.key, self.model_key))
+                check_container_log(
+                    log, code=self.code, public_origin=self.public_origin, secret_values=(self.key, self.model_key)
+                )
+                check_log_streams(*self._log_streams())
                 if self.shape == "railway":
                     # The volume is handed over at the first start; the restart finds it Row-Bot's already.
                     if log.count(HANDED_OVER_LINE) != 1 or log.count(RUNS_AS_LINE) != 2:

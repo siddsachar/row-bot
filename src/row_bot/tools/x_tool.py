@@ -995,6 +995,10 @@ class XTool(BaseTool):
             when = x_posting.slot(post_at)
         except (x_posting.XPostError, XAccountChoice) as exc:
             return str(exc)
+        if action in ("reply", "quote") and x_posting.summoned(chosen, target) is False:
+            # X's reply rule would refuse it after approval: no card, the draft for the person instead.
+            return (x_posting.by_hand(chosen, action, words, target)
+                    + "\n\nGive the person the draft and the link. Don't post it another way.")
         target_text = x_posting.read_text(chosen, target) if action == "delete" else ""
         edited = False
         while True:
