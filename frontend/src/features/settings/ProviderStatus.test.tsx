@@ -353,12 +353,12 @@ it('Add a provider › On this computer offers LM Studio, vLLM and llama.cpp at 
   const gallery = await openGallery('On this computer');
   expect(
     within(gallery)
-      .getAllByRole('button', { name: /Its server at/ })
+      .getAllByRole('button', { name: /localhost:/ })
       .map((option) => option.textContent),
   ).toEqual([
-    'LM StudioIts server at localhost:1234Local · free',
-    'vLLMIts server at localhost:8000Local · free',
-    'llama.cppIts server at localhost:8080Local · free',
+    'LM Studiolocalhost:1234Local · free',
+    'vLLMlocalhost:8000Local · free',
+    'llama.cpplocalhost:8080Local · free',
   ]);
   fireEvent.change(
     within(gallery).getByRole('searchbox', { name: 'Find a provider' }),

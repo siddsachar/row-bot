@@ -711,9 +711,7 @@ export default function ProviderStatus({
                           </span>
                           <span className="settings-provider-copy">
                             <strong>{server.name}</strong>
-                            <small>
-                              Its server at {new URL(server.url).host}
-                            </small>
+                            <small>{new URL(server.url).host}</small>
                           </span>
                           <BillingTag billing="local" />
                           <ChevronRight size={16} aria-hidden />
