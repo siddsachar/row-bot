@@ -234,6 +234,39 @@ def test_reloaded_trace_restores_only_opaque_generated_media_metadata(platform):
     assert "must-not-project" not in json.dumps(trace)
 
 
+def test_reloaded_media_names_its_picture_by_its_prompt_and_nothing_else(platform):
+    from row_bot import threads
+    from row_bot.api.v1.schemas import TranscriptPage
+    from row_bot.application.attachments import register_attachment
+
+    def made(call: str, name: str, args: dict) -> list:
+        media = register_attachment("conversation-a", "generated-image.png", b"\x89PNG\r\n\x1a\nsynthetic")
+        return [
+            AIMessage(content="", id=f"{call}-owner", tool_calls=[{"id": call, "name": name, "args": args}]),
+            ToolMessage(content="Generated the image", id=f"{call}-result", tool_call_id=call, additional_kwargs={
+                "platform_media": [{"type": "media.available", "payload": {
+                    "media_ref": media["attachment_ref"], "mime_type": media["mime_type"]}}]}),
+        ]
+
+    assert threads.append_checkpoint_messages("conversation-a", [
+        *made("fox", "generate_image", {"prompt": "A fox in a misty\n  forest at dawn",
+                                         "reference_image": "private-path-must-not-project"}),
+        *made("long", "generate_image", {"prompt": "word " * 600}),
+        *made("other", "image_gen", {"prompt": "a prompt only a media tool may show"}),
+    ])
+
+    transcript = platform.transcript("conversation-a")
+    TranscriptPage.model_validate(transcript)
+    media = [item["specialization"]["media"][0] for row in transcript["rows"]
+             for group in row.get("traces") or [] for item in group["items"]]
+    assert media[0]["prompt"] == "A fox in a misty forest at dawn"
+    assert len(media[1]["prompt"]) <= 1000 and media[1]["prompt"].startswith("word word")
+    assert "prompt" not in media[2]
+    shown = json.dumps(transcript)
+    assert "private-path-must-not-project" not in shown
+    assert "a prompt only a media tool may show" not in shown
+
+
 def test_reloaded_trace_keeps_generated_media_failure_under_closed_code(platform):
     from row_bot import threads
     from row_bot.api.v1.schemas import TranscriptPage

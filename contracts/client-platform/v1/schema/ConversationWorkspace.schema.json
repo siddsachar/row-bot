@@ -712,6 +712,12 @@
           "title": "Mime Type",
           "type": "string"
         },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
+          "type": "string"
+        },
         "tool_call_id": {
           "default": "",
           "maxLength": 256,

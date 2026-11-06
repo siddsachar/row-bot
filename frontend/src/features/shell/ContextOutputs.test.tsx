@@ -107,6 +107,38 @@ it('names each output by its kind and place in the chat, newest first', () => {
   ]);
 });
 
+it('names an output by the start of its prompt, with the whole prompt in its tooltip', async () => {
+  const prompt =
+    'A lighthouse on a cliff at sunset, waves crashing below, warm light';
+  renderOutputs([
+    output(1),
+    { ...output(2), prompt },
+    { ...output(3, 'video/mp4'), prompt: 'The fox running' },
+  ]);
+  // An output from an older chat, which has no prompt, keeps its place name.
+  expect(tiles()).toEqual([
+    'Open The fox running',
+    'Open A lighthouse on a cliff at sunset, waves…',
+    'Open Image 1',
+  ]);
+  expect(
+    screen.getByText('A lighthouse on a cliff at sunset, waves…'),
+  ).toBeVisible();
+  expect(screen.getByText('Image 1')).toBeVisible();
+  const tile = screen.getByRole('button', {
+    name: 'Open A lighthouse on a cliff at sunset, waves…',
+  });
+  act(() => tile.focus());
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(prompt);
+  fireEvent.click(tile);
+  expect(viewer).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({
+      name: 'A lighthouse on a cliff at sunset, waves…',
+    }),
+  );
+});
+
 it('shows the newest six and folds the rest under Show all', () => {
   renderOutputs(Array.from({ length: 8 }, (_, n) => output(n + 1)));
   expect(tiles()).toEqual([
