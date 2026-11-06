@@ -1517,6 +1517,135 @@
   color: var(--accent-solid);
   justify-self: center;
 }
+/* Outputs (5.3.3): a grid of thumbnails, newest first; each opens the media
+   viewer, with its ⋯ chip shown on hover or focus (always on touch). */
+.context-count {
+  margin-inline-start: 6px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.context-output-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-output-tile {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+.context-output-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  cursor: zoom-in;
+}
+.context-output-open:hover {
+  border-color: var(--border-subtle);
+}
+.context-output-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.context-output-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.context-output-open:hover img.context-output-thumb {
+  transform: scale(1.04);
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-output-open:hover img.context-output-thumb {
+    transform: none;
+  }
+}
+.context-output-glyph {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.context-output-play {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding-inline-start: 2px;
+  border: 1px solid rgb(255 255 255 / 0.28);
+  border-radius: 999px;
+  background: rgb(10 13 18 / 0.72);
+  color: #fff;
+}
+.context-output-tile[data-busy] .context-output-open {
+  opacity: 0.6;
+}
+.button.context-output-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(10 13 18 / 0.72);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity var(--motion-popover) var(--ease-out);
+}
+.button.context-output-menu:hover {
+  background: rgb(10 13 18 / 0.88);
+  color: #fff;
+}
+.context-output-tile:hover .context-output-menu,
+.context-output-tile:focus-within .context-output-menu,
+.context-output-menu[aria-expanded='true'] {
+  opacity: 1;
+}
+@media (hover: none), (pointer: coarse) {
+  .button.context-output-menu {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    opacity: 1;
+  }
+}
+.button.context-output-more {
+  min-height: 28px;
+  margin-top: 6px;
+  padding-inline: 6px;
+  margin-inline-start: -6px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  gap: 4px;
+}
+.context-output-more svg[data-open] {
+  transform: rotate(180deg);
+}
+.context-output-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  overflow-wrap: anywhere;
+}
+.context-output-note[data-tone='danger'] {
+  color: var(--status-danger-text);
+}
 .context-agents > summary,
 .context-goal > summary {
   min-height: 28px;
