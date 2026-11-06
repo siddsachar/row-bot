@@ -1,4 +1,4 @@
-"""OpenRouter, Vercel AI Gateway, Together AI and Requesty in the image and video tools (fake HTTP only)."""
+"""Providers with their own image and video APIs in the image and video tools (fake HTTP only)."""
 from __future__ import annotations
 
 import base64
@@ -52,6 +52,7 @@ def media(monkeypatch):
     monkeypatch.setattr(image_gen_tool.registry, "get_tool_config",
                         lambda tool, *args: state.image if tool == "image_gen" else state.video)
     monkeypatch.setattr(image_gen_tool, "_save_image_to_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(image_gen_tool.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(video_gen_tool, "_save_video_to_disk", lambda data, *args: state.videos.append(data) or None)
     monkeypatch.setattr(video_gen_tool.time, "sleep", lambda seconds: None)
     return state
@@ -103,13 +104,19 @@ def test_together_makes_an_image_with_width_and_height(media):
                                    "response_format": "base64", "width": 1024, "height": 1536}
 
 
-def test_together_says_it_cannot_edit_instead_of_trying(media, monkeypatch):
-    media.image = "together/black-forest-labs/FLUX.1-schnell"
+@pytest.mark.parametrize(("selection", "label"), [
+    ("together/black-forest-labs/FLUX.1-schnell", "Together AI"),
+    ("minimax/image-01", "MiniMax"),
+    ("zai/glm-image", "Z.AI"),
+    ("atlascloud/bytedance/seedream-v4", "Atlas Cloud"),
+])
+def test_providers_without_an_edit_api_say_so_instead_of_trying(media, monkeypatch, selection, label):
+    media.image = selection
     monkeypatch.setattr(media.image_tool, "_resolve_image_source", lambda source: b"\x89PNG\r\n\x1a\nsource")
 
     result = media.image_tool._edit_image("make it night")
 
-    assert result.startswith("Together AI image models can only make new images here.")
+    assert result.startswith(f"{label} image models can only make new images here.")
     assert media.calls == []
 
 
@@ -238,7 +245,237 @@ def test_new_providers_image_and_video_models_are_offered_once_connected(monkeyp
         info = model_info_from_metadata(provider, model_id, {"output_modalities": outputs})
         cache[info.selection_ref] = model_info_to_cache_entry(info)
     monkeypatch.setattr(models, "_cloud_model_cache", cache)
-    monkeypatch.setattr(api_keys, "get_key", lambda env: "" if env == "TOGETHER_API_KEY" else "synthetic")
+    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env in {"OPENROUTER_API_KEY", "REQUESTY_API_KEY"} else "")
 
     assert set(get_available_image_models()) == {"openrouter/bytedance-seed/seedream-4.5", "requesty/openai/gpt-image-2"}
     assert set(get_available_video_models()) == {"openrouter/google/veo-3.1"}
+
+
+def test_minimax_makes_an_image_and_its_in_body_error_reaches_the_answer(media):
+    media.image = "minimax/image-01"
+    media.answers[("POST", "/image_generation")] = [
+        _Response({"data": {"image_base64": [PNG]}, "base_resp": {"status_code": 0, "status_msg": "success"}}),
+        _Response({"base_resp": {"status_code": 1008, "status_msg": "insufficient balance"}}),
+    ]
+
+    assert media.image_tool._generate_image("a lighthouse", size="1536x1024").endswith("Provider: MiniMax")
+    assert media.calls[0].url == "https://api.minimax.io/v1/image_generation"
+    assert media.calls[0].json == {"model": "image-01", "prompt": "a lighthouse", "n": 1,
+                                   "response_format": "base64", "aspect_ratio": "3:2"}
+    assert media.image_tool._generate_image("a lighthouse") == (
+        "Image generation failed: MiniMax error 1008: insufficient balance")
+
+
+def test_zai_makes_an_image_at_its_nearest_size_and_downloads_it(media):
+    media.image = "zai/glm-image"
+    media.answers[("POST", "/images/generations")] = [_Response({"data": [{"url": "https://cdn.z.ai/out/1.png"}]})]
+    media.answers[("GET", "/out/1.png")] = [_Response(content=b"\x89PNG\r\n\x1a\nz")]
+
+    result = media.image_tool._generate_image("a lighthouse", size="1024x1536", quality="high")
+
+    assert result == "Image generated successfully. Model: glm-image | Provider: Z.AI"
+    assert media.calls[0].url == "https://api.z.ai/api/paas/v4/images/generations"
+    assert media.calls[0].json == {"model": "glm-image", "prompt": "a lighthouse", "size": "1056x1568", "quality": "hd"}
+
+
+def test_qwen_edits_an_image_sent_with_the_prompt(media, monkeypatch):
+    media.image = "dashscope/qwen-image-2.0"
+    monkeypatch.setattr(media.image_tool, "_resolve_image_source", lambda source: b"\x89PNG\r\n\x1a\nsource")
+    media.answers[("POST", "/multimodal-generation/generation")] = [_Response({"output": {"choices": [
+        {"message": {"content": [{"image": "https://dashscope-result.oss.example/1.png"}]}}]}})]
+    media.answers[("GET", "/1.png")] = [_Response(content=b"\x89PNG\r\n\x1a\nq")]
+
+    result = media.image_tool._edit_image("make it night", size="1024x1024")
+
+    assert result == "Image edited successfully. Model: qwen-image-2.0 | Provider: Qwen (Alibaba Cloud)"
+    call = media.calls[0]
+    assert call.url == "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+    content = call.json["input"]["messages"][0]["content"]
+    assert content[0]["image"].startswith("data:image/png;base64,") and content[1] == {"text": "make it night"}
+    assert call.json["parameters"] == {"n": 1, "size": "1024*1024"}
+    assert "Authorization" not in media.calls[1].headers
+
+
+def test_atlas_cloud_waits_for_its_image_job(media):
+    media.image = "atlascloud/bytedance/seedream-v4"
+    media.answers[("POST", "/model/generateImage")] = [_Response({"data": {"id": "pred-1"}})]
+    media.answers[("GET", "/model/prediction/pred-1")] = [
+        _Response({"data": {"status": "processing"}}),
+        _Response({"data": {"status": "completed", "outputs": ["https://atlas.example/out.png"]}}),
+    ]
+    media.answers[("GET", "/out.png")] = [_Response(content=b"\x89PNG\r\n\x1a\na")]
+
+    result = media.image_tool._generate_image("a lighthouse", size="1536x1024")
+
+    assert result == "Image generated successfully. Model: bytedance/seedream-v4 | Provider: Atlas Cloud"
+    assert media.calls[0].url == "https://api.atlascloud.ai/api/v1/model/generateImage"
+    assert media.calls[0].json == {"model": "bytedance/seedream-v4", "prompt": "a lighthouse"}
+    assert [call.url for call in media.calls].count("https://api.atlascloud.ai/api/v1/model/prediction/pred-1") == 2
+
+
+def test_minimax_makes_a_video_at_the_settings_its_model_takes(media):
+    media.video = "minimax/MiniMax-H3"
+    media.answers[("POST", "/video_generation")] = [_Response({"task_id": "424"})]
+    media.answers[("GET", "/query/video_generation/424")] = [
+        _Response({"task": {"status": "running"}}),
+        _Response({"task": {"status": "succeeded", "content": {"url": "https://cdn.minimax.example/v.mp4"}}}),
+    ]
+    media.answers[("GET", "/v.mp4")] = [_Response(content=b"mp4-bytes")]
+
+    result = media.video_tool._generate_video("waves", duration_seconds=20, aspect_ratio="3:2", resolution="1080p")
+
+    assert result == ("Video generated successfully. Model: MiniMax-H3 | Duration: 15s | Aspect ratio: 16:9 | "
+                      "Resolution: 2K | Mode: text-to-video | Provider: MiniMax")
+    assert media.calls[0].url == "https://api.minimax.io/v2/video_generation"
+    assert media.calls[0].json == {"model": "MiniMax-H3", "content": [{"type": "text", "text": "waves"}],
+                                   "resolution": "2K", "duration": 15, "ratio": "16:9"}
+    assert "Authorization" not in media.calls[-1].headers
+    assert media.videos == [b"mp4-bytes"]
+
+
+def test_minimax_animates_a_still_in_its_own_shape_and_says_why_a_job_failed(media):
+    media.video = "minimax/MiniMax-H3-Highspeed"
+    media.answers[("POST", "/video_generation")] = [_Response({"task_id": "425"})]
+    media.answers[("GET", "/query/video_generation/425")] = [
+        _Response({"task": {"status": "failed", "error": {"code": "1026", "message": "sensitive content"}}})]
+
+    result = media.video_tool._generate_video_job("waves", 8, "16:9", "1080p", b"\x89PNG\r\n\x1a\nstill",
+                                                  provider_id="minimax")
+
+    assert result == "Video generation failed on MiniMax's side: sensitive content. Job: 425"
+    body = media.calls[0].json
+    assert (body["resolution"], body["ratio"]) == ("768P", "adaptive")
+    assert body["content"][1]["role"] == "first_frame"
+    assert body["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_zai_makes_a_video_at_its_nearest_size_and_length(media):
+    media.video = "zai/cogvideox-3"
+    media.answers[("POST", "/videos/generations")] = [_Response({"id": "zv-1", "task_status": "PROCESSING"})]
+    media.answers[("GET", "/async-result/zv-1")] = [
+        _Response({"task_status": "SUCCESS", "video_result": [{"url": "https://cdn.z.ai/v.mp4"}]})]
+    media.answers[("GET", "/v.mp4")] = [_Response(content=b"mp4-bytes")]
+
+    result = media.video_tool._generate_video("waves", duration_seconds=8, aspect_ratio="9:16", resolution="4k")
+
+    assert "Duration: 10s | Aspect ratio: 9:16 | Resolution: 1080x1920" in result
+    assert media.calls[0].json == {"model": "cogvideox-3", "prompt": "waves", "size": "1080x1920", "duration": 10}
+    assert media.videos == [b"mp4-bytes"]
+
+
+@pytest.mark.parametrize(("model", "image", "task_input", "parameters"), [
+    ("wan2.7-t2v", None, {"prompt": "waves"}, {"resolution": "720P", "duration": 8, "ratio": "9:16"}),
+    ("wan2.6-t2v", None, {"prompt": "waves"}, {"size": "720*1280", "duration": 8}),
+    ("wan2.2-i2v-plus", b"\x89PNG\r\n\x1a\nstill", {"prompt": "waves", "img_url": "data:image/png;base64,"},
+     {"resolution": "720P", "duration": 8}),
+])
+def test_qwen_wan_video_jobs_take_each_generations_shape(media, model, image, task_input, parameters):
+    media.video = f"dashscope/{model}"
+    media.answers[("POST", "/video-synthesis")] = [_Response({"output": {"task_id": "t-1", "task_status": "PENDING"}})]
+    media.answers[("GET", "/tasks/t-1")] = [_Response({"output": {"task_status": "RUNNING"}}),
+                                            _Response({"output": {"task_status": "SUCCEEDED",
+                                                                  "video_url": "https://oss.example/v.mp4"}})]
+    media.answers[("GET", "/v.mp4")] = [_Response(content=b"mp4-bytes")]
+
+    result = media.video_tool._generate_video_job("waves", 8, "9:16", "720p", image, provider_id="dashscope")
+
+    assert result.endswith("Provider: Qwen (Alibaba Cloud)")
+    call = media.calls[0]
+    assert call.url == "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+    assert call.headers["X-DashScope-Async"] == "enable"
+    sent = dict(call.json["input"])
+    if "img_url" in sent:
+        sent["img_url"] = sent["img_url"][:len("data:image/png;base64,")]
+    assert (sent, call.json["parameters"]) == (task_input, parameters)
+    assert media.videos == [b"mp4-bytes"]
+
+
+def test_a_failed_qwen_video_job_says_why(media):
+    media.video = "dashscope/wan2.7-t2v"
+    media.answers[("POST", "/video-synthesis")] = [_Response({"output": {"task_id": "t-2"}})]
+    media.answers[("GET", "/tasks/t-2")] = [_Response({"output": {"task_status": "FAILED", "message": "Arrearage"}})]
+
+    assert media.video_tool._generate_video("waves") == (
+        "Video generation failed on Qwen (Alibaba Cloud)'s side: Arrearage. Job: t-2")
+
+
+def test_atlas_cloud_makes_videos_from_text_with_the_models_own_settings(media):
+    media.video = "atlascloud/kwaivgi/kling-v2.1-t2v-master"
+    media.answers[("POST", "/model/generateVideo")] = [_Response({"data": {"id": "pred-2"}})]
+    media.answers[("GET", "/model/prediction/pred-2")] = [
+        _Response({"data": {"status": "completed", "outputs": ["https://atlas.example/v.mp4"]}})]
+    media.answers[("GET", "/v.mp4")] = [_Response(content=b"mp4-bytes")]
+
+    result = media.video_tool._generate_video("waves")
+
+    assert result == ("Video generated successfully. Model: kwaivgi/kling-v2.1-t2v-master | Duration, aspect ratio "
+                      "and resolution: the model's own | Mode: text-to-video | Provider: Atlas Cloud")
+    assert media.calls[0].json == {"model": "kwaivgi/kling-v2.1-t2v-master", "prompt": "waves"}
+    assert media.video_tool._generate_video_job("waves", 8, "16:9", "720p", b"\x89PNG", provider_id="atlascloud") == (
+        "Atlas Cloud video models can only make videos from text here. "
+        "Choose another video model in Settings › Models to animate an image.")
+
+
+def test_minimax_and_zai_media_models_are_offered_once_their_key_is_set(monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    from row_bot.tools.image_gen_tool import get_available_image_models
+    from row_bot.tools.video_gen_tool import get_available_video_models
+
+    monkeypatch.setattr(models, "_cloud_model_cache", {})
+    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env == "MINIMAX_API_KEY" else "")
+
+    assert set(get_available_image_models()) == {"minimax/image-01"}
+    assert set(get_available_video_models()) == {"minimax/MiniMax-H3", "minimax/MiniMax-H3-Highspeed",
+                                                 "minimax/MiniMax-H3-Lite", "minimax/MiniMax-H3-Max"}
+
+    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env == "ZAI_API_KEY" else "")
+
+    assert set(get_available_image_models()) == {"zai/glm-image"}
+    assert set(get_available_video_models()) == {"zai/cogvideox-3"}
+
+
+def test_qwen_and_atlas_cloud_media_models_come_from_their_own_lists(monkeypatch):
+    import httpx
+
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    from row_bot.tools.image_gen_tool import get_available_image_models
+    from row_bot.tools.video_gen_tool import get_available_video_models
+
+    lists = {
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models": {"data": [{"id": "qwen3.8-max"}]},
+        "https://dashscope-intl.aliyuncs.com/api/v1/models": {"output": {"total": 3, "models": [
+            {"model": "qwen-image-2.0", "name": "Qwen-Image-2.0",
+             "inference_metadata": {"request_modality": ["Text"], "response_modality": ["Image"]}},
+            {"model": "wan2.7-t2v", "inference_metadata": {"response_modality": ["Video"]}},
+            {"model": "qwen3-omni", "inference_metadata": {"response_modality": ["Text", "Audio"]}},
+        ]}},
+        "https://api.atlascloud.ai/v1/models": {"data": [{"id": "deepseek-ai/deepseek-v4", "context_length": 128_000}]},
+        "https://api.atlascloud.ai/api/v1/models": {"code": "200", "data": [
+            {"model": "bytedance/seedream-v4", "type": "Image", "displayName": "Seedream v4"},
+            {"model": "kwaivgi/kling-v2.1-t2v-master", "type": "Video"},
+            {"model": "hidden/video", "type": "Video", "display_console": False},
+            {"model": "minimax/speech-2.6", "type": "Audio"},
+        ]},
+    }
+    seen = []
+
+    def get(url, **kwargs):
+        seen.append((url, kwargs.get("params")))
+        return _Response(lists[url])
+
+    monkeypatch.setattr(httpx, "get", get)
+    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env in {"DASHSCOPE_API_KEY", "ATLASCLOUD_API_KEY"} else "")
+    monkeypatch.setattr(models, "_cloud_model_cache", {})
+
+    models._fetch_preset_models("dashscope", "synthetic")
+    models._fetch_atlascloud_models("synthetic")
+
+    assert ("https://dashscope-intl.aliyuncs.com/api/v1/models",
+            {"capabilities": ["IG", "VG"], "page_no": 1, "page_size": 100}) in seen
+    assert get_available_image_models() == {
+        "atlascloud/bytedance/seedream-v4": "AC  Seedream v4  (Atlas Cloud)",
+        "dashscope/qwen-image-2.0": "QW  Qwen-Image-2.0  (Qwen (Alibaba Cloud))",
+    }
+    assert set(get_available_video_models()) == {"atlascloud/kwaivgi/kling-v2.1-t2v-master", "dashscope/wan2.7-t2v"}

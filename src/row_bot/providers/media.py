@@ -21,6 +21,14 @@ IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
                  "base_url": "https://api.together.xyz/v1"},
     "requesty": {"key": "REQUESTY_API_KEY", "label": "Requesty", "emoji": "🛰️", "route": "openai",
                  "base_url": "https://router.requesty.ai/v1"},
+    "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
+                "base_url": "https://api.minimax.io/v1"},
+    "zai": {"key": "ZAI_API_KEY", "label": "Z.AI", "emoji": "Z", "route": "zai",
+            "base_url": "https://api.z.ai/api/paas/v4"},
+    "dashscope": {"key": "DASHSCOPE_API_KEY", "label": "Qwen (Alibaba Cloud)", "emoji": "QW", "route": "dashscope",
+                  "base_url": "https://dashscope-intl.aliyuncs.com/api/v1"},
+    "atlascloud": {"key": "ATLASCLOUD_API_KEY", "label": "Atlas Cloud", "emoji": "AC", "route": "atlascloud",
+                   "base_url": "https://api.atlascloud.ai/api/v1"},
 }
 
 VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
@@ -31,6 +39,29 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
                    "base_url": "https://openrouter.ai/api/v1"},
     "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
                  "base_url": "https://api.together.xyz/v2"},
+    "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
+                "base_url": "https://api.minimax.io/v2"},
+    "zai": {"key": "ZAI_API_KEY", "label": "Z.AI", "emoji": "Z", "route": "zai",
+            "base_url": "https://api.z.ai/api/paas/v4"},
+    "dashscope": {"key": "DASHSCOPE_API_KEY", "label": "Qwen (Alibaba Cloud)", "emoji": "QW", "route": "dashscope",
+                  "base_url": "https://dashscope-intl.aliyuncs.com/api/v1"},
+    "atlascloud": {"key": "ATLASCLOUD_API_KEY", "label": "Atlas Cloud", "emoji": "AC", "route": "atlascloud",
+                   "base_url": "https://api.atlascloud.ai/api/v1"},
+}
+
+# The image and video models of providers whose model lists leave them out: MiniMax
+# lists its text models only and Z.AI's list names no media models. Every other
+# provider's media models come from its own list.
+UNLISTED_MEDIA_MODELS: dict[str, dict[str, dict[str, str]]] = {
+    "image": {
+        "minimax": {"image-01": "Image-01"},
+        "zai": {"glm-image": "GLM-Image"},
+    },
+    "video": {
+        "minimax": {"MiniMax-H3": "MiniMax H3", "MiniMax-H3-Highspeed": "MiniMax H3 Highspeed",
+                    "MiniMax-H3-Lite": "MiniMax H3 Lite", "MiniMax-H3-Max": "MiniMax H3 Max"},
+        "zai": {"cogvideox-3": "CogVideoX-3"},
+    },
 }
 
 
@@ -77,6 +108,9 @@ def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) ->
         if not snapshot_supports_surface(snapshot, surface):
             continue
         entries[f"{provider_id}/{model_id}"] = dict(info)
+    for provider_id, models in UNLISTED_MEDIA_MODELS.get(surface, {}).items():
+        for model_id, label in models.items():
+            entries.setdefault(f"{provider_id}/{model_id}", {"provider": provider_id, "label": label})
 
     options: dict[str, str] = {}
     for config_value, info in sorted(entries.items(), key=lambda item: item[0]):
