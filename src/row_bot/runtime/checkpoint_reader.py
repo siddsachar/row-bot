@@ -185,6 +185,24 @@ class BlobReader:
             current = self.end(value_position)
         return safe
 
+    def media_prompt(self, position: int) -> str:
+        """Read only the ``prompt`` of one media tool's encoded arguments, bounded (5.3.3)."""
+
+        node = self.node(position)
+        if node.kind != "map" or node.size > 64:
+            return ""
+        current = node.body
+        for _ in range(node.size):
+            key = self.text(current, 128)
+            current = self.end(current)
+            value = self.node(current)
+            if key == "prompt" and value.kind == "str":
+                self.blob.seek(value.body)
+                # Reads stay within one 1 KiB step, as every bounded read here does.
+                return self._read(min(value.size, 1024)).decode("utf-8", errors="ignore")
+            current = self.end(current)
+        return ""
+
     def safe_attachments(self, position: int) -> list[dict[str, Any]]:
         """Decode only the closed public metadata written at input admission."""
 
@@ -355,6 +373,8 @@ class BlobReader:
         tool_ids_lazy = False
         tool_id_bytes = 0
         if "tool_calls" in fields:
+            from row_bot.application.conversation_traces import MEDIA_PROMPT_TOOLS
+
             calls = self.node(fields["tool_calls"])
             current = calls.body
             if calls.kind == "array":
@@ -363,10 +383,13 @@ class BlobReader:
                     if "id" in call:
                         identity_text = self.text(call["id"])
                         tool_ids.append(identity_text)
+                        tool_name = self.text(call["name"])[:180] if "name" in call else "tool"
                         tool_calls.append({
                             "id": identity_text,
-                            "name": self.text(call["name"])[:180] if "name" in call else "tool",
+                            "name": tool_name,
                             "args": self.safe_tool_args(call["args"]) if "args" in call else {},
+                            **({"media_prompt": self.media_prompt(call["args"])}
+                               if "args" in call and tool_name in MEDIA_PROMPT_TOOLS else {}),
                         })
                         tool_id_bytes += len(identity_text.encode())
                         if len(tool_ids) > 128 or tool_id_bytes > 8192:

@@ -21,10 +21,21 @@ export type ConversationOutput = {
   id: string;
   reference: string;
   mime: string;
+  /** The prompt it was made from; older chats have none. */
+  prompt?: string;
 };
 
 /** Newest first; the rest fold under "Show all" (two rows of three). */
 const FOLDED = 6;
+const SHORT = 48;
+
+/** A prompt's opening words, cut at a word ("A fox in a misty forest…"). */
+function shortPrompt(prompt: string) {
+  if (prompt.length <= SHORT) return prompt;
+  const cut = prompt.slice(0, SHORT);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > SHORT / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, '')}…`;
+}
 
 /** A picture's small server thumbnail; a video (which has none) a play mark. */
 function Thumb({ output }: { output: ConversationOutput }) {
@@ -99,15 +110,18 @@ export default function ContextOutputs({
   const designs = resources.filter(
     (resource) => resource.binding.kind === 'artifact' && resource.available,
   );
-  // Generated files have no names of their own: each is named by its kind
-  // and its place in the chat ("Image 3"), as the viewer's title says too.
+  // An output is named by the start of its prompt, the whole prompt in its
+  // tooltip; one from an older chat, which has none, by its kind and place
+  // in the chat ("Image 3"). The viewer's title says the same.
   const counts = { image: 0, video: 0 };
   const named = outputs.map((output) => {
     const kind = output.mime.startsWith('video/') ? 'video' : 'image';
     counts[kind] += 1;
+    const fallback = `${kind === 'video' ? 'Video' : 'Image'} ${counts[kind]}`;
     return {
       ...output,
-      name: `${kind === 'video' ? 'Video' : 'Image'} ${counts[kind]}`,
+      name: output.prompt ? shortPrompt(output.prompt) : fallback,
+      hint: output.prompt || fallback,
     };
   });
   const newest = [...named].reverse();
@@ -207,7 +221,7 @@ export default function ContextOutputs({
             className="context-output-tile"
             data-busy={busy === output.reference ? 'true' : undefined}
           >
-            <Hint label={output.name}>
+            <Hint label={output.hint}>
               <button
                 type="button"
                 className="context-output-open"
@@ -221,7 +235,12 @@ export default function ContextOutputs({
                   })
                 }
               >
-                <Thumb output={output} />
+                <span className="context-output-frame">
+                  <Thumb output={output} />
+                </span>
+                <span className="context-output-label" aria-hidden>
+                  {output.name}
+                </span>
               </button>
             </Hint>
             <Menu

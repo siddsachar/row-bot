@@ -7118,12 +7118,14 @@ class ToolCallPayload(str):
         args: dict[str, Any] | None = None,
         call_id: str = "",
         runtime_name: str = "",
+        media_prompt: str = "",
     ):
         obj = str.__new__(cls, str(name or "tool"))
         obj.raw_name = str(raw_name or "")
         obj.runtime_name = str(runtime_name or raw_name or "")
         obj.args = dict(args or {})
         obj.call_id = str(call_id or "")
+        obj.media_prompt = str(media_prompt or "")
         return obj
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -7137,6 +7139,8 @@ class ToolCallPayload(str):
             return self.args
         if key == "id":
             return self.call_id
+        if key == "media_prompt":
+            return self.media_prompt
         return default
 
     def as_dict(self) -> dict[str, Any]:
@@ -7270,6 +7274,8 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
 
 
 def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
+    from row_bot.application.conversation_traces import media_prompt
+
     raw_name = str(tc.get("name") or "")
     args = tc.get("args")
     effective_name = _tool_call_runtime_name(tc)
@@ -7279,6 +7285,8 @@ def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
         args=_safe_tool_call_args(args),
         call_id=str(tc.get("id") or raw_name),
         runtime_name=effective_name,
+        # A picture's or video's prompt names it in the chat's Outputs (5.3.3); no other argument rides along.
+        media_prompt=media_prompt(effective_name, args.get("prompt") if isinstance(args, dict) else None),
     )
 
 

@@ -72,6 +72,7 @@ import DelegatedActivity, {
   recentReads,
 } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
+import type { ConversationOutput } from './ContextOutputs';
 import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
@@ -2434,6 +2435,7 @@ export default function Conversation({
           id: media.media_ref,
           reference: media.media_ref,
           mime: media.mime_type,
+          prompt: media.prompt,
         })),
       ),
     ),
@@ -2450,20 +2452,28 @@ export default function Conversation({
         item.event.type === 'media.available'
           ? item.event.payload.mime_type
           : '',
+      prompt:
+        item.event.type === 'media.available'
+          ? item.event.payload.prompt
+          : undefined,
     }));
-  const outputs = [
-    ...new Map(
-      [
-        ...(state.workspace?.generated_outputs ?? []).map((output) => ({
-          id: output.media_ref,
-          reference: output.media_ref,
-          mime: output.mime_type,
-        })),
-        ...durableOutputs,
-        ...liveOutputs,
-      ].map((output) => [output.reference, output]),
-    ).values(),
-  ];
+  // One output per result; its prompt (5.3.3) comes from whichever source has it.
+  const outputsByReference = new Map<string, ConversationOutput>();
+  for (const output of [
+    ...(state.workspace?.generated_outputs ?? []).map((output) => ({
+      id: output.media_ref,
+      reference: output.media_ref,
+      mime: output.mime_type,
+      prompt: output.prompt,
+    })),
+    ...durableOutputs,
+    ...liveOutputs,
+  ])
+    outputsByReference.set(output.reference, {
+      ...output,
+      prompt: output.prompt || outputsByReference.get(output.reference)?.prompt,
+    });
+  const outputs = [...outputsByReference.values()];
   const contextReady = state.status === 'ready' && historyReady;
   const contextRail = id ? (
     <ConversationContextRail
