@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -230,7 +231,12 @@ def test_desktop_saves_land_where_the_save_dialog_says_and_tear_off_repeats(tmp_
     """The export went to a file named "C" in the app's working folder while
     the app said it was saved (B238); tear-off worked once, then never (B224)."""
     report = _run(tmp_path, api.server_address[1], "desktop_save_and_tear_off_rounds")
-    assert report["save"] == {"status": "ok", "value": None}
+    # A save answers a token for Show in folder, never the path chosen.
+    saved = {"status": "ok", "value": {"saved": "token"}}
+    def tokenless(answer: dict) -> dict:
+        assert re.fullmatch(r"[0-9a-f]{32}", answer["value"]["saved"]), answer
+        return {**answer, "value": {"saved": "token"}}
+    assert tokenless(report["save"]) == saved
     assert report["saved_bytes"] == "export conversation-1:export-1"
     assert report["save_dialog"][1]["save_filename"] == "conversation-export.pdf"
     assert report["save_relative"] == {"status": "unavailable", "reason": "save_failed"}
@@ -245,7 +251,7 @@ def test_desktop_saves_land_where_the_save_dialog_says_and_tear_off_repeats(tmp_
         assert round_["dock"] == ("unavailable" if number % 2 == 0 else docked)
         assert round_["destroyed"] is True
         assert round_["main_status"] == docked
-        assert round_["main_save"] == {"status": "ok", "value": None}
+        assert tokenless(round_["main_save"]) == saved
     assert report["windows"] == 4
 
 
