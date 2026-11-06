@@ -13,9 +13,12 @@ import {
   Bot,
   Brain,
   CalendarClock,
+  Check,
   ChevronDown,
   ChevronRight,
   Code2,
+  Copy,
+  ExternalLink,
   HeartPulse,
   Hourglass,
   ImageOff,
@@ -46,6 +49,8 @@ import type {
   XPostEdit,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { writeClipboardText } from '../../platform/clipboard';
+import { useRuntime } from '../../runtime';
 import { Hint, IconButton } from '../../ui/primitives';
 import ApprovalCard from '../shell/ApprovalCard';
 import { openMediaViewer } from '../shell/MediaPreview';
@@ -357,6 +362,43 @@ function savedThisWeek(monitor: MonitorSnapshot | null, from: Date, to: Date) {
       sum + entry.threads.reduce((total, thread) => total + thread.saved, 0)
     );
   }, 0);
+}
+
+/** A reply or quote X takes only from its own app or website (its reply rule):
+ * the draft to copy and the post to open, to post it there by hand. */
+function PostByHand({ post }: { post: ScheduledPost }) {
+  const { platform } = useRuntime();
+  const [copied, setCopied] = useState(false);
+  const target = post.target_url ?? '';
+  return (
+    <>
+      <IconButton
+        size="sm"
+        label={copied ? 'Copied' : 'Copy the draft'}
+        onClick={() =>
+          void writeClipboardText(
+            post.text ?? '',
+            platform.writeClipboard,
+          ).then(setCopied)
+        }
+      >
+        {copied ? (
+          <Check size={15} aria-hidden />
+        ) : (
+          <Copy size={15} aria-hidden />
+        )}
+      </IconButton>
+      {target && (
+        <IconButton
+          size="sm"
+          label="Open the post on X"
+          onClick={() => void platform.openExternal(target)}
+        >
+          <ExternalLink size={15} aria-hidden />
+        </IconButton>
+      )}
+    </>
+  );
 }
 
 /** A scheduled post's pictures and videos, each opening full size to check
@@ -1106,22 +1148,27 @@ export default function OverviewHome({
                       </span>
                     </div>
                     <div className="overview-row-actions">
-                      <IconButton
-                        size="sm"
-                        label="Try again now"
-                        onClick={() => void retryScheduled(post, false)}
-                      >
-                        <RotateCw size={15} aria-hidden />
-                      </IconButton>
-                      {(post.media?.length ?? 0) > 0 && (
+                      {post.status === 'by_hand' ? (
+                        <PostByHand post={post} />
+                      ) : (
                         <IconButton
                           size="sm"
-                          label="Post it now without the picture"
-                          onClick={() => void retryScheduled(post, true)}
+                          label="Try again now"
+                          onClick={() => void retryScheduled(post, false)}
                         >
-                          <ImageOff size={15} aria-hidden />
+                          <RotateCw size={15} aria-hidden />
                         </IconButton>
                       )}
+                      {post.status !== 'by_hand' &&
+                        (post.media?.length ?? 0) > 0 && (
+                          <IconButton
+                            size="sm"
+                            label="Post it now without the picture"
+                            onClick={() => void retryScheduled(post, true)}
+                          >
+                            <ImageOff size={15} aria-hidden />
+                          </IconButton>
+                        )}
                       <IconButton
                         size="sm"
                         label="Dismiss"

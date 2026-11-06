@@ -40,8 +40,12 @@ const runtime = vi.hoisted(() => ({
   waits: vi.fn(async () => ({ schema_version: 1, items: [] as unknown[] })),
   stopWait: vi.fn(async () => ({ schema_version: 1, items: [] })),
 }));
+const platform = vi.hoisted(() => ({
+  openExternal: vi.fn(async () => ({ status: 'ok' })),
+  writeClipboard: vi.fn(async () => ({ status: 'ok' })),
+}));
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: runtime }),
+  useRuntime: () => ({ controller: runtime, platform }),
 }));
 
 /** Friday 26 September 2026, 9:30 local time. */
@@ -1635,4 +1639,54 @@ it('keeps a scheduled post that didn’t go out in Review, with why, Try again, 
     screen.queryByRole('list', { name: "Posts that didn't go out" }),
   ).toBeNull();
   expect(dismiss).not.toHaveBeenCalled();
+});
+
+it('offers the draft and the post, never Try again, for a reply X takes only from its own app', async () => {
+  const retry = vi.fn();
+  const target = 'https://x.com/i/status/1900000000000000001';
+  show({
+    loadScheduledPosts: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      items: [
+        {
+          id: 'xs-0123456789ab',
+          account_id: '222',
+          username: 'sidd',
+          action: 'reply' as const,
+          text: 'Row-Bot keeps it local.',
+          target_url: target,
+          post_at: '2026-09-26T12:00',
+          status: 'by_hand' as const,
+          reason:
+            'Nothing was sent to X: X allows this reply only from its own app or website.',
+        },
+      ],
+    }),
+    onRetryScheduledPost: retry,
+    onCancelScheduledPost: vi.fn(),
+  });
+  const rows = await screen.findByRole('list', {
+    name: "Posts that didn't go out",
+  });
+  const [row] = within(rows).getAllByRole('listitem');
+  expect(row).toHaveTextContent('Row-Bot keeps it local.');
+  expect(row).toHaveTextContent('only from its own app or website');
+  expect(
+    within(row).queryByRole('button', { name: 'Try again now' }),
+  ).toBeNull();
+  await act(async () => {
+    fireEvent.click(
+      within(row).getByRole('button', { name: 'Copy the draft' }),
+    );
+  });
+  expect(platform.writeClipboard).toHaveBeenCalledWith(
+    'Row-Bot keeps it local.',
+  );
+  expect(within(row).getByRole('button', { name: 'Copied' })).toBeVisible();
+  fireEvent.click(
+    within(row).getByRole('button', { name: 'Open the post on X' }),
+  );
+  expect(platform.openExternal).toHaveBeenCalledWith(target);
+  expect(within(row).getByRole('button', { name: 'Dismiss' })).toBeVisible();
+  expect(retry).not.toHaveBeenCalled();
 });

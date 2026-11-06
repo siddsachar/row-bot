@@ -126,7 +126,8 @@
         "scheduled",
         "failed",
         "missed",
-        "unknown"
+        "unknown",
+        "by_hand"
       ],
       "title": "Status",
       "type": "string"

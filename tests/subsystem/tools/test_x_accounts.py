@@ -214,7 +214,7 @@ def test_a_reply_card_links_the_post_it_answers(x, person):
     fake, tool = x
     asked, _ = person
     x_accounts.add(fake.sign_in(*ROWBOT))
-    original = fake.post("999", "What does Row-Bot do?")
+    original = fake.post("999", "@rowbot_ai What does Row-Bot do?")
 
     result = tool._x_post("reply", text="It keeps your data local.", tweet_id=original["id"])
 
@@ -898,3 +898,105 @@ def test_an_accounts_recent_posts_come_with_their_numbers_and_totals(x):
             "Most viewed: ") in read
     assert "1,200 views · 30 likes · 2 reposts · 1 reply · 0 quotes · 5 bookmarks" in read
     assert "340 views · 1 like · 2 reposts · 1 reply" in read
+
+
+# ── X's reply rule (23 Feb 2026) ─────────────────────────────────────────────
+# X's self-serve API takes a reply or quote only where the post's author summoned the account: mentioned it, quoted
+# one of its posts, or is the account. Row-Bot checks by the posting account's own user ID, before any card.
+
+
+def test_a_reply_or_quote_asks_only_where_the_posts_author_summoned_that_account(x, person):
+    fake, tool = x
+    asked, _ = person
+    for user in (ROWBOT, PERSONAL):
+        x_accounts.add(fake.sign_in(*user))
+    for_sidd = fake.post("999", "@sidd what do you make of local-first apps?")
+    launch = fake.post("111", "Row-Bot 5.3 is out")
+    quoting = fake.post("999", "Look at this", references=[{"type": "quoted", "id": launch["id"]}])
+
+    allowed = [tool._x_post("reply", text="They keep your data yours.", tweet_id=for_sidd["id"], account="@sidd"),
+               tool._x_post("quote", text="Thanks for sharing!", tweet_id=quoting["id"], account="@rowbot_ai"),
+               tool._x_post("reply", text="Release notes inside.", tweet_id=launch["id"], account="@rowbot_ai")]
+    assert len(asked) == 3 and all("https://x.com/" in result for result in allowed)
+    assert [post["text"] for post in fake.posted_by("222")] == ["They keep your data yours."]
+
+    blocked = {"reply as rowbot": tool._x_post("reply", text="Row-Bot does that too.", tweet_id=for_sidd["id"],
+                                               account="@rowbot_ai"),
+               "quote as sidd": tool._x_post("quote", text="Worth a read.", tweet_id=quoting["id"], account="@sidd")}
+
+    assert len(asked) == 3 and _creates(fake) == 3, "an unsummoned reply or quote never reaches X"
+    reply, quote = blocked.values()
+    assert reply.startswith("Nothing was sent to X: X allows this reply only from its own app or website. Through "
+                            "other apps, X allows a reply or quote only when the post's author mentioned @rowbot_ai "
+                            "or quoted one of @rowbot_ai's posts.")
+    assert f"Reply to it there: https://x.com/i/status/{for_sidd['id']}" in reply
+    assert "The draft, ready to copy:\nRow-Bot does that too." in reply
+    assert "mentioned @sidd" in quote and f"Quote it there: https://x.com/i/status/{quoting['id']}" in quote
+    assert "The draft, ready to copy:\nWorth a read." in quote
+
+
+def test_an_unsummoned_reply_is_never_scheduled(x, person):
+    from datetime import datetime, timedelta
+
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    question = fake.post("999", "Which local AI assistant should I try?")
+    when = (datetime.now() + timedelta(hours=2)).replace(second=0, microsecond=0)
+
+    result = tool._x_post("reply", text="Try Row-Bot.", tweet_id=question["id"], account="@rowbot_ai",
+                          post_at=when.isoformat(timespec="minutes"))
+
+    assert asked == [] and x_posting.scheduled_posts() == []
+    assert "Nothing was sent to X" in result and "The draft, ready to copy:\nTry Row-Bot." in result
+
+
+def test_a_reply_x_refuses_by_its_rule_gives_the_draft_and_is_not_offered_again(x, person):
+    """Row-Bot couldn't read the post first (X down for reads), so it asked; X then refused the reply."""
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    question = fake.post("999", "Which local AI assistant should I try?")
+    fake.fail_reads = True
+
+    result = tool._x_post("reply", text="Try Row-Bot.", tweet_id=question["id"], account="@rowbot_ai")
+
+    assert len(asked) == 1 and _creates(fake) == 1 and fake.posted_by("111") == []
+    assert "Nothing was posted as @rowbot_ai. X refused it: X allows this reply only from its own app" in result
+    assert f"https://x.com/i/status/{question['id']}" in result and "ready to copy:\nTry Row-Bot." in result
+    assert [item["status"] for item in x_posting.operations()] == ["failed"], "nothing left to check or resend"
+
+
+def test_a_scheduled_reply_x_wont_take_settles_with_its_draft_and_no_try_again(x, notices):
+    """Replies scheduled before Row-Bot checked X's rule: checked at their time, or refused by X if it couldn't."""
+    from datetime import datetime, timedelta
+
+    fake, _ = x
+    rowbot, sidd = (x_accounts.add(fake.sign_in(*user)) for user in (ROWBOT, PERSONAL))
+    question = fake.post("999", "@sidd which local AI assistant should I try?")
+    when = (datetime.now() + timedelta(hours=1)).replace(second=0, microsecond=0)
+    checked = x_posting.schedule(rowbot, "reply", "Try Row-Bot.", question["id"], [], when)
+    welcome = x_posting.schedule(sidd, "reply", "Row-Bot, I'd say.", question["id"], [], when)
+
+    done = {item["id"]: item for item in x_posting.send_due(when)}
+    assert done[welcome["id"]]["status"] == "posted", "@sidd was mentioned"
+    assert done[checked["id"]]["status"] == "by_hand" and _creates(fake) == 1, "@rowbot_ai's never reached X"
+
+    refused = x_posting.schedule(rowbot, "quote", "Good question.", question["id"], [], when)
+    fake.fail_reads = True  # Row-Bot can't check first: X refuses it.
+    [sent] = x_posting.send_due(when)
+    assert sent["status"] == "by_hand" and _creates(fake) == 2 and fake.posted_by("111") == []
+    fake.fail_reads = False
+
+    shown = {item["id"]: item for item in x_posting.scheduled_posts()}
+    assert set(shown) == {checked["id"], refused["id"]}
+    assert shown[checked["id"]]["reason"].startswith("Nothing was sent to X: X allows this reply only from its own")
+    assert shown[refused["id"]]["reason"].startswith("Nothing was posted as @rowbot_ai. X refused it: X allows this "
+                                                     "quote only from its own app or website.")
+    assert (shown[refused["id"]]["text"], shown[refused["id"]]["target_url"]) == (
+        "Good question.", f"https://x.com/i/status/{question['id']}")
+    assert not x_posting.retry_scheduled(refused["id"]), "trying again would fail again"
+    assert notices[-1] == ("A scheduled post as @rowbot_ai didn't go out",
+                           f"{shown[refused['id']]['reason']} It's in Home › Review, with the draft to copy.")
+    assert x_posting.cancel_scheduled(refused["id"]) and refused["id"] not in {
+        item["id"] for item in x_posting.scheduled_posts()}
