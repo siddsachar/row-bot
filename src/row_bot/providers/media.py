@@ -4,17 +4,33 @@ from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
 
+# Who makes images and videos, and how: each provider's route is the shape of its
+# API ("openai" is POST /images/generations and /images/edits at base_url), so a
+# provider that speaks a known shape is one row here.
 IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
-    "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡"},
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
-    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription"},
+    "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡", "route": "openai",
+               "base_url": "https://api.openai.com/v1"},
+    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎", "route": "google"},
+    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏", "route": "xai"},
+    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription", "route": "xai"},
+    "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
+                   "base_url": "https://openrouter.ai/api/v1"},
+    "vercel": {"key": "AI_GATEWAY_API_KEY", "label": "Vercel AI Gateway", "emoji": "VG", "route": "openai",
+               "base_url": "https://ai-gateway.vercel.sh/v1"},
+    "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
+                 "base_url": "https://api.together.xyz/v1"},
+    "requesty": {"key": "REQUESTY_API_KEY", "label": "Requesty", "emoji": "🛰️", "route": "openai",
+                 "base_url": "https://router.requesty.ai/v1"},
 }
 
 VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
-    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription"},
+    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎", "route": "google"},
+    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏", "route": "xai"},
+    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription", "route": "xai"},
+    "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
+                   "base_url": "https://openrouter.ai/api/v1"},
+    "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
+                 "base_url": "https://api.together.xyz/v2"},
 }
 
 
@@ -87,3 +103,16 @@ def unlisted_media_note(surface: str, selection: str, cloud_cache: dict[str, dic
         return ""
     return (f"{meta['label']} no longer lists {model_id}, so it may have been retired. "
             f"Choose another {surface} model in Settings › Models.")
+
+
+def media_error_text(response: Any) -> str:
+    """A provider's own error message from a failed media request, briefly."""
+    try:
+        body = response.json()
+    except ValueError:
+        return str(response.text or "").strip()[:300] or "no details"
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        error = error.get("message")
+    message = error or (body.get("message") if isinstance(body, dict) else None)
+    return str(message or body)[:300]

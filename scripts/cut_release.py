@@ -146,7 +146,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("version", help="New version, e.g. 5.0.0")
     parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     parser.add_argument("--no-docs", action="store_true",
-                        help="Don't publish the docs site now (run scripts/docs/publish.py before the release-prep PR)")
+                        help="Don't publish the docs site or refresh the bundled model capabilities now (run "
+                             "scripts/docs/publish.py and scripts/refresh_model_capabilities.py before the release-prep PR)")
     args = parser.parse_args(argv)
     version = args.version
     bump(args.root, version)
@@ -157,12 +158,17 @@ def main(argv: list[str] | None = None) -> None:
 
         subprocess.run([sys.executable, str(args.root / "scripts" / "docs" / "publish.py")],  # noqa: S603
                        cwd=args.root, check=True)
+        # The release ships the latest models.dev catalogue, for when the live fetch fails.
+        subprocess.run([sys.executable, str(args.root / "scripts" / "refresh_model_capabilities.py")],  # noqa: S603
+                       cwd=args.root, check=True)
 
     print(f"Prepared release version {version}")
     print("Next steps (docs/RELEASING.md):")
     print(f"1. Write v{version}'s notes in RELEASE_NOTES.md, with its For Hosts section"
-          + ("" if not args.no_docs else ", and run `python scripts/docs/publish.py` to publish the docs"))
-    print("2. Run `uv run python scripts/run_test_matrix.py pr` and open the release-prep PR (with the docs)")
+          + ("" if not args.no_docs else ", and run `python scripts/docs/publish.py` to publish the docs and "
+                                          "`python scripts/refresh_model_capabilities.py` to refresh the model capabilities"))
+    print("2. Run `uv run python scripts/run_test_matrix.py pr` and open the release-prep PR (with the docs and "
+          "src/row_bot/providers/model_capabilities.json)")
     print(f"3. After it merges and CI / ci-ok is green on the merge commit, tag it v{version},")
     print(f"   push the tag and run release.yml with version {version}")
 

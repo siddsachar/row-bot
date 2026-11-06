@@ -1305,6 +1305,8 @@ class SettingsSnapshot(WireModel):
     plugins: SettingsPluginSummary
     preferences: PreferenceSettingsSnapshot
     learning: LearningSettingsSnapshot
+    # tools_config.json exists but can't be read: every tool stays off until it is reset or restored.
+    tool_settings_unreadable: bool = False
     # Per page, what each saved field reads on a fresh profile; clients show
     # a "modified" mark and a reset for fields that differ.
     defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(

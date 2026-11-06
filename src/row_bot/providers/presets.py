@@ -134,8 +134,12 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
 
     A list that describes capabilities (Mistral's capabilities, Vercel's tags, Hugging
     Face's per-provider flags, a supports_tools field) is believed, including what it
-    leaves out. A bare row says nothing, and the provider's chat models take tools.
+    leaves out. Where a row says nothing, models.dev's catalogue fills in what it knows
+    about the model; otherwise the provider's chat models take tools.
     """
+    from row_bot.providers.capability_catalog import lookup
+
+    known = lookup(preset.id, str(row.get("id") or ""))
     metadata: dict[str, Any] = {}
     capabilities = row.get("capabilities") if isinstance(row.get("capabilities"), dict) else None
     tags = {str(tag).lower() for tag in row["tags"]} if isinstance(row.get("tags"), list) else None
@@ -148,11 +152,14 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
         metadata["tool_calling"] = "tool-use" in tags
     elif routes is not None:
         metadata["tool_calling"] = any(item.get("supports_tools") is True for item in routes)
+    elif known:
+        metadata["tool_calling"] = known.tool_calling
     vision = (
         row.get("supports_image_input") is True
         or row.get("supports_image_in") is True
         or (capabilities is not None and capabilities.get("vision") is True)
         or (tags is not None and "vision" in tags)
+        or (capabilities is None and tags is None and known is not None and known.vision)
     )
     if vision:
         metadata["vision"] = True
@@ -161,18 +168,32 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
     ) if _positive(row.get(key))), 0)
     if not context and routes:
         context = max((_positive(item.get("context_length")) for item in routes), default=0)
-    metadata["context_window"] = context or preset.context_window
+    metadata["context_window"] = context or (known.context_window if known else 0) or preset.context_window
     return metadata
 
 
 def model_infos_from_catalog(preset: ProviderPreset, payload: Any, *, verified_at: str = "") -> list[ModelInfo]:
-    """The chat models in this provider's ``/models`` answer."""
+    """The chat models in this provider's ``/models`` answer, and its image and video
+    models when Row-Bot's image and video tools can call this provider."""
     from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META
 
+    makes = {kind for kind, table in (("image", IMAGE_PROVIDER_META), ("video", VIDEO_PROVIDER_META))
+             if preset.id in table}
     infos: list[ModelInfo] = []
     seen: set[str] = set()
     for row in _rows(payload):
         model_id = str(row.get("id") or "").strip()
+        kind = str(row.get("type") or "").strip().lower()
+        if model_id and model_id not in seen and kind in makes:
+            seen.add(model_id)
+            info = model_info_from_metadata(
+                preset.id, model_id, {"output_modalities": [kind]},
+                display_name=str(row.get("name") or row.get("display_name") or model_id),
+                context_window=0, risk_label=preset.risk_label, source="preset_catalog",
+            )
+            infos.append(replace(info, last_verified_at=verified_at) if verified_at else info)
+            continue
         if not model_id or model_id in seen or not _is_chat(preset, row):
             continue
         seen.add(model_id)

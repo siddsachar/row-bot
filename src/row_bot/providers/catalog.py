@@ -620,8 +620,11 @@ def classify_model_capabilities(
         input_modalities.add(ModelModality.IMAGE.value)
         capabilities.add("vision")
 
-    declared_output = metadata.get("output_modalities")
-    declares_video = isinstance(declared_output, (list, tuple)) and "video" in {str(item).lower() for item in declared_output}
+    # A list that says what a model outputs is believed (OpenRouter puts it under architecture).
+    architecture = metadata.get("architecture") if isinstance(metadata.get("architecture"), Mapping) else {}
+    declared_output = metadata.get("output_modalities") or architecture.get("output_modalities")
+    declared = {str(item).lower() for item in declared_output} if isinstance(declared_output, (list, tuple)) else set()
+    declares_video = "video" in declared
     if any(part in lower for part in ("embed", "embedding")):
         tasks = {ModelTask.EMBEDDING.value}
         capabilities = {"text", "embedding"}
@@ -676,6 +679,23 @@ def classify_model_capabilities(
         output_modalities.add(ModelModality.AUDIO.value)
         capabilities = {"audio", "realtime"}
         tool_calling = False
+
+    if declared and not declared & {"text", "image", "video"}:
+        # Speech, embeddings and the like: not a chat model, whatever its name says.
+        tasks.discard(ModelTask.CHAT.value)
+        tasks.discard(ModelTask.RESPONSES.value)
+    elif "image" in declared and not declares_video:
+        if "text" in declared:
+            # A chat model that also draws stays a chat model.
+            tasks.add(ModelTask.IMAGE_GENERATION.value)
+            output_modalities.add(ModelModality.IMAGE.value)
+            capabilities.add("image_generation")
+        elif ModelTask.IMAGE_GENERATION.value not in tasks:
+            tasks = {ModelTask.IMAGE_GENERATION.value}
+            output_modalities = {ModelModality.IMAGE.value}
+            capabilities = {"image_generation"}
+            tool_calling = False
+            streaming = False
 
     if provider_id == "openai" and any(part in lower for part in ("davinci", "babbage", "curie", "text-ada", "instruct")):
         tasks = set()

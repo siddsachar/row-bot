@@ -143,6 +143,7 @@ it('lists what else Row-Bot contacts, one line each, even while dormant', async 
     items.map((item) => item.querySelector('strong')?.textContent),
   ).toEqual(['Update checks', 'Connection checks', 'Catalogs']);
   expect(privacy).toHaveTextContent('OpenRouter’s public list');
+  expect(privacy).toHaveTextContent('models.dev’s, at most hourly');
   expect(
     within(privacy).getByRole('link', { name: 'Settings › Updates' }),
   ).toHaveAttribute('href', '/settings/updates');
