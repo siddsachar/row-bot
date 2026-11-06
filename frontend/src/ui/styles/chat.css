@@ -3966,6 +3966,8 @@ button.attachment-tile-face:hover {
 .model-picker-option-reason {
   flex: 0 1 auto;
   min-width: 0;
+  /* A long reason truncates; the model's name always keeps the rest. */
+  max-width: 55%;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-12);

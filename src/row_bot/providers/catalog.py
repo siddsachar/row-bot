@@ -620,14 +620,17 @@ def classify_model_capabilities(
         input_modalities.add(ModelModality.IMAGE.value)
         capabilities.add("vision")
 
+    declared_output = metadata.get("output_modalities")
+    declares_video = isinstance(declared_output, (list, tuple)) and "video" in {str(item).lower() for item in declared_output}
     if any(part in lower for part in ("embed", "embedding")):
         tasks = {ModelTask.EMBEDDING.value}
         capabilities = {"text", "embedding"}
         tool_calling = False
     elif any(part in lower for part in ("dall-e", "gpt-image", "imagen", "image-generation")) or (
         provider_id == "google" and bare.startswith("gemini") and "image" in lower
-    ) or (provider_id in {"xai", "xai_oauth"} and "grok-imagine" in lower and "image" in lower) or isinstance(
-        metadata.get("generation_parameters"), Mapping
+    ) or (provider_id in {"xai", "xai_oauth"} and "grok-imagine" in lower and "image" in lower) or (
+        # xAI prices image and video models by resolution alike; a video model stays a video model.
+        isinstance(metadata.get("generation_parameters"), Mapping) and not declares_video and "video" not in lower
     ):
         tasks = {ModelTask.IMAGE_GENERATION.value}
         if provider_id == "google" and bare.startswith("gemini"):
@@ -639,7 +642,7 @@ def classify_model_capabilities(
             capabilities.add("image_edit")
         tool_calling = False
         streaming = False
-    elif any(part in lower for part in ("veo", "video")):
+    elif declares_video or any(part in lower for part in ("veo", "video")):
         tasks = {ModelTask.VIDEO_GENERATION.value}
         output_modalities = {ModelModality.VIDEO.value}
         capabilities = {"video_generation"}

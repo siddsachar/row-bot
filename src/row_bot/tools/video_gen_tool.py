@@ -8,8 +8,9 @@ inline in the desktop chat via an HTML5 video player.  Channel adapters
 attach the saved MP4 as a file.
 
 The user picks a provider+model combination in Settings → Models (e.g.
-``google/veo-3.1-generate-preview`` or ``xai/grok-imagine-video``).
-Only providers whose API key is configured appear in the dropdown.
+``google/veo-3.1-generate-preview`` or ``xai/grok-imagine-video``). The
+choices are the video models each connected provider's own model list offers,
+so new models appear without a Row-Bot change.
 
 Google Veo:
   - Uses the ``generate_videos`` long-running operation API.
@@ -51,29 +52,6 @@ logger = logging.getLogger(__name__)
 _GOOGLE_POLL_INTERVAL = 10   # seconds
 _XAI_POLL_INTERVAL = 5       # seconds
 _POLL_TIMEOUT = 360           # 6 minutes hard ceiling
-
-# ── Available video generation models ────────────────────────────────────
-
-_GOOGLE_MODELS = [
-    {"id": "veo-3.1-generate-preview", "label": "Veo 3.1"},
-    {"id": "veo-3.1-fast-generate-preview", "label": "Veo 3.1 Fast"},
-]
-
-_XAI_MODELS = [
-    {"id": "grok-imagine-video", "label": "Grok Imagine Video"},
-]
-
-VIDEO_GEN_MODELS = _GOOGLE_MODELS + _XAI_MODELS
-
-_PROVIDER_MODELS = {
-    "google": _GOOGLE_MODELS,
-    "xai": _XAI_MODELS,
-}
-
-_PROVIDERS = {
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai":    {"key": "XAI_API_KEY",    "label": "xAI",    "emoji": "𝕏"},
-}
 
 # No preset: video generation stays off and unset until the person chooses a
 # model in Settings › Models (decision 9).
@@ -223,22 +201,10 @@ def get_available_video_models() -> dict[str, str]:
 
     Used by the Settings UI to populate the model dropdown.
     """
-    try:
-        from row_bot.models import _cloud_model_cache, _sync_custom_model_cache
-        from row_bot.providers.media import media_model_options
-        _sync_custom_model_cache()
-        return media_model_options("video", _cloud_model_cache)
-    except Exception:
-        from row_bot.api_keys import get_key
-
-        opts: dict[str, str] = {}
-        for prov_id, prov in _PROVIDERS.items():
-            if not get_key(prov["key"]):
-                continue
-            for m in _PROVIDER_MODELS.get(prov_id, []):
-                config_val = f"{prov_id}/{m['id']}"
-                opts[config_val] = f"{prov['emoji']}  {m['label']}  ({prov['label']})"
-        return opts
+    from row_bot.models import _cloud_model_cache, _sync_custom_model_cache
+    from row_bot.providers.media import media_model_options
+    _sync_custom_model_cache()
+    return media_model_options("video", _cloud_model_cache)
 
 
 def _get_configured_selection() -> str:
@@ -255,6 +221,15 @@ def _get_configured_selection() -> str:
         if val:
             return val
     return ""
+
+
+def _unlisted_note() -> str:
+    """Why a request may have failed: the chosen model's provider no longer lists it."""
+    from row_bot.models import _cloud_model_cache
+    from row_bot.providers.media import unlisted_media_note
+
+    note = unlisted_media_note("video", _get_configured_selection(), _cloud_model_cache)
+    return f" {note}" if note else ""
 
 
 def _get_configured_model() -> str:
@@ -448,7 +423,7 @@ def _generate_video_google(
         if _strict_output.get() is not None:
             raise
         logger.error("Video generation request failed: %s", e, exc_info=True)
-        return f"Video generation failed: {e}"
+        return f"Video generation failed: {e}{_unlisted_note()}"
 
     # Poll until done
     elapsed = 0
@@ -578,7 +553,7 @@ def _generate_video_xai(
         if _strict_output.get() is not None:
             raise
         logger.error("%s video generation request failed: %s", provider_label, e, exc_info=True)
-        return f"Video generation failed: {e}"
+        return f"Video generation failed: {e}{_unlisted_note()}"
 
     logger.info("%s video generation started: request_id=%s", provider_label, request_id)
 

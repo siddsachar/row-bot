@@ -144,7 +144,7 @@ def test_hatch_review_binds_real_policy_nonce_and_captured_auth_before_each_stag
         monkeypatch.setattr(client_hatch, "read_result", lambda *_a, **_kw: result)
         def start(**kwargs):
             started.append(kwargs["command_id"])
-            for media, selection in [("image", "openai/gpt-image-1.5")] + [("motion", "google/veo-3.1-generate-preview")] * 6:
+            for media, selection in [("image", "openai/gpt-image-2")] + [("motion", "google/veo-3.1-generate-preview")] * 6:
                 auth = kwargs["validate_provider"](media, selection)
                 assert isinstance(auth, CapturedMediaAuth)
                 assert auth.selection == selection

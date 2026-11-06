@@ -42,6 +42,23 @@ def test_picker_keeps_unavailable_current_and_only_starred_available_choices():
     assert "unavailable" in picker["warning"]
 
 
+
+def test_a_saved_model_its_provider_no_longer_lists_says_so():
+    rows = (_row("model:openai:gpt-image-2", category="image", ready=True),)
+    picker = owner._picker("image", "model:openai:gpt-image-1", rows, enabled=True)
+    retired = "OpenAI API no longer lists gpt-image-1, so it may have been retired. Choose another model."
+    assert picker["warning"] == retired
+    current = next(option for option in picker["options"] if option["selection_ref"] == "model:openai:gpt-image-1")
+    assert current["available"] is False
+    assert current["reason"] == "No longer listed"
+
+
+def test_a_saved_model_whose_provider_has_listed_nothing_keeps_the_general_warning():
+    rows = (_row("model:google:veo-3.1-generate-preview", category="video", ready=True),)
+    picker = owner._picker("image", "model:openai:gpt-image-1", rows, enabled=True)
+    assert picker["warning"].startswith("Current Image default is unavailable.")
+
+
 def test_legacy_media_defaults_remain_provider_qualified():
     assert owner._media_ref("gpt-image-1.5", default_provider="openai") == "model:openai:gpt-image-1.5"
     assert owner._media_ref("google/veo-3.1", default_provider="google") == "model:google:veo-3.1"
