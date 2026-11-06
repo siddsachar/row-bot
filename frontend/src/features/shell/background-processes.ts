@@ -96,6 +96,9 @@ class ProcessFeed {
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     if (this.listeners.size === 1) {
+      // A card shown again after the last one went (moved in the transcript)
+      // brings this feed back, so the next render finds it, not a new empty one.
+      feeds.set(key(this.scope), this);
       document.addEventListener('visibilitychange', this.onVisibility);
       this.stopLive = this.live?.subscribe('processes', () => this.schedule(0));
       this.schedule(0);
@@ -188,7 +191,7 @@ class ProcessFeed {
     clearTimeout(this.timer);
     this.reading?.abort();
     document.removeEventListener('visibilitychange', this.onVisibility);
-    feeds.delete(key(this.scope));
+    if (feeds.get(key(this.scope)) === this) feeds.delete(key(this.scope));
   }
 }
 
