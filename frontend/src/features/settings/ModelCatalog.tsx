@@ -68,11 +68,13 @@ function marked(model: Row, state: ModelVisibilityState): Row {
  * the providers; a provider (or a search) lists its models with the same
  * star as On this computer (a starred model is in your models, so every
  * picker lists it) and "use for this job". Rows load only once a provider is
- * opened or a search runs, and then page by page.
+ * opened or a search runs, and then page by page. In a provider's sheet
+ * (`provider`) it lists that provider's models only.
  */
 export default function ModelCatalog({
   controller,
   initialProvider = '',
+  provider: fixed = '',
   defaults,
   onDefault,
   onChanged,
@@ -80,13 +82,15 @@ export default function ModelCatalog({
 }: {
   controller: ClientController;
   initialProvider?: string;
+  /** Keeps the catalog to one provider. */
+  provider?: string;
   defaults: Partial<Record<Surface, string>>;
   onDefault: (surface: Surface, model: Row) => Promise<void>;
   onChanged: () => Promise<void>;
   refreshSignal?: number;
 }) {
   const [surface, setSurface] = useState<Surface>('chat');
-  const [provider, setProvider] = useState(initialProvider);
+  const [provider, setProvider] = useState(fixed || initialProvider);
   const [searchDraft, setSearchDraft] = useState('');
   const [query, setQuery] = useState('');
   const [summary, setSummary] = useState<ModelCatalogSummary | null>(null);
@@ -236,18 +240,20 @@ export default function ModelCatalog({
             onChange={(event) => setSearchDraft(event.target.value)}
           />
         </label>
-        <Select
-          aria-label="Provider"
-          value={provider}
-          onChange={(event) => setProvider(event.target.value)}
-        >
-          <option value="">All providers</option>
-          {summary?.providers.map((item) => (
-            <option key={item.provider_id} value={item.provider_id}>
-              {item.display_name}
-            </option>
-          ))}
-        </Select>
+        {!fixed && (
+          <Select
+            aria-label="Provider"
+            value={provider}
+            onChange={(event) => setProvider(event.target.value)}
+          >
+            <option value="">All providers</option>
+            {summary?.providers.map((item) => (
+              <option key={item.provider_id} value={item.provider_id}>
+                {item.display_name}
+              </option>
+            ))}
+          </Select>
+        )}
       </form>
       <div
         className="settings-catalog-chips"
@@ -262,7 +268,7 @@ export default function ModelCatalog({
             aria-pressed={surface === id}
             onClick={() => {
               setSurface(id);
-              setProvider('');
+              setProvider(fixed);
               setQuery('');
               setSearchDraft('');
             }}
@@ -336,20 +342,24 @@ export default function ModelCatalog({
           aria-label={provider ? providerName(provider) : 'Search results'}
         >
           <div className="settings-divided settings-catalog-results-head">
-            <IconButton
-              size="sm"
-              label="All providers"
-              onClick={() => {
-                setProvider('');
-                setQuery('');
-                setSearchDraft('');
-              }}
-            >
-              <ChevronLeft size={15} aria-hidden />
-            </IconButton>
-            <strong>
-              {provider ? providerName(provider) : 'Search results'}
-            </strong>
+            {!fixed && (
+              <>
+                <IconButton
+                  size="sm"
+                  label="All providers"
+                  onClick={() => {
+                    setProvider('');
+                    setQuery('');
+                    setSearchDraft('');
+                  }}
+                >
+                  <ChevronLeft size={15} aria-hidden />
+                </IconButton>
+                <strong>
+                  {provider ? providerName(provider) : 'Search results'}
+                </strong>
+              </>
+            )}
             <span role="status">
               Showing {page.items.length} of {page.total} models
             </span>

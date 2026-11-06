@@ -17,18 +17,14 @@ pages:
     docs_route: /docs/settings/buddy
     screenshot_id: settings-buddy
     dependencies: Desktop overlay behaviour depends on native-window support.
-  providers:
-    description: Connect hosted, subscription, local, cloud, and custom model providers.
-    docs_route: /docs/settings/providers
-    screenshot_id: settings-providers
-    security: Credentials are stored through the configured secret store; values are
-      not shown in this reference.
   models:
-    description: Choose which model does each job (Brain, Vision, Image, Video), the
-      reading limit and limits for long work, and star the models you use from the
-      catalog.
+    description: Choose the main model and the models for Vision, Image and Video,
+      keep your starred models, connect hosted, subscription, local and custom model
+      providers, and set the reading limit and limits for long work.
     docs_route: /docs/settings/models
     screenshot_id: settings-models
+    security: Credentials are stored through the configured secret store; values are
+      not shown in this reference.
   voice:
     description: Configure realtime talk, dictation, the Whisper model size, and
       read-aloud.

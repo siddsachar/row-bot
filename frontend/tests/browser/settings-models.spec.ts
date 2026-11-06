@@ -37,16 +37,10 @@ test('Providers and Models share the contained shell and Models opens without pr
     )
       refreshes.push(new URL(request.url()).pathname);
   });
-  await page.goto('/app-v2/settings/providers');
-  await expect(
-    page.getByRole('region', { name: 'Provider connections' }),
-  ).toBeVisible();
-  const providers = page.locator('.settings-shell');
-  await expect(providers).toBeVisible();
-  expect((await providers.boundingBox())!.width).toBeLessThan(1200);
   await page.goto('/app-v2/settings/models');
+  await expect(page.getByRole('region', { name: 'Connected' })).toBeVisible();
   const models = page.locator('[aria-label="Models settings"]');
-  const brain = models.getByRole('button', { name: 'Brain model' });
+  const brain = models.getByRole('button', { name: 'Main model', exact: true });
   await expect(brain).toBeVisible();
   // The four jobs share one picker at one height and width (B227, B229).
   const brainBox = (await brain.boundingBox())!;
@@ -57,7 +51,7 @@ test('Providers and Models share the contained shell and Models opens without pr
     expect(box.height).toBeCloseTo(brainBox.height, 0);
     expect(box.width).toBeCloseTo(brainBox.width, 0);
   }
-  // One status line, no chip repeating the Brain model (B229).
+  // One status line, no chip repeating the main model (B229).
   await expect(page.locator('.settings-pane-status')).toContainText(
     /models? to choose from \d+ providers?/,
   );
@@ -81,7 +75,7 @@ test('Model catalog rows remain lazy and bounded', async ({ page }, info) => {
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('button', { name: 'Brain model' }),
+    models.getByRole('button', { name: 'Main model', exact: true }),
   ).toBeVisible();
   // The catalog shows its providers; rows wait for a provider or a search.
   const chips = models.getByRole('group', { name: 'Model category' });
@@ -103,17 +97,19 @@ test('Model catalog rows remain lazy and bounded', async ({ page }, info) => {
     .first()
     .click();
   await expect(models.getByText('Showing 80 of 105 models')).toBeVisible();
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(80);
   await models
-    .locator('.settings-model-row-list > li')
+    .locator('.settings-model-catalog .settings-model-row-list > li')
     .first()
     .scrollIntoViewIfNeeded();
   await screenshot(page, info, 'models-catalog-provider-rows');
   await accessibility(page, info, 'models-catalog-provider-rows');
   await models.getByRole('button', { name: 'Show more models' }).click();
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(
-    105,
-  );
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(105);
   await chips.getByRole('button', { name: 'Vision', exact: true }).click();
   // The fixture saved chat models only: another job says it has none yet.
   await expect(models.getByText(/^No vision models saved yet/)).toBeVisible();
@@ -129,25 +125,25 @@ test('Vision, media, context, and delegation controls write local settings', asy
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('button', { name: 'Brain model' }),
+    models.getByRole('button', { name: 'Main model', exact: true }),
   ).toBeVisible();
   const notices = page.locator('.toast');
   // A job that is off keeps its picker in view, but closed (B229).
   const vision = models.getByRole('switch', { name: 'Enable vision' });
   if (!(await vision.isChecked())) await vision.check();
   await expect(vision).toBeChecked();
-  // Vision's searchable list starts with following the Brain (B227).
+  // Vision's searchable list starts with following the main model (B227).
   const visionPicker = models.getByRole('button', { name: 'Vision model' });
   await visionPicker.click();
   const visionList = page.getByRole('dialog', {
     name: 'Choose the vision model',
   });
   await expect(visionList.getByRole('option').first()).toContainText(
-    'Same as Brain',
+    'Same as main model',
   );
   await visionList.getByRole('option').first().click();
   await expect(visionList).toBeHidden();
-  await expect(visionPicker).toContainText('Same as Brain');
+  await expect(visionPicker).toContainText('Same as main model');
   // The camera list loads when its select is opened (B229).
   const camera = models.getByRole('combobox', { name: 'Camera' });
   await camera.focus();
@@ -213,14 +209,14 @@ test('Catalog star and default actions update the picker (U10)', async ({
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('button', { name: 'Brain model' }),
+    models.getByRole('button', { name: 'Main model', exact: true }),
   ).toBeVisible();
   await models
     .getByRole('button', { name: /^Open / })
     .first()
     .click();
   const row = models
-    .locator('.settings-model-row-list > li')
+    .locator('.settings-model-catalog .settings-model-row-list > li')
     .filter({ hasText: label });
   await expect(row).toBeVisible();
   // One concept: a star puts a model in your models, which every picker lists.
@@ -239,7 +235,7 @@ test('Catalog star and default actions update the picker (U10)', async ({
     .click();
   // The default is a searchable picker (U12): its button names the model.
   await expect(
-    models.getByRole('button', { name: 'Brain model' }),
+    models.getByRole('button', { name: 'Main model', exact: true }),
   ).toContainText(label);
   await expect(row.getByText('Default', { exact: true })).toBeVisible();
   await assertNoOverflow(page);
@@ -260,7 +256,7 @@ test('Catalog refresh starts only from its explicit Models action', async ({
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('button', { name: 'Brain model' }),
+    models.getByRole('button', { name: 'Main model', exact: true }),
   ).toBeVisible();
   expect(refreshes).toHaveLength(0);
   const requested = page.waitForRequest(

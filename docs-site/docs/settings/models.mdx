@@ -1,34 +1,48 @@
 ---
 title: "Settings: Models"
-description: "Choose which model does each job (Brain, Vision, Image, Video), set the reading limit and limits for long work, and star the models you use from the catalog."
+description: "Choose the main model and the models for Vision, Image and Video, keep your models starred, connect providers, and set the reading limit and limits for long work."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Models
 
-The Models page decides which model does each job. Providers supply the models (see [Settings: Providers](/docs/settings/providers)); this page picks between them.
+The Models page is what Row-Bot thinks with, and where it comes from: the model for each job, your starred models, and the providers you have connected (see [Settings: Providers](/docs/settings/providers) for connecting each kind).
 
-<Screenshot id="settings-models" alt="Settings: Models in Row-Bot." caption="The Models page lists each job with its model picker, then limits for long work and the model catalog." />
+<Screenshot id="settings-models" alt="Settings: Models in Row-Bot." caption="The Models page lists the defaults, your models, the connected providers and the model catalog." />
 
 ## Where To Find It
 
 Open **Settings**, then choose **Models** in the **Models** group, or search for it with **Find a setting**.
 
-## Jobs
+## Defaults
 
 Each job has its own picker, using the same grouped, searchable list as the composer's model picker (provider, how it is paid for, and whether it is available):
 
-- **Brain** is the default model for new conversations and background work. A conversation can still choose its own model in the composer. Background work tied to a conversation, such as checking its goal's progress or compacting it, uses that conversation's model; memory extraction and Dream Cycle use Brain. Either way, Row-Bot uses the lowest reasoning effort that model offers, when it knows the model's reasoning choices.
-- **Vision** reads images, screenshots and your camera. Leave it as **Same as Brain** if your Brain model can see, or choose another model. Choose a **Camera** here too.
+- **Main model** is the default model for new conversations and background work. A conversation can still choose its own model in the composer. Background work tied to a conversation, such as checking its goal's progress or compacting it, uses that conversation's model; memory extraction and Dream Cycle use the main model. Either way, Row-Bot uses the lowest reasoning effort that model offers, when it knows the model's reasoning choices.
+- **Vision** reads images, screenshots and your camera. Leave it as **Same as main model** if your main model can see, or choose another model. Choose a **Camera** here too.
 - **Image** makes and edits pictures.
 - **Video** makes short clips and animates pictures.
 
 Turn Vision, Image or Video off when you don't want that job done at all.
 
+## Your Models
+
+**Your models** lists the models you starred, which every picker lists first. Each says what it can do (chat, sees images, makes images or video). The check mark makes a model the main model; its star takes it out. Star more in a provider's sheet or in the Catalog.
+
+## Connected
+
+**Connected** has a tile for each provider you have connected, grouped by where it runs and how you pay: on this computer, subscriptions and API keys. A tile says how it is paid for and how many models it has, or what needs doing, such as **Reconnect**.
+
+- Choose a tile to open its sheet: its state, its one way to connect (an API key, a sign-in, or Claude Code's steps), its models with a star each, and a button to refresh its model list.
+- **Add a provider** lists the rest by how you pay: **Subscription**, **API key** and **Your server** (an OpenAI-compatible server). Choosing one opens its sheet to connect it.
+- **Custom endpoints** below lists your own servers, with their address, probe and key.
+
+A link to `/settings/models?provider=<id>` opens that provider's sheet.
+
 ## Reading Limit
 
-**Reading limit** sets how much text the Brain model reads at once. **Automatic** uses what the model supports; **Limit…** sets a smaller number of tokens, useful for local models on smaller computers.
+**Reading limit** sets how much text the main model reads at once. **Automatic** uses what the model supports; **Limit…** sets a smaller number of tokens, useful for local models on smaller computers.
 
 ## Limits For Long Work
 
@@ -53,7 +67,7 @@ The status line at the top says how many models there are to choose from, and fr
 
 ## Common Workflow
 
-1. Connect a provider, then choose your **Brain** model.
+1. Connect a provider with **Add a provider**, then choose your **Main model**.
 2. Choose Vision, Image and Video models if you want those jobs.
 3. Star one everyday model and one stronger tool-capable model.
 4. Keep the recommended limits unless you have a measured reason to change them.
