@@ -600,3 +600,201 @@ a.app-way:hover {
   padding: 0;
   list-style: none;
 }
+
+/* Search results: who stands behind each result, the best match, quiet rows and
+   everything else folded; the filters as chips, or one sheet on a phone. */
+.app-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: var(--radius-control, 4px);
+  font-size: var(--text-12);
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.app-label[data-label='official'] {
+  background: var(--accent-subtle);
+  color: var(--accent-text, var(--accent-solid));
+}
+.app-label[data-label='reviewed'] {
+  background: var(--status-success-background);
+  color: var(--status-success-text);
+}
+.app-label[data-label='built_in'] {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.apps-results {
+  display: grid;
+  gap: var(--space-3);
+}
+.apps-results-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.app-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--shadow-raised, none);
+}
+.app-hero:hover {
+  background: var(--surface-hover);
+}
+.app-hero:focus-visible,
+.app-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.app-hero-text {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+.app-hero-text > strong {
+  font-size: var(--text-15);
+}
+.app-hero-job {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.app-hero-action {
+  flex: none;
+  pointer-events: none;
+}
+.app-signals {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.app-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-rows > li + li {
+  border-top: 1px solid var(--border-hairline);
+}
+.app-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-card);
+  color: inherit;
+  text-decoration: none;
+}
+.app-row:hover {
+  background: var(--surface-hover);
+}
+.app-row-text {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+.app-row-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-2);
+  min-width: 0;
+}
+.app-row-name .app-publisher {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.app-row-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-row-go {
+  flex: none;
+  color: var(--text-muted);
+}
+.apps-more h4 {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.apps-more h4 span {
+  font-weight: 400;
+}
+.apps-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.apps-filters-gap {
+  width: 1px;
+  height: 20px;
+  background: var(--border-subtle);
+}
+.apps-filters .app-chip-button {
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  font-size: var(--text-13);
+}
+.apps-filters .apps-filters-runs {
+  width: auto;
+  min-height: 30px;
+  padding-block: 0;
+  border-radius: 999px;
+  font-size: var(--text-13);
+}
+.apps-library .apps-filters-open {
+  display: none;
+  justify-self: start;
+  gap: 6px;
+}
+.apps-filter-sheet {
+  display: grid;
+  gap: var(--space-4);
+}
+.apps-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.apps-filter-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+@media (max-width: 640px) {
+  .apps-filters {
+    display: none;
+  }
+  .apps-library .apps-filters-open {
+    display: inline-flex;
+  }
+  .app-hero {
+    align-items: flex-start;
+    padding: var(--space-3);
+  }
+  .apps-library .app-hero-action {
+    display: none;
+  }
+}
