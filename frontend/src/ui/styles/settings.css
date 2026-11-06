@@ -5230,3 +5230,22 @@ button.settings-mcp-server-name:hover {
     flex-wrap: wrap;
   }
 }
+
+/* Tool settings file can't be read: every tool is off until it is reset. */
+.settings-tool-notice {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: var(--status-warning-background);
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-card);
+  color: var(--status-warning-text);
+}
+.settings-tool-notice > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.settings-tool-notice p {
+  margin: 6px 0 12px;
+  color: var(--text-primary);
+}

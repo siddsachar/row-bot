@@ -55,10 +55,17 @@ def _read_config(path: pathlib.Path) -> dict | None:
     the person's switches and deny lists are unknown then, and defaults would turn off-tools back on.
     """
     try:
-        return tool_configuration.read_saved(path).document
+        document = tool_configuration.read_saved(path).document
     except tool_configuration.ToolConfigurationError:
-        logger.error("Tools config at %s can't be read; tools stay off until it is fixed", path)
+        if path not in _reported_unreadable:  # Every tool reads it at start-up: say so once.
+            _reported_unreadable.add(path)
+            logger.error("Tools config at %s can't be read; tools stay off until it is fixed", path)
         return None
+    _reported_unreadable.discard(path)
+    return document
+
+
+_reported_unreadable: set[pathlib.Path] = set()
 
 
 def _load_config() -> dict | None:
@@ -217,7 +224,12 @@ def read_policy_snapshot() -> dict:
     path = get_row_bot_data_dir(create=False) / "tools_config.json"
     with _CONFIG_LOCK:
         # The saved file and the loaded switches as of one moment: a save in between is all or nothing (B408).
-        saved = tool_configuration.read_saved(path)
+        try:
+            saved_revision = tool_configuration.read_saved(path).digest
+        except tool_configuration.ToolConfigurationError:
+            # Unreadable: the registry keeps every tool off, and an approval given now no longer matches once the
+            # file reads again. Failing here instead would stop the app loading at all.
+            saved_revision = "unreadable"
         if len(_tools) > 10000:
             raise ValueError("tool_policy_unavailable")
         same_scope = path == _active_config_path
@@ -233,7 +245,7 @@ def read_policy_snapshot() -> dict:
                 # it here must not construct tools or discover providers.
                 effects = {"descriptor": id(destructive)}
             registrations.append((name, id(tool), _enabled.get(name) if same_scope else None, effects))
-        return {"saved_revision": saved.digest, "registrations": registrations,
+        return {"saved_revision": saved_revision, "registrations": registrations,
             "tool_configs": copy.deepcopy(_tool_configs) if same_scope else {},
             "global_config": copy.deepcopy(_global_config) if same_scope else {}}
 
