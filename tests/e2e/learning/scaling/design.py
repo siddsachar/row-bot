@@ -42,6 +42,8 @@ TOKENS_PER_TEACHER_RUN = 50_000
 TOKENS_PER_RELABEL = 15_000
 #: The teacher re-asked at its own captured prefix (the full-window envelope, about 18.5K tokens of schemas).
 TOKENS_PER_TEACHER_REPLAY = 25_000
+#: Turns a request can take: the first message and the simulated person's two corrections (``person.MAX_CORRECTIONS``).
+MAX_TURNS = 3
 #: Model calls per request (the seeded work reads, then writes or answers): sizes the replay set and the DAgger rounds.
 DECISIONS_PER_REQUEST = 2.5
 #: The 32 GB recipe's own evidence (L2x, O121): 8.14 s a step, the last pass ready in 218 s.
@@ -156,7 +158,8 @@ def plan(design: Design = DESIGN) -> dict[str, Any]:
     training_requests = sum(item["training_block"]["requests"] for item in people.values())
     held_requests = sum(item["held_out_block"]["requests"] for item in people.values())
     # The product's dataset makes one row per turn and leaves out a turn the person corrected, taught or stopped,
-    # so a request gives at most about one row; the 30-day past's imported rows are kept out of the pool.
+    # so a request gives about one row (its last turn); one whose correction Learning's rule doesn't recognise keeps
+    # its corrected turns too (at most MAX_TURNS). The 30-day past's imported rows are kept out of the pool.
     pool = training_requests
     sizes = subset_sizes(design, pool)
     local = [arm for arm in ARMS if arm != "teacher"]
@@ -190,10 +193,14 @@ def plan(design: Design = DESIGN) -> dict[str, Any]:
         "people": people,
         "hidden_pack_tasks": {"count": design.hidden_tasks, "note": "sealed (E10): counted here, run only through "
                               "the audit vault, never shown"},
-        "pool": {"training_requests": training_requests, "expected_rows_at_most": pool,
+        "pool": {"training_requests": training_requests, "expected_rows": pool,
+                 "most_rows": training_requests * MAX_TURNS,
                  "reaches": {str(n): pool >= n for n in design.sizes},
-                 "note": "at most about one row per training-block request (one row per turn; corrected, taught and "
-                         "stopped turns are left out by the product); the 30-day past's imported rows are kept out"},
+                 "note": "about one row per training-block request: the product's dataset makes one row per turn and "
+                         "leaves out the turns the person corrected, taught or stopped; a correction Learning's rule "
+                         "doesn't recognise keeps its corrected turns in (at most three turns a request). The 30-day "
+                         "past's imported rows are kept out. Which N the pool reaches is known once it is built: "
+                         "the subsets stage refuses an N other than the largest that it can't reach"},
         "subsets": sizes,
         "arms": {arm: {"trains_on": trained.get(arm), "local": arm != "teacher"} for arm in ARMS},
         "runs": {"held_out_requests": held_requests, "hidden_pack_tasks": design.hidden_tasks,

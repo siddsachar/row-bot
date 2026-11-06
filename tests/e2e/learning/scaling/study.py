@@ -305,7 +305,7 @@ class Study:
                        "overlap_with_1000_subset": dagger.get("overlap_with_1000_subset"),
                        "requests": len(dagger.get("requests") or [])},
             "retrieval": read_json(self.out / "retrieval" / "summary.json"),
-            "evaluation": {"unavailable": evaluation.get("unavailable"),
+            "evaluation": {"unavailable": evaluation.get("unavailable"), "arms": evaluation.get("arms"),
                            "replay_cases": len(read_lines(self.out / "evaluate" / "replay_cases.jsonl")),
                            "hidden_pack_tasks": self.design.hidden_tasks},
             "analysis": analysis.analyse(built, clusters, self.design),

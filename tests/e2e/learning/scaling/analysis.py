@@ -30,7 +30,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from tests.e2e.learning.scaling.design import HYPOTHESES, SFT, TRAINED, Design
+from tests.e2e.learning.scaling.design import DAGGER_ROUND_1, HYPOTHESES, SFT, TRAINED, Design
 
 COUNTED = ("passed", "failed", "budget")
 #: Outside the denominator, counted (§8): a provider outage after its one rerun, and a run no check could decide.
@@ -335,13 +335,14 @@ def markdown(report: Mapping[str, Any]) -> str:
     lines += _table(["Arm", "N", "Rows", "Whole pool", "By person"],
                     [(arm, item.get("n"), item.get("rows"), "yes" if item.get("whole_pool") else "no",
                       ", ".join(f"{key} {value}" for key, value in sorted((item.get("by_person") or {}).items())))
-                     for arm, item in subsets.items()])
+                     for arm, item in ((arm, subsets[arm]) for arm in SFT if arm in subsets)])
     lines += ["## Training (the certified recipe, up to three passes)", ""]
     lines += _table(["Arm", "State", "Rows", "Trains on", "Validates on", "Steps", "Seed", "Pass kept"],
                     [(arm, item.get("state"), item.get("rows"), item.get("examples"), item.get("validation"),
                       item.get("steps"), item.get("seed"),
                       f"{(item.get('kept_pass') or {}).get('pass', '—')} of {(item.get('kept_pass') or {}).get('of', '—')}")
-                     for arm, item in (report.get("training") or {}).items()])
+                     for arm, item in ((arm, (report.get("training") or {})[arm]) for arm in (*TRAINED, DAGGER_ROUND_1)
+                                       if arm in (report.get("training") or {}))])
     dagger = report.get("dagger") or {}
     lines += ["## DAgger", "", f"Rounds: {json.dumps(dagger.get('rounds'), default=str)}; the relabelling's teacher "
               f"tokens {_number(dagger.get('teacher_tokens'))}; requests also in the 1,000-row subset "
@@ -387,7 +388,7 @@ def markdown(report: Mapping[str, Any]) -> str:
     lines += _table(["Arm", "Causes"], [(arm, ", ".join(f"{key or 'unknown'} {value}" for key, value in causes.items())
                                          or "—") for arm, causes in secondary["failure_causes"].items()])
     lines += ["### Tokens and GPU-hours", ""]
-    lines += _table(["Arm", "ChatGPT lane", "Local", "Hidden tasks", "GPU-hours"],
+    lines += _table(["Arm", "ChatGPT-lane tokens", "Local tokens", "of which the hidden tasks'", "GPU-hours"],
                     [(arm, _number(item["tokens"].get("cloud")), _number(item["tokens"].get("local")),
                       _number(item["tokens"].get("hidden")), _number(item["gpu_hours"]))
                      for arm, item in secondary["tokens_and_gpu"].items()])
