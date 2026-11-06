@@ -374,9 +374,10 @@ it('typing also searches every connected provider’s models, beyond the listed 
     expect(groupNames(list).at(-1)).toBe('All models');
     const found = within(list).getByRole('option', { name: /gpt-oss-120b/ });
     expect(found).toHaveTextContent('Groq');
-    expect(
-      names(list).filter((row) => row.startsWith('OpenAI: GPT-5.6 Sol')),
-    ).toHaveLength(1);
+    // The listed OpenRouter route of GPT-5.6 Sol folds under ChatGPT's, once.
+    expect(names(list).filter((row) => row.includes('GPT-5.6'))).toEqual([
+      'GPT-5.6-SolChatGPT / Codex · Subscription',
+    ]);
     fireEvent.click(found);
     expect(onChoose).toHaveBeenCalledWith(
       expect.objectContaining({ model_ref: 'model:groq:openai/gpt-oss-120b' }),
@@ -384,6 +385,112 @@ it('typing also searches every connected provider’s models, beyond the listed 
   } finally {
     vi.useRealTimers();
   }
+});
+
+// §4.4: one model, many routes. Display only; each route keeps its own ref.
+const routes: ModelChoice[] = [
+  {
+    provider_id: 'openrouter',
+    model_ref: 'model:openrouter:openai/gpt-5.6-sol',
+    label: 'OpenAI: GPT-5.6 Sol - OpenRouter',
+    available: true,
+    billing: 'credits',
+  },
+  {
+    provider_id: 'openai',
+    model_ref: 'model:openai:gpt-5.6-sol',
+    label: 'GPT-5.6 Sol - OpenAI',
+    available: true,
+    billing: 'pay_per_use',
+  },
+  models[0],
+  {
+    provider_id: 'openrouter',
+    model_ref: 'model:openrouter:meta/llama-5',
+    label: 'Meta: Llama 5 - OpenRouter',
+    available: true,
+    billing: 'credits',
+  },
+  {
+    provider_id: 'together',
+    model_ref: 'model:together:nvidia/llama-5',
+    label: 'NVIDIA Llama 5 - Together',
+    available: true,
+    billing: 'pay_per_use',
+  },
+];
+const type = (value: string) =>
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search models' }), {
+    target: { value },
+  });
+
+it('a search folds one model from several providers into one row, your plan first', async () => {
+  const { onChoose } = show(
+    undefined,
+    { state: 'ready' },
+    { open: true, models: routes },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  type('sol');
+  const row = within(list).getByRole('option', { name: /GPT-5\.6/ });
+  expect(names(list)).toEqual(['GPT-5.6-SolChatGPT / Codex · Subscription']);
+  expect(row).toHaveAccessibleDescription('+2 routes');
+
+  // Your plan, then the maker's own API, then a router.
+  const chip = screen.getByRole('button', { name: '+2 routes', hidden: true });
+  await act(async () => fireEvent.click(chip));
+  expect(chip).toHaveAttribute('aria-expanded', 'true');
+  const shown = within(list)
+    .getAllByRole('option')
+    .map((option) => option.getAttribute('aria-label'));
+  expect(shown).toEqual([
+    null,
+    'GPT-5.6-Sol via OpenAI',
+    'GPT-5.6-Sol via OpenRouter',
+  ]);
+  fireEvent.click(
+    within(list).getByRole('option', { name: 'GPT-5.6-Sol via OpenRouter' }),
+  );
+  expect(onChoose).toHaveBeenCalledWith(
+    expect.objectContaining({
+      model_ref: 'model:openrouter:openai/gpt-5.6-sol',
+    }),
+  );
+
+  // Two makers' models of one name stay apart.
+  type('llama');
+  expect(names(list)).toHaveLength(2);
+  expect(
+    screen.queryByRole('button', { name: /routes/, hidden: true }),
+  ).toBeNull();
+});
+
+it('the current route is the one shown, and the right arrow opens the others', async () => {
+  show(
+    'model:openrouter:openai/gpt-5.6-sol',
+    { state: 'ready' },
+    { open: true, models: routes },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  type('sol');
+  const row = within(list).getByRole('option', { name: /GPT-5\.6/ });
+  expect(row).toHaveTextContent('OpenRouter · Credits');
+  expect(row).toHaveAttribute('data-current', 'true');
+
+  const field = screen.getByRole('combobox', { name: 'Search models' });
+  await act(async () => fireEvent.keyDown(field, { key: 'ArrowRight' }));
+  expect(within(list).getAllByRole('option')).toHaveLength(3);
+  expect(row).toHaveAttribute('aria-selected', 'true');
+  await act(async () => fireEvent.keyDown(field, { key: 'ArrowDown' }));
+  expect(
+    within(list).getByRole('option', {
+      name: 'OpenAI: GPT-5.6 Sol via ChatGPT / Codex',
+    }),
+  ).toHaveAttribute('aria-selected', 'true');
+  // From a route, the arrow folds them away again and returns to the row.
+  await act(async () => fireEvent.keyDown(field, { key: 'ArrowRight' }));
+  expect(within(list).getAllByRole('option')).toHaveLength(1);
+  expect(row).toHaveAttribute('aria-selected', 'true');
 });
 
 it('Connect on a model whose provider is not connected opens that provider', async () => {

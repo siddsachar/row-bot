@@ -4130,6 +4130,53 @@ button.attachment-tile-face:hover {
 .model-picker-row[data-starred] .model-picker-row-menu-button {
   color: var(--accent-solid);
 }
+/* One model through several providers: "+2 routes" opens the others. */
+.model-picker-row-menu {
+  align-items: center;
+  gap: 2px;
+}
+.model-picker-row[data-routes] > .model-picker-option {
+  padding-inline-end: 116px;
+}
+.model-picker-row[data-routes]:not([data-star]) > .model-picker-option {
+  padding-inline-end: 88px;
+}
+/* On a narrow screen the provider truncates before it reaches the chip, and
+   before the model's name does. */
+.model-picker-row[data-routes] .model-picker-option-name {
+  min-width: 40%;
+}
+.model-picker-row[data-routes] .model-picker-option-provider {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-picker-routes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  block-size: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-secondary);
+  font: var(--weight-medium) var(--text-12) / 1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.model-picker-routes:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.model-picker-routes[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.model-picker-option[data-route] {
+  padding-inline-start: 24px;
+}
 .model-picker-row-menu-button:hover {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
