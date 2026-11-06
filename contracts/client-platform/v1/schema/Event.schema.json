@@ -1360,6 +1360,12 @@
           "title": "Mime Type",
           "type": "string"
         },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
+          "type": "string"
+        },
         "tool_call_id": {
           "default": "",
           "maxLength": 256,
@@ -2679,6 +2685,12 @@
         "mime_type": {
           "maxLength": 128,
           "title": "Mime Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
           "type": "string"
         }
       },

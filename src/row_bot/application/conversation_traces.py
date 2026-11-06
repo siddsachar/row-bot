@@ -85,6 +85,10 @@ MAX_STRUCTURED_NODES = 512
 MAX_STRUCTURED_DEPTH = 8
 MAX_AGENT_REFERENCES = 16
 MAX_MEDIA_REFERENCES = 8
+MAX_MEDIA_PROMPT_CHARS = 1000
+# The tools that make a picture or video from a prompt: that prompt names their output in the chat's
+# Outputs (5.3.3). Only it is read, never their other arguments.
+MEDIA_PROMPT_TOOLS: frozenset[str] = frozenset({"generate_image", "edit_image", "generate_video", "animate_image"})
 SAFE_TOOL_CALL_ARG_KEYS: frozenset[str] = frozenset(
     {
         "category",
@@ -133,6 +137,7 @@ class MediaReference:
 
     media_ref: str
     mime_type: str
+    prompt: str = ""
 
 
 @dataclass(frozen=True)
@@ -259,6 +264,14 @@ def safe_tool_call_args(args: Any) -> dict[str, Any]:
                 if isinstance(item, (str, int, float, bool))
             ]
     return safe
+
+
+def media_prompt(name: Any, prompt: Any) -> str:
+    """The prompt a media tool made its picture or video from, on one bounded line; empty for any other tool."""
+
+    if str(name or "") not in MEDIA_PROMPT_TOOLS or not isinstance(prompt, str):
+        return ""
+    return " ".join(_clean_text(prompt, MAX_MEDIA_PROMPT_CHARS).split())
 
 
 def safe_tool_input(args: Any) -> str:
@@ -573,7 +586,7 @@ def _agent_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpe
     )
 
 
-def _media_specialization(result: Any) -> TraceSpecialization | None:
+def _media_specialization(result: Any, prompt: str) -> TraceSpecialization | None:
     wrapper = result if isinstance(result, dict) else {}
     content = _content(result)
     kind = ""
@@ -591,7 +604,7 @@ def _media_specialization(result: Any) -> TraceSpecialization | None:
             media_ref = _clean_text(payload.get("media_ref"), 256)
             mime_type = _clean_text(payload.get("mime_type"), 128)
             if media_ref and mime_type:
-                references.append(MediaReference(media_ref=media_ref, mime_type=mime_type))
+                references.append(MediaReference(media_ref=media_ref, mime_type=mime_type, prompt=prompt))
     if references and not kind:
         kind = "attachment"
     error_code = _clean_text(wrapper.get("media_error"), 80)
@@ -764,7 +777,7 @@ def request_to_fix(result: Any) -> bool:
     return wrapper.get("name") == "ask_person" and payload is not None and payload.get("ok") is False
 
 
-def specialize_tool_result(result: Any) -> TraceSpecialization | None:
+def specialize_tool_result(result: Any, media_prompt: str = "") -> TraceSpecialization | None:
     """Return only reviewed specialization metadata, never the raw payload."""
 
     wrapper = result if isinstance(result, dict) else {}
@@ -784,7 +797,7 @@ def specialize_tool_result(result: Any) -> TraceSpecialization | None:
         or _agent_specialization(name, payload)
         or _card_specialization(name, payload)
         or _question_specialization(name, payload)
-        or _media_specialization(result)
+        or _media_specialization(result, media_prompt)
     )
 
 
@@ -803,6 +816,7 @@ def build_trace_item(
     content_ref: str = "",
     safe_input: str = "",
     app: dict | None = None,
+    media_prompt: str = "",
 ) -> TraceItem:
     """Build one bounded item while retaining caller-owned identity/order."""
 
@@ -812,7 +826,7 @@ def build_trace_item(
         raise ValueError("group_order_invalid")
     canonical = canonical_tool_name(tool_name)
     group_name, group_kind = canonical_group(canonical)
-    specialization = None if pending else specialize_tool_result(result)
+    specialization = None if pending else specialize_tool_result(result, media_prompt)
     corrected = specialization is not None and specialization.kind == "request_corrected"
     # A call sent again is one quiet line: neither its error text nor its result body is public.
     summary, truncated = ("", False) if corrected else bounded_safe_summary(result)
@@ -963,7 +977,8 @@ def _public_specialization(
         ],
         "media_kind": specialization.media_kind,
         "media": [
-            {"media_ref": item.media_ref, "mime_type": item.mime_type}
+            {"media_ref": item.media_ref, "mime_type": item.mime_type,
+             **({"prompt": item.prompt} if item.prompt else {})}
             for item in specialization.media
         ],
         "error_code": specialization.error_code,
@@ -1098,6 +1113,7 @@ def project_assistant_row_traces(
                 "tool_name": name,
                 "app": app_of_tool(raw_call.get("name"), raw_call.get("args"), known_apps, words=True),
                 "safe_input": safe_tool_input(raw_call.get("args")),
+                "media_prompt": media_prompt(raw_name, raw_call.get("media_prompt")),
                 "parent_id": parent_id,
                 "parent_output_index": len(output) - 1,
                 "record_index": record_index,
@@ -1161,6 +1177,7 @@ def project_assistant_row_traces(
                     content_ref=content_ref,
                     safe_input=call["safe_input"],
                     app=call["app"],
+                    media_prompt=call["media_prompt"],
                 )
             )
         parent_index = int(projected_calls[0]["parent_output_index"])

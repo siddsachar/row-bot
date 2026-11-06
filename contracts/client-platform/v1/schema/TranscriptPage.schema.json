@@ -457,6 +457,12 @@
           "maxLength": 128,
           "title": "Mime Type",
           "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
+          "type": "string"
         }
       },
       "required": [
