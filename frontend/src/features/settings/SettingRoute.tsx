@@ -235,6 +235,8 @@ export default function SettingRoute() {
   const [providerReload, setProviderReload] = useState(0);
   // Add a provider › Your server opens the custom endpoint dialog.
   const [addServer, setAddServer] = useState(0);
+  // The server type Add a provider chose (LM Studio, vLLM, llama.cpp), if any.
+  const [serverType, setServerType] = useState('');
   const [loadedSettingsSnapshot, setLoadedSettingsSnapshot] = useState<{
     session: string;
     snapshot: SettingsSnapshot;
@@ -574,7 +576,10 @@ export default function SettingRoute() {
                     openProvider={search.get('provider') ?? ''}
                     onAddServer={
                       providerConfigurationOwner?.get()
-                        ? () => setAddServer((value) => value + 1)
+                        ? (profile) => {
+                            setServerType(profile ?? '');
+                            setAddServer((value) => value + 1);
+                          }
                         : undefined
                     }
                   />
@@ -585,7 +590,7 @@ export default function SettingRoute() {
                       autoAdd={
                         addServer > 0 || search.get('add') === 'custom-endpoint'
                       }
-                      addProfile={search.get('type')}
+                      addProfile={serverType || search.get('type')}
                       credentialRefreshRequest={
                         endpointCredentialRefresh?.session === session
                           ? endpointCredentialRefresh

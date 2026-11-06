@@ -274,7 +274,7 @@ it('keeps providers not connected in Add a provider, by how they are paid', asyn
     within(gallery)
       .getAllByRole('tab')
       .map((tab) => tab.textContent),
-  ).toEqual(['API key', 'Your server']);
+  ).toEqual(['On this computer', 'API key', 'Your server']);
   expect(
     within(gallery)
       .getAllByRole('button', { name: /Mistral|Groq/ })
@@ -338,6 +338,57 @@ it('Add a provider › Your server opens the custom endpoint dialog', async () =
   );
   expect(onAddServer).toHaveBeenCalledOnce();
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('Add a provider › On this computer offers LM Studio, vLLM and llama.cpp at their usual addresses', async () => {
+  const onAddServer = vi.fn();
+  render(
+    <ProviderStatus
+      load={async () => snapshot}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onAddServer={onAddServer}
+    />,
+  );
+  const gallery = await openGallery('On this computer');
+  expect(
+    within(gallery)
+      .getAllByRole('button', { name: /Its server at/ })
+      .map((option) => option.textContent),
+  ).toEqual([
+    'LM StudioIts server at localhost:1234Local · free',
+    'vLLMIts server at localhost:8000Local · free',
+    'llama.cppIts server at localhost:8080Local · free',
+  ]);
+  fireEvent.change(
+    within(gallery).getByRole('searchbox', { name: 'Find a provider' }),
+    { target: { value: 'llama' } },
+  );
+  fireEvent.click(within(gallery).getByRole('button', { name: /llama\.cpp/ }));
+  expect(onAddServer).toHaveBeenCalledWith('llama_cpp');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('offers no model server on this computer when Row-Bot is hosted (U3)', async () => {
+  render(
+    <ProviderStatus
+      hideLocal
+      load={async () => snapshot}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onAddServer={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add a provider' }),
+  );
+  const gallery = await screen.findByRole('dialog', { name: 'Add a provider' });
+  expect(
+    within(gallery).queryByRole('tab', { name: 'On this computer' }),
+  ).toBeNull();
+  expect(
+    within(gallery).getByRole('tab', { name: 'Your server' }),
+  ).toBeVisible();
 });
 
 it('says in plain words when a subscription can borrow another app’s sign-in', async () => {

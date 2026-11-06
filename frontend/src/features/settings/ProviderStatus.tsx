@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Server,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
@@ -36,6 +37,7 @@ import ProviderSettingsPanel from './ProviderSettingsPanel';
 import type { createProviderSettingsSessions } from './provider-settings-sessions';
 import { BillingTag, billingLabel } from '../shell/ModelList';
 import ClaudePlanSetup, { claudePlanSummary } from './ClaudePlanSetup';
+import { LOCAL_SERVERS } from './local-servers';
 
 const groups = {
   local: 'On this device',
@@ -268,8 +270,11 @@ export default function ProviderStatus({
   models?: (card: ProviderLiveCard) => ReactNode;
   /** The provider whose sheet opens first (`?provider=` in a link). */
   openProvider?: string;
-  /** Add a provider › Your server: the custom endpoint dialog. */
-  onAddServer?: () => void;
+  /**
+   * Add a provider › Your server, or a model server on this computer (LM Studio,
+   * vLLM, llama.cpp): the custom endpoint dialog, set up for that server type.
+   */
+  onAddServer?: (profile?: string) => void;
 }) {
   const place = usePlace();
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
@@ -370,12 +375,19 @@ export default function ProviderStatus({
   const tiles = cards.filter(isTile);
   const waiting = (id: string) =>
     cards.filter((card) => card.group === id && !isTile(card));
+  const matches = (name: string) =>
+    name.toLowerCase().includes(find.trim().toLowerCase());
   const found = (id: string) =>
-    waiting(id).filter((card) =>
-      card.display_name.toLowerCase().includes(find.trim().toLowerCase()),
-    );
+    waiting(id).filter((card) => matches(card.display_name));
+  // LM Studio, vLLM and llama.cpp on this computer; a hosted server runs none.
+  const localServers = onAddServer && !hideLocal ? LOCAL_SERVERS : [];
+  const foundServers = (id: string) =>
+    id === 'local' ? localServers.filter((server) => matches(server.name)) : [];
   const tabs = galleryTabs.filter((item) =>
-    item.id === 'server' ? !!onAddServer : waiting(item.id).length > 0,
+    item.id === 'server'
+      ? !!onAddServer
+      : waiting(item.id).length > 0 ||
+        (item.id === 'local' && localServers.length > 0),
   );
   const galleryTab = tabs.some((item) => item.id === tab)
     ? tab
@@ -677,12 +689,37 @@ export default function ProviderStatus({
                       </button>
                     </li>
                   </ul>
-                ) : !found(item.id).length ? (
+                ) : !found(item.id).length && !foundServers(item.id).length ? (
                   <p className="settings-provider-empty">
                     No provider here matches “{find.trim()}”.
                   </p>
                 ) : (
                   <ul className="settings-provider-options">
+                    {foundServers(item.id).map((server) => (
+                      <li key={server.profile}>
+                        <button
+                          type="button"
+                          className="settings-provider-option"
+                          onClick={() => {
+                            setAdding(false);
+                            setFind('');
+                            onAddServer?.(server.profile);
+                          }}
+                        >
+                          <span className="settings-provider-mark" aria-hidden>
+                            <Server size={16} aria-hidden />
+                          </span>
+                          <span className="settings-provider-copy">
+                            <strong>{server.name}</strong>
+                            <small>
+                              Its server at {new URL(server.url).host}
+                            </small>
+                          </span>
+                          <BillingTag billing="local" />
+                          <ChevronRight size={16} aria-hidden />
+                        </button>
+                      </li>
+                    ))}
                     {found(item.id).map((card) => (
                       <li key={card.provider_id}>
                         <button
