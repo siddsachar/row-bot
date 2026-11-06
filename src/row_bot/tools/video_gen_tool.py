@@ -686,12 +686,30 @@ def _job_request(provider_id: str, method: str, path: str, *, json: dict | None 
 
 def _submit_openrouter(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
                        resolution: str, image: str) -> tuple[str, str]:
-    body: dict = {"model": model, "prompt": prompt, "duration": duration,
-                  "resolution": resolution, "aspect_ratio": aspect_ratio}
+    from row_bot.providers.media import (
+        generation_options, nearest_aspect_ratio, nearest_duration, nearest_resolution, nearest_size,
+    )
+
+    sent: dict = {"duration": duration, "aspect_ratio": aspect_ratio, "resolution": resolution}
+    options = generation_options(provider_id, model)
+    if options is not None:
+        # Each setting is the nearest the model lists; one it lists nothing for is left to the model.
+        sent = {"duration": nearest_duration(duration, options.get("duration", [])),
+                "aspect_ratio": nearest_aspect_ratio(aspect_ratio, options.get("aspect_ratio", [])),
+                "resolution": nearest_resolution(resolution, options.get("resolution", []))}
+        if sent["resolution"] is None:
+            sent["size"] = nearest_size(aspect_ratio, resolution, options.get("size", []))
+    body: dict = {"model": model, "prompt": prompt, **{key: value for key, value in sent.items() if value is not None}}
     if image:
         body["frame_images"] = [{"type": "image_url", "image_url": {"url": image}, "frame_type": "first_frame"}]
     job = _job_request(provider_id, "POST", "/videos", json=body).json()
-    return str(job.get("id") or ""), _settings(duration, aspect_ratio, resolution)
+
+    def shown(value, unit: str = "") -> str:
+        return f"{value}{unit}" if value is not None else "the model's own"
+
+    return str(job.get("id") or ""), (
+        f"Duration: {shown(sent['duration'], 's')} | Aspect ratio: {shown(sent['aspect_ratio'])} | "
+        f"Resolution: {shown(sent.get('size') or sent['resolution'])}")
 
 
 def _submit_together(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,

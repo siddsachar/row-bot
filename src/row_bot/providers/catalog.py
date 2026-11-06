@@ -633,7 +633,8 @@ def classify_model_capabilities(
         provider_id == "google" and bare.startswith("gemini") and "image" in lower
     ) or (provider_id in {"xai", "xai_oauth"} and "grok-imagine" in lower and "image" in lower) or (
         # xAI prices image and video models by resolution alike; a video model stays a video model.
-        isinstance(metadata.get("generation_parameters"), Mapping) and not declares_video and "video" not in lower
+        provider_id in {"xai", "xai_oauth"} and isinstance(metadata.get("generation_parameters"), Mapping)
+        and not declares_video and "video" not in lower
     ):
         tasks = {ModelTask.IMAGE_GENERATION.value}
         if provider_id == "google" and bare.startswith("gemini"):

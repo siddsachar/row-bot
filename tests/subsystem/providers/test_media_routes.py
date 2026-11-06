@@ -479,3 +479,119 @@ def test_qwen_and_atlas_cloud_media_models_come_from_their_own_lists(monkeypatch
         "dashscope/qwen-image-2.0": "QW  Qwen-Image-2.0  (Qwen (Alibaba Cloud))",
     }
     assert set(get_available_video_models()) == {"atlascloud/kwaivgi/kling-v2.1-t2v-master", "dashscope/wan2.7-t2v"}
+
+
+OPENROUTER_LISTS = {
+    "/models?output_modalities=all": {"data": [
+        {"id": "google/veo-3.1", "name": "Veo 3.1", "architecture": {"output_modalities": ["video"]}},
+        {"id": "kwaivgi/kling-v3", "name": "Kling v3", "architecture": {"output_modalities": ["video"]}},
+        {"id": "bytedance-seed/seedream-4.5", "name": "Seedream 4.5", "architecture": {"output_modalities": ["image"]}},
+        {"id": "google/gemini-3.1-flash-image-preview", "name": "Gemini 3.1 Flash Image",
+         "architecture": {"output_modalities": ["image", "text"]}},
+    ]},
+    "/videos/models": {"data": [
+        {"id": "google/veo-3.1", "supported_durations": [4, 6, 8], "supported_resolutions": ["720p", "1080p"],
+         "supported_aspect_ratios": ["16:9", "9:16"], "supported_sizes": None,
+         "supported_frame_images": ["first_frame", "last_frame"]},
+        {"id": "kwaivgi/kling-v3", "supported_durations": [5, 10], "supported_resolutions": None,
+         "supported_aspect_ratios": None, "supported_sizes": ["1280x720", "720x1280", "1920x1080"]},
+    ]},
+    "/images/models": {"data": [
+        {"id": "bytedance-seed/seedream-4.5",
+         "supported_parameters": {"resolution": {"type": "enum", "values": ["1K", "2K", "4K"]},
+                                  "seed": {"type": "boolean"}}},
+        {"id": "google/gemini-3.1-flash-image-preview",
+         "supported_parameters": {"aspect_ratio": {"type": "enum", "values": ["1:1", "16:9", "9:16", "4:3", "3:4"]},
+                                  "quality": {"type": "enum", "values": ["low", "high"]}}},
+    ]},
+}
+
+
+@pytest.fixture
+def openrouter_listed(media, monkeypatch):
+    """OpenRouter's catalogue refreshed from fake lists, its media models chosen in the tools."""
+    import row_bot.models as models
+    import row_bot.providers.auth_store as auth_store
+
+    monkeypatch.setattr(models, "_cloud_model_cache", {})
+    monkeypatch.setattr(auth_store, "get_provider_secret", lambda provider: "synthetic")
+
+    def refresh(lists):
+        for suffix, payload in lists.items():
+            media.answers[("GET", suffix)] = [payload if isinstance(payload, _Response) else _Response(payload)]
+        models._fetch_cloud_models("openrouter")
+        media.calls.clear()
+
+    return refresh
+
+
+def test_openrouter_videos_are_made_at_the_nearest_settings_their_model_lists(media, openrouter_listed):
+    from row_bot.tools.video_gen_tool import get_available_video_models
+
+    openrouter_listed(OPENROUTER_LISTS)
+    media.answers[("POST", "/videos")] = [_Response({"id": "gen-vid-3"})]
+    media.answers[("GET", "/videos/gen-vid-3")] = [_Response({"status": "completed"})]
+    media.answers[("GET", "/videos/gen-vid-3/content?index=0")] = [_Response(content=b"mp4-bytes")]
+
+    assert {"openrouter/google/veo-3.1", "openrouter/kwaivgi/kling-v3"} <= set(get_available_video_models())
+
+    media.video = "openrouter/google/veo-3.1"
+    result = media.video_tool._generate_video("waves", duration_seconds=20, aspect_ratio="4:3", resolution="4k")
+
+    assert "Duration: 8s | Aspect ratio: 16:9 | Resolution: 1080p" in result
+    assert {key: media.calls[0].json.get(key) for key in ("duration", "aspect_ratio", "resolution", "size")} == {
+        "duration": 8, "aspect_ratio": "16:9", "resolution": "1080p", "size": None}
+
+    media.calls.clear()
+    media.video = "openrouter/kwaivgi/kling-v3"
+    result = media.video_tool._generate_video("waves", duration_seconds=6, aspect_ratio="9:16", resolution="720p")
+
+    # A model listed by size takes the size of the shape and resolution asked for, and its own ratio.
+    assert "Duration: 5s | Aspect ratio: the model's own | Resolution: 720x1280" in result
+    assert {key: media.calls[0].json.get(key) for key in ("duration", "aspect_ratio", "resolution", "size")} == {
+        "duration": 5, "aspect_ratio": None, "resolution": None, "size": "720x1280"}
+
+
+def test_openrouter_images_send_only_the_settings_their_model_lists(media, openrouter_listed):
+    from row_bot.providers.capabilities import snapshot_supports_surface
+    from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+    openrouter_listed(OPENROUTER_LISTS)
+    media.answers[("POST", "/images")] = [_Response({"data": [{"b64_json": PNG}]})]
+
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+    media.image_tool._generate_image("a lighthouse", size="1536x1024", quality="high")
+    # Listed by resolution tier only: high quality is its 2K, and it takes no ratio.
+    assert media.calls[0].json == {"model": "bytedance-seed/seedream-4.5", "prompt": "a lighthouse", "n": 1,
+                                   "resolution": "2K"}
+
+    media.calls.clear()
+    media.image = "openrouter/google/gemini-3.1-flash-image-preview"
+    media.image_tool._generate_image("a lighthouse", size="1536x1024", quality="medium")
+    assert media.calls[0].json == {"model": "google/gemini-3.1-flash-image-preview", "prompt": "a lighthouse", "n": 1,
+                                   "aspect_ratio": "4:3"}
+
+    # The settings a model lists don't change what it does: this one still chats as well.
+    snapshot = resolve_capability_snapshot("openrouter", "google/gemini-3.1-flash-image-preview",
+                                           include_static_fallback=False)
+    assert {surface for surface in ("chat", "image", "video") if snapshot_supports_surface(snapshot, surface)} == {
+        "chat", "image"}
+
+
+def test_openrouter_media_models_keep_the_settings_asked_for_when_its_settings_lists_fail(media, openrouter_listed):
+    from row_bot.tools.video_gen_tool import get_available_video_models
+
+    openrouter_listed({**OPENROUTER_LISTS, "/videos/models": _Response({}, status_code=500),
+                       "/images/models": _Response({}, status_code=500)})
+    media.answers[("POST", "/videos")] = [_Response({"id": "gen-vid-4"})]
+    media.answers[("GET", "/videos/gen-vid-4")] = [_Response({"status": "completed"})]
+    media.answers[("GET", "/videos/gen-vid-4/content?index=0")] = [_Response(content=b"mp4-bytes")]
+
+    assert "openrouter/google/veo-3.1" in get_available_video_models()
+
+    media.video = "openrouter/google/veo-3.1"
+    result = media.video_tool._generate_video("waves", duration_seconds=20, aspect_ratio="4:3", resolution="4k")
+
+    assert "Duration: 20s | Aspect ratio: 4:3 | Resolution: 4k" in result
+    assert {key: media.calls[0].json[key] for key in ("duration", "aspect_ratio", "resolution")} == {
+        "duration": 20, "aspect_ratio": "4:3", "resolution": "4k"}

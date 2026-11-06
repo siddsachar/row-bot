@@ -2256,6 +2256,7 @@ def _fetch_cloud_models(provider: str) -> int:
     except Exception as exc:
         logger.warning("Failed to fetch %s models: %s", provider, exc)
         return 0
+    media_parameters = _openrouter_media_parameters(headers) if provider == "openrouter" else {}
 
     entries: dict[str, dict] = {}
     if provider == "openai":
@@ -2288,6 +2289,8 @@ def _fetch_cloud_models(provider: str) -> int:
             # Only include models with a '/' (provider/model format)
             if "/" not in mid:
                 continue
+            if mid in media_parameters:
+                m = {**m, "generation_parameters": media_parameters[mid]}
             model_info = model_info_from_metadata(
                 "openrouter", mid, m,
                 display_name=name,
@@ -2299,6 +2302,22 @@ def _fetch_cloud_models(provider: str) -> int:
     count = _replace_provider_cloud_cache_entries(provider, entries)
     logger.info("Fetched %d %s models", count, provider)
     return count
+
+
+def _openrouter_media_parameters(headers: dict[str, str]) -> dict[str, dict]:
+    """The sizes, lengths and ratios OpenRouter lists for its image and video models; none where a list fails."""
+    import httpx
+    from row_bot.providers.openrouter_catalog import openrouter_media_parameters
+
+    rows: dict[str, list] = {}
+    for kind in ("videos", "images"):
+        try:
+            resp = httpx.get(f"{OPENROUTER_BASE_URL}/{kind}/models", headers=headers, timeout=15)
+            resp.raise_for_status()
+            rows[kind] = resp.json().get("data") or []
+        except Exception as exc:
+            logger.warning("Failed to fetch OpenRouter's %s model settings: %s", kind[:-1], exc)
+    return openrouter_media_parameters(rows.get("videos"), rows.get("images"))
 
 
 def fetch_cloud_models(provider: str) -> int:
