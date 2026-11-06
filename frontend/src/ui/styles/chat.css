@@ -4520,6 +4520,10 @@ button.attachment-tile-face:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A workflow run that didn't finish: why, under its line. */
+.transcript-note-failure svg {
+  color: var(--status-warning-text);
+}
 
 /* A delegated agent's approval that was answered here or elsewhere. */
 .approval-card-answered {

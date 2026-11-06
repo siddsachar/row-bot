@@ -93,29 +93,38 @@ def save_notes(task_id: str, text: str) -> str:
     return kept
 
 
-def with_notes(task: Mapping[str, Any], prompt: str) -> str:
-    """A run's first message: the workflow's notes from earlier runs, how to keep them, then its message."""
+def with_notes(task: Mapping[str, Any], prompt: str, *, held: list[dict[str, str]] | None = None) -> str:
+    """A run's first message: the workflow's notes from earlier runs, how to keep them, then its message.
+
+    *held*: the messages other conversations left for this run, already taken; None takes them here.
+    """
     task_id = str(task["id"])
     # A one-off runs once: no notes for a next run, and nothing to say about them (U21).
     once = bool(task.get("at")) and not task.get("schedule")
     kept = "" if once else notes(task_id)
     lead = ("" if once else f"Notes this workflow kept from its earlier runs:\n{kept}" if kept
             else "This workflow has no notes from earlier runs yet.")
-    conversation = str(task.get("persistent_thread_id") or "")
-    if conversation:
-        from row_bot.linked_conversations import take_held
-
-        held = take_held(conversation)
-        if held:
-            # Sent with when="next_run" by other conversations: information for this run, never the person's request.
-            lead += ("\n\n" if lead else "") + (
-                "Messages other conversations left for this run (their information, not the person's "
-                "request):\n" + "\n".join(f"- From “{sender}”: {text}" for sender, text in held))
+    if held is None:
+        held = _take_held(task)
+    if held:
+        # Sent with when="next_run" by other conversations: information for this run, never the person's request.
+        lead += ("\n\n" if lead else "") + (
+            "Messages other conversations left for this run (their information, not the person's "
+            "request):\n" + "\n".join(f"- From “{item['title']}”: {item['text']}" for item in held))
     if once:
         return f"{lead}\n\n---\n\n{prompt}" if lead else prompt
     return (f"{lead}\n\nBefore this run ends, keep them current for the next run with "
             f"task_update(task_id=\"{task_id}\", notes=...): what you checked and when, ids you'll need again, "
             f"and what's left. Replace them whole; under {NOTES_LIMIT:,} characters.\n\n---\n\n{prompt}")
+
+
+def _take_held(task: Mapping[str, Any]) -> list[dict[str, str]]:
+    conversation = str(task.get("persistent_thread_id") or "")
+    if not conversation:
+        return []
+    from row_bot.linked_conversations import take_held
+
+    return take_held(conversation)
 
 
 def messages(task: Mapping[str, Any]) -> list[str]:
@@ -149,9 +158,12 @@ def _send(task: Mapping[str, Any], thread_id: str, run_id: str, index: int, *, t
     from row_bot.application import conversation_followups as followups
     sent = messages(task)
     prompt = tasks.expand_template_vars(sent[index], task_id=str(task["id"]))
+    held = _take_held(task) if index == 0 else []
     if index == 0:
-        prompt = with_notes(task, prompt)
-    followup = followups.Followup(kind=KIND, prompt=prompt, note=_note(task, index, len(sent), trigger))
+        prompt = with_notes(task, prompt, held=held)
+    # The run's line shows what other conversations left for it, under who sent each.
+    followup = followups.Followup(kind=KIND, prompt=prompt, note=_note(task, index, len(sent), trigger),
+                                  held=tuple(held))
     try:
         receipt = followups.start(_service(), thread_id, followup, model_ref=str(task.get("model_override") or ""))
     except Exception:  # The turn's worker could not start (the app is closing, or no thread was free).
@@ -296,6 +308,8 @@ def _finish(run: Mapping[str, Any], task: Mapping[str, Any] | None, status: str,
         status = "completed_delivery_failed"
     tasks._finish_run(run_id, status, status_message=delivery_detail, notice=notice[:512],
                       actions=[{key: item[key] for key in ("tool", "title", "result", "link")} for item in done])
+    if status == "failed":
+        _service().conversation_changed(thread_id, reread=True)  # Its chat says why under the run's line.
     if task is None:
         return
     tasks.after_run_finished(dict(task), run_id, thread_id, status, notice, delivery_status, delivery_detail)

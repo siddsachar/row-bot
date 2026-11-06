@@ -2417,6 +2417,21 @@ def note_run_first_message(run_id: str, message_id: str) -> None:
         conn.close()
 
 
+@_schema_retry
+def runs_by_first_message(thread_id: str, message_ids: list[str]) -> dict[str, dict[str, str]]:
+    """The runs in a conversation that began with these messages: first message id -> its status and notice."""
+    if not thread_id or not message_ids:
+        return {}
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            f"SELECT first_message_id, status, COALESCE(notice, '') AS notice FROM task_runs WHERE thread_id = ? "
+            f"AND first_message_id IN ({', '.join('?' * len(message_ids))})", (thread_id, *message_ids)).fetchall()
+    finally:
+        conn.close()
+    return {row["first_message_id"]: {"status": row["status"], "notice": row["notice"]} for row in rows}
+
+
 @_publishes_live("runs")
 @_schema_retry
 def note_run_retry(run_id: str, notice: str) -> None:
@@ -3815,10 +3830,10 @@ def _prepare_task_thread(task: dict) -> str:
     - model_override propagation
     """
     from row_bot.threads import (
-        _save_thread_meta,
         _set_thread_agent_profile,
         _set_thread_approval_mode,
         _set_thread_model_override,
+        _set_thread_name,
     )
 
     from row_bot.threads import _thread_exists, _thread_write_blocked, create_thread
@@ -3833,7 +3848,9 @@ def _prepare_task_thread(task: dict) -> str:
                       seed_default_skills=False)
         update_task(task["id"], persistent_thread_id=thread_id)
     else:
-        _save_thread_meta(thread_id, f"\u26a1 {task['name']}")
+        # Its name follows the workflow's; the chat moves up the list only when its run's turn starts
+        # (a run skipped because the last one is still going adds nothing to it).
+        _set_thread_name(thread_id, f"\u26a1 {task['name']}")
     if task.get("model_override"):
         _set_thread_model_override(thread_id, task["model_override"])
     try:
