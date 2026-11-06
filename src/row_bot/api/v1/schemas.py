@@ -8972,7 +8972,8 @@ class ScheduledPost(WireModel):
     target_url: str = Field(default="", max_length=256, pattern=r"^(https://x\.com/[A-Za-z0-9_]+/status/[0-9]+)?$")
     post_at: str = Field(pattern=r"^\d{4}-\d\d-\d\dT\d\d:\d\d$")
     media: list[XPostMedia] = Field(default_factory=list, max_length=4)
-    status: Literal["scheduled", "failed", "missed", "unknown"] = "scheduled"
+    # by_hand: X's reply rule stops this reply or quote; it is never tried again, the person posts it on X by hand.
+    status: Literal["scheduled", "failed", "missed", "unknown", "by_hand"] = "scheduled"
     # Why it didn't go out, in Row-Bot's words (X's reason included); "" while it waits.
     reason: str = Field(default="", max_length=2000)
 
