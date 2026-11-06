@@ -26,6 +26,10 @@ Each job has its own picker, using the same grouped, searchable list as the comp
 
 Turn Vision, Image or Video off when you don't want that job done at all.
 
+The Image and Video pickers offer the models each connected provider's own model list has right now, so a new image or video model appears after **Refresh catalog**, without a Row-Bot update. When a provider stops listing the model you chose, usually because it retired it, the picker says so: choose another.
+
+Image models come from OpenAI, Google, xAI, OpenRouter, Vercel AI Gateway, Together AI and Requesty; video models from Google, xAI, OpenRouter and Together AI. OpenRouter and Vercel AI Gateway reach many image makers (FLUX, Seedream, Recraft, Imagen and others) with one key, and OpenRouter and Together AI reach video makers such as Veo, Seedance, Kling and Hailuo. Together AI's image models make new images but don't edit them here. Buddy's new looks use OpenAI, Google or xAI.
+
 ## Your Models
 
 **Your models** lists the models you starred, which every picker lists first. Each says what it can do (chat, sees images, makes images or video). The check mark makes a model the main model; its star takes it out. Star more in a provider's sheet or in the Catalog.
@@ -88,5 +92,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 - If a picker is empty, connect a provider first.
 - If a model is missing, refresh the catalog and check whether its provider is connected.
+- If a picker says its provider no longer lists your model, the provider has probably retired it. OpenAI, for example, retired its gpt-image-1 models in October and December 2026; choose one of its current image models.
 - If a model shows as unavailable, read its reason; reconnecting its provider usually fixes it.
 - If a small local model fails before answering, lower the reading limit or choose a more capable model.

@@ -2138,7 +2138,7 @@ def n7_accounts(x_fixture_token: str = Header(default="")) -> dict:
         account = x_accounts.add(fake.sign_in(*user))
         # Documentation-capture mode (this fixture) never remembers a check; a real sign-in's passes.
         account_tokens._CHECKS[account.slot] = (account_tokens.digest(account.slot), True)
-    _N7["question"] = fake.post("999", "What does Row-Bot actually do with my data?")
+    _N7["question"] = fake.post("999", "@rowbot_ai What does Row-Bot actually do with my data?")
     _n7_picture(_N7["folder"] / "launch-card.png")
     return {"accounts": [account.handle for account in x_accounts.listed()]}
 

@@ -1809,11 +1809,16 @@ def read_settings_snapshot(
         "preferences": _preferences(root),
         "learning": _learning(root),
     }
+    from row_bot import tool_configuration
+
+    # The registry keeps every tool off while this file can't be read; Settings says so and offers a reset.
+    unreadable = tool_configuration.unreadable(root / "tools_config.json")
     validate()
     return {
         "schema_version": 1,
         "revision": _revision(sections),
         **sections,
+        "tool_settings_unreadable": unreadable,
         # Defaults never change the revision: they are not saved state.
         "defaults": copy.deepcopy(SETTING_DEFAULTS),
     }

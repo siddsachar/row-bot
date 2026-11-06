@@ -77,6 +77,7 @@ import {
   DocumentModelSetting,
   StartPublicLink,
   ToolConfigurationSnapshot,
+  ToolSettingsUnreadable,
   TrackerDangerAction,
   UtilitiesSnapshotPanel,
   type SettingsMutationIO,
@@ -491,6 +492,10 @@ export default function SettingRoute() {
         className="route-surface stack capability-page"
         aria-label={leaf.label}
       >
+        <ToolSettingsUnreadable
+          unreadable={settingsSnapshot?.tool_settings_unreadable === true}
+          mutation={mutationFor('system')}
+        />
         {leaf.id === 'buddy' ? (
           settingsConversationId ? (
             <BuddySurface

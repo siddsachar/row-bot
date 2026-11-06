@@ -1337,6 +1337,8 @@ class SettingsSnapshot(WireModel):
     plugins: SettingsPluginSummary
     preferences: PreferenceSettingsSnapshot
     learning: LearningSettingsSnapshot
+    # tools_config.json exists but can't be read: every tool stays off until it is reset or restored.
+    tool_settings_unreadable: bool = False
     # Per page, what each saved field reads on a fresh profile; clients show
     # a "modified" mark and a reset for fields that differ.
     defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(
@@ -8675,6 +8677,14 @@ class LinkedFrom(WireModel):
     kind: Literal["message", "reply"] = "message"
 
 
+class HeldMessage(WireModel):
+    """A message another conversation left for a workflow's next run, shown under that run's line."""
+
+    id: OpaqueId
+    title: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=4_000)
+
+
 class ConversationLinkView(WireModel):
     """A conversation another one started or proposed, as its card shows it (5.3.1 C)."""
 
@@ -8713,6 +8723,10 @@ class TranscriptRow(WireModel):
                   "linked"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
+    # A workflow run's line (note "continuation"): the messages other conversations left for that run.
+    held: list[HeldMessage] = Field(default_factory=list, max_length=10)
+    # A workflow run's last line, when the run didn't finish: why, in plain words.
+    run_failure: str | None = Field(default=None, max_length=512)
     # A delegated agent's approval announced in its parent conversation: the
     # row is answered in place with the approval card.
     approval_id: str | None = Field(default=None, max_length=128)
@@ -9090,7 +9104,8 @@ class ScheduledPost(WireModel):
     target_url: str = Field(default="", max_length=256, pattern=r"^(https://x\.com/[A-Za-z0-9_]+/status/[0-9]+)?$")
     post_at: str = Field(pattern=r"^\d{4}-\d\d-\d\dT\d\d:\d\d$")
     media: list[XPostMedia] = Field(default_factory=list, max_length=4)
-    status: Literal["scheduled", "failed", "missed", "unknown"] = "scheduled"
+    # by_hand: X's reply rule stops this reply or quote; it is never tried again, the person posts it on X by hand.
+    status: Literal["scheduled", "failed", "missed", "unknown", "by_hand"] = "scheduled"
     # Why it didn't go out, in Row-Bot's words (X's reason included); "" while it waits.
     reason: str = Field(default="", max_length=2000)
 

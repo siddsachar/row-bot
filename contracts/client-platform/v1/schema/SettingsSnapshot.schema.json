@@ -2532,6 +2532,11 @@
     "system": {
       "$ref": "#/$defs/SystemSettingsSnapshot"
     },
+    "tool_settings_unreadable": {
+      "default": false,
+      "title": "Tool Settings Unreadable",
+      "type": "boolean"
+    },
     "tools": {
       "$ref": "#/$defs/ToolSettingsSnapshot"
     },

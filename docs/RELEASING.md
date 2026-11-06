@@ -79,8 +79,14 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    the reference pages from the code, builds the site with its search index and
    syncs it into `docs/`, never touching the landing page. Pull requests between
    releases change only the docs' sources (`docs-site/docs`), so the published
-   site describes the release people can install. `--no-docs` skips it; then
-   run `python scripts/docs/publish.py` before opening the release-prep PR.
+   site describes the release people can install. With it, it refreshes the
+   model capabilities bundled with the release
+   (`scripts/refresh_model_capabilities.py` writes
+   `src/row_bot/providers/model_capabilities.json` from models.dev), the copy
+   Row-Bot reads when its live fetch fails. `--no-docs` skips both; then run
+   `python scripts/docs/publish.py` and
+   `python scripts/refresh_model_capabilities.py` before opening the
+   release-prep PR.
 
    It adds the version's section to `RELEASE_NOTES.md` when it has none, and a
    `### For Hosts` section at its end. Write there what changes for hosts that

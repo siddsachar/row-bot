@@ -30,3 +30,16 @@ def test_cold_tool_policy_reads_saved_bytes_without_defaults_or_scope_migration(
     assert first != second
     path.write_text('{"tools":{"dynamic":true}}', encoding='utf-8')
     assert registry.read_policy_snapshot() != second
+
+
+def test_an_unreadable_tool_file_still_answers_the_policy_and_changes_it_once_it_reads(tmp_path, monkeypatch):
+    monkeypatch.setenv('ROW_BOT_DATA_DIR', str(tmp_path / 'isolated'))
+    monkeypatch.setattr(registry, '_tools', {})
+    path = tool_configuration.configuration_path()
+    path.parent.mkdir()
+    path.write_bytes(b'{"tools": {"shell": fal')
+    # The handshake reads this policy: raising here stopped the app loading at all.
+    unreadable = registry.read_policy_snapshot()
+    assert unreadable['saved_revision'] == 'unreadable'
+    path.write_text('{"tools":{"shell":false}}', encoding='utf-8')
+    assert registry.read_policy_snapshot()['saved_revision'] != 'unreadable'  # An approval given meanwhile no longer matches.
