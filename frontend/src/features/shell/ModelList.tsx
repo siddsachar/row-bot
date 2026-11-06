@@ -11,11 +11,14 @@ import { Check, ChevronDown, HardDrive, Search, Star } from 'lucide-react';
 import type { ModelChoice } from '../../api/types';
 import { usePlace } from '../../api/place';
 import { Kbd, StatusDot } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 import {
+  foldRoutes,
   groupModels,
   matchesModel,
   readRecentModels,
   splitModelLabel,
+  type ModelRoutes,
 } from './model-choices';
 
 /**
@@ -25,7 +28,15 @@ import {
 export type ListedModel = ModelChoice & { reason?: string; detail?: string };
 /** What a row's star changes: your models are the starred ones. */
 export type VisibilityAction = 'favourite' | 'unfavourite';
-type Row = { key: string; kind: 'model'; model: ListedModel };
+type Row = {
+  key: string;
+  kind: 'model';
+  model: ListedModel;
+  /** The same model through other providers, folded under this row. */
+  routes?: readonly ListedModel[];
+  /** The folded row this route belongs to, while its routes are shown. */
+  parent?: { key: string; name: string };
+};
 type Section = {
   key: string;
   label: string;
@@ -69,6 +80,39 @@ const modelRows = (prefix: string, models: readonly ListedModel[]): Row[] =>
     kind: 'model',
     model,
   }));
+/** One row per model, with its other routes beneath while it is opened. */
+const foldedRows = (
+  prefix: string,
+  folded: readonly ModelRoutes<ListedModel>[],
+  opened: ReadonlySet<string>,
+): Row[] =>
+  folded.flatMap(({ first, others }) => {
+    const key = `${prefix}:${first.model_ref}`;
+    const row: Row = {
+      key,
+      kind: 'model',
+      model: first,
+      routes: others.length ? others : undefined,
+    };
+    if (!others.length || !opened.has(key)) return [row];
+    return [
+      row,
+      ...others.map((model): Row => ({
+        key: `${key}>${model.model_ref}`,
+        kind: 'model',
+        model,
+        parent: { key, name: splitModelLabel(first.label).name },
+      })),
+    ];
+  });
+const routesLabel = (count: number) =>
+  `+${count} ${count === 1 ? 'route' : 'routes'}`;
+const starRank = (routes: ModelRoutes<ListedModel>) =>
+  Math.min(
+    ...[routes.first, ...routes.others]
+      .filter(isFavourite)
+      .map((model) => model.favourite_rank ?? 0),
+  );
 
 /** How long typing rests before the whole catalogue is searched. */
 const SEARCH_DELAY_MS = 200;
@@ -127,6 +171,7 @@ export default function ModelList({
   );
   const [found, setFound] = useState<readonly ListedModel[]>(NO_ROWS);
   const [browsing, setBrowsing] = useState(false);
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
     const text = query.trim();
     if (!search || !text) {
@@ -161,6 +206,60 @@ export default function ModelList({
         billing: null,
         rows: modelRows('leading', first),
       });
+    if (query) {
+      // Search: one row per model, however many providers offer it, with the
+      // other routes folded under it. Found rows take their provider's tag.
+      const billing = new Map(
+        models.map((model) => [model.provider_id, model.billing]),
+      );
+      const listed = new Set(models.map((model) => model.model_ref));
+      const folded = foldRoutes(
+        [
+          ...matching,
+          ...found
+            .filter((model) => !listed.has(model.model_ref))
+            .map((model) => ({
+              ...model,
+              billing: model.billing ?? billing.get(model.provider_id) ?? null,
+            })),
+        ],
+        current,
+      );
+      const starred = (routes: ModelRoutes<ListedModel>) =>
+        [routes.first, ...routes.others].some(isFavourite);
+      const yours = folded
+        .filter(starred)
+        .sort((a, b) => starRank(a) - starRank(b));
+      const rest = folded
+        .filter((routes) => !starred(routes))
+        .sort(
+          (a, b) =>
+            Number(b.first.model_ref === current) -
+              Number(a.first.model_ref === current) ||
+            Number(b.first.available) - Number(a.first.available),
+        );
+      if (yours.length)
+        result.push({
+          key: 'favourites',
+          label: 'Your models',
+          connected: true,
+          local: false,
+          billing: null,
+          mixed: true,
+          rows: foldedRows('favourite', yours, opened),
+        });
+      if (rest.length)
+        result.push({
+          key: 'search',
+          label: 'All models',
+          connected: true,
+          local: false,
+          billing: null,
+          mixed: true,
+          rows: foldedRows('search', rest, opened),
+        });
+      return [result, false] as const;
+    }
     const favourites = matching.filter(isFavourite).sort(byRank);
     if (favourites.length)
       result.push({
@@ -172,24 +271,22 @@ export default function ModelList({
         mixed: true,
         rows: modelRows('favourite', favourites),
       });
-    if (!query) {
-      const recentModels = recent
-        .map((ref) => models.find((model) => model.model_ref === ref))
-        .filter(
-          (model): model is ListedModel =>
-            Boolean(model?.available) && !isFavourite(model!),
-        );
-      if (recentModels.length)
-        result.push({
-          key: 'recent',
-          label: 'Recent',
-          connected: true,
-          local: false,
-          billing: null,
-          mixed: true,
-          rows: modelRows('recent', recentModels),
-        });
-    }
+    const recentModels = recent
+      .map((ref) => models.find((model) => model.model_ref === ref))
+      .filter(
+        (model): model is ListedModel =>
+          Boolean(model?.available) && !isFavourite(model!),
+      );
+    if (recentModels.length)
+      result.push({
+        key: 'recent',
+        label: 'Recent',
+        connected: true,
+        local: false,
+        billing: null,
+        mixed: true,
+        rows: modelRows('recent', recentModels),
+      });
     const groups = groupModels(matching.filter((model) => !isFavourite(model)));
     const currentGroup = groups.findIndex((group) =>
       group.models.some((model) => model.model_ref === current),
@@ -203,7 +300,6 @@ export default function ModelList({
         .map((row) => row.model.model_ref),
     );
     const foldable =
-      !query &&
       favourites.length > 0 &&
       groups.length > 0 &&
       (!current || shown.has(current));
@@ -217,22 +313,8 @@ export default function ModelList({
           billing: group.models.find((model) => model.billing)?.billing ?? null,
           rows: modelRows(group.id, group.models),
         });
-    const listed = new Set(models.map((model) => model.model_ref));
-    const more = query
-      ? found.filter((model) => !listed.has(model.model_ref))
-      : [];
-    if (more.length)
-      result.push({
-        key: 'search',
-        label: 'All models',
-        connected: true,
-        local: false,
-        billing: null,
-        mixed: true,
-        rows: modelRows('search', more),
-      });
     return [result, foldable] as const;
-  }, [browsing, current, found, leading, models, query, recent]);
+  }, [browsing, current, found, leading, models, opened, query, recent]);
   const rows = sections.flatMap((section) => section.rows);
   const enabled = rows.filter((row) => row.model.available);
   const activeRow =
@@ -271,6 +353,24 @@ export default function ModelList({
   };
   const hasStar = (section: Section, row: Row) =>
     !!onVisibility && section.key !== 'leading' && !!row.model.model_ref;
+  // Shows or hides a folded row's other routes; the highlight stays on it.
+  const toggleRoutes = (row: Row) => {
+    const key = row.parent?.key ?? row.key;
+    setOpened((keys) => {
+      const next = new Set(keys);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+    if (row.parent) setActive(key);
+  };
+  const folds = rows.some((row) => row.routes);
+  const description =
+    [
+      onVisibility && 'Shift+F10 stars or unstars the highlighted model.',
+      folds && 'Right arrow shows or hides its other routes.',
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined;
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || !enabled.length) return;
     const index = activeRow ? enabled.indexOf(activeRow) : -1;
@@ -284,7 +384,16 @@ export default function ModelList({
       move(index - 1 < 0 ? enabled.length - 1 : index - 1);
     else if (event.key === 'PageDown') move(index + 8);
     else if (event.key === 'PageUp') move(index - 8);
-    else if (event.key === 'Enter') {
+    else if (
+      event.key === 'ArrowRight' &&
+      activeRow &&
+      (activeRow.routes || activeRow.parent) &&
+      // Within the typed text, the arrow still moves the caret.
+      event.currentTarget.selectionStart === event.currentTarget.value.length
+    ) {
+      event.preventDefault();
+      toggleRoutes(activeRow);
+    } else if (event.key === 'Enter') {
       event.preventDefault();
       if (activeRow) choose(activeRow);
     } else if (
@@ -302,6 +411,8 @@ export default function ModelList({
   const option = (section: Section, row: Row) => {
     const label = splitModelLabel(row.model.label);
     const isCurrent = row.model.model_ref === current;
+    const provider = label.provider || humanizeToken(row.model.provider_id);
+    const showing = !!row.routes && opened.has(row.key);
     const choice = (
       <div
         key={row.key}
@@ -310,14 +421,24 @@ export default function ModelList({
         className="model-picker-option"
         aria-selected={row.key === activeRow?.key}
         aria-disabled={!row.model.available || undefined}
+        // A route row shows only where it runs; its name says which model.
+        aria-label={
+          row.parent ? `${row.parent.name} via ${provider}` : undefined
+        }
+        aria-description={
+          row.routes ? routesLabel(row.routes.length) : undefined
+        }
         data-current={isCurrent ? 'true' : undefined}
+        data-route={row.parent ? 'true' : undefined}
         onMouseDown={(event) => event.preventDefault()}
         onMouseMove={() => {
           if (row.model.available && active !== row.key) setActive(row.key);
         }}
         onClick={() => choose(row)}
       >
-        <span className="model-picker-option-name">{label.name}</span>
+        <span className="model-picker-option-name">
+          {row.parent ? provider : label.name}
+        </span>
         {row.model.personal && (
           // Learning (preview, D11): one of the person's own trained models.
           <span className="model-billing" data-billing="personal">
@@ -334,14 +455,21 @@ export default function ModelList({
             {row.model.reason}
           </span>
         )}
-        {section.mixed && label.provider && (
+        {row.parent ? (
           <span className="model-picker-option-provider">
-            {label.provider}
-            {/* "Ollama Local" already says it runs here, for free. */}
-            {row.model.billing && row.model.billing !== 'local'
-              ? ` · ${billingLabel(row.model.billing)}`
-              : ''}
+            {billingLabel(row.model.billing)}
           </span>
+        ) : (
+          section.mixed &&
+          label.provider && (
+            <span className="model-picker-option-provider">
+              {label.provider}
+              {/* "Ollama Local" already says it runs here, for free. */}
+              {row.model.billing && row.model.billing !== 'local'
+                ? ` · ${billingLabel(row.model.billing)}`
+                : ''}
+            </span>
+          )
         )}
         {!row.model.available && onConnect ? (
           <button
@@ -367,10 +495,12 @@ export default function ModelList({
         )}
       </div>
     );
-    if (!hasStar(section, row)) return choice;
-    // The star sits beside the option, not inside it: an option holds no
-    // controls. It is the pointer's way in; the keyboard's is Shift+F10 (said
-    // on the search field), so it stays out of the accessibility tree.
+    const star = hasStar(section, row);
+    if (!star && !row.routes) return choice;
+    // The star and the routes chip sit beside the option, not inside it: an
+    // option holds no controls. They are the pointer's way in; the keyboard's
+    // are Shift+F10 and the right arrow (said on the search field), so they
+    // stay out of the accessibility tree.
     const starred = row.model.favourite_rank != null;
     return (
       <div
@@ -378,27 +508,52 @@ export default function ModelList({
         className="model-picker-row"
         role="presentation"
         data-starred={starred ? 'true' : undefined}
+        data-routes={row.routes ? 'true' : undefined}
+        data-star={star ? 'true' : undefined}
       >
         {choice}
         <span className="model-picker-row-menu" aria-hidden>
-          <button
-            type="button"
-            className="model-picker-row-menu-button"
-            tabIndex={-1}
-            aria-label={
-              starred
-                ? `Remove ${label.name} from your models`
-                : `Add ${label.name} to your models`
-            }
-            title={starred ? 'Remove from your models' : 'Add to your models'}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              toggleStar(row);
-              input.current?.focus();
-            }}
-          >
-            <Star size={14} fill={starred ? 'currentColor' : 'none'} />
-          </button>
+          {row.routes && (
+            <button
+              type="button"
+              className="model-picker-routes"
+              tabIndex={-1}
+              aria-expanded={showing}
+              title={
+                showing
+                  ? 'Hide the other routes'
+                  : 'Other providers that run this model'
+              }
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                toggleRoutes(row);
+                input.current?.focus();
+              }}
+            >
+              {routesLabel(row.routes.length)}
+              <ChevronDown size={12} aria-hidden />
+            </button>
+          )}
+          {star && (
+            <button
+              type="button"
+              className="model-picker-row-menu-button"
+              tabIndex={-1}
+              aria-label={
+                starred
+                  ? `Remove ${label.name} from your models`
+                  : `Add ${label.name} to your models`
+              }
+              title={starred ? 'Remove from your models' : 'Add to your models'}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                toggleStar(row);
+                input.current?.focus();
+              }}
+            >
+              <Star size={14} fill={starred ? 'currentColor' : 'none'} />
+            </button>
+          )}
         </span>
       </div>
     );
@@ -412,11 +567,7 @@ export default function ModelList({
           className="model-picker-input"
           role="combobox"
           aria-label="Search models"
-          aria-description={
-            onVisibility
-              ? 'Shift+F10 stars or unstars the highlighted model.'
-              : undefined
-          }
+          aria-description={description}
           aria-expanded
           aria-controls={`${id}-listbox`}
           aria-autocomplete="list"
@@ -430,6 +581,7 @@ export default function ModelList({
           onChange={(event) => {
             setQuery(event.target.value);
             setActive(null);
+            setOpened(new Set());
           }}
           onKeyDown={keyDown}
         />
