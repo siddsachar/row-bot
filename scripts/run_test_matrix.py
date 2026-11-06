@@ -264,6 +264,12 @@ COMMANDS: dict[str, CommandSpec] = {
         "install-count-worker", "node", "services/install-count/node_modules/vitest/vitest.mjs", "run",
         "--root", "services/install-count", env={"WRANGLER_SEND_METRICS": "false"},
     ),
+    # The relay for row-bot.ai/railway/ (services/railway-relay): its Worker in workerd, with Railway's API
+    # mocked. Install it first (npm ci --ignore-scripts --prefix services/railway-relay).
+    "railway-relay-worker": _cmd(
+        "railway-relay-worker", "node", "services/railway-relay/node_modules/vitest/vitest.mjs", "run",
+        "--root", "services/railway-relay", env={"WRANGLER_SEND_METRICS": "false"},
+    ),
     "browser-smoke": _browser_smoke(BROWSER_SMOKE_SPECS),
     "browser-nightly-desktop": _browser("browser-nightly-desktop", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
     "browser-nightly-unified": _browser("browser-nightly-unified", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
@@ -317,6 +323,7 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "installer-contracts": ("installer-contracts",),
     "docs": ("docs",),
     "install-count": ("install-count-worker",),
+    "railway-relay": ("railway-relay-worker",),
 }
 
 
@@ -390,6 +397,8 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
         commands.append(COMMANDS["dependency-requirements"])
     if any(path.replace("\\", "/").startswith("services/install-count/") for path in changed_files):
         commands.append(COMMANDS["install-count-worker"])
+    if any(path.replace("\\", "/").startswith("services/railway-relay/") for path in changed_files):
+        commands.append(COMMANDS["railway-relay-worker"])
     if paths := changed_test_paths(changed_files):
         commands.append(_pytest("changed-tests", *paths))
     return commands

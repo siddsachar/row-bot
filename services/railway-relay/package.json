@@ -1,0 +1,19 @@
+{
+  "name": "row-bot-railway-relay",
+  "private": true,
+  "description": "The relay for row-bot.ai/railway/: passes that page's own Railway API calls on, keeping nothing.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "npm": ">=11 <12"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.3.7",
+    "vitest": "4.1.12",
+    "wrangler": "4.148.0"
+  }
+}

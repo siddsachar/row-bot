@@ -259,11 +259,37 @@ jobs:
       - name: Worker tests (workerd with a local D1)
         run: python scripts/run_test_matrix.py install-count
 
+  railway-relay:
+    name: Railway relay
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.15.0"
+          package-manager-cache: false
+
+      - name: Install the relay's locked test tools
+        working-directory: services/railway-relay
+        env:
+          npm_config_audit: "false"
+          npm_config_fund: "false"
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Worker tests (workerd, Railway's API mocked)
+        run: python scripts/run_test_matrix.py railway-relay
+
   ci-ok:
     name: ci-ok
     if: always()
     # Browser smoke is not required yet; it joins once it has been green for a week.
-    needs: [quality, client, python, platform, install-count]
+    needs: [quality, client, python, platform, install-count, railway-relay]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
