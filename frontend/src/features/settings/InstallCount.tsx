@@ -228,7 +228,8 @@ export function Privacy({ io }: { io: PrivacyIo }) {
             </li>
             <li>
               <strong>Catalogs</strong> model lists (with OpenRouter’s public
-              list) and Apps & Skills, when you connect, refresh or update ·{' '}
+              list and models.dev’s, at most hourly) and Apps & Skills, when you
+              connect, refresh or update ·{' '}
               <Link to="/settings/apps?view=advanced#catalogs">
                 Apps › Advanced
               </Link>

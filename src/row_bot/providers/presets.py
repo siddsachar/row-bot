@@ -134,8 +134,12 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
 
     A list that describes capabilities (Mistral's capabilities, Vercel's tags, Hugging
     Face's per-provider flags, a supports_tools field) is believed, including what it
-    leaves out. A bare row says nothing, and the provider's chat models take tools.
+    leaves out. Where a row says nothing, models.dev's catalogue fills in what it knows
+    about the model; otherwise the provider's chat models take tools.
     """
+    from row_bot.providers.capability_catalog import lookup
+
+    known = lookup(preset.id, str(row.get("id") or ""))
     metadata: dict[str, Any] = {}
     capabilities = row.get("capabilities") if isinstance(row.get("capabilities"), dict) else None
     tags = {str(tag).lower() for tag in row["tags"]} if isinstance(row.get("tags"), list) else None
@@ -148,11 +152,14 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
         metadata["tool_calling"] = "tool-use" in tags
     elif routes is not None:
         metadata["tool_calling"] = any(item.get("supports_tools") is True for item in routes)
+    elif known:
+        metadata["tool_calling"] = known.tool_calling
     vision = (
         row.get("supports_image_input") is True
         or row.get("supports_image_in") is True
         or (capabilities is not None and capabilities.get("vision") is True)
         or (tags is not None and "vision" in tags)
+        or (capabilities is None and tags is None and known is not None and known.vision)
     )
     if vision:
         metadata["vision"] = True
@@ -161,7 +168,7 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
     ) if _positive(row.get(key))), 0)
     if not context and routes:
         context = max((_positive(item.get("context_length")) for item in routes), default=0)
-    metadata["context_window"] = context or preset.context_window
+    metadata["context_window"] = context or (known.context_window if known else 0) or preset.context_window
     return metadata
 
 
