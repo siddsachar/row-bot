@@ -81,9 +81,7 @@ def test_dynamic_provider_image_model_appears_in_image_options(monkeypatch):
 
     options = get_available_image_models()
 
-    assert "openai/gpt-image-2" in options
-    assert "GPT Image 2" in options["openai/gpt-image-2"]
-    assert options["openai/gpt-image-2"] == "⬡  GPT Image 2  (OpenAI)"
+    assert options == {"openai/gpt-image-2": "⬡  GPT Image 2  (OpenAI)"}
 
 
 def test_dynamic_provider_video_model_appears_in_video_options(monkeypatch):
@@ -134,22 +132,25 @@ def test_xai_imagine_catalog_entry_appears_in_image_options(monkeypatch):
 
     options = get_available_image_models()
 
-    assert "xai/grok-imagine-image" in options
-    assert "xai/grok-imagine-image-quality" in options
-    assert "Grok Imagine Quality" in options["xai/grok-imagine-image-quality"]
-    assert options["xai/grok-imagine-image"] == "𝕏  Grok Imagine  (xAI)"
+    # Only what xAI's list has: the quality model isn't offered until xAI lists it.
+    assert options == {"xai/grok-imagine-image": "𝕏  Grok Imagine  (xAI)"}
 
 
 def test_xai_oauth_media_options_require_oauth_runtime(monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.xai_oauth as xai_oauth
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
     from row_bot.tools.image_gen_tool import get_available_image_models
     from row_bot.tools.video_gen_tool import get_available_video_models
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "")
     monkeypatch.setattr(xai_oauth, "xai_oauth_runtime_available", lambda *, refresh_if_needed=False: False)
     models._cloud_model_cache.clear()
+    for model_id, label in (("grok-imagine-image", "Grok Imagine"), ("grok-imagine-image-quality", "Grok Imagine Quality"),
+                            ("grok-imagine-video", "Grok Imagine Video")):
+        info = model_info_from_metadata("xai_oauth", model_id, display_name=label)
+        models._cloud_model_cache[info.selection_ref] = model_info_to_cache_entry(info)
 
     assert "xai_oauth/grok-imagine-image" not in get_available_image_models()
     assert "xai_oauth/grok-imagine-video" not in get_available_video_models()
@@ -172,11 +173,14 @@ def test_xai_api_key_media_options_stay_separate_from_oauth(monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.xai_oauth as xai_oauth
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
     from row_bot.tools.image_gen_tool import get_available_image_models
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "xai-api-key" if key == "XAI_API_KEY" else "")
     monkeypatch.setattr(xai_oauth, "xai_oauth_runtime_available", lambda *, refresh_if_needed=False: False)
     models._cloud_model_cache.clear()
+    models._cloud_model_cache["grok-imagine-image"] = model_info_to_cache_entry(
+        model_info_from_metadata("xai", "grok-imagine-image", display_name="Grok Imagine"))
 
     options = get_available_image_models()
 

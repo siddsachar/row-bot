@@ -32,7 +32,7 @@ def test_captured_provider_auth_return_reaches_worker_and_later_account_change_b
     prepare(service, monkeypatch)
     supplied = []
     def start(**kwargs):
-        auth = kwargs["validate_provider"]("image", "openai/gpt-image-1.5")
+        auth = kwargs["validate_provider"]("image", "openai/gpt-image-2")
         assert isinstance(auth, CapturedMediaAuth)
         supplied.append(auth)
         policy_env.keys["openai"] = "synthetic-replaced-secret"
@@ -57,7 +57,7 @@ def test_worker_provider_callback_rechecks_real_session_after_start_was_admitted
     security = ClientSecurity(instance_id=service.instance_id)
     callbacks = []
     def start(**kwargs):
-        callbacks.append(kwargs["validate_provider"]("image", "openai/gpt-image-1.5"))
+        callbacks.append(kwargs["validate_provider"]("image", "openai/gpt-image-2"))
         security._sessions.clear()
         kwargs["validate_provider"]("motion", "google/veo-3.1-generate-preview")
         pytest.fail("Revoked session must not reach next provider effect")

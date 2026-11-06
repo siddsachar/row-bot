@@ -42,8 +42,8 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
     registry = sys.modules.get("row_bot.tools.registry")
     if registry is None:
         raise ClientPlatformError("buddy_tool_unavailable")
-    from row_bot.providers.media import curated_media_cache_entries
     from row_bot.providers.capabilities import snapshot_supports_surface
+    from row_bot.providers.selection import parse_model_ref
     from row_bot.tools.profile_policy import dispatch_refusal
 
     parent, operation = (
@@ -121,18 +121,23 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
         allowlist=tuple(allowlist) if allowlist is not None else None,
     ):
         raise ClientPlatformError("buddy_tool_policy_denied")
-    entries = curated_media_cache_entries(surface)
-    entry = entries.get(selection)
+    # The provider's own model list says what the chosen model can make.
+    entry = None
     models = sys.modules.get("row_bot.models")
     cached = getattr(models, "_cloud_model_cache", {}) if models is not None else {}
-    if isinstance(cached, dict):
-        candidate = cached.get(selection, cached.get(model))
-        if isinstance(candidate, dict) and candidate.get("provider") == provider:
-            snapshot = candidate.get("capabilities_snapshot")
-            if isinstance(snapshot, dict) and snapshot_supports_surface(
-                snapshot, surface
-            ):
-                entry = {"provider": provider, "capabilities_snapshot": snapshot}
+    for key, candidate in cached.items() if isinstance(cached, dict) else ():
+        # Lists key their rows by bare ID or by model:<provider>:<id>.
+        parsed = parse_model_ref(str(key))
+        if (
+            not isinstance(candidate, dict)
+            or candidate.get("provider") != provider
+            or (parsed[1] if parsed else str(key)) != model
+        ):
+            continue
+        snapshot = candidate.get("capabilities_snapshot")
+        if isinstance(snapshot, dict) and snapshot_supports_surface(snapshot, surface):
+            entry = {"provider": provider, "capabilities_snapshot": snapshot}
+            break
     if entry is None:
         raise ClientPlatformError("buddy_media_capability_unavailable")
     policy = context.get("data_policy")

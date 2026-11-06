@@ -2606,7 +2606,7 @@ def _fetch_xai_models(api_key: str) -> int:
 
     pages: list[list] = []
     errors: list[str] = []
-    for path in ("/models", "/language-models", "/image-generation-models"):
+    for path in ("/models", "/language-models", "/image-generation-models", "/video-generation-models"):
         try:
             resp = httpx.get(
                 f"{XAI_BASE_URL}{path}",
@@ -2619,6 +2619,10 @@ def _fetch_xai_models(api_key: str) -> int:
             body = resp.json()
             entries = body.get("data") or body.get("models")
             if isinstance(entries, list):
+                if path == "/video-generation-models":
+                    # Every row of this list is a video model, whatever its name.
+                    entries = [{**item, "output_modalities": ["video"]} if isinstance(item, dict) else item
+                               for item in entries]
                 pages.append(entries)
         except Exception as exc:
             errors.append(f"{path}: {exc}")

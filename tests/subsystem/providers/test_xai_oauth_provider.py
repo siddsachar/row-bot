@@ -690,6 +690,13 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
                     {"quality": "medium", "resolution": "2k", "price_per_image": 8},
                 ],
             }]})
+        if url.endswith("/video-generation-models"):
+            # A video model named without "video", priced by quality and resolution like an image model.
+            return _XAIResponse({"models": [{
+                "id": "future-motion",
+                "display_name": "Future Motion",
+                "pricing": [{"quality": "standard", "resolution": "720p", "price_per_second": 5}],
+            }]})
         raise AssertionError(url)
 
     monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(get=_get))
@@ -709,9 +716,11 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
         "https://api.x.ai/v1/models",
         "https://api.x.ai/v1/language-models",
         "https://api.x.ai/v1/image-generation-models",
+        "https://api.x.ai/v1/video-generation-models",
     ]
-    assert count == 5
-    assert {"grok-4.3", "grok-imagine-image-quality", "grok-imagine-video", "future-renderer", XAI_COMPOSER_MODEL_ID} <= set(cached)
+    assert count == 6
+    assert {"grok-4.3", "grok-imagine-image-quality", "grok-imagine-video", "future-renderer", "future-motion",
+            XAI_COMPOSER_MODEL_ID} <= set(cached)
     assert cached["grok-4.3"]["vision"] is True
     assert cached[XAI_COMPOSER_MODEL_ID]["provider"] == "xai"
     assert cached[XAI_COMPOSER_MODEL_ID]["transport"] == "openai_chat"
@@ -719,6 +728,8 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
     assert cached["grok-imagine-image-quality"]["capabilities_snapshot"]["tasks"] == ["image_generation"]
     assert cached["grok-imagine-image-quality"]["capabilities_snapshot"]["output_modalities"] == ["image"]
     assert cached["grok-imagine-video"]["capabilities_snapshot"]["tasks"] == ["video_generation"]
+    assert cached["future-motion"]["capabilities_snapshot"]["tasks"] == ["video_generation"]
+    assert cached["future-motion"]["capabilities_snapshot"]["output_modalities"] == ["video"]
     assert cached["future-renderer"]["capabilities_snapshot"]["generation_parameters"]["valid_combinations"][-1] == {
         "quality": "medium",
         "resolution": "2k",
