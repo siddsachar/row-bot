@@ -2793,6 +2793,46 @@ def _requesty_image_model_infos(api_key: str, verified_at: str, seen: set[str]) 
     return infos
 
 
+def _dashscope_media_model_infos(api_key: str, verified_at: str, seen: set[str]) -> list:
+    """Qwen's (Alibaba Cloud's) image and video models, from its own model list; none when that list fails."""
+    import httpx
+    from dataclasses import replace
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    rows: list = []
+    try:
+        for page in range(1, 11):
+            resp = httpx.get(
+                f"{IMAGE_PROVIDER_META['dashscope']['base_url']}/models",
+                params={"capabilities": ["IG", "VG"], "page_no": page, "page_size": 100},
+                headers={"Authorization": f"Bearer {api_key}"}, timeout=15,
+            )
+            resp.raise_for_status()
+            output = resp.json().get("output") or {}
+            batch = output.get("models") if isinstance(output.get("models"), list) else []
+            rows.extend(batch)
+            if not batch or len(rows) >= int(output.get("total") or 0):
+                break
+    except Exception as exc:
+        logger.warning("Failed to fetch Qwen (Alibaba Cloud) image and video models: %s", exc)
+        return []
+    infos = []
+    for row in rows:
+        model_id = str(row.get("model") or "").strip() if isinstance(row, dict) else ""
+        modality = (row.get("inference_metadata") or {}).get("response_modality") if model_id else None
+        outputs = {str(item).lower() for item in modality} if isinstance(modality, list) else set()
+        kind = "video" if "video" in outputs else "image" if outputs == {"image"} else ""
+        if not kind or model_id in seen:
+            continue
+        seen.add(model_id)
+        info = model_info_from_metadata("dashscope", model_id, {"output_modalities": [kind]},
+                                        display_name=str(row.get("name") or model_id), context_window=0,
+                                        source="dashscope_media_list")
+        infos.append(replace(info, last_verified_at=verified_at))
+    return infos
+
+
 def _fetch_preset_models(provider_id: str, api_key: str) -> int:
     """Fetch one table provider's models from its OpenAI-compatible ``/models``."""
     import httpx
@@ -2807,7 +2847,11 @@ def _fetch_preset_models(provider_id: str, api_key: str) -> int:
     except Exception as exc:
         logger.warning("Failed to fetch %s models: %s; keeping the saved list", preset.name, exc)
         return 0
-    model_infos = model_infos_from_catalog(preset, payload, verified_at=_utc_now_iso())
+    verified_at = _utc_now_iso()
+    model_infos = model_infos_from_catalog(preset, payload, verified_at=verified_at)
+    if model_infos and provider_id == "dashscope":
+        # Its compatible list has the chat models; its own list says which models draw or film.
+        model_infos.extend(_dashscope_media_model_infos(api_key, verified_at, {info.model_id for info in model_infos}))
     if not model_infos:
         logger.warning("%s listed no chat models; keeping the saved list", preset.name)
         return 0
@@ -2815,6 +2859,34 @@ def _fetch_preset_models(provider_id: str, api_key: str) -> int:
     count = _replace_provider_cloud_cache_entries(provider_id, entries)
     logger.info("Fetched %d %s models", count, preset.name)
     return count
+
+
+def _atlascloud_media_model_infos(api_key: str, verified_at: str, seen: set[str]) -> list:
+    """Atlas Cloud's image and video models, from its own model list; none when that list fails."""
+    import httpx
+    from row_bot.providers.atlascloud import atlascloud_media_model_info
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    try:
+        resp = httpx.get(f"{IMAGE_PROVIDER_META['atlascloud']['base_url']}/models",
+                         headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
+        resp.raise_for_status()
+        rows = resp.json().get("data")
+    except Exception as exc:
+        logger.warning("Failed to fetch Atlas Cloud image and video models: %s", exc)
+        return []
+    infos = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or row.get("display_console") is False:
+            continue
+        model_id = str(row.get("model") or "").strip()
+        kind = str(row.get("type") or "").lower()
+        if not model_id or kind not in {"image", "video"} or model_id in seen:
+            continue
+        seen.add(model_id)
+        infos.append(atlascloud_media_model_info(model_id, kind, display_name=str(row.get("displayName") or model_id),
+                                                 last_verified_at=verified_at))
+    return infos
 
 
 def _fetch_atlascloud_models(api_key: str) -> int:
@@ -2891,6 +2963,9 @@ def _fetch_atlascloud_models(api_key: str) -> int:
             source = "fallback"
     if not model_infos:
         return 0
+
+    if source == "live":
+        model_infos.extend(_atlascloud_media_model_infos(api_key, verified_at, {info.model_id for info in model_infos}))
 
     if source == "fallback" and existing_atlas_rows:
         logger.warning("Atlas Cloud fallback skipped because previous Atlas cache exists")
