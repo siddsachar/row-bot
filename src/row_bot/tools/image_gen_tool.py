@@ -1,4 +1,4 @@
-"""Image generation tool — generate and edit images via OpenAI / Google.
+"""Image generation tool — generate and edit images with any provider in providers/media.py.
 
 The agent calls ``generate_image`` to create images from text prompts, or
 ``edit_image`` to modify an existing image (pasted, last generated, or from
@@ -37,13 +37,6 @@ from row_bot.tools import registry
 
 logger = logging.getLogger(__name__)
 
-# Provider definitions — only providers with an images API
-_PROVIDERS = {
-    "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡"},
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
-}
-
 # No preset: image generation stays off and unset until the person chooses a
 # model in Settings › Models (decision 9).
 NO_IMAGE_MODEL = (
@@ -73,6 +66,9 @@ _QUALITY_TO_RESOLUTION: dict[str, str | None] = {
     "high": "2K",
     "auto": None,   # let model default
 }
+
+# OpenRouter and Together answer within this many seconds, or the request fails.
+_DIRECT_TIMEOUT = 180
 
 # Imagen aspect ratios (subset supported by the API)
 _IMAGEN_ASPECT_RATIOS = {"1:1", "3:4", "4:3", "9:16", "16:9"}
@@ -233,46 +229,131 @@ def get_available_image_models() -> dict[str, str]:
 def _get_client() -> tuple:
     """Return (client, provider_label, provider_id) based on the user's model selection.
 
-    For OpenAI: returns an ``openai.OpenAI`` client.
-    For Google: returns a ``google.genai.Client``.
+    Google gets a ``google.genai.Client``; a provider on the OpenAI images route
+    gets an ``openai.OpenAI`` client at its base URL. xAI, OpenRouter and Together
+    are called directly, so their client is ``None``.
     """
     from row_bot.api_keys import get_key
+    from row_bot.providers.media import IMAGE_PROVIDER_META
 
     provider, _ = _parse_model_config(_get_configured_selection())
     from row_bot.providers.media_auth import current_media_auth, google_client, openai_client
     captured = current_media_auth(provider)
     if captured is not None and provider in {"openai", "google"}:
-        return (google_client() if provider == "google" else openai_client()), _PROVIDERS[provider]["label"], provider
+        return (google_client() if provider == "google" else openai_client()), IMAGE_PROVIDER_META[provider]["label"], provider
     if provider in {"xai", "xai_oauth"}:
         from row_bot.providers.xai_media import xai_media_auth_context
 
         ctx = xai_media_auth_context(provider)
         return None, ctx.label, provider
 
-    prov_info = _PROVIDERS.get(provider)
-    if not prov_info:
+    meta = IMAGE_PROVIDER_META.get(provider)
+    if not meta:
         raise RuntimeError(
             f"Unknown image generation provider '{provider}'. "
             "Please select a valid model in Settings → Models."
         )
 
-    api_key = get_key(prov_info["key"])
+    api_key = get_key(meta["key"])
     if not api_key:
         raise RuntimeError(
-            f"No API key for {prov_info['label']}. "
-            f"Please add your {prov_info['label']} API key in Settings → Providers."
+            f"No API key for {meta['label']}. "
+            f"Please add your {meta['label']} API key in Settings → Models."
         )
 
     if provider == "google":
         from google import genai
-        return genai.Client(api_key=api_key), prov_info["label"], provider
-
-    if provider == "xai":
-        import openai
-        return openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1"), prov_info["label"], provider
+        return genai.Client(api_key=api_key), meta["label"], provider
+    if meta["route"] != "openai":
+        return None, meta["label"], provider
 
     import openai
-    return openai.OpenAI(api_key=api_key), prov_info["label"], provider
+    if provider == "openai":
+        return openai.OpenAI(api_key=api_key), meta["label"], provider
+    return openai.OpenAI(api_key=api_key, base_url=meta["base_url"]), meta["label"], provider
+
+
+def _route(provider_id: str) -> str:
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    return IMAGE_PROVIDER_META[provider_id]["route"]
+
+
+def _post_json(provider_id: str, path: str, body: dict) -> dict:
+    """POST to an image provider's own API with its key, raising its error message."""
+    import httpx
+
+    from row_bot.api_keys import get_key
+    from row_bot.providers.media import IMAGE_PROVIDER_META, media_error_text
+
+    meta = IMAGE_PROVIDER_META[provider_id]
+    _validate_generation()
+    response = httpx.post(
+        f"{meta['base_url']}{path}", json=body, timeout=_DIRECT_TIMEOUT,
+        headers={"Authorization": f"Bearer {get_key(meta['key'])}"},
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {media_error_text(response)}")
+    return response.json()
+
+
+def _image_b64(item: dict) -> str:
+    """The image in one response item: its base64, or the bytes behind its URL."""
+    if item.get("b64_json"):
+        return str(item["b64_json"])
+    if item.get("url"):
+        import httpx
+
+        _validate_generation()
+        response = httpx.get(str(item["url"]), timeout=_DIRECT_TIMEOUT, follow_redirects=True)
+        response.raise_for_status()
+        return base64.b64encode(response.content).decode("ascii")
+    return ""
+
+
+def _finish_image(b64_str: str, *, prefix: str, done: str) -> str:
+    """Show and keep a generated or edited image, and say where it was saved."""
+    _set_pending_image(b64_str)
+    _execution_image_cache()["__last_generated__"] = base64.b64decode(b64_str)
+    saved = _save_image_to_disk(b64_str, prefix)
+    return done + (f"\nSaved to: {saved}" if saved else "")
+
+
+def _direct_image(provider_id: str, label: str, model: str, prompt: str, size: str,
+                  quality: str, image_bytes: bytes | None = None) -> str:
+    """Generate (or, with image_bytes, edit) on OpenRouter or Together, which have their own APIs."""
+    verb, prefix = ("edit", "edit") if image_bytes is not None else ("generation", "gen")
+    body: dict = {"model": model, "prompt": prompt, "n": 1}
+    if _route(provider_id) == "openrouter":
+        path = "/images"
+        if size != "auto":
+            body["aspect_ratio"] = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1")
+        if quality != "auto":
+            body["quality"] = quality
+        if image_bytes is not None:
+            data_url = f"data:{_detect_mime(image_bytes)};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+            body["input_references"] = [{"type": "image_url", "image_url": {"url": data_url}}]
+    else:  # together
+        if image_bytes is not None:
+            return (f"{label} image models can only make new images here. "
+                    "Choose another image model in Settings › Models to edit one.")
+        path = "/images/generations"
+        body["response_format"] = "base64"
+        if size != "auto":
+            width, _, height = size.partition("x")
+            body["width"], body["height"] = int(width), int(height)
+    try:
+        data = _post_json(provider_id, path, body)
+        items = data.get("data") if isinstance(data.get("data"), list) else []
+        b64_str = _image_b64(items[0]) if items and isinstance(items[0], dict) else ""
+    except Exception as e:
+        logger.error("Image %s failed: %s", verb, e, exc_info=True)
+        return f"Image {verb} failed: {e}{_unlisted_note()}"
+    if not b64_str:
+        return f"Image {verb} returned no image data."
+    past = "edited" if image_bytes is not None else "generated"
+    return _finish_image(b64_str, prefix=prefix,
+                         done=f"Image {past} successfully. Model: {model} | Provider: {label}")
 
 
 def _get_configured_selection() -> str:
@@ -294,6 +375,7 @@ def _get_configured_selection() -> str:
 def _is_imagen(model: str) -> bool:
     """Imagen models take the generate_images API; Gemini image models take generate_content."""
     return model.startswith("imagen-")
+
 
 def _unlisted_note() -> str:
     """Why a request may have failed: the chosen model's provider no longer lists it."""
@@ -635,13 +717,13 @@ def _generate_image(
             result += f"\n{plan.note}"
         return result
 
-    # ── OpenAI provider ──────────────────────────────────────────────────
-    kwargs: dict = {
-        "model": model,
-        "prompt": prompt,
-        "n": 1,
-        "size": size if size != "auto" else "1024x1024",
-    }
+    if _route(provider_id) in {"openrouter", "together"}:
+        return _direct_image(provider_id, provider_label, model, prompt, size, quality)
+
+    # ── OpenAI images route (OpenAI, Vercel AI Gateway, Requesty) ──────────
+    kwargs: dict = {"model": model, "prompt": prompt, "n": 1}
+    if size != "auto" or provider_id == "openai":
+        kwargs["size"] = size if size != "auto" else "1024x1024"
     if quality != "auto":
         kwargs["quality"] = quality
 
@@ -677,7 +759,7 @@ def _generate_image(
 
     saved = _save_image_to_disk(b64_str, "gen")
     revised_prompt = getattr(image_data, "revised_prompt", None)
-    result = f"Image generated successfully. Model: {model} | Size: {kwargs['size']} | Provider: {provider_label}"
+    result = f"Image generated successfully. Model: {model} | Size: {kwargs.get('size', 'auto')} | Provider: {provider_label}"
     if saved:
         result += f"\nSaved to: {saved}"
     if revised_prompt:
@@ -831,17 +913,16 @@ def _edit_image(
             result += f"\n{plan.note}"
         return result
 
-    # ── OpenAI provider ──────────────────────────────────────────────────
+    if _route(provider_id) in {"openrouter", "together"}:
+        return _direct_image(provider_id, provider_label, model, prompt, size, quality, image_bytes)
+
+    # ── OpenAI images route (OpenAI, Vercel AI Gateway, Requesty) ──────────
     mime = _detect_mime(image_bytes)
     image_file = ("image.png", image_bytes, mime)
 
-    kwargs: dict = {
-        "model": model,
-        "prompt": prompt,
-        "image": [image_file],
-        "n": 1,
-        "size": size if size != "auto" else "1024x1024",
-    }
+    kwargs: dict = {"model": model, "prompt": prompt, "image": [image_file], "n": 1}
+    if size != "auto" or provider_id == "openai":
+        kwargs["size"] = size if size != "auto" else "1024x1024"
 
     try:
         response = client.images.edit(**kwargs)
@@ -866,7 +947,7 @@ def _edit_image(
 
     saved = _save_image_to_disk(b64_str, "edit")
     revised_prompt = getattr(image_data, "revised_prompt", None)
-    result = f"Image edited successfully. Model: {model} | Size: {kwargs['size']} | Provider: {provider_label}"
+    result = f"Image edited successfully. Model: {model} | Size: {kwargs.get('size', 'auto')} | Provider: {provider_label}"
     if saved:
         result += f"\nSaved to: {saved}"
     if revised_prompt:
