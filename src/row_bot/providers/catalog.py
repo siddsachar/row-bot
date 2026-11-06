@@ -5,6 +5,7 @@ from typing import Any
 
 from row_bot.providers.capabilities import endpoint_values
 from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderDefinition, TransportMode
+from row_bot.providers.presets import PRESETS, preset_definition
 
 PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
     "ollama": ProviderDefinition(
@@ -138,6 +139,7 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         base_url="https://api.minimax.io/anthropic",
         icon="M",
     ),
+    **{preset.id: preset_definition(preset) for preset in PRESETS.values()},
 }
 
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
@@ -230,6 +232,7 @@ PROVIDER_BILLING: dict[str, str] = {
     "atlascloud": "pay_per_use",
     "ollama_cloud": "pay_per_use",
     "opencode_zen": "pay_per_use",
+    **{preset.id: preset.billing for preset in PRESETS.values()},
 }
 
 

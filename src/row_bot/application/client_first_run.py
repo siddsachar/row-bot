@@ -287,7 +287,10 @@ def _validate_openai_key(api_key: str) -> bool:
 
 
 def _key_validators() -> dict[str, Callable[[str], bool]]:
+    from functools import partial
+
     from row_bot import models
+    from row_bot.providers.presets import PRESETS, validate_preset_key
 
     return {
         "openai": _validate_openai_key,
@@ -298,6 +301,7 @@ def _key_validators() -> dict[str, Callable[[str], bool]]:
         "xai": models.validate_xai_key,
         "minimax": models.validate_minimax_key,
         "atlascloud": models.validate_atlascloud_key,
+        **{provider_id: partial(validate_preset_key, provider_id) for provider_id in PRESETS},
     }
 
 

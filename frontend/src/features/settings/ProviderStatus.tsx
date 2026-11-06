@@ -7,6 +7,7 @@ import {
   Network,
   Plus,
   RefreshCw,
+  Search,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
@@ -21,6 +22,7 @@ import {
   Disclosure,
   ErrorState,
   IconButton,
+  Input,
   Skeleton,
   StatusDot,
   Tabs,
@@ -260,6 +262,7 @@ export default function ProviderStatus({
   const [open, setOpen] = useState(openProvider);
   const [adding, setAdding] = useState(false);
   const [tab, setTab] = useState('');
+  const [find, setFind] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState('');
   const [testing, setTesting] = useState('');
@@ -351,6 +354,10 @@ export default function ProviderStatus({
   const tiles = cards.filter(isTile);
   const waiting = (id: string) =>
     cards.filter((card) => card.group === id && !isTile(card));
+  const found = (id: string) =>
+    waiting(id).filter((card) =>
+      card.display_name.toLowerCase().includes(find.trim().toLowerCase()),
+    );
   const tabs = galleryTabs.filter((item) =>
     item.id === 'server' ? !!onAddServer : waiting(item.id).length > 0,
   );
@@ -607,9 +614,23 @@ export default function ProviderStatus({
           ariaLabel="Add a provider"
           className="settings-provider-gallery"
           onOpenChange={(value) => {
-            if (!value) setAdding(false);
+            if (!value) {
+              setAdding(false);
+              setFind('');
+            }
           }}
         >
+          <label className="settings-inline-search">
+            <span className="visually-hidden">Find a provider</span>
+            <Search size={14} aria-hidden />
+            <Input
+              type="search"
+              maxLength={80}
+              placeholder="Find a provider"
+              value={find}
+              onChange={(event) => setFind(event.target.value)}
+            />
+          </label>
           <Tabs
             label="Kinds of provider"
             value={galleryTab}
@@ -640,15 +661,20 @@ export default function ProviderStatus({
                       </button>
                     </li>
                   </ul>
+                ) : !found(item.id).length ? (
+                  <p className="settings-provider-empty">
+                    No provider here matches “{find.trim()}”.
+                  </p>
                 ) : (
                   <ul className="settings-provider-options">
-                    {waiting(item.id).map((card) => (
+                    {found(item.id).map((card) => (
                       <li key={card.provider_id}>
                         <button
                           type="button"
                           className="settings-provider-option"
                           onClick={() => {
                             setAdding(false);
+                            setFind('');
                             setOpen(card.provider_id);
                           }}
                         >
