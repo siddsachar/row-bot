@@ -4,7 +4,7 @@
 
 Please do not open a public GitHub issue for security problems.
 
-Email reports to: siddsachar@gmail.com
+Email reports to: syd@row-bot.ai
 
 Include as much detail as you can safely share:
 
