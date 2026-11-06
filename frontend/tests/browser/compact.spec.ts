@@ -186,7 +186,7 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       .getByRole('link', { name: 'Settings', exact: true })
       .click();
   }
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page
     .getByRole('combobox', { name: 'Settings section', exact: true })
     .selectOption('appearance');
@@ -264,7 +264,7 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await assertCompactSurface(page, testInfo, 'compact-preferences');
   await captureSurface(page, testInfo, 'compact-theme-preferences');
   await page.goBack();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');

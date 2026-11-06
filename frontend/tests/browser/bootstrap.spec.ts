@@ -46,7 +46,7 @@ for (const appearance of ['light', 'dark'] as const) {
         .click();
     const settings = page.getByRole('link', { name: 'Settings', exact: true });
     await expect(settings).toBeVisible();
-    await expect(settings).toHaveAttribute('href', /\/settings\/providers$/);
+    await expect(settings).toHaveAttribute('href', /\/settings\/models$/);
     if (compact) {
       await page.keyboard.press('Escape');
       await expect(drawer).toHaveCount(0);
