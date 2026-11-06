@@ -1,4 +1,5 @@
-"""DAgger's relabelling (§4, ``dagger-1000``): the teacher's action at the student's own prefix.
+"""DAgger's relabelling (§4, ``dagger-1000``: two rounds of 500 training targets, one a row, SA1): the teacher's
+action at the student's own prefix.
 
 The student (round 1: ``start``; round 2: the round-1 model) runs training-block requests through the real runtime
 and acts on its own actions. Each of its model calls is captured as Row-Bot sent it; the teacher is asked, at that
@@ -11,7 +12,7 @@ to a tool only the bridge reaches), and its file paths are kept relative to the 
 Asking after the turn instead of during it changes nothing: the teacher's answer never steers the student.
 
 :func:`order` is the round's requests: seeded, stratified by person (``subsets.sequence``), those whose rows are not in
-the 1,000-row subset first.
+the 1,000-target subset first (SA1's longer training block leaves enough of them).
 """
 
 from __future__ import annotations

@@ -1,11 +1,12 @@
-"""The retrieval arm (§4): the untrained model with the 4 most similar steps of the 1,000-row subset in its prompt.
+"""The retrieval arm (§4, SA1): the untrained model with the 4 most similar steps of the 1,000-target subset's rows
+in its prompt.
 
 **Similarity** is the audit vault's own novelty measure (``audit._novel``): word overlap on the request text, each
 word weighted by how rare it is among the known texts (``log((n + 1) / (f + 1))``), shared weight over the union's.
 The vault's tokenizer (``audit._words``, its stop words included) is read from the module itself: the seal guards the
 vault's content, and the tokenizer holds none. :func:`scores` computes the measure ``_novel`` thresholds; a test
 holds the two to the same verdicts. The known texts are the subset's rows, one text each (the request a row's turn
-answered); ties go to the lower row id.
+answered); ties go to the lower row id. The rows are as the subset holds them: its last row trimmed to N.
 
 **A step** is a pool row (one turn of the teacher's work: its tool calls and its answer). Each example says what was
 asked and what the teacher did, cut to :data:`EXAMPLE_CHARS` so all four fit the prompt section they go in.

@@ -29,7 +29,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from tests.e2e.learning.scaling import dagger, retrieval
+from tests.e2e.learning.scaling import dagger, retrieval, subsets
 from tests.e2e.learning.scaling import design as design_module
 from tests.e2e.learning.scaling.design import DAGGER_ROUND_1, Design
 from tests.e2e.learning.scaling.runner import (
@@ -342,11 +342,12 @@ class PoolRun(live.PersonRun):
                          "thread": example.thread_id, "started_at": example.started_at, "provider": example.provider,
                          "tokens": example.tokens if example.tokens is not None else example.estimated_tokens,
                          "measured": example.tokens is not None, "derived": example.derived, "text": request.prompt,
-                         "row": example.row})
+                         "targets": subsets.targets_of(example.row), "row": example.row})
         path = self.run_dir / "rows.jsonl"
         path.unlink(missing_ok=True)
         append_lines(path, rows)
-        self.state.data["rows"] = {"rows": len(rows), "past_rows_left_out": historical, "unmatched": unmatched,
+        self.state.data["rows"] = {"rows": len(rows), "targets": sum(row["targets"] for row in rows),
+                                   "past_rows_left_out": historical, "unmatched": unmatched,
                                    "left_out": dict(compiled.left_out), "measured": compiled.measured,
                                    "rendering": dict(compiled.rendering), "dataset": compiled.id}
         self.save()
@@ -422,7 +423,7 @@ class Trainer:
 
         from row_bot.learning.training import dataset, shape
 
-        train, validation = dataset._split(list(examples), float(recipe.validation_share))  # noqa: SLF001
+        train, validation = split(examples, recipe)
         envelope = shape.envelope_for(int(recipe.serve_context))
         rendering = shape.describe(envelope)
         body = {"compiler": dataset.COMPILER_VERSION, "recipe": recipe.name, "max_seq_length": recipe.max_seq_length,
@@ -451,8 +452,10 @@ class Trainer:
                             recipe=recipe.spec(planner._card_mib()),  # noqa: SLF001 - the planner's own card size
                             dataset={"id": compiled.id, "examples": compiled.examples})
             planner.lease(job, compiled, self.data)
-            entry.update({"job": job.id, "version": job.version, "rows": len(examples), "examples": compiled.examples,
-                          "validation": len(compiled.validation), "dataset": compiled.id, "steps": steps,
+            entry.update({"job": job.id, "version": job.version, "rows": len(examples),
+                          "targets": targets_in(examples), "trained_targets": targets_in(compiled.train),
+                          "examples": compiled.examples, "validation": len(compiled.validation),
+                          "dataset": compiled.id, "steps": steps,
                           "seed": recipe.settings.get("seed"), "recipe": recipe.name, "training_seconds": 0.0})
             self.state.save()
         job = jobs.get(entry["job"])
@@ -519,21 +522,44 @@ class Trainer:
             time.sleep(WATCH_SECONDS)
 
 
-def pool_examples(out: Path, ids: Sequence[str]) -> list[Any]:
-    """The pool rows ``ids`` as the dataset's examples."""
+def split(examples: Sequence[Any], recipe: Any) -> tuple[list[Any], list[Any]]:
+    """The product's own split (the newest conversations validate), the same for every arm (SA1)."""
 
     from row_bot.learning.training import dataset
 
-    rows = {row["id"]: row for path in sorted((out / "pool").glob("*/rows.jsonl")) for row in read_lines(path)}
+    return dataset._split(list(examples), float(recipe.validation_share))  # noqa: SLF001
+
+
+def targets_in(examples: Sequence[Any]) -> int:
+    return sum(subsets.targets_of(item.row) for item in examples)
+
+
+def examples_of(rows: Sequence[Mapping[str, Any]]) -> list[Any]:
+    """Pool rows as the dataset's examples."""
+
+    from row_bot.learning.training import dataset
+
     return [dataset.Example(id=row["id"], conversation_id=row["thread"], thread_id=row["thread"],
                             started_at=float(row["started_at"]), provider=row["provider"], historical=False,
                             row=row["row"], estimated_tokens=int(row["tokens"]),
                             tokens=int(row["tokens"]) if row["measured"] else None, derived=bool(row["derived"]))
-            for row in (rows[item] for item in ids)]
+            for row in rows]
 
 
-def subset_ids(out: Path, n: int) -> list[str]:
-    return list(json.loads((out / "subsets" / f"n{n}.json").read_text(encoding="utf-8"))["ids"])
+def subset_rows(out: Path, n: int) -> list[dict[str, Any]]:
+    """Subset N's pool rows as it holds them: its last row trimmed when its manifest says so (a copy: the pool and
+    every larger subset keep the row whole)."""
+
+    manifest = json.loads((out / "subsets" / f"n{n}.json").read_text(encoding="utf-8"))
+    rows = {row["id"]: row for path in sorted((out / "pool").glob("*/rows.jsonl")) for row in read_lines(path)}
+    trim = manifest.get("trim") or {}
+    found = []
+    for row_id in manifest["ids"]:
+        row = rows[row_id]
+        if row_id == trim.get("id"):
+            row = {**row, "row": subsets.trimmed(row["row"], int(trim["targets"])), "targets": int(trim["targets"])}
+        found.append(row)
+    return found
 
 
 def train_main(args: argparse.Namespace, design: Design, kit: Any) -> int:
@@ -544,7 +570,7 @@ def train_main(args: argparse.Namespace, design: Design, kit: Any) -> int:
     trainer.start_model()
     for arm in ("sft-100", "sft-300", "sft-1000", "sft-1000b", "sft-3000"):
         seed = design.second_seed if arm == "sft-1000b" else None
-        trainer.train(arm, pool_examples(out, subset_ids(out, design.subset_of(arm))), recipe_for(design, seed=seed))
+        trainer.train(arm, examples_of(subset_rows(out, design.subset_of(arm))), recipe_for(design, seed=seed))
     return 0
 
 
@@ -558,12 +584,12 @@ def ask_teacher(messages: Sequence[Any], tools: Sequence[Mapping[str, Any]] | No
 
     from row_bot import models
     from row_bot.learning.calls import CHARS_PER_TOKEN, estimate_tokens, text_of
+    from row_bot.learning.spending import is_local_provider
     from row_bot.providers.reasoning import (
         canonical_reasoning_model_ref,
         request_plan_for,
     )
     from row_bot.providers.resolution import resolve_provider_config
-    from row_bot.learning.spending import is_local_provider
     from row_bot.providers.usage_ledger import with_usage_purpose
 
     resolved = resolve_provider_config(model_ref, allow_legacy_local=True)
@@ -649,7 +675,8 @@ def dagger_examples(rows: Sequence[Mapping[str, Any]], provider: str) -> list[An
 
 
 def dagger_main(args: argparse.Namespace, design: Design, kit: Any) -> int:
-    """Two rounds of ``design.dagger_rows`` rows, the round-1 model trained between them, then ``dagger-1000``."""
+    """Two rounds of ``design.dagger_targets`` rows (one target each), the round-1 model trained between them, then
+    ``dagger-1000``."""
 
     from row_bot.providers.selection import parse_model_ref
 
@@ -665,7 +692,7 @@ def dagger_main(args: argparse.Namespace, design: Design, kit: Any) -> int:
     by_person: dict[str, list[str]] = {}
     for request in requests.values():
         by_person.setdefault(request.person, []).append(request.id)
-    in_subset = {row["request"] for row in pool_rows(out, subset_ids(out, design.sizes[2]))}
+    in_subset = {row["request"] for row in subset_rows(out, design.sizes[2])}
     order = dagger.order(by_person, in_subset, f"{design.subset_seed}/dagger")
     provider = (parse_model_ref(teacher_ref) or ("unknown",))[0]
     runner = StudyRunner(data=data, arms={"student-1": Spec("student-1", start, local=True)}, owners=owned, gpu=gpu,
@@ -685,11 +712,11 @@ def dagger_main(args: argparse.Namespace, design: Design, kit: Any) -> int:
         asked = {item["request"] for item in done if item["round"] == round_number}
         rotated = order[position:] + order[:position]
         for request_id in rotated:
-            if len(kept) >= design.dagger_rows:
+            if len(kept) >= design.dagger_targets:
                 break
             if request_id in asked:
                 continue
-            relabel.wanted, relabel.rows, relabel.counts = design.dagger_rows - len(kept), [], {}
+            relabel.wanted, relabel.rows, relabel.counts = design.dagger_targets - len(kept), [], {}
             run = runner.run_task(requests[request_id].task, arm)
             append_lines(path, relabel.rows)
             kept.extend(relabel.rows)
@@ -703,9 +730,9 @@ def dagger_main(args: argparse.Namespace, design: Design, kit: Any) -> int:
                                                                                   if item["round"] == round_number]),
                                               "student": runner.arms[arm].model_ref}
         state.save()
-        if len(kept) < design.dagger_rows:
+        if len(kept) < design.dagger_targets:
             raise ScratchError(f"DAgger round {round_number}: every training-block request gave {len(kept)} rows, "
-                               f"fewer than {design.dagger_rows}")
+                               f"fewer than {design.dagger_targets}")
     rows = read_lines(out / "dagger" / "round-1.jsonl") + read_lines(out / "dagger" / "round-2.jsonl")
     trainer.train("dagger-1000", dagger_examples(rows, provider), recipe_for(design))
     state.data["overlap_with_1000_subset"] = sum(1 for item in done if item["in_1000_subset"])
@@ -723,11 +750,6 @@ def _round_model(trainer: Trainer, out: Path, design: Design, provider: str) -> 
         raise ScratchError(f"the round-1 model couldn't start ({entry.get('why') or entry.get('failure')}): DAgger's "
                            "second round has no student")
     return str(entry["model_ref"])
-
-
-def pool_rows(out: Path, ids: Sequence[str]) -> list[dict[str, Any]]:
-    wanted = set(ids)
-    return [row for path in sorted((out / "pool").glob("*/rows.jsonl")) for row in read_lines(path) if row["id"] in wanted]
 
 
 # ── evaluate ─────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
-"""The controlled study (``paper/PREREG-SCALING.md`` v1, SC1): how much teacher data a local model needs, DAgger
-against behaviour cloning at equal rows, training against retrieval, and whether replay agreement tracks outcome
-success, on the seeded people's work whose outcomes the product's verifiers check.
+"""The controlled study (``paper/PREREG-SCALING.md`` v1 with amendment SA1, SC1): how much teacher data a local
+model needs, DAgger
+against behaviour cloning at equal training targets, training against retrieval, and whether replay agreement
+tracks outcome success, on the seeded people's work whose outcomes the product's verifiers check.
 
     python -m tests.e2e.learning.scaling.study --plan --out <folder> --scratch <folder>
     python -m tests.e2e.learning.scaling.study --out <folder> --scratch <folder> --eval-profile <folder> \\
@@ -12,10 +13,10 @@ success, on the seeded people's work whose outcomes the product's verifiers chec
 - ``pool``: the teacher (GPT-6.1 Sol on the ChatGPT lane) runs every training-block request of each person through
   the real runtime with the simulated person, recorded by Learning's capture; the product's dataset code builds the
   rows (``worker.PoolRun``).
-- ``subsets``: the nested subsets, stratified by person, drawn once (``subsets.py``).
+- ``subsets``: the nested subsets of N training targets, stratified by person, drawn once (``subsets.py``).
 - ``train``: the starting model served, then the product's training of ``sft-100`` ... ``sft-3000`` and ``sft-1000b``.
 - ``dagger``: two rounds of relabelled rows and ``dagger-1000`` (``dagger.py``).
-- ``retrieval``: the retrieval arm's index of the 1,000-row subset (``retrieval.py``).
+- ``retrieval``: the retrieval arm's index of the 1,000-target subset's rows (``retrieval.py``).
 - ``evaluate``: every arm on every held-out request and the hidden pack tasks, then replay agreement.
 - ``analyse``: §7, only once every arm has finished (``analysis.py``): ``report.json`` and ``report.md``.
 
@@ -216,9 +217,10 @@ class Study:
                               "cloud_tokens": (read_json(self.out / "pool" / person / "result.json").get("tokens")
                                                or {}).get("cloud_total"), "model": state.get("model")}
         rows = sum(int((item["rows"] or {}).get("rows") or 0) for item in people.values())
-        write_json(self.out / "pool" / "summary.json", {"people": people, "rows": rows,
-                                                         "subsets": design_module.subset_sizes(self.design, rows)})
-        self.say(f"pool: {rows:,} rows")
+        targets = sum(int((item["rows"] or {}).get("targets") or 0) for item in people.values())
+        write_json(self.out / "pool" / "summary.json", {"people": people, "rows": rows, "targets": targets,
+                                                         "subsets": design_module.subset_sizes(self.design, targets)})
+        self.say(f"pool: {rows:,} rows, {targets:,} training targets")
 
     def pool_rows(self) -> list[dict[str, Any]]:
         from tests.e2e.learning.scaling.worker import read_lines
@@ -226,7 +228,17 @@ class Study:
         return [row for person in self.design.people for row in read_lines(self.out / "pool" / person / "rows.jsonl")]
 
     def stage_subsets(self) -> None:
+        """Each subset's manifest: its rows, its last row's trim, its targets (N, before the split) and the targets it
+        trains on after the product's validation split (the split every arm goes through)."""
+
         from tests.e2e.learning.scaling import subsets
+        from tests.e2e.learning.scaling.worker import (
+            examples_of,
+            recipe_for,
+            split,
+            subset_rows,
+            targets_in,
+        )
 
         if (self.out / "subsets" / "summary.json").is_file():
             return
@@ -234,18 +246,25 @@ class Study:
         by_person: dict[str, list[str]] = {}
         for row in rows:
             by_person.setdefault(row["person"], []).append(row["id"])
+        targets = {row["id"]: int(row["targets"]) for row in rows}
         try:
-            drawn = subsets.draw(by_person, self.design.sizes, self.design.subset_seed)
+            drawn = subsets.draw(by_person, targets, self.design.sizes, self.design.subset_seed)
         except subsets.SubsetError as error:
             raise Stopped(f"subsets: {error}") from error
         owner = {row["id"]: row["person"] for row in rows}
-        for subset in drawn:
-            write_json(self.out / "subsets" / f"n{subset.n}.json", subset.to_dict(owner))
-        write_json(self.out / "subsets" / "summary.json", {
-            "seed": self.design.subset_seed, "pool": len(rows),
-            "subsets": {arm: {key: value for key, value in subset.to_dict(owner).items() if key != "ids"}
-                        for arm, subset in zip(design_module.SFT, drawn)}})
-        self.say("subsets: " + ", ".join(f"N={item.n}: {len(item.rows)}" for item in drawn))
+        recipe = recipe_for(self.design)
+        summary: dict[str, Any] = {}
+        for arm, subset in zip(design_module.SFT, drawn):
+            path = self.out / "subsets" / f"n{subset.n}.json"
+            write_json(path, subset.to_dict(owner, targets))
+            train, validation = split(examples_of(subset_rows(self.out, subset.n)), recipe)
+            manifest = {**read_json(path), "trained_targets": targets_in(train), "validation_rows": len(validation),
+                        "validation_targets": targets_in(validation)}
+            write_json(path, manifest)
+            summary[arm] = {key: value for key, value in manifest.items() if key != "ids"}
+        write_json(self.out / "subsets" / "summary.json", {"seed": self.design.subset_seed, "pool_rows": len(rows),
+                                                            "pool_targets": sum(targets.values()), "subsets": summary})
+        self.say("subsets: " + ", ".join(f"N={item.n}: {len(item.rows)} rows" for item in drawn))
 
     def stage_train(self) -> None:
         self.child("train", self.study_data)
@@ -255,14 +274,13 @@ class Study:
 
     def stage_retrieval(self) -> None:
         from tests.e2e.learning.scaling import retrieval
+        from tests.e2e.learning.scaling.worker import subset_rows
 
         n = self.design.subset_of("retrieval")
-        wanted = set(read_json(self.out / "subsets" / f"n{n}.json").get("ids") or [])
-        if not wanted:
-            raise Stopped(f"retrieval: the {n}-row subset hasn't been drawn")
+        if not (self.out / "subsets" / f"n{n}.json").is_file():
+            raise Stopped(f"retrieval: the {n}-target subset hasn't been drawn")
         held = [request for person in self.design.people for request in design_module.blocks(self.design, person)[1]]
-        index = retrieval.Index.build([row for row in self.pool_rows() if row["id"] in wanted],
-                                      held_out=[request.id for request in held])
+        index = retrieval.Index.build(subset_rows(self.out, n), held_out=[request.id for request in held])
         folder = self.out / "retrieval"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "index.jsonl").write_text("".join(line + "\n" for line in index.to_lines()), encoding="utf-8",
@@ -271,7 +289,8 @@ class Study:
                                                                                          self.design.retrieval_k)]
                                            for request in held})
         write_json(folder / "summary.json", {
-            "rows": len(index.entries), "subset": n, "k": self.design.retrieval_k,
+            "rows": len(index.entries), "subset": n, "targets": read_json(self.out / "subsets" / f"n{n}.json")["targets"],
+            "k": self.design.retrieval_k,
             "example_chars": retrieval.EXAMPLE_CHARS,
             "into_the_prompt": "runtime: Learning's ways-of-working overlay (one guidance entry per example); "
                                "replay: the arm's guidance"})
@@ -292,13 +311,15 @@ class Study:
         clusters = {item["task"]: item["cluster"] for item in read_lines(self.out / "evaluate" / "runs.jsonl")}
         dagger = read_json(self.out / "dagger" / "state.json")
         report = {
-            "format": FORMAT, "version": 1, "prereg": {"file": design_module.PREREG, "sha256": PREREG_SHA256},
+            "format": FORMAT, "version": 1, "prereg": {"file": design_module.PREREG, "sha256": PREREG_SHA256,
+                                                       "amendments": list(design_module.AMENDMENTS)},
             "build": read_json(self.out / "build.json"), "teacher": read_json(self.out / "teacher.json"),
             "pool": read_json(self.out / "pool" / "summary.json"),
             "subsets": read_json(self.out / "subsets" / "summary.json"),
-            "training": {arm: {key: entry.get(key) for key in ("state", "why", "version", "rows", "examples",
-                                                                "validation", "steps", "seed", "kept_pass", "failure",
-                                                                "loss", "training_seconds", "ready_seconds")}
+            "training": {arm: {key: entry.get(key) for key in ("state", "why", "version", "rows", "targets",
+                                                                "trained_targets", "examples", "validation", "steps",
+                                                                "seed", "kept_pass", "failure", "loss",
+                                                                "training_seconds", "ready_seconds")}
                          for arm, entry in (read_json(self.out / "train" / "state.json").get("arms") or {}).items()},
             "dagger": {"rounds": {key: dagger.get(key) for key in ("round_1", "round_2")},
                        "teacher_tokens": dagger.get("teacher_tokens"),
@@ -317,12 +338,12 @@ class Study:
 
     def arms(self, evaluation: Mapping[str, Any], runs: Sequence[Mapping[str, Any]],
              replay: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
-        """Each arm's results for the analysis: its runs, replay and hidden aggregates, the rows it used, tokens
-        (held-out, replay and hidden) and GPU-hours (training and evaluation)."""
+        """Each arm's results for the analysis: its runs, replay and hidden aggregates, the training targets it used
+        (N, and after the split), tokens (held-out, replay and hidden) and GPU-hours (training and evaluation)."""
 
         trained = read_json(self.out / "train" / "state.json").get("arms") or {}
         hidden = (evaluation.get("hidden") or {}).get("arms") or {}
-        retrieval_rows = read_json(self.out / "retrieval" / "summary.json").get("rows")
+        retrieval_targets = read_json(self.out / "retrieval" / "summary.json").get("targets")
         found: dict[str, dict[str, Any]] = {}
         for arm in ARMS:
             if arm in (evaluation.get("unavailable") or {}):
@@ -337,7 +358,8 @@ class Study:
             found[arm] = {
                 "state": "done", "runs": [item for item in runs if item["arm"] == arm],
                 "replay": [item for item in replay if item["arm"] == arm], "hidden": hidden.get(arm) or {},
-                "n": entry.get("rows") if arm in design_module.TRAINED else retrieval_rows if arm == "retrieval" else None,
+                "n": entry.get("targets") if arm in design_module.TRAINED else
+                retrieval_targets if arm == "retrieval" else None, "trained": entry.get("trained_targets"),
                 "tokens": tokens,
                 "gpu_seconds": float((evaluation.get("gpu_seconds") or {}).get(arm) or 0.0)
                 + float(entry.get("training_seconds") or 0.0) + float(entry.get("ready_seconds") or 0.0)}
@@ -373,7 +395,7 @@ def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gpu-booking", default="", help="the shared GPU booking file")
     parser.add_argument("--lane", default="lane-scaling")
     parser.add_argument("--cap-tokens", type=int, default=250_000_000,
-                        help="the ChatGPT-lane tokens the whole study may spend (§8 expects 150-200M)")
+                        help="the ChatGPT-lane tokens the whole study may spend (§8: 150-200M; SA1: about 180M)")
     parser.add_argument("--plan", action="store_true", help="print the plan and run nothing")
     parser.add_argument("--dry-run", action="store_true", help="every stage with fakes (no network, no GPU)")
     return parser.parse_args(argv)

@@ -20,7 +20,13 @@ SERVED = SimpleNamespace(profile="full")
 
 
 def _student_request() -> dict:
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage, message_to_dict
+    from langchain_core.messages import (
+        AIMessage,
+        HumanMessage,
+        SystemMessage,
+        ToolMessage,
+        message_to_dict,
+    )
 
     messages = [SystemMessage(content="You are Row-Bot."),
                 HumanMessage(content="Total the donations of 2026-11-02 to 2026-11-04 in ledger.csv"),

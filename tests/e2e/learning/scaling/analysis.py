@@ -18,7 +18,8 @@ a non-positive denominator (A12's rule; otherwise the percentile interval of the
 transfer to the packs' hidden tasks (non-inferiority at -10 points against ``start``, the vault's own paired
 analysis); replay agreement per arm and its Spearman correlation with outcome success across arms; failure causes;
 tokens and GPU-hours per arm; ``sft-1000`` against ``sft-1000b``; and the dose-response slope of ``s`` on log10(N)
-over the four ``sft`` arms with a cluster bootstrap interval.
+over the four ``sft`` arms with a cluster bootstrap interval, N in training targets (SA1), each arm's targets after the
+product's validation split reported beside it.
 """
 
 from __future__ import annotations
@@ -30,7 +31,13 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from tests.e2e.learning.scaling.design import DAGGER_ROUND_1, HYPOTHESES, SFT, TRAINED, Design
+from tests.e2e.learning.scaling.design import (
+    DAGGER_ROUND_1,
+    HYPOTHESES,
+    SFT,
+    TRAINED,
+    Design,
+)
 
 COUNTED = ("passed", "failed", "budget")
 #: Outside the denominator, counted (§8): a provider outage after its one rerun, and a run no check could decide.
@@ -173,8 +180,10 @@ def slope(points: Sequence[tuple[float, float]]) -> float | None:
 
 
 def dose_response(arm_scores: Mapping[str, Mapping[str, float]], sizes: Mapping[str, int],
-                  cluster_of: Mapping[str, str], design: Design) -> dict[str, Any]:
-    """The slope of ``s`` on log10(N) over the ``sft`` arms that ran, on the tasks they all counted."""
+                  cluster_of: Mapping[str, str], design: Design,
+                  trained: Mapping[str, int | None] | None = None) -> dict[str, Any]:
+    """The slope of ``s`` on log10(N) over the ``sft`` arms that ran, on the tasks they all counted; ``sizes``: each
+    arm's N in training targets, ``trained``: the targets each trained on after the split (reported beside it)."""
 
     arms = [arm for arm in SFT if arm in arm_scores and sizes.get(arm)]
     if len(arms) < 2:
@@ -189,7 +198,8 @@ def dose_response(arm_scores: Mapping[str, Mapping[str, float]], sizes: Mapping[
     boots = sorted(value for value in (fitted(picked) for picked in _resamples(_clusters(tasks, cluster_of), design))
                    if value is not None)
     point = fitted(tasks)
-    return {"arms": arms, "n": {arm: sizes[arm] for arm in arms}, "tasks": len(tasks),
+    return {"arms": arms, "n": {arm: sizes[arm] for arm in arms},
+            "trained_after_split": {arm: (trained or {}).get(arm) for arm in arms}, "tasks": len(tasks),
             "slope": round(point, 6) if point is not None else None,
             "low": round(_percentile(boots, 0.025), 6) if boots else None,
             "high": round(_percentile(boots, 0.975), 6) if boots else None}
@@ -250,6 +260,7 @@ def analyse(arms: Mapping[str, Mapping[str, Any]], cluster_of: Mapping[str, str]
     related = [(replay[name]["agreement"], rates[name]["rate"]) for name in done
                if replay[name]["agreement"] is not None and rates[name]["rate"] is not None]
     sizes = {name: int(arm.get("n") or 0) for name, arm in arms.items()}
+    trained = {name: arm.get("trained") for name, arm in arms.items()}
     secondary: dict[str, Any] = {
         "label": "secondary: unadjusted, descriptive",
         "gap_closed": {name: gap_closed(arm_scores[name], arm_scores["start"], arm_scores["teacher"], cluster_of, design)
@@ -266,9 +277,10 @@ def analyse(arms: Mapping[str, Mapping[str, Any]], cluster_of: Mapping[str, str]
                            for name, arm in arms.items()},
         "training_seed": (paired(arm_scores["sft-1000"], arm_scores["sft-1000b"], cluster_of, design)
                           if {"sft-1000", "sft-1000b"} <= set(done) else {"why": "an arm didn't run"}),
-        "dose_response": dose_response(arm_scores, sizes, cluster_of, design),
+        "dose_response": dose_response(arm_scores, sizes, cluster_of, design, trained),
     }
-    return {"arms": {name: {"state": arm.get("state"), "why": arm.get("why"), "n": arm.get("n")}
+    return {"arms": {name: {"state": arm.get("state"), "why": arm.get("why"), "n": arm.get("n"),
+                            "trained": arm.get("trained")}
                      for name, arm in arms.items()},
             "rates": rates, "confirmatory": confirmatory(arm_scores, unavailable, cluster_of, design),
             "secondary": secondary}
@@ -325,27 +337,35 @@ def markdown(report: Mapping[str, Any]) -> str:
              f"`{str(build.get('commit', ''))[:12]}`, code `{str(build.get('code_hash', ''))[:12]}`, pinned "
              f"{build.get('pinned_at', '')}; teacher `{(report.get('teacher') or {}).get('model', '—')}`.", "",
              "## The teacher pool (§3)", "",
-             f"{_number(pool.get('rows'))} rows from the training block (the 30-day past's imported rows kept out).", ""]
-    lines += _table(["Person", "Requests", "Rows", "Passed first try", "Passed in the end"],
+             f"{_number(pool.get('rows'))} rows holding {_number(pool.get('targets'))} training targets from the "
+             "training block (the 30-day past's imported rows kept out).", ""]
+    lines += _table(["Person", "Requests", "Rows", "Targets", "Passed first try", "Passed in the end"],
                     [(person, item.get("requests"), (item.get("rows") or {}).get("rows"),
+                      (item.get("rows") or {}).get("targets"),
                       _rate(item.get("pass_rate_first_try")), _rate(item.get("pass_rate_final")))
                      for person, item in sorted((pool.get("people") or {}).items())])
     subsets = (report.get("subsets") or {}).get("subsets") or {}
     lines += ["## Subsets (seed {})".format((report.get("subsets") or {}).get("seed", "—")), ""]
-    lines += _table(["Arm", "N", "Rows", "Whole pool", "By person"],
-                    [(arm, item.get("n"), item.get("rows"), "yes" if item.get("whole_pool") else "no",
-                      ", ".join(f"{key} {value}" for key, value in sorted((item.get("by_person") or {}).items())))
+    lines += _table(["Arm", "N (targets)", "Targets", "Rows", "Last row trimmed to", "Trains on after the split",
+                     "Whole pool", "By person (rows / targets)"],
+                    [(arm, item.get("n"), item.get("targets"), item.get("rows"),
+                      (item.get("trim") or {}).get("targets", "—"), item.get("trained_targets"),
+                      "yes" if item.get("whole_pool") else "no",
+                      ", ".join(f"{key} {value.get('rows')} / {value.get('targets')}"
+                                for key, value in sorted((item.get("by_person") or {}).items())))
                      for arm, item in ((arm, subsets[arm]) for arm in SFT if arm in subsets)])
     lines += ["## Training (the certified recipe, up to three passes)", ""]
-    lines += _table(["Arm", "State", "Rows", "Trains on", "Validates on", "Steps", "Seed", "Pass kept"],
-                    [(arm, item.get("state"), item.get("rows"), item.get("examples"), item.get("validation"),
+    lines += _table(["Arm", "State", "Rows", "Targets", "Targets after the split", "Validation rows", "Steps",
+                     "Seed", "Pass kept"],
+                    [(arm, item.get("state"), item.get("rows"), item.get("targets"), item.get("trained_targets"),
+                      item.get("validation"),
                       item.get("steps"), item.get("seed"),
                       f"{(item.get('kept_pass') or {}).get('pass', '—')} of {(item.get('kept_pass') or {}).get('of', '—')}")
                      for arm, item in ((arm, (report.get("training") or {})[arm]) for arm in (*TRAINED, DAGGER_ROUND_1)
                                        if arm in (report.get("training") or {}))])
     dagger = report.get("dagger") or {}
     lines += ["## DAgger", "", f"Rounds: {json.dumps(dagger.get('rounds'), default=str)}; the relabelling's teacher "
-              f"tokens {_number(dagger.get('teacher_tokens'))}; requests also in the 1,000-row subset "
+              f"tokens {_number(dagger.get('teacher_tokens'))}; requests also in the 1,000-target subset "
               f"{_number(dagger.get('overlap_with_1000_subset'))} of {_number(dagger.get('requests'))}.", "",
               "## Outcome success on the held-out tasks (§6, primary)", ""]
     lines += _table(["Arm", "State", "Tasks", "Mean s(i, a)", "Runs passed", "Outages / undecided (outside)"],
@@ -381,8 +401,11 @@ def markdown(report: Mapping[str, Any]) -> str:
     seed = secondary["training_seed"]
     lines += [f"Spearman's ρ between replay agreement and outcome success across {related['arms']} arms: "
               f"{_number(related['spearman'])}.", "",
-              f"**Dose-response**: slope of s on log10(N) over {', '.join(dose.get('arms') or [])}: "
-              f"{_number(dose.get('slope'))} {_interval(dose)} on {_number(dose.get('tasks'))} tasks.", "",
+              "**Dose-response**: slope of s on log10(N), N in training targets ("
+              + ", ".join(f"{arm} {_number((dose.get('n') or {}).get(arm))}, "
+                          f"{_number((dose.get('trained_after_split') or {}).get(arm))} after the split"
+                          for arm in dose.get("arms") or [])
+              + f"): {_number(dose.get('slope'))} {_interval(dose)} on {_number(dose.get('tasks'))} tasks.", "",
               f"**Training seed** (sft-1000 − sft-1000b): {_number(seed.get('difference'))} {_interval(seed)} on "
               f"{_number(seed.get('problems'))} tasks.", "", "### Failure causes (held-out runs that didn't pass)", ""]
     lines += _table(["Arm", "Causes"], [(arm, ", ".join(f"{key or 'unknown'} {value}" for key, value in causes.items())

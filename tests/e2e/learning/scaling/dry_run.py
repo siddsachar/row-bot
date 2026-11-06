@@ -2,8 +2,8 @@
 
     python -m tests.e2e.learning.scaling.study --dry-run --out <folder> --scratch <folder>
 
-One person (Mara), five training days and two held-out days, subsets of 1, 2 and 3 rows and a largest N beyond the
-pool (the whole pool), DAgger rounds of 2 rows, one run per task, eight hidden pack tasks (one pack), and few
+One person (Mara), five training days and two held-out days, subsets of 2, 5 and 9 training targets and a largest N
+beyond the pool (the whole pool), DAgger rounds of 2 targets, one run per task, eight hidden pack tasks (one pack), and few
 resamples. The teacher, the student and every version are one scripted model on loopback (``scripted_model.py``,
 served like llama-server through Row-Bot's ``llama_cpp`` endpoint profile, on ports 8130-8139), so every turn is a
 real Agent turn, captured and checked as in the study; training is the fake trainer behind the real worker protocol
@@ -26,7 +26,7 @@ from tests.e2e.learning.scaling.design import Design
 from tests.e2e.learning.scripted_model import ALIAS, ScriptedModel
 from tests.e2e.learning.seeded.scratch import GpuGate
 
-DESIGN = Design(people=("mara",), training_days=(1, 5), held_out_days=(6, 7), sizes=(1, 2, 3, 99), dagger_rows=2,
+DESIGN = Design(people=("mara",), training_days=(1, 5), held_out_days=(6, 7), sizes=(2, 5, 9, 999), dagger_targets=2,
                 runs=1, resamples=200, permutations=200, min_tasks=1, hidden_tasks=8, hidden_packs=("document_lookups",),
                 dry_run=True)
 PORTS = range(8130, 8140)
