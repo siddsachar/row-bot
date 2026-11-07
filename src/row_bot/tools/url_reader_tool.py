@@ -231,8 +231,13 @@ def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS, *, readable: b
                         charset = content_type.partition("charset=")[2].strip(" \"';") or None
                         soup = BeautifulSoup(data, "html.parser", from_encoding=charset)
                         # A web page reads as its main content in Markdown (#139); other text as it is.
-                        text = (readable_markdown(soup, source) if readable and "html" in content_type.lower()
-                                else _collapsed(soup.get_text()))
+                        if readable and "html" in content_type.lower():
+                            try:
+                                text = readable_markdown(soup, source)
+                            except RecursionError:  # nested deeper than Python's stack: its plain text
+                                text = _collapsed(soup.get_text())
+                        else:
+                            text = _collapsed(soup.get_text())
                     break
             time.sleep(wait)
     except _NotPublic:

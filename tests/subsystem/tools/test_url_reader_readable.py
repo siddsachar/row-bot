@@ -59,6 +59,15 @@ def test_an_article_keeps_its_content_and_drops_the_page_around_it(web):
     assert "Share" in text and "javascript:" not in text
 
 
+def test_a_page_nested_deeper_than_the_stack_still_reads_as_its_text(web):
+    page = b"<html><body>" + b"<div>" * 3000 + b"Deep words" + b"</div>" * 3000 + b"</body></html>"
+
+    text = _read(web, page)
+
+    assert "Deep words" in text
+    assert "Failed to fetch" not in text
+
+
 def test_blocks_of_minified_html_never_run_together(web):
     page = (b"<html><body><div>Alpha</div><div>Beta</div><p>Gamma</p><h3>Delta</h3><span>Ep</span><span>silon</span>"
             b"<ul><li>One</li><li>Two</li></ul><dl><dt>Term</dt><dd>Meaning</dd></dl>Zeta<br>Eta</body></html>")
