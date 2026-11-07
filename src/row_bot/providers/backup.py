@@ -306,6 +306,11 @@ def stream(main: Callable[[], Iterator[tuple]], backup: Callable[[dict], Iterato
     failed = raised is not None or any(event[0] == "error" for event in held)
     why = reason(turn.failures[-1]) if failed and turn.failures and not stopped else None
     if why is None:
+        if failed and not stopped:
+            # Visible next time: why a turn that had a backup ended in its error.
+            cause = (f"{failure_kind(turn.failures[-1])}: {turn.failures[-1]}" if turn.failures
+                     else "an error the backup doesn't cover")
+            logger.warning("The backup model didn't take over (%s)", str(cause)[:300])
         for message in turn.notices:
             notify(message)
         if raised is not None:

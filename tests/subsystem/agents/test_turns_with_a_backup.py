@@ -226,3 +226,115 @@ def test_when_both_fail_one_error_names_both(turns):
     errors = [payload for kind, payload in events if kind == "error"]
     assert len(errors) == 1 and errors[0].startswith("⚠️ Neither gpt-4.1 nor gpt-5-mini answered — ")
     assert conversation.model.refs == [conversation.model_ref, CLOUD]
+
+
+# ── The app's own path: a chat message through the platform's turn runner ─────
+# Nothing below fakes the agent stream: the message goes through the platform, ``agent.stream_agent``
+# and ``backup.stream``; the main model is refused by the real readiness check (Ollama faked as not
+# running, nothing else), and only the backup's graph and model are fakes.
+
+from types import SimpleNamespace  # noqa: E402
+
+from tests.contracts.client_platform.test_headless_lifecycle import command, platform  # noqa: E402,F401
+from tests.helpers.client_platform_fakes import fixture_id  # noqa: E402
+
+LOCAL_DOWN = "model:ollama:gpt-oss:20b"
+
+
+@pytest.fixture
+def app_turn(platform, monkeypatch, tmp_path):  # noqa: F811
+    import sqlite3
+
+    import row_bot.agent as agent
+    from row_bot import models, threads
+    from row_bot.providers import readiness, saved_model_settings
+
+    monkeypatch.setattr(saved_model_settings, "SETTINGS_PATH", tmp_path / "model_settings.json")
+    backup.save_setting(enabled=True, ref=CLOUD)
+    monkeypatch.setattr(models, "_ollama_reachable", lambda *_a, **_k: False)  # Ollama isn't running
+    real_graph, real_readiness = agent.get_agent_graph, readiness.evaluate_runtime_readiness
+    model = TwoModels(responses=[says("Here is the plan.")], seen=[], refs=[])
+    AgentTurns(monkeypatch, model, [read_note])  # the backup's graph, on a fake model
+    backup_graph = agent.get_agent_graph
+
+    state = SimpleNamespace(stop=False)
+
+    def graph(enabled=None, model_override=None, **kwargs):
+        if model_override == CLOUD:
+            return backup_graph(enabled, model_override=model_override, **kwargs)
+        if state.stop:  # the person presses Stop as the main model fails
+            for handle in platform.registry.active("conversation-a"):
+                platform.registry.cancel(handle)
+        return real_graph(enabled, model_override=model_override, **kwargs)
+
+    ready = SimpleNamespace(ready=True, provider_id="openai", context_window=200_000)
+    monkeypatch.setattr(agent, "get_agent_graph", graph)
+    monkeypatch.setattr(readiness, "evaluate_runtime_readiness", lambda ref, *a, **k: SimpleNamespace(
+        agent=ready, chat=ready, selected_mode="agent", selection_reason="ready", timings={},
+    ) if ref == CLOUD else real_readiness(ref, *a, **k))
+    platform.stream_factory = None
+    platform.resume_factory = None
+
+    def send(text: str, *, runtime_mode: str = "agent") -> list[dict]:
+        with sqlite3.connect(threads.DB_PATH) as connection:
+            connection.execute("UPDATE thread_meta SET client_runtime_mode=? WHERE thread_id='conversation-a'",
+                               (runtime_mode,))
+        receipt = platform.execute(owner_id="fixture-owner", idempotency_key=fixture_id(text + ":key"),
+                                   target="conversation-a", command=command("conversation.submit", text, {
+                                       "submission_id": fixture_id(text), "text": text, "attachment_refs": [],
+                                       "model_selection": {"provider_id": "ollama", "model_ref": LOCAL_DOWN}}))
+        assert platform.registry.get(receipt["execution_id"]).producer_done.wait(20)
+        return platform.snapshot("conversation-a")["rows"]
+
+    return SimpleNamespace(send=send, model=model, platform=platform, state=state)
+
+
+@pytest.mark.parametrize("runtime_mode", ["agent", "auto"])
+def test_a_chat_message_whose_local_model_isnt_running_is_answered_by_the_backup(app_turn, runtime_mode):
+    rows = app_turn.send("Plan my day.", runtime_mode=runtime_mode)
+
+    texts = [(row["role"], row.get("note"), " ".join(b.get("text", "") for b in row["blocks"])) for row in rows]
+    assert texts[0] == ("user", None, "Plan my day.")
+    assert texts[1] == ("user", "backup_model",
+                        "gpt-oss:20b didn't answer (it isn't available), so gpt-5-mini took over.")
+    assert texts[-1][0] == "assistant" and texts[-1][2] == "Here is the plan."
+    assert app_turn.model.refs == [CLOUD]
+
+
+def _row_notes(rows: list[dict]) -> list[str | None]:
+    return [row.get("note") for row in rows]
+
+
+def test_a_chat_message_stopped_as_its_model_fails_never_goes_to_the_backup(app_turn):
+    app_turn.state.stop = True
+
+    rows = app_turn.send("Plan my day.")
+
+    assert "backup_model" not in _row_notes(rows)
+    assert app_turn.model.refs == [], "the backup is never asked"
+
+
+def test_a_learning_routed_chat_message_never_goes_to_the_backup(app_turn, monkeypatch):
+    """Learning finishes a stuck personal model with the main model itself: no backup on top."""
+    from row_bot import learning
+    from row_bot.learning import routing
+
+    route = routing.Route("writing", 1, "trial", "model:ollama:row-bot-personal-v1", LOCAL_DOWN, "gpt-oss:20b")
+    monkeypatch.setattr(learning, "route_turn", lambda **_kwargs: route)
+
+    rows = app_turn.send("Draft my note.")
+
+    assert "backup_model" not in _row_notes(rows)
+    assert app_turn.model.refs == [], "the backup is never asked"
+
+
+def test_when_the_backup_cant_take_over_the_log_says_why(app_turn, caplog):
+    import logging
+
+    # A request-shaped failure: the backup is on, but this isn't its case.
+    with caplog.at_level(logging.WARNING, logger="row_bot.providers.backup"):
+        list(backup.stream(lambda: iter([("error", "⚠️ API error: bad request")]),
+                           lambda _config: iter(()),
+                           {"configurable": {"model_override": LOCAL_DOWN}}, "hi"))
+
+    assert "The backup model didn't take over" in caplog.text
