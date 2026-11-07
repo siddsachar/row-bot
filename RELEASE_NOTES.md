@@ -50,6 +50,14 @@ through background updates.
   chip to choose another. Connect or Reconnect opens that provider in
   Settings › Models.
 - **First run** lists every provider that takes an API key.
+- **A backup model** - choose one in Settings › Models › Defaults (off until you
+  do). When your main model can't answer (its server isn't running, it timed out,
+  hit a rate limit, ran out of credit or lost its sign-in), the backup finishes
+  the turn, and the chat says which model answered. It never steps in when you
+  press Stop or when the request itself was the problem, and an incognito chat
+  never goes to a cloud backup. Chats, channels and workflows all use it.
+- **Thinking remembered** - the Thinking level you choose for a model is where
+  new chats with it start. Chats you already have keep their own.
 - **New models know what they can do** - where a provider's own list doesn't
   say, Row-Bot fills in context size, tools, vision and output kind from
   models.dev's open catalogue. It's fetched at most hourly when model lists
@@ -74,6 +82,10 @@ through background updates.
   workspace or uses it in code or a design.
 - **Videos after a reload** - a chat shows the videos it made, with the newest
   in full and earlier versions folded under one row, live and after a reload.
+- **Every file in a chat has its own name** - five generated videos are
+  `generated-video.mp4`, `generated-video-2.mp4` and so on, so the video editor
+  can open each one. In older chats, files that share a name are told apart the
+  same way, newest first.
 
 ### Apps Search
 
@@ -98,7 +110,16 @@ through background updates.
 - **A long chat that starts with generated media opens again** instead of
   showing "Connection interrupted".
 - **Saving is one way everywhere** - every Download and Export asks where to
-  save, then offers Show in folder.
+  save, then offers Show in folder. The notice names the file you chose, and a
+  chat exports under its own title.
+- **Web pages read cleanly** - reading a page gives its main text as Markdown,
+  with headings, lists, tables and full links, and without menus, sidebars or
+  cookie banners. It's done on your computer; nothing goes to a reading service.
+- **Phones stay signed in** - a phone that connected before 5.3.2 kept an old
+  cookie its browser left out when Row-Bot was opened from the home screen.
+  Each session check now renews the cookie (never the session's length).
+- **Ollama's models show** after Claude Code is signed in on the same computer.
+- **llama.cpp** suggests port 8081 when Row-Bot itself is on 8080.
 - **Workflow chats** move up the sidebar only when something new shows in them;
   a run that didn't finish says why.
 - **Selecting workflows** shows a checkbox in each row, and Select all.
