@@ -180,9 +180,9 @@ def quiet_reason(now: datetime | None = None) -> str | None:
 def person_is_training(processes: Callable[[], Iterable[str]] | None = None,
                        profile: Path | None = None) -> bool:
     """Whether the person's own Row-Bot runs its training engine now (a process started from the
-    everyday profile's ``runtimes`` folder)."""
+    everyday profile's ``runtimes/learning`` folder; the in-app browser and MCP runtimes live beside it)."""
 
-    folder = str((profile or everyday_profile()) / "runtimes").lower()
+    folder = str((profile or everyday_profile()) / "runtimes" / "learning").lower()
     for path in (processes or _process_paths)():
         if path and path.lower().startswith(folder):
             return True
