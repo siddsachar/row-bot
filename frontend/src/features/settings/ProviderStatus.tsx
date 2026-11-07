@@ -40,7 +40,7 @@ import ClaudePlanSetup, {
   CLAUDE_PLAN_SUMMARY,
   claudePlanSummary,
 } from './ClaudePlanSetup';
-import { LOCAL_SERVERS } from './local-servers';
+import { localServers as usualLocalServers } from './local-servers';
 
 const groups = {
   local: 'On this computer',
@@ -383,7 +383,7 @@ export default function ProviderStatus({
   const found = (id: string) =>
     waiting(id).filter((card) => matches(card.display_name));
   // LM Studio, vLLM and llama.cpp on this computer; a hosted server runs none.
-  const localServers = onAddServer && !hideLocal ? LOCAL_SERVERS : [];
+  const localServers = onAddServer && !hideLocal ? usualLocalServers() : [];
   const foundServers = (id: string) =>
     id === 'local' ? localServers.filter((server) => matches(server.name)) : [];
   const tabs = galleryTabs.filter((item) =>

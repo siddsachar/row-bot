@@ -64,8 +64,17 @@ export function saveProblem(result: CapabilityResult<SavedFile>, what: string) {
         : clientError({ code: result.reason }).message;
 }
 
-/** The notice after a save: where it went, and Show in folder where it can. */
-export function announceSaved(notify: Notify, saved: SavedFile, name: string) {
+/**
+ * The notice after a save: where it went, and Show in folder where it can.
+ * It names the file the person chose in the Save dialog, or else the name
+ * offered.
+ */
+export function announceSaved(
+  notify: Notify,
+  saved: SavedFile,
+  offered: string,
+) {
+  const name = (saved.kind === 'file' && saved.fileName) || offered;
   const show = (reveal: () => Promise<boolean>) => ({
     label: 'Show in folder',
     onAction: () =>

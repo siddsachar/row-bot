@@ -344,7 +344,7 @@ class ConversationActionConversation(WireModel):
 
 class ConversationActionExport(WireModel):
     attachment_ref: Reference
-    file_name: Literal["conversation-export.md", "conversation-export.pdf"]
+    file_name: str = Field(max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*\.(md|pdf)$")
     size_bytes: int = Field(ge=0, le=8 * 1024 * 1024)
     checkpoint_revision: str = Field(max_length=128)
 

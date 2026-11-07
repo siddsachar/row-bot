@@ -269,10 +269,10 @@ def test_native_exception_never_exposes_private_paths(native) -> None:
 
 
 def test_a_saved_file_is_shown_in_its_folder_by_a_token_never_by_its_path(native, tmp_path: Path) -> None:
-    """Show in folder after a Save dialog (5.3.3): the page gets a one-time token for the file chosen,
-    never the path; an unknown or malformed token reveals nothing."""
+    """Show in folder after a Save dialog (5.3.3): the page gets a one-time token for the file chosen and
+    the name the person gave it, never the path; an unknown or malformed token reveals nothing."""
     bridge, proof, driver, _, _ = native
-    chosen = tmp_path / "launch-deck.pdf"
+    chosen = tmp_path / "launch-deck-final.pdf"
     chosen.write_bytes(b"%PDF")
     revealed: list[Path] = []
     driver.save = lambda reference, name, authorized: chosen if authorized() else False
@@ -280,7 +280,8 @@ def test_a_saved_file_is_shown_in_its_folder_by_a_token_never_by_its_path(native
     assert "reveal_saved" in bridge.native_client_dispatch(proof, "discover", {})["value"]["capabilities"]
 
     result = bridge.native_client_dispatch(proof, "save", {"reference": "save:" + "a" * 32, "name": "launch-deck.pdf"})
-    assert result["status"] == "ok" and set(result["value"]) == {"saved"}
+    assert result["status"] == "ok" and set(result["value"]) == {"saved", "name"}
+    assert result["value"]["name"] == "launch-deck-final.pdf"  # Renamed in the dialog: the name chosen.
     assert str(tmp_path) not in str(result)
     token = result["value"]["saved"]
 

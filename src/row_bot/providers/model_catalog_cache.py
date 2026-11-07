@@ -156,7 +156,9 @@ def refresh_model_catalog_cache(
         warnings.append(f"Cloud providers refresh failed: {exc}")
         logger.warning("Cloud model catalog refresh failed; preserving previous cloud cache", exc_info=True)
 
-    should_refresh_ollama = provider_id in {None, "", "ollama", "ollama_cloud"}
+    # A refresh for another provider (Claude once its plan is ready, say) still lists Ollama when the cache
+    # has no Ollama rows yet: it writes a fresh cache, so the startup refresh after it would skip them.
+    should_refresh_ollama = provider_id in {None, "", "ollama", "ollama_cloud"} or not previous.ollama_rows
     if should_refresh_ollama:
         try:
             ollama_rows = _refresh_ollama_rows()

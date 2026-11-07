@@ -314,3 +314,33 @@ def test_google_second_page_failure_does_not_commit_partial_catalog(monkeypatch)
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)
+
+
+def test_a_refresh_for_claude_alone_still_lists_ollama_when_none_is_saved(tmp_path, monkeypatch):
+    """Claude's plan-ready refresh (the first on a computer where Claude Code is signed in) wrote a
+    fresh cache without Ollama, so the startup refresh after it skipped and Ollama listed no model.
+    Both providers are faked: no Ollama and no Claude Code is reached."""
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    claude = {"model:claude_subscription:claude-sonnet-5": {"provider": "claude_subscription"}}
+    ollama = [{"model_id": "qwen3:14b", "installed": True}]
+    asked: list[str] = []
+
+    def ollama_rows():
+        asked.append("ollama")
+        return [dict(row) for row in ollama]
+
+    monkeypatch.setattr(cache, "_refresh_cloud_cache",
+                        lambda provider_id=None: (dict(claude), {provider_id: {"status": "live", "count": 1}}))
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", ollama_rows)
+
+    cache.refresh_model_catalog_cache(reason="claude_plan_ready", force=True, provider_id="claude_subscription")
+    later = cache.refresh_model_catalog_cache(reason="startup", force=False)  # Fresh: skipped.
+
+    assert later.ollama_rows == ollama and later.cloud_cache == claude
+    assert asked == ["ollama"]
+    # Ollama's rows saved, another provider's refresh leaves them to Ollama's own and the full ones.
+    cache.refresh_model_catalog_cache(reason="claude_plan_ready", force=True, provider_id="claude_subscription")
+    assert asked == ["ollama"]
+    assert cache.read_model_catalog_cache().ollama_rows == ollama

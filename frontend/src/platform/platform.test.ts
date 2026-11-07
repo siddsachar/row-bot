@@ -1424,6 +1424,33 @@ describe('desktop windows never run the browser versions silently (B231, B238)',
     expect(transport.saveToExports).not.toHaveBeenCalled();
     expect(transport.download).not.toHaveBeenCalled();
   });
+
+  it('names a native save as the person named it, and never takes a path', async () => {
+    const host = desktopWindow();
+    const dispatch = vi.fn().mockResolvedValue(info);
+    host.__ROW_BOT_NATIVE_CLIENT__ = { dispatch };
+    const chosen = await selectClientPlatform(
+      media(),
+      nativeAdapter,
+      asWindow(host),
+    );
+    const saved = 'b'.repeat(32);
+    dispatch.mockResolvedValueOnce({
+      status: 'ok',
+      value: { saved, name: 'Trip notes 2.md' },
+    });
+    const result = await chosen.save('conversation-1:export-1', 'export.md');
+    expect(result).toMatchObject({
+      status: 'ok',
+      value: { kind: 'file', fileName: 'Trip notes 2.md' },
+    });
+    for (const name of ['C:\\Users\\me\\export.md', '/home/me/export.md', '']) {
+      dispatch.mockResolvedValueOnce({ status: 'ok', value: { saved, name } });
+      expect(
+        (await chosen.save('conversation-1:export-1', 'export.md')).status,
+      ).toBe('unavailable');
+    }
+  });
 });
 
 describe('downloads in a desktop window (B275)', () => {
