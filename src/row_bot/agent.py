@@ -8136,6 +8136,8 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
+        # The model can't run (its server isn't running, its provider isn't connected): the backup's case.
+        backup_model.note_failure(backup_model.MainModelNotReady(str(exc)))
         yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     phase_timings["generation.graph_build_ms"] = (
@@ -8344,6 +8346,8 @@ def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, appro
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
+        # The model can't run (its server isn't running, its provider isn't connected): the backup's case.
+        backup_model.note_failure(backup_model.MainModelNotReady(str(exc)))
         yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     try:
