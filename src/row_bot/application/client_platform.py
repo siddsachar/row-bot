@@ -1554,7 +1554,8 @@ class ClientPlatformService:
                     raise ClientPlatformError("resource_revision_conflict")
         if targets is not None:
             from row_bot.application.workspace_setup import generation_readiness
-            if not generation_readiness(self, {"model_selection": selection, "runtime_mode": runtime_mode}):
+            if not generation_readiness(self, {"model_selection": selection, "runtime_mode": runtime_mode},
+                                        conversation_id):
                 raise ClientPlatformError("model_configuration_required")
             selected = []
             seen_kinds = set()

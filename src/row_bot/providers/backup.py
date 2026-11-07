@@ -182,7 +182,8 @@ def model_name(ref: str) -> str:
         from row_bot.providers.model_catalog_cache import read_model_catalog_cache
 
         cache = read_model_catalog_cache(allow_runtime_bootstrap=False, max_bytes=16 * 1024 * 1024)
-        info = cache.cloud_cache.get(model_id) or cache.cloud_cache.get(f"{provider}:{model_id}") or {}
+        info = (cache.cloud_cache.get(f"model:{provider}:{model_id}") or cache.cloud_cache.get(model_id)
+                or cache.cloud_cache.get(f"{provider}:{model_id}") or {})
         for key in ("display_name", "label", "name"):
             value = info.get(key) if isinstance(info, dict) else None
             if isinstance(value, str) and value.strip():

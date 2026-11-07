@@ -120,6 +120,17 @@ def test_the_note_names_both_models_and_why():
         "qwen3:8b didn't answer (it couldn't be reached), so GPT-5 mini took over.")
 
 
+def test_models_are_named_as_the_catalog_names_them(monkeypatch, tmp_path):
+    from row_bot.providers import model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        1, 1000, {CLOUD: {"provider": "openai", "model_id": "gpt-5-mini", "label": "GPT-5 mini"}}, [], {}, (), "test"))
+
+    assert backup.model_name(CLOUD) == "GPT-5 mini"
+    assert backup.model_name(MAIN) == "qwen3:8b", "a model the catalog doesn't name keeps its id"
+
+
 def test_stop_and_a_request_shaped_error_keep_todays_error(settings):
     backup.save_setting(enabled=True, ref=CLOUD)
     backed: list[dict] = []

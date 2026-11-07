@@ -3173,6 +3173,44 @@ it('offers the fix that matches why the model cannot answer', async () => {
   );
 });
 
+it('sends while the model is unavailable when the backup model answers (#140)', async () => {
+  idleConversation();
+  // The server says a backup answers: send stays ready.
+  mock.state.workspace!.actions = [{ action: 'send', ready: true }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "Ollama isn't running",
+    fix: 'reconnect',
+    local: true,
+    backup_name: 'GPT-6.1-Sol',
+  };
+  mock.drafts.set('conversation-a', { text: 'Plan my day', attachments: [] });
+  await act(async () => conversation());
+  expect(
+    screen.getByText(
+      "fixture/model isn't available, so GPT-6.1-Sol will answer.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+  expect(screen.queryByText(/The model is unavailable/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+});
+
+it('offers Reconnect as before when no backup answers (#140)', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "Ollama isn't running",
+    fix: 'reconnect',
+    local: true,
+    backup_name: '',
+  };
+  await act(async () => conversation());
+  expect(screen.getByRole('button', { name: 'Reconnect' })).toBeVisible();
+  expect(screen.queryByText(/will answer\./)).toBeNull();
+});
+
 function uploaded(file: File) {
   return {
     attachment_ref: `conversation-a:${file.name}`,

@@ -150,7 +150,7 @@ def test_models_view_prefers_actual_brain_runtime_and_never_probes_context(monke
     assert context_calls == [("model:ollama:active", {"allow_probe": False})]
 
 
-def test_the_backup_model_is_off_until_chosen_and_only_ready_agent_models_qualify(monkeypatch, tmp_path):
+def test_the_backup_model_is_off_until_chosen_and_only_other_ready_agent_models_qualify(monkeypatch, tmp_path):
     """#140: one backup, saved beside the main model; never a chat-only or a personal model."""
     from row_bot.providers import saved_model_settings
 
@@ -166,8 +166,8 @@ def test_the_backup_model_is_off_until_chosen_and_only_ready_agent_models_qualif
 
     state = owner.read_models_settings()
     assert (state["backup"]["enabled"], state["backup"]["current_ref"]) == (False, "")
-    assert {option["selection_ref"] for option in state["backup"]["options"]} == {
-        "model:ollama:active", "model:openai:gpt-5-mini"}
+    # Never the main model (model:ollama:active), a chat-only model or a personal model.
+    assert {option["selection_ref"] for option in state["backup"]["options"]} == {"model:openai:gpt-5-mini"}
 
     with pytest.raises(ValueError, match="model_configuration_unavailable"):
         owner.update_model_surface("backup", "default", selection_ref="model:ollama:tiny", validate=lambda: None)
