@@ -10,6 +10,10 @@ Public documentation index for Row-Bot.
   Route: /docs/getting-started/whats-new. The highlights of Row-Bot 5.3 with links to each guide, and what to know before upgrading from 5.2.
 - [Installation](/docs/getting-started/installation)
   Route: /docs/getting-started/installation. Install Row-Bot on Windows, macOS or Linux, see where it keeps your data, move from 5.1, uninstall, or run it from source.
+- [Row-Bot In Your Browser](/docs/getting-started/in-your-browser)
+  Route: /docs/getting-started/in-your-browser. Run your own Row-Bot on PikaPods and use it from any browser or your phone: start it, enter the setup code, choose a model, and see what's different from the desktop app.
+- [Row-Bot On Railway](/docs/getting-started/on-railway)
+  Route: /docs/getting-started/on-railway. Run your own Row-Bot in your own Railway account and open it from any browser: Continue with Railway or the template, sign in, updates, spending, backups, and what it costs.
 - [First Launch](/docs/getting-started/first-launch)
   Route: /docs/getting-started/first-launch. Answer "How should Row-Bot think?" to choose your first model, then finish the rest at your own pace in Setup Center.
 - [Your First Tasks](/docs/getting-started/first-tasks)
@@ -75,7 +79,7 @@ Public documentation index for Row-Bot.
 - [Settings: Providers](/docs/settings/providers)
   Route: /docs/settings/providers. Connect local, hosted, subscription, and custom model providers.
 - [Settings: Models](/docs/settings/models)
-  Route: /docs/settings/models. Choose which model does each job (Brain, Vision, Image, Video), set the reading limit and limits for long work, and star the models you use from the catalog.
+  Route: /docs/settings/models. Choose the main model and the models for Vision, Image and Video, keep your models starred, connect providers, and set the reading limit and limits for long work.
 - [Settings: Voice](/docs/settings/voice)
   Route: /docs/settings/voice. Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics.
 - [Settings: Memory](/docs/settings/knowledge)
@@ -109,7 +113,7 @@ Public documentation index for Row-Bot.
 - [Catalog Source Adapters](/docs/extending/source-adapters)
   Route: /docs/extending/source-adapters. For developers: the source adapter interface in src/row_bot/integrations/sources.py, how a new catalog source is added as one adapter plus data, and the passive-read rules every source follows.
 - [Contribute To The App Catalog](/docs/extending/app-catalog)
-  Route: /docs/extending/app-catalog. For developers: the apps.json record format, verified-vendor rules, bundled icons and their licences, the featured skills and broker lists, and how to check catalog coverage.
+  Route: /docs/extending/app-catalog. For developers: the apps.json record format, the Official and Reviewed rules, how search ranks results, bundled icons and their licences, the featured skills and broker lists, and how to check catalog coverage.
 - [MCP Bundles (.mcpb)](/docs/extending/mcp-bundles)
   Route: /docs/extending/mcp-bundles. For developers: how Row-Bot imports .mcpb bundles, which manifest fields it reads, how user_config becomes setup inputs, platform and runtime checks, signatures, and Registry bundles downloaded only after consent and a checksum match.
 - [Sign-In And Client Metadata](/docs/extending/sign-in-and-client-metadata)
@@ -125,13 +129,15 @@ Public documentation index for Row-Bot.
 - [Docker And VPS Operations](/docs/operations/docker)
   Route: /docs/operations/docker. Run one persistent Row-Bot server with Docker Compose, private host access, or an operator-managed HTTPS edge.
 - [Hosting Row-Bot](/docs/operations/hosting)
-  Route: /docs/operations/hosting. Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes and updates.
+  Route: /docs/operations/hosting. Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes, memory and updates.
 - [Privacy And Safety](/docs/privacy-safety/)
   Route: /docs/privacy-safety/. Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing.
 - [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see)
   Route: /docs/privacy-safety/what-your-host-can-see. When a hosting service runs your Row-Bot: what the host can reach, what Row-Bot keeps encrypted and where the key lives, and how to protect yourself.
 - [Troubleshooting](/docs/troubleshooting/)
   Route: /docs/troubleshooting/. Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, app, skill, channel, account, catalog, voice, and Buddy issues.
+- [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted)
+  Route: /docs/troubleshooting/hosted. Troubleshooting for a Row-Bot that PikaPods or Railway runs for you: a lost setup code, an out-of-memory restart, a sign-in that won't finish, missing local models and moving.
 - [Frequently Asked Questions](/docs/faq/)
   Route: /docs/faq/. Short answers to the questions people ask most about Row-Bot: privacy, costs, models, devices and safety.
 - [Reference](/docs/reference/)

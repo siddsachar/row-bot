@@ -1,5 +1,5 @@
 {
- "fetched_at": "2026-11-06T09:56:33+00:00",
+ "fetched_at": "2026-11-07T01:31:41+00:00",
  "providers": {
   "alibaba": {
    "deepseek-v4-flash-0731": {
@@ -4010,6 +4010,22 @@
     "tool_call": true,
     "vision": false
    },
+   "iceman-free": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "tool_call": true,
+    "vision": false
+   },
+   "inkling-2-small-free": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "tool_call": true,
+    "vision": true
+   },
    "kimi-k2": {
     "context": 262144,
     "output": [
@@ -5027,7 +5043,7 @@
     "output": [
      "text"
     ],
-    "tool_call": false,
+    "tool_call": true,
     "vision": false
    },
    "cohere/command-a-plus": {
@@ -5059,7 +5075,7 @@
     "output": [
      "text"
     ],
-    "tool_call": false,
+    "tool_call": true,
     "vision": false
    },
    "cohere/north-mini-code:free": {
@@ -5595,6 +5611,22 @@
    },
    "liquid/lfm-2.5-24b-a2b": {
     "context": 128000,
+    "output": [
+     "text"
+    ],
+    "tool_call": true,
+    "vision": false
+   },
+   "liquid/lfm-3-1.7b": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "tool_call": true,
+    "vision": false
+   },
+   "liquid/lfm-3-1.7b:free": {
+    "context": 262144,
     "output": [
      "text"
     ],
@@ -10383,6 +10415,14 @@
     "tool_call": true,
     "vision": true
    },
+   "deepseek/deepseek-v4.1-flash-1017-ultrafast": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "tool_call": true,
+    "vision": true
+   },
    "deepseek/deepseek-v4.1-flash-fast": {
     "context": 1048576,
     "output": [
@@ -10733,6 +10773,14 @@
     ],
     "tool_call": false,
     "vision": true
+   },
+   "humansand/ampersand-v0.1": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "tool_call": true,
+    "vision": false
    },
    "inception/mercury-2": {
     "context": 128000,

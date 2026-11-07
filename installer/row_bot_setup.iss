@@ -1,5 +1,5 @@
 ; =============================================================================
-; Row-Bot v5.3.2 - Inno Setup Script
+; Row-Bot v5.3.3 - Inno Setup Script
 ; Self-contained per-user installer: bundles embedded Python with all pip
 ; packages pre-installed. No internet downloads at install time.
 ; =============================================================================
@@ -100,7 +100,7 @@
 #endif
 
 #define MyAppName      "Row-Bot"
-#define MyAppVersion   "5.3.2"
+#define MyAppVersion   "5.3.3"
 #define MyAppPublisher "Row-Bot"
 #define MyAppURL       "https://row-bot.ai"
 #define MyAppUserModelID "ai.row-bot.desktop"

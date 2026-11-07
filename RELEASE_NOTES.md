@@ -2,6 +2,167 @@
 
 ---
 
+## v5.3.3 - Row-Bot In Your Browser, Every Model In One Place
+
+Row-Bot 5.3.3 runs in your browser, in your own Railway account, with nothing to
+install. Settings brings providers and models onto one page, adds twelve API
+providers and three model servers, and lets images and video come from far more
+providers. Apps search puts the app you meant first. From 5.3.2 it arrives
+through background updates.
+
+### Row-Bot In Your Browser
+
+- **Run in your browser** - on row-bot.ai, Continue with Railway signs you in to
+  Railway and creates your own Row-Bot in your own Railway account in a few
+  minutes. It opens already signed in: no address or setup code to find. Railway
+  bills you directly, usually $5-10 a month.
+- **Nothing kept on the way** - Railway's sign-in goes straight to Railway. The
+  page's calls to Railway pass through a small relay that can only create a
+  Row-Bot, never delete or change anything else, and keeps no logs, no tokens
+  and no addresses.
+- **In Railway's words** - on Railway, Row-Bot's pages link straight to your
+  service's settings, variables and usage. Settings › Updates says your
+  automatic updates install new versions, and the Data page says Railway backs
+  up volumes only on its Pro plan, so Download backup comes first.
+- **Fits a small server** - below 4 GB, local speech-to-text is marked "Needs a
+  4 GB server", and Row-Bot's browser closes ten minutes after its last use. If
+  the server runs out of memory, Home and System Monitor say so, with how to
+  resize it.
+- **The deploy template** works too, and so does any host that runs the image.
+
+### Models
+
+- **One Models page** - Settings › Providers and Models are now one page: your
+  defaults (Main model, Vision, Image, Video), your models, and every connected
+  provider, with what each model can do.
+- **Stars** - a star is the one way to put a model in your lists. Every picker
+  shows your starred models that can do its job. On first start, your
+  favourites and pinned models become stars, and the old files are kept beside
+  the new ones (`.pre-5.3.3.json`).
+- **Twelve more API providers** - DeepSeek, Mistral, Groq, Kimi (Moonshot), Z.AI
+  (GLM), Qwen (Alibaba Cloud), Together AI, Fireworks AI, Cerebras, Hugging Face,
+  NVIDIA NIM and Vercel AI Gateway.
+- **Model servers on this computer** - Add a provider › On this computer offers
+  LM Studio, vLLM and llama.cpp.
+- **A picker that finds anything** - search every connected model as you type.
+  Your starred and recent models come first, the rest wait under Browse by
+  provider, and a model several providers offer shows once, with a +N routes
+  chip to choose another. Connect or Reconnect opens that provider in
+  Settings › Models.
+- **First run** lists every provider that takes an API key.
+- **New models know what they can do** - where a provider's own list doesn't
+  say, Row-Bot fills in context size, tools, vision and output kind from
+  models.dev's open catalogue. It's fetched at most hourly when model lists
+  refresh, with only the request sent; when that fails, the copy shipped with
+  the release is used. Settings › System › Privacy lists it.
+
+### Images And Video
+
+- **From more providers** - image and video tools also work with OpenRouter
+  (images, edits and video), Vercel AI Gateway (images), Together AI (images and
+  video), Requesty (images), MiniMax, Z.AI, Qwen (Alibaba Cloud) and Atlas Cloud.
+- **Models from each provider's own list** - a retired model no longer lingers.
+  OpenAI retired gpt-image-1 on 23 Oct and retires gpt-image-1-mini and
+  gpt-image-1.5 on 1 Dec. A saved model the provider no longer lists says so in
+  Settings › Models.
+- **Settings that fit the model** - OpenRouter image and video models get the
+  length, size and aspect ratio nearest the one asked for, of those OpenRouter
+  lists for each model.
+- **Outputs** - a chat's Outputs are a grid of thumbnails, newest first, each
+  labelled with the start of the prompt that made it (the whole prompt on
+  hover). Click opens it full size; ⋯ shows it in the chat, saves it to the
+  workspace or uses it in code or a design.
+- **Videos after a reload** - a chat shows the videos it made, with the newest
+  in full and earlier versions folded under one row, live and after a reload.
+
+### Apps Search
+
+- **The app you meant, first** - a Best match, then four more good ones, then
+  the rest folded under Official, Reviewed by Row-Bot, Built in and Community.
+  When nothing official or reviewed matches, it says so.
+- **Words, not fragments** - "reddit" no longer finds "subreddit".
+- **One card per app** - the same server listed in several places shows once.
+- **Labels and stars** - each card says who stands behind it and how
+  well-kept it is (★ 1.2k · active), from data shipped with the release.
+- **Filters** - kind, Official & reviewed only, where it runs and No sign-in;
+  on a phone, in one Filters sheet.
+
+### Fixes
+
+- **Security: tool settings that can't be read keep tools off** - if
+  `tools_config.json` was cut short or locked, tools you'd switched off came
+  back on and the shell's blocked-commands list emptied. Now tools stay as they
+  were, or off at start-up, and Settings says so and offers Start from defaults,
+  which keeps the unreadable file. Reported privately; advisory
+  GHSA-68j6-243q-h2hp (low).
+- **A long chat that starts with generated media opens again** instead of
+  showing "Connection interrupted".
+- **Saving is one way everywhere** - every Download and Export asks where to
+  save, then offers Show in folder.
+- **Workflow chats** move up the sidebar only when something new shows in them;
+  a run that didn't finish says why.
+- **Selecting workflows** shows a checkbox in each row, and Select all.
+- **X replies** - X allows a reply or quote from its API only when the post's
+  author mentioned or quoted you. Row-Bot now checks before asking you, and
+  otherwise gives you the draft and the link to post it on X yourself.
+- **Security and conduct reports** go to syd@row-bot.ai.
+
+### For Hosts
+
+- **Railway** - Row-Bot knows Railway as a host (`ROW_BOT_HOSTED_BY=railway`).
+  Its pages use Railway's words and, with the IDs Railway gives every service
+  (`RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID`, each
+  checked as a UUID), link the service's own Settings and Variables and the
+  workspace's Usage. Started as root (`RAILWAY_RUN_UID=0`), the image hands
+  `/data` to uid 10001 once and drops to it for good. Row-Bot's template and
+  its Railway page set 8 GB / 8 vCPU (the Hobby plan's ceiling, billed by use),
+  nightly automatic updates (Overnight, 02:00-06:00 UTC), `PORT=8080` and no
+  health check: Railway's probe gets a 400 and the deploy hangs.
+  `deploy/railway/README.md` has the definition.
+- **Visitor address on Railway** - from a trusted proxy, Row-Bot accepts
+  `X-Real-IP` beside `X-Forwarded-For`, and on Railway takes the visitor from
+  `X-Real-IP`, since Railway's `X-Forwarded-For` ends with its edge's own
+  address. On Railway set `ROW_BOT_TRUSTED_PROXY_CIDRS=100.64.0.0/10`. Other
+  hosts are unchanged.
+- **Health checks from inside the container** - a check from a loopback
+  address with no `Forwarded` or `X-Forwarded-*` header now passes whatever
+  host names Row-Bot allows. A check through a proxy, or from another
+  computer, still needs a host name Row-Bot knows.
+- **Container logs on stdout** - In the container, Row-Bot's console output
+  goes to stdout and warnings and errors to stderr; the setup code and its
+  sign-in link are on stdout. Log views that colour stderr no longer show
+  every line as an error.
+- **A sign-in link beside the setup code** - while nobody owns a server and
+  `ROW_BOT_PUBLIC_URL` is set, the start-up output adds `Open this link to
+  sign in: https://<address>/setup#code=<code>`. Like the code, it's only in
+  the console, never in Row-Bot's log files, and never printed once someone
+  owns the server or for a recovery code. The code now appears twice at the
+  first start (its line and the link).
+- **`/setup#code=...`** - opening the setup page with the code in its fragment
+  signs in with one click, with the same checks, refusals and pauses; the page
+  clears the fragment at once, and the fragment never reaches the server.
+- **Updates in the host's words** - with `ROW_BOT_HOSTED_BY` set, Settings ›
+  Updates says who installs new versions: PikaPods installs each one, and on
+  Railway the owner's automatic updates do, with a link to the service's
+  settings.
+- **Memory on a small server** - Row-Bot reads the container's limit (cgroup
+  `memory.max`) and keeps, in `/data`, the highest working set it has seen.
+  Nothing is turned off: below 3.5 GB, Settings › Voice marks local
+  speech-to-text "Needs a 4 GB server" and asks before it's chosen, and
+  Row-Bot's browser closes ten minutes after its last use. If Row-Bot
+  restarts because the server ran out of memory, Home and System Monitor say
+  so, with the server's size and how to resize it in the host, until the
+  owner dismisses it.
+- **Memory in the host's unit** - a limit set in decimal GB (Railway's
+  8,000,000,000 bytes) shows as 8 GB, and Docker's `--memory 4g` as 4 GB.
+- **Backups on Railway** - Railway backs up volumes only on its Pro plan.
+  Row-Bot's Data page says so on Railway; on any hosted Row-Bot, Download
+  backup is the main action, and Back up now says its copy stays on the server.
+- No new required setting. The recommended size for a pod stays 4 GB. The
+  hosting smoke's memory high-water mark is about 0.5 GB on amd64 and arm64.
+
+---
+
 ## v5.3.2 - Videos That Look And Sound Right, A Calmer App
 
 Row-Bot 5.3.2 makes its videos look like a studio made them and never lets a
