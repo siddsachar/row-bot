@@ -237,7 +237,7 @@ def _check_page(spec: dict[str, Any]) -> Outcome:
     from row_bot.tools.url_reader_tool import _read_url
 
     url, wanted = str(spec.get("url") or ""), str(spec.get("text") or "")
-    page = _read_url(url)
+    page = _read_url(url, readable=False)  # the whole page: the text may sit in a sidebar or footer
     if page.startswith(("Error", "Blocked", "BLOCKED", "Couldn't", "Could not")):
         return Outcome(False, "")
     if _contains(page, wanted):

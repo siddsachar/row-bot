@@ -186,8 +186,12 @@ def _retry_after(value: str | None) -> float:
         return 3.0
 
 
-def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
-    """Fetch a webpage or PDF and return a page of its text content."""
+def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS, *, readable: bool = True) -> str:
+    """Fetch a webpage or PDF and return a page of its text content.
+
+    A web page reads as its main content in Markdown; ``readable=False`` keeps all of its text, menus,
+    sidebars and footers included, for a page wait looking for text anywhere on it.
+    """
     from bs4 import BeautifulSoup
 
     from row_bot.tools.readable_page import readable_markdown
@@ -227,7 +231,7 @@ def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
                         charset = content_type.partition("charset=")[2].strip(" \"';") or None
                         soup = BeautifulSoup(data, "html.parser", from_encoding=charset)
                         # A web page reads as its main content in Markdown (#139); other text as it is.
-                        text = (readable_markdown(soup, source) if "html" in content_type.lower()
+                        text = (readable_markdown(soup, source) if readable and "html" in content_type.lower()
                                 else _collapsed(soup.get_text()))
                     break
             time.sleep(wait)
