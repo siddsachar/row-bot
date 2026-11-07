@@ -617,13 +617,14 @@ class NativeClientBridge:
                     return _unavailable("save_failed")
                 if not isinstance(result, Path):
                     return {"status": "ok", "value": None}
-                # The page gets a token for Show in folder, never the path the person chose.
+                # The page gets a token for Show in folder and the chosen file's own name for the
+                # notice, never the path or folder the person chose.
                 token = secrets.token_hex(16)
                 with self._lock:
                     self._saved[token] = result
                     while len(self._saved) > _SAVED_KEPT:
                         del self._saved[next(iter(self._saved))]
-                return {"status": "ok", "value": {"saved": token}}
+                return {"status": "ok", "value": {"saved": token, "name": result.name[:255]}}
             if (operation == "reveal_saved" and set(payload) == {"saved"}
                     and isinstance(payload["saved"], str) and _SAVED_TOKEN.fullmatch(payload["saved"])):
                 with self._lock:

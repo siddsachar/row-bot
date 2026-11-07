@@ -272,6 +272,22 @@ it('saves a Markdown export in one click, then closes and confirms it (B237)', a
   expect(props.session.hasRetained()).toBe(false);
 });
 
+it('names the file chosen in the Save dialog, not the one offered', async () => {
+  const props = options();
+  exportReceipt(props);
+  const reveal = vi.fn().mockResolvedValue(true);
+  props.save.mockResolvedValueOnce({
+    status: 'ok',
+    value: { kind: 'file', fileName: 'conversation-export-2.md', reveal },
+  });
+  const { user, dialog } = await openDialog(props);
+  await user.click(within(dialog).getByRole('button', { name: 'Markdown' }));
+  expect(
+    await screen.findByText('Saved conversation-export-2.md'),
+  ).toBeVisible();
+  expect(screen.queryByText('Saved conversation-export.md')).toBeNull();
+});
+
 it('says a save into Exports went there, with Show in folder (B238)', async () => {
   const props = options();
   exportReceipt(props);
