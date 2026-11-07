@@ -36,7 +36,10 @@ import { Drawer, ModalTask } from '../../ui/overlays';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import type { createProviderSettingsSessions } from './provider-settings-sessions';
 import { BillingTag, billingLabel } from '../shell/ModelList';
-import ClaudePlanSetup, { claudePlanSummary } from './ClaudePlanSetup';
+import ClaudePlanSetup, {
+  CLAUDE_PLAN_SUMMARY,
+  claudePlanSummary,
+} from './ClaudePlanSetup';
 import { LOCAL_SERVERS } from './local-servers';
 
 const groups = {
@@ -606,6 +609,9 @@ export default function ProviderStatus({
                   onCancel={() => setOpen('')}
                 />
               </Disclosure>
+            )}
+            {current.claude_plan && (
+              <p className="settings-help">{CLAUDE_PLAN_SUMMARY}</p>
             )}
             {current.claude_plan && (
               <ClaudePlanSetup

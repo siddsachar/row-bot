@@ -563,6 +563,10 @@ it('Claude says what Claude Code says, and its sheet has the one next step', asy
   const sheet = await screen.findByRole('dialog', {
     name: 'Claude (your Claude plan)',
   });
+  // What it is and whose limits apply, before anything to press (U11).
+  expect(sheet).toHaveTextContent(
+    'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.',
+  );
   // One next step, Claude's own sign-in; never a command to run in a terminal.
   expect(
     within(sheet).getByRole('button', { name: 'Use my Claude plan' }),

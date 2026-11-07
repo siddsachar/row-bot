@@ -308,9 +308,13 @@ test.describe('browser lifecycle', () => {
       await page
         .getByRole('button', { name: 'Toggle navigation', exact: true })
         .click();
-    await expect(
-      page.getByRole('button', { name: 'Phase 1 conversation B', exact: true }),
-    ).toBeVisible();
+    const other = nav.getByRole('button', {
+      name: 'Phase 1 conversation B',
+      exact: true,
+    });
+    await expect(other.or(showAll).first()).toBeVisible();
+    if (!(await other.isVisible())) await showAll.click();
+    await expect(other).toBeVisible();
     const state = await fixtureState(page);
     expect(state.calls).toEqual(baseline.calls);
     expect(state.external_calls).toBe(baseline.external_calls);

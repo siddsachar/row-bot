@@ -42,11 +42,16 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
   let call: FixtureCall | undefined;
   let primaryFailure: { error: unknown } | undefined;
   // Each generated result renders once, inline with the answer, and is
-  // downloaded once (B22): not again by a folded tool row or Context.
+  // downloaded once (B22): not again by a folded tool row or Context, whose
+  // Outputs grid reads only the picture's small thumbnail.
   const mediaReads = new Map<string, number>();
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname;
-    if (request.method() === 'GET' && path.startsWith('/api/v1/attachments/'))
+    if (
+      request.method() === 'GET' &&
+      path.startsWith('/api/v1/attachments/') &&
+      !path.endsWith('/thumbnail')
+    )
       mediaReads.set(path, (mediaReads.get(path) ?? 0) + 1);
   });
   try {
