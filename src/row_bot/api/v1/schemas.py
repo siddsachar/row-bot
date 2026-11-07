@@ -9310,6 +9310,9 @@ class ConversationModelStatus(WireModel):
     local: bool = False
     # Whether images attached here can be seen; None when it cannot be known.
     sees_images: bool | None = None
+    # While the model is unavailable: the backup model that answers this chat's turns instead
+    # (#140), so a message can still be sent; "" when none would.
+    backup_name: str = Field(default="", max_length=256)
 
 
 class ConversationWorkspace(WireModel):

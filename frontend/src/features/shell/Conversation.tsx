@@ -45,6 +45,7 @@ import {
   Bot,
   Code2,
   ImageOff,
+  LifeBuoy,
   ListPlus,
   MoreHorizontal,
   Palette,
@@ -3211,6 +3212,9 @@ export default function Conversation({
   // One way forward when the model can't answer (decision 10): reconnect its
   // provider, or choose a model (Setup when nothing can be chosen yet).
   const modelStatus = state.workspace?.model_status;
+  // The backup model answers while this chat's model can't (#140).
+  const answeringBackup =
+    modelStatus?.state === 'unavailable' ? modelStatus.backup_name || '' : '';
   const reconnect =
     modelStatus?.state === 'unavailable' && modelStatus.fix === 'reconnect';
   const anyModel = (state.handshake?.models ?? []).some(
@@ -3906,6 +3910,7 @@ export default function Conversation({
                 !!draft.attachments.length ||
                 !!pendingUploads.length ||
                 (singleLine && needsModel) ||
+                !!answeringBackup ||
                 Boolean(
                   composerSnapshot &&
                   (composerSnapshot.active_skills.length ||
@@ -3953,6 +3958,15 @@ export default function Conversation({
                         </button>
                       </p>
                     )}
+                  {answeringBackup && (
+                    <p className="composer-vision-note" role="status">
+                      <LifeBuoy aria-hidden />
+                      <span>
+                        {modelName || 'The main model'} isn't available, so{' '}
+                        {answeringBackup} will answer.
+                      </span>
+                    </p>
+                  )}
                   {composerSnapshot && (
                     <ComposerSkillChips
                       composer={composerSnapshot}

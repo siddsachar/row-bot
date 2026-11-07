@@ -4837,7 +4837,8 @@ _BACKUP_REF = "model:openai:gpt-5-mini"
 @app.post("/__backup_fixture/{action}")
 def backup_model_fixture(action: str, x_fixture_token: str = Header(default="")) -> dict:
     """seed: the main model local and GPT-5 mini its backup, switched on (after S8's seed);
-    chat: a conversation whose turn the backup took over; restore: the settings back."""
+    chat: a conversation whose turn the backup took over; outage: the main model not running;
+    restore: the settings and readiness back."""
     predecessor._authorize(x_fixture_token)
     from row_bot import models, threads
     from row_bot.providers import backup, model_catalog_cache as cache, saved_model_settings
@@ -4873,7 +4874,17 @@ def backup_model_fixture(action: str, x_fixture_token: str = Header(default=""))
                 "- **12:30** Lunch, then leave by 2:30\n- **3:00** Dentist\n- **4:30** Email and wrap up")),
         ])
         return {"conversation_id": thread}
+    if action == "outage":
+        # The local main model isn't running; the backup is ready (the composer's case).
+        from row_bot.application.client_platform import client_platform_service
+
+        client_platform_service.readiness_factory = lambda controls: (
+            (controls.get("model_selection") or {}).get("model_ref") != "model:ollama:qwen3:8b")
+        return {"action": action}
     if action == "restore":
+        from row_bot.application.client_platform import client_platform_service
+
+        client_platform_service.readiness_factory = lambda _: True
         if "settings" in _backup_fixture:
             saved = _backup_fixture.pop("settings")
             if saved is None:

@@ -99,9 +99,10 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     result = {
         "schema_version": 1,
         "brain": _picker("chat", brain_ref, rows, visibility=shown),
-        # A backup takes tools and is never a Learning personal model (#140).
+        # A backup takes tools, is never a Learning personal model and never the main model (#140).
         "backup": _picker("chat", backup_setting["ref"],
-                          tuple(row for row in rows if row.runtime_mode != "chat_only" and not row.offered),
+                          tuple(row for row in rows if row.runtime_mode != "chat_only" and not row.offered
+                                and row.selection_ref != brain_ref),
                           enabled=backup_setting["enabled"], visibility=shown),
         "vision": _picker("vision", vision_ref, rows, enabled=vision.enabled, visibility=shown),
         "image": _picker("image", image_ref, rows, enabled=registry.is_enabled("image_gen") if image_tool else False,

@@ -98,3 +98,24 @@ test('the chat says in one line which model answered', async ({
   ).toBeVisible();
   await shoot(page, info, 'backup-model-note');
 });
+
+test('a message still goes when the main model is down and the backup answers', async ({
+  page,
+}, info) => {
+  await fixture(page, '/__p4_fixture/provider-credentials');
+  await fixture(page, '/__s8_fixture/models/seed');
+  await fixture(page, '/__backup_fixture/seed');
+  await fixture(page, '/__backup_fixture/outage');
+  const { conversation_id } = await fixture(page, '/__backup_fixture/chat');
+  await page.goto(`/app-v2/conversations/${conversation_id}`);
+  const composer = page.getByRole('textbox', { name: 'Message' });
+  await composer.fill('What should I prepare for tomorrow?');
+  await expect(
+    page.getByText("qwen3:8b isn't available, so GPT-5 mini will answer."),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Send', exact: true }),
+  ).toBeEnabled();
+  await shoot(page, info, 'backup-model-composer');
+});
