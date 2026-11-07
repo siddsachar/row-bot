@@ -32,6 +32,7 @@ import {
 import { apiKeyLabel, humanizeToken } from '../../ui/format';
 import { ModalTask } from '../../ui/overlays';
 import { OWN_MODEL_SERVER_GUIDE } from '../shell/hosted-links';
+import { localServer } from './local-servers';
 
 type Operation =
   | 'provider.endpoint.create'
@@ -290,15 +291,32 @@ export default function ProviderConfiguration(
     const known = serverTypes(page).some(
       (type) => type.value === props.addProfile,
     );
+    // A server on this computer starts with its name and usual address; a hosted
+    // Row-Bot's own localhost isn't where it runs.
+    const server = localServer(props.addProfile);
+    const usual =
+      server && !props.hostName
+        ? { display_name: server.name, base_url: server.url }
+        : {};
     session.update({
-      fields: known ? { ...blank(), profile: props.addProfile! } : blank(),
+      fields: known
+        ? { ...blank(), profile: props.addProfile!, ...usual }
+        : blank(),
       revision: page.revision,
       existing: false,
       editing: true,
       operation: 'provider.endpoint.create',
       reviewed: null,
     });
-  }, [props.autoAdd, props.addProfile, page, locked, state.editing, session]);
+  }, [
+    props.autoAdd,
+    props.addProfile,
+    props.hostName,
+    page,
+    locked,
+    state.editing,
+    session,
+  ]);
   const networkAction =
     operation === 'provider.endpoint.probe' ||
     operation === 'provider.endpoint.refresh';

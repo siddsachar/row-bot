@@ -1975,7 +1975,7 @@ class ClientPlatformService:
                 ).hexdigest()[:32]
             group_name, group_kind = canonical_group(tool_name)
             group_id = f"{handle.segment_id}:{group_kind}:{group_name}"[:256]
-            from row_bot.application.conversation_traces import safe_tool_input
+            from row_bot.application.conversation_traces import media_prompt, safe_tool_input
 
             safe_input = safe_tool_input(getter("args") or {})
             result_message_id = str(getter("message_id") or "")
@@ -1985,6 +1985,11 @@ class ClientPlatformService:
             if call_id not in apps:
                 apps[call_id] = app_of_tool(getter("runtime_name") or raw_tool, getter("args"), words=True)
             app = apps[call_id]
+            # A picture's or video's prompt, read when its call starts: it names the output (5.3.3).
+            prompts = handle.__dict__.setdefault("media_prompts", {})
+            if call_id not in prompts:
+                prompts[call_id] = media_prompt(own_name, getter("media_prompt"))
+            prompt = prompts[call_id]
             item = build_trace_item(
                 item_id=call_id,
                 group_id=group_id,
@@ -2004,6 +2009,7 @@ class ClientPlatformService:
                 content_ref=result_message_id if kind == "tool_done" else "",
                 safe_input=safe_input,
                 app=app,
+                media_prompt=prompt,
             )
             self.projection.publish(conversation_id, "tool.activity", {
                 "tool_name": tool_name[:128],
@@ -2026,6 +2032,7 @@ class ClientPlatformService:
                 for metadata in getter("media", []) or []:
                     self.projection.publish(conversation_id, metadata["type"], {
                         **metadata["payload"],
+                        **({"prompt": prompt} if prompt and metadata["type"] == "media.available" else {}),
                         "tool_call_id": str(getter("tool_call_id") or ""),
                         "message_id": str(getter("message_id") or "")})
                 if getter("media_error"):
@@ -2040,6 +2047,7 @@ class ClientPlatformService:
                         metadata = register_attachment(conversation_id, f"generated-{uuid.uuid4().hex}.png", data, "image/png")
                         self.projection.publish(conversation_id, "media.available", {
                             "media_ref": metadata["attachment_ref"], "mime_type": metadata["mime_type"],
+                            **({"prompt": prompt} if prompt else {}),
                             "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
                             "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":

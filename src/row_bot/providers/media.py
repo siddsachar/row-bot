@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+import math
 from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
@@ -21,6 +23,14 @@ IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
                  "base_url": "https://api.together.xyz/v1"},
     "requesty": {"key": "REQUESTY_API_KEY", "label": "Requesty", "emoji": "🛰️", "route": "openai",
                  "base_url": "https://router.requesty.ai/v1"},
+    "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
+                "base_url": "https://api.minimax.io/v1"},
+    "zai": {"key": "ZAI_API_KEY", "label": "Z.AI", "emoji": "Z", "route": "zai",
+            "base_url": "https://api.z.ai/api/paas/v4"},
+    "dashscope": {"key": "DASHSCOPE_API_KEY", "label": "Qwen (Alibaba Cloud)", "emoji": "QW", "route": "dashscope",
+                  "base_url": "https://dashscope-intl.aliyuncs.com/api/v1"},
+    "atlascloud": {"key": "ATLASCLOUD_API_KEY", "label": "Atlas Cloud", "emoji": "AC", "route": "atlascloud",
+                   "base_url": "https://api.atlascloud.ai/api/v1"},
 }
 
 VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
@@ -31,6 +41,29 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
                    "base_url": "https://openrouter.ai/api/v1"},
     "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
                  "base_url": "https://api.together.xyz/v2"},
+    "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
+                "base_url": "https://api.minimax.io/v2"},
+    "zai": {"key": "ZAI_API_KEY", "label": "Z.AI", "emoji": "Z", "route": "zai",
+            "base_url": "https://api.z.ai/api/paas/v4"},
+    "dashscope": {"key": "DASHSCOPE_API_KEY", "label": "Qwen (Alibaba Cloud)", "emoji": "QW", "route": "dashscope",
+                  "base_url": "https://dashscope-intl.aliyuncs.com/api/v1"},
+    "atlascloud": {"key": "ATLASCLOUD_API_KEY", "label": "Atlas Cloud", "emoji": "AC", "route": "atlascloud",
+                   "base_url": "https://api.atlascloud.ai/api/v1"},
+}
+
+# The image and video models of providers whose model lists leave them out: MiniMax
+# lists its text models only and Z.AI's list names no media models. Every other
+# provider's media models come from its own list.
+UNLISTED_MEDIA_MODELS: dict[str, dict[str, dict[str, str]]] = {
+    "image": {
+        "minimax": {"image-01": "Image-01"},
+        "zai": {"glm-image": "GLM-Image"},
+    },
+    "video": {
+        "minimax": {"MiniMax-H3": "MiniMax H3", "MiniMax-H3-Highspeed": "MiniMax H3 Highspeed",
+                    "MiniMax-H3-Lite": "MiniMax H3 Lite", "MiniMax-H3-Max": "MiniMax H3 Max"},
+        "zai": {"cogvideox-3": "CogVideoX-3"},
+    },
 }
 
 
@@ -77,6 +110,9 @@ def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) ->
         if not snapshot_supports_surface(snapshot, surface):
             continue
         entries[f"{provider_id}/{model_id}"] = dict(info)
+    for provider_id, models in UNLISTED_MEDIA_MODELS.get(surface, {}).items():
+        for model_id, label in models.items():
+            entries.setdefault(f"{provider_id}/{model_id}", {"provider": provider_id, "label": label})
 
     options: dict[str, str] = {}
     for config_value, info in sorted(entries.items(), key=lambda item: item[0]):
@@ -116,3 +152,70 @@ def media_error_text(response: Any) -> str:
         error = error.get("message")
     message = error or (body.get("message") if isinstance(body, dict) else None)
     return str(message or body)[:300]
+
+
+def generation_options(provider_id: str, model: str) -> dict[str, list] | None:
+    """The choices a model's catalogue lists for each setting it takes; None when it lists none."""
+    from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+    parameters = resolve_capability_snapshot(provider_id, model, include_static_fallback=False).get(
+        "generation_parameters")
+    options = parameters.get("options") if isinstance(parameters, Mapping) else None
+    if not isinstance(options, Mapping):
+        return None
+    return {str(name): list(values) for name, values in options.items() if isinstance(values, list)}
+
+
+# Resolutions in order of size, to find the one a model takes nearest the one asked for.
+_RESOLUTION_PIXELS = {"360p": 360, "480p": 480, "512": 512, "720p": 720, "768": 768, "768p": 768, "1k": 1024,
+                      "1080p": 1080, "1.5k": 1536, "2k": 2048, "4k": 4096}
+
+
+def _ratio(value: str, separator: str) -> float | None:
+    width, _, height = str(value).partition(separator)
+    try:
+        return math.log(float(width) / float(height))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _nearest(target: float | None, choices: list, measure) -> Any:
+    measured = [(measure(choice), choice) for choice in choices]
+    usable = [(size, choice) for size, choice in measured if size is not None]
+    if target is None or not usable:
+        return None
+    return min(usable, key=lambda item: abs(item[0] - target))[1]
+
+
+def _seconds(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def nearest_duration(seconds: int, choices: list) -> int | None:
+    """The length in seconds, of those a model takes, nearest the one asked for."""
+    return _nearest(float(seconds), choices, _seconds)
+
+
+def nearest_resolution(resolution: str, choices: list) -> str | None:
+    """The resolution, of those a model takes, nearest the one asked for, in the model's own spelling."""
+    return _nearest(_RESOLUTION_PIXELS.get(resolution.lower()), choices,
+                    lambda choice: _RESOLUTION_PIXELS.get(str(choice).lower()))
+
+
+def nearest_aspect_ratio(aspect_ratio: str, choices: list) -> str | None:
+    """The aspect ratio ("W:H"), of those a model takes, nearest the one asked for."""
+    return _nearest(_ratio(aspect_ratio, ":"), choices, lambda choice: _ratio(choice, ":"))
+
+
+def nearest_size(aspect_ratio: str, resolution: str, choices: list) -> str | None:
+    """The size ("WxH"), of those a model takes, nearest the aspect ratio and then the resolution asked for."""
+    shape = nearest_aspect_ratio(aspect_ratio, [f"{w}:{h}" for w, _, h in (str(c).partition("x") for c in choices)])
+    if shape is None:
+        return None
+    same_shape = [choice for choice in choices if _ratio(choice, "x") == _ratio(shape, ":")]
+
+    def short_side(choice: str) -> float | None:
+        width, _, height = choice.partition("x")
+        return float(min(int(width), int(height)))
+
+    return _nearest(_RESOLUTION_PIXELS.get(resolution.lower()), same_shape, short_side)

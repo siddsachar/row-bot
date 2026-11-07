@@ -172,13 +172,11 @@ def test_refresh_cloud_models_preserves_atlas_rows_when_fetch_fails(monkeypatch)
         models._cloud_model_cache.update(old_cache)
 
 
-def test_atlascloud_media_rows_do_not_leak_to_media_options(monkeypatch):
+def test_atlascloud_media_rows_are_offered_only_with_its_key(monkeypatch):
     import row_bot.api_keys as api_keys
-    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META, media_model_options
+    from row_bot.providers.media import media_model_options
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "")
-    assert "atlascloud" not in IMAGE_PROVIDER_META
-    assert "atlascloud" not in VIDEO_PROVIDER_META
 
     cloud_cache = {
         "model:atlascloud:nano-banana-2/text-to-image": {
@@ -205,6 +203,10 @@ def test_atlascloud_media_rows_do_not_leak_to_media_options(monkeypatch):
 
     assert media_model_options("image", cloud_cache) == {}
     assert media_model_options("video", cloud_cache) == {}
+
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "synthetic" if key == "ATLASCLOUD_API_KEY" else "")
+    assert list(media_model_options("image", cloud_cache)) == ["atlascloud/nano-banana-2/text-to-image"]
+    assert list(media_model_options("video", cloud_cache)) == ["atlascloud/kling-v2.0/text-to-video"]
 
 
 def test_atlascloud_openrouter_style_tool_metadata_is_classified():

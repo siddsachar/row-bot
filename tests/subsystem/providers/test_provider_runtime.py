@@ -1186,8 +1186,9 @@ def test_atlascloud_model_facade_fetches_openai_compatible_catalog(monkeypatch):
             }
 
     def _fake_get(url, **kwargs):
-        captured["url"] = url
-        captured["headers"] = dict(kwargs.get("headers") or {})
+        # The chat catalogue first; Atlas Cloud's own media list follows.
+        captured.setdefault("url", url)
+        captured.setdefault("headers", dict(kwargs.get("headers") or {}))
         return _Response()
 
     monkeypatch.setattr(auth_store, "get_provider_secret", lambda provider_id: "test-atlas-key" if provider_id == "atlascloud" else "")

@@ -1555,7 +1555,9 @@ it('a sign-in that can no longer be used asks to reconnect instead of offering R
   await userEvent
     .setup()
     .click(within(log).getByRole('button', { name: 'Reconnect' }));
-  expect(mock.navigate).toHaveBeenLastCalledWith('/settings/providers');
+  expect(mock.navigate).toHaveBeenLastCalledWith(
+    '/settings/models?provider=fixture',
+  );
 });
 
 it("an interrupted reply says the provider's own reason, such as a plan's limit", async () => {
@@ -1620,7 +1622,9 @@ it('Claude signed the person out: says so in U11’s words, with Sign in again',
   await userEvent
     .setup()
     .click(within(log).getByRole('button', { name: 'Sign in again' }));
-  expect(mock.navigate).toHaveBeenLastCalledWith('/settings/providers');
+  expect(mock.navigate).toHaveBeenLastCalledWith(
+    '/settings/models?provider=fixture',
+  );
 });
 
 it('says when a stop left the last message unanswered and offers to send it again', async () => {
@@ -3164,7 +3168,9 @@ it('offers the fix that matches why the model cannot answer', async () => {
     screen.getByText(/The model is unavailable: Ollama isn't running\./),
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
-  expect(mock.navigate).toHaveBeenCalledWith('/settings/providers');
+  expect(mock.navigate).toHaveBeenCalledWith(
+    '/settings/models?provider=fixture',
+  );
 });
 
 function uploaded(file: File) {

@@ -8154,6 +8154,8 @@ class MediaAvailable(WireModel):
         "application/pdf",
         "application/octet-stream",
     ]
+    # The prompt a media tool made it from, on one line (5.3.3): it names the output in the chat's Outputs.
+    prompt: str = Field(default="", max_length=1000)
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
 
@@ -8508,6 +8510,8 @@ class TraceAgentReference(WireModel):
 class TraceMediaReference(WireModel):
     media_ref: Reference
     mime_type: str = Field(max_length=128)
+    # The prompt a media tool made it from, on one line (5.3.3); empty for older chats and other tools.
+    prompt: str = Field(default="", max_length=1000)
 
 
 class TraceAppRef(WireModel):

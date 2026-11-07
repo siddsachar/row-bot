@@ -492,18 +492,6 @@ svg {
   color: var(--status-warning-text);
   font-size: var(--type-size-metadata);
 }
-.context-output {
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-}
-.context-output summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
 .context-resource-title span,
 .context-resource-title small,
 .context-resource-summary span,

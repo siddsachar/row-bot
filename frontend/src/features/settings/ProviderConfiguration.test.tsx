@@ -780,6 +780,30 @@ it('opens from a hosted first run with Ollama picked and the guide to reaching i
   ).toHaveAttribute('href', 'https://row-bot.ai/docs/guides/own-model-server');
 });
 
+it('opens a server on this computer with its name and usual address, but not on a hosted server', async () => {
+  const props = options();
+  const { unmount } = render(
+    <ProviderConfiguration {...props} compact autoAdd addProfile="vllm" />,
+  );
+  expect(await screen.findByLabelText('Server type')).toHaveValue('vllm');
+  expect(screen.getByLabelText('Display name')).toHaveValue('vLLM');
+  expect(screen.getByLabelText('Base URL')).toHaveValue(
+    'http://localhost:8000/v1',
+  );
+  unmount();
+  render(
+    <ProviderConfiguration
+      {...options()}
+      compact
+      autoAdd
+      addProfile="vllm"
+      hostName="PikaPods"
+    />,
+  );
+  expect(await screen.findByLabelText('Server type')).toHaveValue('vllm');
+  expect(screen.getByLabelText('Base URL')).toHaveValue('');
+});
+
 it('opens a plain form for a type it doesn’t know, and no guide on a computer', async () => {
   const props = options();
   render(

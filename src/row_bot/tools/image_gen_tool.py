@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 from collections.abc import Mapping, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -67,8 +68,18 @@ _QUALITY_TO_RESOLUTION: dict[str, str | None] = {
     "auto": None,   # let model default
 }
 
-# OpenRouter and Together answer within this many seconds, or the request fails.
+# A provider with its own image API answers (or, Atlas Cloud, finishes its job) within
+# this many seconds, or the request fails.
 _DIRECT_TIMEOUT = 180
+_JOB_POLL_INTERVAL = 2
+
+# The routes whose image models make new images only here: Together's and Z.AI's APIs
+# take no source image, MiniMax's takes a character reference rather than an image to
+# edit, and Atlas Cloud's image field differs per model.
+_NEW_IMAGES_ONLY = {"together", "minimax", "zai", "atlascloud"}
+
+# The sizes Z.AI's GLM-Image takes that are nearest each size the tool offers.
+_ZAI_SIZES = {"1024x1024": "1280x1280", "1536x1024": "1568x1056", "1024x1536": "1056x1568"}
 
 # Imagen aspect ratios (subset supported by the API)
 _IMAGEN_ASPECT_RATIOS = {"1:1", "3:4", "4:3", "9:16", "16:9"}
@@ -230,8 +241,8 @@ def _get_client() -> tuple:
     """Return (client, provider_label, provider_id) based on the user's model selection.
 
     Google gets a ``google.genai.Client``; a provider on the OpenAI images route
-    gets an ``openai.OpenAI`` client at its base URL. xAI, OpenRouter and Together
-    are called directly, so their client is ``None``.
+    gets an ``openai.OpenAI`` client at its base URL. xAI and the providers with
+    their own image APIs are called directly, so their client is ``None``.
     """
     from row_bot.api_keys import get_key
     from row_bot.providers.media import IMAGE_PROVIDER_META
@@ -279,8 +290,8 @@ def _route(provider_id: str) -> str:
     return IMAGE_PROVIDER_META[provider_id]["route"]
 
 
-def _post_json(provider_id: str, path: str, body: dict) -> dict:
-    """POST to an image provider's own API with its key, raising its error message."""
+def _request_json(provider_id: str, method: str, path: str, body: dict | None = None) -> dict:
+    """Call an image provider's own API with its key, raising its error message."""
     import httpx
 
     from row_bot.api_keys import get_key
@@ -288,8 +299,8 @@ def _post_json(provider_id: str, path: str, body: dict) -> dict:
 
     meta = IMAGE_PROVIDER_META[provider_id]
     _validate_generation()
-    response = httpx.post(
-        f"{meta['base_url']}{path}", json=body, timeout=_DIRECT_TIMEOUT,
+    response = httpx.request(
+        method, f"{meta['base_url']}{path}", json=body, timeout=_DIRECT_TIMEOUT,
         headers={"Authorization": f"Bearer {get_key(meta['key'])}"},
     )
     if response.status_code >= 400:
@@ -319,33 +330,120 @@ def _finish_image(b64_str: str, *, prefix: str, done: str) -> str:
     return done + (f"\nSaved to: {saved}" if saved else "")
 
 
+def _first_item_b64(data: dict) -> str:
+    items = data.get("data") if isinstance(data.get("data"), list) else []
+    return _image_b64(items[0]) if items and isinstance(items[0], dict) else ""
+
+
+def _openrouter_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    from row_bot.providers.media import generation_options, nearest_aspect_ratio, nearest_resolution
+
+    aspect = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1") if size != "auto" else None
+    wanted = quality if quality != "auto" else None
+    settings: dict = {"aspect_ratio": aspect, "quality": wanted}
+    options = generation_options(provider_id, model)
+    if options is not None:
+        # Each setting is the nearest the model lists; one it lists nothing for is left to the model.
+        settings = {"aspect_ratio": nearest_aspect_ratio(aspect, options.get("aspect_ratio", [])) if aspect else None,
+                    "quality": wanted if wanted in options.get("quality", []) else None}
+        if wanted and not settings["quality"] and _QUALITY_TO_RESOLUTION.get(wanted):
+            # Models listed by resolution tier take quality as their resolution.
+            settings["resolution"] = nearest_resolution(_QUALITY_TO_RESOLUTION[wanted], options.get("resolution", []))
+    body: dict = {"model": model, "prompt": prompt, "n": 1,
+                  **{key: value for key, value in settings.items() if value is not None}}
+    if source:
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": source}}]
+    return _first_item_b64(_request_json(provider_id, "POST", "/images", body))
+
+
+def _together_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    body: dict = {"model": model, "prompt": prompt, "n": 1, "response_format": "base64"}
+    if size != "auto":
+        width, _, height = size.partition("x")
+        body["width"], body["height"] = int(width), int(height)
+    return _first_item_b64(_request_json(provider_id, "POST", "/images/generations", body))
+
+
+def _minimax_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    body: dict = {"model": model, "prompt": prompt, "n": 1, "response_format": "base64"}
+    if size != "auto":
+        body["aspect_ratio"] = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1")
+    data = _request_json(provider_id, "POST", "/image_generation", body)
+    # MiniMax answers 200 with its error in base_resp.
+    status = data.get("base_resp") if isinstance(data.get("base_resp"), dict) else {}
+    if status.get("status_code"):
+        raise RuntimeError(f"MiniMax error {status['status_code']}: {status.get('status_msg') or 'no details'}")
+    images = (data.get("data") or {}).get("image_base64") if isinstance(data.get("data"), dict) else None
+    return str(images[0]) if isinstance(images, list) and images else ""
+
+
+def _zai_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    body: dict = {"model": model, "prompt": prompt}
+    if size != "auto":
+        body["size"] = _ZAI_SIZES.get(size, "1280x1280")
+    if quality == "high":
+        body["quality"] = "hd"
+    return _first_item_b64(_request_json(provider_id, "POST", "/images/generations", body))
+
+
+def _dashscope_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    content: list[dict] = [{"image": source}] if source else []
+    content.append({"text": prompt})
+    body: dict = {"model": model, "input": {"messages": [{"role": "user", "content": content}]},
+                  "parameters": {"n": 1}}
+    if size != "auto":
+        body["parameters"]["size"] = size.replace("x", "*")
+    data = _request_json(provider_id, "POST", "/services/aigc/multimodal-generation/generation", body)
+    choices = (data.get("output") or {}).get("choices") or []
+    parts = ((choices[0].get("message") or {}).get("content") or []) if choices else []
+    url = next((str(part["image"]) for part in parts if isinstance(part, dict) and part.get("image")), "")
+    return _image_b64({"url": url}) if url else ""
+
+
+def _atlascloud_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    # Each Atlas Cloud model names its own size fields, so the model's defaults are used.
+    job = _request_json(provider_id, "POST", "/model/generateImage", {"model": model, "prompt": prompt})
+    job_id = str((job.get("data") or {}).get("id") or "")
+    if not job_id:
+        raise RuntimeError("Atlas Cloud started no image job")
+    elapsed = 0
+    while elapsed < _DIRECT_TIMEOUT:
+        time.sleep(_JOB_POLL_INTERVAL)
+        elapsed += _JOB_POLL_INTERVAL
+        result = _request_json(provider_id, "GET", f"/model/prediction/{job_id}").get("data") or {}
+        status = str(result.get("status") or "")
+        if status == "completed":
+            outputs = result.get("outputs") or []
+            return _image_b64({"url": outputs[0]}) if outputs and isinstance(outputs[0], str) else ""
+        if status in {"failed", "canceled", "cancelled", "error", "timeout"}:
+            raise RuntimeError(f"Atlas Cloud's job ended ({status}): {result.get('error') or 'no details'}")
+    raise RuntimeError(f"Atlas Cloud's image job {job_id} did not finish within {_DIRECT_TIMEOUT}s")
+
+
+# The image routes with their own APIs (OpenAI, Google and xAI have theirs above).
+_DIRECT_IMAGE: dict[str, Callable[[str, str, str, str, str, str], str]] = {
+    "openrouter": _openrouter_image,
+    "together": _together_image,
+    "minimax": _minimax_image,
+    "zai": _zai_image,
+    "dashscope": _dashscope_image,
+    "atlascloud": _atlascloud_image,
+}
+
+
 def _direct_image(provider_id: str, label: str, model: str, prompt: str, size: str,
                   quality: str, image_bytes: bytes | None = None) -> str:
-    """Generate (or, with image_bytes, edit) on OpenRouter or Together, which have their own APIs."""
+    """Generate (or, with image_bytes, edit) on a provider with its own image API."""
     verb, prefix = ("edit", "edit") if image_bytes is not None else ("generation", "gen")
-    body: dict = {"model": model, "prompt": prompt, "n": 1}
-    if _route(provider_id) == "openrouter":
-        path = "/images"
-        if size != "auto":
-            body["aspect_ratio"] = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1")
-        if quality != "auto":
-            body["quality"] = quality
-        if image_bytes is not None:
-            data_url = f"data:{_detect_mime(image_bytes)};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-            body["input_references"] = [{"type": "image_url", "image_url": {"url": data_url}}]
-    else:  # together
-        if image_bytes is not None:
-            return (f"{label} image models can only make new images here. "
-                    "Choose another image model in Settings › Models to edit one.")
-        path = "/images/generations"
-        body["response_format"] = "base64"
-        if size != "auto":
-            width, _, height = size.partition("x")
-            body["width"], body["height"] = int(width), int(height)
+    route = _route(provider_id)
+    if image_bytes is not None and route in _NEW_IMAGES_ONLY:
+        return (f"{label} image models can only make new images here. "
+                "Choose another image model in Settings › Models to edit one.")
+    source = ""
+    if image_bytes is not None:
+        source = f"data:{_detect_mime(image_bytes)};base64,{base64.b64encode(image_bytes).decode('ascii')}"
     try:
-        data = _post_json(provider_id, path, body)
-        items = data.get("data") if isinstance(data.get("data"), list) else []
-        b64_str = _image_b64(items[0]) if items and isinstance(items[0], dict) else ""
+        b64_str = _DIRECT_IMAGE[route](provider_id, model, prompt, size, quality, source)
     except Exception as e:
         logger.error("Image %s failed: %s", verb, e, exc_info=True)
         return f"Image {verb} failed: {e}{_unlisted_note()}"
@@ -717,7 +815,7 @@ def _generate_image(
             result += f"\n{plan.note}"
         return result
 
-    if _route(provider_id) in {"openrouter", "together"}:
+    if _route(provider_id) in _DIRECT_IMAGE:
         return _direct_image(provider_id, provider_label, model, prompt, size, quality)
 
     # ── OpenAI images route (OpenAI, Vercel AI Gateway, Requesty) ──────────
@@ -913,7 +1011,7 @@ def _edit_image(
             result += f"\n{plan.note}"
         return result
 
-    if _route(provider_id) in {"openrouter", "together"}:
+    if _route(provider_id) in _DIRECT_IMAGE:
         return _direct_image(provider_id, provider_label, model, prompt, size, quality, image_bytes)
 
     # ── OpenAI images route (OpenAI, Vercel AI Gateway, Requesty) ──────────
