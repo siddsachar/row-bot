@@ -366,7 +366,7 @@ def test_claude_code_errors_say_what_happened_and_what_to_do(code, text, state) 
     if state == "plan_limit":
         assert message == "Your Claude plan's limit is reached until 3pm (Europe/London). Pick another model for now."
     if state == "too_old":
-        assert "Update Claude Code in Settings › Providers" in message and "terminal" not in message
+        assert "Update Claude Code in Settings › Models" in message and "terminal" not in message
     if code == "":
         assert "Prompt is too long" in message  # Row-Bot's context handling reads Claude Code's own words
 

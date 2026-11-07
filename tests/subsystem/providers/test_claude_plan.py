@@ -55,7 +55,7 @@ def _card():
     return next(card for card in read_live_provider_cards()["providers"] if card["provider_id"] == "claude_subscription")
 
 
-# ── Settings › Providers: what Claude Code says ─────────────────────────────
+# ── Settings › Models: what Claude Code says ─────────────────────────────
 
 
 @pytest.mark.parametrize(("setup", "state", "words"), [
@@ -224,9 +224,9 @@ def test_a_document_job_needs_a_claude_code_that_can_take_it(store, tmp_path, mo
 
 @pytest.mark.parametrize(("setup", "expected", "words"), [
     ({"installed": False}, "ClaudePlanUnavailable",
-     "Your Claude plan isn't set up. Choose Use my Claude plan in Settings › Providers › Claude (your Claude plan)."),
+     "Your Claude plan isn't set up. Choose Use my Claude plan in Settings › Models › Claude (your Claude plan)."),
     ({"version": "2.1.100 (Claude Code)"}, "ClaudePlanUnavailable",
-     "Row-Bot needs Claude Code 2.1.263 or newer. Update Claude Code in Settings › Providers"),
+     "Row-Bot needs Claude Code 2.1.263 or newer. Update Claude Code in Settings › Models"),
     ({"auth": {"loggedIn": False}, "auth_exit": 1}, "ProviderSignInRequired",
      "Claude signed you out. Sign in again to keep using your plan."),
     ({"reply": error_reply("authentication_failed", "OAuth token has expired")}, "ProviderSignInRequired",
