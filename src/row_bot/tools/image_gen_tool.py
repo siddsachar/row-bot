@@ -336,11 +336,21 @@ def _first_item_b64(data: dict) -> str:
 
 
 def _openrouter_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
-    body: dict = {"model": model, "prompt": prompt, "n": 1}
-    if size != "auto":
-        body["aspect_ratio"] = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1")
-    if quality != "auto":
-        body["quality"] = quality
+    from row_bot.providers.media import generation_options, nearest_aspect_ratio, nearest_resolution
+
+    aspect = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1") if size != "auto" else None
+    wanted = quality if quality != "auto" else None
+    settings: dict = {"aspect_ratio": aspect, "quality": wanted}
+    options = generation_options(provider_id, model)
+    if options is not None:
+        # Each setting is the nearest the model lists; one it lists nothing for is left to the model.
+        settings = {"aspect_ratio": nearest_aspect_ratio(aspect, options.get("aspect_ratio", [])) if aspect else None,
+                    "quality": wanted if wanted in options.get("quality", []) else None}
+        if wanted and not settings["quality"] and _QUALITY_TO_RESOLUTION.get(wanted):
+            # Models listed by resolution tier take quality as their resolution.
+            settings["resolution"] = nearest_resolution(_QUALITY_TO_RESOLUTION[wanted], options.get("resolution", []))
+    body: dict = {"model": model, "prompt": prompt, "n": 1,
+                  **{key: value for key, value in settings.items() if value is not None}}
     if source:
         body["input_references"] = [{"type": "image_url", "image_url": {"url": source}}]
     return _first_item_b64(_request_json(provider_id, "POST", "/images", body))

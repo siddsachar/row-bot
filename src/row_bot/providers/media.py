@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+import math
 from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
@@ -150,3 +152,70 @@ def media_error_text(response: Any) -> str:
         error = error.get("message")
     message = error or (body.get("message") if isinstance(body, dict) else None)
     return str(message or body)[:300]
+
+
+def generation_options(provider_id: str, model: str) -> dict[str, list] | None:
+    """The choices a model's catalogue lists for each setting it takes; None when it lists none."""
+    from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+    parameters = resolve_capability_snapshot(provider_id, model, include_static_fallback=False).get(
+        "generation_parameters")
+    options = parameters.get("options") if isinstance(parameters, Mapping) else None
+    if not isinstance(options, Mapping):
+        return None
+    return {str(name): list(values) for name, values in options.items() if isinstance(values, list)}
+
+
+# Resolutions in order of size, to find the one a model takes nearest the one asked for.
+_RESOLUTION_PIXELS = {"360p": 360, "480p": 480, "512": 512, "720p": 720, "768": 768, "768p": 768, "1k": 1024,
+                      "1080p": 1080, "1.5k": 1536, "2k": 2048, "4k": 4096}
+
+
+def _ratio(value: str, separator: str) -> float | None:
+    width, _, height = str(value).partition(separator)
+    try:
+        return math.log(float(width) / float(height))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _nearest(target: float | None, choices: list, measure) -> Any:
+    measured = [(measure(choice), choice) for choice in choices]
+    usable = [(size, choice) for size, choice in measured if size is not None]
+    if target is None or not usable:
+        return None
+    return min(usable, key=lambda item: abs(item[0] - target))[1]
+
+
+def _seconds(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def nearest_duration(seconds: int, choices: list) -> int | None:
+    """The length in seconds, of those a model takes, nearest the one asked for."""
+    return _nearest(float(seconds), choices, _seconds)
+
+
+def nearest_resolution(resolution: str, choices: list) -> str | None:
+    """The resolution, of those a model takes, nearest the one asked for, in the model's own spelling."""
+    return _nearest(_RESOLUTION_PIXELS.get(resolution.lower()), choices,
+                    lambda choice: _RESOLUTION_PIXELS.get(str(choice).lower()))
+
+
+def nearest_aspect_ratio(aspect_ratio: str, choices: list) -> str | None:
+    """The aspect ratio ("W:H"), of those a model takes, nearest the one asked for."""
+    return _nearest(_ratio(aspect_ratio, ":"), choices, lambda choice: _ratio(choice, ":"))
+
+
+def nearest_size(aspect_ratio: str, resolution: str, choices: list) -> str | None:
+    """The size ("WxH"), of those a model takes, nearest the aspect ratio and then the resolution asked for."""
+    shape = nearest_aspect_ratio(aspect_ratio, [f"{w}:{h}" for w, _, h in (str(c).partition("x") for c in choices)])
+    if shape is None:
+        return None
+    same_shape = [choice for choice in choices if _ratio(choice, "x") == _ratio(shape, ":")]
+
+    def short_side(choice: str) -> float | None:
+        width, _, height = choice.partition("x")
+        return float(min(int(width), int(height)))
+
+    return _nearest(_RESOLUTION_PIXELS.get(resolution.lower()), same_shape, short_side)
