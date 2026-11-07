@@ -6,6 +6,7 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 import logging
+from pathlib import Path
 from typing import Any, Mapping
 
 from row_bot.providers.selection import model_ref, parse_model_ref
@@ -326,6 +327,7 @@ def request_plan_for(
                     validate_reasoning_selection(selection, caps)
                 except ValueError:
                     set_thread_reasoning_selection(thread_id, canonical_model_ref, None)
+                    forget_reasoning_choice(canonical_model_ref, selection)
                     queue_reasoning_notice(
                         thread_id,
                         {
@@ -413,6 +415,7 @@ def apply_reasoning_command(thread_id: str, canonical_model_ref: str, argument: 
         None if selection.is_default else selection.to_json(),
     )
     clear_reasoning_suppression(thread_id, canonical_model_ref)
+    remember_reasoning_choice(canonical_model_ref, selection)
     return f"Reasoning for {canonical_model_ref}: {selection.label}."
 
 
@@ -497,6 +500,84 @@ def background_reasoning_rejected(canonical_model_ref: str) -> bool:
 
 def clear_reasoning_suppression(thread_id: str | None, canonical_model_ref: str) -> None:
     _suppressed_overrides.discard((str(thread_id or ""), canonical_model_ref))
+
+
+# A new chat starts on the Thinking choice the person last made for each model (#80), as it
+# starts on the approval level they last chose (#687). Chats they already have keep theirs.
+# Kept in model_settings.json beside the starred models.
+REMEMBERED_REASONING_KEY = "reasoning_last"
+
+
+def _model_settings_path() -> Path:
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    return get_row_bot_data_dir(create=False) / "model_settings.json"
+
+
+def remembered_reasoning_choices() -> dict[str, dict[str, Any]]:
+    """The Thinking choice the person last made for each model, by canonical model ref."""
+    from row_bot.providers.saved_model_settings import read_saved_model_settings
+
+    try:
+        raw, _revision, _exists = read_saved_model_settings(_model_settings_path())
+    except Exception:
+        logger.warning("Remembered Thinking choices could not be read; new chats start on Default")
+        return {}
+    saved = raw.get(REMEMBERED_REASONING_KEY)
+    found: dict[str, dict[str, Any]] = {}
+    for ref, value in saved.items() if isinstance(saved, dict) else ():
+        try:
+            selection = ReasoningSelection.from_json(value)
+        except (TypeError, ValueError):
+            continue
+        if parse_model_ref(str(ref)) is not None and not selection.is_default:
+            found[str(ref)] = selection.to_json()
+    return found
+
+
+def remember_reasoning_choice(canonical_model_ref: str, selection: ReasoningSelection) -> None:
+    """The person chose *selection* for this model: new chats with it start there. Default forgets it."""
+    _update_remembered_choice(canonical_model_ref, selection)
+
+
+def forget_reasoning_choice(canonical_model_ref: str, selection: ReasoningSelection) -> None:
+    """The model refused or no longer offers *selection*: new chats stop starting there."""
+    _update_remembered_choice(canonical_model_ref, ReasoningSelection(), only_if=selection)
+
+
+def _update_remembered_choice(
+    canonical_model_ref: str,
+    selection: ReasoningSelection,
+    *,
+    only_if: ReasoningSelection | None = None,
+) -> None:
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
+
+    current = remembered_reasoning_choices().get(canonical_model_ref)
+    if only_if is not None and current != only_if.to_json():
+        return
+    if current == (None if selection.is_default else selection.to_json()):
+        return
+
+    def merge(raw: dict) -> dict:
+        saved = raw.get(REMEMBERED_REASONING_KEY)
+        choices = dict(saved) if isinstance(saved, dict) else {}
+        if only_if is not None and choices.get(canonical_model_ref) != only_if.to_json():
+            return raw
+        if selection.is_default:
+            choices.pop(canonical_model_ref, None)
+        else:
+            choices[canonical_model_ref] = selection.to_json()
+        merged = {key: value for key, value in raw.items() if key != REMEMBERED_REASONING_KEY}
+        if choices:
+            merged[REMEMBERED_REASONING_KEY] = choices
+        return merged
+
+    try:
+        update_saved_model_settings(merge, path=_model_settings_path())
+    except Exception:
+        # The chat keeps the choice either way; only new chats miss it.
+        logger.warning("The Thinking choice could not be remembered for new chats", exc_info=True)
 
 
 def _positive_int(value: Any, *, default: int, allow_zero: bool = False) -> int:

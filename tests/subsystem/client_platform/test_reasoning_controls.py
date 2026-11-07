@@ -306,3 +306,13 @@ def test_retained_resume_admission_restores_existing_snapshot(platform, capabili
         assert config["configurable"]["reasoning_snapshot"]["selection"] == {"kind": "effort", "effort": "low"}
     finally:
         platform.finish_execution(handle, "interrupted")
+
+
+def test_a_thinking_choice_in_the_composer_starts_new_chats_there(platform, capabilities):
+    from row_bot import threads
+    controls(platform, "remember-low", {"kind": "effort", "effort": "low"})
+    assert threads.get_thread_reasoning_selection("conversation-b", MODEL) is None
+    started = threads.create_thread("New chat", seed_default_skills=False)
+    assert threads.get_thread_reasoning_selection(started, MODEL) == {"kind": "effort", "effort": "low"}
+    controls(platform, "forget", {"kind": "provider_default"})
+    assert threads.get_thread_reasoning_selection(threads.create_thread("Next", seed_default_skills=False), MODEL) is None

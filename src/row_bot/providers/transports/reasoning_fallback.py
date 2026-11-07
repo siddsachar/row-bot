@@ -14,6 +14,7 @@ from langchain_core.runnables.config import ensure_config, var_child_runnable_co
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.providers.reasoning import (
     ReasoningRequestPlan,
+    forget_reasoning_choice,
     queue_reasoning_notice,
     remember_background_rejection,
     suppress_reasoning_override,
@@ -229,6 +230,7 @@ class ReasoningFallbackChatModel(BaseChatModel):
                 from row_bot.threads import set_thread_reasoning_selection
 
                 set_thread_reasoning_selection(thread_id, self.plan.model_ref, None)
+            forget_reasoning_choice(self.plan.model_ref, self.plan.selection)
         except Exception:
             logger.warning(
                 "reasoning_fallback: selection reset failed provider=%s model=%s",

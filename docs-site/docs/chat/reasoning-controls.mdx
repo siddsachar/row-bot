@@ -30,6 +30,8 @@ More reasoning can increase latency and provider token usage. It can help with p
 
 A selection is saved locally for one thread and one exact provider-qualified model. Switching models does not apply an incompatible value to the new model. If you return to a model in the same thread, Row-Bot can restore that model's valid saved choice.
 
+A new conversation starts on the choice you last made for each model, in the app or with `/reasoning`; choosing **Provider default** forgets it. Conversations you already have keep their own choice.
+
 Changing the global default model does not rewrite existing thread choices. Conversations working on designs and code folders use the same thread-scoped behavior as any other conversation.
 
 Your choice applies to the conversation's own replies. Row-Bot's background work, such as checking a goal's progress, compacting a long conversation, memory extraction and Dream Cycle, uses the lowest effort that model offers instead, when Row-Bot knows its choices. Otherwise, or if the model refuses it, background work uses Provider default.
@@ -58,7 +60,7 @@ For a custom OpenAI-compatible endpoint, open **Settings -> Providers**, edit or
 
 When a provider returns reasoning content, Row-Bot can stream it separately and retain it as a collapsed **Thinking** section instead of mixing it into the final answer.
 
-If a provider rejects a valid-looking explicit reasoning choice before returning response content, Row-Bot retries once with Provider default, clears the rejected saved override, and shows a notice. Authentication failures, rate limits, timeouts, cancellations, and server failures are not silently retried as reasoning compatibility problems.
+If a provider rejects a valid-looking explicit reasoning choice before returning response content, Row-Bot retries once with Provider default, clears the rejected saved override (new conversations stop starting on it too), and shows a notice. Authentication failures, rate limits, timeouts, cancellations, and server failures are not silently retried as reasoning compatibility problems.
 
 ## Privacy And Safety
 

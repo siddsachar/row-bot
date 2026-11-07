@@ -586,6 +586,16 @@ def create_thread(
                 1 if incognito else 0,
             ),
         )
+        if not existed:
+            # A new conversation starts on the Thinking choice the person last made for each model.
+            from row_bot.providers.reasoning import remembered_reasoning_choices
+
+            remembered = remembered_reasoning_choices()
+            if remembered:
+                conn.execute(
+                    "UPDATE thread_meta SET reasoning_selections_json = ? WHERE thread_id = ?",
+                    (json.dumps(remembered, sort_keys=True, separators=(",", ":")), tid),
+                )
         conn.commit()
     if (
         seed_default_skills

@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import type { ConversationModelStatus, ModelChoice } from '../../api/types';
+import type {
+  ConversationModelStatus,
+  ModelChoice,
+  ReasoningView,
+} from '../../api/types';
 import ModelPicker from './ModelPicker';
 
 const models: ModelChoice[] = [
@@ -514,4 +518,46 @@ it('Connect on a model whose provider is not connected opens that provider', asy
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
   expect(onConnect).toHaveBeenCalledWith('anthropic');
+});
+
+it('says new chats start on a Thinking choice, and nothing on Default', () => {
+  const reasoning = (selection: ReasoningView['selection']): ReasoningView => ({
+    model_ref: 'model:ollama:qwen3.8:27b',
+    capability_revision: 'one',
+    available: true,
+    selection,
+    choices: [
+      { selection: { kind: 'provider_default' }, label: 'Provider default' },
+      { selection: { kind: 'on' }, label: 'On' },
+      { selection: { kind: 'off' }, label: 'Off' },
+    ],
+    supports_budget: false,
+    budget_min: 0,
+    budget_max: 0,
+    stale: false,
+  });
+  const { rerender } = show(
+    'model:ollama:qwen3.8:27b',
+    { state: 'ready', local: true },
+    { open: true, reasoning: reasoning({ kind: 'off' }), thinkingLabel: 'Off' },
+  );
+  const note = 'New chats with this model start here too.';
+  expect(screen.getByText(note)).toBeVisible();
+  rerender(
+    <ModelPicker
+      models={models}
+      current="model:ollama:qwen3.8:27b"
+      status={{ state: 'ready', local: true }}
+      disabled={false}
+      open
+      onOpenChange={vi.fn()}
+      onChoose={vi.fn()}
+      reasoning={reasoning({ kind: 'provider_default' })}
+      thinkingLabel="Provider default"
+      onThinking={vi.fn()}
+      onConnect={vi.fn()}
+      onManage={vi.fn()}
+    />,
+  );
+  expect(screen.queryByText(note)).toBeNull();
 });

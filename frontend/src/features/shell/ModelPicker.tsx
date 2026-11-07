@@ -294,6 +294,13 @@ export default function ModelPicker({
                 )}
               </div>
             )}
+            {reasoning?.available &&
+              !reasoning.stale &&
+              reasoning.selection.kind !== 'provider_default' && (
+                <p className="model-picker-note">
+                  New chats with this model start here too.
+                </p>
+              )}
             {reasoning?.available && reasoning.supports_budget && (
               <Disclosure
                 summary="Thinking budget"
