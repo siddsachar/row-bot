@@ -770,6 +770,11 @@ export default function ProviderConfiguration(
       </div>
     </div>
   ) : null;
+  // A new server on this computer whose usual port is Row-Bot's own says why
+  // its address was moved.
+  const movedNote = state.existing
+    ? undefined
+    : localServer(fields.profile)?.note;
   const allowedNote =
     state.existing && fields.allow_private_address ? (
       <p className="settings-help">
@@ -1043,7 +1048,7 @@ export default function ProviderConfiguration(
                   }
                 />
               </Field>
-              <Field label="Base URL">
+              <Field label="Base URL" hint={movedNote}>
                 <Input
                   value={fields.base_url}
                   disabled={locked}
@@ -1494,7 +1499,7 @@ export default function ProviderConfiguration(
                 onChange={(event) => field('display_name', event.target.value)}
               />
             </Field>
-            <Field label="Base URL">
+            <Field label="Base URL" hint={movedNote}>
               <Input
                 value={fields.base_url}
                 disabled={

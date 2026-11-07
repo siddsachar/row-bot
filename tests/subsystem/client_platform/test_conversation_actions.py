@@ -9,6 +9,7 @@ import pytest
 from row_bot.application.conversation_actions import (
     ConversationActionError,
     execute_conversation_action,
+    export_file_name,
     read_conversation_action_receipt,
     read_conversation_actions,
     review_conversation_action,
@@ -175,7 +176,7 @@ def test_export_is_local_opaque_excludes_internal_messages_and_recovers_admissio
     }
     metadata, data = read_attachment(exported["export"]["attachment_ref"])
     text = data.decode()
-    assert metadata["name"] == "conversation-export.md"
+    assert exported["export"]["file_name"] == metadata["name"] == "Export title.md"
     assert "# Export title" in text
     assert "## You\n\nPublic question" in text
     assert "## Row-Bot\n\nPublic answer" in text
@@ -287,9 +288,9 @@ def test_pdf_export_is_the_reviewed_transcript_rendered_offline(isolated_service
     command["payload"]["export_format"] = "pdf"
     exported = _execute(isolated_service, conversation, command)
     assert exported["status"] == "completed", exported
-    assert exported["export"]["file_name"] == "conversation-export.pdf"
+    assert exported["export"]["file_name"] == "PDF title.pdf"
     metadata, data = read_attachment(exported["export"]["attachment_ref"])
-    assert metadata["name"] == "conversation-export.pdf"
+    assert metadata["name"] == "PDF title.pdf"
     assert data.startswith(b"%PDF-")
     text = "\n".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(data)).pages)
     assert "PDF title" in text and "the plan" in text and "second step" in text
@@ -325,3 +326,19 @@ def test_pdf_export_says_so_when_no_pdf_renderer_is_installed(isolated_service, 
     command["payload"]["export_format"] = "pdf"
     with pytest.raises(ConversationActionError, match="conversation_export_pdf_unavailable"):
         _execute(isolated_service, conversation, command)
+
+
+@pytest.mark.parametrize(("title", "expected"), [
+    ("Trip to Lisbon: the plan?", "Trip to Lisbon the plan.md"),
+    ("..\\..\\secrets/notes", "secrets notes.md"),
+    ("  CON  ", "export-CON.md"),
+    ("x" * 300, "x" * 80 + ".md"),
+    ("", "conversation-export.md"),
+    ("New conversation", "conversation-export.md"),
+    ("\u65c5\u884c\u306e\u8a08\u753b", "conversation-export.md"),
+])
+def test_an_export_is_offered_under_the_chats_title_as_a_safe_name(title: str, expected: str) -> None:
+    """The Save dialog suggests the chat's title, never a folder, device name or overlong name; an
+    untitled chat (or one with no letters a file name keeps) keeps ``conversation-export``."""
+    assert export_file_name(title, "md") == expected
+    assert export_file_name(title, "pdf") == expected[:-3] + ".pdf"

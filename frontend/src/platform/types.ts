@@ -50,6 +50,8 @@ export interface MediaTransport {
 export type SavedFile =
   | {
       kind: 'file';
+      /** The chosen file's own name (never its folder), when the host says. */
+      fileName?: string;
       /** Show the file chosen in the Save dialog in the file manager. */
       reveal?(): Promise<boolean>;
     }
