@@ -42,6 +42,8 @@ def pod(tmp_path, monkeypatch, reload_for_data_dir):
     def restart(env_key: str | None = None):
         """A new process's secret store; the host sets its variable again (or doesn't)."""
         (module,) = reload_for_data_dir(data, "row_bot.secret_store")
+        # Server mode makes its process non-dumpable for good; this one is the test worker.
+        monkeypatch.setattr(module, "keep_environment_private", lambda: None)
         if env_key is None:
             monkeypatch.delenv(KEY_NAME, raising=False)
         else:
