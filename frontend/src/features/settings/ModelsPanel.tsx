@@ -150,13 +150,18 @@ function backupStatus(
 ): { tone: 'warning' | 'info'; text: string } | null {
   const { backup, brain } = state;
   if (backup.enabled !== true || !backup.current_ref) return null;
+  if (backup.current_ref === brain.current_ref)
+    return {
+      tone: 'warning',
+      text: 'The backup is the same as the main model. Choose another.',
+    };
   const chosen = backup.options.find(
     (item) => item.selection_ref === backup.current_ref,
   );
   if (!chosen?.available || backup.warning)
     return {
       tone: 'warning',
-      text: "The backup model isn't ready. Reconnect it in Providers.",
+      text: "The backup model isn't ready. Reconnect its provider below.",
     };
   const main = brain.options.find(
     (item) => item.selection_ref === brain.current_ref,

@@ -1046,7 +1046,16 @@ it('says where a message goes when a local main model has a cloud backup (#140)'
   show(controller);
   expect(
     await screen.findByText(
-      "The backup model isn't ready. Reconnect it in Providers.",
+      "The backup model isn't ready. Reconnect its provider below.",
+    ),
+  ).toBeVisible();
+  cleanup();
+  // The main model became the backup: it can't stand in for itself.
+  read.mockResolvedValue(state(local.selection_ref));
+  show(controller);
+  expect(
+    await screen.findByText(
+      'The backup is the same as the main model. Choose another.',
     ),
   ).toBeVisible();
 });
