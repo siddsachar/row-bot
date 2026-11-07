@@ -761,17 +761,18 @@ def test_a_post_attaches_a_library_item_by_its_reference_or_a_chat_file_by_its_n
     card = _picture(tmp_path / "b.png", "navy").read_bytes()
     shot = register_attachment("growth-assets", "screenshot-2026-10-29-115700.png", screenshot)
     register_attachment("growth-x", "launch-card.png", b"an older card")
-    register_attachment("growth-x", "launch-card.png", card)  # The newest with the name is the one meant.
+    # Each file in a chat has its own name: the second card is kept as launch-card-2.png.
+    assert register_attachment("growth-x", "launch-card.png", card)["name"] == "launch-card-2.png"
 
     by_ref = tool._x_post("post", text="Memory that lasts", media_paths=[shot["attachment_ref"]],
                           account="@rowbot_ai")
-    by_name = tool._x_post("post", text="Launch", media_paths=["launch-card.png"], account="@rowbot_ai")
+    by_name = tool._x_post("post", text="Launch", media_paths=["launch-card-2.png"], account="@rowbot_ai")
 
     assert "Posted as @rowbot_ai" in by_ref and "Posted as @rowbot_ai" in by_name
     shown = [payload["x_post"]["media"] for payload in asked]
     assert [(item["name"], item["sha256"]) for [item] in shown] == [
         ("screenshot-2026-10-29-115700.png", hashlib.sha256(screenshot).hexdigest()[:12]),
-        ("launch-card.png", hashlib.sha256(card).hexdigest()[:12])]
+        ("launch-card-2.png", hashlib.sha256(card).hexdigest()[:12])]
     assert [post["media_ids"] for post in fake.posts] == [[media_id] for media_id in fake.uploaded]
     assert str(tmp_path) not in json.dumps(asked)
 

@@ -146,10 +146,11 @@ def _chat_file(conversation_id: str, value: str) -> Source | None:
         files = list_conversation_files(conversation_id)
     except AttachmentError:
         return None
-    for item in files:  # Newest first.
-        if _plain_name(str(item["name"])).casefold() == wanted or str(item["name"]).casefold() == value.casefold():
-            return Source(name=_plain_name(str(item["name"])), size_bytes=int(item["size_bytes"]),
-                          mime_type=str(item["mime_type"]), ref=str(item["attachment_ref"]))
+    # Its own name first (each file in a chat has one), then a result's without "generated-".
+    exact = [item for item in files if str(item["name"]).casefold() == value.casefold()]
+    for item in exact or [item for item in files if _plain_name(str(item["name"])).casefold() == wanted]:
+        return Source(name=_plain_name(str(item["name"])), size_bytes=int(item["size_bytes"]),
+                      mime_type=str(item["mime_type"]), ref=str(item["attachment_ref"]))
     return None
 
 
