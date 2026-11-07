@@ -639,6 +639,7 @@ export default function ComposerControls({
         </Dropdown.Portal>
       </Dropdown.Root>
       <ModelPicker
+        key={id}
         models={state.handshake?.models ?? []}
         current={controls.model_selection?.model_ref}
         status={workspace.model_status}
