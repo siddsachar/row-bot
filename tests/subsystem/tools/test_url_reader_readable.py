@@ -91,6 +91,17 @@ def test_a_docs_page_keeps_its_code_and_a_simple_table(web):
     assert "Today\n\n| Port | High \\| low |\n| --- | --- |\n| Dover | 06:12 12:30 |" in text
 
 
+def test_a_headings_permalink_mark_is_left_out(web):
+    page = (b'<html><body><main><h1>Intro<a class="headerlink" href="#intro">\xc2\xb6</a></h1>'
+            b'<h2>Numbers<a href="#numbers">#</a></h2><p>See <a href="/guide">the guide</a>.</p></main></body></html>')
+
+    text = _read(web, page)
+
+    assert "# Intro\n\n## Numbers" in text
+    assert "\xb6" not in text and "#numbers" not in text
+    assert "[the guide](http://news.example/guide)" in text
+
+
 def test_a_page_built_by_javascript_points_to_the_browser(web):
     shell = (b'<html><head><title>Tide app</title><script src="/bundle.js"></script></head>'
              b'<body><div id="root"></div><noscript>Please enable JavaScript.</noscript></body></html>')

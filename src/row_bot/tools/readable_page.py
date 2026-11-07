@@ -28,6 +28,7 @@ _BLOCKS = {"p", "div", "section", "article", "main", "header", "footer", "figure
 _HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _INDENT = "\x00"  # one level of a nested list; spaces would be tidied away before the end
 _SHORT = 200
+_PERMALINKS = {"¶", "§", "#", "🔗"}
 JAVASCRIPT_ONLY = ("[This page builds itself with JavaScript, so its text isn't in the page. "
                    "Open it with the browser (browser_navigate) to read it.]")
 
@@ -67,6 +68,8 @@ def _tag(tag: Tag, base: str) -> str:
         return f"\n\n{'#' * int(name[1])} {text}\n\n" if text else ""
     if name == "a":
         text = _one_line(re.sub(r"\n#+ ", "\n", _render(tag, base)))  # a card link wrapping a heading
+        if text in _PERMALINKS or "headerlink" in (tag.get("class") or []):
+            return ""  # a heading's own permalink mark, not part of what the page says
         href = str(tag.get("href") or "").strip()
         if not href or href.lower().startswith("javascript:"):
             return text
