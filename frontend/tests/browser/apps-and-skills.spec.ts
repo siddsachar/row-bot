@@ -10,6 +10,7 @@ import {
   composer,
   fixtureState,
 } from './unified-helpers';
+import { signInPage } from './sign-in-helpers';
 import type { BrowserContext, Page, TestInfo } from '@playwright/test';
 
 /** Phase 3 journeys: every network effect is a local fake; clicks and dialogs are counted. */
@@ -91,11 +92,10 @@ async function checkLayout(page: Page, info: TestInfo, name: string) {
 /** Sign in on the synthetic provider's page, which opens in its own tab. */
 async function approveSignIn(
   context: BrowserContext,
+  app: Page,
   start: () => Promise<void>,
 ) {
-  const signIn = context.waitForEvent('page');
-  await start();
-  const page = await signIn;
+  const page = await signInPage(context, app, start);
   await page.getByRole('link', { name: 'Allow' }).click();
   await expect(
     page.getByText('Signed in to the synthetic service.'),
@@ -129,7 +129,7 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
     consent.getByRole('radio', { name: /^Look things up Reads/ }),
   ).toBeChecked();
   await checkLayout(page, info, 'apps-consent');
-  await approveSignIn(context, () =>
+  await approveSignIn(context, page, () =>
     steps.click(consent.getByRole('button', { name: 'Connect', exact: true })),
   );
   const access = steps.dialog();
@@ -228,12 +228,13 @@ test('fix sign-in after stopping half way', async ({ page, context }, info) => {
   await seed(page, '/__p5_fixture/apps');
   await openApps(page, context, '/app-v2/settings/apps/notion');
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  const signIn = context.waitForEvent('page');
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Connect', exact: true })
-    .click();
-  await (await signIn).close(); // Closed without signing in.
+  const signIn = await signInPage(context, page, () =>
+    page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Connect', exact: true })
+      .click(),
+  );
+  await signIn.close(); // Closed without signing in.
   await expect(
     page.getByText('Finish signing in to Notion in your browser.', {
       exact: false,
@@ -244,7 +245,7 @@ test('fix sign-in after stopping half way', async ({ page, context }, info) => {
   await expect(page).toHaveURL(/settings\/apps\/item\?id=mcp%3A/);
   await expect(page.getByText('Sign in needed', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await approveSignIn(context, () =>
+  await approveSignIn(context, page, () =>
     page
       .getByRole('dialog')
       .getByRole('button', { name: 'Sign in', exact: true })
@@ -572,9 +573,9 @@ test('a server that asks to sign in when first checked signs in before anything 
   await expect(
     consent.getByText(/asks, you sign in to it in your browser/),
   ).toBeVisible();
-  const signIn = context.waitForEvent('page');
-  await consent.getByRole('button', { name: 'Connect', exact: true }).click();
-  const provider = await signIn;
+  const provider = await signInPage(context, page, () =>
+    consent.getByRole('button', { name: 'Connect', exact: true }).click(),
+  );
   await expect(
     page.getByText(/Finish signing in to .* in your browser/),
   ).toBeVisible();
