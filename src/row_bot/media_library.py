@@ -162,12 +162,17 @@ def locate(ref: str) -> tuple[dict[str, Any], Path]:
 
 def bring(ref: str, conversation_id: str) -> dict[str, Any]:
     """Copy an item into a chat's files (its own copy, so the chat keeps it if the first one goes)."""
-    from row_bot.application.attachments import AttachmentError, read_attachment, register_attachment
+    from row_bot.application.attachments import (
+        AttachmentError, list_conversation_files, read_attachment, register_attachment,
+    )
 
     _known(ref)
     if ref.startswith(conversation_id + ":"):
         meta, _ = read_attachment(ref)
-        return meta
+        # The name the chat knows it by, which tells it from an older file kept under the same name.
+        named = {entry["attachment_ref"]: entry["name"] for entry in list_conversation_files(conversation_id,
+                                                                                           limit=100_000)}
+        return {**meta, "name": named.get(ref, meta["name"])}
     try:
         meta, data = read_attachment(ref)
         return register_attachment(conversation_id, meta["name"], data, meta["mime_type"])

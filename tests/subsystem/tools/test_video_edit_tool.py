@@ -240,9 +240,9 @@ def test_an_earlier_edit_can_be_edited_again_without_replacing_it(studio):
     first = _edit_id(studio.edit(inputs=["demo.mp4"], name="demo"))
     second = studio.edit(inputs=[first], steps=[{"op": "text", "text": "v2"}], name="demo")
 
-    assert ": saved" in second
+    assert "to this chat's files as demo-3.mp4" in second  # Each file in a chat has its own name.
     names = [item["name"] for item in list_conversation_files(studio.chat)]
-    assert names.count("demo.mp4") == 3  # The original, the first edit and the second: none replaced.
+    assert sorted(names) == ["demo-2.mp4", "demo-3.mp4", "demo.mp4"]  # None replaced; each has its own name.
 
 
 def test_saving_into_the_workspace_writes_a_new_file_and_replacing_one_asks(studio):

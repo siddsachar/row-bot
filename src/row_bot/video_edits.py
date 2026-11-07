@@ -422,7 +422,8 @@ def _save_gif(edit: VideoEdit, output: Path) -> None:
     if saved.get("mime_type") != "image/gif":
         edit.problem = "not_saved"
         raise EditError("ffmpeg didn't make a GIF.")
-    _set(edit, media_ref=str(saved["attachment_ref"]), mime_type="image/gif", size_bytes=len(data))
+    _set(edit, media_ref=str(saved["attachment_ref"]), mime_type="image/gif", size_bytes=len(data),
+         output_name=str(saved["name"]))  # A taken name is kept as name-2, …: say the one it has.
 
 
 def _save_video(edit: VideoEdit, output: Path) -> None:
@@ -450,7 +451,8 @@ def _save_video(edit: VideoEdit, output: Path) -> None:
     if saved.get("mime_type") != "video/mp4":
         edit.problem = "not_saved"
         raise EditError("ffmpeg didn't make an MP4 video.")
-    _set(edit, media_ref=str(saved["attachment_ref"]), mime_type="video/mp4", size_bytes=size)
+    _set(edit, media_ref=str(saved["attachment_ref"]), mime_type="video/mp4", size_bytes=size,
+         output_name=str(saved["name"]))  # A taken name is kept as name-2, …: say the one it has.
 
 
 def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[float]) -> None:

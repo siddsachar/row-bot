@@ -808,8 +808,8 @@ class BrowserEngine:
             from row_bot.application.attachments import register_attachment
             from row_bot.file_deliveries import size_words
 
-            register_attachment(owner, name, data)
-            self._chat(owner).notes.append(f"Downloaded {name} ({size_words(len(data))}) to this chat's files.")
+            kept = register_attachment(owner, name, data)["name"]  # A taken name is kept as name-2, ….
+            self._chat(owner).notes.append(f"Downloaded {kept} ({size_words(len(data))}) to this chat's files.")
         except Exception:
             logger.info("A browser download could not be kept", exc_info=True)
             self._chat(owner).notes.append(f"Downloaded {name}, but it couldn't be kept in this chat's files.")

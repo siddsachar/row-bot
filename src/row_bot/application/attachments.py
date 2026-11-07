@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import BinaryIO
 from uuid import UUID, uuid4
 
@@ -122,9 +123,30 @@ def _write(root: Path, path: Path, data: bytes) -> None:
             os.close(descriptor)
 
 
+def _numbered(name: str, taken: set[str]) -> str:
+    """*name*, or the first of name-2, name-3, … (before its type) that isn't in *taken* (case-folded names)."""
+    if name.casefold() not in taken:
+        return name
+    stem, suffix = os.path.splitext(name)
+    if len(suffix.encode("utf-8")) > 40:  # Not a file type: number the whole name.
+        stem, suffix = name, ""
+    number = 2
+    while True:
+        tail, head = f"-{number}{suffix}", stem
+        while len((head + tail).encode("utf-8")) > 240:
+            head = head[:-1]
+        if (head + tail).casefold() not in taken:
+            return head + tail
+        number += 1
+
+
 def register_attachment(conversation_id: str, name: str, data: bytes,
                         mime_type: str = "application/octet-stream") -> dict:
-    """Persist one bounded immutable file and its reference in thread media."""
+    """Persist one bounded immutable file and its reference in thread media.
+
+    Each file in a chat has its own name: one whose name is taken is kept as name-2, name-3, … (the
+    returned ``name`` says which), so five generated videos are five files a tool can name.
+    """
     from row_bot import threads
     if not data or len(data) > MAX_ATTACHMENT_BYTES:
         raise AttachmentError("payload_too_large")
@@ -138,6 +160,8 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         _safe_path(media_root, folder)
         folder.mkdir(parents=True, exist_ok=True)
         _safe_path(media_root, folder)
+        # Under the lock, so two tools finishing at once in one chat never take the same name.
+        name = _numbered(name, {str(item["name"]).casefold() for item in _named_files(conversation_id)})
         attachment_id = str(uuid4())
         ref = f"{conversation_id}:{attachment_id}"
         filename = f"attachment_{attachment_id}.bin"
@@ -215,7 +239,21 @@ def list_generated_outputs(conversation_id: str, *, limit: int = 20) -> list[dic
 
 
 def list_conversation_files(conversation_id: str, *, limit: int = 200) -> list[dict]:
-    """The conversation's files (name, type, size and reference), newest first, from their checked records."""
+    """The conversation's files (name, type, size and reference), newest first, from their checked records.
+
+    Each has its own name in the chat, the one tools find it by (see ``_named_files``).
+    """
+    return _named_files(conversation_id)[:limit]
+
+
+def _named_files(conversation_id: str) -> list[dict]:
+    """All the conversation's files, newest first, each under a name no other file in the chat has.
+
+    ``register_attachment`` gives every new file a free name. Files kept before that may share one (every
+    generated video was "generated-video.mp4"): the newest keeps the name, so it still finds what it found
+    before, and the older ones are told apart as name-2, name-3, … from newest to oldest. Their records stay
+    as they are, and a file that never shared its name keeps it.
+    """
     from row_bot import threads
 
     _conversation(conversation_id)
@@ -227,19 +265,42 @@ def list_conversation_files(conversation_id: str, *, limit: int = 200) -> list[d
     candidates = []
     for path in folder.glob("attachment_*.json"):
         try:
-            candidates.append((path.stat().st_mtime_ns, path))
+            info = path.stat()
         except OSError:
             continue
+        candidates.append((info.st_mtime_ns, path, (info.st_ino, info.st_size, info.st_mtime_ns)))
     candidates.sort(reverse=True)
     files: list[dict] = []
-    for _, path in candidates[:limit]:
+    for _, path, signature in candidates:
         attachment_id = path.stem.removeprefix("attachment_")
         try:
-            metadata = _metadata(root, folder, str(UUID(attachment_id)), f"{conversation_id}:{UUID(attachment_id)}")
+            record = _listed_record(root, folder, str(UUID(attachment_id)), f"{conversation_id}:{UUID(attachment_id)}",
+                                    signature)
         except (AttachmentError, ValueError):
             continue
-        files.append({key: metadata[key] for key in ("attachment_ref", "name", "mime_type", "size_bytes")})
+        files.append(dict(zip(("attachment_ref", "name", "mime_type", "size_bytes"), record)))
+    taken = {str(item["name"]).casefold() for item in files}
+    kept: set[str] = set()
+    for item in files:
+        key = str(item["name"]).casefold()
+        if key not in kept:
+            kept.add(key)  # The newest with a name keeps it.
+            continue
+        item["name"] = _numbered(str(item["name"]), taken)
+        taken.add(item["name"].casefold())
     return files
+
+
+@lru_cache(maxsize=16384)
+def _listed_record(root: Path, folder: Path, attachment_id: str, reference: str,
+                   signature: tuple[int, int, int]) -> tuple[str, str, str, int]:
+    """A file's checked record (reference, name, type, size), checked again only when its record file changes.
+
+    Records are written once and never change, so each new file costs one check rather than every file on
+    every listing (each new file reads the chat's names). Reading a file checks it in full every time.
+    """
+    metadata = _metadata(root, folder, attachment_id, reference)
+    return metadata["attachment_ref"], metadata["name"], metadata["mime_type"], metadata["size_bytes"]
 
 
 def read_native_selection(path: Path) -> tuple[str, bytes]:
