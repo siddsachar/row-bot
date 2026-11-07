@@ -885,7 +885,9 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   // A browser can only start a download; it never claims the file was saved.
   await expect(dialog).toHaveCount(0);
   await expect(
-    page.locator('.toast').filter({ hasText: 'Download started.' }),
+    page
+      .locator('.toast')
+      .filter({ hasText: 'Downloading conversation-export.md' }),
   ).toBeVisible();
   await writeEvidence(info, 'conversation-actions-result.json', {
     conversation,

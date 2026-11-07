@@ -244,8 +244,8 @@ def forget_claude_plan_status() -> None:
         _status_cache = None
 
 
-#: Where the person fixes anything about Claude: the words of Settings › Providers.
-CLAUDE_PLAN_SETTINGS = "Settings › Providers › Claude (your Claude plan)"
+#: Where the person fixes anything about Claude: the words of Settings › Models.
+CLAUDE_PLAN_SETTINGS = "Settings › Models › Claude (your Claude plan)"
 SIGNED_OUT_MESSAGE = "Claude signed you out. Sign in again to keep using your plan."
 
 

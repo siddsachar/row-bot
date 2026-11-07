@@ -28,7 +28,7 @@ body:
     id: version
     attributes:
       label: Row-Bot version
-      placeholder: v5.3.2
+      placeholder: v5.3.3
   - type: dropdown
     id: runs_on
     attributes:

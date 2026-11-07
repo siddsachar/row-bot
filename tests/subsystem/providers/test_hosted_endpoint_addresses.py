@@ -223,7 +223,7 @@ def test_a_name_that_answers_differently_after_the_check_is_refused_before_anyth
         custom.refresh_custom_endpoint_models("office")
     assert str(background.value) == (
         "This custom endpoint's address (10.1.2.3) is on your host's private network. To use it, "
-        "edit the endpoint in Settings › Providers and allow it.")
+        "edit the endpoint in Settings › Models and allow it.")
     with pytest.raises(EndpointAddressRefused, match="private network"):
         chat().invoke([HumanMessage(content="hi")])
     assert network.received == []

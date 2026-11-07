@@ -260,7 +260,8 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
       .click(),
   );
   expect(download.name).toBe('workflow-webhook.json');
-  expect(download.mimeType).toBe('application/json');
+  // Every save comes from one short-lived offer of its bytes (5.3.3).
+  expect(download.mimeType).toBe('application/octet-stream');
   expect(download.bytes.length).toBeLessThanOrEqual(65_536);
   const webhook = JSON.parse(download.bytes.toString('utf8')) as {
     method: string;
@@ -283,10 +284,9 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
   expect(olderForm.searchParams.get('secret')).toBe(secret);
   expect(await editor.textContent()).not.toContain(secret!);
   await expect(
-    editor.getByText(
-      'The private webhook configuration was downloaded. Keep it private.',
-      { exact: true },
-    ),
+    editor.getByText('Keep the webhook file private: it holds its secret.', {
+      exact: true,
+    }),
   ).toBeVisible();
   // The address shows with its secret hidden; nothing is public until the
   // person asks for it (parity rows 20, 52). Never clicked here.

@@ -379,7 +379,7 @@ def _catalog_row(
         status_reason = "Codex account is connected, but direct chat runtime is not enabled yet."
     if provider_id == "claude_subscription" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
-        status_reason = "Set up Claude in Settings › Providers: it runs Claude Code on this computer."
+        status_reason = "Set up Claude in Settings › Models: it runs Claude Code on this computer."
     if provider_id == "xai_oauth" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
         status_reason = "xAI Grok runtime needs a Row-Bot OAuth connection."

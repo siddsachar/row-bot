@@ -66,7 +66,7 @@ class EndpointAddressRefused(ProviderConfigError):
             return (f"This custom endpoint's address{where} belongs to the hosting company's own computer. "
                     "Row-Bot never connects to it.")
         return (f"This custom endpoint's address{where} is on your host's private network. To use it, "
-                "edit the endpoint in Settings › Providers and allow it.")
+                "edit the endpoint in Settings › Models and allow it.")
 
 
 def address_kind(value: str) -> Kind:
