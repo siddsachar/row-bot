@@ -772,7 +772,12 @@ def build_access_router(
                 "expires_at": result.session.expires_at.isoformat(),
             }
         )
-        if result.renewed and current_token:
+        # Set the cookie again on every refresh, renewed or not: the same token and the session's
+        # own expiry, with today's attributes. A browser keeps a cookie's attributes from when it
+        # was set, so a phone signed in before the cookie became SameSite=Lax (#735) kept a Strict
+        # one for up to 30 days and was sent back to Connect each time it opened from its home
+        # screen. It never extends the session; only a due renewal does.
+        if current_token:
             cookies.set_session(
                 response,
                 current_token,

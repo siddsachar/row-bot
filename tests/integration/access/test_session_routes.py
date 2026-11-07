@@ -257,9 +257,57 @@ def test_due_trusted_refresh_extends_server_and_cookie_expiry(tmp_path) -> None:
     assert service.validate_session(token, touch=False) is not None
 
 
-def test_early_and_temporary_refreshes_do_not_reissue_cookie(tmp_path) -> None:
-    client, service, _registration = _application(tmp_path)
-    _claim_owner(client, service)
+def _max_age(header: str) -> int:
+    match = re.search(r"Max-Age=(\d+)", header)
+    assert match is not None
+    return int(match.group(1))
+
+
+def test_a_cookie_set_before_lax_is_set_again_as_lax_without_extending_it(
+    tmp_path,
+) -> None:
+    """The owner's phone, 7 Nov: signed in on 4 Nov, before the cookie became Lax (#735).
+
+    A browser keeps a cookie's attributes from when it was set, so the phone still held a
+    Strict cookie, Chrome left it out each time the phone opened Row-Bot from its home
+    screen, and the phone was sent back to Connect though its session had weeks left.
+    """
+    client, service, registration = _application(tmp_path)
+    claim = _claim_owner(client, service)
+    token = claim.cookies.get(registration.cookies.names.http)
+    session_id = claim.json()["session"]["id"]
+    expires_at = datetime.now(timezone.utc) + timedelta(days=27)
+    _set_session_expiry(service, session_id, expires_at)
+    # The cookie as the old code set it; the test client sends it whatever its attributes.
+    client.cookies.clear()
+    client.cookies.set(registration.cookies.names.http, token)
+
+    response = client.post(
+        "/api/access/session/refresh",
+        headers={"origin": "http://localhost:8080"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["renewed"] is False
+    set_cookie = response.headers["set-cookie"]
+    assert set_cookie.startswith(f"{registration.cookies.names.http}={token};")
+    assert "samesite=lax" in set_cookie.lower()
+    assert "httponly" in set_cookie.lower()
+    # The session's own expiry, not a fresh 30 days.
+    remaining = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+    assert remaining - 5 <= _max_age(set_cookie) <= remaining
+    assert service.store.get_session(session_id).expires_at == expires_at
+    assert token not in response.text
+
+
+def test_early_and_temporary_refreshes_set_the_cookie_again_without_extending_it(
+    tmp_path,
+) -> None:
+    client, service, registration = _application(tmp_path)
+    claim = _claim_owner(client, service)
+    token = claim.cookies.get(registration.cookies.names.http)
+    session_id = claim.json()["session"]["id"]
+    expires_at = service.store.get_session(session_id).expires_at
 
     early = client.post(
         "/api/access/session/refresh",
@@ -268,9 +316,15 @@ def test_early_and_temporary_refreshes_do_not_reissue_cookie(tmp_path) -> None:
 
     assert early.status_code == 200
     assert early.json()["renewed"] is False
-    assert "set-cookie" not in early.headers
+    assert early.headers["set-cookie"].startswith(
+        f"{registration.cookies.names.http}={token};"
+    )
+    assert _cookie_scope(early.headers["set-cookie"]) == _cookie_scope(
+        claim.headers["set-cookie"]
+    )
+    assert service.store.get_session(session_id).expires_at == expires_at
 
-    temporary_client, temporary_service, _temporary_registration = _application(
+    temporary_client, temporary_service, temporary_registration = _application(
         tmp_path / "temporary",
         port=8081,
     )
@@ -284,6 +338,8 @@ def test_early_and_temporary_refreshes_do_not_reissue_cookie(tmp_path) -> None:
         headers={"origin": "http://localhost:8081"},
     )
     assert claim.status_code == 200
+    temporary_id = claim.json()["session"]["id"]
+    temporary_expiry = temporary_service.store.get_session(temporary_id).expires_at
 
     temporary = temporary_client.post(
         "/api/access/session/refresh",
@@ -293,7 +349,11 @@ def test_early_and_temporary_refreshes_do_not_reissue_cookie(tmp_path) -> None:
     assert temporary.status_code == 200
     assert temporary.json()["lifetime"] == "temporary"
     assert temporary.json()["renewed"] is False
-    assert "set-cookie" not in temporary.headers
+    set_cookie = temporary.headers["set-cookie"]
+    assert set_cookie.startswith(f"{temporary_registration.cookies.names.http}=")
+    # Twelve hours at most: setting the cookie again never lengthens a temporary session.
+    assert _max_age(set_cookie) <= 12 * 60 * 60
+    assert temporary_service.store.get_session(temporary_id).expires_at == temporary_expiry
 
 
 def test_migrated_cookie_refresh_is_a_non_secret_noop(tmp_path) -> None:
