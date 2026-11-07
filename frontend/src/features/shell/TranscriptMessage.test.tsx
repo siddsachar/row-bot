@@ -166,6 +166,29 @@ it('says quietly when a reply used a lesson in use (Learning)', () => {
   expect(screen.queryByText('Used a lesson')).toBeNull();
 });
 
+it('says in one quiet line when the backup model took over a turn (#140)', () => {
+  const handover = {
+    ...ask,
+    id: 'user:handover',
+    message_id: 'handover',
+    note: 'backup_model',
+    blocks: [
+      {
+        id: 'b',
+        type: 'markdown',
+        text: "qwen3:8b didn't answer (it couldn't be reached), so GPT-5 mini took over.",
+      },
+    ],
+  } as unknown as TranscriptRow;
+  render(<TranscriptMessage row={handover} conversationId="conversation-a" />);
+  // Never the person's bubble or the hand-over written for the model.
+  expect(screen.getByRole('note')).toHaveTextContent(
+    "qwen3:8b didn't answer (it couldn't be reached), so GPT-5 mini took over.",
+  );
+  expect(screen.queryByRole('article')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
+});
+
 it('says quietly which replies the personal model gave, and when the main model finished one (Learning)', () => {
   const { rerender } = render(
     <TranscriptMessage

@@ -436,7 +436,8 @@ class BlobReader:
                 if "platform_attachments" in metadata:
                     attachments = self.safe_attachments(metadata["platform_attachments"])
                 if "row_bot_ui" in metadata:
-                    ui = self.fields(metadata["row_bot_ui"], {"learning_fallback", "linked_from", "held"})
+                    ui = self.fields(metadata["row_bot_ui"], {"learning_fallback", "backup_model", "linked_from",
+                                                               "held"})
                     if "held" in ui and note == "continuation":
                         held = self.held_messages(ui["held"])
                     if "linked_from" in ui and note == "linked":
@@ -452,6 +453,12 @@ class BlobReader:
                         sentence = self.fields(ui["learning_fallback"], {"text"})
                         if "text" in sentence and self.node(sentence["text"]).kind == "str":
                             note, content_position = "personal_model_fallback", sentence["text"]
+                    if "backup_model" in ui:
+                        # The backup model took over this turn (#140): the row is the note's sentence,
+                        # never the hand-over written for the model.
+                        sentence = self.fields(ui["backup_model"], {"text"})
+                        if "text" in sentence and self.node(sentence["text"]).kind == "str":
+                            note, content_position = "backup_model", sentence["text"]
             elif name == "AIMessage" and "row_bot_ui" in metadata:
                 # A delegated agent's approval notice in its parent (B162):
                 # the row names the approval, so React answers it in place.

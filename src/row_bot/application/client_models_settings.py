@@ -91,12 +91,18 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     video_ref = _media_ref(str(video_value), default_provider="google")
     cache, rows = client_status._read(None, include_readiness=True)
     shown = read_model_visibility()
+    from row_bot.providers import backup
+    backup_setting = backup.read_setting()
     policy = get_context_policy(brain_ref or None, allow_probe=False)
     cap = (get_cloud_context_override() if policy.policy_kind == "provider" else
            None if get_local_context_mode() == "auto" else get_user_context_size())
     result = {
         "schema_version": 1,
         "brain": _picker("chat", brain_ref, rows, visibility=shown),
+        # A backup takes tools and is never a Learning personal model (#140).
+        "backup": _picker("chat", backup_setting["ref"],
+                          tuple(row for row in rows if row.runtime_mode != "chat_only" and not row.offered),
+                          enabled=backup_setting["enabled"], visibility=shown),
         "vision": _picker("vision", vision_ref, rows, enabled=vision.enabled, visibility=shown),
         "image": _picker("image", image_ref, rows, enabled=registry.is_enabled("image_gen") if image_tool else False,
                          media_options=get_available_image_models(), visibility=shown),
@@ -121,7 +127,17 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
     from row_bot.tools import registry
     from row_bot.vision_runtime import get_vision_service
 
-    if action == "default" and surface == "vision" and selection_ref == "":
+    if surface == "backup" and action in {"default", "enabled"}:
+        from row_bot.providers import backup
+        if action == "enabled" and type(enabled) is bool:
+            backup.save_setting(enabled=enabled)
+        elif action == "default" and selection_ref and any(
+                item["selection_ref"] == selection_ref and item["available"]
+                for item in read_models_settings(validate=validate)["backup"]["options"]):
+            backup.save_setting(ref=selection_ref)
+        else:
+            raise ValueError("model_configuration_unavailable" if action == "default" else "invalid_model_surface_action")
+    elif action == "default" and surface == "vision" and selection_ref == "":
         # "Same as chat model" (decision 11): Vision follows the chat model.
         get_vision_service().model = ""
         from row_bot.agent import clear_agent_cache

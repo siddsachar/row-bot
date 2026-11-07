@@ -4827,6 +4827,64 @@ def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(d
     return {"action": action, "models": len(_S8_LOCAL_MODELS)}
 
 
+# ── #140: the backup model ──────────────────────────────────────────────────
+# A local main model (one of S8's) with a cloud backup, and a chat the backup
+# finished. Synthetic settings and messages only; nothing calls a model.
+_backup_fixture: dict = {}
+_BACKUP_REF = "model:openai:gpt-5-mini"
+
+
+@app.post("/__backup_fixture/{action}")
+def backup_model_fixture(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """seed: the main model local and GPT-5 mini its backup, switched on (after S8's seed);
+    chat: a conversation whose turn the backup took over; restore: the settings back."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models, threads
+    from row_bot.providers import backup, model_catalog_cache as cache, saved_model_settings
+
+    settings = Path(saved_model_settings.SETTINGS_PATH)
+    if not settings.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if action == "seed":
+        _backup_fixture.setdefault("settings", settings.read_text(encoding="utf-8") if settings.exists() else None)
+        _backup_fixture.setdefault("model", models.get_current_model())
+        snapshot = cache.read_model_catalog_cache()
+        cloud = {**snapshot.cloud_cache, _BACKUP_REF: {
+            "provider": "openai", "model_id": "gpt-5-mini", "label": "GPT-5 mini",
+            "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"],
+                                      "tool_calling": True}}}
+        cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+            1, snapshot.generated_at + 1, cloud, snapshot.ollama_rows,
+            {**snapshot.provider_status, "openai": {"status": "ok", "count": len(cloud)}}, (), "synthetic-browser"))
+        main = "model:ollama:qwen3:8b"
+        saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": main})
+        models.adopt_saved_default(main)
+        backup.save_setting(enabled=True, ref=_BACKUP_REF)
+        return {"main": main, "backup": _BACKUP_REF}
+    if action == "chat":
+        thread = threads.create_thread("Plan my day", name_source="manual", seed_default_skills=False)
+        line = backup.note("qwen3:8b", "GPT-5 mini", "it couldn't be reached")
+        threads.append_checkpoint_messages(thread, [
+            HumanMessage(id=fixture_id(thread + ":ask"), content="Plan my day around the 3pm dentist appointment."),
+            HumanMessage(id=fixture_id(thread + ":handover"), content="[Row-Bot] My main model couldn't answer.",
+                         additional_kwargs={"row_bot_ui": {"thread_event": True, "backup_model": {"text": line}}}),
+            AIMessage(id=fixture_id(thread + ":reply"), content=(
+                "Here's a plan that keeps the afternoon clear:\n\n- **9:00** Deep work on the report\n"
+                "- **12:30** Lunch, then leave by 2:30\n- **3:00** Dentist\n- **4:30** Email and wrap up")),
+        ])
+        return {"conversation_id": thread}
+    if action == "restore":
+        if "settings" in _backup_fixture:
+            saved = _backup_fixture.pop("settings")
+            if saved is None:
+                settings.unlink(missing_ok=True)
+            else:
+                settings.write_text(saved, encoding="utf-8")
+            models.adopt_saved_default(_backup_fixture.pop("model", "") or "")
+        return {"action": action}
+    raise HTTPException(status_code=422, detail="Unknown backup fixture action")
+
+
 def _p17_install_connection_check_fakes() -> None:
     """Monitor's connection checks (B252) run hourly and on Run diagnosis; in
     this disposable server they answer from the fixture and never reach a

@@ -6196,6 +6196,8 @@ class ModelContextState(WireModel):
 class ModelsSettingsState(WireModel):
     schema_version: Literal[1] = 1
     brain: ModelPickerSurface
+    # Answers when the main model can't (#140): off by default, ready agent models only.
+    backup: ModelPickerSurface
     vision: ModelPickerSurface
     image: ModelPickerSurface
     video: ModelPickerSurface
@@ -6207,7 +6209,7 @@ class ModelsSettingsState(WireModel):
 
 
 class ModelSurfaceMutation(WireModel):
-    surface: Literal["vision", "image", "video"]
+    surface: Literal["vision", "image", "video", "backup"]
     action: Literal["default", "enabled", "camera"]
     selection_ref: str | None = Field(default=None, max_length=647)
     enabled: bool | None = None
@@ -8723,8 +8725,9 @@ class TranscriptRow(WireModel):
     # messages to it: the row's text is a short public note.
     # Learning (preview): "personal_model_fallback" is the quiet line where the main
     # model finished a turn the personal model got stuck on.
+    # "backup_model" is the quiet line where the backup model took over a turn (#140).
     note: Literal["continuation", "agent_task", "agent_guidance", "page", "personal_model_fallback",
-                  "linked"] | None = None
+                  "linked", "backup_model"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
     # A workflow run's line (note "continuation"): the messages other conversations left for that run.

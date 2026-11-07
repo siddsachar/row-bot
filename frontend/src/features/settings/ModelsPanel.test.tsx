@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -48,6 +49,15 @@ const baseState: ModelsSettingsState = {
     warning: '',
     options: [
       option(brain, 'GPT-6-Astra - ChatGPT / Codex'),
+      option('model:codex:gpt-5.5', 'GPT-5.5 - ChatGPT / Codex'),
+    ],
+  },
+  backup: {
+    current_ref: '',
+    enabled: false,
+    warning: '',
+    options: [
+      option('model:openai:gpt-5-mini', 'GPT-5 mini - OpenAI'),
       option('model:codex:gpt-5.5', 'GPT-5.5 - ChatGPT / Codex'),
     ],
   },
@@ -138,7 +148,7 @@ function fixture() {
     })),
     updateModelSurface: vi.fn(
       async (body: {
-        surface: 'vision' | 'image' | 'video';
+        surface: 'vision' | 'image' | 'video' | 'backup';
         action: string;
         enabled?: boolean;
         selection_ref?: string;
@@ -309,10 +319,15 @@ it('gives the four jobs one row each: name, purpose, switch, picker (B229)', asy
   expect(
     screen.getByText('Makes short clips and animates pictures.'),
   ).toBeVisible();
-  // Vision, Image and Video can be switched off; the main model can't.
+  // The backup, Vision, Image and Video can be switched off; the main model can't.
   expect(
     screen.getAllByRole('switch').map((toggle) => toggle.ariaLabel),
-  ).toEqual(['Enable vision', 'Enable image', 'Enable video']);
+  ).toEqual([
+    'Enable backup model',
+    'Enable vision',
+    'Enable image',
+    'Enable video',
+  ]);
   // No stray save line, no chip repeating the main model.
   expect(screen.queryByText(/Brain default saved/)).toBeNull();
   expect(screen.queryByTitle(/Default model:/)).toBeNull();
@@ -955,4 +970,83 @@ it('lists one provider’s models in its sheet, without the catalog’s provider
   expect(
     within(sheet).queryByRole('button', { name: 'All providers' }),
   ).toBeNull();
+});
+
+it('keeps the backup model off until it is switched on and chosen (#140)', async () => {
+  const { controller } = show();
+  const toggle = await screen.findByRole('switch', {
+    name: 'Enable backup model',
+  });
+  expect(toggle).not.toBeChecked();
+  expect(screen.getByRole('button', { name: 'Backup model' })).toBeDisabled();
+  expect(screen.getByText("Answers when the main model can't.")).toBeVisible();
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(controller.updateModelSurface).toHaveBeenCalledWith({
+      surface: 'backup',
+      action: 'enabled',
+      enabled: true,
+    }),
+  );
+  expect(await notice('Backup model turned on')).toBeInTheDocument();
+  await chooseDefault(/GPT-5 mini/, 'Backup model');
+  await waitFor(() =>
+    expect(controller.updateModelSurface).toHaveBeenLastCalledWith({
+      surface: 'backup',
+      action: 'default',
+      selection_ref: 'model:openai:gpt-5-mini',
+    }),
+  );
+  expect(await notice('Backup model is now GPT-5 mini')).toBeInTheDocument();
+  // Another provider than the main model, nothing local: no status line.
+  expect(screen.queryByText(/Pick a model from another provider/)).toBeNull();
+});
+
+it('says where a message goes when a local main model has a cloud backup (#140)', async () => {
+  const controller = fixture();
+  const local = option('model:ollama:qwen3:8b', 'qwen3:8b - Ollama');
+  const state = (backupRef: string, available = true) => ({
+    ...structuredClone(baseState),
+    brain: {
+      ...structuredClone(baseState.brain),
+      current_ref: local.selection_ref,
+      options: [{ ...local, billing: 'local' as const }],
+    },
+    backup: {
+      ...structuredClone(baseState.backup),
+      enabled: true,
+      current_ref: backupRef,
+      options: [
+        option('model:openai:gpt-5-mini', 'GPT-5 mini - OpenAI', available),
+        {
+          ...option('model:ollama:llama4', 'llama4 - Ollama'),
+          billing: 'local' as const,
+        },
+      ],
+    },
+  });
+  const read = vi.spyOn(controller, 'modelsSettings');
+  read.mockResolvedValue(state('model:openai:gpt-5-mini'));
+  show(controller);
+  expect(
+    await screen.findByText(
+      "When Ollama can't answer, your message goes to OpenAI. Incognito chats stay local.",
+    ),
+  ).toBeVisible();
+  cleanup();
+  read.mockResolvedValue(state('model:ollama:llama4'));
+  show(controller);
+  expect(
+    await screen.findByText(
+      "Pick a model from another provider, so one outage doesn't stop both.",
+    ),
+  ).toBeVisible();
+  cleanup();
+  read.mockResolvedValue(state('model:openai:gpt-5-mini', false));
+  show(controller);
+  expect(
+    await screen.findByText(
+      "The backup model isn't ready. Reconnect it in Providers.",
+    ),
+  ).toBeVisible();
 });

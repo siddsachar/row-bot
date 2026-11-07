@@ -22,6 +22,7 @@ from row_bot.prompt_cache import (
     prompt_cache_lifetime,
     with_conversation_cache,
 )
+from row_bot.providers import backup as backup_model
 from row_bot.providers import deferred_tools
 from row_bot.providers.capabilities import PROMPT_CACHE_SYSTEM_BREAKPOINT_ROUTES, prompt_cache_route
 from row_bot import prompt_prefix_diff
@@ -778,6 +779,11 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
                             "kind": str(fallback.get("kind") or "")[:64],
                             "reason": str(fallback.get("reason") or "")[:64],
                         }
+                    # The backup model taking over a turn (#140): the chat shows only its note.
+                    backup_note = (item.get("row_bot_ui") or {}).get("backup_model") if isinstance(
+                        item.get("row_bot_ui"), dict) else None
+                    if isinstance(backup_note, dict) and isinstance(backup_note.get("text"), str):
+                        ui["backup_model"] = {"text": backup_note["text"][:300]}
                     event_messages.append(
                         HumanMessage(content=content, additional_kwargs={"row_bot_ui": ui})
                     )
@@ -1221,6 +1227,8 @@ def _readiness_refusal(provider_id: str) -> list[tuple] | None:
 
 def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
+    if backup_model.hold_notice(friendly_msg):
+        return  # shown only if the backup model doesn't answer
     try:
         from row_bot.notifications import notify
         # An open conversation already shows its own error with a next step;
@@ -7595,6 +7603,7 @@ def _stream_chat_only_events(
             time.perf_counter() - _llm_started
         ) * 1000.0
     except Exception as exc:
+        backup_model.note_failure(exc)
         yield ("error", _friendly_api_error(str(exc), model_label))
         return
     _messages_started = time.perf_counter()
@@ -7785,6 +7794,7 @@ def _stream_chat_only_events(
             if _is_context_overflow_error(exc):
                 _mark_context_overflow(preparation_inputs)
             learn(exc)
+            backup_model.note_failure(exc)
             yield ("error", _friendly_api_error(str(exc), model_label))
             return
         break
@@ -7923,7 +7933,18 @@ NO_MODEL_CHANNEL_REPLY = (
 
 
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
-                  *, stop_event: threading.Event | None = None):
+                 *, stop_event: threading.Event | None = None):
+    """:func:`stream_agent_without_backup`, finished by the backup model when the turn's model can't
+    answer (#140). It also yields ``("backup_model", {note, reason, model_ref})`` when it switches."""
+    return backup_model.stream(
+        lambda: stream_agent_without_backup(user_input, enabled_tool_names, config, stop_event=stop_event),
+        lambda handed: stream_agent_without_backup(user_input, enabled_tool_names, handed, stop_event=stop_event),
+        config, user_input, stop_event=stop_event, notify=_notify_api_error,
+    )
+
+
+def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], config: dict,
+                                *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
 
     Yields tuples of ``(event_type, payload)`` where *event_type* is one of:
@@ -8046,6 +8067,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 reason=runtime_readiness.selection_reason,
                 context_window=_readiness_context_window(runtime_readiness, "chat"),
             )
+            backup_model.note_failure(backup_model.MainModelNotReady(runtime_readiness.selection_reason))
             yield from (_readiness_refusal(runtime_readiness.chat.provider_id)
                         or [("error", runtime_readiness.selection_reason)])
             return
@@ -8264,6 +8286,21 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
                         *, interrupt_ids: list[str] | None = None,
                         resume_values: Mapping[str, Any] | None = None,
                         stop_event: threading.Event | None = None):
+    """:func:`_resume_stream_agent_turn`, finished by the backup model when the turn's model can't
+    answer after the approval (#140)."""
+    return backup_model.stream(
+        lambda: _resume_stream_agent_turn(enabled_tool_names, config, approved, interrupt_ids=interrupt_ids,
+                                          resume_values=resume_values, stop_event=stop_event),
+        lambda handed: stream_agent_without_backup("", enabled_tool_names, handed, stop_event=stop_event),
+        config, str((config.get("configurable") or {}).get("root_objective") or ""),
+        stop_event=stop_event, notify=_notify_api_error,
+    )
+
+
+def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, approved: bool,
+                              *, interrupt_ids: list[str] | None = None,
+                              resume_values: Mapping[str, Any] | None = None,
+                              stop_event: threading.Event | None = None):
     """Resume an interrupted agent graph after user approval/denial.
 
     ``resume_values`` (a question's answer, by its interrupt id) resumes only
@@ -9256,6 +9293,7 @@ def _stream_graph(agent, input_data, config: dict,
             logger.info("A model call was refused by its caller's limit: %s", exc_str)
             yield ("error", exc_str)
             return
+        backup_model.note_failure(exc)
         refusal = _provider_refusal(exc)
         if refusal:
             logger.warning("The provider can't answer: %s", exc_str)
@@ -9345,6 +9383,7 @@ def _stream_graph(agent, input_data, config: dict,
                     logger.info("A model call was refused by its caller's limit: %s", retry_exc)
                     yield ("error", str(retry_exc))
                     return
+                backup_model.note_failure(retry_exc)
                 _rmsg = _friendly_api_error(str(retry_exc))
                 logger.error(
                     "_stream_graph retry failed during iteration: %s diagnostics=%s",

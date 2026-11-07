@@ -864,7 +864,8 @@
                 "agent_guidance",
                 "page",
                 "personal_model_fallback",
-                "linked"
+                "linked",
+                "backup_model"
               ],
               "type": "string"
             },

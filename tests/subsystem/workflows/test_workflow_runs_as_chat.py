@@ -389,3 +389,39 @@ def test_a_one_off_run_is_not_asked_to_keep_notes_for_a_next_run(workflows, plat
 
     assert fake.prompts[0] == "List the files in the workspace."
     assert done["status"] == "completed"
+
+
+def test_a_run_the_main_model_cant_answer_is_finished_by_the_backup_model(workflows, platform, monkeypatch, tmp_path):  # noqa: F811
+    """#140: the 7am run when the main model's provider is down: the backup answers it."""
+    import row_bot.agent as agent
+    from row_bot import threads
+    from row_bot.providers import backup, saved_model_settings
+    from row_bot.tools import registry as tool_registry
+
+    backup_ref = "model:openai:gpt-5-mini"
+    monkeypatch.setattr(saved_model_settings, "SETTINGS_PATH", tmp_path / "model_settings.json")
+    backup.save_setting(enabled=True, ref=backup_ref)
+    fake = Recording(reply("Here is today's research."))
+    models: list[str] = []
+
+    def run_on(text, enabled, config, *, stop_event=None):
+        models.append(config["configurable"].get("model_override") or "")
+        if models[-1] != backup_ref:
+            backup.note_failure(ConnectionError("Failed to connect to Ollama."))
+            yield ("error", "⚠️ API error: Failed to connect to Ollama.")
+            return
+        yield from fake.stream(text, enabled, config, stop_event=stop_event)
+
+    monkeypatch.setattr(agent, "stream_agent_without_backup", run_on)
+    task = create(workflows, "Summarise what's new.")
+    platform.stream_factory = agent.stream_agent  # the real wrapper, over the fake run
+    thread_id = workflows._prepare_task_thread(workflows.get_task(task["id"]))
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute("UPDATE thread_meta SET model_override='model:ollama:qwen3:8b' WHERE thread_id=?",
+                           (thread_id,))
+    workflows.run_task_background(task["id"], thread_id, [t.name for t in tool_registry.get_enabled_tools()])
+    settle(platform, thread_id)
+
+    record = latest(workflows, task["id"])
+    assert models == ["model:ollama:qwen3:8b", backup_ref]
+    assert (record["status"], record["notice"]) == ("completed", "Here is today's research.")

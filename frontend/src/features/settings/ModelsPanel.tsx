@@ -11,6 +11,7 @@ import {
   Download,
   Eye,
   Image,
+  LifeBuoy,
   RefreshCw,
 } from 'lucide-react';
 import type { ClientController } from '../../api/controller';
@@ -57,6 +58,8 @@ import { modelRefName, splitModelLabel } from '../shell/model-choices';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 type Media = 'vision' | 'image' | 'video';
+/** A Defaults row saved through the surface route: media, and the backup model (#140). */
+type Saved = Media | 'backup';
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
 /** Limits for long work, in plain words. A run has no step limit to set: it goes on while it makes progress. */
 const agentFields: {
@@ -137,6 +140,43 @@ function fieldsFrom(settings: AgentRuntimeSettingsState) {
 function optionName(options: readonly ModelPickerOption[], ref: string) {
   const option = options.find((item) => item.selection_ref === ref);
   return option ? splitModelLabel(option.label).name : modelRefName(ref);
+}
+/**
+ * The backup model's one status line (#140), or null: not ready; a local main
+ * model whose backup is in the cloud (a privacy note); or the same provider.
+ */
+function backupStatus(
+  state: ModelsSettingsState,
+): { tone: 'warning' | 'info'; text: string } | null {
+  const { backup, brain } = state;
+  if (backup.enabled !== true || !backup.current_ref) return null;
+  const chosen = backup.options.find(
+    (item) => item.selection_ref === backup.current_ref,
+  );
+  if (!chosen?.available || backup.warning)
+    return {
+      tone: 'warning',
+      text: "The backup model isn't ready. Reconnect it in Providers.",
+    };
+  const main = brain.options.find(
+    (item) => item.selection_ref === brain.current_ref,
+  );
+  if (!main) return null;
+  const where = (option: ModelPickerOption) => {
+    const parts = splitModelLabel(option.label);
+    return parts.provider || parts.name;
+  };
+  if (main.billing === 'local' && chosen.billing !== 'local')
+    return {
+      tone: 'warning',
+      text: `When ${where(main)} can't answer, your message goes to ${where(chosen)}. Incognito chats stay local.`,
+    };
+  if (main.provider_id === chosen.provider_id)
+    return {
+      tone: 'info',
+      text: "Pick a model from another provider, so one outage doesn't stop both.",
+    };
+  return null;
 }
 /** About 330 tokens to a printed page, to two significant figures. */
 function pages(tokens: number) {
@@ -354,12 +394,15 @@ export default function ModelsPanel({
     }
   }
   async function saveMedia(
-    surface: Media,
+    surface: Saved,
     action: 'default' | 'enabled' | 'camera',
     value: string | boolean | number,
   ) {
     const previous = state;
-    const label = surface[0].toUpperCase() + surface.slice(1);
+    const label =
+      surface === 'backup'
+        ? 'Backup model'
+        : surface[0].toUpperCase() + surface.slice(1);
     setBusy(surface);
     setError('');
     if (previous) {
@@ -564,6 +607,8 @@ export default function ModelsPanel({
   const providers = new Set(choices.map((option) => option.provider_id)).size;
   const models = new Set(choices.map((option) => option.selection_ref)).size;
   const brainReady = !!state.brain.current_ref && !!currentBrain?.available;
+  const backupOn = state.backup.enabled === true;
+  const backupLine = backupStatus(state);
   const contextKind = state.context.policy_kind;
   const locked = !!busy || !!pending;
   const catalogStatus =
@@ -651,6 +696,43 @@ export default function ModelsPanel({
             </div>
           )}
         </SettingsItem>
+        <SettingsItem
+          label="Backup model"
+          help="Answers when the main model can't."
+          icon={<LifeBuoy size={16} aria-hidden />}
+          tone="5"
+          off={!backupOn}
+          anchor="backup-model"
+          bind={false}
+          className="settings-job-row"
+          status={
+            backupLine ? (
+              <StatusLine tone={backupLine.tone}>{backupLine.text}</StatusLine>
+            ) : undefined
+          }
+          control={
+            <>
+              <Toggle
+                label="Enable backup model"
+                checked={backupOn}
+                disabled={!!busy}
+                onChange={(event) =>
+                  void saveMedia('backup', 'enabled', event.target.checked)
+                }
+              />
+              <DefaultModelPicker
+                ariaLabel="Backup model"
+                current={state.backup.current_ref}
+                options={state.backup.options}
+                dialogLabel="Choose the backup model"
+                disabled={!!busy || !backupOn}
+                onChoose={(ref) => void saveMedia('backup', 'default', ref)}
+                onRefresh={() => void refreshCatalog()}
+                note={LISTED_NOTE}
+              />
+            </>
+          }
+        />
         {media.map(({ surface, label, help, icon: Glyph, tone }) => {
           const picker = state[surface];
           const on = picker.enabled === true;
