@@ -2772,8 +2772,11 @@ def create_router(
 
         async def stream() -> Any:
             sent_seq, sent_revision = -1, -1
-            heartbeat = security.clock()
+            heartbeat = opened = security.clock()
             slow = 0
+            # How it ended, for the log, as for /events and /live (#568).
+            ended = "the window went away"
+            logger.debug("Browser pane stream opened (session %s)", current.id[:8])
             try:
                 yield ": connected\n\n"
                 # The stream ends with the browser too (Row-Bot quitting), so shutdown never waits on it.
@@ -2799,10 +2802,15 @@ def create_router(
                     if not changed and security.clock() - heartbeat >= 15:
                         yield ": heartbeat\n\n"
                         heartbeat = security.clock()
-            except ProtocolError:
+                if engine.closed:
+                    ended = "the browser closed, or Row-Bot is stopping"
+            except ProtocolError as error:
+                ended = f"refused ({error.code})"
                 return
             finally:
                 watch.close()
+                logger.debug("Browser pane stream ended after %.0f s: %s (session %s)",
+                             security.clock() - opened, ended, current.id[:8])
 
         return StreamingResponse(stream(), media_type="text/event-stream", headers=HEADERS)
 
