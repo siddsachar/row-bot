@@ -172,6 +172,12 @@ def _pdf_text(data: bytes) -> str:
     return "\n\n".join(pages)
 
 
+def _collapsed(text: str) -> str:
+    """Plain text with runs of spaces and blank lines collapsed."""
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
 def _retry_after(value: str | None) -> float:
     """How long to wait before reading a rate-limited page again: what the site asks (in seconds), at most 10."""
     try:
@@ -183,6 +189,8 @@ def _retry_after(value: str | None) -> float:
 def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
     """Fetch a webpage or PDF and return a page of its text content."""
     from bs4 import BeautifulSoup
+
+    from row_bot.tools.readable_page import readable_markdown
 
     url = str(url or "").strip()
     # Asked before fetching: the approval pauses the turn, which a fetch error must not swallow.
@@ -212,22 +220,21 @@ def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
                     if _is_pdf(response, source, data[:5]):
                         if size > _PDF_MAX_BYTES:
                             return f"The PDF is larger than {_PDF_MAX_BYTES // (1024 * 1024)} MB, too large to read."
-                        text = _pdf_text(data)
+                        text = _collapsed(_pdf_text(data))
                     else:
                         # BeautifulSoup reads the page's own charset when the server names none.
-                        charset = response.headers.get("Content-Type", "").partition("charset=")[2].strip(" \"';") or None
-                        text = BeautifulSoup(data, "html.parser", from_encoding=charset).get_text()
+                        content_type = response.headers.get("Content-Type", "")
+                        charset = content_type.partition("charset=")[2].strip(" \"';") or None
+                        soup = BeautifulSoup(data, "html.parser", from_encoding=charset)
+                        # A web page reads as its main content in Markdown (#139); other text as it is.
+                        text = (readable_markdown(soup, source) if "html" in content_type.lower()
+                                else _collapsed(soup.get_text()))
                     break
             time.sleep(wait)
     except _NotPublic:
         return NOT_PUBLIC_MESSAGE
     except Exception as exc:
         return f"Failed to fetch URL: {exc}"
-
-    # Collapse excessive whitespace / blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = text.strip()
 
     if not text:
         return "The page was fetched but no readable text content was found."
