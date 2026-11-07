@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import type { ConversationModelStatus, ModelChoice } from '../../api/types';
+import type {
+  ConversationModelStatus,
+  ModelChoice,
+  ReasoningView,
+} from '../../api/types';
 import ModelPicker from './ModelPicker';
 
 const models: ModelChoice[] = [
@@ -514,4 +518,64 @@ it('Connect on a model whose provider is not connected opens that provider', asy
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
   expect(onConnect).toHaveBeenCalledWith('anthropic');
+});
+
+it('says new chats start on a Thinking level only right after it is chosen here', () => {
+  const note = 'New chats with this model start here too.';
+  const reasoning = (selection: ReasoningView['selection']): ReasoningView => ({
+    model_ref: 'model:ollama:qwen3.8:27b',
+    capability_revision: 'one',
+    available: true,
+    selection,
+    choices: [
+      { selection: { kind: 'provider_default' }, label: 'Provider default' },
+      { selection: { kind: 'effort', effort: 'low' }, label: 'Low' },
+      { selection: { kind: 'effort', effort: 'high' }, label: 'High' },
+    ],
+    supports_budget: false,
+    budget_min: 0,
+    budget_max: 0,
+    stale: false,
+  });
+  const low = reasoning({ kind: 'effort', effort: 'low' });
+  const picker = (view: ReasoningView, open = true, onThinking = vi.fn()) => (
+    <ModelPicker
+      models={models}
+      current="model:ollama:qwen3.8:27b"
+      status={{ state: 'ready', local: true }}
+      disabled={false}
+      open={open}
+      onOpenChange={vi.fn()}
+      onChoose={vi.fn()}
+      reasoning={view}
+      thinkingLabel="Thinking"
+      onThinking={onThinking}
+      onConnect={vi.fn()}
+      onManage={vi.fn()}
+    />
+  );
+  // A chat that already starts on Low says nothing about it.
+  const { rerender } = render(picker(low));
+  expect(screen.queryByText(note)).toBeNull();
+
+  const onThinking = vi.fn();
+  rerender(picker(reasoning({ kind: 'provider_default' }), true, onThinking));
+  fireEvent.click(screen.getByRole('radio', { name: 'Low' }));
+  expect(onThinking).toHaveBeenCalledWith({ kind: 'effort', effort: 'low' });
+  rerender(picker(low, true, onThinking));
+  expect(screen.getByText(note)).toBeVisible();
+
+  // Closing the picker forgets it: reopened, the chat is simply on Low.
+  rerender(picker(low, false, onThinking));
+  rerender(picker(low, true, onThinking));
+  expect(screen.queryByText(note)).toBeNull();
+
+  fireEvent.click(screen.getByRole('radio', { name: 'High' }));
+  rerender(
+    picker(reasoning({ kind: 'effort', effort: 'high' }), true, onThinking),
+  );
+  expect(screen.getByText(note)).toBeVisible();
+  fireEvent.click(screen.getByRole('radio', { name: 'Default' }));
+  rerender(picker(reasoning({ kind: 'provider_default' }), true, onThinking));
+  expect(screen.queryByText(note)).toBeNull();
 });

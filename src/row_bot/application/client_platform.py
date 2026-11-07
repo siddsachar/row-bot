@@ -1346,8 +1346,10 @@ class ClientPlatformService:
                 # The person's choice: new conversations start there.
                 full_autonomy.remember_level(payload["approval_mode"])
             if reasoning_selection is not None:
-                from row_bot.providers.reasoning import clear_reasoning_suppression
+                from row_bot.providers.reasoning import clear_reasoning_suppression, remember_reasoning_choice
                 clear_reasoning_suppression(target, model)
+                # The person's choice: new chats with this model start there.
+                remember_reasoning_choice(model, reasoning_selection)
             self.projection.publish(target, "resource.changed", {"revision": str(row["client_revision"] + 1)})
             return {"conversation_id": target, "revision": str(row["client_revision"] + 1), "status": "completed"}
         if kind == "conversation.skills":

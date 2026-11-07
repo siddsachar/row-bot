@@ -95,6 +95,21 @@ export default function ModelPicker({
 }) {
   const place = usePlace();
   const [budget, setBudget] = useState('');
+  // The level just chosen here: only then does the picker say new chats start
+  // on it, so the line is never out of date. Closing or another model forgets it.
+  const [chosen, setChosen] = useState<{ model: string; key: string } | null>(
+    null,
+  );
+  if (chosen && (!open || chosen.model !== reasoning?.model_ref))
+    setChosen(null);
+  const think = (selection: ReasoningSelectionValue) => {
+    setChosen(
+      reasoning && selection.kind !== 'provider_default'
+        ? { model: reasoning.model_ref, key: selectionKey(selection) }
+        : null,
+    );
+    onThinking(selection);
+  };
   const input = useRef<HTMLInputElement>(null);
   const selected = models.find((model) => model.model_ref === current);
   const missing = status?.state === 'missing' || !current;
@@ -251,7 +266,7 @@ export default function ModelPicker({
                     label="Thinking"
                     value={currentThinking}
                     onChange={(value) =>
-                      onThinking(
+                      think(
                         choices.find(
                           (choice) => selectionKey(choice.selection) === value,
                         )!.selection,
@@ -267,7 +282,7 @@ export default function ModelPicker({
                     aria-label="Thinking"
                     value={currentThinking}
                     onChange={(event) =>
-                      onThinking(
+                      think(
                         choices.find(
                           (choice) =>
                             selectionKey(choice.selection) ===
@@ -294,6 +309,13 @@ export default function ModelPicker({
                 )}
               </div>
             )}
+            {reasoning?.available &&
+              !reasoning.stale &&
+              chosen?.key === currentThinking && (
+                <p className="model-picker-note">
+                  New chats with this model start here too.
+                </p>
+              )}
             {reasoning?.available && reasoning.supports_budget && (
               <Disclosure
                 summary="Thinking budget"
@@ -318,7 +340,7 @@ export default function ModelPicker({
                         (reasoning.budget_max ?? Number.MAX_SAFE_INTEGER)
                     }
                     onClick={() =>
-                      onThinking({ kind: 'budget', budget: Number(budget) })
+                      think({ kind: 'budget', budget: Number(budget) })
                     }
                   >
                     Use budget

@@ -4252,6 +4252,11 @@ button.attachment-tile-face:hover {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+.model-picker-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
 .model-picker-budget-row {
   display: flex;
   gap: 8px;

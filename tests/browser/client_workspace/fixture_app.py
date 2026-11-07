@@ -4391,7 +4391,8 @@ def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
     """Restore the one Thinking-capable synthetic model as the saved default.
 
     Earlier specs may choose another default; this publishes the choice the
-    same way a reviewed save does, without creating or unloading clients.
+    same way a reviewed save does, without creating or unloading clients. New
+    chats start on Default again, whatever Thinking choice an earlier spec made.
     """
     predecessor._authorize(x_fixture_token)
     from row_bot import models
@@ -4401,7 +4402,10 @@ def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
     reference = _reasoning_fixture.get("model")
     if not reference:
         raise HTTPException(status_code=409, detail="Reasoning fixture unavailable")
-    saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": reference})
+    from row_bot.providers.reasoning import REMEMBERED_REASONING_KEY
+    saved_model_settings.update_saved_model_settings(
+        lambda raw: {**{key: value for key, value in raw.items() if key != REMEMBERED_REASONING_KEY},
+                     "model": reference})
     models.adopt_saved_default(reference)
     return {"model_ref": reference}
 
