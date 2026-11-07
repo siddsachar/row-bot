@@ -459,6 +459,16 @@ describe('runtime error rows', () => {
         '⚠️ qwen via Local does not support tool calling — switch to a compatible model in Settings → Models.',
       )?.actions,
     ).toEqual(['model']);
+    // The main model and the backup model both failed (#140).
+    expect(
+      turnError(
+        '⚠️ Neither qwen3:8b nor GPT-5 mini answered — Request timed out.',
+      ),
+    ).toEqual({
+      cause: 'Neither qwen3:8b nor GPT-5 mini answered',
+      detail: 'Request timed out.',
+      actions: ['retry', 'model'],
+    });
   });
 
   it('leaves ordinary answers that mention warnings alone', () => {

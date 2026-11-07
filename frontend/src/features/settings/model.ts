@@ -392,6 +392,12 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'models',
+    anchor: 'backup-model',
+    label: 'Backup model',
+    keywords: 'fallback outage down offline failover',
+  },
+  {
+    leaf: 'models',
     anchor: 'vision-model',
     label: 'Vision model',
     keywords: 'camera images screenshots see look',

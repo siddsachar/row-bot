@@ -215,6 +215,9 @@
   },
   "additionalProperties": false,
   "properties": {
+    "backup": {
+      "$ref": "#/$defs/ModelPickerSurface"
+    },
     "brain": {
       "$ref": "#/$defs/ModelPickerSurface"
     },
@@ -270,6 +273,7 @@
   },
   "required": [
     "brain",
+    "backup",
     "vision",
     "image",
     "video",

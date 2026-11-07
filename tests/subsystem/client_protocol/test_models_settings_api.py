@@ -11,7 +11,7 @@ pytestmark = pytest.mark.subsystem
 def _state() -> dict:
     empty = {"current_ref": "", "enabled": None, "warning": "", "options": []}
     return {
-        "schema_version": 1, "brain": empty,
+        "schema_version": 1, "brain": empty, "backup": {**empty, "enabled": False},
         "vision": {**empty, "enabled": True}, "image": {**empty, "enabled": True},
         "video": {**empty, "enabled": False}, "camera_index": 0,
         "context": {"policy_kind": "provider", "selected_cap": None,
@@ -63,9 +63,14 @@ def test_surface_and_context_writes_are_typed_authenticated_and_validated(monkey
         cap = client.post("/api/v1/settings/models/context", headers=headers,
             json={"policy_kind": "provider", "cap": 65536})
         assert cap.status_code == 200, cap.text
+        backup = client.post("/api/v1/settings/models/surface", headers=headers,
+            json={"surface": "backup", "action": "default", "selection_ref": "model:openai:gpt-5-mini"})
+        assert backup.status_code == 200, backup.text
         assert calls[0][0:2] == ("vision", "enabled")
         assert calls[0][2]["enabled"] is False
         assert calls[1][0:2] == ("provider", 65536)
+        assert calls[2][0:2] == ("backup", "default")
+        assert calls[2][2]["selection_ref"] == "model:openai:gpt-5-mini"
 
 
 def test_agent_settings_save_reset_persist_and_notify(tmp_path, monkeypatch):

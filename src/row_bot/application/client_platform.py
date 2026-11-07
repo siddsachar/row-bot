@@ -1742,7 +1742,7 @@ class ClientPlatformService:
                         self.registry.check_dispatch(handle)
                         metadata, data = read_attachment(reference)
                         files.append({"name": metadata["name"], "data": data})
-                from row_bot.agent import stream_agent, resume_stream_agent
+                from row_bot.agent import resume_stream_agent, stream_agent, stream_agent_without_backup
                 from row_bot.tools import registry as tool_registry
                 # Every enabled tool, every turn: what this message leaves out is in its app scope.
                 enabled = [tool.name for tool in tool_registry.get_enabled_tools()]
@@ -1792,8 +1792,9 @@ class ClientPlatformService:
                                 raise ClientPlatformError("resource_revision_conflict")
                     if learning_route is not None:
                         from row_bot.learning import routing as learning_routing
+                        # Learning finishes a stuck personal model with the main model: no backup on top.
                         events = learning_routing.stream(
-                            learning_route, self.stream_factory or stream_agent, prepared_text, enabled, config,
+                            learning_route, self.stream_factory or stream_agent_without_backup, prepared_text, enabled, config,
                             stop_event=handle.cancel_scope.stop_event)
                     else:
                         # A question's answer resumes its own interrupt only (N4).

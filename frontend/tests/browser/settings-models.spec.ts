@@ -44,8 +44,13 @@ test('Providers and Models share the contained shell and Models opens without pr
   await expect(brain).toBeVisible();
   // The four jobs share one picker at one height and width (B227, B229).
   const brainBox = (await brain.boundingBox())!;
-  for (const name of ['Vision model', 'Image model', 'Video model']) {
-    const picker = models.getByRole('button', { name });
+  for (const name of [
+    'Backup model',
+    'Vision model',
+    'Image model',
+    'Video model',
+  ]) {
+    const picker = models.getByRole('button', { name, exact: true });
     await expect(picker).toBeVisible();
     const box = (await picker.boundingBox())!;
     expect(box.height).toBeCloseTo(brainBox.height, 0);

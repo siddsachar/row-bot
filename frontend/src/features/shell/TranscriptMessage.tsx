@@ -320,9 +320,10 @@ export const TranscriptMessage = memo(function TranscriptMessage({
         ) : null}
       </>
     );
-  if (row.note === 'personal_model_fallback')
+  if (row.note === 'personal_model_fallback' || row.note === 'backup_model')
     // Learning (preview): the person's personal model got stuck on this turn
-    // and their main model finished it (a quiet line, like a continuation).
+    // and their main model finished it; or the backup model took over a turn
+    // the main model couldn't answer (#140). A quiet line, like a continuation.
     return (
       <div
         className="transcript-note"
