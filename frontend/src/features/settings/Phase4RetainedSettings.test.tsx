@@ -2719,3 +2719,39 @@ it('without the host’s page, the sheet links nowhere (A2)', () => {
   });
   expect(within(sheet).queryByRole('link')).toBeNull();
 });
+
+it('shows the tool switches as saved when they change elsewhere, as after Start from defaults', () => {
+  mutation.page = 'system';
+  // While tool settings can't be read every tool is off.
+  const off: SettingsSnapshot = structuredClone(snapshot);
+  off.revision = 'unreadable';
+  off.system.shell.enabled = false;
+  off.system.browser.enabled = false;
+  const panel = (current: SettingsSnapshot) => (
+    <OverlayProvider>
+      <SystemSnapshotPanel
+        snapshot={current.system}
+        mutation={{ ...mutation, revision: current.revision }}
+      />
+    </OverlayProvider>
+  );
+  const view = render(panel(off));
+  // The open setup dialog hides the page behind it, so Run commands is found with hidden.
+  const setup = openSetup();
+  expect(
+    screen.getByRole('switch', { name: 'Run commands', hidden: true }),
+  ).not.toBeChecked();
+  expect(
+    within(setup).getByRole('switch', { name: 'Enable Browser tool' }),
+  ).not.toBeChecked();
+
+  // The reset's snapshot: the tools are back at their defaults, shell and browser on.
+  view.rerender(panel({ ...snapshot, revision: 'after-reset' }));
+
+  expect(
+    screen.getByRole('switch', { name: 'Run commands', hidden: true }),
+  ).toBeChecked();
+  expect(
+    within(setup).getByRole('switch', { name: 'Enable Browser tool' }),
+  ).toBeChecked();
+});

@@ -478,12 +478,17 @@ export function SavedSetting({
   const modified =
     defaultValue !== undefined && !sameValue(value, defaultValue);
 
+  // The saved value the draft started from. A draft still equal to it was
+  // never edited here, so when the saved value changes elsewhere (another
+  // device, Start from defaults) the control shows the new one.
+  const seed = useRef<SettingsValue>(value);
   useEffect(() => {
-    if (!dirty && !busy) {
-      mutation.drafts.discard(mutation.page, field);
-      setDraft(value);
-    }
-  }, [busy, dirty, field, mutation.drafts, mutation.page, value]);
+    if (busy) return;
+    if (!dirty) mutation.drafts.discard(mutation.page, field);
+    else if (!sameValue(draft, seed.current)) return; // An edit in progress.
+    seed.current = value;
+    setDraft(value);
+  }, [busy, dirty, draft, field, mutation.drafts, mutation.page, value]);
   useEffect(() => () => abort.current?.abort(), []);
   // A notice's Undo runs after later renders: it calls the current save
   // (current revision) with the value before the latest change.
