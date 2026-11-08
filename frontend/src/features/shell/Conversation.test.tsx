@@ -3173,6 +3173,26 @@ it('offers the fix that matches why the model cannot answer', async () => {
   );
 });
 
+it('says why the model cannot answer on Choose another model, too', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  const reason =
+    "Row-Bot hasn't checked this server yet. Probe it in Settings › Models";
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason,
+    fix: 'choose',
+    local: true,
+  };
+  await act(async () => conversation());
+  const choose = screen.getByRole('button', { name: 'Choose another model' });
+  expect(choose).toHaveAccessibleDescription(`Unavailable — ${reason}`);
+  act(() => choose.focus());
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    `Unavailable — ${reason}`,
+  );
+});
+
 it('sends while the model is unavailable when the backup model answers (#140)', async () => {
   idleConversation();
   // The server says a backup answers: send stays ready.

@@ -294,6 +294,72 @@ def test_a_provider_connected_after_another_lists_its_ready_models_until_one_is_
     assert set(_options("brain")) == {SONNET, TERRA}, "a star keeps ChatGPT's list to the starred one"
 
 
+VLLM = "model:custom_openai_vllm:qwen3-0.6b"
+PROVEN = {"ok": True, "model_id": "qwen3-0.6b", "chat_ok": True, "tool_calling": True, "tool_round_trip": True}
+
+
+def _vllm_endpoint(tmp_path, probe: dict | None) -> None:
+    """A vLLM server saved as a custom endpoint, its model listed, with or without its check's result."""
+    providers = tmp_path / "providers.json"
+    saved = json.loads(providers.read_text(encoding="utf-8"))
+    endpoint = {
+        "id": "vllm", "name": "vLLM", "base_url": "http://127.0.0.1:9/v1", "profile": "vllm",
+        "execution_location": "local", "models": [{
+            "id": "qwen3-0.6b", "model_id": "qwen3-0.6b", "display_name": "qwen3-0.6b", "context_window": 40_960,
+            "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"],
+                                      "transport": "openai_chat"}}],
+    }
+    if probe is not None:
+        endpoint["last_probe"] = probe
+    saved["custom_endpoints"] = [endpoint]
+    providers.write_text(json.dumps(saved), encoding="utf-8")
+
+
+@pytest.mark.parametrize("probe", [None, {**PROVEN, "ok": False, "chat_ok": False}, PROVEN],
+                         ids=["not checked", "check failed", "checked"])
+def test_a_custom_endpoints_model_counts_ready_only_when_it_can_be_used(saved_state, tmp_path, probe):
+    """The Catalog said "vLLM · 1 chat model · 1 ready" for a server never checked, whose model couldn't answer."""
+    from row_bot.providers.readiness import evaluate_chat_readiness
+
+    _vllm_endpoint(tmp_path, probe)
+    (tmp_path / "model_settings.json").write_text(json.dumps({"model_visibility": {"favourites": [VLLM]}}),
+                                                  encoding="utf-8")
+
+    usable = evaluate_chat_readiness(VLLM, status={"configured": True}, context_window_override=40_960).ready
+    vllm = next(item for item in owner.catalog_provider_summary("chat")["providers"]
+                if item["provider_id"] == "custom_openai_vllm")
+    option = _options("brain")[VLLM]
+
+    assert usable is (probe is PROVEN)
+    assert (vllm["total"], vllm["ready"]) == (1, int(usable))
+    assert option["available"] is usable
+    if probe is None:
+        assert option["reason"] == "Row-Bot hasn't checked this server yet. Probe it in Settings › Models."
+    elif not usable:
+        assert option["reason"] == "This server didn't pass Row-Bot's check. Probe it again in Settings › Models."
+
+
+def test_the_composer_says_in_plain_words_that_a_custom_endpoint_is_not_checked_yet(saved_state, tmp_path,
+                                                                                    monkeypatch):
+    from row_bot.application import workspace_setup
+    from row_bot.providers import readiness
+
+    # The endpoint needs no key, so it counts as connected.
+    statuses = {**STATUSES, "custom_openai_vllm": {"configured": True}}
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id, **_kwargs: dict(statuses.get(provider_id, {})))
+    controls = {"model_selection": {"provider_id": "custom_openai_vllm", "model_ref": VLLM}, "runtime_mode": "agent"}
+    service = SimpleNamespace(readiness_factory=None)
+
+    _vllm_endpoint(tmp_path, None)
+    status = workspace_setup.model_status(service, controls)
+    assert (status["state"], status["fix"]) == ("unavailable", "choose")
+    assert status["reason"] == "Row-Bot hasn't checked this server yet. Probe it in Settings › Models"
+
+    _vllm_endpoint(tmp_path, {**PROVEN, "ok": False, "chat_ok": False})
+    status = workspace_setup.model_status(service, controls)
+    assert status["reason"] == "This server didn't pass Row-Bot's check. Probe it again in Settings › Models"
+
+
 def test_the_composer_always_lists_the_main_model_starred_or_not(saved_state, monkeypatch, tmp_path):
     """ChatGPT's stars narrow its list, yet the main model chosen from it stays in the composer's picker."""
     from row_bot.api.v1.routes import cached_choices
