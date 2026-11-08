@@ -22,7 +22,6 @@ import type {
   ResourceView,
   SlashCommandSpec,
   TranscriptRow,
-  TranscriptTraceGroup,
   WriteTarget,
 } from '../../api/types';
 import { clientError, rejectedBeforeRunning } from '../../api/errors';
@@ -159,9 +158,12 @@ import {
   buildTranscript,
   foldLiveVideos,
   finishedLiveSteps,
+  keepUnchanged,
   liveMedia,
+  liveTurn,
   settleFinishedSteps,
   turnStarts,
+  type TranscriptItem,
 } from './transcript-model';
 import {
   CardActionsContext,
@@ -837,78 +839,35 @@ export default function Conversation({
   // card in place, before the reply that follows it (N4).
   const finishedSteps = finishedLiveSteps(state.activity);
   const finishedKey = [...finishedSteps.keys()].join();
-  const items = useMemo(
-    () => buildTranscript(settleFinishedSteps(transcriptRows, finishedSteps)),
+  // The turn in flight reads in the order it happened: each step's words,
+  // its tool steps and what they made, then the next step (5.3.3).
+  const live = useMemo(
+    () =>
+      liveTurn(
+        settleFinishedSteps(transcriptRows, finishedSteps),
+        state.activity,
+      ),
     // finishedKey stands for finishedSteps: they change together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [transcriptRows, finishedKey],
+    [transcriptRows, finishedKey, state.activity],
   );
+  const shownItems = useRef<TranscriptItem[]>([]);
+  const items = useMemo(() => {
+    shownItems.current = keepUnchanged(
+      shownItems.current,
+      buildTranscript(live.rows),
+    );
+    return shownItems.current;
+  }, [live.rows]);
   const earlierIds = useMemo(
     () => new Set(earlierRows.map((row) => row.id)),
     [earlierRows],
   );
   const hasLiveTranscript =
     items.length > 0 || Boolean(pending) || Boolean(running);
-  const settledTraceCalls = new Set(
-    rows.flatMap((row) =>
-      (row.traces ?? []).flatMap((group) =>
-        group.items.map((item) => item.call_id),
-      ),
-    ),
-  );
-  const liveTraceEvents = new Map(
-    state.activity.flatMap((record) =>
-      record.event.type === 'tool.activity'
-        ? [
-            [
-              record.event.payload.tool_call_id ?? record.event.event_id,
-              record,
-            ] as const,
-          ]
-        : [],
-    ),
-  );
-  const liveTraceGroups: TranscriptTraceGroup[] = [
-    ...liveTraceEvents.values(),
-  ].flatMap((record, index) => {
-    if (
-      record.event.type !== 'tool.activity' ||
-      settledTraceCalls.has(record.event.payload.tool_call_id ?? '')
-    )
-      return [];
-    const value = record.event.payload;
-    return [
-      {
-        group_id: value.group_id || value.tool_call_id || record.event.event_id,
-        name: value.group_name || value.tool_name || 'tool',
-        kind: value.group_kind ?? 'generic',
-        group_order: index,
-        status: value.status ?? 'pending',
-        counts: { [value.status ?? 'pending']: 1 },
-        items: [
-          {
-            item_id:
-              value.item_id || value.tool_call_id || record.event.event_id,
-            group_id:
-              value.group_id || value.tool_call_id || record.event.event_id,
-            call_id: value.tool_call_id || record.event.event_id,
-            result_message_id: value.message_id ?? '',
-            call_order: 0,
-            group_order: index,
-            canonical_name: value.tool_name || 'tool',
-            group_name: value.group_name || value.tool_name || 'tool',
-            group_kind: value.group_kind ?? 'generic',
-            status: value.status ?? 'pending',
-            safe_input: value.safe_input ?? '',
-            safe_summary: value.safe_summary ?? '',
-            summary_truncated: value.summary_truncated ?? false,
-            content_ref: value.content_ref ?? '',
-            ...(value.app ? { app: value.app } : {}),
-          },
-        ],
-      },
-    ];
-  });
+  // Steps still running (or with no model step to sit under) show on the
+  // turn's live line at its end; finished ones sit under their step.
+  const liveTraceGroups = live.running;
   const approvalEvent = [...state.activity]
     .reverse()
     .find(
@@ -926,7 +885,7 @@ export default function Conversation({
       generation &&
       (!generation.quiesced || generation.status === 'waiting_approval'),
     ) &&
-    (liveTraceGroups.some((group) => group.kind === 'browser') ||
+    (live.all.some((group) => group.kind === 'browser') ||
       rows
         .slice(turnStart + 1)
         .some((row) => row.traces?.some((group) => group.kind === 'browser')) ||
@@ -962,7 +921,7 @@ export default function Conversation({
   const computer = useComputerUse({
     conversationId: id && computerLocal && !state.history ? id : '',
     watch:
-      liveTraceGroups.some((group) => group.kind === 'computer') ||
+      live.all.some((group) => group.kind === 'computer') ||
       (approvalEvent?.event.type === 'approval.required' &&
         approvalEvent.event.payload.action_label === 'Computer activity'),
     generationId: generation?.generation_id ?? '',

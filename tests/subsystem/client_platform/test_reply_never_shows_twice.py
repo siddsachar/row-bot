@@ -166,3 +166,26 @@ def test_a_chat_opened_mid_run_shows_each_step_once(platform):
     finally:
         barrier.release.set()
         assert handle.producer_done.wait(10)
+
+
+def test_a_chat_read_mid_run_shows_each_model_steps_words_once():
+    """5.3.3: each model step streams into a live row of its own. A read mid-run brings in the steps saved
+    so far beside their live rows, which stay until the turn ends: each step's words showed twice, the saved
+    step with its tool and media, then its live twin, until the turn ended."""
+    from row_bot.projection.conversation import without_saved_steps
+
+    def row(row_id: str, role: str, text: str, **extra) -> dict:
+        return {"id": row_id, "role": role, "blocks": [{"type": "text", "text": text}], **extra}
+
+    rows = [
+        row("user:submission:u1", "user", "Make the sign-up videos."),
+        row("assistant:checkpoint:a1", "assistant", "First, a video of the sign-up flow.", tool_call_ids=["c1"]),
+        row("assistant:checkpoint:a2", "assistant", "", tool_call_ids=["c2"]),
+        row("assistant:checkpoint:a3", "assistant", "Now a still of the form.", tool_call_ids=["c3"]),
+        row("assistant:live:p:s1", "assistant", "First, a video of the sign-up flow."),
+        row("assistant:live:p:s3", "assistant", "Now a still of the form."),
+        row("assistant:live:p:s4", "assistant", "Next, a shorter cut."),
+    ]
+    assert [item["id"] for item in without_saved_steps(rows)] == [
+        "user:submission:u1", "assistant:checkpoint:a1", "assistant:checkpoint:a2", "assistant:checkpoint:a3",
+        "assistant:live:p:s4"]

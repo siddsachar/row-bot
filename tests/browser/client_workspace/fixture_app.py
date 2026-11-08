@@ -1637,6 +1637,73 @@ def _s4_resume(enabled_tools: list[str], config: dict, approved: bool, *, interr
         call["quiesced"] = True
 
 
+# ── A turn of several steps that make media (5.3.3) ──
+# Each model step says a line, then takes one tool step that makes a picture or a video, as a real turn
+# streams them: its own segment, its words, its call and its result with the media the tool wrapper keeps.
+# The turn waits behind its barrier while the last step runs, so a spec sees it mid-stream.
+_TURN_STEPS = (
+    ("First, a short video of the sign-up flow.", "generate_video", "The sign-up flow, start to finish", "video"),
+    ("Now a still of the finished form, to check its layout.", "generate_image", "The finished sign-up form", "image"),
+    ("", "generate_video", "The password step, slowed down", "video"),
+    ("Next, a shorter cut with captions.", "generate_video", "A 10-second cut with captions", "video"),
+)
+_TURN_STEPS_FINAL = "Here are the three videos and the still. The shorter cut with captions is the one to share."
+
+
+def _turn_steps_stream(text: str, config: dict):
+    from row_bot.application.attachments import register_attachment
+    from row_bot.runtime import admissions
+    from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages, get_latest_checkpoint_revision
+
+    call = predecessor._record("submit", config, "turn-steps")
+    thread = call["conversation_id"]
+    pass_id = str(config["configurable"].get("platform_pass_id") or "")
+    identity = f"turn-steps:{call['generation_id']}"
+    input_id = call["submission_id"] or fixture_id(identity + ":user")
+    if not any(str(message.id) in {input_id, "user:submission:" + input_id}
+               for message in get_latest_checkpoint_messages(thread)):
+        append_checkpoint_messages(thread, [HumanMessage(content=text, id=input_id)])
+    video = (Path(__file__).parents[2] / "fixtures/client_synthetic_video.mp4").read_bytes()
+    outputs: list[tuple[str, str]] = []
+    try:
+        yield "thinking", None
+        for index, (words, name, prompt, kind) in enumerate(_TURN_STEPS):
+            segment = admissions.start_segment(pass_id)
+            yield "platform_segment", {"segment_id": segment}
+            if words:
+                yield "token", words
+            args = {"prompt": prompt}
+            tool_id, result_id = fixture_id(f"{identity}:{index}:tool"), fixture_id(f"{identity}:{index}:result")
+            message_id = fixture_id(f"{identity}:{index}:call")
+            append_checkpoint_messages(thread, [AIMessage(id=message_id, content=words,
+                tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+            outputs.append((message_id, segment))
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+            if index == len(_TURN_STEPS) - 1 and not predecessor._barriers[call["barrier_id"]].wait(180):
+                raise TimeoutError("The turn-steps fixture was not released")
+            saved = register_attachment(thread, f"step-{index + 1}.{'mp4' if kind == 'video' else 'png'}",
+                                        video if kind == "video" else _s4_steps_picture(index + 1))
+            media = [{"type": "media.available", "payload": {"media_ref": saved["attachment_ref"],
+                                                             "mime_type": saved["mime_type"]}}]
+            content = f"Made a {kind}: {prompt}."
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                content=content, additional_kwargs={"platform_media": media})])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                "content": content, "media": media}
+        segment = admissions.start_segment(pass_id)
+        yield "platform_segment", {"segment_id": segment}
+        final_id = fixture_id(identity + ":final")
+        append_checkpoint_messages(thread, [AIMessage(id=final_id, content=_TURN_STEPS_FINAL)])
+        yield "token", _TURN_STEPS_FINAL
+        # Each step's words bind to their saved message at the turn's end, as the agent binds them.
+        for message_id, step in [*outputs, (final_id, segment)]:
+            yield "output_binding", {"native_message_id": message_id, "segment_id": step,
+                                     "checkpoint_revision": get_latest_checkpoint_revision(thread)}
+        yield "done", _TURN_STEPS_FINAL
+    finally:
+        call["quiesced"] = True
+
+
 @app.post("/__s4_fixture/reset")
 def s4_reset(x_fixture_token: str = Header(default="")) -> dict:
     """Stop every video edit and put ffmpeg back (a spec's clean-up)."""
@@ -2739,6 +2806,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # Send a file to your devices or a chat app (F7): the real tool, deliveries and cards, with
         # the fake Telegram adapter.
         yield from _s5_stream(text, config)
+        return
+    if text.strip() == "turn steps fixture":
+        # A turn of several steps that make videos and a picture (5.3.3): each in the order it happened.
+        yield from _turn_steps_stream(text, config)
         return
     if text.startswith("s4 ") and text.rstrip().endswith("fixture"):
         # Video editing and many images at once (F3, F5): the real tools, jobs and cards, with a
