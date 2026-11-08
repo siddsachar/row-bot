@@ -110,7 +110,9 @@ it('says the workspace folder stays when Row-Bot still knows it', async () => {
 
   rerender(<Notice unreadable={false} workspace={null} mutation={io} />);
   expect(
-    await screen.findByText(/the workspace folder is still Projects\./),
+    await screen.findByText(
+      'Tool settings are back to their defaults; the workspace folder is still Projects. Add your blocked commands again.',
+    ),
   ).toBeVisible();
 });
 
@@ -128,7 +130,7 @@ it('says the workspace folder goes back to the default, and where to choose it, 
   rerender(<Notice unreadable={false} workspace={null} mutation={io} />);
   expect(
     await screen.findByText(
-      /the workspace folder is Documents › Row-Bot\. Choose yours again in Settings › System › Workspace\./,
+      'Tool settings are back to their defaults, and the workspace folder is now Documents › Row-Bot. Add your blocked commands again.',
     ),
   ).toBeVisible();
   fireEvent.click(

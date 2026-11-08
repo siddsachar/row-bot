@@ -1126,15 +1126,13 @@ export function ToolSettingsUnreadable({
   useEffect(() => {
     if (was.current && !unreadable) {
       const after = folder.current;
-      const again =
-        'Turn on the tools you use and add your blocked commands again.';
       if (after?.kept) {
         notify(
-          `Tool settings start from the defaults now, and the workspace folder is still ${after.folder}. ${again}`,
+          `Tool settings are back to their defaults; the workspace folder is still ${after.folder}. Add your blocked commands again.`,
         );
       } else {
         notify(
-          `Tool settings start from the defaults now, and the workspace folder is ${after ? after.folder : 'the default one'}. Choose yours again in Settings › System › Workspace. ${again}`,
+          `Tool settings are back to their defaults, and the workspace folder is now ${after ? after.folder : 'the default one'}. Add your blocked commands again.`,
           'warning',
           {
             label: 'Choose folder',
