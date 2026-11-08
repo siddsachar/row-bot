@@ -122,6 +122,18 @@ through background updates.
   Each session check now renews the cookie (never the session's length).
 - **Ollama's models show** after Claude Code is signed in on the same computer.
 - **llama.cpp** suggests port 8081 when Row-Bot itself is on 8080.
+- **Model servers on this computer** - LM Studio, vLLM and llama.cpp save on
+  the first try and are checked as they're added, so their models are ready to
+  use. A server's models count as ready only once its check passed, and when a
+  model can't answer, the chat box says why.
+- **Videos in order** - while Row-Bot makes videos, each step's words, its
+  activity and the video it made show in the order they happened, with the
+  newest step at the bottom, live and after a reload.
+- **A new workflow runs on the first click** after it's saved.
+- **Wikipedia reads again** - Row-Bot's page reader names itself
+  (`Row-Bot/5.3.3`) instead of posing as a browser, as Wikipedia asks.
+- **Settings switches** show what's saved when it changes elsewhere, such as
+  after Start from defaults.
 - **Workflow chats** move up the sidebar only when something new shows in them;
   a run that didn't finish says why.
 - **Selecting workflows** shows a checkbox in each row, and Select all.
