@@ -57,7 +57,8 @@ APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 # processes (start, view output, stop), Row-Bot's browser (a local address asked
 # for once per chat, screenshots, page sizes, recordings), computer use on a fake desktop
 # (its step and live picture, asking first, "Carry on?", a setup problem) and video edits and many
-# images at once (the ffmpeg download asked for once, edits with Stop, contact sheets),
+# images at once (the ffmpeg download asked for once, edits with Stop, contact sheets), a turn of
+# several steps read in the order it happened (each step's words, activity and media, live and reloaded),
 # files sent to the person's devices (the download on another device, its notice) or a chat app,
 # a workflow's steps as a flowchart (branches, loops, a broken branch, a card opening its step),
 # favourite and hidden models (the picker's menu, More models, Settings › Models and Setup),
@@ -89,6 +90,7 @@ BROWSER_SMOKE_SPECS = (
     "browser-pane",
     "computer-use",
     "conversation-media",
+    "turn-steps",
     "conversation-delivery",
     "workspace-folders",
     "sandbox-prepare",

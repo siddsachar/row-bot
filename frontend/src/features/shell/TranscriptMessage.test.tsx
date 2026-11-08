@@ -50,6 +50,20 @@ it('shows a paged content slice exactly as sent, not as Markdown', async () => {
   expect(text.querySelector('table, pre, strong, em')).toBeNull();
 });
 
+it('shows no empty words for a step that only used a tool', () => {
+  const row = {
+    id: 'assistant:checkpoint:step-3',
+    message_id: 'step-3',
+    role: 'assistant',
+    blocks: [{ id: 'b', type: 'markdown', text: '' }],
+  } as unknown as TranscriptRow;
+  const { container } = render(
+    <TranscriptMessage row={row} conversationId="conversation-a" />,
+  );
+  expect(container.querySelector('.message-text')).toBeNull();
+  expect(screen.getByRole('article')).toHaveAttribute('data-empty', 'true');
+});
+
 it('shows a follow-up as a quiet note, not as the person’s message', () => {
   const row = {
     id: 'user:submission:note-1',

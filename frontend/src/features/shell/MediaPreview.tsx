@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -192,8 +193,9 @@ async function isPdf(blob: Blob) {
  * with a full-size view, native audio/video players, an inline PDF viewer,
  * highlighted text, and a file card for anything else. The controller keeps
  * download authentication, size and cancellation policy.
+ * Its props are plain values: a re-rendered message never renders it again.
  */
-export function MediaPreview({
+export const MediaPreview = memo(function MediaPreview({
   reference,
   mime,
   label,
@@ -500,7 +502,7 @@ export function MediaPreview({
       )}
     </div>
   );
-}
+});
 
 function FileOnDemand({
   reference,

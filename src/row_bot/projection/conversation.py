@@ -56,8 +56,10 @@ def _row_text(row: dict) -> str | None:
 
 
 def without_saved_steps(rows: list[dict]) -> list[dict]:
-    """A running turn's live row streams every step's text, and a read mid-turn also brings in the steps saved
-    so far: the live row keeps only the text after them, so a chat opened mid-run shows each step once (U12)."""
+    """A running turn's live rows stream its steps' text, and a read mid-turn also brings in the steps saved
+    so far: the live rows keep only the text after them, so a chat opened mid-run shows each step once (U12).
+    A live row holds one model step's words, or every step's in turn: the saved steps are matched in order
+    across the live rows, so a step saved with its own live row still streaming shows once (5.3.3)."""
     last_person = max((index for index, row in enumerate(rows) if row.get("role") == "user"), default=-1)
     steps = [text.strip() for row in rows[last_person + 1:]
              if row.get("role") == "assistant" and not str(row["id"]).startswith("assistant:live:")
@@ -65,13 +67,13 @@ def without_saved_steps(rows: list[dict]) -> list[dict]:
     if not steps:
         return rows
     shown = []
+    matched = 0
     for row in rows:
         text = _row_text(row) if str(row["id"]).startswith("assistant:live:") else None
         rest = text or ""
-        for step in steps:
-            if not rest.lstrip().startswith(step):
-                break
-            rest = rest.lstrip()[len(step):]
+        while matched < len(steps) and rest.lstrip().startswith(steps[matched]):
+            rest = rest.lstrip()[len(steps[matched]):]
+            matched += 1
         if text is None or rest == text:
             shown.append(row)
         elif rest.strip():

@@ -274,7 +274,14 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       setBusy(false);
     }
   }
-  const hasText = Boolean(expanded) || shown.length > 0;
+  // A step that only used a tool saves empty words: nothing to show for them.
+  const hasText =
+    Boolean(expanded) ||
+    shown.some(
+      (block) =>
+        (block.type !== 'text' && block.type !== 'markdown') ||
+        Boolean(publicBlockText(block).trim()),
+    );
   const hasActivity = Boolean(traces?.length) && Boolean(conversationId);
   const actionable = toolbar && (hasText || Boolean(copyText)) && !streaming;
   if (row.note === 'continuation')

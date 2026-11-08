@@ -57,13 +57,15 @@ function transcript(page: Page) {
   return page.getByRole('log', { name: 'Conversation' });
 }
 
-/** The turn's activity row, which says what the computer step is doing. */
+/**
+ * The turn's newest activity line, which says what the computer step is
+ * doing; the steps it finished sit above it, under the words before them.
+ */
 function activity(page: Page) {
   return transcript(page)
-    .getByRole('group', { name: 'Tool activity' })
-    .last()
+    .getByRole('group', { name: /^(Tool )?[Aa]ctivity$/ })
     .locator('.activity-summary-text')
-    .first();
+    .last();
 }
 
 test.beforeEach(async ({ page }) => post(page, '/__n12b_fixture/reset'));
