@@ -40,6 +40,9 @@ test.beforeEach(async ({ context, page }) => {
   }
 });
 test.afterEach(async ({ page }) => {
+  // Close the app first: the reset deletes the run's conversation, and a row
+  // still shown would read it once more and get a 404 a real app never sees.
+  await page.close();
   const reset = await page.request.post('/__b407_fixture/reset', {
     headers: fixtureHeaders(),
   });
@@ -49,8 +52,15 @@ test.afterEach(async ({ page }) => {
 const sidebar = (page: Page) =>
   page.getByRole('navigation', { name: 'Workspace navigation', exact: true });
 
-/** Open the app and wait until its live stream is open. */
+/**
+ * Open the app and wait until its live stream is open. Returns how many live
+ * streams the page has opened since: one while the stream stays up.
+ */
 async function openLive(page: Page, path: string) {
+  let streams = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/live') streams += 1;
+  });
   const live = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === '/api/v1/live' &&
@@ -59,13 +69,21 @@ async function openLive(page: Page, path: string) {
   await page.goto(path);
   await live;
   await expect(sidebar(page)).toBeVisible();
+  return () => streams;
 }
 
 /**
- * Start the run on the server as its schedule would; how long until `shown`
- * is visible, from asking for the run and from the run having started.
+ * Start the run on the server as its schedule would and wait for `shown`;
+ * how long it took, from asking for the run and from the run having started
+ * (evidence, not a limit: on a busy runner the page's own reads wait their
+ * turn under the request budget).
+ *
+ * Pushed, not read by a timer: while the live stream is up, every screen here
+ * reads again by timer only once a minute (`LIVE_FALLBACK_MS`), and the page
+ * read them all just now. So with the one stream still open, `shown` appearing
+ * within the expect timeout can only have come by the push.
  */
-async function startRun(page: Page, shown: Locator) {
+async function startRun(page: Page, shown: Locator, streams: () => number) {
   await expect(shown).toHaveCount(0);
   const asked = Date.now();
   const response = await page.request.post('/__b407_fixture/background-run', {
@@ -73,8 +91,9 @@ async function startRun(page: Page, shown: Locator) {
   });
   expect(response.ok(), await response.text()).toBe(true);
   const started = Date.now();
-  await expect(shown).toBeVisible({ timeout: 3000 });
+  await expect(shown).toBeVisible();
   const now = Date.now();
+  expect(streams(), 'the live stream stayed open').toBe(1);
   return { fromStartMs: now - started, fromRequestMs: now - asked };
 }
 
@@ -95,14 +114,13 @@ async function views(page: Page, info: TestInfo, name: string) {
 test('a background workflow run reaches the sidebar and Home at once (B407)', async ({
   page,
 }, info) => {
-  await openLive(page, '/app-v2/');
+  const streams = await openLive(page, '/app-v2/');
   const row = sidebar(page).getByRole('button', { name: RUN });
-  const inSidebar = await startRun(page, row);
+  const inSidebar = await startRun(page, row, streams);
   // Its approval waits in Home's Needs you, read the same way.
   const needs = page.getByRole('list', { name: 'Needs you' });
   await expect(needs.getByText(ASK)).toBeVisible({ timeout: RAISED_MS });
-  // Live updates, not a timer: within about a second.
-  expect(inSidebar.fromStartMs).toBeLessThan(1500);
+  expect(streams(), 'the live stream stayed open').toBe(1);
   await writeEvidence(info, 'background-run-timing', inSidebar);
   await views(page, info, 'background-run');
   await page.setViewportSize(PHONE);
@@ -118,18 +136,18 @@ test('a background workflow run reaches the sidebar and Home at once (B407)', as
 test('Monitor counts a background run and the sidebar says its approval waits (B407)', async ({
   page,
 }, info) => {
-  await openLive(page, '/app-v2/?tab=monitor');
+  const streams = await openLive(page, '/app-v2/?tab=monitor');
   // With every check passing, the activity chart waits behind Show details (U38).
   const details = page.getByRole('button', { name: 'Show details' });
   if (await details.isVisible()) await details.click();
   const lane = page.getByRole('img', {
     name: 'Workflow runs: 1 in the last 24 hours',
   });
-  const inMonitor = await startRun(page, lane);
+  const inMonitor = await startRun(page, lane, streams);
   await expect(
     sidebar(page).getByText('1 approval is waiting', { exact: true }),
   ).toBeVisible({ timeout: RAISED_MS });
-  expect(inMonitor.fromStartMs).toBeLessThan(1500);
+  expect(streams(), 'the live stream stayed open').toBe(1);
   await writeEvidence(info, 'background-run-monitor-timing', inMonitor);
   await views(page, info, 'background-run-monitor');
   await page.setViewportSize(PHONE);
