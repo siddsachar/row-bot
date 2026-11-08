@@ -644,11 +644,12 @@ function proofHeaders(proof?: SessionProof): Record<string, string> {
 const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number}>>();
 async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
   if (!proof) return;
-  // An approval card reads what it asks about, and a sent-files card what was
-  // sent: the person is looking at them, so they never wait behind background reads.
+  // An approval card reads what it asks about, a sent-files card what was
+  // sent and a video edit card its edit (every second while it runs): the
+  // person is looking at them, so they never wait behind background reads.
   const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
-    || method === 'GET' && /^\/deliveries\/[^/?]+(?:\?|$)/.test(path);
+    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?)(?:\?|$)/.test(path);
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);

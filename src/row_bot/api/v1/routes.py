@@ -5589,9 +5589,11 @@ def create_router(
             raise ProtocolError("sandbox_job_unavailable", 404)
         return await respond(request, dto.SandboxJobView, result)
 
+    # A video edit card reads its edit every second while it runs: the person is looking at it, so it
+    # reads in the view lane and never waits behind background reads (as an approval card does).
     @router.get("/video-edits")
     async def list_video_edits(request: Request, conversation_id: str | None = None) -> JSONResponse:
-        await session(request)
+        await session(request, lane="view")
         from row_bot.application.video_edit_views import read_video_edits
 
         result = await call(read_video_edits, (conversation_id or "")[:256] or None)
@@ -5599,7 +5601,7 @@ def create_router(
 
     @router.get("/video-edits/{edit_id}")
     async def video_edit(request: Request, edit_id: str) -> JSONResponse:
-        await session(request)
+        await session(request, lane="view")
         from row_bot.application.video_edit_views import read_video_edit
 
         result = await call(read_video_edit, _edit_id(edit_id))

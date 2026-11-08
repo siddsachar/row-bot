@@ -4,6 +4,7 @@ import {
   getConversation,
   getApproval,
   getDelivery,
+  getVideoEdits,
   saveDraft,
   sendConversationCommand,
   cancelUpload,
@@ -437,6 +438,47 @@ it('keeps a conversation view responsive while library continuation waits', asyn
   const view = await getConversation('', proof, 'conversation-a');
   expect(view.id).toBe('conversation-a');
   expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('follows a running video edit every second while background reads wait', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/video-edits')
+        ? { items: [], running: 0 }
+        : { items: [], has_more: false, next_cursor: null },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  // Far more background reads than the query budget lets through meanwhile.
+  const queries = Promise.allSettled(
+    Array.from({ length: 60 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(fetcher).toHaveBeenCalledTimes(20);
+  // The card reads its edit once a second for ten seconds; none waits.
+  for (let second = 0; second < 10; second++) {
+    const read = getVideoEdits('', proof, 'conversation-a');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(
+      fetcher.mock.calls.filter(([url]) =>
+        String(url).startsWith('/api/v1/video-edits'),
+      ),
+    ).toHaveLength(second + 1);
+    await read.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(1000);
+  }
   abort.abort();
   await vi.runAllTimersAsync();
   await queries;
