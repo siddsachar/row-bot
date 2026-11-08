@@ -79,6 +79,8 @@ def saved_workflow(run_api, monkeypatch):
     """A workflow with one message, saved and never run: its first run makes its conversation."""
     service, tasks, _, _ = run_api
     from row_bot import workflow_turns
+    # The faked start never finishes its run: keep its in-flight entry out of the shared registry.
+    monkeypatch.setattr(tasks, "_active_runs", {})
     started = []
     monkeypatch.setattr(workflow_turns, "start", lambda task, thread_id, run_id, trigger="Run": started.append(
         (list(task["prompts"]), thread_id)) or True)
