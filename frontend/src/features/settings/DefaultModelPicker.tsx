@@ -90,8 +90,12 @@ export default function DefaultModelPicker({
   const name = selected
     ? splitModelLabel(selected.label).name
     : modelRefName(current) || 'Choose a model';
+  // A model server on this computer is local too, whatever its provider id.
   const Glyph =
-    selected && isLocalProvider(selected.provider_id) ? HardDrive : Cloud;
+    selected &&
+    (selected.billing === 'local' || isLocalProvider(selected.provider_id))
+      ? HardDrive
+      : Cloud;
   const detail = selected
     ? (selected.detail ??
       [splitModelLabel(selected.label).provider, billingLabel(selected.billing)]

@@ -577,7 +577,7 @@ it('asks before a hosted endpoint reaches a private address, and saves once allo
     ),
   );
   await waitFor(() =>
-    expect(props.review).toHaveBeenLastCalledWith(
+    expect(props.review).toHaveBeenCalledWith(
       'provider.endpoint.refresh',
       page.revision,
       { endpoint_id: 'office' },
@@ -802,6 +802,41 @@ it('opens a server on this computer with its name and usual address, but not on 
   );
   expect(await screen.findByLabelText('Server type')).toHaveValue('vllm');
   expect(screen.getByLabelText('Base URL')).toHaveValue('');
+});
+
+it('saves a server on this computer under its own free id and checks it at once', async () => {
+  const props = options();
+  const withVllm = {
+    ...page,
+    items: [
+      ...page.items,
+      {
+        ...page.items[0],
+        provider_id: 'custom_openai_vllm',
+        fields: { ...fields, endpoint_id: 'vllm', display_name: 'vLLM' },
+      },
+    ],
+  };
+  props.load.mockResolvedValue(withVllm);
+  render(
+    <ProviderConfiguration {...props} compact autoAdd addProfile="vllm" />,
+  );
+  expect(await screen.findByLabelText('Endpoint id')).toHaveValue('vllm-2');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(3));
+  expect(vi.mocked(props.apply).mock.calls.map((call) => call[0])).toEqual([
+    'provider.endpoint.create',
+    'provider.endpoint.refresh',
+    'provider.endpoint.probe',
+  ]);
+  expect(props.apply).toHaveBeenLastCalledWith(
+    'provider.endpoint.probe',
+    withVllm.revision,
+    { endpoint_id: 'vllm-2' },
+    expect.any(String),
+    expect.objectContaining({ nonce: 'original-session-nonce' }),
+  );
+  expect(await screen.findByText('Endpoint probe finished.')).toBeVisible();
 });
 
 it('opens a plain form for a type it doesn’t know, and no guide on a computer', async () => {

@@ -54,7 +54,7 @@ export function groupModels(models: readonly ModelChoice[]): ModelGroup[] {
           splitModelLabel(model.label).provider ||
           humanizeToken(model.provider_id),
         connected: false,
-        local: isLocalProvider(model.provider_id),
+        local: model.billing === 'local' || isLocalProvider(model.provider_id),
         models: [],
       };
       groups.set(model.provider_id, group);

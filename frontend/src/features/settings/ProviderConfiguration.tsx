@@ -294,9 +294,18 @@ export default function ProviderConfiguration(
     // A server on this computer starts with its name and usual address; a hosted
     // Row-Bot's own localhost isn't where it runs.
     const server = localServer(props.addProfile);
+    // Its id is the server's own name, made unique among the endpoints here.
+    const taken = new Set(page.items.map((item) => item.fields.endpoint_id));
+    let endpointId = props.addProfile ?? '';
+    for (let n = 2; taken.has(endpointId); n++)
+      endpointId = `${props.addProfile}-${n}`;
     const usual =
       server && !props.hostName
-        ? { display_name: server.name, base_url: server.url }
+        ? {
+            endpoint_id: endpointId,
+            display_name: server.name,
+            base_url: server.url,
+          }
         : {};
     session.update({
       fields: known
@@ -648,7 +657,17 @@ export default function ProviderConfiguration(
               props.onSaved();
               props.onModelsReady?.();
             }
-            void load();
+            // A new endpoint's models can be chosen only once a probe has
+            // checked them, so check it now rather than leave it Not checked.
+            if (next === 'provider.endpoint.create')
+              void load().then(() =>
+                performDirect(
+                  'provider.endpoint.probe',
+                  fields,
+                  session.getSnapshot().page?.revision,
+                ),
+              );
+            else void load();
           } catch (cause) {
             const failure = clientError(cause);
             // An endpoint that doesn't answer, refuses its key or may not be
@@ -900,7 +919,9 @@ export default function ProviderConfiguration(
                 item.fields.base_url,
                 humanizeToken(item.fields.execution_location),
                 serverTypeName(page, item.fields.profile),
-                item.model_count !== null ? `${item.model_count} models` : '',
+                item.model_count !== null
+                  ? `${item.model_count} model${item.model_count === 1 ? '' : 's'}`
+                  : '',
               ]
                 .filter(Boolean)
                 .join(' · ');
@@ -1381,7 +1402,7 @@ export default function ProviderConfiguration(
                     <span className="status-chip">
                       {item.model_count == null
                         ? 'models unknown'
-                        : `${item.model_count} models`}
+                        : `${item.model_count} model${item.model_count === 1 ? '' : 's'}`}
                     </span>
                   </div>
                   <Button
