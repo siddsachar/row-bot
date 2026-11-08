@@ -27,6 +27,8 @@ class PublicWeb:
         # (address connected to, Host header sent)
         self.connected: list[tuple[str, str]] = []
         self.served: list[str] = []
+        # The User-Agent each request named, as the site saw it
+        self.user_agents: list[str | None] = []
         self.loopback_port = 0
 
     def page(self, url: str, body: bytes, content_type: str = "text/html; charset=utf-8") -> None:
@@ -50,6 +52,7 @@ def public_web(monkeypatch: pytest.MonkeyPatch) -> Iterator[PublicWeb]:
         def do_GET(self) -> None:
             key = f"{self.headers['Host']}{self.path}"
             web.served.append(key)
+            web.user_agents.append(self.headers["User-Agent"])
             status, headers, body = web.routes.get(key, (404, {}, b"not found"))
             self.send_response(status)
             for name, value in headers.items():

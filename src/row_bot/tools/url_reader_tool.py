@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.brand import WEB_READER_USER_AGENT
 from row_bot.integrations.safe import _Pinned, _public_addresses
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -30,7 +31,6 @@ class _ReadURLInput(BaseModel):
     limit: int = Field(default=PAGE_CHARS, description=f"Characters to return, at most {PAGE_CHARS_MAX}.")
 
 
-_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 _PDF_MAX_BYTES = 200 * 1024 * 1024
 _PDF_MAX_PAGES = 2000
 _TIMEOUT = 15
@@ -141,7 +141,9 @@ def _public_get(url: str) -> Iterator[tuple[str, httpx.Response]]:
             raise ConnectionError(f"could not resolve {target.host}") from None
         transport = _Pinned(target.host, addresses, deadline)
         with httpx.Client(transport=transport, timeout=_TIMEOUT, follow_redirects=False, trust_env=False) as client:
-            with client.stream("GET", target, headers={"User-Agent": _USER_AGENT}) as response:
+            # Row-Bot says who it is, not a browser it isn't: sites such as Wikipedia refuse (403) an automated
+            # reader posing as one.
+            with client.stream("GET", target, headers={"User-Agent": WEB_READER_USER_AGENT}) as response:
                 location = response.headers.get("Location", "")
                 if response.status_code in _REDIRECTS and location:
                     url = urljoin(str(target), location)
