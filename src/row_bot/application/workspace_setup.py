@@ -587,6 +587,21 @@ def _unavailable_reason(model_ref: str, provider_id: str, result: Any, runtime_m
         return f"{provider_display_label(provider_id)} isn't connected", "reconnect"
     if runtime_mode != "chat_only" and result.chat.ready:
         return "It can't use tools; switch to Chat only or choose another model", "choose"
+    if provider_id.startswith("custom_openai_"):
+        from row_bot.providers.custom import custom_probe_for_model
+        from row_bot.providers.model_catalog import (
+            CUSTOM_ENDPOINT_CHECK_FAILED_REASON,
+            CUSTOM_ENDPOINT_NOT_CHECKED_REASON,
+        )
+        from row_bot.providers.selection import parse_model_ref
+
+        model_id = (parse_model_ref(model_ref) or ("", ""))[1]
+        probe = custom_probe_for_model(provider_id, model_id)
+        # Its chat is ready only once the endpoint's own check answered one.
+        if not probe:
+            return CUSTOM_ENDPOINT_NOT_CHECKED_REASON.rstrip("."), "choose"
+        if probe.get("chat_ok") is not True:
+            return CUSTOM_ENDPOINT_CHECK_FAILED_REASON.rstrip("."), "choose"
     errors = " ".join(chosen.errors).lower()
     if "context window" in errors:
         return "Its context window is too small", "choose"

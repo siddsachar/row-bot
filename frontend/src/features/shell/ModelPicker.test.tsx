@@ -120,6 +120,35 @@ it('carries a cloud or local glyph and never says Ready for an unavailable model
   );
 });
 
+it('says why on the unavailable pill when it is focused, without opening the picker', async () => {
+  const reason =
+    "Row-Bot hasn't checked this server yet. Probe it in Settings › Models";
+  const { onOpenChange } = show(
+    'model:custom_openai_vllm:qwen3-0.6b',
+    { state: 'unavailable', reason, fix: 'choose', local: true },
+    {
+      models: [
+        {
+          provider_id: 'custom_openai_vllm',
+          model_ref: 'model:custom_openai_vllm:qwen3-0.6b',
+          label: 'qwen3-0.6b - vLLM',
+          available: false,
+          unavailable_reason: 'unavailable',
+          billing: 'local',
+        },
+      ],
+    },
+  );
+  act(() => pill().focus());
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    `Model: qwen3-0.6b · Unavailable — ${reason}`,
+  );
+  expect(pill()).toHaveAccessibleDescription(
+    `Model: qwen3-0.6b · Unavailable — ${reason}`,
+  );
+  expect(onOpenChange).not.toHaveBeenCalled();
+});
+
 it('says Chat only when tools are off', () => {
   show(
     'model:codex:gpt-5.6-sol',

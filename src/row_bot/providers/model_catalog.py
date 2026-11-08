@@ -12,6 +12,8 @@ from row_bot.providers.selection import format_model_choice_label, model_ref
 
 CATALOG_SURFACES = ("chat", "vision", "image", "video", "voice")
 MISSING_METADATA_REASON = "No saved details for this model yet. Refresh the catalog."
+CUSTOM_ENDPOINT_NOT_CHECKED_REASON = "Row-Bot hasn't checked this server yet. Probe it in Settings › Models."
+CUSTOM_ENDPOINT_CHECK_FAILED_REASON = "This server didn't pass Row-Bot's check. Probe it again in Settings › Models."
 logger = logging.getLogger(__name__)
 _AGENT_MODE_MIN_CONTEXT = 32_000
 _CHAT_ONLY_MIN_CONTEXT = 16_384
@@ -433,8 +435,6 @@ def _catalog_runtime_summary(
         return False, availability or "blocked", f"Transport {transport} is not supported for chat."
     if context_window and context_window < _CHAT_ONLY_MIN_CONTEXT:
         return False, availability or "blocked", "Context window is too small for chat."
-    if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
-        return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if provider_id.startswith("custom_openai_"):
         try:
             from row_bot.providers.custom import custom_probe_for_model
@@ -442,12 +442,19 @@ def _catalog_runtime_summary(
             probe = custom_probe_for_model(provider_id, model_id)
         except Exception:
             probe = {}
-        if probe.get("chat_ok") is False:
-            return False, "blocked", "Endpoint probe did not verify chat completions."
-        if probe.get("chat_ok") is True:
-            if probe.get("tool_calling") is True and probe.get("tool_round_trip") is True:
-                return True, "agent", status_reason
-            return True, "chat_only", "Chat Only: endpoint probe did not verify a tool round trip."
+        # Chat readiness needs the endpoint's own check to have answered a chat: an
+        # endpoint not checked yet is not ready, as its model can't be used until it is.
+        if not probe:
+            return False, "", CUSTOM_ENDPOINT_NOT_CHECKED_REASON
+        if probe.get("chat_ok") is not True:
+            return False, "blocked", CUSTOM_ENDPOINT_CHECK_FAILED_REASON
+        if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
+            return True, availability or "chat_only", "Chat Only: tools and actions are off."
+        if probe.get("tool_calling") is True and probe.get("tool_round_trip") is True:
+            return True, "agent", status_reason
+        return True, "chat_only", "Chat Only: endpoint probe did not verify a tool round trip."
+    if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
+        return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if provider_id in {"openrouter", "requesty"} and tool_calling is not True:
         return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if tool_calling is False:

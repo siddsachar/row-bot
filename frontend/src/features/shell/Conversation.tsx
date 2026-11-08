@@ -31,7 +31,13 @@ import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Menu, Skeleton, type MenuAction } from '../../ui/primitives';
+import {
+  Button,
+  Hint,
+  Menu,
+  Skeleton,
+  type MenuAction,
+} from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
 import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
@@ -3220,9 +3226,16 @@ export default function Conversation({
   const anyModel = (state.handshake?.models ?? []).some(
     (model) => model.available,
   );
-  const setupModelButton = (
+  // Why the model can't answer, on its fix too: a one-line composer has no
+  // model pill to hover, and this button is what the eye lands on.
+  const unavailableHint =
+    modelStatus?.state === 'unavailable'
+      ? `Unavailable — ${modelStatus.reason || "it isn't ready right now"}`
+      : '';
+  const setupButton = (
     <Button
       className="composer-setup-model"
+      aria-description={unavailableHint || undefined}
       onClick={() =>
         reconnect
           ? navigate(providerSheetPath(chatProvider))
@@ -3239,6 +3252,11 @@ export default function Conversation({
             ? 'Choose a model'
             : 'Set up a model'}
     </Button>
+  );
+  const setupModelButton = unavailableHint ? (
+    <Hint label={unavailableHint}>{setupButton}</Hint>
+  ) : (
+    setupButton
   );
   const composerControls = (
     <ComposerControls
