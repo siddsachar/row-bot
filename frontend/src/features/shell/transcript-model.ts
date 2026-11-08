@@ -390,6 +390,20 @@ export function liveTurn(
       },
     });
   slots.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  // Tool steps at the turn's end that said nothing and made nothing to show
+  // stay on its live line, one group with the step in progress, until words
+  // or a picture follow them.
+  for (let last = slots.at(-1); last; last = slots.at(-1)) {
+    const traces = last.row.traces ?? [];
+    if (
+      liveSegment(last.row) ||
+      tracedMedia(traces).length ||
+      tracedCards(traces).length
+    )
+      break;
+    running.unshift(...traces);
+    slots.pop();
+  }
   const at = first < 0 ? others.length : first;
   return {
     rows: [

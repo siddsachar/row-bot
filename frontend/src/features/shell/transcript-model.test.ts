@@ -312,6 +312,37 @@ describe('a turn of several steps', () => {
     expect(liveMedia(run.activity, shown)).toEqual([]);
   });
 
+  it('keeps quiet tool steps at the end on the live line, with the step in progress', () => {
+    const run = new LiveRun();
+    run.say('s1', 'Filling in the claim.');
+    run.call('s1', 'c1', 'generate_video');
+    run.done('s1', 'c1', 'generate_video', { media: ['video-a'] });
+    run.call('s2', 'c2', 'computer_activity');
+    run.done('s2', 'c2', 'computer_activity');
+    run.call('s3', 'c3', 'computer_activity');
+    run.done('s3', 'c3', 'computer_activity');
+    run.call('s4', 'c4', 'computer_activity');
+    const live = liveTurn(run.rows, run.activity);
+    expect(reading(buildTranscript(live.rows))).toEqual([
+      'text: Make the sign-up videos.',
+      'text: Filling in the claim.',
+      'step: generate_video',
+      'media: video-a',
+    ]);
+    expect(live.running.map((group) => group.items[0].call_id)).toEqual([
+      'c2',
+      'c3',
+      'c4',
+    ]);
+    // Words that follow put them in their place.
+    run.say('s5', 'Now the last page.');
+    expect(reading(run.items()).slice(4)).toEqual([
+      'step: computer_activity',
+      'step: computer_activity',
+      'text: Now the last page.',
+    ]);
+  });
+
   it('leaves a turn with no finished live step as it is', () => {
     const run = new LiveRun();
     run.say('s1', 'Just an answer.');

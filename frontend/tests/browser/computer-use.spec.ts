@@ -58,15 +58,14 @@ function transcript(page: Page) {
 }
 
 /**
- * The turn's live line at its end, which says what the computer step is
+ * The turn's newest activity line, which says what the computer step is
  * doing; the steps it finished sit above it, under the words before them.
  */
 function activity(page: Page) {
   return transcript(page)
-    .locator('.message-live')
     .getByRole('group', { name: /^(Tool )?[Aa]ctivity$/ })
     .locator('.activity-summary-text')
-    .first();
+    .last();
 }
 
 test.beforeEach(async ({ page }) => post(page, '/__n12b_fixture/reset'));
