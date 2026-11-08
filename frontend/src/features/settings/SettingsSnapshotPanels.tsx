@@ -1,5 +1,5 @@
 import { BrowserSites } from '../browser/BrowserSites';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -1101,26 +1101,57 @@ function ReviewedSettingsAction({
 /**
  * Shown on every Settings page while tools_config.json can't be read: the
  * registry then keeps every tool off rather than at its defaults, and saving
- * a tool setting is refused. The reset keeps the old file beside it.
+ * a tool setting is refused. The reset keeps the old file beside it, and the
+ * workspace folder when Row-Bot still knows it; when it can't, the confirm and
+ * the notice after say where the folder is now.
  */
 export function ToolSettingsUnreadable({
   unreadable,
+  workspace,
   mutation,
 }: {
   unreadable: boolean;
+  workspace?: SettingsSnapshot['tool_settings_reset_workspace'];
   mutation: SettingsMutationIO | null;
 }) {
   const notify = useNotify();
+  const navigate = useNavigate();
   const was = useRef(unreadable);
+  // The folder as Settings last saw it while the file was unreadable: the
+  // snapshot after the reset no longer carries it.
+  const folder = useRef(workspace ?? null);
+  useEffect(() => {
+    if (unreadable && workspace) folder.current = workspace;
+  }, [unreadable, workspace]);
   useEffect(() => {
     if (was.current && !unreadable) {
-      notify(
-        'Tool settings start from the defaults now. Turn on the tools you use and add your blocked commands again.',
-      );
+      const after = folder.current;
+      const again =
+        'Turn on the tools you use and add your blocked commands again.';
+      if (after?.kept) {
+        notify(
+          `Tool settings start from the defaults now, and the workspace folder is still ${after.folder}. ${again}`,
+        );
+      } else {
+        notify(
+          `Tool settings start from the defaults now, and the workspace folder is ${after ? after.folder : 'the default one'}. Choose yours again in Settings › System › Workspace. ${again}`,
+          'warning',
+          {
+            label: 'Choose folder',
+            title: 'Choose the workspace folder in Settings › System',
+            onAction: () => navigate('/settings/system#workspace-folder'),
+          },
+        );
+      }
     }
     was.current = unreadable;
-  }, [unreadable, notify]);
+  }, [unreadable, notify, navigate]);
   if (!unreadable || !mutation) return null;
+  const folderWords = workspace
+    ? workspace.kept
+      ? `Your workspace folder stays ${workspace.folder}.`
+      : `Row-Bot can’t tell which workspace folder you chose, so it goes back to ${workspace.folder}; you can choose yours again in Settings › System.`
+    : 'The workspace folder goes back to the default one; you can choose yours again in Settings › System.';
   return (
     <div className="settings-tool-notice" role="alert">
       <AlertTriangle size={20} aria-hidden />
@@ -1139,7 +1170,7 @@ export function ToolSettingsUnreadable({
           presentation="button"
           variant="primary"
           icon={<RotateCcw size={14} aria-hidden />}
-          confirm="Tools go back to their defaults, and your blocked commands are cleared. The unreadable file is kept so nothing is lost."
+          confirm={`Tools go back to their defaults, and your blocked commands are cleared. ${folderWords} The unreadable file is kept so nothing is lost.`}
         />
       </div>
     </div>

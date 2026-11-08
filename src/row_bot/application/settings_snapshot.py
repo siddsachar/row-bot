@@ -1819,9 +1819,42 @@ def read_settings_snapshot(
         "revision": _revision(sections),
         **sections,
         "tool_settings_unreadable": unreadable,
+        "tool_settings_reset_workspace": tool_settings_reset_workspace() if unreadable else None,
         # Defaults never change the revision: they are not saved state.
         "defaults": copy.deepcopy(SETTING_DEFAULTS),
     }
+
+
+def workspace_kept_by_tool_settings_reset() -> str | None:
+    """The workspace folder Start from defaults keeps ("" for the default), else None when it can't be known.
+
+    Only this process's loaded setting counts: it was read before tools_config.json became unreadable. When the
+    file was already unreadable at start-up the loaded value is a stand-in, and the unreadable file itself is
+    never read as configuration, not even the parts that still parse.
+    """
+    registry = sys.modules.get("row_bot.tools.registry")
+    if registry is None:
+        return None
+    known, value = registry.loaded_tool_config("filesystem", "workspace_root")
+    if not known:
+        return None
+    return value if type(value) is str else ""
+
+
+def workspace_folder_words(folder: str) -> str:
+    """How Settings names a workspace folder: its own name, or "Documents › Row-Bot" for the default."""
+    from row_bot.data_paths import default_workspace_root
+
+    if folder:
+        return Path(folder).expanduser().name or folder
+    default = default_workspace_root()
+    return f"{default.parent.name} › {default.name}" if default.parent.name else default.name
+
+
+def tool_settings_reset_workspace() -> dict[str, Any]:
+    """Whether Start from defaults keeps the workspace folder, and the folder after it."""
+    kept = workspace_kept_by_tool_settings_reset()
+    return {"kept": kept is not None, "folder": workspace_folder_words(kept or "")[:512]}
 
 
 __all__ = ["SETTING_DEFAULTS", "read_settings_snapshot", "read_tracker_entries"]

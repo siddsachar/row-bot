@@ -44,6 +44,7 @@ _active_config_path = _CONFIG_PATH
 _tools: dict[str, "BaseTool"] = {}          # name → tool instance
 _enabled: dict[str, bool] = {}              # name → enabled flag (runtime cache)
 _tool_configs: dict[str, dict] = {}         # name → {key: value} (tool-specific config)
+_stand_in_configs: set[str] = set()         # names whose config is only defaults for an unreadable file
 _CONFIG_LOCK = tool_configuration.LOCK
 
 
@@ -86,7 +87,9 @@ def _apply_saved_config(tool: "BaseTool", saved: dict | None) -> None:
         if tool.name not in _enabled:
             _enabled[tool.name] = False
             _tool_configs[tool.name] = {key: spec.get("default") for key, spec in tool.config_schema.items()}
+            _stand_in_configs.add(tool.name)
         return
+    _stand_in_configs.discard(tool.name)
     # Support new format {"tools": {...}} and old flat format
     tools_map = saved.get("tools", saved) if isinstance(saved.get("tools"), dict) else saved
     if tool.name in tools_map:
@@ -137,6 +140,7 @@ def _ensure_config_scope() -> None:
     _active_config_path = current
     _enabled.clear()
     _tool_configs.clear()
+    _stand_in_configs.clear()
     saved = _read_config(current)
     for tool in _tools.values():
         _apply_saved_config(tool, saved)
@@ -276,6 +280,19 @@ def get_tool_config(tool_name: str, key: str, default=None):
     """Read a persisted config value for a tool."""
     _ensure_config_scope()
     return _tool_configs.get(tool_name, {}).get(key, default)
+
+
+def loaded_tool_config(tool_name: str, key: str) -> tuple[bool, object]:
+    """A tool setting as loaded from a tools_config.json that read (or before there was one), without reloading.
+
+    ``(False, None)`` when the loaded value only stands in for a file that was already unreadable when it was
+    loaded, or belongs to another data folder: what the person chose is unknown then, and is never guessed.
+    """
+    path = get_row_bot_data_dir(create=False) / "tools_config.json"
+    with _CONFIG_LOCK:
+        if path != _active_config_path or tool_name not in _tool_configs or tool_name in _stand_in_configs:
+            return False, None
+        return True, copy.deepcopy(_tool_configs[tool_name].get(key))
 
 
 def set_tool_config(tool_name: str, key: str, value):

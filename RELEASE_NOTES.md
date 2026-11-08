@@ -105,8 +105,10 @@ through background updates.
   `tools_config.json` was cut short or locked, tools you'd switched off came
   back on and the shell's blocked-commands list emptied. Now tools stay as they
   were, or off at start-up, and Settings says so and offers Start from defaults,
-  which keeps the unreadable file. Reported privately; advisory
-  GHSA-68j6-243q-h2hp (low).
+  which keeps the unreadable file and your workspace folder. If Row-Bot started
+  with the file already unreadable, it can't tell your folder, so it says the
+  workspace goes back to Documents › Row-Bot, before and after. Reported
+  privately; advisory GHSA-68j6-243q-h2hp (low).
 - **A long chat that starts with generated media opens again** instead of
   showing "Connection interrupted".
 - **Saving is one way everywhere** - every Download and Export asks where to
