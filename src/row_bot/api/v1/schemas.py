@@ -780,6 +780,13 @@ class SettingsWorkspaceSnapshot(WireModel):
     exists: bool
 
 
+class ToolSettingsResetWorkspace(WireModel):
+    # Whether Start from defaults keeps the workspace folder the agent works in, and that folder after it
+    # (its name, or "Documents › Row-Bot" for the default; never a full path).
+    kept: bool
+    folder: str = Field(max_length=512)
+
+
 class SettingsToggleSnapshot(WireModel):
     available: bool
     enabled: bool | None
@@ -1339,6 +1346,8 @@ class SettingsSnapshot(WireModel):
     learning: LearningSettingsSnapshot
     # tools_config.json exists but can't be read: every tool stays off until it is reset or restored.
     tool_settings_unreadable: bool = False
+    # While it is unreadable: the workspace folder after Start from defaults.
+    tool_settings_reset_workspace: ToolSettingsResetWorkspace | None = None
     # Per page, what each saved field reads on a fresh profile; clients show
     # a "modified" mark and a reset for fields that differ.
     defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(

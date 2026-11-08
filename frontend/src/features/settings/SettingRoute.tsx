@@ -496,6 +496,7 @@ export default function SettingRoute() {
       >
         <ToolSettingsUnreadable
           unreadable={settingsSnapshot?.tool_settings_unreadable === true}
+          workspace={settingsSnapshot?.tool_settings_reset_workspace}
           mutation={mutationFor('system')}
         />
         {leaf.id === 'buddy' ? (

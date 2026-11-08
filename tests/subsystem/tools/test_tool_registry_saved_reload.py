@@ -131,3 +131,30 @@ def test_a_first_start_with_no_settings_file_uses_the_defaults(tmp_path, monkeyp
 
     assert registry.is_enabled("sample") is True
     assert registry.get_tool_config("sample", "blocked_commands") == ""
+
+
+def test_only_settings_loaded_from_a_file_that_read_are_known_after_it_becomes_unreadable(tmp_path, monkeypatch):
+    from row_bot.tools import registry
+
+    data = tmp_path / "row-bot"
+    data.mkdir()
+    path = data / "tools_config.json"
+    path.write_text(json.dumps({"tool_configs": {"sample": {"blocked_commands": "curl"}}}), encoding="utf-8")
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    monkeypatch.setattr(registry, "_active_config_path", path)
+    monkeypatch.setattr(registry, "_tools", {})
+    monkeypatch.setattr(registry, "_enabled", {})
+    monkeypatch.setattr(registry, "_tool_configs", {})
+    monkeypatch.setattr(registry, "_stand_in_configs", set())
+    registry.register(_shell_like_tool())
+
+    _unreadable(path, "half_written")
+    registry.reload_saved_config()
+    assert registry.loaded_tool_config("sample", "blocked_commands") == (True, "curl")
+
+    # A start with the file already unreadable: the loaded value only stands in for it.
+    monkeypatch.setattr(registry, "_tools", {})
+    monkeypatch.setattr(registry, "_enabled", {})
+    monkeypatch.setattr(registry, "_tool_configs", {})
+    registry.register(_shell_like_tool())
+    assert registry.loaded_tool_config("sample", "blocked_commands") == (False, None)

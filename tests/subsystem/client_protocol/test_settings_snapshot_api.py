@@ -2041,3 +2041,75 @@ def test_resetting_tool_settings_leaves_a_readable_file_alone(api):
     assert result.status_code == 200, result.text
     assert path.read_bytes() == before
     assert not list(data.glob("tools_config.unreadable-*.json"))
+
+
+def _filesystem_registry(monkeypatch, data: Path):
+    """The running registry with only the file tool, loading tools_config.json as it reads now."""
+    from types import SimpleNamespace
+
+    from row_bot.tools import registry
+
+    monkeypatch.setattr(registry, "_tools", {})
+    monkeypatch.setattr(registry, "_enabled", {})
+    monkeypatch.setattr(registry, "_tool_configs", {})
+    monkeypatch.setattr(registry, "_stand_in_configs", set())
+    monkeypatch.setattr(registry, "_global_config", {})
+    monkeypatch.setattr(registry, "_active_config_path", data / "tools_config.json")
+    monkeypatch.setattr(registry, "_invalidate_agent_cache", lambda: None)
+    registry.register(SimpleNamespace(name="filesystem", enabled_by_default=True,
+                                      config_schema={"workspace_root": {"type": "folder", "default": ""}}))
+    return registry
+
+
+def _reset_tool_settings(client, headers, snapshot):
+    request = {"settings_revision": snapshot["revision"], "page": "system",
+               "field": "tools.reset_unreadable", "value": True}
+    result = _execute(client, headers, request, _review(client, headers, request))
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "completed"
+    return result.json()["action_result"]
+
+
+def test_resetting_unreadable_tool_settings_keeps_the_workspace_folder_the_app_loaded(api, monkeypatch):
+    client, headers, data, _ = api
+    path = data / "tools_config.json"
+    workspace = data / "private-workspace"
+    registry = _filesystem_registry(monkeypatch, data)  # Loaded while the file still read.
+    path.write_bytes(b'{"tools": {"shell": fal')
+
+    snapshot = client.get(BASE, headers=headers).json()
+    assert snapshot["tool_settings_reset_workspace"] == {"kept": True, "folder": "private-workspace"}
+    result = _reset_tool_settings(client, headers, snapshot)
+
+    assert "The workspace folder is still private-workspace." in result["message"]
+    assert result["remediation"] == ""
+    assert json.loads(path.read_text(encoding="utf-8"))["tool_configs"] == {
+        "filesystem": {"workspace_root": str(workspace)}}
+    assert registry.get_tool_config("filesystem", "workspace_root") == str(workspace)
+    assert [item.read_bytes() for item in data.glob("tools_config.unreadable-*.json")] == [
+        b'{"tools": {"shell": fal']
+    after = client.get(BASE, headers=headers).json()
+    assert after["tool_settings_unreadable"] is False
+    assert after["tool_settings_reset_workspace"] is None
+    assert after["system"]["workspace"]["label"] == "private-workspace"
+
+
+def test_resetting_tool_settings_unreadable_since_start_says_the_workspace_is_the_default(api, monkeypatch, tmp_path):
+    client, headers, data, _ = api
+    path = data / "tools_config.json"
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path / "home" / "Documents" / "Row-Bot"))
+    # The part that still parses names a folder; nothing reads it as configuration.
+    elsewhere = json.dumps(str(data / "private-workspace"))
+    unreadable = f'{{"tool_configs": {{"filesystem": {{"workspace_root": {elsewhere}}}}}, "tools": {{"shell": fal'
+    path.write_text(unreadable, encoding="utf-8")
+    registry = _filesystem_registry(monkeypatch, data)  # Started with it unreadable.
+
+    snapshot = client.get(BASE, headers=headers).json()
+    assert snapshot["tool_settings_reset_workspace"] == {"kept": False, "folder": "Documents › Row-Bot"}
+    result = _reset_tool_settings(client, headers, snapshot)
+
+    assert "The workspace folder is now Documents › Row-Bot." in result["message"]
+    assert result["remediation"] == "Choose yours again in Settings › System › Workspace."
+    assert not path.exists()
+    assert registry.get_tool_config("filesystem", "workspace_root") == ""
+    assert [item.read_text(encoding="utf-8") for item in data.glob("tools_config.unreadable-*.json")] == [unreadable]

@@ -1781,6 +1781,26 @@
       "title": "ToolSettingsItem",
       "type": "object"
     },
+    "ToolSettingsResetWorkspace": {
+      "additionalProperties": false,
+      "properties": {
+        "folder": {
+          "maxLength": 512,
+          "title": "Folder",
+          "type": "string"
+        },
+        "kept": {
+          "title": "Kept",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kept",
+        "folder"
+      ],
+      "title": "ToolSettingsResetWorkspace",
+      "type": "object"
+    },
     "ToolSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -2531,6 +2551,17 @@
     },
     "system": {
       "$ref": "#/$defs/SystemSettingsSnapshot"
+    },
+    "tool_settings_reset_workspace": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolSettingsResetWorkspace"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "tool_settings_unreadable": {
       "default": false,
