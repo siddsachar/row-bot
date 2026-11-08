@@ -10,6 +10,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { TaskSummary, TaskSummaryPage } from '../../api/types';
+import { clientError } from '../../api/errors';
 import { OverlayProvider } from '../../ui/overlays';
 import { absoluteTime, relativeTime } from '../../ui/format';
 import { clockTime } from '../home/home-format';
@@ -1312,6 +1313,43 @@ it('starts a run in one click: it reviews, runs the reviewed request and shows S
     within(row('Digest')).getByRole('button', { name: /Message 1 of 3/ }),
   ).toBeVisible();
   expect(runs).not.toHaveBeenCalled();
+});
+
+it('clears a failed action when the list is refreshed, and a run then starts', async () => {
+  const user = userEvent.setup();
+  const reviewed = {
+    task_id: 'Digest',
+    task_revision: 'a'.repeat(64),
+    policy_revision: 'b'.repeat(64),
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
+    notify_only: false,
+    steps_total: 1,
+    conversation_id: null,
+  };
+  const onRun = vi
+    .fn()
+    .mockRejectedValueOnce(clientError({ code: 'task_revision_conflict' }))
+    .mockResolvedValue(undefined);
+  const load = vi.fn(async () =>
+    pageOf([task('Digest', { enabled: true, notify_only: false })]),
+  );
+  show(load, { onReview: vi.fn(async () => reviewed), onRun, onStop: vi.fn() });
+  await user.click(
+    await screen.findByRole('button', { name: 'Run workflow: Digest' }),
+  );
+  expect(await screen.findByText('Workflow action failed')).toBeVisible();
+  expect(screen.getByText(/This workflow changed/)).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Refresh workflows' }));
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText('Workflow action failed')).not.toBeInTheDocument();
+
+  await user.click(
+    await screen.findByRole('button', { name: 'Run workflow: Digest' }),
+  );
+  expect(await screen.findByText('Run started.')).toBeInTheDocument();
+  expect(screen.queryByText('Workflow action failed')).not.toBeInTheDocument();
 });
 
 it('names the profile and approvals a run uses on the row, with Auto approvals standing out (B254)', async () => {
