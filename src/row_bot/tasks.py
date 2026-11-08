@@ -1956,6 +1956,32 @@ def capture_task_run_review(task_id: str, enabled_tool_names: Sequence[str]) -> 
         conn.close()
 
 
+def reviewed_revision_with_conversation(
+    task_id: str, *, reviewed_revision: str, reviewed_thread_id: str | None,
+) -> str:
+    """The revision a reviewed run claims once the run has given the workflow its conversation.
+
+    A workflow's first run makes its one conversation and records it in the row (F31). That is
+    the run's own bookkeeping, not an edit, so the reviewed revision carries over to the row
+    with it; any other change since the review is still a conflict.
+    """
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        current = _task_row_revision(row)
+        if current == reviewed_revision:
+            return current
+        before = {**dict(row), "persistent_thread_id": reviewed_thread_id}
+        if _task_row_revision(before) != reviewed_revision:
+            raise TaskMutationError("task_revision_conflict", task_id)
+        return current
+    finally:
+        conn.close()
+
+
 @_publishes_live("runs", "conversations")
 def claim_reviewed_task_run(
     task_id: str, thread_id: str, run_id: str, *, expected_task_revision: str,

@@ -614,7 +614,11 @@ export function SavedTasks({
           size="sm"
           label="Refresh workflows"
           disabled={loading}
-          onClick={() => setReload((value) => value + 1)}
+          onClick={() => {
+            // A refreshed list is what the person acts on next.
+            setActionError('');
+            setReload((value) => value + 1);
+          }}
         >
           <RefreshCw size={15} aria-hidden />
         </IconButton>
