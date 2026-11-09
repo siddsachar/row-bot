@@ -1623,7 +1623,8 @@ it('any failed reply says why, such as no credits left (I4)', async () => {
 
 it('after a reload the interrupted reply still says why it stopped', async () => {
   interruptedConversation();
-  const reason = 'Cerebras rejected the chat request (HTTP 400): the template refused it.';
+  const reason =
+    'Cerebras rejected the chat request (HTTP 400): the template refused it.';
   mock.state.projection = {
     rows: [],
     generation: {

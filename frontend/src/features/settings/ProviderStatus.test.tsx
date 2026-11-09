@@ -175,7 +175,9 @@ it('does not credit another running refresh to the selected provider', async () 
     }),
   );
   expect(
-    await within(sheet).findByText('Row-Bot is already updating the model list.'),
+    await within(sheet).findByText(
+      'Row-Bot is already updating the model list.',
+    ),
   ).toBeVisible();
   expect(refreshState).not.toHaveBeenCalled();
 });

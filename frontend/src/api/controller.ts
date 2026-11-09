@@ -4362,11 +4362,8 @@ export class ClientController {
       result.credential?.provider_id !== provider
     )
       throw clientError({ code: 'provider_credential_unconfirmed' });
-    // The provider's own name ("DeepSeek"), never its id ("deepseek"), when the result carries it.
-    return {
-      ...result.credential,
-      display_name: result.credential.display_name || provider,
-    };
+    // The result carries no name: the editor keeps the one it shows (I1).
+    return { ...result.credential, display_name: provider };
   };
   savedEntities = (
     query = '',
