@@ -126,6 +126,13 @@ through background updates.
   the first try and are checked as they're added, so their models are ready to
   use. A server's models count as ready only once its check passed, and when a
   model can't answer, the chat box says why.
+- **Your Claude plan lasts much longer** - every model call in a turn started
+  a new Claude Code that sent the whole conversation again, and Anthropic's
+  prompt cache stored it again each time instead of reading it back, so a long
+  agent turn used up a 5-hour limit in under an hour. Now one Claude Code
+  stays with the turn: Row-Bot still runs every tool through its own approval
+  check and hands Claude Code the result, and the conversation is read from
+  the cache.
 - **Videos in order** - while Row-Bot makes videos, each step's words, its
   activity and the video it made show in the order they happened, with the
   newest step at the bottom, live and after a reload.
