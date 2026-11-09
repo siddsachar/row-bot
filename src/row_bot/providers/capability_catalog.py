@@ -3,7 +3,8 @@
 Some providers' model lists name their models and nothing else (OpenAI, Cerebras,
 NVIDIA and others). Row-Bot fills those gaps from models.dev (MIT licensed,
 https://models.dev): whether a model takes tools and images, how much it reads,
-and what it outputs. A provider's own list always wins; this only fills gaps.
+what it outputs and whether it reasons. A provider's own list always wins; this
+only fills gaps.
 
 The catalogue is fetched when a provider's models are refreshed, at most once an
 hour, and kept in the data folder. Nothing is sent but the request itself. When
@@ -61,6 +62,7 @@ class ModelCapabilities:
     vision: bool
     context_window: int
     outputs: frozenset[str]
+    reasoning: bool = False
 
 
 _lock = threading.Lock()
@@ -84,6 +86,7 @@ def trim(api: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
                 "vision": "image" in (modalities.get("input") or []),
                 "context": context if isinstance(context, int) and context > 0 else 0,
                 "output": sorted(str(item) for item in modalities.get("output") or []),
+                "reasoning": model.get("reasoning") is True,
             }
         if rows:
             providers[provider] = rows
@@ -165,4 +168,5 @@ def lookup(provider_id: str, model_id: str) -> ModelCapabilities | None:
         vision=row.get("vision") is True,
         context_window=row.get("context") if isinstance(row.get("context"), int) else 0,
         outputs=frozenset(str(item) for item in row.get("output") or ()),
+        reasoning=row.get("reasoning") is True,
     )

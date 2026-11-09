@@ -984,6 +984,14 @@ def _apply_dynamic_reasoning_plan(body: dict[str, Any], plan: Any | None) -> Non
         if selection.kind == "effort":
             body["reasoning"] = {"effort": selection.effort}
         return
+    if style == "thinking_type":  # Z.AI, DeepSeek, Kimi
+        if selection.kind in {"on", "off"}:
+            body["thinking"] = {"type": "enabled" if selection.kind == "on" else "disabled"}
+        return
+    if style == "enable_thinking":  # Qwen (Alibaba Cloud)
+        if selection.kind in {"on", "off"}:
+            body["enable_thinking"] = selection.kind == "on"
+        return
     if selection.kind == "effort":
         body["reasoning_effort"] = selection.effort
     elif selection.kind in {"on", "off"}:
