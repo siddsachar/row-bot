@@ -1117,6 +1117,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return "⚠️ API quota exceeded — please check your billing dashboard."
+    if any(marker in s for marker in (
+        "no credits", "insufficient balance", "insufficient credit", "out of credits", "credit card",
+        "payment required", "http 402", "status code: 402", "error code: 402",
+    )):
+        return "⚠️ Out of credits — add credits with the provider, or switch to another model."
     if "rate_limit" in s or "rate limit" in s or "429" in s:
         # Keep the provider's own wait, so a goal can wait for the reset (B244).
         wait = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+(?:\d+(?:\.\d+)?\s*[a-z]*\s?)+",
@@ -4538,7 +4543,8 @@ def _request_after_overflow(exc: BaseException, config: dict | None) -> list | N
         return None
     retried = int(getattr(prepared, "raw_estimated_input_tokens", 0) or 0)
     if estimate and retried >= estimate:
-        logger.warning("Context overflow: compaction found nothing to shorten; not retrying")
+        logger.warning("Context overflow: compaction found nothing to shorten; not retrying (the provider said: %s)",
+                       str(exc)[:400])
         return None
     logger.warning(
         "Context overflow: compacted and retrying once (~%d estimated tokens, was ~%d, thread=%s)",
@@ -7493,7 +7499,8 @@ def _chat_only_request_after_overflow(
         logger.warning("Context overflow: the request could not be compacted (%s)", type(retry_exc).__name__)
         return None
     if retried.raw_estimated_input_tokens >= prepared.raw_estimated_input_tokens:
-        logger.warning("Context overflow: compaction found nothing to shorten; not retrying")
+        logger.warning("Context overflow: compaction found nothing to shorten; not retrying (the provider said: %s)",
+                       str(exc)[:400])
         return None
     logger.warning(
         "Context overflow: compacted and retrying once (~%d estimated tokens, was ~%d)",

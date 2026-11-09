@@ -2509,7 +2509,7 @@ export default function Conversation({
     generation: string;
     // Whose sign-in can't be used any more ("ChatGPT"); "" for any other failure.
     signIn: string;
-    // The provider's own words on why it couldn't answer (a plan's limit); "" if it gave none.
+    // Why the turn failed: the provider's own words (a plan's limit, no credits); "" if unknown.
     reason: string;
   } | null>(null);
   const captureFailure = useEffectEvent((event: string) => {
@@ -2525,7 +2525,7 @@ export default function Conversation({
           ? payload.provider || 'your account'
           : '',
       reason:
-        payload?.code === 'provider_unavailable' ? (payload.message ?? '') : '',
+        payload?.code === 'sign_in_required' ? '' : (payload?.message ?? ''),
     });
   });
   useEffect(() => {
@@ -2540,7 +2540,12 @@ export default function Conversation({
   const signInNeeded = thisFailure?.signIn ?? '';
   // Claude signs in through Claude Code itself: Claude signed the person out (U11).
   const claudeSignedOut = signInNeeded === 'Claude';
-  const failureReason = thisFailure?.reason ?? '';
+  // A reload has no error event; the interrupted turn's state keeps its reason (I4).
+  const failureReason =
+    thisFailure?.reason ||
+    (!isRunning && generation?.status === 'interrupted'
+      ? (generation.failure_reason ?? '')
+      : '');
   const interrupted =
     !isRunning && generation?.status === 'interrupted' && !signInNeeded;
   const failed = !interrupted && !signInNeeded && Boolean(thisFailure);

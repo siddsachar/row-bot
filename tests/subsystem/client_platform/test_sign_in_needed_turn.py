@@ -124,3 +124,69 @@ def test_a_send_without_claude_code_says_what_claude_code_needs(platform, monkey
     status = ClaudePlanStatus(state="not_installed")
     errors = _send_to_claude_plan(platform, monkeypatch, status)
     assert errors == [{"code": "provider_unavailable", "message": unavailable_message(status)}]
+
+
+class _ProviderFails:
+    """The real agent loop over a graph whose model call fails with the provider's own error."""
+
+    def __init__(self, error: str) -> None:
+        self.error = error
+
+    def stream(self, *_args, **_kwargs):
+        from row_bot import agent
+
+        error = self.error
+
+        class Graph:
+            def stream(self, *_args, **_kwargs):
+                raise RuntimeError(error)
+                yield  # A generator, as a real stream is.
+
+        return agent._stream_graph(Graph(), {}, {"configurable": {}})
+
+    def resume(self, *_args, **_kwargs):
+        return self.stream()
+
+
+def _published_after(platform, monkeypatch, stream) -> list[tuple[str, dict]]:  # noqa: F811
+    published: list[tuple[str, dict]] = []
+    original = platform.projection.publish
+
+    def recording(conversation_id, kind, payload, *args, **kwargs):
+        published.append((kind, dict(payload)))
+        return original(conversation_id, kind, payload, *args, **kwargs)
+
+    monkeypatch.setattr(platform.projection, "publish", recording)
+    accepted = submit(platform, stream, "failed-with-a-reason")
+    assert platform.registry.get(accepted["execution_id"]).producer_done.wait(10)
+    return published
+
+
+@pytest.mark.parametrize(("provider_error", "reason"), [
+    # Seen on 9 Nov: Cerebras' template refused Row-Bot's request; the chat only said "interrupted".
+    ("Cerebras rejected the chat request (HTTP 400). The endpoint profile or selected model may not accept this "
+     "message/tool payload. Details: Failed to apply chat template: System message must be at the beginning.",
+     "Cerebras rejected the chat request (HTTP 400): Failed to apply chat template: System message must be at "
+     "the beginning."),
+    ("Error code: 429 - {'error': {'message': 'You have no credits remaining. Add credits to continue.', "
+     "'type': 'insufficient_quota'}}",
+     "API quota exceeded — please check your billing dashboard."),
+    ("Vercel AI Gateway request failed with HTTP 403. Details: AI Gateway requires a valid credit card on file.",
+     "Out of credits — add credits with the provider, or switch to another model."),
+])
+def test_a_failed_turn_says_why_and_its_state_keeps_the_reason(platform, monkeypatch, provider_error, reason):  # noqa: F811
+    published = _published_after(platform, monkeypatch, _ProviderFails(provider_error))
+
+    errors = [payload for kind, payload in published if kind == "generation.error"]
+    assert errors == [{"code": "generation_failed", "message": reason}]
+    final = [payload for kind, payload in published if kind == "generation.state"][-1]
+    assert final["status"] == "interrupted"
+    assert final["failure_reason"] == reason
+
+
+def test_a_failure_reason_never_carries_a_key():
+    from row_bot.application.turn_failure import failure_reason
+
+    reason = failure_reason("⚠️ API error: Request to https://x.test/v1?key=sk-live-abcdefghijklmnopqrstuvwx failed")
+
+    assert "abcdefghijklmnopqrstuvwx" not in reason

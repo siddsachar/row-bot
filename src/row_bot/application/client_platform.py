@@ -598,6 +598,9 @@ class ClientPlatformService:
                     client_queue.pause_pending(self, conversation_id)
             final_view = {**handle.view(), "status": status, "revision": str(handle.revision + 1),
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
+            if status == "interrupted" and handle.failure_reason:
+                # A reload reads the turn's state, not the error event: it keeps the reason (I4).
+                final_view["failure_reason"] = handle.failure_reason
             # And Row-Bot's reply (or its question) moves it up again when the turn ends.
             with _turn_end_step(conversation_id, "moving the chat up the list"):
                 from row_bot.threads import touch_thread
@@ -2106,7 +2109,10 @@ class ClientPlatformService:
         elif kind == "provider_refusal":
             handle.refusal = dict(payload)
         elif kind == "error":
-            self.projection.publish(conversation_id, "generation.error", handle.refusal or {"code": "generation_failed"})
+            from row_bot.application.turn_failure import failure_reason
+            handle.failure_reason = (handle.refusal or {}).get("message") or failure_reason(str(payload or ""))
+            self.projection.publish(conversation_id, "generation.error", handle.refusal or {
+                "code": "generation_failed", "message": handle.failure_reason})
 
     def get_approval(self, approval_id: str) -> dict:
         from row_bot.application.approval_projection import project_approval_context

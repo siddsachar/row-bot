@@ -7944,6 +7944,8 @@ class GenerationState(WireModel):
     external_outcome: Literal["known_not_sent", "sent", "uncertain", "not_applicable"]
     approval_id: OpaqueId | None
     can_stop: bool
+    # An interrupted turn's reason, when it is known (the provider's words, secrets taken out).
+    failure_reason: str = Field(default="", max_length=400)
 
 
 class TranscriptDelta(WireModel):
@@ -8057,7 +8059,8 @@ class GenerationError(WireModel):
     code: Literal["generation_failed", "sign_in_required", "provider_unavailable"]
     # sign_in_required: whose sign-in to renew ("ChatGPT").
     provider: str = Field(default="", max_length=64)
-    # provider_unavailable: the provider's own words on why and what to do ("Claude is limiting requests…").
+    # provider_unavailable: the provider's own words on why and what to do ("Claude is limiting requests…");
+    # generation_failed: why the turn failed, when it is known ("Out of credits — add credits…").
     message: str = Field(default="", max_length=400)
 
 

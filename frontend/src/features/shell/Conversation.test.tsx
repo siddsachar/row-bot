@@ -1591,6 +1591,55 @@ it("an interrupted reply says the provider's own reason, such as a plan's limit"
   expect(within(log).getByRole('button', { name: 'Resume' })).toBeVisible();
 });
 
+it('any failed reply says why, such as no credits left (I4)', async () => {
+  interruptedConversation();
+  const reason =
+    'Out of credits — add credits with the provider, or switch to another model.';
+  mock.state.activity = [
+    {
+      cursor: '5',
+      event: {
+        event_id: 'event-credits',
+        type: 'generation.error',
+        topic: 'conversation-a',
+        conversation_id: 'conversation-a',
+        projection_revision: '5',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '5',
+        source_sequence_end: '5',
+        payload: { code: 'generation_failed', message: reason },
+      },
+    },
+  ] as unknown as typeof mock.state.activity;
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent(reason);
+  expect(log).not.toHaveTextContent('Resume to continue where it stopped');
+});
+
+it('after a reload the interrupted reply still says why it stopped', async () => {
+  interruptedConversation();
+  const reason = 'Cerebras rejected the chat request (HTTP 400): the template refused it.';
+  mock.state.projection = {
+    rows: [],
+    generation: {
+      generation_id: 'interrupted-run',
+      quiesced: true,
+      can_stop: false,
+      status: 'interrupted',
+      failure_reason: reason,
+    },
+  } as unknown as Snapshot;
+  await act(async () => conversation());
+  expect(screen.getByRole('log', { name: 'Conversation' })).toHaveTextContent(
+    reason,
+  );
+});
+
 it('Claude signed the person out: says so in U11’s words, with Sign in again', async () => {
   interruptedConversation();
   mock.state.activity = [
