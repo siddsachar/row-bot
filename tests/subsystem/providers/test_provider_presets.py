@@ -212,6 +212,37 @@ def test_a_captured_preset_runtime_calls_the_preset_with_its_key(monkeypatch, cl
     assert sent[-1].headers["Authorization"] == "Bearer cerebras-key"
 
 
+
+def _sent_messages(monkeypatch, model_ref: str) -> list[dict]:
+    import json
+    from langchain_core.messages import SystemMessage
+
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, *args: "key")
+    sent: list[httpx.Request] = []
+
+    def send(client, request, **kwargs):
+        sent.append(request)
+        return httpx.Response(200, request=request, json={
+            "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
+        })
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    runtime.create_chat_model(model_ref).invoke([
+        SystemMessage(content="Rules"), SystemMessage(content="Tools"), HumanMessage(content="hi"),
+    ])
+    return json.loads(sent[-1].content)["messages"]
+
+
+def test_cerebras_gets_one_system_message_first_because_its_templates_refuse_a_second(monkeypatch):
+    assert _sent_messages(monkeypatch, "model:cerebras:qwen-3.8-27b") == [
+        {"role": "system", "content": "Rules\n\nTools"}, {"role": "user", "content": "hi"},
+    ]
+
+
+def test_other_presets_keep_row_bots_system_messages_as_they_are(monkeypatch):
+    roles = [message["role"] for message in _sent_messages(monkeypatch, "model:groq:openai/gpt-oss-120b")]
+    assert roles == ["system", "system", "user"]
+
 @pytest.mark.parametrize(("status_code", "state"), [(200, "valid"), (401, "invalid")])
 def test_first_run_checks_a_preset_key_against_its_model_list(monkeypatch, status_code, state):
     from row_bot.application.client_first_run import check_provider_key

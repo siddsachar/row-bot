@@ -40,6 +40,8 @@ class ProviderPreset:
     chat_types: frozenset[str] | None = None
     # A router sends prompts on to other companies' models.
     risk_label: str = "cloud_provider"
+    # Its chat templates take one system message, first (Cerebras' Qwen refuses a second).
+    system_first: bool = False
 
 
 PRESETS: dict[str, ProviderPreset] = {
@@ -60,7 +62,8 @@ PRESETS: dict[str, ProviderPreset] = {
                        "pay_per_use", "TG", chat_types=frozenset({"chat"})),
         ProviderPreset("fireworks", "Fireworks AI", "https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
                        "pay_per_use", "FW"),
-        ProviderPreset("cerebras", "Cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "pay_per_use", "CB"),
+        ProviderPreset("cerebras", "Cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "pay_per_use", "CB",
+                       system_first=True),
         ProviderPreset("huggingface", "Hugging Face", "https://router.huggingface.co/v1", "HF_TOKEN",
                        "pay_per_use", "HF", risk_label="third_party_router"),
         ProviderPreset("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY",
@@ -89,13 +92,16 @@ def preset_definition(preset: ProviderPreset) -> ProviderDefinition:
 
 def preset_endpoint(preset: ProviderPreset) -> dict[str, Any]:
     """The compatible transport's endpoint for this provider."""
-    return {
+    endpoint: dict[str, Any] = {
         "provider_id": preset.id,
         "display_name": preset.name,
         "base_url": preset.base_url,
         "transport": TransportMode.OPENAI_CHAT.value,
         "profile": preset.id,
     }
+    if preset.system_first:
+        endpoint["system_message_mode"] = "system_first"
+    return endpoint
 
 
 def models_url(preset: ProviderPreset) -> str:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Literal
 
 import pytest
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -200,3 +202,57 @@ def test_locked_google_conversion_keeps_items_for_every_core_builtin_array() -> 
 
     assert len(declarations) >= 60
     assert failures == []
+
+
+class _ModeArgs(BaseModel):
+    workspace_mode: Literal["", "auto", "read_only"] = Field("", description="Where the agent works.")
+    task: str = Field(description="What to do.")
+
+
+def _mode_tool() -> StructuredTool:
+    return StructuredTool.from_function(lambda task, workspace_mode="": task, name="agent", description="Run an agent.",
+                                        args_schema=_ModeArgs)
+
+
+def _choices(parameters: dict) -> list:
+    return parameters["properties"]["workspace_mode"]["enum"]
+
+
+def test_a_gemini_model_behind_a_gateway_gets_no_empty_choice_and_other_models_keep_it():
+    # Google answers "enum[0]: cannot be empty" for a tool offering "" (seen through Vercel, 9 Nov).
+    from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+    class _Client:
+        def __init__(self):
+            self.bodies = []
+
+        def post(self, url, **kwargs):
+            self.bodies.append(kwargs["json"])
+            return SimpleNamespace(status_code=200, text="{}", json=lambda: {"choices": [{"message": {"content": "ok"}}]})
+
+    sent = {}
+    for model_name in ("google/gemini-4-argon", "anthropic/claude-sonnet-5.5"):
+        client = _Client()
+        model = ChatOpenAICompatible(model_name=model_name, base_url="https://ai-gateway.vercel.sh/v1",
+                                     endpoint={"provider_id": "vercel"}, http_client=client)
+        model.bind_tools([_mode_tool()]).invoke([HumanMessage(content="go")])
+        sent[model_name] = client.bodies[0]["tools"][0]["function"]["parameters"]
+
+    assert _choices(sent["google/gemini-4-argon"]) == ["auto", "read_only"]
+    assert "default" not in sent["google/gemini-4-argon"]["properties"]["workspace_mode"]
+    assert _choices(sent["anthropic/claude-sonnet-5.5"]) == ["", "auto", "read_only"]
+
+
+def test_gemini_on_googles_own_api_binds_tools_without_an_empty_choice(monkeypatch):
+    import row_bot.providers.runtime as runtime
+    from langchain_google_genai._function_utils import convert_to_genai_function_declarations
+
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda *args: "google-key")
+    model = runtime.create_chat_model("gemini-4-argon", provider_id="google")
+    primary = getattr(model, "primary", model)
+
+    bound = primary.bind_tools([_mode_tool()])
+    declarations = convert_to_genai_function_declarations(bound.kwargs["tools"])
+
+    mode = declarations[0].function_declarations[0].parameters.properties["workspace_mode"]
+    assert list(mode.enum) == ["auto", "read_only"]

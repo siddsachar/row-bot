@@ -487,11 +487,12 @@ def captured_chat_model(
                 max_retries=0, client=root,
                 **_reasoning_constructor_kwargs(capture.reasoning_plan, provider=provider))
         elif provider == "google" or transport == "google_genai":
-            from langchain_google_genai import ChatGoogleGenerativeAI
+            from row_bot.providers.transports.google_gemini import chat_gemini
+            ChatGemini = chat_gemini()
             from pydantic import model_validator
             client = captured_google_client(capture.credential, resolved.base_url, sync, asynchronous,
                 **({"api_version":"v1"} if provider in {"opencode_zen","opencode_go"} else {}))
-            class CapturedGoogle(ChatGoogleGenerativeAI):
+            class CapturedGoogle(ChatGemini):
                 @model_validator(mode="after")
                 def validate_environment(self):
                     # The canonical wrapper otherwise creates another SDK client
@@ -923,9 +924,10 @@ def _create_chat_model(
                 **_reasoning_constructor_kwargs(reasoning_plan, provider=provider),
             )
         if transport == "google_genai" or transport.value == "google_genai":
-            from langchain_google_genai import ChatGoogleGenerativeAI
+            from row_bot.providers.transports.google_gemini import chat_gemini
+            ChatGemini = chat_gemini()
 
-            return ChatGoogleGenerativeAI(
+            return ChatGemini(
                 model=model_name,
                 google_api_key=api_key,
                 base_url=opencode_anthropic_base_url(provider),
@@ -1036,11 +1038,12 @@ def _create_chat_model(
             **_reasoning_constructor_kwargs(reasoning_plan, provider="anthropic"),
         )
     if provider == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from row_bot.providers.transports.google_gemini import chat_gemini
+        ChatGemini = chat_gemini()
         api_key = get_provider_secret("google")
         if not api_key:
             raise ValueError("Google AI API key not configured. Set it in Settings → Providers.")
-        return ChatGoogleGenerativeAI(
+        return ChatGemini(
             model=model_name,
             google_api_key=api_key,
             **_reasoning_constructor_kwargs(reasoning_plan, provider="google"),
