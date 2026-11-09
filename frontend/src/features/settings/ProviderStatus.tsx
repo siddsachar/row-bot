@@ -323,7 +323,7 @@ export default function ProviderStatus({
       const start = await refresh(card.provider_id);
       if (abort.signal.aborted) return;
       if (!start.started) {
-        setNotice('Model catalog refresh is already running.');
+        setNotice('Row-Bot is already updating the model list.');
         setReload((value) => value + 1);
         return;
       }

@@ -29,8 +29,22 @@ export type ConversationOutput = {
 const FOLDED = 6;
 const SHORT = 48;
 
-/** A prompt's opening words, cut at a word ("A fox in a misty forest…"). */
-function shortPrompt(prompt: string) {
+// Style words a media prompt often opens with: names start at the subject, so
+// five videos aren't all "Photorealistic …" (I20).
+const STYLE_OPENING =
+  /^(?:(?:an?|the|photorealistic|realistic|hyper-?realistic|cinematic|dramatic|beautiful|stylized|stylised|detailed|high[- ]quality|4k|8k|hd|wide|close-up|aerial|slow-motion|shot|view|image|video|picture|photo|of|,)\s+)+/i;
+
+const STYLE_WORD =
+  /\b(?:photorealistic|realistic|hyper-?realistic|cinematic|dramatic|stylized|stylised|4k|8k|close-up|aerial|slow-motion|shot|view)\b/i;
+
+/** A prompt's subject, cut at a word ("Colourful fireworks over a lake…"). */
+function shortPrompt(full: string) {
+  const opening = STYLE_OPENING.exec(full)?.[0] ?? '';
+  const subject = STYLE_WORD.test(opening) ? full.slice(opening.length) : full;
+  const prompt =
+    subject.length >= 8
+      ? subject.charAt(0).toLocaleUpperCase() + subject.slice(1)
+      : full;
   if (prompt.length <= SHORT) return prompt;
   const cut = prompt.slice(0, SHORT);
   const space = cut.lastIndexOf(' ');

@@ -107,6 +107,24 @@ it('names each output by its kind and place in the chat, newest first', () => {
   ]);
 });
 
+it('names a media output by its subject, not the style words it opens with (I20)', () => {
+  renderOutputs([
+    {
+      ...output(1, 'video/mp4'),
+      prompt:
+        'Photorealistic cinematic wide view of colourful fireworks bursting over a calm lake at night',
+    },
+    {
+      ...output(2, 'video/mp4'),
+      prompt: 'Photorealistic cinematic shot of a fluffy ginger cat stretching',
+    },
+  ]);
+  expect(tiles()).toEqual([
+    'Open Fluffy ginger cat stretching',
+    'Open Colourful fireworks bursting over a calm lake…',
+  ]);
+});
+
 it('names an output by the start of its prompt, with the whole prompt in its tooltip', async () => {
   const prompt =
     'A lighthouse on a cliff at sunset, waves crashing below, warm light';

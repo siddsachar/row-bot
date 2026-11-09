@@ -79,9 +79,12 @@ def save_export(name: str, data: bytes, *, validate: Callable[[], None]) -> dict
 
 
 def show_in_folder(path: Path) -> None:
-    """Show a file in the file manager; argv only, never a shell."""
+    """Show a file in the file manager; never a shell."""
     if sys.platform == "win32":
-        subprocess.Popen(["explorer", f"/select,{path}"], close_fds=True)
+        # Explorer reads /select,"C:\My files\a.md" but not "/select,C:\My files\a.md", the quoting a
+        # list of arguments gets for a path with a space (it opened its default folder instead). A Windows
+        # path holds no quote.
+        subprocess.Popen(f'explorer /select,"{path}"', close_fds=True)
     elif sys.platform == "darwin":
         subprocess.Popen(["open", "-R", str(path)], close_fds=True, start_new_session=True)
     else:

@@ -115,3 +115,15 @@ def test_export_names_are_made_safe_and_stay_inside_exports(workspace):
     with pytest.raises(PermissionError):
         export_folder.save_export("late.md", b"x", validate=refuse)
     assert not (workspace / "Exports" / "late.md").exists()
+
+
+def test_show_in_folder_selects_a_file_whose_path_has_spaces_on_windows(monkeypatch, tmp_path):
+    """9 Nov: a Save As to "Red Bicycle by a Canal.md" in Downloads opened Explorer's default folder instead."""
+    started: list = []
+    monkeypatch.setattr(export_folder.sys, "platform", "win32")
+    monkeypatch.setattr(export_folder.subprocess, "Popen", lambda command, **kwargs: started.append(command))
+    path = tmp_path / "My exports" / "Red Bicycle by a Canal.md"
+
+    export_folder.show_in_folder(path)
+
+    assert started == [f'explorer /select,"{path}"']

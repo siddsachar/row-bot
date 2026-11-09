@@ -47,13 +47,14 @@ def reply(text: str, *before):
     return (*before, CheckpointCommit((AIMessage(content=text, id=native_id),), native_id), ("done", text))
 
 
-def posted(label: str = "posted"):
-    """A turn whose x_post call went through: its call, X's answer and the reply, as the chat saves them."""
+def posted(label: str = "posted", approval: str = ""):
+    """A turn whose x_post call went through: its call, X's answer and the reply, as the chat saves them;
+    ``approval`` is the line an approved call's result opens with."""
     call_id = fixture_id(label + ":call")
     call = AIMessage(content="", id=fixture_id(label + ":call-message"),
                      tool_calls=[{"name": "x_post", "args": {"account": "@row_bot_ai", "text": POST_TEXT},
                                   "id": call_id}])
-    result = ToolMessage(content=f"Posted on X as @row_bot_ai: {POST_LINK}", name="x_post",
+    result = ToolMessage(content=f"{approval}Posted on X as @row_bot_ai: {POST_LINK}", name="x_post",
                          tool_call_id=call_id, id=fixture_id(label + ":result"))
     final = AIMessage(content="Posted.", id=fixture_id(label + ":assistant"))
     return (CheckpointCommit((call, result, final), final.id), ("done", "Posted."))
@@ -160,6 +161,18 @@ def test_a_post_asks_on_its_full_card_and_the_run_ends_with_the_posts_link(workf
     assert done["status"] == "completed"
     assert done["notice"] == f"Posted on X as @row_bot_ai: {POST_LINK}"
     assert json.loads(done["actions_json"])[0]["link"] == POST_LINK
+
+
+def test_an_approved_posts_run_says_what_went_out_not_how_it_was_approved(workflows, platform):  # noqa: F811
+    """9 Nov: "Growth | X content finished: Approval: asked; approved by you. The reviewer asked you: …"."""
+    approval = "Approval: asked; approved by you. The reviewer asked you: Only you can approve what goes out on X\n"
+    fake = Recording((("interrupt", X_POST),), posted(approval=approval))
+    task = create(workflows)
+    waiting = run(workflows, platform, fake, task)
+    resolve(platform, pending_approval(workflows, waiting["thread_id"]), "approve", "approve-post")
+    settle(platform, waiting["thread_id"])
+
+    assert latest(workflows, task["id"])["notice"] == f"Posted on X as @row_bot_ai: {POST_LINK}"
 
 
 def test_saying_no_on_the_card_ends_the_run_as_denied(workflows, platform):  # noqa: F811
