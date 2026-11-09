@@ -534,6 +534,28 @@ it('a model folds with its maker’s own route, behind hosts and other spellings
   );
 });
 
+it('a model that can’t use tools says Chat only before it is chosen (I15)', async () => {
+  show(
+    undefined,
+    { state: 'ready' },
+    {
+      open: true,
+      models: [
+        {
+          provider_id: 'huggingface',
+          model_ref: 'model:huggingface:aisingapore/Gemma-SEA-LION-v4-27B-IT',
+          label: 'Gemma SEA-LION - Hugging Face',
+          available: true,
+          billing: 'pay_per_use',
+          chat_only: true,
+        },
+      ],
+    },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  expect(within(list).getByRole('option')).toHaveTextContent('Chat only');
+});
+
 it('the current route is the one shown, and the right arrow opens the others', async () => {
   show(
     'model:openrouter:openai/gpt-5.6-sol',

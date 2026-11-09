@@ -342,3 +342,31 @@ def test_an_export_is_offered_under_the_chats_title_as_a_safe_name(title: str, e
     untitled chat (or one with no letters a file name keeps) keeps ``conversation-export``."""
     assert export_file_name(title, "md") == expected
     assert export_file_name(title, "pdf") == expected[:-3] + ".pdf"
+
+
+def test_an_export_says_where_an_image_was_made_and_leaves_out_empty_steps(isolated_service):
+    """The bicycle chat (9 Nov) exported three empty "## Row-Bot" sections and no sign of its two images."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from row_bot import threads
+    from row_bot.application.attachments import read_attachment
+
+    conversation = threads.create_thread("Bicycle", seed_default_skills=False)
+    image = {"type": "media.available", "payload": {"media_ref": "attachment:" + "a" * 32, "mime_type": "image/png"}}
+    threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="ask", content="Make an image of a red bicycle by a canal."),
+        AIMessage(id="plan", content="I'll create it.", tool_calls=[{"id": "c1", "name": "generate_image", "args": {}}]),
+        ToolMessage(id="made", tool_call_id="c1", content="Image generated",
+                    additional_kwargs={"platform_media": [image]}),
+        AIMessage(id="step", content="", tool_calls=[{"id": "c2", "name": "row_bot_status", "args": {}}]),
+        ToolMessage(id="status", tool_call_id="c2", content="private status"),
+        AIMessage(id="done", content="Here you are."),
+    ])
+    review = _review(isolated_service, conversation, "conversation.export", "0", {})
+
+    exported = _execute(isolated_service, conversation, _command("conversation.export", review, {}))
+
+    text = read_attachment(exported["export"]["attachment_ref"])[1].decode()
+    assert text.count("## Row-Bot") == 1
+    assert ("## Row-Bot\n\nI'll create it.\n\n_[Image made in this conversation, kept in Row-Bot]_\n\n"
+            "Here you are.") in text
+    assert "private status" not in text

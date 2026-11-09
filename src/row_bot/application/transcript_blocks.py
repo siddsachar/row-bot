@@ -34,7 +34,8 @@ _REMOTE_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https?://[^)\s]+)\)")
 _B64_SEGMENT_RE = re.compile(r"[A-Za-z0-9+/=]{100,}")
 _AUTOLINK_RE = re.compile(
     r"```[\s\S]*?```|`[^`\n]+`|\[[^\]]*\]\([^)]+\)|<https?://[^>]+>|"
-    r"(https?://[^\s<>\)\]\"']+)"
+    # A link stops before "*": "**https://example.com**" is a bold link, not a link ending in "**" (I14).
+    r"(https?://[^\s<>\)\]\"'*]+)"
 )
 
 
@@ -69,9 +70,8 @@ def autolink_urls(text: str) -> str:
         url = match.group(1)
         if not url:
             return match.group(0)
-        trailing = ""
-        if url[-1] in ".,;:!?":
-            trailing, url = url[-1], url[:-1]
+        stripped = url.rstrip(".,;:!?_~")
+        trailing, url = url[len(stripped):], stripped
         return f"[{url}]({url}){trailing}"
 
     return _AUTOLINK_RE.sub(replace, text) if "http" in text else text

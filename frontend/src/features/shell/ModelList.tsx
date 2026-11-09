@@ -445,6 +445,16 @@ export default function ModelList({
             Personal
           </span>
         )}
+        {row.model.available && row.model.chat_only && (
+          // Marked before it's chosen, not only in the chip's hint after (I15).
+          <span
+            className="model-billing"
+            data-billing="chat-only"
+            title="It can't use tools: it works in Chat only mode."
+          >
+            Chat only
+          </span>
+        )}
         {row.model.detail && (
           <span className="model-picker-option-provider">
             {row.model.detail}

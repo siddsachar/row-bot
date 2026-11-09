@@ -1344,6 +1344,7 @@ def cached_choices() -> dict:
                 "available": option["available"],
                 "unavailable_reason": option["unavailable_reason"],
                 "billing": option["billing"],
+                "chat_only": bool(option.get("chat_only")),
                 # Learning (preview, D11): a personal-model version, tagged Personal in the picker.
                 "personal": withheld(option["provider_id"], option["selection_ref"]),
             }

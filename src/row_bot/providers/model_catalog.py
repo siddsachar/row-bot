@@ -345,6 +345,8 @@ def picker_options(
             "source": row.source[:80], "available": unavailable is None,
             "unavailable_reason": unavailable, "reason": reason[:256],
             "context_window": row.context_window or None, "billing": provider_billing(row.provider_id),
+            # It can't use tools: chat only (I15).
+            "chat_only": row.runtime_mode == "chat_only",
         })
     return options
 

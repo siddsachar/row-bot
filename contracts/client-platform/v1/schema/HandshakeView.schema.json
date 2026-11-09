@@ -135,6 +135,11 @@
           "default": null,
           "title": "Billing"
         },
+        "chat_only": {
+          "default": false,
+          "title": "Chat Only",
+          "type": "boolean"
+        },
         "favourite_rank": {
           "anyOf": [
             {

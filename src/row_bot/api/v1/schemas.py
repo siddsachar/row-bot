@@ -8880,6 +8880,8 @@ class ModelChoice(WireModel):
     favourite_rank: int | None = Field(default=None, ge=1, le=256)
     # Learning (preview, D11): one of the person's personal-model versions ("Personal model v1").
     personal: bool = False
+    # It can't use tools, so it chats only (Chat only mode).
+    chat_only: bool = False
 
 
 class CapabilityChoice(WireModel):
