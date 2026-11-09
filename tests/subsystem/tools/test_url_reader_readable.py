@@ -114,6 +114,19 @@ def test_a_page_built_by_javascript_points_to_the_browser(web):
     assert "browser_navigate" not in _read(web, ARTICLE.replace(b"</head>", b"<script>track()</script></head>"))
 
 
+def test_a_short_page_with_a_script_reads_as_itself_without_sending_the_model_to_the_browser(web):
+    # example.com (Nov 2026): one paragraph, and a script that adds translations. Models sent to the
+    # browser by the note opened it, and two ran shell fetches of the script.
+    page = (b'<!doctype html><html><head><title>Example Domain</title></head><body><p>This domain is for use '
+            b'in documentation examples without needing permission. This is not a service; avoid relying on it '
+            b'for testing and monitoring purposes.</p><script src=/s.js></script></body></html>')
+
+    text = _read(web, page)
+
+    assert "This domain is for use in documentation examples" in text
+    assert "browser_navigate" not in text
+
+
 def test_a_long_page_is_still_read_a_page_at_a_time(web):
     from row_bot.tools.url_reader_tool import PAGE_CHARS
 

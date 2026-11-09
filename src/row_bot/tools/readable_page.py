@@ -27,7 +27,8 @@ _BLOCKS = {"p", "div", "section", "article", "main", "header", "footer", "figure
            "details", "summary", "dl", "dt", "dd", "address", "table", "tr", "td", "th", "caption"}
 _HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _INDENT = "\x00"  # one level of a nested list; spaces would be tidied away before the end
-_SHORT = 200
+# Text this short with scripts on the page is a script-built shell (example.com's 160-character paragraph is not).
+_SHELL_TEXT = 40
 _PERMALINKS = {"¶", "§", "#", "🔗"}
 JAVASCRIPT_ONLY = ("[This page builds itself with JavaScript, so its text isn't in the page. "
                    "Open it with the browser (browser_navigate) to read it.]")
@@ -44,7 +45,7 @@ def readable_markdown(soup: BeautifulSoup, base_url: str) -> str:
     total = len(page.get_text(strip=True))
     region = next((tag for tag in page.select(_MAIN) if len(tag.get_text(strip=True)) * 2 > total), page)
     body = _tidy(_render(region, base_url))
-    if len(body) < _SHORT and scripted:
+    if len(body) < _SHELL_TEXT and scripted:
         body = f"{body}\n\n{JAVASCRIPT_ONLY}".strip()
     if not body:
         return ""
