@@ -245,8 +245,8 @@ def _get_google_client():
     from row_bot.providers.media_auth import current_media_auth, google_client
     if current_media_auth("google") is not None:
         return google_client()
-    from row_bot.api_keys import get_key
-    api_key = get_key("GOOGLE_API_KEY")
+    from row_bot.providers.media import media_api_key
+    api_key = media_api_key("google")
     if not api_key:
         raise RuntimeError(
             "No Google API key configured. "
@@ -258,8 +258,8 @@ def _get_google_client():
 
 def _get_xai_key() -> str:
     """Return the xAI API key or raise."""
-    from row_bot.api_keys import get_key
-    api_key = get_key("XAI_API_KEY")
+    from row_bot.providers.media import media_api_key
+    api_key = media_api_key("xai")
     if not api_key:
         raise RuntimeError(
             "No xAI API key configured. "
@@ -667,14 +667,13 @@ def _job_request(provider_id: str, method: str, path: str, *, json: dict | None 
     """Call a video provider's own API with its key, raising its error message."""
     import httpx
 
-    from row_bot.api_keys import get_key
-    from row_bot.providers.media import VIDEO_PROVIDER_META, media_error_text
+    from row_bot.providers.media import VIDEO_PROVIDER_META, media_api_key, media_error_text
 
     meta = VIDEO_PROVIDER_META[provider_id]
     _validate_generation()
     response = httpx.request(
         method, f"{meta['base_url']}{path}", json=json, timeout=timeout,
-        headers={"Authorization": f"Bearer {get_key(meta['key'])}", **(headers or {})},
+        headers={"Authorization": f"Bearer {media_api_key(provider_id)}", **(headers or {})},
     )
     if response.status_code >= 400:
         raise RuntimeError(f"HTTP {response.status_code}: {media_error_text(response)}")

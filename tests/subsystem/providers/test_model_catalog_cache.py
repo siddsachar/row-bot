@@ -336,11 +336,38 @@ def test_a_refresh_for_claude_alone_still_lists_ollama_when_none_is_saved(tmp_pa
     monkeypatch.setattr(cache, "_refresh_ollama_rows", ollama_rows)
 
     cache.refresh_model_catalog_cache(reason="claude_plan_ready", force=True, provider_id="claude_subscription")
-    later = cache.refresh_model_catalog_cache(reason="startup", force=False)  # Fresh: skipped.
 
-    assert later.ollama_rows == ollama and later.cloud_cache == claude
+    assert cache.read_model_catalog_cache().ollama_rows == ollama
     assert asked == ["ollama"]
     # Ollama's rows saved, another provider's refresh leaves them to Ollama's own and the full ones.
     cache.refresh_model_catalog_cache(reason="claude_plan_ready", force=True, provider_id="claude_subscription")
     assert asked == ["ollama"]
     assert cache.read_model_catalog_cache().ollama_rows == ollama
+
+
+def test_connecting_one_provider_does_not_stop_the_full_refresh_of_the_others(tmp_path, monkeypatch):
+    """On 9 Nov each newly connected provider refreshed its own list and stamped the whole catalog fresh, so
+    the startup and 6-hourly refreshes skipped all day: Requesty's list stayed two days old, without the
+    image models a newer Row-Bot lists. Providers are faked."""
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
+    refreshed: list[str] = []
+
+    def cloud(provider_id=None):
+        refreshed.append(provider_id or "all")
+        return {f"model:{provider_id or 'requesty'}:m": {"provider": provider_id or "requesty"}}, {
+            provider_id or "requesty": {"status": "live", "count": 1}}
+
+    monkeypatch.setattr(cache, "_refresh_cloud_cache", cloud)
+    cache.refresh_model_catalog_cache(reason="startup", force=True)
+    monkeypatch.setattr(cache.time, "time", lambda: cache.read_model_catalog_cache().generated_at
+                        + cache.CATALOG_CACHE_TTL_SECONDS + 1)
+
+    cache.refresh_model_catalog_cache(reason="provider_connection", force=True, provider_id="cerebras")
+    # The other providers' statuses stay beside the one just refreshed.
+    assert {"requesty", "cerebras"} <= set(cache.read_model_catalog_cache().provider_status)
+    cache.refresh_model_catalog_cache(reason="scheduled", force=False)
+
+    assert refreshed == ["all", "cerebras", "all"]
