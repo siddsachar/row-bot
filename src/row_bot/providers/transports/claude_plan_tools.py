@@ -30,17 +30,20 @@ class Results:
     def __init__(self, folder: Path | None) -> None:
         self.folder = folder
         self.used: set[tuple[str, int]] = set()
+        # A results file is written whole once and never changes, so each is read once.
+        self.read: dict[str, list] = {}
 
     def _entries(self) -> list[tuple[tuple[str, int], dict]]:
         assert self.folder is not None
-        entries = []
         for path in sorted(self.folder.glob("results-*.json")):
-            try:
-                rows = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            entries += [((path.name, index), row) for index, row in enumerate(rows) if isinstance(row, dict)]
-        return entries
+            if path.name not in self.read:
+                try:
+                    rows = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                self.read[path.name] = rows if isinstance(rows, list) else []
+        return [((name, index), row) for name, rows in sorted(self.read.items())
+                for index, row in enumerate(rows) if isinstance(row, dict)]
 
     def take(self, name: str, arguments: object) -> dict | None:
         """The result for one call, once Row-Bot has written it; None when the run is over."""
