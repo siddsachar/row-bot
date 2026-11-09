@@ -254,3 +254,37 @@ def test_first_run_checks_a_preset_key_against_its_model_list(monkeypatch, statu
     assert seen["url"] == "https://api.moonshot.ai/v1/models"
     assert seen["headers"]["Authorization"] == "Bearer sk-synthetic-moonshot-key"
     assert result["state"] == state
+
+
+def test_mistral_lists_each_model_once_not_once_per_alias(monkeypatch, cloud_cache):
+    _serve(monkeypatch, "mistral", {"data": [
+        {"id": "codestral-2508", "name": "codestral-2508", "capabilities": {"completion_chat": True}},
+        {"id": "codestral-latest", "name": "codestral-2508", "capabilities": {"completion_chat": True}},
+        {"id": "mistral-code-latest", "name": "codestral-2508", "capabilities": {"completion_chat": True}},
+        {"id": "voxtral-small-2507", "name": "Voxtral Small Transcribe", "capabilities": {"completion_chat": True}},
+    ]})
+
+    models.fetch_cloud_models("mistral")
+
+    assert sorted(cloud_cache) == ["model:mistral:codestral-2508"]
+
+
+def test_qwens_image_makers_and_single_purpose_models_stay_out_of_the_chat_list(monkeypatch, cloud_cache):
+    ids = ["qwen3.8-max", "qwen-image-2.0", "wan2.7-image", "z-image-turbo", "qwen-mt-flash",
+           "qwen3-livetranslate-flash", "tongyi-tingwu-slp", "qwen-vl-ocr-2025-11-20"]
+    _serve(monkeypatch, "dashscope", {"data": [{"id": model_id} for model_id in ids]})
+    monkeypatch.setattr(models, "_dashscope_media_model_infos", lambda *args: [])
+
+    models.fetch_cloud_models("dashscope")
+
+    assert sorted(cloud_cache) == ["model:dashscope:qwen3.8-max"]
+
+
+def test_fireworks_models_read_by_their_name_not_their_path(monkeypatch, cloud_cache):
+    _serve(monkeypatch, "fireworks", {"data": [{"id": "accounts/fireworks/models/kimi-k3"},
+                                               {"id": "accounts/fireworks/routers/kimi-k3-fast"}]})
+
+    models.fetch_cloud_models("fireworks")
+
+    assert cloud_cache["model:fireworks:accounts/fireworks/models/kimi-k3"]["label"] == "kimi-k3"
+    assert cloud_cache["model:fireworks:accounts/fireworks/routers/kimi-k3-fast"]["label"] == "kimi-k3-fast (router)"

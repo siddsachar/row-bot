@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import logging
+import re
 from typing import Any, Literal
 
 from row_bot.providers.models import AuthMethod, ModelInfo, ProviderDefinition, TransportMode
@@ -22,7 +23,12 @@ _NON_CHAT_TYPES = frozenset({
 _NON_CHAT_MARKERS = (
     "embed", "rerank", "whisper", "tts", "guard", "moderation", "transcribe", "parakeet",
     "orpheus", "clip",
+    # Image makers and single-purpose models that Qwen's list gives no type (qwen-image-2.0, wan2.7-image,
+    # z-image-turbo, qwen-mt-flash translation, qwen3-livetranslate, tongyi-tingwu, qwen-vl-ocr).
+    "image", "-mt-", "livetranslate", "tingwu", "-ocr",
 )
+# Fireworks names its models by path ("accounts/fireworks/models/kimi-k3").
+_FIREWORKS_PATH = re.compile(r"^accounts/[^/]+/(?P<kind>models|routers)/(?P<name>.+)$")
 
 
 @dataclass(frozen=True)
@@ -124,7 +130,8 @@ def _positive(value: Any) -> int:
 
 def _is_chat(preset: ProviderPreset, row: dict[str, Any]) -> bool:
     model_id = str(row.get("id") or "").lower()
-    if any(marker in model_id.rsplit("/", 1)[-1] for marker in _NON_CHAT_MARKERS):
+    name = str(row.get("name") or "").lower()
+    if any(marker in model_id.rsplit("/", 1)[-1] or marker in name for marker in _NON_CHAT_MARKERS):
         return False
     kind = str(row.get("type") or "").strip().lower()
     if kind and (kind not in preset.chat_types if preset.chat_types else kind in _NON_CHAT_TYPES):
@@ -178,6 +185,26 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
+def _display_name(row: dict[str, Any]) -> str:
+    model_id = str(row.get("id") or "").strip()
+    named = str(row.get("name") or row.get("display_name") or "").strip()
+    if named and named != model_id:
+        return named
+    path = _FIREWORKS_PATH.match(model_id)
+    if path:
+        return path.group("name") + (" (router)" if path.group("kind") == "routers" else "")
+    return named or model_id
+
+
+def _aliases(rows: list[dict[str, Any]]) -> set[str]:
+    """Ids that only repeat another listed model: Mistral lists each alias as a row named after the model
+    it points to (codestral-latest, mistral-code-latest named "codestral-2508"); the row whose id is the
+    name stays."""
+    ids = {str(row.get("id") or "") for row in rows}
+    return {str(row.get("id") or "") for row in rows
+            if str(row.get("name") or "") in ids and str(row.get("name")) != str(row.get("id") or "")}
+
+
 def model_infos_from_catalog(preset: ProviderPreset, payload: Any, *, verified_at: str = "") -> list[ModelInfo]:
     """The chat models in this provider's ``/models`` answer, and its image and video
     models when Row-Bot's image and video tools can call this provider."""
@@ -187,8 +214,9 @@ def model_infos_from_catalog(preset: ProviderPreset, payload: Any, *, verified_a
     makes = {kind for kind, table in (("image", IMAGE_PROVIDER_META), ("video", VIDEO_PROVIDER_META))
              if preset.id in table}
     infos: list[ModelInfo] = []
-    seen: set[str] = set()
-    for row in _rows(payload):
+    rows = _rows(payload)
+    seen: set[str] = _aliases(rows)
+    for row in rows:
         model_id = str(row.get("id") or "").strip()
         kind = str(row.get("type") or "").strip().lower()
         if model_id and model_id not in seen and kind in makes:
@@ -208,7 +236,7 @@ def model_infos_from_catalog(preset: ProviderPreset, payload: Any, *, verified_a
             preset.id,
             model_id,
             metadata,
-            display_name=str(row.get("name") or row.get("display_name") or model_id),
+            display_name=_display_name(row),
             context_window=metadata["context_window"],
             transport=TransportMode.OPENAI_CHAT,
             risk_label=preset.risk_label,
