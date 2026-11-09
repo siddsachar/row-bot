@@ -74,6 +74,41 @@ it('saves a key from the compact provider dialog with one explicit action', asyn
   expect(document.body.textContent).not.toContain('synthetic-private-input');
 });
 
+it('keeps the provider’s name after a save, and says the state once (I1)', async () => {
+  const options = {
+    ...props(),
+    providerId: 'deepseek',
+    load: vi.fn().mockResolvedValue({
+      ...snapshot,
+      provider_id: 'deepseek',
+      display_name: 'DeepSeek',
+    }),
+    review: vi.fn().mockResolvedValue({
+      ...snapshot,
+      provider_id: 'deepseek',
+      display_name: 'DeepSeek',
+    }),
+    // A save's result names the provider by its id.
+    apply: vi.fn().mockResolvedValue({
+      ...snapshot,
+      provider_id: 'deepseek',
+      display_name: 'deepseek',
+      revision: 'b'.repeat(64),
+    }),
+  };
+  render(<ProviderSettingsEditor {...options} compact />);
+  fireEvent.change(await screen.findByLabelText('API key'), {
+    target: { value: 'synthetic-private-input' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
+  expect(
+    await screen.findByRole('heading', { name: 'DeepSeek API key' }),
+  ).toBeVisible();
+  // Read out for screen readers, but the visible state line already says it.
+  expect(screen.getByText('API key saved.')).toHaveClass('sr-only');
+});
+
 it('retains the private draft across a full editor remount', async () => {
   const options = props(),
     session = new ProviderSettingsSession('openai');

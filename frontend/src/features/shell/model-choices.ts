@@ -91,15 +91,51 @@ export type ModelRoutes<T extends ModelChoice = ModelChoice> = {
   others: T[];
 };
 
-/** "anthropic/claude-opus-4.7" → maker "anthropic", name "claude-opus-4-7". */
+// Prefixes that name where a model runs, not who made it: Requesty's
+// "vertex/claude-fable-5", "fireworks/qwen3.8-max"; Fireworks' own paths.
+const HOSTS = new Set([
+  'accountsfireworksmodels',
+  'accountsfireworksrouters',
+  'azure',
+  'bedrock',
+  'deepinfra',
+  'fireworks',
+  'nebius',
+  'novita',
+  'parasail',
+  'together',
+  'vertex',
+]);
+// One maker, several spellings across providers.
+const MAKERS: Record<string, string> = {
+  alibaba: 'qwen',
+  deepseekai: 'deepseek',
+  metallama: 'meta',
+  minimaxai: 'minimax',
+  mistralai: 'mistral',
+  moonshotai: 'moonshot',
+  spacexai: 'xai',
+  zai: 'zai',
+  zhipu: 'zai',
+  zhipuai: 'zai',
+};
+
+/**
+ * "anthropic/claude-opus-4.7" → maker "anthropic", name "claudeopus47"; a
+ * host prefix ("vertex/…") and a region ("…@us-east-1") are not part of it.
+ */
 function routeName(ref: string): { maker: string; name: string } | null {
   if (!ref.startsWith('model:')) return null;
   const id = ref.split(':').slice(2).join(':').toLowerCase();
   const slash = id.lastIndexOf('/');
-  const name = id.slice(slash + 1).replace(/[._]/g, '-');
+  const name = id
+    .slice(slash + 1)
+    .replace(/@.*$/, '')
+    .replace(/[^a-z0-9]/g, '');
   if (!name) return null;
+  const prefix = slash > 0 ? id.slice(0, slash).replace(/[^a-z0-9]/g, '') : '';
   return {
-    maker: slash > 0 ? id.slice(0, slash).replace(/[^a-z0-9]/g, '') : '',
+    maker: HOSTS.has(prefix) ? '' : (MAKERS[prefix] ?? prefix),
     name,
   };
 }
@@ -114,7 +150,8 @@ function routeOrder(model: ModelChoice, maker: string) {
 
 /**
  * Folds the same model offered by several providers into one entry (§4.4):
- * "claude-opus-4-7" and "anthropic/claude-opus-4.7" are one model, but two
+ * "claude-opus-4-7", "anthropic/claude-opus-4.7" and Requesty's
+ * "vertex/claude-opus-4-7@us-east-1" are one model, but two
  * makers' models of one name stay apart. The route shown is the current
  * one, then a starred one, then by `routeOrder`. Display only: each route
  * keeps its own reference, and nothing switches routes by itself.

@@ -244,8 +244,7 @@ def _get_client() -> tuple:
     gets an ``openai.OpenAI`` client at its base URL. xAI and the providers with
     their own image APIs are called directly, so their client is ``None``.
     """
-    from row_bot.api_keys import get_key
-    from row_bot.providers.media import IMAGE_PROVIDER_META
+    from row_bot.providers.media import IMAGE_PROVIDER_META, media_api_key
 
     provider, _ = _parse_model_config(_get_configured_selection())
     from row_bot.providers.media_auth import current_media_auth, google_client, openai_client
@@ -265,7 +264,7 @@ def _get_client() -> tuple:
             "Please select a valid model in Settings → Models."
         )
 
-    api_key = get_key(meta["key"])
+    api_key = media_api_key(provider)
     if not api_key:
         raise RuntimeError(
             f"No API key for {meta['label']}. "
@@ -294,14 +293,13 @@ def _request_json(provider_id: str, method: str, path: str, body: dict | None = 
     """Call an image provider's own API with its key, raising its error message."""
     import httpx
 
-    from row_bot.api_keys import get_key
-    from row_bot.providers.media import IMAGE_PROVIDER_META, media_error_text
+    from row_bot.providers.media import IMAGE_PROVIDER_META, media_api_key, media_error_text
 
     meta = IMAGE_PROVIDER_META[provider_id]
     _validate_generation()
     response = httpx.request(
         method, f"{meta['base_url']}{path}", json=body, timeout=_DIRECT_TIMEOUT,
-        headers={"Authorization": f"Bearer {get_key(meta['key'])}"},
+        headers={"Authorization": f"Bearer {media_api_key(provider_id)}"},
     )
     if response.status_code >= 400:
         raise RuntimeError(f"HTTP {response.status_code}: {media_error_text(response)}")

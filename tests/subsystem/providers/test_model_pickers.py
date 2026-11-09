@@ -376,3 +376,14 @@ def test_the_composer_always_lists_the_main_model_starred_or_not(saved_state, mo
     composer = {model["model_ref"]: model for model in cached_choices()["models"]}
     assert composer[TERRA]["available"] is True and "favourite_rank" not in composer[TERRA]
     assert TERRA not in _options("vision")
+
+
+def test_the_models_settings_state_passes_its_schema_with_a_chat_only_model(saved_state):
+    """A model that can't use tools is marked Chat only for the composer; the Models page's own lists carry the
+    same mark, and the page's schema accepts it (it refused the page once)."""
+    from row_bot.api.v1.schemas import ModelsSettingsState
+
+    state = owner.read_models_settings()
+
+    ModelsSettingsState.model_validate(state)
+    assert all(isinstance(option["chat_only"], bool) for option in state["brain"]["options"])

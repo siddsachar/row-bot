@@ -374,7 +374,10 @@ def actions(conversation_id: str, first_message_id: str) -> list[dict[str, Any]]
             continue
         content = message.content if isinstance(message.content, str) else json.dumps(message.content)
         link = _LINK.search(content)
-        found.append({"tool": name, "title": _title(name), "result": _first_line(content) or "Done.",
+        # An approved action's result opens with how it was approved; what it did is the next line (I11).
+        first, _newline, rest = content.partition("\n")
+        said = rest if first.startswith("Approval: ") else content
+        found.append({"tool": name, "title": _title(name), "result": _first_line(said) or "Done.",
                       "link": link.group(0).rstrip(".,") if link else "", "unsure": _NOT_SURE in content})
     return found
 

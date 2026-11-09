@@ -17,6 +17,7 @@ from pydantic import Field
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_provider_usage
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
+from row_bot.providers.tool_schema import gemini_openai_tool, is_gemini_model
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
 
 logger = logging.getLogger(__name__)
@@ -237,7 +238,7 @@ class ChatOpenAICompatible(BaseChatModel):
             if isinstance(choice.get("finish_reason"), str) and choice["finish_reason"]:
                 stop_reason = choice["finish_reason"]
             delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
-            content = str(delta.get("content") or "")
+            content = _content_parts(delta.get("content"))[0]
             reasoning = _reasoning_content(delta, choice)
             if content or reasoning:
                 content_seen = content_seen or bool(content)
@@ -393,6 +394,9 @@ class ChatOpenAICompatible(BaseChatModel):
         tools = kwargs.get("tools") or []
         if tools and accepts_tools:
             body["tools"] = [_openai_tool(tool) for tool in tools]
+            if is_gemini_model(self.model_name):
+                # A gateway passes the schema on to Google, which refuses an empty choice.
+                body["tools"] = [gemini_openai_tool(tool) for tool in body["tools"]]
             tool_choice = kwargs.get("tool_choice")
             if tool_choice:
                 body["tool_choice"] = tool_choice
@@ -980,6 +984,14 @@ def _apply_dynamic_reasoning_plan(body: dict[str, Any], plan: Any | None) -> Non
         if selection.kind == "effort":
             body["reasoning"] = {"effort": selection.effort}
         return
+    if style == "thinking_type":  # Z.AI, DeepSeek, Kimi
+        if selection.kind in {"on", "off"}:
+            body["thinking"] = {"type": "enabled" if selection.kind == "on" else "disabled"}
+        return
+    if style == "enable_thinking":  # Qwen (Alibaba Cloud)
+        if selection.kind in {"on", "off"}:
+            body["enable_thinking"] = selection.kind == "on"
+        return
     if selection.kind == "effort":
         body["reasoning_effort"] = selection.effort
     elif selection.kind in {"on", "off"}:
@@ -1416,10 +1428,46 @@ def _first_choice(payload: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _chunk_text(value: Any) -> str:
+    """The text in a content value: a string, or a list of ``{"type": "text", "text": ...}`` parts."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(
+            str(part.get("text") or "") for part in value
+            if isinstance(part, dict) and part.get("type") in (None, "text")
+        )
+    return ""
+
+
+def _content_parts(content: Any) -> tuple[str, str]:
+    """A message's ``content`` as (answer text, thinking text).
+
+    Most providers send a string. Mistral's reasoning models send a list of chunks, a
+    ``{"type": "thinking", "thinking": [{"type": "text", ...}]}`` chunk for the thinking and
+    ``{"type": "text", "text": ...}`` chunks for the answer.
+    """
+    if isinstance(content, str):
+        return content, ""
+    if not isinstance(content, list):
+        return "", ""
+    text: list[str] = []
+    thinking: list[str] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        kind = part.get("type")
+        if kind == "text":
+            text.append(str(part.get("text") or ""))
+        elif kind in {"thinking", "reasoning"}:
+            thinking.append(_chunk_text(part.get("thinking") if "thinking" in part else part.get("text")))
+    return "".join(text), "".join(thinking)
+
+
 def _choice_content(message_payload: dict[str, Any], choice: dict[str, Any]) -> str:
     content = message_payload.get("content")
-    if isinstance(content, str):
-        return content
+    if isinstance(content, (str, list)):
+        return _content_parts(content)[0]
     text = choice.get("text")
     return str(text or "")
 
@@ -1432,7 +1480,9 @@ def _reasoning_content(message_payload: dict[str, Any], choice: dict[str, Any]) 
     if isinstance(reasoning, str):
         return reasoning
     reasoning = choice.get("reasoning_content")
-    return reasoning if isinstance(reasoning, str) else ""
+    if isinstance(reasoning, str):
+        return reasoning
+    return _content_parts(message_payload.get("content"))[1]
 
 
 def _response_metadata(payload: dict[str, Any]) -> dict[str, Any]:

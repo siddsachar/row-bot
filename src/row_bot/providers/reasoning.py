@@ -262,6 +262,9 @@ def resolve_reasoning_capabilities(provider_id: str, model_id: str) -> Reasoning
     fallback = _EXACT_REASONING_CAPABILITIES.get((provider, model))
     if fallback:
         return fallback
+    catalogued = _catalogue_reasoning_capabilities(provider, model)
+    if catalogued:
+        return catalogued
     if provider in {"opencode_zen", "opencode_go"}:
         return _opencode_fallback_capabilities(provider, model)
     if provider in {"ollama", "ollama_cloud"}:
@@ -281,7 +284,8 @@ def reasoning_metadata_for_catalog(
     caps = ReasoningCapabilities.from_json(nested)
     if caps:
         return _with_default_request_style(caps, provider_id).to_json()
-    fallback = _EXACT_REASONING_CAPABILITIES.get((provider_id, model_id))
+    fallback = _EXACT_REASONING_CAPABILITIES.get((provider_id, model_id)) or _catalogue_reasoning_capabilities(
+        provider_id, model_id)
     if fallback:
         return fallback.to_json()
     if provider_id in {"opencode_zen", "opencode_go"}:
@@ -665,6 +669,44 @@ for _model, _minimum, _maximum, _disable in (
     )
 for _model in ("gemini-3-flash-preview", "gemini-3.1-pro-preview"):
     _EXACT_REASONING_CAPABILITIES[("google", _model)] = _caps(("low", "high"), style="google_level")
+
+
+def _catalogue_caps(efforts: tuple[str, ...] = (), *, style: str, **kwargs: Any) -> ReasoningCapabilities:
+    return ReasoningCapabilities(**{**_caps(efforts, style=style, **kwargs).to_json(),
+                                    "source": "models_dev_catalogue", "revision": ""})
+
+
+# How each provider's API takes thinking, for a model models.dev says reasons and the provider's own list
+# doesn't describe. A setting the provider refuses falls back to its default (ReasoningFallbackChatModel).
+_CATALOGUE_REASONING: dict[str, ReasoningCapabilities] = {
+    "openai": _catalogue_caps(_OPENAI_EFFORTS, style="openai"),
+    "anthropic": _catalogue_caps(_ANTHROPIC_EFFORTS, style="anthropic", thinking_mode="adaptive"),
+    "claude_subscription": _catalogue_caps(_ANTHROPIC_EFFORTS, style="anthropic", thinking_mode="adaptive"),
+    "google": _catalogue_caps(("low", "high"), style="google_level"),
+    "xai": _catalogue_caps(("low", "high"), style="xai", mandatory=True),
+    # reasoning_effort, as OpenAI's chat API takes it (gpt-oss and the others these hosts run).
+    **{provider: _catalogue_caps(("low", "medium", "high"), style="openai")
+       for provider in ("groq", "cerebras", "fireworks", "together", "huggingface", "vercel", "nvidia")},
+    # thinking: {"type": "enabled" | "disabled"}.
+    **{provider: _catalogue_caps(style="thinking_type", can_disable=True, thinking_mode="toggle")
+       for provider in ("zai", "deepseek", "moonshot")},
+    # enable_thinking: true | false.
+    "dashscope": _catalogue_caps(style="enable_thinking", can_disable=True, thinking_mode="toggle"),
+}
+
+
+def _catalogue_reasoning_capabilities(provider_id: str, model_id: str) -> ReasoningCapabilities | None:
+    """A control for a model models.dev says reasons, in the style its provider's API takes."""
+    caps = _CATALOGUE_REASONING.get(provider_id)
+    if caps is None:
+        return None
+    try:
+        from row_bot.providers.capability_catalog import lookup
+
+        known = lookup(provider_id, model_id)
+    except Exception:
+        return None
+    return caps if known is not None and known.reasoning else None
 
 
 def _with_default_request_style(caps: ReasoningCapabilities, provider_id: str) -> ReasoningCapabilities:

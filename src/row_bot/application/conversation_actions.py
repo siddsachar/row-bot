@@ -229,12 +229,29 @@ def _export_markdown(conversation_id: str, title: str, checkpoint_revision: str,
 
     validate()
     count = 0
+    speaker = ""
+
+    def section(role: str, body: str) -> None:
+        # One heading per speaker's turn: a tool-only step adds no empty "## Row-Bot" (I18).
+        nonlocal speaker
+        if role != speaker:
+            append("## You\n\n" if role == "user" else "## Row-Bot\n\n")
+            speaker = role
+        append(body.rstrip("\n") + "\n\n")
+
     try:
         with open_checkpoint(conversation_id, checkpoint_revision) as reader:
             if checkpoint_revision and reader is None:
                 raise _error("conversation_transcript_changed")
             if reader is not None:
                 for _index, record in reader.records():
+                    if record["role"] == "tool" and record.get("media"):
+                        # What a tool made shows where it was made; the file stays with the conversation.
+                        section("assistant", "\n".join(
+                            f"_[{'Video' if str(item['payload'].get('mime_type', '')).startswith('video/') else 'Image'}"
+                            " made in this conversation, "
+                            "kept in Row-Bot]_" for item in record["media"]))
+                        continue
                     if record["role"] not in {"user", "assistant"}:
                         continue
                     count += 1
@@ -242,10 +259,9 @@ def _export_markdown(conversation_id: str, title: str, checkpoint_revision: str,
                         raise _error("conversation_export_too_large")
                     if count % 32 == 1:
                         validate()
-                    append("## You\n\n" if record["role"] == "user" else "## Row-Bot\n\n")
-                    for chunk in reader.public_text_chunks(record):
-                        append(chunk)
-                    append("\n")
+                    text = "".join(reader.public_text_chunks(record))
+                    if text.strip():
+                        section(record["role"], text)
     except ConversationActionError:
         raise
     except Exception:

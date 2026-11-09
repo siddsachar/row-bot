@@ -595,3 +595,32 @@ def test_openrouter_media_models_keep_the_settings_asked_for_when_its_settings_l
     assert "Duration: 20s | Aspect ratio: 4:3 | Resolution: 4k" in result
     assert {key: media.calls[0].json[key] for key in ("duration", "aspect_ratio", "resolution")} == {
         "duration": 20, "aspect_ratio": "4:3", "resolution": "4k"}
+
+
+def test_a_key_saved_in_the_provider_panel_reaches_the_image_and_video_tools(media, monkeypatch):
+    # The 5.3.3 provider panel keeps a key per provider, not under the old key name; on 9 Nov Qwen,
+    # Together and Vercel images failed "No API key" while chat on them worked.
+    import row_bot.api_keys as api_keys
+    import row_bot.providers.auth_store as auth_store
+
+    monkeypatch.setattr(api_keys, "get_key", lambda env: "")
+    monkeypatch.setattr(auth_store, "_get_provider_secret_value",
+                        lambda provider, name="api_key": f"panel-{provider}" if name == "api_key" else "")
+    provider = "together"
+    media.image = "together/black-forest-labs/FLUX.1-schnell"
+    media.answers[("POST", "/images/generations")] = [_Response({"data": [{"b64_json": PNG}]})]
+
+    result = media.image_tool._generate_image("a red bicycle by a canal")
+
+    assert "No API key" not in result
+    assert media.calls[0].headers["Authorization"] == f"Bearer panel-{provider}"
+    media.calls.clear()
+    media.video = "together/minimax/hailuo-02"
+    media.answers[("POST", "/videos")] = [_Response({"id": "vid-2", "status": "queued"})]
+    media.answers[("GET", "/videos/vid-2")] = [_Response({"status": "completed",
+                                                          "outputs": {"video_url": "https://api.together.ai/v"}})]
+    media.answers[("GET", "/v")] = [_Response(content=b"mp4")]
+
+    media.video_tool._generate_video("waves", duration_seconds=6, aspect_ratio="16:9", resolution="720p")
+
+    assert media.calls[0].headers["Authorization"] == f"Bearer panel-{provider}"

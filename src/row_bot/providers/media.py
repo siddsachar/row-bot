@@ -78,12 +78,18 @@ def _media_provider_available(provider_id: str, meta: dict[str, str]) -> bool:
                 return False
         return False
 
-    key_name = str(meta.get("key") or "")
-    if not key_name:
-        return False
-    from row_bot.api_keys import get_key
+    return bool(meta.get("key")) and bool(media_api_key(provider_id))
 
-    return bool(get_key(key_name))
+
+def media_api_key(provider_id: str) -> str:
+    """A media provider's API key, read as chat reads it: the key saved in Settings › Models
+    (the provider panel keeps it per provider), else the older saved key or the environment's."""
+    from row_bot.providers.auth_store import get_provider_secret
+
+    try:
+        return str(get_provider_secret(provider_id) or "").strip()
+    except Exception:
+        return ""
 
 
 def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) -> dict[str, str]:

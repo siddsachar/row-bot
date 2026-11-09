@@ -50,6 +50,8 @@ class ExecutionHandle:
     submission_id: str = ""
     # Why the provider couldn't answer, in its own words, for the turn's error (signed out, a plan's limit).
     refusal: dict | None = None
+    # Why the turn failed, shown with it and kept for a reload (the provider's words, secrets taken out).
+    failure_reason: str = ""
 
 
     def view(self) -> dict:

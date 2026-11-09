@@ -4362,6 +4362,7 @@ export class ClientController {
       result.credential?.provider_id !== provider
     )
       throw clientError({ code: 'provider_credential_unconfirmed' });
+    // The result carries no name: the editor keeps the one it shows (I1).
     return { ...result.credential, display_name: provider };
   };
   savedEntities = (

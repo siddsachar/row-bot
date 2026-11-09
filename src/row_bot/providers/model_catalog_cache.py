@@ -169,10 +169,12 @@ def refresh_model_catalog_cache(
 
     snapshot = CatalogCacheSnapshot(
         version=CACHE_VERSION,
-        generated_at=time.time(),
+        # One provider's refresh (connecting it) leaves the others as old as they were: it must not make the
+        # whole catalog look fresh, or the startup and 6-hourly refreshes skip every other provider (I17).
+        generated_at=previous.generated_at if provider_id else time.time(),
         cloud_cache=cloud_cache,
         ollama_rows=ollama_rows,
-        provider_status=provider_status,
+        provider_status={**previous.provider_status, **provider_status} if provider_id else provider_status,
         warnings=tuple(warnings),
         reason=reason,
     )

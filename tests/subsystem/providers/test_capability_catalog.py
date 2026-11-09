@@ -24,6 +24,18 @@ API = {
         "mistral-small-9": {"id": "mistral-small-9", "tool_call": True, "limit": {"context": 128_000},
                             "modalities": {"input": ["text", "image"], "output": ["text"]}},
     }},
+    "groq": {"id": "groq", "models": {
+        "openai/gpt-oss-120b": {"id": "openai/gpt-oss-120b", "tool_call": True, "reasoning": True,
+                                "limit": {"context": 131_072}, "modalities": {"input": ["text"], "output": ["text"]}},
+    }},
+    "zai": {"id": "zai", "models": {
+        "glm-5.3": {"id": "glm-5.3", "tool_call": True, "reasoning": True, "limit": {"context": 1_000_000},
+                    "modalities": {"input": ["text"], "output": ["text"]}},
+    }},
+    "alibaba": {"id": "alibaba", "models": {
+        "qwen3.8-max": {"id": "qwen3.8-max", "tool_call": True, "reasoning": True, "limit": {"context": 262_144},
+                        "modalities": {"input": ["text"], "output": ["text"]}},
+    }},
     "some-other-gateway": {"id": "some-other-gateway", "models": {"x": {"id": "x"}}},
 }
 
@@ -53,7 +65,7 @@ def test_a_refresh_fetches_and_keeps_the_catalogue_then_waits_an_hour(catalogue,
 
     saved = json.loads((tmp_path / "model_capabilities.json").read_text(encoding="utf-8"))
     assert saved["source"] == "https://models.dev/api.json"
-    assert set(saved["providers"]) == {"openai", "cerebras", "mistral"}
+    assert set(saved["providers"]) == {"openai", "cerebras", "mistral", "groq", "zai", "alibaba"}
     assert catalogue.lookup("openai", "gpt-7") == catalogue.ModelCapabilities(
         tool_calling=True, vision=True, context_window=2_000_000, outputs=frozenset({"text"}))
     assert catalogue.lookup("codex", "gpt-7").context_window == 2_000_000
@@ -127,3 +139,54 @@ def test_a_bare_preset_row_is_filled_and_a_described_one_is_believed(catalogue):
     assert row_metadata(PRESETS["mistral"], described) == {"tool_calling": False, "context_window": 32_000}
     # A model the catalogue doesn't know keeps the old rule.
     assert row_metadata(PRESETS["cerebras"], {"id": "brand-new"}) == {"context_window": 32_768}
+
+
+def test_a_model_the_catalogue_says_reasons_gets_a_thinking_control_in_its_providers_style(catalogue):
+    """On 9 Nov no model of the twelve new providers, and few of OpenAI's or Anthropic's, showed a thinking control:
+    only OpenRouter's list says which models reason."""
+    from row_bot.providers.reasoning import resolve_reasoning_capabilities
+
+    catalogue.refresh()
+
+    groq = resolve_reasoning_capabilities("groq", "openai/gpt-oss-120b")
+    assert groq.supported_efforts == ("low", "medium", "high") and groq.request_style == "openai"
+    zai = resolve_reasoning_capabilities("zai", "glm-5.3")
+    assert zai.thinking_mode == "toggle" and zai.can_disable and zai.request_style == "thinking_type"
+    assert resolve_reasoning_capabilities("dashscope", "qwen3.8-max").request_style == "enable_thinking"
+    # No reasoning in the catalogue, or a provider whose way of taking it isn't known: no control.
+    assert resolve_reasoning_capabilities("cerebras", "qwen-4-coder") is None
+    assert resolve_reasoning_capabilities("mistral", "mistral-small-9") is None
+
+
+@pytest.mark.parametrize(("provider", "model", "selection", "sent"), [
+    ("groq", "openai/gpt-oss-120b", {"kind": "effort", "effort": "high"}, {"reasoning_effort": "high"}),
+    ("zai", "glm-5.3", {"kind": "off"}, {"thinking": {"type": "disabled"}}),
+    ("dashscope", "qwen3.8-max", {"kind": "on"}, {"enable_thinking": True}),
+])
+def test_the_thinking_choice_reaches_the_provider_as_its_api_takes_it(catalogue, provider, model, selection, sent):
+    from types import SimpleNamespace
+
+    from langchain_core.messages import HumanMessage
+
+    from row_bot.providers.reasoning import (
+        ReasoningRequestPlan,
+        ReasoningSelection,
+        model_ref,
+        resolve_reasoning_capabilities,
+    )
+    from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+    catalogue.refresh()
+    bodies = []
+
+    class _Client:
+        def post(self, url, **kwargs):
+            bodies.append(kwargs["json"])
+            return SimpleNamespace(status_code=200, text="{}", json=lambda: {"choices": [{"message": {"content": "ok"}}]})
+
+    caps = resolve_reasoning_capabilities(provider, model)
+    plan = ReasoningRequestPlan(model_ref(provider, model), ReasoningSelection(**selection), caps)
+    ChatOpenAICompatible(model_name=model, base_url="https://x.test/v1", endpoint={"provider_id": provider},
+                         http_client=_Client(), reasoning_plan=plan).invoke([HumanMessage(content="hi")])
+
+    assert sent.items() <= bodies[0].items()

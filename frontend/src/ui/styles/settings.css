@@ -3008,6 +3008,17 @@
 }
 
 /* Phase 10: the key dialog's get-a-key link and format hint (U6). */
+/* The side panel's key sheet: a title sized for the panel, its state one muted line (I1). */
+.settings-key-title {
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.settings-key-state {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
 .settings-key-link {
   margin: 0;
 }
