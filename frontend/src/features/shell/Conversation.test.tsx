@@ -1619,6 +1619,12 @@ it('any failed reply says why, such as no credits left (I4)', async () => {
   const log = screen.getByRole('log', { name: 'Conversation' });
   expect(log).toHaveTextContent(reason);
   expect(log).not.toHaveTextContent('Resume to continue where it stopped');
+  // A screen reader hears that it stopped, then why.
+  expect(
+    screen.getByText(`The response was interrupted. ${reason}`, {
+      exact: true,
+    }),
+  ).toBeInTheDocument();
 });
 
 it('after a reload the interrupted reply still says why it stopped', async () => {

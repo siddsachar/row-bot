@@ -3258,7 +3258,7 @@ export default function Conversation({
           ? 'Claude signed you out.'
           : signInNeeded
             ? `Sign in to ${signInNeeded} again.`
-            : failureReason || 'The response was interrupted.',
+            : `The response was interrupted.${failureReason ? ` ${failureReason}` : ''}`,
       }[generation.status] ?? '')
     : '';
   return (
