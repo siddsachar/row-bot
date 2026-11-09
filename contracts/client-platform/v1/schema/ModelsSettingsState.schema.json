@@ -89,6 +89,11 @@
           "default": null,
           "title": "Billing"
         },
+        "chat_only": {
+          "default": false,
+          "title": "Chat Only",
+          "type": "boolean"
+        },
         "context_window": {
           "anyOf": [
             {

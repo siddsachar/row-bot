@@ -148,6 +148,32 @@ through background updates.
   author mentioned or quoted you. Row-Bot now checks before asking you, and
   otherwise gives you the draft and the link to post it on X yourself.
 - **Security and conduct reports** go to syd@row-bot.ai.
+- **A failed reply says why** - instead of only "The response was
+  interrupted", the chat shows the reason, such as running out of credits or
+  the provider's own words, and keeps it after a reload.
+- **Gemini answers again** on Google's own API and through gateways such as
+  Vercel: a few tools offered an empty choice, which Gemini refuses.
+- **Images and video work with keys saved in the new provider panel** (Qwen,
+  Together, Vercel, Z.AI and the others), and the model list refreshes every
+  provider again after you connect a new one, so Requesty, MiniMax and Atlas
+  Cloud list their image and video models.
+- **Thinking controls for more models** - a model that reasons gets a thinking
+  control on Groq, Cerebras, Fireworks, Together, Hugging Face, Vercel, NVIDIA,
+  Z.AI, DeepSeek, Kimi and Qwen, and on newer OpenAI, Anthropic and Google
+  models.
+- **Mistral's thinking** goes to the thinking panel instead of showing as raw
+  text in the answer. **Cerebras** answers: it gets Row-Bot's instructions as
+  one message, as its models need.
+- **Cleaner model lists** - one model from several providers shows once with
+  its other routes, Mistral no longer repeats a model per alias, Qwen's image
+  makers stay out of the chat list, Fireworks models read by name, and a model
+  that can't use tools says Chat only.
+- **Smaller fixes** - a bold link in an answer stays a link; reading a short
+  page no longer sends the model to the browser; Show in folder finds a file
+  whose path has a space; exports skip empty steps and say where an image was
+  made; a workflow's notice says what went out; outputs are named after their
+  subject; the API-key sheet keeps the provider's name and has icons on its
+  buttons.
 
 ### For Hosts
 

@@ -6185,6 +6185,8 @@ class ModelPickerOption(WireModel):
     reason: str = Field(default="", max_length=256)
     billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
     favourite_rank: int | None = Field(default=None, ge=1, le=256)
+    # It can't use tools, so it chats only (Chat only mode).
+    chat_only: bool = False
 
 
 class ModelPickerSurface(WireModel):
