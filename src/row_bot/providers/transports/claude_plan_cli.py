@@ -1,26 +1,32 @@
-"""Chat model for Claude (your Claude plan): one run of the person's own Claude Code per model call.
+"""Chat model for Claude (your Claude plan): the person's own Claude Code, one run per Agent turn.
 
-Each call starts the installed ``claude`` program, unmodified, in print mode with stream-json in and out:
+A call starts the installed ``claude`` program, unmodified, in print mode with stream-json in and out:
 
     claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages
-      --model <m> --tools "" --max-turns 1 --permission-mode dontAsk --no-session-persistence
-      --setting-sources "" --strict-mcp-config --mcp-config <file> --system-prompt-file <file>
-      --disable-slash-commands [--effort <level>]
+      --model <m> --tools "" --max-turns <n> --permission-mode dontAsk --allowedTools mcp__rowbot
+      --no-session-persistence --setting-sources "" --strict-mcp-config --mcp-config <file>
+      --system-prompt-file <file> --disable-slash-commands [--effort <level>]
 
 Claude Code signs in by itself, with the person's plan; Row-Bot never sees that sign-in and sets no key,
 token, header or endpoint. The conversation goes in as stream-json frames: every earlier user turn with
 ``shouldQuery: false`` (Claude Code acknowledges each with a zero-turn result), assistant turns as they
-were, and the last user turn asks the model. Text and thinking stream back as they arrive; the turn's
-tool calls, usage and stop reason are read from the stream, and then the process ends.
+were, and the last user turn asks the model. Text and thinking stream back as they arrive; the reply's
+tool calls, usage and stop reason are read from the stream.
 
-Claude Code's own tools are off. Row-Bot's tools are listed to the model through a small MCP server whose
-calls do nothing (``claude_plan_tools.py``), and ``dontAsk`` refuses them anyway: the tool calls go back
-to Row-Bot's agent loop, which runs them through its approval gate like any provider's. Stop ends the
-whole process tree.
+Claude Code's own tools are off. Row-Bot's tools are listed to the model through a small MCP server that
+runs nothing (``claude_plan_tools.py``): the tool calls go back to Row-Bot's agent loop, which runs them
+through its approval gate like any provider's. A reply that ends in tool calls leaves its Claude Code
+waiting inside those calls (parked). When the loop's next call is that conversation plus the reply plus
+the results of exactly those calls, the results go to the waiting tool server and the same Claude Code
+asks the model again, with the transcript it built itself, so Anthropic's prompt cache reads the
+conversation back instead of writing it again on every call. Any other next call, a finished answer,
+Stop, or a park longer than ``_PARK_SECONDS`` ends the process; a later call starts a new one. Stop ends
+the whole process tree.
 """
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
@@ -31,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from collections import deque
 from collections.abc import Iterator, Sequence
@@ -62,6 +69,16 @@ _REPLY_SECONDS = 600.0
 # After a finished reply, how long Claude Code gets to write its result before it is stopped.
 _RESULT_GRACE_SECONDS = 2.0
 _INITIALIZE_SECONDS = 30.0
+# A parked Claude Code: how long it waits for the loop's next call (tools and approvals run meanwhile), how
+# many model calls one process makes, and how many wait at once.
+_PARK_SECONDS = 20 * 60
+_RUN_STEPS = 200
+_MAX_PARKED = 8
+# Claude Code's own limits on a tool call, set past the park: its wait, its output cap and the size above
+# which it would save a result to a file (its own file tools are off, so the model could not read it).
+_TOOL_CALL_TIMEOUT_MS = (_PARK_SECONDS + 10 * 60) * 1000
+_TOOL_OUTPUT_TOKENS = 1_000_000
+_TOOL_RESULT_CHARS = 10_000_000
 
 
 # ── Tools ────────────────────────────────────────────────────────────────────
@@ -87,7 +104,8 @@ class ToolSpec:
         return wire_tool_name(self.name)
 
     def manifest(self) -> dict[str, Any]:
-        return {"name": self.wire, "description": self.description, "inputSchema": self.schema}
+        return {"name": self.wire, "description": self.description, "inputSchema": self.schema,
+                "_meta": {"anthropic/maxResultSizeChars": _TOOL_RESULT_CHARS}}
 
 
 def _input_schema(value: Any) -> dict[str, Any]:
@@ -236,9 +254,11 @@ def conversation_frames(messages: Sequence[BaseMessage]) -> tuple[str, list[dict
 
 def claude_code_argv(program: str, *, model: str, system_file: Path, mcp_file: Path,
                      effort: str | None = None) -> list[str]:
+    # dontAsk refuses everything not allowed; only Row-Bot's tool server is, and it runs nothing itself.
     argv = [program, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--include-partial-messages", "--model", model, "--tools", "", "--max-turns", "1",
-            "--permission-mode", "dontAsk", "--no-session-persistence", "--setting-sources", "",
+            "--include-partial-messages", "--model", model, "--tools", "", "--max-turns", str(_RUN_STEPS),
+            "--permission-mode", "dontAsk", "--allowedTools", f"mcp__{TOOL_SERVER}",
+            "--no-session-persistence", "--setting-sources", "",
             "--strict-mcp-config", "--mcp-config", str(mcp_file), "--system-prompt-file", str(system_file),
             "--disable-slash-commands"]
     if effort:
@@ -246,10 +266,12 @@ def claude_code_argv(program: str, *, model: str, system_file: Path, mcp_file: P
     return argv
 
 
-def _tool_server(tools_file: Path) -> dict[str, Any]:
-    """The MCP server entry: this Python, isolated, running the stub with the tools file."""
+def _tool_server(tools_file: Path, results: Path) -> dict[str, Any]:
+    """The MCP server entry: this Python, isolated, running the stub with the tools file and results folder."""
     stub = Path(__file__).with_name("claude_plan_tools.py")
-    return {"type": "stdio", "command": sys.executable, "args": ["-I", "-S", "-B", str(stub), str(tools_file)]}
+    return {"type": "stdio", "command": sys.executable,
+            "args": ["-I", "-S", "-B", str(stub), str(tools_file), str(results)],
+            "timeout": _TOOL_CALL_TIMEOUT_MS}
 
 
 def _write(path: Path, text: str) -> Path:
@@ -258,15 +280,21 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
-@contextmanager
-def _call_folder() -> Iterator[Path]:
-    """A folder of this profile's own for one call's prompt and tool files, removed afterwards."""
+def _new_call_folder() -> Path:
+    """A folder of this profile's own for one run's prompt, tool and result files."""
     from row_bot.data_paths import get_row_bot_data_dir
 
     root = get_row_bot_data_dir() / "runtime" / "claude-code-calls"
     root.mkdir(parents=True, exist_ok=True)
     folder = root / uuid.uuid4().hex
     folder.mkdir(mode=0o700)
+    return folder
+
+
+@contextmanager
+def _call_folder() -> Iterator[Path]:
+    """A call folder, removed afterwards."""
+    folder = _new_call_folder()
     try:
         yield folder
     finally:
@@ -342,6 +370,18 @@ class ClaudeCodeRun:
             return self._events.get(timeout=timeout)
         except queue.Empty:
             raise ClaudeCodeSilent() from None
+
+    def left_tool_calls(self, timeout: float) -> bool | None:
+        """While parked: True when Claude Code moved on without Row-Bot's results (it ended, wrote a tool
+        result or began another model turn), False for any other event, None after ``timeout`` of silence."""
+        try:
+            event = self._events.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        if event is None or event.get("type") in {"user", "result"}:
+            return True
+        inner = event.get("event") if isinstance(event.get("event"), dict) else {}
+        return event.get("type") == "stream_event" and inner.get("type") == "message_start"
 
     def stderr_tail(self) -> str:
         return " ".join(list(self._stderr)[-3:])[:300]
@@ -464,10 +504,27 @@ class ClaudeTurnReader:
     finished: bool = False
     _started: bool = False
     _tools: dict[int, dict[str, str]] = field(default_factory=dict)
+    _arguments: dict[int, str] = field(default_factory=dict)
+
+    @staticmethod
+    def wire_name(name: str) -> str:
+        return name[len(TOOL_PREFIX):] if name.startswith(TOOL_PREFIX) else name
 
     def tool_name(self, name: str) -> str:
-        bare = name[len(TOOL_PREFIX):] if name.startswith(TOOL_PREFIX) else name
+        bare = self.wire_name(name)
         return self.names.get(bare, bare)
+
+    def tool_calls(self) -> list[dict[str, Any]]:
+        """The reply's tool calls as Claude Code calls the tool server: id, MCP name and arguments."""
+        calls = []
+        for index, tool in sorted(self._tools.items()):
+            text = self._arguments.get(index, "")
+            try:
+                arguments = json.loads(text) if text.strip() else {}
+            except ValueError:
+                arguments = None
+            calls.append({"id": tool["id"], "wire": tool["wire"], "arguments": arguments})
+        return calls
 
     def feed(self, event: dict[str, Any]) -> Iterator[ChatGenerationChunk]:
         kind = event.get("type")
@@ -508,7 +565,8 @@ class ClaudeTurnReader:
             block = event.get("content_block") if isinstance(event.get("content_block"), dict) else {}
             if block.get("type") == "tool_use":
                 self._tools[index] = {"id": str(block.get("id") or f"toolu_{uuid.uuid4().hex[:24]}"),
-                                      "name": self.tool_name(str(block.get("name") or ""))}
+                                      "name": self.tool_name(str(block.get("name") or "")),
+                                      "wire": self.wire_name(str(block.get("name") or ""))}
                 yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[{
                     "name": self._tools[index]["name"], "args": "", "id": self._tools[index]["id"], "index": index}]))
             elif block.get("type") == "text" and block.get("text"):
@@ -522,6 +580,7 @@ class ClaudeTurnReader:
                 yield ChatGenerationChunk(message=AIMessageChunk(
                     content="", additional_kwargs={"reasoning_content": str(delta["thinking"])}))
             elif delta.get("type") == "input_json_delta" and index in self._tools:
+                self._arguments[index] = self._arguments.get(index, "") + str(delta.get("partial_json") or "")
                 yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[{
                     "name": None, "args": str(delta.get("partial_json") or ""), "id": None, "index": index}]))
         elif kind == "message_delta":
@@ -558,6 +617,155 @@ class ClaudeTurnReader:
                      "input_token_details": {"cache_read": cache_read, "cache_creation": cache_write}}
         return ChatGenerationChunk(message=AIMessageChunk(content="", response_metadata=metadata,
                                                           usage_metadata=usage, chunk_position="last"))
+
+
+# ── Parked runs: one Claude Code per Agent turn ──────────────────────────────
+
+
+def _mcp_content(content: Any) -> list[dict[str, Any]] | None:
+    """A tool result's content as MCP content; None when a block has no MCP form (an image by URL)."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    blocks: list[dict[str, Any]] = []
+    for block in content if isinstance(content, list) else []:
+        source = block.get("source") if isinstance(block.get("source"), dict) else {}
+        if block.get("type") == "text":
+            blocks.append({"type": "text", "text": str(block.get("text") or "")})
+        elif block.get("type") == "image" and source.get("type") == "base64":
+            blocks.append({"type": "image", "data": source.get("data"), "mimeType": source.get("media_type")})
+        else:
+            return None
+    return blocks
+
+
+@dataclass(eq=False)
+class _ParkedRun:
+    """A Claude Code process waiting inside the tool calls of its last reply for Row-Bot's results."""
+
+    run: ClaudeCodeRun
+    folder: Path
+    key: str
+    frames: list[dict[str, Any]]
+    calls: list[dict[str, Any]]
+    steps: int
+    claimed: threading.Event = field(default_factory=threading.Event)
+    ended: bool = False
+    unregister: Any = None
+    watcher: threading.Thread | None = None
+
+    def results_for(self, key: str, frames: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+        """The results for Claude Code when ``frames`` are this run's conversation plus the reply it wrote and
+        one result for each of the reply's tool calls; None for any other conversation."""
+        count = len(self.frames)
+        if key != self.key or len(frames) != count + 2:
+            return None
+        if [frame["message"] for frame in frames[:count]] != [frame["message"] for frame in self.frames]:
+            return None
+        reply, answer = frames[count]["message"]["content"], frames[count + 1]["message"]["content"]
+        called = sorted(str(block.get("id")) for block in reply if block.get("type") == "tool_use")
+        given = {str(block.get("tool_use_id")): block for block in answer if block.get("type") == "tool_result"}
+        if len(given) != len(answer) or called != sorted(given) or called != sorted(call["id"] for call in self.calls):
+            return None
+        results = []
+        for call in self.calls:
+            content = _mcp_content(given[call["id"]].get("content"))
+            if content is None:
+                return None
+            results.append({"name": call["wire"], "arguments": call["arguments"], "content": content,
+                            "isError": bool(given[call["id"]].get("is_error"))})
+        return results
+
+    def watch(self) -> None:
+        """Until the run is claimed: end it when it waits longer than ``_PARK_SECONDS`` or moves on by itself."""
+        deadline = time.monotonic() + _PARK_SECONDS
+        while not self.claimed.is_set():
+            if time.monotonic() >= deadline or self.run.left_tool_calls(0.1):
+                self.ended = True
+                _drop(self)
+                return
+
+    def close(self) -> None:
+        if self.unregister is not None:
+            self.unregister()
+        self.run.stop()
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+
+_PARKED: list[_ParkedRun] = []
+_PARKED_LOCK = threading.Lock()
+
+
+def _park(parked: _ParkedRun, scope: Any) -> None:
+    """Keep ``parked`` for the loop's next call; Stop, the park limit or a newer park ends it."""
+    with _PARKED_LOCK:
+        _PARKED.append(parked)
+        evicted = _PARKED[:-_MAX_PARKED]
+        del _PARKED[:-_MAX_PARKED]
+    for old in evicted:
+        old.close()
+    if scope is not None:
+        parked.unregister = scope.register(lambda: _drop(parked), "claude_plan.parked")
+    parked.watcher = threading.Thread(target=parked.watch, name="claude-code-parked", daemon=True)
+    parked.watcher.start()
+
+
+def _drop(parked: _ParkedRun) -> None:
+    with _PARKED_LOCK:
+        if parked not in _PARKED:
+            return
+        _PARKED.remove(parked)
+    parked.close()
+
+
+def _claim(key: str, frames: list[dict[str, Any]]) -> tuple[_ParkedRun, list[dict[str, Any]]] | None:
+    """The parked run this call continues, with the results to hand it. A parked run of the same conversation
+    (the same first message) that this call does not continue is ended: the history, tools or settings
+    changed in between."""
+    found: tuple[_ParkedRun, list[dict[str, Any]]] | None = None
+    stale: list[_ParkedRun] = []
+    with _PARKED_LOCK:
+        for parked in list(_PARKED):
+            results = parked.results_for(key, frames)
+            if results is not None and found is None:
+                found = (parked, results)
+                _PARKED.remove(parked)
+            elif parked.frames[0]["message"] == frames[0]["message"]:
+                stale.append(parked)
+                _PARKED.remove(parked)
+    for parked in stale:
+        logger.info("Claude plan: the conversation changed between calls, so its waiting Claude Code was ended")
+        parked.close()
+    if found is None:
+        return None
+    parked = found[0]
+    parked.claimed.set()
+    if parked.watcher is not None:
+        parked.watcher.join()
+    if parked.unregister is not None:
+        parked.unregister()
+        parked.unregister = None
+    if parked.ended or parked.run.process.poll() is not None:
+        parked.close()
+        return None
+    return found
+
+
+def stop_waiting_runs() -> None:
+    """End every Claude Code waiting for a next call (Row-Bot is closing)."""
+    with _PARKED_LOCK:
+        parked = list(_PARKED)
+        _PARKED.clear()
+    for run in parked:
+        run.close()
+
+
+atexit.register(stop_waiting_runs)
+
+
+def _hand_results(folder: Path, step: int, results: list[dict[str, Any]]) -> None:
+    """Write one step's results for the waiting tool server, whole or not at all."""
+    temporary = _write(folder / f".results-{step:04d}.tmp", json.dumps(results, ensure_ascii=False))
+    os.replace(temporary, folder / f"results-{step:04d}.json")
 
 
 # ── The chat model ───────────────────────────────────────────────────────────
@@ -614,51 +822,79 @@ class ChatClaudePlan(BaseChatModel):
             for call in getattr(message, "tool_calls", None) or []:
                 name = str(call.get("name") or "")
                 names.setdefault(wire_tool_name(name), name)
-        env = claude_code_environment()
         max_tokens = kwargs.get("max_tokens") or self.max_tokens
+        effort = self._effort()
+        manifest = [spec.manifest() for spec in tools]
+        key = hashlib.sha256(json.dumps([status.program, self.model_name, effort, max_tokens, system, manifest],
+                                        ensure_ascii=False).encode("utf-8")).hexdigest()
+        claimed = _claim(key, frames)
+        if claimed is not None:
+            parked, results = claimed
+            run, folder, steps = parked.run, parked.folder, parked.steps + 1
+            _hand_results(folder, steps, results)
+        else:
+            folder, steps = _new_call_folder(), 1
+            try:
+                run = self._start(status.program, folder, system, manifest, effort, max_tokens,
+                                  env=claude_code_environment(), cwd=claude_code_workdir())
+            except BaseException:
+                shutil.rmtree(folder, ignore_errors=True)
+                raise
+        unregister = scope.register(run.stop, "claude_plan.stop") if scope is not None else None
+        reader = ClaudeTurnReader(names=names, model=self.model_name)
+        kept = False
+        try:
+            yield from self._turn(run, None if claimed else frames, reader, run_manager, scope)
+            calls = reader.tool_calls()
+            if (tools and calls and reader.stop_reason == "tool_use" and steps < _RUN_STEPS
+                    and not (scope is not None and scope.is_cancelled())):
+                _park(_ParkedRun(run, folder, key, frames, calls, steps), scope)
+                kept = True
+        finally:
+            if unregister is not None:
+                unregister()
+            if not kept:
+                run.stop()
+                shutil.rmtree(folder, ignore_errors=True)
+
+    def _start(self, program: str, folder: Path, system: str, manifest: list[dict[str, Any]], effort: str | None,
+               max_tokens: Any, *, env: dict[str, str], cwd: Path) -> ClaudeCodeRun:
+        servers: dict[str, Any] = {}
+        if manifest:
+            servers[TOOL_SERVER] = _tool_server(_write(folder / "tools.json", json.dumps(manifest)), folder)
+            env["MAX_MCP_OUTPUT_TOKENS"] = str(_TOOL_OUTPUT_TOKENS)
         if max_tokens:
             env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(int(max_tokens))
-        with _call_folder() as folder:
-            servers: dict[str, Any] = {}
-            if tools:
-                tools_file = _write(folder / "tools.json", json.dumps([spec.manifest() for spec in tools]))
-                servers[TOOL_SERVER] = _tool_server(tools_file)
-            argv = claude_code_argv(
-                status.program, model=self.model_name, effort=self._effort(),
-                system_file=_write(folder / "system.md", system),
-                mcp_file=_write(folder / "mcp.json", json.dumps({"mcpServers": servers})),
-            )
-            try:
-                run = ClaudeCodeRun(argv, env=env, cwd=claude_code_workdir())
-            except OSError as exc:
-                from row_bot.providers.claude_subscription import ClaudePlanUnavailable, forget_claude_plan_status
+        argv = claude_code_argv(
+            program, model=self.model_name, effort=effort,
+            system_file=_write(folder / "system.md", system),
+            mcp_file=_write(folder / "mcp.json", json.dumps({"mcpServers": servers})),
+        )
+        try:
+            return ClaudeCodeRun(argv, env=env, cwd=cwd)
+        except OSError as exc:
+            from row_bot.providers.claude_subscription import ClaudePlanUnavailable, forget_claude_plan_status
 
-                forget_claude_plan_status()
-                raise ClaudePlanUnavailable(
-                    "Claude Code didn't start. Check Claude in Settings › Models, then try "
-                    "again.") from exc
-            unregister = scope.register(run.stop, "claude_plan.stop") if scope is not None else None
-            try:
-                yield from self._turn(run, frames, ClaudeTurnReader(names=names, model=self.model_name),
-                                      run_manager, scope)
-            finally:
-                if unregister is not None:
-                    unregister()
-                run.stop()
+            forget_claude_plan_status()
+            raise ClaudePlanUnavailable(
+                "Claude Code didn't start. Check Claude in Settings › Models, then try "
+                "again.") from exc
 
-    def _turn(self, run: ClaudeCodeRun, frames: list[dict[str, Any]], reader: ClaudeTurnReader,
+    def _turn(self, run: ClaudeCodeRun, frames: list[dict[str, Any]] | None, reader: ClaudeTurnReader,
               run_manager: Any, scope: Any) -> Iterator[ChatGenerationChunk]:
+        """One reply: send ``frames`` to a new Claude Code, or (None) read on from a run given its results."""
         def cancelled() -> bool:
             return scope is not None and scope.is_cancelled()
 
-        for frame in frames[:-1]:
-            run.send(frame)
-            if frame["type"] == "user":
-                self._acknowledged(run, cancelled)
-            if cancelled():
-                return
-        run.send(frames[-1])
-        run.close_input()
+        if frames is not None:
+            for frame in frames[:-1]:
+                run.send(frame)
+                if frame["type"] == "user":
+                    self._acknowledged(run, cancelled)
+                if cancelled():
+                    return
+            run.send(frames[-1])
+            run.close_input()
         while not reader.finished:
             event = run.next_event(_REPLY_SECONDS)
             if cancelled():
@@ -677,7 +913,7 @@ class ChatClaudePlan(BaseChatModel):
                         break
             except ClaudeCodeSilent:
                 pass
-        # A tool call: Claude Code would only refuse it now, so it is stopped here.
+        # A tool call: Claude Code now waits in the tool server for Row-Bot's results (see _stream).
         if not cancelled():
             yield reader.last_chunk()
 

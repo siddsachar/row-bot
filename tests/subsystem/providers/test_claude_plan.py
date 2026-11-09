@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import time
 
 import psutil
 import pytest
@@ -41,6 +40,25 @@ def model_listings(monkeypatch):
     claude.forget_claude_plan_status()
     yield requested
     claude.forget_claude_plan_status()
+
+
+@pytest.fixture(autouse=True)
+def no_claude_code_left_waiting():
+    from row_bot.providers.transports.claude_plan_cli import stop_waiting_runs
+
+    yield
+    stop_waiting_runs()
+
+
+def _ended(pid: int, timeout: float = 10.0) -> bool:
+    """Whether the process is gone (or a zombie) within ``timeout``."""
+    try:
+        psutil.Process(pid).wait(timeout)
+    except psutil.NoSuchProcess:
+        pass
+    except psutil.TimeoutExpired:
+        return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+    return True
 
 
 def _model(**kwargs):
@@ -123,17 +141,18 @@ def test_a_reply_streams_and_the_conversation_goes_in_as_frames(store, tmp_path,
     [run] = fake.model_runs()
     assert run["argv"] == [
         "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-        "--include-partial-messages", "--model", SONNET, "--tools", "", "--max-turns", "1",
-        "--permission-mode", "dontAsk", "--no-session-persistence", "--setting-sources", "",
-        "--strict-mcp-config", "--mcp-config", run["argv"][20], "--system-prompt-file", run["argv"][22],
-        "--disable-slash-commands"]
+        "--include-partial-messages", "--model", SONNET, "--tools", "", "--max-turns", run["argv"][12],
+        "--permission-mode", "dontAsk", "--allowedTools", "mcp__rowbot", "--no-session-persistence",
+        "--setting-sources", "", "--strict-mcp-config", "--mcp-config", run["argv"][22],
+        "--system-prompt-file", run["argv"][24], "--disable-slash-commands"]
+    assert int(run["argv"][12]) > 1  # one Claude Code may ask the model again within the turn
     assert run["system"] == "You are Row-Bot."
     assert [(frame["type"], frame.get("shouldQuery")) for frame in run["frames"]] == [
         ("user", False), ("assistant", None), ("user", None)]
     assert run["frames"][1]["message"]["content"][0]["name"] == "mcp__rowbot__read_calendar"
     # Claude Code ran in Row-Bot's own empty folder, and the call's files are gone.
     assert run["cwd"] == str(claude.claude_code_workdir())
-    assert not os.path.exists(run["argv"][22])
+    assert not os.path.exists(run["argv"][24])
 
 
 def test_tool_calls_come_back_under_row_bots_names_and_claude_code_never_runs_them(store, tmp_path, monkeypatch):
@@ -152,26 +171,103 @@ def test_tool_calls_come_back_under_row_bots_names_and_claude_code_never_runs_th
         ran.append(calendar)
         return "none"
 
-    fake = install_fake_claude(tmp_path, monkeypatch, call_tool=True,
-                               reply=tool_reply(wire_tool_name(long_name), {"calendar": "team"}))
+    from row_bot.cancellation import CancellationScope, use_cancellation_scope
+
+    fake = install_fake_claude(tmp_path, monkeypatch, reply=tool_reply(wire_tool_name(long_name), {"calendar": "team"}))
     tools = [StructuredTool.from_function(read_calendar),
              StructuredTool.from_function(shared, name=long_name)]
+    scope = CancellationScope()
 
-    started = time.monotonic()
-    message = _model().bind_tools(tools).invoke([HumanMessage(content="What's on the team calendar?")])
+    with use_cancellation_scope(scope):
+        message = _model().bind_tools(tools).invoke([HumanMessage(content="What's on the team calendar?")])
 
     assert message.tool_calls == [{"name": long_name, "args": {"calendar": "team"}, "id": "toolu_synthetic01",
                                    "type": "tool_call"}]
-    assert ran == []  # nothing ran: the call goes back to Row-Bot's own loop
     [run] = fake.model_runs()
     assert [tool["name"] for tool in run["listed"]] == ["read_calendar", wire_tool_name(long_name)]
     assert run["listed"][0]["inputSchema"]["properties"]["day"]["type"] == "string"
-    # The tool server refuses every call, whatever Claude Code does.
-    assert run["tool_call"]["isError"] is True and "Nothing ran here" in run["tool_call"]["content"][0]["text"]
-    # Claude Code was stopped at the model's own stop, not left to try another turn.
-    assert time.monotonic() - started < 30
-    for pid in (run["pid"], run["server_pid"]):
-        assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+    # Claude Code waits in the tool server, which runs nothing: the call goes back to Row-Bot's own loop.
+    assert ran == [] and fake.model_runs()[0]["tool_calls"] == []
+    assert psutil.pid_exists(run["pid"])
+    # Stop while Row-Bot runs the tool ends the waiting Claude Code and its tool server.
+    scope.cancel()
+    assert _ended(run["pid"]) and _ended(run["server_pid"])
+
+
+def _calendar_tool(ran: list[str]) -> StructuredTool:
+    def read_calendar(day: str) -> str:
+        """Read the calendar for a day."""
+        ran.append(day)
+        return "Dentist"
+
+    return StructuredTool.from_function(read_calendar)
+
+
+def test_one_claude_code_runs_a_whole_turn_and_gets_the_results_row_bot_ran(store, tmp_path, monkeypatch):
+    """The prompt cache fix: the model's next call in the turn comes from the same Claude Code, so it builds
+    on its own transcript instead of a new process replaying (and re-caching) the whole conversation."""
+    ran: list[str] = []
+    fake = install_fake_claude(tmp_path, monkeypatch, replies=[
+        tool_reply("read_calendar", {"day": "Friday"}),
+        tool_reply("read_calendar", {"day": "Saturday"}, call_id="toolu_synthetic02"),
+        text_reply("Dentist on Friday, Saturday is free."),
+    ])
+    model = _model().bind_tools([_calendar_tool(ran)])
+    messages = [SystemMessage(content="You are Row-Bot."), HumanMessage(content="What's on this weekend?")]
+
+    first = model.invoke(messages)
+    messages += [first, ToolMessage(content="Dentist at 3pm", tool_call_id=first.tool_calls[0]["id"])]
+    second = model.invoke(messages)
+    messages += [second, ToolMessage(content=[{"type": "text", "text": "Nothing planned"}],
+                                     tool_call_id=second.tool_calls[0]["id"])]
+    answer = model.invoke(messages)
+
+    assert first.tool_calls[0]["args"] == {"day": "Friday"}
+    assert second.tool_calls[0]["args"] == {"day": "Saturday"}
+    assert answer.content == "Dentist on Friday, Saturday is free."
+    [run] = fake.model_runs()  # one Claude Code for the whole turn
+    assert [frame["type"] for frame in run["frames"]] == ["user"]  # the conversation went in once
+    assert run["tool_calls"] == [
+        {"name": "read_calendar", "arguments": {"day": "Friday"},
+         "answer": {"isError": False, "content": [{"type": "text", "text": "Dentist at 3pm"}]}},
+        {"name": "read_calendar", "arguments": {"day": "Saturday"},
+         "answer": {"isError": False, "content": [{"type": "text", "text": "Nothing planned"}]}},
+    ]
+    assert ran == []  # Row-Bot's loop runs tools; the tool server only hands its results over
+    # A finished answer ends Claude Code.
+    assert _ended(run["pid"]) and _ended(run["server_pid"])
+
+
+def test_a_conversation_changed_between_calls_starts_a_new_claude_code(store, tmp_path, monkeypatch):
+    fake = install_fake_claude(tmp_path, monkeypatch, replies=[
+        tool_reply("read_calendar", {"day": "Friday"}), text_reply("Done.")])
+    model = _model().bind_tools([_calendar_tool([])])
+    messages = [SystemMessage(content="You are Row-Bot."), HumanMessage(content="What's on Friday?")]
+
+    first = model.invoke(messages)
+    # The person steers before the next call: not just the results of the waiting run's tool calls.
+    model.invoke(messages + [first, ToolMessage(content="Dentist", tool_call_id=first.tool_calls[0]["id"]),
+                             HumanMessage(content="And Saturday?")])
+
+    waiting, fresh = fake.model_runs()
+    assert waiting["tool_calls"] == []  # never handed a result
+    assert _ended(waiting["pid"]) and _ended(waiting["server_pid"])
+    assert [frame["type"] for frame in fresh["frames"]] == ["user", "assistant", "user"]
+
+
+def test_claude_code_that_goes_on_without_row_bots_results_is_ended_at_once(store, tmp_path, monkeypatch):
+    # A Claude Code that refused the tool server would ask the model again by itself; that run is ended.
+    fake = install_fake_claude(tmp_path, monkeypatch, refuse_tools=True, replies=[
+        tool_reply("read_calendar", {"day": "Friday"}), text_reply("I couldn't read it.")])
+    model = _model().bind_tools([_calendar_tool([])])
+    messages = [HumanMessage(content="What's on Friday?")]
+
+    first = model.invoke(messages)
+    [run] = fake.model_runs()
+    assert _ended(run["pid"])
+
+    model.invoke(messages + [first, ToolMessage(content="Dentist", tool_call_id=first.tool_calls[0]["id"])])
+    assert len(fake.model_runs()) == 2  # the next call started a new Claude Code with the whole conversation
 
 
 def test_effort_and_an_output_cap_reach_claude_code_as_its_own_flags(store, tmp_path, monkeypatch):
