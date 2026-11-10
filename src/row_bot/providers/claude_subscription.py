@@ -479,6 +479,41 @@ def retire_old_claude_sign_in() -> bool:
 # ── Models: Claude Code's own list ──────────────────────────────────────────
 
 
+_CONTEXT_WINDOWS = "context_windows"
+
+
+def reported_context_windows() -> dict[str, int]:
+    """The context windows Claude Code reported running each model with, by the name Row-Bot asked for."""
+    saved = _saved_entry().get(_CONTEXT_WINDOWS)
+    return {str(name): value for name, value in saved.items() if type(value) is int and value > 0} \
+        if isinstance(saved, dict) else {}
+
+
+def remember_context_window(model_id: str, window: int) -> None:
+    """Claude Code's reply named the context window it ran ``model_id`` with: that is its size from now on.
+
+    A change refreshes the model list in the background, so every picker and the reading limit show it.
+    """
+    if not model_id or type(window) is not int or window <= 0 or reported_context_windows().get(model_id) == window:
+        return
+    from row_bot.providers.config import update_provider_config
+
+    def _update(cfg: dict[str, Any]) -> None:
+        entry = cfg.setdefault("providers", {}).setdefault(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
+        windows = entry.get(_CONTEXT_WINDOWS) if isinstance(entry.get(_CONTEXT_WINDOWS), dict) else {}
+        entry[_CONTEXT_WINDOWS] = {**windows, model_id: window}
+
+    update_provider_config(_update)
+    logger.info("Claude Code runs %s with a %d-token context", model_id, window)
+    try:
+        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+
+        start_model_catalog_refresh_background(reason="claude_context", provider_id=CLAUDE_SUBSCRIPTION_PROVIDER_ID,
+                                               force=True, follow_up=True)
+    except Exception:
+        logger.debug("Could not refresh the Claude plan model list", exc_info=True)
+
+
 def _model_info(
     model_id: str,
     *,
@@ -487,14 +522,15 @@ def _model_info(
     adaptive: bool = True,
     source: str = "claude_code_models",
 ) -> ModelInfo:
-    from row_bot.models import _maintained_context_limit
+    from row_bot.models import _catalog_or_heuristic
     from row_bot.providers.reasoning import ReasoningCapabilities, reasoning_metadata_for_catalog
 
-    # Claude Code 2.1.322 runs every Claude 5 model at 1M, "[1m]" or not (asked of it on a Max and an
-    # Ultra plan, 10 Nov): the name alone read as 200K and blocked a long Opus chat. The size is the
-    # model's own, as Row-Bot keeps it for Claude; an older Claude Code's "[1m]" still means 1M.
-    context = 1_000_000 if model_id.endswith("[1m]") else _maintained_context_limit(
-        CLAUDE_SUBSCRIPTION_PROVIDER_ID, model_id) or 200_000
+    # The size Claude Code last reported running the model with; before any reply, "[1m]", then
+    # models.dev's and Row-Bot's own Claude sizes; else unknown. The name alone read as 200K and
+    # blocked a long Opus chat, though Claude Code 2.1.322 runs every Claude 5 model at 1M (I33).
+    context = (reported_context_windows().get(model_id)
+               or (1_000_000 if model_id.endswith("[1m]") else 0)
+               or _catalog_or_heuristic(CLAUDE_SUBSCRIPTION_PROVIDER_ID, model_id))
     if efforts is None:
         reasoning = reasoning_metadata_for_catalog(CLAUDE_SUBSCRIPTION_PROVIDER_ID, model_id, {})
     elif efforts:

@@ -137,8 +137,8 @@ def test_a_bare_preset_row_is_filled_and_a_described_one_is_believed(catalogue):
     described = {"id": "mistral-small-9", "max_context_length": 32_000,
                  "capabilities": {"function_calling": False, "vision": False, "completion_chat": True}}
     assert row_metadata(PRESETS["mistral"], described) == {"tool_calling": False, "context_window": 32_000}
-    # A model the catalogue doesn't know keeps the old rule.
-    assert row_metadata(PRESETS["cerebras"], {"id": "brand-new"}) == {"context_window": 32_768}
+    # A model nobody knows has an unknown size, never a guessed 32K that would cap it (I33).
+    assert row_metadata(PRESETS["cerebras"], {"id": "brand-new"}) == {"context_window": 0}
 
 
 def test_a_model_the_catalogue_says_reasons_gets_a_thinking_control_in_its_providers_style(catalogue):
@@ -190,3 +190,23 @@ def test_the_thinking_choice_reaches_the_provider_as_its_api_takes_it(catalogue,
                          http_client=_Client(), reasoning_plan=plan).invoke([HumanMessage(content="hi")])
 
     assert sent.items() <= bodies[0].items()
+
+
+def test_every_provider_finds_its_models_context_and_an_unknown_family_stays_unknown(monkeypatch):
+    """I33: models.dev names a model as its provider lists it, so Requesty's "vendor/model" and Claude Code's
+    "[1m]" missed it and fell back to guesses; and a hand-kept "claude" catch-all read a new family as 200K."""
+    from row_bot import models
+    from row_bot.providers import capability_catalog
+
+    rows = {"requesty": {"claude-opus-5-5": {"context": 1_000_000}},
+            "anthropic": {"claude-sonnet-5-5": {"context": 1_000_000}},
+            "xai": {"grok-build-0.1": {"context": 256_000}}}
+    monkeypatch.setattr(capability_catalog, "_catalogue", lambda: rows)
+    monkeypatch.setattr(models, "_context_catalog", {})
+
+    assert models._catalog_or_heuristic("requesty", "anthropic/claude-opus-5-5") == 1_000_000
+    assert models._catalog_or_heuristic("claude_subscription", "claude-sonnet-5-5[1m]") == 1_000_000
+    assert models._catalog_or_heuristic("xai_oauth", "grok-build-0.1") == 256_000
+    # Not in models.dev and no family entry: unknown, not the old catch-alls' 200K or 131K.
+    assert models._catalog_or_heuristic("anthropic", "claude-nova-6") == 0
+    assert models._catalog_or_heuristic("xai", "grok-9") == 0

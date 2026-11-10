@@ -155,11 +155,20 @@ through background updates.
   stays with the turn: Row-Bot still runs every tool through its own approval
   check and hands Claude Code the result, and the conversation is read from
   the cache.
-- **1M context where your plan offers it** - newer Claude Code marks a model it
-  runs with 1M context (Fable 5.1 on Max, for one) differently, and Row-Bot
-  listed it as a 200K model and asked for that. It now reads 1M and asks for
-  it. The models are always the ones your plan's Claude Code lists, and Row-Bot
-  now keeps Claude Code up to date, so newer ones appear.
+- **Your Claude plan's full context** - Row-Bot sized Claude plan models by
+  their names, so with Claude Code 2.1.322 Opus, Sonnet and Haiku 5.5 read as
+  200K although Claude Code runs them at 1M, and a long chat was refused before
+  it reached Claude. Row-Bot now uses the context Claude Code reports with each
+  reply, and Claude's own sizes before the first one. The models are always the
+  ones your plan's Claude Code lists, and Row-Bot now keeps Claude Code up to
+  date, so newer ones appear.
+- **No more chats refused on a guessed size** - where nothing said how much a
+  model reads (Requesty, Atlas Cloud, Ollama Cloud, Grok sign-in, DeepSeek,
+  Z.AI and other providers' newer models), Row-Bot assumed 32K to 200K and could
+  refuse a long chat with a 1M model itself. It now finds each model in
+  models.dev's catalogue (Requesty's and Grok's models included), and when
+  nothing knows a model's size it still tidies long chats but lets the provider
+  decide instead of refusing.
 - **Videos in order** - while Row-Bot makes videos, each step's words, its
   activity and the video it made show in the order they happened, with the
   newest step at the bottom, live and after a reload.

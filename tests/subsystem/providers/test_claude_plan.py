@@ -597,6 +597,27 @@ def test_claude_5_models_read_1m_with_or_without_the_1m_marker(store, tmp_path, 
     assert fake.model_runs()[0]["argv"][8] == "claude-fable-5-1[1m]"
 
 
+def test_a_reply_teaches_row_bot_the_context_claude_code_runs_a_model_with(store, tmp_path, monkeypatch):
+    """I33: Claude Code reports the context window in every reply's result; Row-Bot never read it and sized
+    Claude plan models by name. A model no table knows is unknown until its first reply, then its own size."""
+    from row_bot.providers import model_catalog_cache
+
+    refreshed = []
+    monkeypatch.setattr(model_catalog_cache, "start_model_catalog_refresh_background",
+                        lambda **kwargs: refreshed.append(kwargs) or True)
+    install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)",
+                        reply=text_reply("ok", model="claude-nova-6", context_window=2_000_000))
+    assert claude.claude_plan_model_info("claude-nova-6[1m]").context_window == 1_000_000
+    assert claude.claude_plan_model_info("claude-nova-6").context_window == 0  # unknown, never a guessed 200K
+
+    _model(model_name="claude-nova-6").invoke([HumanMessage(content="Hi")])
+
+    assert claude.claude_plan_model_info("claude-nova-6").context_window == 2_000_000
+    assert [call["provider_id"] for call in refreshed] == ["claude_subscription"]
+    _model(model_name="claude-nova-6").invoke([HumanMessage(content="Again")])
+    assert len(refreshed) == 1  # the same size again changes nothing
+
+
 def test_a_chat_saved_on_an_older_claude_model_keeps_its_choice(store, tmp_path, monkeypatch):
     fake = install_fake_claude(tmp_path, monkeypatch)
 

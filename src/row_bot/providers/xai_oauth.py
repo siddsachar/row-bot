@@ -1821,10 +1821,10 @@ def _xai_context_window(model_id: str, metadata: dict[str, Any]) -> int:
             value = 0
         if value > 0:
             return value
-    lower = model_id.lower()
-    if lower.startswith("grok-4"):
-        return 2_000_000
-    return 131_072
+    # models.dev, then Row-Bot's table; unknown rather than a guess that caps the model (I33).
+    from row_bot.models import _catalog_or_heuristic
+
+    return _catalog_or_heuristic("xai_oauth", model_id)
 
 
 def _is_xai_media_model_id(model_id: str) -> bool:

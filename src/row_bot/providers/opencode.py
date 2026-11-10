@@ -172,7 +172,6 @@ _CONTEXT_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("gpt-5.2", 400_000),
     ("gpt-5.1", 400_000),
     ("gpt-5", 400_000),
-    ("claude-", 200_000),
     ("minimax-", 204_800),
     ("gemini-", 1_048_576),
 )
@@ -449,9 +448,10 @@ def _context_window(model_id: str, transport: TransportMode) -> int:
     for prefix, context_window in _CONTEXT_BY_PREFIX:
         if lower.startswith(prefix):
             return context_window
-    if transport == TransportMode.OPENAI_RESPONSES:
-        return 400_000
-    return 131_072
+    # Claude by its family (1M for Claude 5); anything else unknown rather than a guess (I33).
+    from row_bot.models import _maintained_context_limit
+
+    return _maintained_context_limit("anthropic", lower) if lower.startswith("claude-") else 0
 
 
 def _unsupported_route(provider_id: str, model_id: str, reason: str, *, transport: TransportMode = TransportMode.OPENAI_CHAT) -> OpenCodeModelRoute:
