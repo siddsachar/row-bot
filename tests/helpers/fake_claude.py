@@ -21,7 +21,8 @@ its answer and every frame it was sent, as it goes, so a stopped run's record is
 ``auth login`` is Claude's sign-in as the panel shows it: it prints ``login_marker`` (a stand-in for what must
 never reach Row-Bot's logs or stores) with a link and Claude's paste prompt, reads one line, and when it is
 ``login_code`` writes ``~/.claude/.credentials.json`` (as Claude Code does on Linux and Windows) and is signed
-in from then on; any other code prints Claude's own refusal and asks again.
+in from then on; any other code prints Claude's own refusal and asks again. ``auth logout`` deletes that file and
+is signed out from then on (until the next sign-in), or fails with ``logout_exit``.
 """
 
 from __future__ import annotations
@@ -54,13 +55,28 @@ if args == ["--version"]:
     print(config["version"])
     sys.exit(0)
 signed_in = os.path.join(os.path.dirname(config["log"]), "signed-in")
+signed_out = os.path.join(os.path.dirname(config["log"]), "signed-out")
+credentials_file = os.path.join(os.path.expanduser("~"), ".claude", ".credentials.json")
 if args[:2] == ["auth", "status"]:
     if os.path.exists(signed_in):
         print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
                           "subscriptionType": "max"}, indent=2))
         sys.exit(0)
+    if os.path.exists(signed_out):
+        print(json.dumps({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"}, indent=2))
+        sys.exit(1)
     print(json.dumps(config["auth"], indent=2))
     sys.exit(config["auth_exit"])
+if args == ["auth", "logout"]:
+    if config["logout_exit"]:
+        sys.stderr.write("Failed to logout.\n")
+        sys.exit(config["logout_exit"])
+    for name in (signed_in, credentials_file):
+        if os.path.exists(name):
+            os.remove(name)
+    open(signed_out, "w").close()
+    print("Successfully logged out from your Anthropic account.")
+    sys.exit(0)
 if args == ["auth", "login"]:
     marker = config.get("login_marker", "")
     sys.stdout.write("Welcome to Claude Code " + marker + "\r\n")
@@ -78,10 +94,11 @@ if args == ["auth", "login"]:
             break
         sys.stdout.write("\r\nOAuth error: Invalid code\r\n\r\n")
         sys.stdout.flush()
-    folder = os.path.join(os.path.expanduser("~"), ".claude")
-    os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, ".credentials.json"), "w", encoding="utf-8") as credentials:
+    os.makedirs(os.path.dirname(credentials_file), exist_ok=True)
+    with open(credentials_file, "w", encoding="utf-8") as credentials:
         credentials.write(json.dumps({"claudeAiOauth": {"accessToken": marker}}))
+    if os.path.exists(signed_out):
+        os.remove(signed_out)
     open(signed_in, "w").close()
     sys.stdout.write("\r\nLogin successful.\r\n")
     sys.stdout.flush()
@@ -209,6 +226,7 @@ def write_fake_claude_program(
     models: list[dict[str, Any]] | None = None,
     login_code: str = "",
     login_marker: str = "",
+    logout_exit: int = 0,
 ) -> tuple[Path, Path]:
     """The fake's script and its config in ``folder`` (its runs log beside them); returns both paths."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -220,7 +238,7 @@ def write_fake_claude_program(
                                                "apiProvider": "firstParty", "subscriptionType": "max"},
         "reply": reply if reply is not None else text_reply("Hello from Claude."),
         "models": models if models is not None else MODELS,
-        "login_code": login_code, "login_marker": login_marker,
+        "login_code": login_code, "login_marker": login_marker, "logout_exit": logout_exit,
     }), encoding="utf-8")
     script = folder / "fake_claude.py"
     script.write_text(_SCRIPT, encoding="utf-8")
@@ -241,6 +259,7 @@ def install_fake_claude(
     models: list[dict[str, Any]] | None = None,
     login_code: str = "",
     login_marker: str = "",
+    logout_exit: int = 0,
 ) -> FakeClaude:
     bin_dir = tmp_path / "fake-claude-bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -258,7 +277,8 @@ def install_fake_claude(
         return FakeClaude(bin_dir, log)
     script, config = write_fake_claude_program(
         bin_dir, version=version, auth=auth, auth_exit=auth_exit, reply=reply, replies=replies,
-        refuse_tools=refuse_tools, models=models, login_code=login_code, login_marker=login_marker)
+        refuse_tools=refuse_tools, models=models, login_code=login_code, login_marker=login_marker,
+        logout_exit=logout_exit)
     if os.name == "nt":
         (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" "{script}" "{config}" %*\r\n', encoding="utf-8")
     else:

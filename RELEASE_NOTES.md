@@ -2,6 +2,20 @@
 
 ---
 
+## Unreleased - v5.3.4
+
+### Claude (Your Claude Plan)
+
+- **Use another Claude account** - when your Claude plan is connected, the
+  two-arrows button in its sheet switches Row-Bot to another Claude account. It
+  asks first, because Claude Code keeps one sign-in on your computer: this signs
+  it out everywhere there, `claude` in a terminal included. Claude Code signs
+  itself out with its own command, Claude's own sign-in opens for the other
+  account, and the model picker then shows that account's models. Row-Bot never
+  sees either sign-in.
+
+---
+
 ## v5.3.3 - Row-Bot In Your Browser, Every Model In One Place
 
 Row-Bot 5.3.3 runs in your browser, in your own Railway account, with nothing to

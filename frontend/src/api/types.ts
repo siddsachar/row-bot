@@ -730,10 +730,14 @@ export interface ClientTransport {
     update: boolean,
     signal?: AbortSignal,
   ): Promise<Wire.ClaudeCodeInstallState>;
-  /** Claude's own sign-in (H15): `claude auth login` in a small terminal. */
+  /**
+   * Claude's own sign-in (H15): `claude auth login` in a small terminal.
+   * `switchAccount` signs Claude Code out first (`claude auth logout`).
+   */
   openClaudeSignIn?(
     cols: number,
     rows: number,
+    switchAccount: boolean,
     signal?: AbortSignal,
   ): Promise<Wire.ClaudeSignInView>;
   readClaudeSignIn?(

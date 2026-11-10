@@ -421,6 +421,35 @@ def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypat
     assert touched == []
 
 
+def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_files(
+        store, tmp_path, monkeypatch, opened_files):
+    home = tmp_path / "fake-claude-home"
+    fake = install_fake_claude(tmp_path, monkeypatch)
+    credentials = home / ".claude" / ".credentials.json"
+    credentials.parent.mkdir(parents=True)
+    credentials.write_text('{"claudeAiOauth": {"accessToken": "never-read"}}', encoding="utf-8")
+    assert claude.claude_plan_status().ready
+    opened_files.clear()
+
+    assert claude.sign_out_claude_code() is True
+
+    assert [run["argv"] for run in fake.runs()][-1] == ["auth", "logout"]
+    # The answer Row-Bot had is forgotten: the next look asks Claude Code again.
+    assert claude.claude_plan_status().state == "signed_out"
+    assert not credentials.exists()  # Claude Code's own doing
+    assert [path for path in opened_files if os.sep + ".claude" + os.sep in path] == []
+
+
+def test_a_sign_out_claude_code_refuses_says_so(store, tmp_path, monkeypatch):
+    install_fake_claude(tmp_path, monkeypatch, logout_exit=1)
+    assert claude.sign_out_claude_code() is False
+    assert claude.claude_plan_status().ready
+    install_fake_claude(tmp_path, monkeypatch, installed=False)
+    (tmp_path / "fake-claude-bin" / "claude.cmd").unlink(missing_ok=True)
+    (tmp_path / "fake-claude-bin" / "claude").unlink(missing_ok=True)
+    assert claude.sign_out_claude_code() is False
+
+
 def test_inherited_keys_endpoints_and_other_clouds_never_reach_claude_code(store, tmp_path, monkeypatch):
     fake = install_fake_claude(tmp_path, monkeypatch, reply=text_reply("ok"))
     for name, value in {

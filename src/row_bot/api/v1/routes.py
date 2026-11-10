@@ -746,6 +746,7 @@ _STATUS.update(
             "claude_code_installing",
             "claude_sign_in_ended",
             "claude_sign_in_unavailable",
+            "claude_sign_out_failed",
         ),
         409,
     )
@@ -7165,13 +7166,18 @@ def create_router(
             return ProtocolError("claude_sign_in_ended", 409)
         if code in {"claude_code_missing", "claude_code_installing"}:
             return ProtocolError(code, 409)
+        if code == "sign_out_failed":
+            return ProtocolError("claude_sign_out_failed", 409)
         if isinstance(exc, ValueError):
             return ProtocolError("invalid_command", 422)
         return ProtocolError("claude_sign_in_unavailable", 409)
 
     @router.post("/settings/providers/claude-plan/sign-in")
     async def claude_sign_in_open(request: Request) -> JSONResponse:
-        """Start Claude's own sign-in: ``claude auth login`` and nothing else, for this device session."""
+        """Start Claude's own sign-in: ``claude auth login`` and nothing else, for this device session.
+
+        ``switch_account``: Claude Code's own ``claude auth logout`` first, to sign in to another account.
+        """
         current = await session(request, lane="mutation")
         context = await _context(request)
         body = await _body(request, dto.ClaudeSignInOpenRequest, 1024)
@@ -7186,6 +7192,7 @@ def create_router(
                 cols=body.cols,
                 rows=body.rows,
                 busy=claude_code_installer().running,
+                switch_account=body.switch_account,
             )
         except (OSError, RuntimeError, ValueError) as exc:
             if not getattr(exc, "code", ""):

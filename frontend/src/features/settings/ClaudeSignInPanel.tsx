@@ -36,8 +36,11 @@ export type SignInEnd = {
  */
 export default function ClaudeSignInPanel({
   onEnd,
+  switchAccount = false,
 }: {
   onEnd: (end: SignInEnd) => void;
+  /** Use another Claude account: Claude Code signs out first (`claude auth logout`). */
+  switchAccount?: boolean;
 }) {
   const { controller, platform } = useRuntime();
   const [browserOpens, setBrowserOpens] = useState<boolean | null>(null);
@@ -50,7 +53,11 @@ export default function ClaudeSignInPanel({
   const session = useMemo(() => {
     const link: TerminalLink = {
       open: async (_conversation, cols, rows) => {
-        const view = await controller.openClaudeSignIn(cols, rows);
+        const view = await controller.openClaudeSignIn(
+          cols,
+          rows,
+          switchAccount,
+        );
         setBrowserOpens(view.browser_opens);
         return { status: 'ok', lease: view.sign_in_id };
       },
@@ -84,7 +91,7 @@ export default function ClaudeSignInPanel({
       textLinks: true,
     };
     return new TerminalSession(link);
-  }, [controller, platform]);
+  }, [controller, platform, switchAccount]);
   const state = useSyncExternalStore(session.subscribe, session.snapshot);
 
   function finish(end: SignInEnd) {

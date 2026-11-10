@@ -466,6 +466,78 @@ it('ready: Claude plan connected, with Done and Update Claude Code', async () =>
   expect(onDone).toHaveBeenCalledOnce();
 });
 
+it('use another Claude account: says it signs Claude Code out here, then opens Claude’s sign-in for the other account', async () => {
+  const connected = plan({ state: 'ready', plan: 'Claude Max' });
+  const { onCheck, rerender } = await show(connected);
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Use another Claude account' }),
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'This signs Claude Code out on this computer, including claude in a terminal, because Claude Code keeps one sign-in here.',
+  );
+  // Nothing happens until the person says so; Cancel goes back.
+  expect(controller.openClaudeSignIn).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByText('Claude plan connected')).toBeVisible();
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Use another Claude account' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out and switch' }));
+  await settle(50);
+  expect(controller.openClaudeSignIn).toHaveBeenCalledOnce();
+  expect(controller.openClaudeSignIn).toHaveBeenCalledWith(
+    expect.any(Number),
+    expect.any(Number),
+    true,
+  );
+  expect(screen.getByText(SIGN_IN_GUIDE)).toBeVisible();
+
+  controller.readClaudeSignIn.mockImplementation(async (_id, cursor) =>
+    output(cursor, '', {
+      status: 'ended',
+      ended: 'exited',
+      plan: plan({ state: 'ready', plan: 'Claude Ultra' }),
+    }),
+  );
+  await settle(300);
+  expect(screen.getByText('Claude plan connected')).toBeVisible();
+  expect(onCheck).toHaveBeenCalled();
+  await rerender(plan({ state: 'ready', plan: 'Claude Ultra' }));
+  expect(screen.getByText(/Claude Ultra/)).toBeVisible();
+});
+
+it('use another Claude account: a plain sign-in never signs Claude Code out', async () => {
+  await show(plan());
+  fireEvent.click(screen.getByRole('button', { name: 'Use my Claude plan' }));
+  await settle(50);
+  expect(controller.openClaudeSignIn).toHaveBeenCalledWith(
+    expect.any(Number),
+    expect.any(Number),
+    false,
+  );
+});
+
+it('use another Claude account: when Claude Code does not sign out, it says so and stays connected', async () => {
+  controller.openClaudeSignIn.mockRejectedValue({
+    code: 'claude_sign_out_failed',
+    status: 409,
+  });
+  const { onCheck } = await show(plan({ state: 'ready', plan: 'Claude Max' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Use another Claude account' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out and switch' }));
+  await settle(50);
+
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Claude Code didn’t sign out, so it’s still on the same Claude account. Try again.',
+  );
+  expect(screen.getByText('Claude plan connected')).toBeVisible();
+  expect(onCheck).toHaveBeenCalled();
+});
+
 it('could not check: Check again, or update Claude Code; never a terminal', async () => {
   const { onCheck } = await show(
     plan({

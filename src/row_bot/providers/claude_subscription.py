@@ -244,6 +244,30 @@ def forget_claude_plan_status() -> None:
         _status_cache = None
 
 
+def sign_out_claude_code() -> bool:
+    """Claude Code's own ``auth logout``, so the person can sign in to another Claude account.
+
+    Claude Code keeps one sign-in for the person's account on this computer, so this signs out ``claude`` in
+    a terminal too. Row-Bot runs the command and reads only its exit code; it never opens Claude Code's files
+    or keychain entries. True when Claude Code says it signed out.
+    """
+    program = find_claude_code()
+    if not program:
+        return False
+    try:
+        answer = _run(program, "auth", "logout")
+    except (OSError, subprocess.SubprocessError):
+        logger.info("Claude Code didn't start to sign out", exc_info=True)
+        return False
+    finally:
+        forget_claude_plan_status()
+    if answer.returncode != 0:
+        logger.info("Claude Code didn't sign out (exit code %s)", answer.returncode)
+        return False
+    logger.info("Claude Code signed out to switch accounts")
+    return True
+
+
 #: Where the person fixes anything about Claude: the words of Settings › Models.
 CLAUDE_PLAN_SETTINGS = "Settings › Models › Claude (your Claude plan)"
 SIGNED_OUT_MESSAGE = "Claude signed you out. Sign in again to keep using your plan."

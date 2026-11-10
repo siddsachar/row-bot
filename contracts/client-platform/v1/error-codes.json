@@ -92,6 +92,7 @@
     "claude_code_present": 409,
     "claude_sign_in_ended": 409,
     "claude_sign_in_unavailable": 409,
+    "claude_sign_out_failed": 409,
     "clean_git_root_required": 409,
     "clone_blocked": 403,
     "clone_confirmation_required": 409,
