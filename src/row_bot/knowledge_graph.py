@@ -50,6 +50,7 @@ import threading
 import networkx as nx
 import numpy as np
 
+from row_bot import stale_skills
 from row_bot.data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
@@ -2400,6 +2401,7 @@ def save_entity(
 
     # Wiki vault export (non-blocking, fire-and-forget)
     _wiki_export_entity(entity)
+    stale_skills.entity_written(None, entity)
 
     return entity
 
@@ -2458,6 +2460,7 @@ def update_entity(
         params.append(source.strip())
 
     params.append(entity_id)
+    before = get_entity(entity_id) if stale_skills.enabled() else None
     revision_clause = ""
     if expected_updated_at is not None:
         revision_clause = " AND updated_at = ?"
@@ -2494,6 +2497,7 @@ def update_entity(
             _upsert_index(entity_id)
         # Wiki vault export (non-blocking)
         _wiki_export_entity(entity)
+        stale_skills.entity_written(before, entity)
         return entity
     return None
 
@@ -2533,6 +2537,8 @@ def update_entity_properties_pair(first: tuple[dict, dict], second: tuple[dict, 
     for entity in rows:
         _upsert_fts_entity(entity)
         _wiki_export_entity(entity)
+    for (expected, _props), entity in zip(pairs, rows):
+        stale_skills.entity_written(expected, entity)
     return rows
 
 
@@ -2586,6 +2592,7 @@ def delete_entity(entity_id: str) -> bool:
         if entity_data:
             _learning_memories_deleted([entity_data])
             _wiki_delete_entity(entity_data)
+            stale_skills.entity_deleted(entity_data)
     return deleted
 
 
@@ -3148,6 +3155,7 @@ def add_relation(
         ent = get_entity(eid)
         if ent:
             _wiki_export_entity(ent)
+    stale_skills.relation_added(rel)
 
     return rel
 
@@ -3237,6 +3245,7 @@ def delete_relation(relation_id: str, *, expected_relation: dict | None = None,
         ent = get_entity(eid)
         if ent:
             _wiki_export_entity(ent)
+    stale_skills.relation_deleted(row)
 
     return True
 
@@ -3745,11 +3754,14 @@ def retrieve_memory_candidates(
     max_results: int = 20,
     include_keyword: bool = True,
     diagnostics: dict[str, object] | None = None,
+    as_of: datetime | None = None,
 ) -> list[dict]:
     """Retrieve recall candidates without mutating ``recalled_at``.
 
     This is the safe path for auto-recall policy: candidates can be inspected,
     validated, and rejected without reinforcing memories the model never sees.
+    ``as_of`` (stale skills, while that setting is on): what the memories said
+    at that time, leaving out those that didn't exist yet.
     """
     query = (query or "").strip()
     if not query:
@@ -3853,7 +3865,7 @@ def retrieve_memory_candidates(
     _expand_graph_recall_candidates(result_by_id, expansion_seeds, hops=hops, stamps=stamps)
 
     result = sorted(result_by_id.values(), key=lambda m: m.get("score", 0), reverse=True)
-    return result[:max_results]
+    return stale_skills.recall_as_of(result, as_of)[:max_results]
 
 def graph_enhanced_recall(
     query: str,

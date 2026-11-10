@@ -1,0 +1,337 @@
+{
+ "format": "row_bot.learning.stale_skills_phrasings",
+ "model": "main",
+ "note": "The person's wording for the stale-skills world, written once by a phrasing model (tests/e2e/learning/stale_skills/phrasing.py). Made-up people; no fact comes from here.",
+ "person": "wren",
+ "slots": {
+  "short/asset_budget/0": {
+   "template": "Send finance the asset-store budget request for the week of {date}.",
+   "variants": [
+    "Forward the asset-store budget request to finance for the week of {date}.",
+    "Send the week-of-{date} asset-store budget request to finance.",
+    "Submit the asset-store budget request for the week of {date} to finance."
+   ]
+  },
+  "short/asset_budget/1": {
+   "template": "Can you ask finance for this week's asset budget? Week of {date}.",
+   "variants": [
+    "Ask finance for the asset budget. Week of {date}.",
+    "Get this week's asset budget from finance. Week of {date}.",
+    "Ping finance for this week's asset budget. Week of {date}."
+   ]
+  },
+  "short/audio_request/0": {
+   "template": "Send {alias} our request for {n} new sound effects.",
+   "variants": [
+    "Forward our request for {n} new sound effects to {alias}.",
+    "Get our request for {n} new sound effects over to {alias}.",
+    "Message {alias} with our request for {n} new sound effects.",
+    "Send {alias} the request for {n} new sound effects."
+   ]
+  },
+  "short/audio_request/1": {
+   "template": "Ask {alias} for {n} new sound effects.",
+   "variants": [
+    "Have {alias} provide {n} new sound effects.",
+    "Ping {alias} for {n} new sound effects.",
+    "Request {n} new sound effects from {alias}."
+   ]
+  },
+  "short/build_credits/0": {
+   "template": "Top up {n} build hours with the build-server supplier.",
+   "variants": [
+    "Add {n} build hours through the build-server supplier.",
+    "Buy {n} more build hours from the build-server supplier.",
+    "Request a {n}-hour build-time top-up from the build-server supplier."
+   ]
+  },
+  "short/build_credits/1": {
+   "template": "We need {n} more build hours - order them please.",
+   "variants": [
+    "Build hours: need {n} more. Order them, please.",
+    "Need {n} additional build hours. Please order.",
+    "Order {n} more build hours, please.",
+    "Please order another {n} build hours."
+   ]
+  },
+  "short/build_freeze/0": {
+   "template": "Book the build freeze window for {date} in the calendar.",
+   "variants": [
+    "Add the build freeze window to the calendar for {date}.",
+    "Block out the build freeze window on the calendar for {date}.",
+    "Calendar: book the build freeze window for {date}.",
+    "Schedule the build freeze window for {date} on the calendar."
+   ]
+  },
+  "short/build_freeze/1": {
+   "template": "Build freeze on {date} - put it in the calendar.",
+   "variants": [
+    "Add build freeze to the calendar for {date}.",
+    "Calendar: build freeze on {date}.",
+    "Put build freeze on {date} in the calendar.",
+    "Schedule build freeze for {date} on the calendar."
+   ]
+  },
+  "short/build_health/0": {
+   "template": "Send the build pipeline owner this week's build-health report: {n} failed builds.",
+   "variants": [
+    "Build-health report for this week: {n} failed builds. Send to the build pipeline owner.",
+    "Forward this week's build-health report to the build pipeline owner: {n} failed builds.",
+    "Notify the build pipeline owner with this week's build-health report: {n} failed builds."
+   ]
+  },
+  "short/build_health/1": {
+   "template": "Build-health report to the pipeline owner - {n} failed builds.",
+   "variants": [
+    "Build-health report for the pipeline owner — {n} failed builds.",
+    "Pipeline owner needs the build-health report: {n} failed builds.",
+    "Report build health to the pipeline owner: {n} failed builds.",
+    "Send the pipeline owner a build-health report: {n} failed builds."
+   ]
+  },
+  "short/build_notice/0": {
+   "template": "Tell {alias} that build {n} is uploaded.",
+   "variants": [
+    "Message {alias}: build {n} is uploaded.",
+    "Notify {alias} that build {n} is uploaded.",
+    "Tell {alias}: build {n} is uploaded."
+   ]
+  },
+  "short/build_notice/1": {
+   "template": "Build {n} is up - let {alias} know please.",
+   "variants": [
+    "Build {n} is up — ping {alias}, please.",
+    "Build {n} is up. Notify {alias}.",
+    "Let {alias} know build {n} is up.",
+    "Notify {alias}: build {n} is up."
+   ]
+  },
+  "short/device_rental/0": {
+   "template": "Rent {n} test phones for next week's playtest.",
+   "variants": [
+    "Arrange rental of {n} test phones for next week's playtest.",
+    "Book {n} rental test phones for next week's playtest.",
+    "Get {n} test phones on rental for next week's playtest."
+   ]
+  },
+  "short/device_rental/1": {
+   "template": "Book {n} test phones for the playtest please.",
+   "variants": [
+    "Book {n} test phones for the playtest.",
+    "Please book {n} test phones for the playtest.",
+    "Reserve {n} test phones for the playtest.",
+    "Set aside {n} test phones for the playtest."
+   ]
+  },
+  "short/freeze_reminder/0": {
+   "template": "Email the team the release reminder about the level freeze.",
+   "variants": [
+    "Email the team the level-freeze release reminder.",
+    "Mail the team a release reminder about the level freeze.",
+    "Send the release reminder re: level freeze to the team.",
+    "Send the team the release reminder covering the level freeze."
+   ]
+  },
+  "short/freeze_reminder/1": {
+   "template": "Send the team the level-freeze reminder for this release.",
+   "variants": [
+    "Post the level-freeze reminder to the team for this release.",
+    "Remind the team about level freeze for this release.",
+    "Send the team this release's level-freeze reminder.",
+    "Send this release's level-freeze reminder to the team."
+   ]
+  },
+  "short/playtest_reminder/0": {
+   "template": "Email the testers the playtest reminder with the minimum length.",
+   "variants": [
+    "Email testers the shortest possible playtest reminder.",
+    "Email the playtest reminder to testers. Keep it minimal.",
+    "Send testers a playtest reminder; minimum length.",
+    "Send the minimum-length playtest reminder email to testers."
+   ]
+  },
+  "short/playtest_reminder/1": {
+   "template": "Send the testers the playtest reminder please.",
+   "variants": [
+    "Please get the playtest reminder sent to the testers.",
+    "Please send testers the playtest reminder.",
+    "Send out the playtest reminder to testers, please.",
+    "Send the playtest reminder to the testers."
+   ]
+  },
+  "short/rating_update/0": {
+   "template": "Send {alias} the content update for patch {n}.",
+   "variants": [
+    "Forward {alias} the content update for patch {n}.",
+    "Get the content update for patch {n} sent to {alias}.",
+    "Send the patch {n} content update to {alias}.",
+    "Send {alias} the content-update details for patch {n}."
+   ]
+  },
+  "short/rating_update/1": {
+   "template": "Content update for patch {n} to {alias} please.",
+   "variants": [
+    "Apply the patch {n} content update to {alias}.",
+    "Push the content update for patch {n} to {alias}, please.",
+    "Update {alias} with the content for patch {n}, please.",
+    "{alias}: update content for patch {n}."
+   ]
+  },
+  "short/review_reminder/0": {
+   "template": "Email the team this week's code-review reminder.",
+   "variants": [
+    "Email this week's code-review reminder to the team.",
+    "Send this week's code-review reminder to the team by email.",
+    "Team email: this week's code-review reminder."
+   ]
+  },
+  "short/review_reminder/1": {
+   "template": "Send the team the review-rule reminder please.",
+   "variants": [
+    "Please send the review-rule reminder to the team.",
+    "Post the review-rule reminder to the team, please.",
+    "Remind the team of the review rule.",
+    "Send the team a reminder about the review rule."
+   ]
+  },
+  "short/snacks_allowance/0": {
+   "template": "Ask the office for the playtest snacks allowance for the week of {date}.",
+   "variants": [
+    "Get the playtest snacks allowance from the office for the week of {date}.",
+    "Ping the office for the week of {date}'s playtest snacks allowance."
+   ]
+  },
+  "short/snacks_allowance/1": {
+   "template": "Snacks allowance for the playtest please, week of {date}.",
+   "variants": [
+    "Need the snacks allowance for playtest week of {date}.",
+    "Playtest snack allowance, week of {date}, please.",
+    "Please sort the playtest snacks allowance for the week of {date}.",
+    "Snacks allowance please — playtest, week of {date}."
+   ]
+  },
+  "short/sprint_summary/0": {
+   "template": "Send the producer the sprint summary: {n} tickets closed.",
+   "variants": [
+    "Forward the sprint summary to the producer: {n} tickets closed.",
+    "Message the producer with the sprint summary: {n} tickets closed.",
+    "Send sprint summary to producer — {n} tickets closed."
+   ]
+  },
+  "short/sprint_summary/1": {
+   "template": "Sprint summary to the producer please - {n} tickets closed.",
+   "variants": [
+    "Producer sprint summary please — {n} tickets closed.",
+    "Summarize the sprint for the producer. {n} tickets closed."
+   ]
+  },
+  "short/tools_demo/0": {
+   "template": "Put the tools demo on {date} in the studio calendar.",
+   "variants": [
+    "Add the tools demo to the studio calendar on {date}.",
+    "Create a studio calendar entry for the tools demo on {date}.",
+    "Schedule the tools demo for {date} in the studio calendar.",
+    "Studio calendar: tools demo on {date}."
+   ]
+  },
+  "short/tools_demo/1": {
+   "template": "Add {date}'s tools demo to the calendar please.",
+   "variants": [
+    "Add the tools demo on {date} to the calendar.",
+    "Calendar: add {date}'s tools demo.",
+    "Put the tools demo for {date} on the calendar.",
+    "Schedule {date}'s tools demo on the calendar."
+   ]
+  },
+  "short/translation_order/0": {
+   "template": "Send the translators {n} new strings.",
+   "variants": [
+    "Forward {n} new strings to the translators.",
+    "Get {n} new strings over to the translators.",
+    "Pass {n} new strings to the translators.",
+    "Send {n} new strings to the translators."
+   ]
+  },
+  "short/translation_order/1": {
+   "template": "{n} new strings for the translators please.",
+   "variants": [
+    "Please pass {n} new strings to the translators.",
+    "Prep {n} new strings for the translators.",
+    "Queue {n} new strings for translation, please.",
+    "Send {n} new strings to the translators."
+   ]
+  },
+  "short/walkthrough/0": {
+   "template": "{who} is starting - add their tools walkthrough on {date} to the calendar.",
+   "variants": [
+    "Add {who}'s tools walkthrough to the calendar on {date}; they're starting.",
+    "Calendar: {who}'s tools walkthrough on {date}. They're starting.",
+    "{who} is starting — schedule their tools walkthrough on {date}.",
+    "{who} is starting; calendar their tools walkthrough for {date}."
+   ]
+  },
+  "short/walkthrough/1": {
+   "template": "Can you put {who}'s tools walkthrough in the calendar for {date}?",
+   "variants": [
+    "Add {who}'s tools walkthrough to the calendar for {date}.",
+    "Calendar {who}'s tools walkthrough for {date}.",
+    "Put {who}'s tools walkthrough on the calendar for {date}.",
+    "Schedule {who}'s tools walkthrough on the calendar for {date}."
+   ]
+  },
+  "tell/address": {
+   "template": "Heads up: {party} have a new address - from today use {new}. The old one ({old}) isn't checked any more.",
+   "variants": [
+    "Address change for {party}: {new} from today. The old address ({old}) is no longer monitored.",
+    "From today, use {new} for {party}. Old address {old} is no longer monitored.",
+    "{party} address updated: use {new} from today. {old} is no longer checked.",
+    "{party}: new address is {new}, effective today. Stop using {old}; it's no longer checked."
+   ]
+  },
+  "tell/amount": {
+   "template": "Finance have changed {fact}: it's {new} from this week (it was {old}).",
+   "variants": [
+    "Finance changed {fact}: {new} from this week, previously {old}.",
+    "Finance update: {fact} is {new} from this week (was {old}).",
+    "{fact} changed by Finance: {old} → {new}, effective this week.",
+    "{fact}: Finance updated it to {new} from this week; was {old}."
+   ]
+  },
+  "tell/hours": {
+   "template": "From now on {fact} are {new} instead of {old}.",
+   "variants": [
+    "From now on, treat {fact} as {new}, not {old}.",
+    "Going forward, {fact} are {new}, not {old}.",
+    "Update: {fact} are now {new} instead of {old}.",
+    "Use {new} instead of {old} for {fact} from now on."
+   ]
+  },
+  "tell/policy": {
+   "template": "{policy_by} changed {fact}: it's now {new} (it was {old}). The policy document is updated.",
+   "variants": [
+    "Policy document updated: {policy_by} changed {fact} to {new} (previously {old}).",
+    "{fact} is now {new}, was {old}; changed by {policy_by}. Policy document updated.",
+    "{policy_by} changed {fact} from {old} to {new}. The policy document is updated.",
+    "{policy_by} updated {fact}: {old} -> {new}. Policy document updated."
+   ]
+  },
+  "tell/role": {
+   "template": "{new_name} has taken over as {party} from {old_name} - their email is {new_email}.",
+   "variants": [
+    "{new_name} is now {party}, taking over from {old_name}. Email: {new_email}.",
+    "{new_name} replaced {old_name} as {party}; email: {new_email}.",
+    "{party}: {old_name} → {new_name}; email: {new_email}."
+   ]
+  },
+  "tell/supplier": {
+   "template": "We've switched {party}: from today it's {new_name}, not {old_name}. Orders go to {new_email}.",
+   "variants": [
+    "From today, {party} is {new_name}, not {old_name}. Route orders to {new_email}.",
+    "Switch for {party}: {new_name} replaces {old_name} from today. Send orders to {new_email}.",
+    "{party} updated today: now {new_name}, no longer {old_name}. Order destination: {new_email}.",
+    "{party}: effective today, use {new_name}, not {old_name}. Orders go to {new_email}."
+   ]
+  }
+ },
+ "version": 1
+}
